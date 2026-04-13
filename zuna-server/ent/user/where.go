@@ -71,12 +71,12 @@ func Username(v string) predicate.User {
 }
 
 // IdentityKey applies equality check predicate on the "identity_key" field. It's identical to IdentityKeyEQ.
-func IdentityKey(v string) predicate.User {
+func IdentityKey(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldIdentityKey, v))
 }
 
 // SigningKey applies equality check predicate on the "signing_key" field. It's identical to SigningKeyEQ.
-func SigningKey(v string) predicate.User {
+func SigningKey(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldSigningKey, v))
 }
 
@@ -166,133 +166,83 @@ func UsernameContainsFold(v string) predicate.User {
 }
 
 // IdentityKeyEQ applies the EQ predicate on the "identity_key" field.
-func IdentityKeyEQ(v string) predicate.User {
+func IdentityKeyEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldIdentityKey, v))
 }
 
 // IdentityKeyNEQ applies the NEQ predicate on the "identity_key" field.
-func IdentityKeyNEQ(v string) predicate.User {
+func IdentityKeyNEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldIdentityKey, v))
 }
 
 // IdentityKeyIn applies the In predicate on the "identity_key" field.
-func IdentityKeyIn(vs ...string) predicate.User {
+func IdentityKeyIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldIn(FieldIdentityKey, vs...))
 }
 
 // IdentityKeyNotIn applies the NotIn predicate on the "identity_key" field.
-func IdentityKeyNotIn(vs ...string) predicate.User {
+func IdentityKeyNotIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldNotIn(FieldIdentityKey, vs...))
 }
 
 // IdentityKeyGT applies the GT predicate on the "identity_key" field.
-func IdentityKeyGT(v string) predicate.User {
+func IdentityKeyGT(v []byte) predicate.User {
 	return predicate.User(sql.FieldGT(FieldIdentityKey, v))
 }
 
 // IdentityKeyGTE applies the GTE predicate on the "identity_key" field.
-func IdentityKeyGTE(v string) predicate.User {
+func IdentityKeyGTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldGTE(FieldIdentityKey, v))
 }
 
 // IdentityKeyLT applies the LT predicate on the "identity_key" field.
-func IdentityKeyLT(v string) predicate.User {
+func IdentityKeyLT(v []byte) predicate.User {
 	return predicate.User(sql.FieldLT(FieldIdentityKey, v))
 }
 
 // IdentityKeyLTE applies the LTE predicate on the "identity_key" field.
-func IdentityKeyLTE(v string) predicate.User {
+func IdentityKeyLTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldIdentityKey, v))
 }
 
-// IdentityKeyContains applies the Contains predicate on the "identity_key" field.
-func IdentityKeyContains(v string) predicate.User {
-	return predicate.User(sql.FieldContains(FieldIdentityKey, v))
-}
-
-// IdentityKeyHasPrefix applies the HasPrefix predicate on the "identity_key" field.
-func IdentityKeyHasPrefix(v string) predicate.User {
-	return predicate.User(sql.FieldHasPrefix(FieldIdentityKey, v))
-}
-
-// IdentityKeyHasSuffix applies the HasSuffix predicate on the "identity_key" field.
-func IdentityKeyHasSuffix(v string) predicate.User {
-	return predicate.User(sql.FieldHasSuffix(FieldIdentityKey, v))
-}
-
-// IdentityKeyEqualFold applies the EqualFold predicate on the "identity_key" field.
-func IdentityKeyEqualFold(v string) predicate.User {
-	return predicate.User(sql.FieldEqualFold(FieldIdentityKey, v))
-}
-
-// IdentityKeyContainsFold applies the ContainsFold predicate on the "identity_key" field.
-func IdentityKeyContainsFold(v string) predicate.User {
-	return predicate.User(sql.FieldContainsFold(FieldIdentityKey, v))
-}
-
 // SigningKeyEQ applies the EQ predicate on the "signing_key" field.
-func SigningKeyEQ(v string) predicate.User {
+func SigningKeyEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldSigningKey, v))
 }
 
 // SigningKeyNEQ applies the NEQ predicate on the "signing_key" field.
-func SigningKeyNEQ(v string) predicate.User {
+func SigningKeyNEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldSigningKey, v))
 }
 
 // SigningKeyIn applies the In predicate on the "signing_key" field.
-func SigningKeyIn(vs ...string) predicate.User {
+func SigningKeyIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldIn(FieldSigningKey, vs...))
 }
 
 // SigningKeyNotIn applies the NotIn predicate on the "signing_key" field.
-func SigningKeyNotIn(vs ...string) predicate.User {
+func SigningKeyNotIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldNotIn(FieldSigningKey, vs...))
 }
 
 // SigningKeyGT applies the GT predicate on the "signing_key" field.
-func SigningKeyGT(v string) predicate.User {
+func SigningKeyGT(v []byte) predicate.User {
 	return predicate.User(sql.FieldGT(FieldSigningKey, v))
 }
 
 // SigningKeyGTE applies the GTE predicate on the "signing_key" field.
-func SigningKeyGTE(v string) predicate.User {
+func SigningKeyGTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldGTE(FieldSigningKey, v))
 }
 
 // SigningKeyLT applies the LT predicate on the "signing_key" field.
-func SigningKeyLT(v string) predicate.User {
+func SigningKeyLT(v []byte) predicate.User {
 	return predicate.User(sql.FieldLT(FieldSigningKey, v))
 }
 
 // SigningKeyLTE applies the LTE predicate on the "signing_key" field.
-func SigningKeyLTE(v string) predicate.User {
+func SigningKeyLTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldSigningKey, v))
-}
-
-// SigningKeyContains applies the Contains predicate on the "signing_key" field.
-func SigningKeyContains(v string) predicate.User {
-	return predicate.User(sql.FieldContains(FieldSigningKey, v))
-}
-
-// SigningKeyHasPrefix applies the HasPrefix predicate on the "signing_key" field.
-func SigningKeyHasPrefix(v string) predicate.User {
-	return predicate.User(sql.FieldHasPrefix(FieldSigningKey, v))
-}
-
-// SigningKeyHasSuffix applies the HasSuffix predicate on the "signing_key" field.
-func SigningKeyHasSuffix(v string) predicate.User {
-	return predicate.User(sql.FieldHasSuffix(FieldSigningKey, v))
-}
-
-// SigningKeyEqualFold applies the EqualFold predicate on the "signing_key" field.
-func SigningKeyEqualFold(v string) predicate.User {
-	return predicate.User(sql.FieldEqualFold(FieldSigningKey, v))
-}
-
-// SigningKeyContainsFold applies the ContainsFold predicate on the "signing_key" field.
-func SigningKeyContainsFold(v string) predicate.User {
-	return predicate.User(sql.FieldContainsFold(FieldSigningKey, v))
 }
 
 // LastSeenEQ applies the EQ predicate on the "last_seen" field.
@@ -400,6 +350,16 @@ func AvatarHasSuffix(v string) predicate.User {
 	return predicate.User(sql.FieldHasSuffix(FieldAvatar, v))
 }
 
+// AvatarIsNil applies the IsNil predicate on the "avatar" field.
+func AvatarIsNil() predicate.User {
+	return predicate.User(sql.FieldIsNull(FieldAvatar))
+}
+
+// AvatarNotNil applies the NotNil predicate on the "avatar" field.
+func AvatarNotNil() predicate.User {
+	return predicate.User(sql.FieldNotNull(FieldAvatar))
+}
+
 // AvatarEqualFold applies the EqualFold predicate on the "avatar" field.
 func AvatarEqualFold(v string) predicate.User {
 	return predicate.User(sql.FieldEqualFold(FieldAvatar, v))
@@ -463,6 +423,16 @@ func AvatarIvHasPrefix(v string) predicate.User {
 // AvatarIvHasSuffix applies the HasSuffix predicate on the "avatar_iv" field.
 func AvatarIvHasSuffix(v string) predicate.User {
 	return predicate.User(sql.FieldHasSuffix(FieldAvatarIv, v))
+}
+
+// AvatarIvIsNil applies the IsNil predicate on the "avatar_iv" field.
+func AvatarIvIsNil() predicate.User {
+	return predicate.User(sql.FieldIsNull(FieldAvatarIv))
+}
+
+// AvatarIvNotNil applies the NotNil predicate on the "avatar_iv" field.
+func AvatarIvNotNil() predicate.User {
+	return predicate.User(sql.FieldNotNull(FieldAvatarIv))
 }
 
 // AvatarIvEqualFold applies the EqualFold predicate on the "avatar_iv" field.

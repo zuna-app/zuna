@@ -47,12 +47,18 @@ func main() {
 	}
 
 	e := echo.New()
+	e.Binder = &StrictBinder{}
 	e.GET("/", func(c *echo.Context) error {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
 
-	e.POST("/handshake", handshakeEndpoint)
-	e.POST("/auth", authEndpoint)
+	api := e.Group("/api")
+
+	auth := api.Group("/auth")
+	auth.POST("/handshake", handshakeEndpoint)
+	auth.POST("/auth", authEndpoint)
+	auth.POST("/join", joinEndpoint)
+
 	e.GET("/test", testEndpoint, authMiddleware)
 
 	if err := e.Start(":8080"); err != nil {

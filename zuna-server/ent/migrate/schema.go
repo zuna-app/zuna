@@ -76,12 +76,12 @@ var (
 	UsersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString},
 		{Name: "username", Type: field.TypeString, Unique: true},
-		{Name: "identity_key", Type: field.TypeString, Unique: true},
-		{Name: "signing_key", Type: field.TypeString, Unique: true},
+		{Name: "identity_key", Type: field.TypeBytes, Unique: true},
+		{Name: "signing_key", Type: field.TypeBytes, Unique: true},
 		{Name: "last_seen", Type: field.TypeTime},
 		{Name: "is_admin", Type: field.TypeBool, Default: false},
-		{Name: "avatar", Type: field.TypeString, Unique: true},
-		{Name: "avatar_iv", Type: field.TypeString, Unique: true},
+		{Name: "avatar", Type: field.TypeString, Nullable: true},
+		{Name: "avatar_iv", Type: field.TypeString, Nullable: true},
 	}
 	// UsersTable holds the schema information for the "users" table.
 	UsersTable = &schema.Table{

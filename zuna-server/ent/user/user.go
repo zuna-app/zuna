@@ -98,16 +98,6 @@ func ByUsername(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUsername, opts...).ToFunc()
 }
 
-// ByIdentityKey orders the results by the identity_key field.
-func ByIdentityKey(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldIdentityKey, opts...).ToFunc()
-}
-
-// BySigningKey orders the results by the signing_key field.
-func BySigningKey(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldSigningKey, opts...).ToFunc()
-}
-
 // ByLastSeen orders the results by the last_seen field.
 func ByLastSeen(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLastSeen, opts...).ToFunc()

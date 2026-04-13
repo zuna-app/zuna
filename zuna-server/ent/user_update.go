@@ -45,30 +45,14 @@ func (_u *UserUpdate) SetNillableUsername(v *string) *UserUpdate {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (_u *UserUpdate) SetIdentityKey(v string) *UserUpdate {
+func (_u *UserUpdate) SetIdentityKey(v []byte) *UserUpdate {
 	_u.mutation.SetIdentityKey(v)
 	return _u
 }
 
-// SetNillableIdentityKey sets the "identity_key" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableIdentityKey(v *string) *UserUpdate {
-	if v != nil {
-		_u.SetIdentityKey(*v)
-	}
-	return _u
-}
-
 // SetSigningKey sets the "signing_key" field.
-func (_u *UserUpdate) SetSigningKey(v string) *UserUpdate {
+func (_u *UserUpdate) SetSigningKey(v []byte) *UserUpdate {
 	_u.mutation.SetSigningKey(v)
-	return _u
-}
-
-// SetNillableSigningKey sets the "signing_key" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableSigningKey(v *string) *UserUpdate {
-	if v != nil {
-		_u.SetSigningKey(*v)
-	}
 	return _u
 }
 
@@ -114,6 +98,12 @@ func (_u *UserUpdate) SetNillableAvatar(v *string) *UserUpdate {
 	return _u
 }
 
+// ClearAvatar clears the value of the "avatar" field.
+func (_u *UserUpdate) ClearAvatar() *UserUpdate {
+	_u.mutation.ClearAvatar()
+	return _u
+}
+
 // SetAvatarIv sets the "avatar_iv" field.
 func (_u *UserUpdate) SetAvatarIv(v string) *UserUpdate {
 	_u.mutation.SetAvatarIv(v)
@@ -125,6 +115,12 @@ func (_u *UserUpdate) SetNillableAvatarIv(v *string) *UserUpdate {
 	if v != nil {
 		_u.SetAvatarIv(*v)
 	}
+	return _u
+}
+
+// ClearAvatarIv clears the value of the "avatar_iv" field.
+func (_u *UserUpdate) ClearAvatarIv() *UserUpdate {
+	_u.mutation.ClearAvatarIv()
 	return _u
 }
 
@@ -245,10 +241,10 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		_spec.SetField(user.FieldUsername, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.IdentityKey(); ok {
-		_spec.SetField(user.FieldIdentityKey, field.TypeString, value)
+		_spec.SetField(user.FieldIdentityKey, field.TypeBytes, value)
 	}
 	if value, ok := _u.mutation.SigningKey(); ok {
-		_spec.SetField(user.FieldSigningKey, field.TypeString, value)
+		_spec.SetField(user.FieldSigningKey, field.TypeBytes, value)
 	}
 	if value, ok := _u.mutation.LastSeen(); ok {
 		_spec.SetField(user.FieldLastSeen, field.TypeTime, value)
@@ -259,8 +255,14 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Avatar(); ok {
 		_spec.SetField(user.FieldAvatar, field.TypeString, value)
 	}
+	if _u.mutation.AvatarCleared() {
+		_spec.ClearField(user.FieldAvatar, field.TypeString)
+	}
 	if value, ok := _u.mutation.AvatarIv(); ok {
 		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
+	}
+	if _u.mutation.AvatarIvCleared() {
+		_spec.ClearField(user.FieldAvatarIv, field.TypeString)
 	}
 	if _u.mutation.ChatsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -387,30 +389,14 @@ func (_u *UserUpdateOne) SetNillableUsername(v *string) *UserUpdateOne {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (_u *UserUpdateOne) SetIdentityKey(v string) *UserUpdateOne {
+func (_u *UserUpdateOne) SetIdentityKey(v []byte) *UserUpdateOne {
 	_u.mutation.SetIdentityKey(v)
 	return _u
 }
 
-// SetNillableIdentityKey sets the "identity_key" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableIdentityKey(v *string) *UserUpdateOne {
-	if v != nil {
-		_u.SetIdentityKey(*v)
-	}
-	return _u
-}
-
 // SetSigningKey sets the "signing_key" field.
-func (_u *UserUpdateOne) SetSigningKey(v string) *UserUpdateOne {
+func (_u *UserUpdateOne) SetSigningKey(v []byte) *UserUpdateOne {
 	_u.mutation.SetSigningKey(v)
-	return _u
-}
-
-// SetNillableSigningKey sets the "signing_key" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableSigningKey(v *string) *UserUpdateOne {
-	if v != nil {
-		_u.SetSigningKey(*v)
-	}
 	return _u
 }
 
@@ -456,6 +442,12 @@ func (_u *UserUpdateOne) SetNillableAvatar(v *string) *UserUpdateOne {
 	return _u
 }
 
+// ClearAvatar clears the value of the "avatar" field.
+func (_u *UserUpdateOne) ClearAvatar() *UserUpdateOne {
+	_u.mutation.ClearAvatar()
+	return _u
+}
+
 // SetAvatarIv sets the "avatar_iv" field.
 func (_u *UserUpdateOne) SetAvatarIv(v string) *UserUpdateOne {
 	_u.mutation.SetAvatarIv(v)
@@ -467,6 +459,12 @@ func (_u *UserUpdateOne) SetNillableAvatarIv(v *string) *UserUpdateOne {
 	if v != nil {
 		_u.SetAvatarIv(*v)
 	}
+	return _u
+}
+
+// ClearAvatarIv clears the value of the "avatar_iv" field.
+func (_u *UserUpdateOne) ClearAvatarIv() *UserUpdateOne {
+	_u.mutation.ClearAvatarIv()
 	return _u
 }
 
@@ -617,10 +615,10 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 		_spec.SetField(user.FieldUsername, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.IdentityKey(); ok {
-		_spec.SetField(user.FieldIdentityKey, field.TypeString, value)
+		_spec.SetField(user.FieldIdentityKey, field.TypeBytes, value)
 	}
 	if value, ok := _u.mutation.SigningKey(); ok {
-		_spec.SetField(user.FieldSigningKey, field.TypeString, value)
+		_spec.SetField(user.FieldSigningKey, field.TypeBytes, value)
 	}
 	if value, ok := _u.mutation.LastSeen(); ok {
 		_spec.SetField(user.FieldLastSeen, field.TypeTime, value)
@@ -631,8 +629,14 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	if value, ok := _u.mutation.Avatar(); ok {
 		_spec.SetField(user.FieldAvatar, field.TypeString, value)
 	}
+	if _u.mutation.AvatarCleared() {
+		_spec.ClearField(user.FieldAvatar, field.TypeString)
+	}
 	if value, ok := _u.mutation.AvatarIv(); ok {
 		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
+	}
+	if _u.mutation.AvatarIvCleared() {
+		_spec.ClearField(user.FieldAvatarIv, field.TypeString)
 	}
 	if _u.mutation.ChatsCleared() {
 		edge := &sqlgraph.EdgeSpec{

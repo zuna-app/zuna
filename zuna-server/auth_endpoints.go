@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"fmt"
 	"log"
 	"net/http"
 	"zuna-server/ent/user"
@@ -26,6 +27,16 @@ type AuthRequest struct {
 type AuthResponse struct {
 	Success bool   `json:"success"`
 	Token   string `json:"token"`
+}
+
+type JoinRequest struct {
+	Username    string `json:"username"`
+	IdentityKey []byte `json:"identity_key"`
+	SigningKey  []byte `json:"signing_key"`
+}
+
+type JoinResponse struct {
+	ID string `json:"id"`
 }
 
 func handshakeEndpoint(c *echo.Context) error {
@@ -56,7 +67,7 @@ func handshakeEndpoint(c *echo.Context) error {
 func authEndpoint(c *echo.Context) error {
 	req := new(AuthRequest)
 	if err := c.Bind(req); err != nil {
-		return c.JSON(http.StatusBadRequest, err.Error())
+		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
 	//TODO: Check if users exists in DB
@@ -77,7 +88,7 @@ func authEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
-	valid := ed25519.Verify([]byte(u.SigningKey), userData.ed25519Nonce, req.Signature)
+	valid := ed25519.Verify(u.SigningKey, userData.ed25519Nonce, req.Signature)
 	if !valid {
 		return c.JSON(http.StatusUnauthorized, AuthResponse{
 			Success: false,
@@ -98,5 +109,37 @@ func authEndpoint(c *echo.Context) error {
 	return c.JSON(http.StatusOK, AuthResponse{
 		Success: true,
 		Token:   userData.authToken,
+	})
+}
+
+func joinEndpoint(c *echo.Context) error {
+	req := new(JoinRequest)
+	if err := c.Bind(req); err != nil {
+		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	exists, err := EntClient.User.Query().Where(user.UsernameEQ(c.Param("username"))).Exist(c.Request().Context())
+	if err != nil {
+		fmt.Println(err)
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	if exists {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{Code: 400, Error: "user already exists"})
+	}
+
+	u, err := EntClient.User.Create().
+		SetUsername(req.Username).
+		SetIdentityKey(req.IdentityKey).
+		SetSigningKey(req.SigningKey).
+		Save(c.Request().Context())
+
+	if err != nil {
+		fmt.Println(err)
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	return c.JSON(http.StatusOK, JoinResponse{
+		ID: u.ID,
 	})
 }

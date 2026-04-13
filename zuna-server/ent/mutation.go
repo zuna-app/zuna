@@ -1806,8 +1806,8 @@ type UserMutation struct {
 	typ             string
 	id              *string
 	username        *string
-	identity_key    *string
-	signing_key     *string
+	identity_key    *[]byte
+	signing_key     *[]byte
 	last_seen       *time.Time
 	is_admin        *bool
 	avatar          *string
@@ -1965,12 +1965,12 @@ func (m *UserMutation) ResetUsername() {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (m *UserMutation) SetIdentityKey(s string) {
-	m.identity_key = &s
+func (m *UserMutation) SetIdentityKey(b []byte) {
+	m.identity_key = &b
 }
 
 // IdentityKey returns the value of the "identity_key" field in the mutation.
-func (m *UserMutation) IdentityKey() (r string, exists bool) {
+func (m *UserMutation) IdentityKey() (r []byte, exists bool) {
 	v := m.identity_key
 	if v == nil {
 		return
@@ -1981,7 +1981,7 @@ func (m *UserMutation) IdentityKey() (r string, exists bool) {
 // OldIdentityKey returns the old "identity_key" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldIdentityKey(ctx context.Context) (v string, err error) {
+func (m *UserMutation) OldIdentityKey(ctx context.Context) (v []byte, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldIdentityKey is only allowed on UpdateOne operations")
 	}
@@ -2001,12 +2001,12 @@ func (m *UserMutation) ResetIdentityKey() {
 }
 
 // SetSigningKey sets the "signing_key" field.
-func (m *UserMutation) SetSigningKey(s string) {
-	m.signing_key = &s
+func (m *UserMutation) SetSigningKey(b []byte) {
+	m.signing_key = &b
 }
 
 // SigningKey returns the value of the "signing_key" field in the mutation.
-func (m *UserMutation) SigningKey() (r string, exists bool) {
+func (m *UserMutation) SigningKey() (r []byte, exists bool) {
 	v := m.signing_key
 	if v == nil {
 		return
@@ -2017,7 +2017,7 @@ func (m *UserMutation) SigningKey() (r string, exists bool) {
 // OldSigningKey returns the old "signing_key" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldSigningKey(ctx context.Context) (v string, err error) {
+func (m *UserMutation) OldSigningKey(ctx context.Context) (v []byte, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldSigningKey is only allowed on UpdateOne operations")
 	}
@@ -2125,7 +2125,7 @@ func (m *UserMutation) Avatar() (r string, exists bool) {
 // OldAvatar returns the old "avatar" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldAvatar(ctx context.Context) (v string, err error) {
+func (m *UserMutation) OldAvatar(ctx context.Context) (v *string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAvatar is only allowed on UpdateOne operations")
 	}
@@ -2139,9 +2139,22 @@ func (m *UserMutation) OldAvatar(ctx context.Context) (v string, err error) {
 	return oldValue.Avatar, nil
 }
 
+// ClearAvatar clears the value of the "avatar" field.
+func (m *UserMutation) ClearAvatar() {
+	m.avatar = nil
+	m.clearedFields[user.FieldAvatar] = struct{}{}
+}
+
+// AvatarCleared returns if the "avatar" field was cleared in this mutation.
+func (m *UserMutation) AvatarCleared() bool {
+	_, ok := m.clearedFields[user.FieldAvatar]
+	return ok
+}
+
 // ResetAvatar resets all changes to the "avatar" field.
 func (m *UserMutation) ResetAvatar() {
 	m.avatar = nil
+	delete(m.clearedFields, user.FieldAvatar)
 }
 
 // SetAvatarIv sets the "avatar_iv" field.
@@ -2161,7 +2174,7 @@ func (m *UserMutation) AvatarIv() (r string, exists bool) {
 // OldAvatarIv returns the old "avatar_iv" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldAvatarIv(ctx context.Context) (v string, err error) {
+func (m *UserMutation) OldAvatarIv(ctx context.Context) (v *string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAvatarIv is only allowed on UpdateOne operations")
 	}
@@ -2175,9 +2188,22 @@ func (m *UserMutation) OldAvatarIv(ctx context.Context) (v string, err error) {
 	return oldValue.AvatarIv, nil
 }
 
+// ClearAvatarIv clears the value of the "avatar_iv" field.
+func (m *UserMutation) ClearAvatarIv() {
+	m.avatar_iv = nil
+	m.clearedFields[user.FieldAvatarIv] = struct{}{}
+}
+
+// AvatarIvCleared returns if the "avatar_iv" field was cleared in this mutation.
+func (m *UserMutation) AvatarIvCleared() bool {
+	_, ok := m.clearedFields[user.FieldAvatarIv]
+	return ok
+}
+
 // ResetAvatarIv resets all changes to the "avatar_iv" field.
 func (m *UserMutation) ResetAvatarIv() {
 	m.avatar_iv = nil
+	delete(m.clearedFields, user.FieldAvatarIv)
 }
 
 // AddChatIDs adds the "chats" edge to the Chat entity by ids.
@@ -2406,14 +2432,14 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		m.SetUsername(v)
 		return nil
 	case user.FieldIdentityKey:
-		v, ok := value.(string)
+		v, ok := value.([]byte)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIdentityKey(v)
 		return nil
 	case user.FieldSigningKey:
-		v, ok := value.(string)
+		v, ok := value.([]byte)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
@@ -2476,7 +2502,14 @@ func (m *UserMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *UserMutation) ClearedFields() []string {
-	return nil
+	var fields []string
+	if m.FieldCleared(user.FieldAvatar) {
+		fields = append(fields, user.FieldAvatar)
+	}
+	if m.FieldCleared(user.FieldAvatarIv) {
+		fields = append(fields, user.FieldAvatarIv)
+	}
+	return fields
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -2489,6 +2522,14 @@ func (m *UserMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *UserMutation) ClearField(name string) error {
+	switch name {
+	case user.FieldAvatar:
+		m.ClearAvatar()
+		return nil
+	case user.FieldAvatarIv:
+		m.ClearAvatarIv()
+		return nil
+	}
 	return fmt.Errorf("unknown User nullable field %s", name)
 }
 

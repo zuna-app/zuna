@@ -29,13 +29,13 @@ func (_c *UserCreate) SetUsername(v string) *UserCreate {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (_c *UserCreate) SetIdentityKey(v string) *UserCreate {
+func (_c *UserCreate) SetIdentityKey(v []byte) *UserCreate {
 	_c.mutation.SetIdentityKey(v)
 	return _c
 }
 
 // SetSigningKey sets the "signing_key" field.
-func (_c *UserCreate) SetSigningKey(v string) *UserCreate {
+func (_c *UserCreate) SetSigningKey(v []byte) *UserCreate {
 	_c.mutation.SetSigningKey(v)
 	return _c
 }
@@ -74,9 +74,25 @@ func (_c *UserCreate) SetAvatar(v string) *UserCreate {
 	return _c
 }
 
+// SetNillableAvatar sets the "avatar" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAvatar(v *string) *UserCreate {
+	if v != nil {
+		_c.SetAvatar(*v)
+	}
+	return _c
+}
+
 // SetAvatarIv sets the "avatar_iv" field.
 func (_c *UserCreate) SetAvatarIv(v string) *UserCreate {
 	_c.mutation.SetAvatarIv(v)
+	return _c
+}
+
+// SetNillableAvatarIv sets the "avatar_iv" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAvatarIv(v *string) *UserCreate {
+	if v != nil {
+		_c.SetAvatarIv(*v)
+	}
 	return _c
 }
 
@@ -190,12 +206,6 @@ func (_c *UserCreate) check() error {
 	if _, ok := _c.mutation.IsAdmin(); !ok {
 		return &ValidationError{Name: "is_admin", err: errors.New(`ent: missing required field "User.is_admin"`)}
 	}
-	if _, ok := _c.mutation.Avatar(); !ok {
-		return &ValidationError{Name: "avatar", err: errors.New(`ent: missing required field "User.avatar"`)}
-	}
-	if _, ok := _c.mutation.AvatarIv(); !ok {
-		return &ValidationError{Name: "avatar_iv", err: errors.New(`ent: missing required field "User.avatar_iv"`)}
-	}
 	return nil
 }
 
@@ -236,11 +246,11 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 		_node.Username = value
 	}
 	if value, ok := _c.mutation.IdentityKey(); ok {
-		_spec.SetField(user.FieldIdentityKey, field.TypeString, value)
+		_spec.SetField(user.FieldIdentityKey, field.TypeBytes, value)
 		_node.IdentityKey = value
 	}
 	if value, ok := _c.mutation.SigningKey(); ok {
-		_spec.SetField(user.FieldSigningKey, field.TypeString, value)
+		_spec.SetField(user.FieldSigningKey, field.TypeBytes, value)
 		_node.SigningKey = value
 	}
 	if value, ok := _c.mutation.LastSeen(); ok {
@@ -253,11 +263,11 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	}
 	if value, ok := _c.mutation.Avatar(); ok {
 		_spec.SetField(user.FieldAvatar, field.TypeString, value)
-		_node.Avatar = value
+		_node.Avatar = &value
 	}
 	if value, ok := _c.mutation.AvatarIv(); ok {
 		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
-		_node.AvatarIv = value
+		_node.AvatarIv = &value
 	}
 	if nodes := _c.mutation.ChatsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

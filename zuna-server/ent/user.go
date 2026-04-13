@@ -20,17 +20,17 @@ type User struct {
 	// Username holds the value of the "username" field.
 	Username string `json:"username,omitempty"`
 	// IdentityKey holds the value of the "identity_key" field.
-	IdentityKey string `json:"identity_key,omitempty"`
+	IdentityKey []byte `json:"identity_key,omitempty"`
 	// SigningKey holds the value of the "signing_key" field.
-	SigningKey string `json:"signing_key,omitempty"`
+	SigningKey []byte `json:"signing_key,omitempty"`
 	// LastSeen holds the value of the "last_seen" field.
 	LastSeen time.Time `json:"last_seen,omitempty"`
 	// IsAdmin holds the value of the "is_admin" field.
 	IsAdmin bool `json:"is_admin,omitempty"`
 	// Avatar holds the value of the "avatar" field.
-	Avatar string `json:"avatar,omitempty"`
+	Avatar *string `json:"avatar,omitempty"`
 	// AvatarIv holds the value of the "avatar_iv" field.
-	AvatarIv string `json:"avatar_iv,omitempty"`
+	AvatarIv *string `json:"avatar_iv,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the UserQuery when eager-loading is set.
 	Edges        UserEdges `json:"edges"`
@@ -71,9 +71,11 @@ func (*User) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case user.FieldIdentityKey, user.FieldSigningKey:
+			values[i] = new([]byte)
 		case user.FieldIsAdmin:
 			values[i] = new(sql.NullBool)
-		case user.FieldID, user.FieldUsername, user.FieldIdentityKey, user.FieldSigningKey, user.FieldAvatar, user.FieldAvatarIv:
+		case user.FieldID, user.FieldUsername, user.FieldAvatar, user.FieldAvatarIv:
 			values[i] = new(sql.NullString)
 		case user.FieldLastSeen:
 			values[i] = new(sql.NullTime)
@@ -105,16 +107,16 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				_m.Username = value.String
 			}
 		case user.FieldIdentityKey:
-			if value, ok := values[i].(*sql.NullString); !ok {
+			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field identity_key", values[i])
-			} else if value.Valid {
-				_m.IdentityKey = value.String
+			} else if value != nil {
+				_m.IdentityKey = *value
 			}
 		case user.FieldSigningKey:
-			if value, ok := values[i].(*sql.NullString); !ok {
+			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field signing_key", values[i])
-			} else if value.Valid {
-				_m.SigningKey = value.String
+			} else if value != nil {
+				_m.SigningKey = *value
 			}
 		case user.FieldLastSeen:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -132,13 +134,15 @@ func (_m *User) assignValues(columns []string, values []any) error {
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field avatar", values[i])
 			} else if value.Valid {
-				_m.Avatar = value.String
+				_m.Avatar = new(string)
+				*_m.Avatar = value.String
 			}
 		case user.FieldAvatarIv:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field avatar_iv", values[i])
 			} else if value.Valid {
-				_m.AvatarIv = value.String
+				_m.AvatarIv = new(string)
+				*_m.AvatarIv = value.String
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -190,10 +194,10 @@ func (_m *User) String() string {
 	builder.WriteString(_m.Username)
 	builder.WriteString(", ")
 	builder.WriteString("identity_key=")
-	builder.WriteString(_m.IdentityKey)
+	builder.WriteString(fmt.Sprintf("%v", _m.IdentityKey))
 	builder.WriteString(", ")
 	builder.WriteString("signing_key=")
-	builder.WriteString(_m.SigningKey)
+	builder.WriteString(fmt.Sprintf("%v", _m.SigningKey))
 	builder.WriteString(", ")
 	builder.WriteString("last_seen=")
 	builder.WriteString(_m.LastSeen.Format(time.ANSIC))
@@ -201,11 +205,15 @@ func (_m *User) String() string {
 	builder.WriteString("is_admin=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IsAdmin))
 	builder.WriteString(", ")
-	builder.WriteString("avatar=")
-	builder.WriteString(_m.Avatar)
+	if v := _m.Avatar; v != nil {
+		builder.WriteString("avatar=")
+		builder.WriteString(*v)
+	}
 	builder.WriteString(", ")
-	builder.WriteString("avatar_iv=")
-	builder.WriteString(_m.AvatarIv)
+	if v := _m.AvatarIv; v != nil {
+		builder.WriteString("avatar_iv=")
+		builder.WriteString(*v)
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }
