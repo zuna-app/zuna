@@ -2,17 +2,30 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
-	"strings"
+	"os"
+	"os/signal"
+	"syscall"
 	"zuna-server/ent"
 
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 	"github.com/labstack/echo/v5"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "modernc.org/sqlite"
 )
+
+const ZunaAsciiArt = ` _____                 
+|__  /   _ _ __   __ _ 
+  / / | | | '_ \ / _` + "`" + ` |
+ / /| |_| | | | | (_| |
+/____\__,_|_| |_|\__,_|
+`
 
 var EntClient *ent.Client
 
@@ -25,29 +38,25 @@ var InternalServerError = ErrorResponse{Code: 500, Error: "internal server error
 var BadRequest = ErrorResponse{Code: 400, Error: "bad request"}
 
 func main() {
-	err := LoadConfig()
-	if err != nil {
+	fmt.Println(ZunaAsciiArt)
+
+	if err := LoadConfig(); err != nil {
 		panic(err)
 	}
 
-	connectionUrl := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s",
-		Config.MySQL.Username, Config.MySQL.Password, Config.MySQL.Host,
-		Config.MySQL.Port, Config.MySQL.Database, strings.Join(Config.MySQL.Parameters, "&"))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	client, err := ent.Open("mysql", connectionUrl)
-	if err != nil {
-		log.Fatalf("failed opening connection to mysql: %v", err)
-	}
+	EntClient = NewClient(ctx)
+	defer EntClient.Close()
 
-	EntClient = client
-	defer client.Close()
-	ctx := context.Background()
-	if err := client.Schema.Create(ctx); err != nil {
+	if err := EntClient.Schema.Create(ctx); err != nil {
 		log.Fatalf("failed creating schema resources: %v", err)
 	}
 
 	e := echo.New()
 	e.Binder = &StrictBinder{}
+
 	e.GET("/", func(c *echo.Context) error {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
@@ -65,5 +74,32 @@ func main() {
 	if err := e.Start(":8080"); err != nil {
 		slog.Error("failed to start server", "error", err)
 	}
+}
 
+func NewClient(ctx context.Context) *ent.Client {
+	databaseUrl := BuildDatabaseUrl()
+
+	if Config.DatabaseType == "mysql" {
+		client, err := ent.Open("mysql", databaseUrl)
+		if err != nil {
+			log.Fatalf("failed opening mysql: %v", err)
+		}
+		return client
+	}
+
+	if Config.DatabaseType == "sqlite" {
+		db, err := sql.Open("sqlite", databaseUrl)
+		if err != nil {
+			log.Fatalf("failed opening sqlite: %v", err)
+		}
+
+		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+			log.Fatalf("failed enabling foreign keys: %v", err)
+		}
+
+		drv := entsql.OpenDB(dialect.SQLite, db)
+		return ent.NewClient(ent.Driver(drv))
+	}
+
+	panic("invalid database type, supported: mysql, sqlite")
 }
