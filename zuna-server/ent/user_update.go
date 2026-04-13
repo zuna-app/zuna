@@ -85,42 +85,20 @@ func (_u *UserUpdate) SetNillableIsAdmin(v *bool) *UserUpdate {
 }
 
 // SetAvatar sets the "avatar" field.
-func (_u *UserUpdate) SetAvatar(v string) *UserUpdate {
+func (_u *UserUpdate) SetAvatar(v []byte) *UserUpdate {
 	_u.mutation.SetAvatar(v)
 	return _u
 }
 
-// SetNillableAvatar sets the "avatar" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableAvatar(v *string) *UserUpdate {
-	if v != nil {
-		_u.SetAvatar(*v)
-	}
-	return _u
-}
-
-// ClearAvatar clears the value of the "avatar" field.
-func (_u *UserUpdate) ClearAvatar() *UserUpdate {
-	_u.mutation.ClearAvatar()
-	return _u
-}
-
 // SetAvatarIv sets the "avatar_iv" field.
-func (_u *UserUpdate) SetAvatarIv(v string) *UserUpdate {
+func (_u *UserUpdate) SetAvatarIv(v []byte) *UserUpdate {
 	_u.mutation.SetAvatarIv(v)
 	return _u
 }
 
-// SetNillableAvatarIv sets the "avatar_iv" field if the given value is not nil.
-func (_u *UserUpdate) SetNillableAvatarIv(v *string) *UserUpdate {
-	if v != nil {
-		_u.SetAvatarIv(*v)
-	}
-	return _u
-}
-
-// ClearAvatarIv clears the value of the "avatar_iv" field.
-func (_u *UserUpdate) ClearAvatarIv() *UserUpdate {
-	_u.mutation.ClearAvatarIv()
+// SetAvatarAuthTag sets the "avatar_auth_tag" field.
+func (_u *UserUpdate) SetAvatarAuthTag(v []byte) *UserUpdate {
+	_u.mutation.SetAvatarAuthTag(v)
 	return _u
 }
 
@@ -253,16 +231,13 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		_spec.SetField(user.FieldIsAdmin, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Avatar(); ok {
-		_spec.SetField(user.FieldAvatar, field.TypeString, value)
-	}
-	if _u.mutation.AvatarCleared() {
-		_spec.ClearField(user.FieldAvatar, field.TypeString)
+		_spec.SetField(user.FieldAvatar, field.TypeBytes, value)
 	}
 	if value, ok := _u.mutation.AvatarIv(); ok {
-		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
+		_spec.SetField(user.FieldAvatarIv, field.TypeBytes, value)
 	}
-	if _u.mutation.AvatarIvCleared() {
-		_spec.ClearField(user.FieldAvatarIv, field.TypeString)
+	if value, ok := _u.mutation.AvatarAuthTag(); ok {
+		_spec.SetField(user.FieldAvatarAuthTag, field.TypeBytes, value)
 	}
 	if _u.mutation.ChatsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -429,42 +404,20 @@ func (_u *UserUpdateOne) SetNillableIsAdmin(v *bool) *UserUpdateOne {
 }
 
 // SetAvatar sets the "avatar" field.
-func (_u *UserUpdateOne) SetAvatar(v string) *UserUpdateOne {
+func (_u *UserUpdateOne) SetAvatar(v []byte) *UserUpdateOne {
 	_u.mutation.SetAvatar(v)
 	return _u
 }
 
-// SetNillableAvatar sets the "avatar" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableAvatar(v *string) *UserUpdateOne {
-	if v != nil {
-		_u.SetAvatar(*v)
-	}
-	return _u
-}
-
-// ClearAvatar clears the value of the "avatar" field.
-func (_u *UserUpdateOne) ClearAvatar() *UserUpdateOne {
-	_u.mutation.ClearAvatar()
-	return _u
-}
-
 // SetAvatarIv sets the "avatar_iv" field.
-func (_u *UserUpdateOne) SetAvatarIv(v string) *UserUpdateOne {
+func (_u *UserUpdateOne) SetAvatarIv(v []byte) *UserUpdateOne {
 	_u.mutation.SetAvatarIv(v)
 	return _u
 }
 
-// SetNillableAvatarIv sets the "avatar_iv" field if the given value is not nil.
-func (_u *UserUpdateOne) SetNillableAvatarIv(v *string) *UserUpdateOne {
-	if v != nil {
-		_u.SetAvatarIv(*v)
-	}
-	return _u
-}
-
-// ClearAvatarIv clears the value of the "avatar_iv" field.
-func (_u *UserUpdateOne) ClearAvatarIv() *UserUpdateOne {
-	_u.mutation.ClearAvatarIv()
+// SetAvatarAuthTag sets the "avatar_auth_tag" field.
+func (_u *UserUpdateOne) SetAvatarAuthTag(v []byte) *UserUpdateOne {
+	_u.mutation.SetAvatarAuthTag(v)
 	return _u
 }
 
@@ -627,16 +580,13 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 		_spec.SetField(user.FieldIsAdmin, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Avatar(); ok {
-		_spec.SetField(user.FieldAvatar, field.TypeString, value)
-	}
-	if _u.mutation.AvatarCleared() {
-		_spec.ClearField(user.FieldAvatar, field.TypeString)
+		_spec.SetField(user.FieldAvatar, field.TypeBytes, value)
 	}
 	if value, ok := _u.mutation.AvatarIv(); ok {
-		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
+		_spec.SetField(user.FieldAvatarIv, field.TypeBytes, value)
 	}
-	if _u.mutation.AvatarIvCleared() {
-		_spec.ClearField(user.FieldAvatarIv, field.TypeString)
+	if value, ok := _u.mutation.AvatarAuthTag(); ok {
+		_spec.SetField(user.FieldAvatarAuthTag, field.TypeBytes, value)
 	}
 	if _u.mutation.ChatsCleared() {
 		edge := &sqlgraph.EdgeSpec{

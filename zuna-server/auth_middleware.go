@@ -11,6 +11,8 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+const ReqIdKey = "id"
+
 func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		auth := c.Request().Header.Get("Authorization")
@@ -32,7 +34,7 @@ func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.JSON(http.StatusUnauthorized, ErrorResponse{Code: http.StatusUnauthorized, Error: "unauthorized"})
 		}
 
-		ctx := context.WithValue(c.Request().Context(), "user_id", userID)
+		ctx := context.WithValue(c.Request().Context(), ReqIdKey, userID)
 		c.SetRequest(c.Request().WithContext(ctx))
 
 		return next(c)

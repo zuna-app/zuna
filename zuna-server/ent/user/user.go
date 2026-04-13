@@ -28,6 +28,8 @@ const (
 	FieldAvatar = "avatar"
 	// FieldAvatarIv holds the string denoting the avatar_iv field in the database.
 	FieldAvatarIv = "avatar_iv"
+	// FieldAvatarAuthTag holds the string denoting the avatar_auth_tag field in the database.
+	FieldAvatarAuthTag = "avatar_auth_tag"
 	// EdgeChats holds the string denoting the chats edge name in mutations.
 	EdgeChats = "chats"
 	// EdgeMessages holds the string denoting the messages edge name in mutations.
@@ -58,6 +60,7 @@ var Columns = []string{
 	FieldIsAdmin,
 	FieldAvatar,
 	FieldAvatarIv,
+	FieldAvatarAuthTag,
 }
 
 var (
@@ -81,6 +84,12 @@ var (
 	DefaultLastSeen func() time.Time
 	// DefaultIsAdmin holds the default value on creation for the "is_admin" field.
 	DefaultIsAdmin bool
+	// DefaultAvatar holds the default value on creation for the "avatar" field.
+	DefaultAvatar []byte
+	// DefaultAvatarIv holds the default value on creation for the "avatar_iv" field.
+	DefaultAvatarIv []byte
+	// DefaultAvatarAuthTag holds the default value on creation for the "avatar_auth_tag" field.
+	DefaultAvatarAuthTag []byte
 	// DefaultID holds the default value on creation for the "id" field.
 	DefaultID func() string
 )
@@ -106,16 +115,6 @@ func ByLastSeen(opts ...sql.OrderTermOption) OrderOption {
 // ByIsAdmin orders the results by the is_admin field.
 func ByIsAdmin(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsAdmin, opts...).ToFunc()
-}
-
-// ByAvatar orders the results by the avatar field.
-func ByAvatar(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAvatar, opts...).ToFunc()
-}
-
-// ByAvatarIv orders the results by the avatar_iv field.
-func ByAvatarIv(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAvatarIv, opts...).ToFunc()
 }
 
 // ByChatsCount orders the results by chats count.

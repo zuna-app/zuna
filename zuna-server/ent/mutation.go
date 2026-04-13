@@ -1810,8 +1810,9 @@ type UserMutation struct {
 	signing_key     *[]byte
 	last_seen       *time.Time
 	is_admin        *bool
-	avatar          *string
-	avatar_iv       *string
+	avatar          *[]byte
+	avatar_iv       *[]byte
+	avatar_auth_tag *[]byte
 	clearedFields   map[string]struct{}
 	chats           map[string]struct{}
 	removedchats    map[string]struct{}
@@ -2109,12 +2110,12 @@ func (m *UserMutation) ResetIsAdmin() {
 }
 
 // SetAvatar sets the "avatar" field.
-func (m *UserMutation) SetAvatar(s string) {
-	m.avatar = &s
+func (m *UserMutation) SetAvatar(b []byte) {
+	m.avatar = &b
 }
 
 // Avatar returns the value of the "avatar" field in the mutation.
-func (m *UserMutation) Avatar() (r string, exists bool) {
+func (m *UserMutation) Avatar() (r []byte, exists bool) {
 	v := m.avatar
 	if v == nil {
 		return
@@ -2125,7 +2126,7 @@ func (m *UserMutation) Avatar() (r string, exists bool) {
 // OldAvatar returns the old "avatar" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldAvatar(ctx context.Context) (v *string, err error) {
+func (m *UserMutation) OldAvatar(ctx context.Context) (v []byte, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAvatar is only allowed on UpdateOne operations")
 	}
@@ -2139,31 +2140,18 @@ func (m *UserMutation) OldAvatar(ctx context.Context) (v *string, err error) {
 	return oldValue.Avatar, nil
 }
 
-// ClearAvatar clears the value of the "avatar" field.
-func (m *UserMutation) ClearAvatar() {
-	m.avatar = nil
-	m.clearedFields[user.FieldAvatar] = struct{}{}
-}
-
-// AvatarCleared returns if the "avatar" field was cleared in this mutation.
-func (m *UserMutation) AvatarCleared() bool {
-	_, ok := m.clearedFields[user.FieldAvatar]
-	return ok
-}
-
 // ResetAvatar resets all changes to the "avatar" field.
 func (m *UserMutation) ResetAvatar() {
 	m.avatar = nil
-	delete(m.clearedFields, user.FieldAvatar)
 }
 
 // SetAvatarIv sets the "avatar_iv" field.
-func (m *UserMutation) SetAvatarIv(s string) {
-	m.avatar_iv = &s
+func (m *UserMutation) SetAvatarIv(b []byte) {
+	m.avatar_iv = &b
 }
 
 // AvatarIv returns the value of the "avatar_iv" field in the mutation.
-func (m *UserMutation) AvatarIv() (r string, exists bool) {
+func (m *UserMutation) AvatarIv() (r []byte, exists bool) {
 	v := m.avatar_iv
 	if v == nil {
 		return
@@ -2174,7 +2162,7 @@ func (m *UserMutation) AvatarIv() (r string, exists bool) {
 // OldAvatarIv returns the old "avatar_iv" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldAvatarIv(ctx context.Context) (v *string, err error) {
+func (m *UserMutation) OldAvatarIv(ctx context.Context) (v []byte, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAvatarIv is only allowed on UpdateOne operations")
 	}
@@ -2188,22 +2176,45 @@ func (m *UserMutation) OldAvatarIv(ctx context.Context) (v *string, err error) {
 	return oldValue.AvatarIv, nil
 }
 
-// ClearAvatarIv clears the value of the "avatar_iv" field.
-func (m *UserMutation) ClearAvatarIv() {
-	m.avatar_iv = nil
-	m.clearedFields[user.FieldAvatarIv] = struct{}{}
-}
-
-// AvatarIvCleared returns if the "avatar_iv" field was cleared in this mutation.
-func (m *UserMutation) AvatarIvCleared() bool {
-	_, ok := m.clearedFields[user.FieldAvatarIv]
-	return ok
-}
-
 // ResetAvatarIv resets all changes to the "avatar_iv" field.
 func (m *UserMutation) ResetAvatarIv() {
 	m.avatar_iv = nil
-	delete(m.clearedFields, user.FieldAvatarIv)
+}
+
+// SetAvatarAuthTag sets the "avatar_auth_tag" field.
+func (m *UserMutation) SetAvatarAuthTag(b []byte) {
+	m.avatar_auth_tag = &b
+}
+
+// AvatarAuthTag returns the value of the "avatar_auth_tag" field in the mutation.
+func (m *UserMutation) AvatarAuthTag() (r []byte, exists bool) {
+	v := m.avatar_auth_tag
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAvatarAuthTag returns the old "avatar_auth_tag" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldAvatarAuthTag(ctx context.Context) (v []byte, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAvatarAuthTag is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAvatarAuthTag requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAvatarAuthTag: %w", err)
+	}
+	return oldValue.AvatarAuthTag, nil
+}
+
+// ResetAvatarAuthTag resets all changes to the "avatar_auth_tag" field.
+func (m *UserMutation) ResetAvatarAuthTag() {
+	m.avatar_auth_tag = nil
 }
 
 // AddChatIDs adds the "chats" edge to the Chat entity by ids.
@@ -2348,7 +2359,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 7)
+	fields := make([]string, 0, 8)
 	if m.username != nil {
 		fields = append(fields, user.FieldUsername)
 	}
@@ -2369,6 +2380,9 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.avatar_iv != nil {
 		fields = append(fields, user.FieldAvatarIv)
+	}
+	if m.avatar_auth_tag != nil {
+		fields = append(fields, user.FieldAvatarAuthTag)
 	}
 	return fields
 }
@@ -2392,6 +2406,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.Avatar()
 	case user.FieldAvatarIv:
 		return m.AvatarIv()
+	case user.FieldAvatarAuthTag:
+		return m.AvatarAuthTag()
 	}
 	return nil, false
 }
@@ -2415,6 +2431,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldAvatar(ctx)
 	case user.FieldAvatarIv:
 		return m.OldAvatarIv(ctx)
+	case user.FieldAvatarAuthTag:
+		return m.OldAvatarAuthTag(ctx)
 	}
 	return nil, fmt.Errorf("unknown User field %s", name)
 }
@@ -2460,18 +2478,25 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		m.SetIsAdmin(v)
 		return nil
 	case user.FieldAvatar:
-		v, ok := value.(string)
+		v, ok := value.([]byte)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAvatar(v)
 		return nil
 	case user.FieldAvatarIv:
-		v, ok := value.(string)
+		v, ok := value.([]byte)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAvatarIv(v)
+		return nil
+	case user.FieldAvatarAuthTag:
+		v, ok := value.([]byte)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAvatarAuthTag(v)
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)
@@ -2502,14 +2527,7 @@ func (m *UserMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *UserMutation) ClearedFields() []string {
-	var fields []string
-	if m.FieldCleared(user.FieldAvatar) {
-		fields = append(fields, user.FieldAvatar)
-	}
-	if m.FieldCleared(user.FieldAvatarIv) {
-		fields = append(fields, user.FieldAvatarIv)
-	}
-	return fields
+	return nil
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -2522,14 +2540,6 @@ func (m *UserMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *UserMutation) ClearField(name string) error {
-	switch name {
-	case user.FieldAvatar:
-		m.ClearAvatar()
-		return nil
-	case user.FieldAvatarIv:
-		m.ClearAvatarIv()
-		return nil
-	}
 	return fmt.Errorf("unknown User nullable field %s", name)
 }
 
@@ -2557,6 +2567,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldAvatarIv:
 		m.ResetAvatarIv()
+		return nil
+	case user.FieldAvatarAuthTag:
+		m.ResetAvatarAuthTag()
 		return nil
 	}
 	return fmt.Errorf("unknown User field %s", name)

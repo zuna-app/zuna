@@ -28,9 +28,11 @@ type User struct {
 	// IsAdmin holds the value of the "is_admin" field.
 	IsAdmin bool `json:"is_admin,omitempty"`
 	// Avatar holds the value of the "avatar" field.
-	Avatar *string `json:"avatar,omitempty"`
+	Avatar []byte `json:"avatar,omitempty"`
 	// AvatarIv holds the value of the "avatar_iv" field.
-	AvatarIv *string `json:"avatar_iv,omitempty"`
+	AvatarIv []byte `json:"avatar_iv,omitempty"`
+	// AvatarAuthTag holds the value of the "avatar_auth_tag" field.
+	AvatarAuthTag []byte `json:"avatar_auth_tag,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the UserQuery when eager-loading is set.
 	Edges        UserEdges `json:"edges"`
@@ -71,11 +73,11 @@ func (*User) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case user.FieldIdentityKey, user.FieldSigningKey:
+		case user.FieldIdentityKey, user.FieldSigningKey, user.FieldAvatar, user.FieldAvatarIv, user.FieldAvatarAuthTag:
 			values[i] = new([]byte)
 		case user.FieldIsAdmin:
 			values[i] = new(sql.NullBool)
-		case user.FieldID, user.FieldUsername, user.FieldAvatar, user.FieldAvatarIv:
+		case user.FieldID, user.FieldUsername:
 			values[i] = new(sql.NullString)
 		case user.FieldLastSeen:
 			values[i] = new(sql.NullTime)
@@ -131,18 +133,22 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				_m.IsAdmin = value.Bool
 			}
 		case user.FieldAvatar:
-			if value, ok := values[i].(*sql.NullString); !ok {
+			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field avatar", values[i])
-			} else if value.Valid {
-				_m.Avatar = new(string)
-				*_m.Avatar = value.String
+			} else if value != nil {
+				_m.Avatar = *value
 			}
 		case user.FieldAvatarIv:
-			if value, ok := values[i].(*sql.NullString); !ok {
+			if value, ok := values[i].(*[]byte); !ok {
 				return fmt.Errorf("unexpected type %T for field avatar_iv", values[i])
-			} else if value.Valid {
-				_m.AvatarIv = new(string)
-				*_m.AvatarIv = value.String
+			} else if value != nil {
+				_m.AvatarIv = *value
+			}
+		case user.FieldAvatarAuthTag:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field avatar_auth_tag", values[i])
+			} else if value != nil {
+				_m.AvatarAuthTag = *value
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
@@ -205,15 +211,14 @@ func (_m *User) String() string {
 	builder.WriteString("is_admin=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IsAdmin))
 	builder.WriteString(", ")
-	if v := _m.Avatar; v != nil {
-		builder.WriteString("avatar=")
-		builder.WriteString(*v)
-	}
+	builder.WriteString("avatar=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Avatar))
 	builder.WriteString(", ")
-	if v := _m.AvatarIv; v != nil {
-		builder.WriteString("avatar_iv=")
-		builder.WriteString(*v)
-	}
+	builder.WriteString("avatar_iv=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AvatarIv))
+	builder.WriteString(", ")
+	builder.WriteString("avatar_auth_tag=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AvatarAuthTag))
 	builder.WriteByte(')')
 	return builder.String()
 }

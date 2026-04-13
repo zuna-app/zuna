@@ -91,13 +91,18 @@ func IsAdmin(v bool) predicate.User {
 }
 
 // Avatar applies equality check predicate on the "avatar" field. It's identical to AvatarEQ.
-func Avatar(v string) predicate.User {
+func Avatar(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldAvatar, v))
 }
 
 // AvatarIv applies equality check predicate on the "avatar_iv" field. It's identical to AvatarIvEQ.
-func AvatarIv(v string) predicate.User {
+func AvatarIv(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldAvatarIv, v))
+}
+
+// AvatarAuthTag applies equality check predicate on the "avatar_auth_tag" field. It's identical to AvatarAuthTagEQ.
+func AvatarAuthTag(v []byte) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAvatarAuthTag, v))
 }
 
 // UsernameEQ applies the EQ predicate on the "username" field.
@@ -296,153 +301,123 @@ func IsAdminNEQ(v bool) predicate.User {
 }
 
 // AvatarEQ applies the EQ predicate on the "avatar" field.
-func AvatarEQ(v string) predicate.User {
+func AvatarEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldAvatar, v))
 }
 
 // AvatarNEQ applies the NEQ predicate on the "avatar" field.
-func AvatarNEQ(v string) predicate.User {
+func AvatarNEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldAvatar, v))
 }
 
 // AvatarIn applies the In predicate on the "avatar" field.
-func AvatarIn(vs ...string) predicate.User {
+func AvatarIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldIn(FieldAvatar, vs...))
 }
 
 // AvatarNotIn applies the NotIn predicate on the "avatar" field.
-func AvatarNotIn(vs ...string) predicate.User {
+func AvatarNotIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldNotIn(FieldAvatar, vs...))
 }
 
 // AvatarGT applies the GT predicate on the "avatar" field.
-func AvatarGT(v string) predicate.User {
+func AvatarGT(v []byte) predicate.User {
 	return predicate.User(sql.FieldGT(FieldAvatar, v))
 }
 
 // AvatarGTE applies the GTE predicate on the "avatar" field.
-func AvatarGTE(v string) predicate.User {
+func AvatarGTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldGTE(FieldAvatar, v))
 }
 
 // AvatarLT applies the LT predicate on the "avatar" field.
-func AvatarLT(v string) predicate.User {
+func AvatarLT(v []byte) predicate.User {
 	return predicate.User(sql.FieldLT(FieldAvatar, v))
 }
 
 // AvatarLTE applies the LTE predicate on the "avatar" field.
-func AvatarLTE(v string) predicate.User {
+func AvatarLTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldAvatar, v))
 }
 
-// AvatarContains applies the Contains predicate on the "avatar" field.
-func AvatarContains(v string) predicate.User {
-	return predicate.User(sql.FieldContains(FieldAvatar, v))
-}
-
-// AvatarHasPrefix applies the HasPrefix predicate on the "avatar" field.
-func AvatarHasPrefix(v string) predicate.User {
-	return predicate.User(sql.FieldHasPrefix(FieldAvatar, v))
-}
-
-// AvatarHasSuffix applies the HasSuffix predicate on the "avatar" field.
-func AvatarHasSuffix(v string) predicate.User {
-	return predicate.User(sql.FieldHasSuffix(FieldAvatar, v))
-}
-
-// AvatarIsNil applies the IsNil predicate on the "avatar" field.
-func AvatarIsNil() predicate.User {
-	return predicate.User(sql.FieldIsNull(FieldAvatar))
-}
-
-// AvatarNotNil applies the NotNil predicate on the "avatar" field.
-func AvatarNotNil() predicate.User {
-	return predicate.User(sql.FieldNotNull(FieldAvatar))
-}
-
-// AvatarEqualFold applies the EqualFold predicate on the "avatar" field.
-func AvatarEqualFold(v string) predicate.User {
-	return predicate.User(sql.FieldEqualFold(FieldAvatar, v))
-}
-
-// AvatarContainsFold applies the ContainsFold predicate on the "avatar" field.
-func AvatarContainsFold(v string) predicate.User {
-	return predicate.User(sql.FieldContainsFold(FieldAvatar, v))
-}
-
 // AvatarIvEQ applies the EQ predicate on the "avatar_iv" field.
-func AvatarIvEQ(v string) predicate.User {
+func AvatarIvEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldAvatarIv, v))
 }
 
 // AvatarIvNEQ applies the NEQ predicate on the "avatar_iv" field.
-func AvatarIvNEQ(v string) predicate.User {
+func AvatarIvNEQ(v []byte) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldAvatarIv, v))
 }
 
 // AvatarIvIn applies the In predicate on the "avatar_iv" field.
-func AvatarIvIn(vs ...string) predicate.User {
+func AvatarIvIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldIn(FieldAvatarIv, vs...))
 }
 
 // AvatarIvNotIn applies the NotIn predicate on the "avatar_iv" field.
-func AvatarIvNotIn(vs ...string) predicate.User {
+func AvatarIvNotIn(vs ...[]byte) predicate.User {
 	return predicate.User(sql.FieldNotIn(FieldAvatarIv, vs...))
 }
 
 // AvatarIvGT applies the GT predicate on the "avatar_iv" field.
-func AvatarIvGT(v string) predicate.User {
+func AvatarIvGT(v []byte) predicate.User {
 	return predicate.User(sql.FieldGT(FieldAvatarIv, v))
 }
 
 // AvatarIvGTE applies the GTE predicate on the "avatar_iv" field.
-func AvatarIvGTE(v string) predicate.User {
+func AvatarIvGTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldGTE(FieldAvatarIv, v))
 }
 
 // AvatarIvLT applies the LT predicate on the "avatar_iv" field.
-func AvatarIvLT(v string) predicate.User {
+func AvatarIvLT(v []byte) predicate.User {
 	return predicate.User(sql.FieldLT(FieldAvatarIv, v))
 }
 
 // AvatarIvLTE applies the LTE predicate on the "avatar_iv" field.
-func AvatarIvLTE(v string) predicate.User {
+func AvatarIvLTE(v []byte) predicate.User {
 	return predicate.User(sql.FieldLTE(FieldAvatarIv, v))
 }
 
-// AvatarIvContains applies the Contains predicate on the "avatar_iv" field.
-func AvatarIvContains(v string) predicate.User {
-	return predicate.User(sql.FieldContains(FieldAvatarIv, v))
+// AvatarAuthTagEQ applies the EQ predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagEQ(v []byte) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAvatarAuthTag, v))
 }
 
-// AvatarIvHasPrefix applies the HasPrefix predicate on the "avatar_iv" field.
-func AvatarIvHasPrefix(v string) predicate.User {
-	return predicate.User(sql.FieldHasPrefix(FieldAvatarIv, v))
+// AvatarAuthTagNEQ applies the NEQ predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagNEQ(v []byte) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldAvatarAuthTag, v))
 }
 
-// AvatarIvHasSuffix applies the HasSuffix predicate on the "avatar_iv" field.
-func AvatarIvHasSuffix(v string) predicate.User {
-	return predicate.User(sql.FieldHasSuffix(FieldAvatarIv, v))
+// AvatarAuthTagIn applies the In predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagIn(vs ...[]byte) predicate.User {
+	return predicate.User(sql.FieldIn(FieldAvatarAuthTag, vs...))
 }
 
-// AvatarIvIsNil applies the IsNil predicate on the "avatar_iv" field.
-func AvatarIvIsNil() predicate.User {
-	return predicate.User(sql.FieldIsNull(FieldAvatarIv))
+// AvatarAuthTagNotIn applies the NotIn predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagNotIn(vs ...[]byte) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldAvatarAuthTag, vs...))
 }
 
-// AvatarIvNotNil applies the NotNil predicate on the "avatar_iv" field.
-func AvatarIvNotNil() predicate.User {
-	return predicate.User(sql.FieldNotNull(FieldAvatarIv))
+// AvatarAuthTagGT applies the GT predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagGT(v []byte) predicate.User {
+	return predicate.User(sql.FieldGT(FieldAvatarAuthTag, v))
 }
 
-// AvatarIvEqualFold applies the EqualFold predicate on the "avatar_iv" field.
-func AvatarIvEqualFold(v string) predicate.User {
-	return predicate.User(sql.FieldEqualFold(FieldAvatarIv, v))
+// AvatarAuthTagGTE applies the GTE predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagGTE(v []byte) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldAvatarAuthTag, v))
 }
 
-// AvatarIvContainsFold applies the ContainsFold predicate on the "avatar_iv" field.
-func AvatarIvContainsFold(v string) predicate.User {
-	return predicate.User(sql.FieldContainsFold(FieldAvatarIv, v))
+// AvatarAuthTagLT applies the LT predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagLT(v []byte) predicate.User {
+	return predicate.User(sql.FieldLT(FieldAvatarAuthTag, v))
+}
+
+// AvatarAuthTagLTE applies the LTE predicate on the "avatar_auth_tag" field.
+func AvatarAuthTagLTE(v []byte) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldAvatarAuthTag, v))
 }
 
 // HasChats applies the HasEdge predicate on the "chats" edge.

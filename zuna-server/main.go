@@ -55,11 +55,12 @@ func main() {
 	api := e.Group("/api")
 
 	auth := api.Group("/auth")
-	auth.POST("/handshake", handshakeEndpoint)
-	auth.POST("/auth", authEndpoint)
-	auth.POST("/join", joinEndpoint)
+	auth.POST("/handshake", authHandshakeEndpoint)
+	auth.POST("/auth", authAuthorizeEndpoint)
+	auth.POST("/join", authJoinEndpoint)
 
-	e.GET("/test", testEndpoint, authMiddleware)
+	chat := api.Group("/chat", authMiddleware)
+	chat.GET("/list", chatListEndpoint)
 
 	if err := e.Start(":8080"); err != nil {
 		slog.Error("failed to start server", "error", err)

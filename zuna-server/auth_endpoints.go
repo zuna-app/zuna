@@ -39,7 +39,7 @@ type JoinResponse struct {
 	ID string `json:"id"`
 }
 
-func handshakeEndpoint(c *echo.Context) error {
+func authHandshakeEndpoint(c *echo.Context) error {
 	req := new(HandshakeRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)
@@ -64,7 +64,7 @@ func handshakeEndpoint(c *echo.Context) error {
 	})
 }
 
-func authEndpoint(c *echo.Context) error {
+func authAuthorizeEndpoint(c *echo.Context) error {
 	req := new(AuthRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)
@@ -112,7 +112,7 @@ func authEndpoint(c *echo.Context) error {
 	})
 }
 
-func joinEndpoint(c *echo.Context) error {
+func authJoinEndpoint(c *echo.Context) error {
 	req := new(JoinRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)

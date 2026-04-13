@@ -69,30 +69,20 @@ func (_c *UserCreate) SetNillableIsAdmin(v *bool) *UserCreate {
 }
 
 // SetAvatar sets the "avatar" field.
-func (_c *UserCreate) SetAvatar(v string) *UserCreate {
+func (_c *UserCreate) SetAvatar(v []byte) *UserCreate {
 	_c.mutation.SetAvatar(v)
 	return _c
 }
 
-// SetNillableAvatar sets the "avatar" field if the given value is not nil.
-func (_c *UserCreate) SetNillableAvatar(v *string) *UserCreate {
-	if v != nil {
-		_c.SetAvatar(*v)
-	}
-	return _c
-}
-
 // SetAvatarIv sets the "avatar_iv" field.
-func (_c *UserCreate) SetAvatarIv(v string) *UserCreate {
+func (_c *UserCreate) SetAvatarIv(v []byte) *UserCreate {
 	_c.mutation.SetAvatarIv(v)
 	return _c
 }
 
-// SetNillableAvatarIv sets the "avatar_iv" field if the given value is not nil.
-func (_c *UserCreate) SetNillableAvatarIv(v *string) *UserCreate {
-	if v != nil {
-		_c.SetAvatarIv(*v)
-	}
+// SetAvatarAuthTag sets the "avatar_auth_tag" field.
+func (_c *UserCreate) SetAvatarAuthTag(v []byte) *UserCreate {
+	_c.mutation.SetAvatarAuthTag(v)
 	return _c
 }
 
@@ -183,6 +173,18 @@ func (_c *UserCreate) defaults() {
 		v := user.DefaultIsAdmin
 		_c.mutation.SetIsAdmin(v)
 	}
+	if _, ok := _c.mutation.Avatar(); !ok {
+		v := user.DefaultAvatar
+		_c.mutation.SetAvatar(v)
+	}
+	if _, ok := _c.mutation.AvatarIv(); !ok {
+		v := user.DefaultAvatarIv
+		_c.mutation.SetAvatarIv(v)
+	}
+	if _, ok := _c.mutation.AvatarAuthTag(); !ok {
+		v := user.DefaultAvatarAuthTag
+		_c.mutation.SetAvatarAuthTag(v)
+	}
 	if _, ok := _c.mutation.ID(); !ok {
 		v := user.DefaultID()
 		_c.mutation.SetID(v)
@@ -205,6 +207,15 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsAdmin(); !ok {
 		return &ValidationError{Name: "is_admin", err: errors.New(`ent: missing required field "User.is_admin"`)}
+	}
+	if _, ok := _c.mutation.Avatar(); !ok {
+		return &ValidationError{Name: "avatar", err: errors.New(`ent: missing required field "User.avatar"`)}
+	}
+	if _, ok := _c.mutation.AvatarIv(); !ok {
+		return &ValidationError{Name: "avatar_iv", err: errors.New(`ent: missing required field "User.avatar_iv"`)}
+	}
+	if _, ok := _c.mutation.AvatarAuthTag(); !ok {
+		return &ValidationError{Name: "avatar_auth_tag", err: errors.New(`ent: missing required field "User.avatar_auth_tag"`)}
 	}
 	return nil
 }
@@ -262,12 +273,16 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 		_node.IsAdmin = value
 	}
 	if value, ok := _c.mutation.Avatar(); ok {
-		_spec.SetField(user.FieldAvatar, field.TypeString, value)
-		_node.Avatar = &value
+		_spec.SetField(user.FieldAvatar, field.TypeBytes, value)
+		_node.Avatar = value
 	}
 	if value, ok := _c.mutation.AvatarIv(); ok {
-		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
-		_node.AvatarIv = &value
+		_spec.SetField(user.FieldAvatarIv, field.TypeBytes, value)
+		_node.AvatarIv = value
+	}
+	if value, ok := _c.mutation.AvatarAuthTag(); ok {
+		_spec.SetField(user.FieldAvatarAuthTag, field.TypeBytes, value)
+		_node.AvatarAuthTag = value
 	}
 	if nodes := _c.mutation.ChatsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
