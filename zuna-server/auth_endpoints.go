@@ -45,7 +45,17 @@ func authHandshakeEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
-	//TODO: Check if users exists in DB
+	exists, err := EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	if !exists {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Code:  400,
+			Error: "user does not exist",
+		})
+	}
 
 	userData, exists := userDatas[req.Username]
 	if !exists {
@@ -70,11 +80,21 @@ func authAuthorizeEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
-	//TODO: Check if users exists in DB
+	exists, err := EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	if !exists {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Code:  400,
+			Error: "user does not exist",
+		})
+	}
+
 	userData, exists := userDatas[req.Username]
 	if !exists {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Code: 400, Error: "requested auth without handshake"})
-
 	}
 
 	ctx := c.Request().Context()
