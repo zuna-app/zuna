@@ -26,4 +26,21 @@ interface Window {
     }>;
     signMessage: (privateKey: string, message: string) => Promise<string>;
   };
+  env: {
+    platform: string;
+  };
+  system: {
+    minimize: () => Promise<void>;
+    maximize: () => Promise<void>;
+    close: () => Promise<void>;
+  };
+  vault: {
+    get: (key: string) => Promise<any>;
+    set: (key: string, value: any) => Promise<void>;
+    delete: (key: string) => Promise<void>;
+    lock: () => Promise<void>;
+    unlock: (password: string) => Promise<void>;
+    isFirstTimeSetup: () => Promise<boolean>;
+    import: (base64Data: string) => Promise<boolean>;
+  };
 }

@@ -1,39 +1,43 @@
-import { Button } from "@/components/ui/button";
-import { useEffect, useMemo, useState } from "react";
+import { TitleBar } from "@/components/title-bar";
+import { useEffect, useState } from "react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
+import { FirstTimeSetup } from "@/components/setup/first-time-setup";
+import { PasswordPrompter } from "@/components/password-prompter";
 
 export function App() {
-  const [publicKey, setPublicKey] = useState<string | null>(null);
-  const [privateKey, setPrivateKey] = useState<string | null>(null);
+  const [isFirstTime, setIsFirstTime] = useState<boolean | null>(null);
+  const [isPasswordPromptOpen, setIsPasswordPromptOpen] = useState(true);
 
   useEffect(() => {
-    const generateKeys = async () => {
-      await window.security.generateEncryptionKeyPair().then((keyPair) => {
-        setPublicKey(keyPair.publicKey);
-        setPrivateKey(keyPair.privateKey);
-      });
-    };
-    generateKeys();
+    window.vault.isFirstTimeSetup().then((result: boolean) => {
+      setIsFirstTime(result);
+    });
   }, []);
 
-  return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
-        </div>
+  if (isFirstTime === null) {
+    return null;
+  }
 
-        <p>
-          {publicKey ? `Public Key: ${publicKey}` : "Generating key pair..."}
-        </p>
-        <p>
-          {privateKey ? `Private Key: ${privateKey}` : "Generating key pair..."}
-        </p>
-        <div className="font-mono text-xs text-muted-foreground">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
+  if (isFirstTime) {
+    return <FirstTimeSetup onComplete={() => setIsFirstTime(false)} />;
+  }
+
+  if (isPasswordPromptOpen) {
+    return (
+      <PasswordPrompter onUnlocked={() => setIsPasswordPromptOpen(false)} />
+    );
+  }
+
+  return (
+    <div className="flex h-svh flex-col bg-background rounded-md overflow-hidden border border-neutral-600 dark:border-neutral-800">
+      <TitleBar
+        serverAddress="zuna.example.com:8080"
+        ping={42}
+        onSettings={() => console.log("settings")}
+      />
+      <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
+        You're all set up. Main app content goes here.
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { ipcMain } from "electron";
+import { BrowserWindow, ipcMain } from "electron";
 import { toBase64, fromBase64 } from "./crypto/base64";
 import {
   computeSharedSecret,
@@ -7,6 +7,16 @@ import {
   generateEncryptionKeyPair,
 } from "./crypto/x25519";
 import { generateSigningKeyPair, signMessage } from "./crypto/ed25519";
+import { decryptWithPassword, encryptWithPassword } from "./crypto/scrypt";
+import {
+  importVault,
+  isFirstTimeSetup,
+  loadAndUnlockVault,
+  lockVault,
+  vaultDelete,
+  vaultGet,
+  vaultSet,
+} from "./storage/safeVault";
 
 export function registerIPC() {
   ipcMain.handle("base64:encode", (_, str) => {
@@ -52,4 +62,69 @@ export function registerIPC() {
       return signMessage(privateKey, message);
     },
   );
+
+  ipcMain.handle("window:minimize", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+
+    if (win) {
+      win.minimize();
+    }
+  });
+
+  ipcMain.handle("window:maximize", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+
+    if (win) {
+      if (win.isMaximized()) {
+        win.unmaximize();
+      } else {
+        win.maximize();
+      }
+    }
+  });
+
+  ipcMain.handle("window:close", (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+
+    if (win) {
+      win.close();
+    }
+  });
+
+  ipcMain.handle("vault:unlock", (_, password: string) => {
+    loadAndUnlockVault(password);
+    return true;
+  });
+
+  ipcMain.handle("vault:lock", () => {
+    lockVault();
+    return true;
+  });
+
+  ipcMain.handle("vault:set", (_, key: string, value: any) => {
+    vaultSet(key, value);
+    return true;
+  });
+
+  ipcMain.handle("vault:get", (_, key: string) => {
+    const val = vaultGet(key);
+    if (Buffer.isBuffer(val)) {
+      return val.toString("base64");
+    }
+    return val;
+  });
+
+  ipcMain.handle("vault:delete", (_, key: string) => {
+    vaultDelete(key);
+    return true;
+  });
+
+  ipcMain.handle("vault:isFirstTimeSetup", () => {
+    return isFirstTimeSetup();
+  });
+
+  ipcMain.handle("vault:import", (_, base64Data: string) => {
+    importVault(Buffer.from(base64Data, "base64"));
+    return true;
+  });
 }

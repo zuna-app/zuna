@@ -25,3 +25,25 @@ contextBridge.exposeInMainWorld("security", {
   signMessage: (privateKey: string, message: string): Promise<string> =>
     ipcRenderer.invoke("ed25519:signMessage", privateKey, message),
 });
+
+contextBridge.exposeInMainWorld("env", {
+  platform: process.platform,
+});
+
+contextBridge.exposeInMainWorld("system", {
+  minimize: () => ipcRenderer.invoke("window:minimize"),
+  maximize: () => ipcRenderer.invoke("window:maximize"),
+  close: () => ipcRenderer.invoke("window:close"),
+});
+
+contextBridge.exposeInMainWorld("vault", {
+  get: (key: string) => ipcRenderer.invoke("vault:get", key),
+  set: (key: string, value: Buffer) =>
+    ipcRenderer.invoke("vault:set", key, value.toString("base64")),
+  delete: (key: string) => ipcRenderer.invoke("vault:delete", key),
+  lock: () => ipcRenderer.invoke("vault:lock"),
+  unlock: (password: string) => ipcRenderer.invoke("vault:unlock", password),
+  isFirstTimeSetup: () => ipcRenderer.invoke("vault:isFirstTimeSetup"),
+  import: (base64Data: string) =>
+    ipcRenderer.invoke("vault:import", base64Data),
+});
