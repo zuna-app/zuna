@@ -173,18 +173,6 @@ func (_c *UserCreate) defaults() {
 		v := user.DefaultIsAdmin
 		_c.mutation.SetIsAdmin(v)
 	}
-	if _, ok := _c.mutation.Avatar(); !ok {
-		v := user.DefaultAvatar
-		_c.mutation.SetAvatar(v)
-	}
-	if _, ok := _c.mutation.AvatarIv(); !ok {
-		v := user.DefaultAvatarIv
-		_c.mutation.SetAvatarIv(v)
-	}
-	if _, ok := _c.mutation.AvatarAuthTag(); !ok {
-		v := user.DefaultAvatarAuthTag
-		_c.mutation.SetAvatarAuthTag(v)
-	}
 	if _, ok := _c.mutation.ID(); !ok {
 		v := user.DefaultID()
 		_c.mutation.SetID(v)

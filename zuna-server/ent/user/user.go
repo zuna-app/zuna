@@ -84,12 +84,6 @@ var (
 	DefaultLastSeen func() time.Time
 	// DefaultIsAdmin holds the default value on creation for the "is_admin" field.
 	DefaultIsAdmin bool
-	// DefaultAvatar holds the default value on creation for the "avatar" field.
-	DefaultAvatar []byte
-	// DefaultAvatarIv holds the default value on creation for the "avatar_iv" field.
-	DefaultAvatarIv []byte
-	// DefaultAvatarAuthTag holds the default value on creation for the "avatar_auth_tag" field.
-	DefaultAvatarAuthTag []byte
 	// DefaultID holds the default value on creation for the "id" field.
 	DefaultID func() string
 )

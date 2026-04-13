@@ -30,9 +30,12 @@ type AuthResponse struct {
 }
 
 type JoinRequest struct {
-	Username    string `json:"username"`
-	IdentityKey []byte `json:"identity_key"`
-	SigningKey  []byte `json:"signing_key"`
+	Username      string `json:"username"`
+	IdentityKey   []byte `json:"identity_key"`
+	SigningKey    []byte `json:"signing_key"`
+	Avatar        []byte `json:"avatar"`
+	AvatarIv      []byte `json:"avatar_iv"`
+	AvatarAuthTag []byte `json:"avatar_auth_tag"`
 }
 
 type JoinResponse struct {
@@ -159,6 +162,9 @@ func authJoinEndpoint(c *echo.Context) error {
 		SetUsername(req.Username).
 		SetIdentityKey(req.IdentityKey).
 		SetSigningKey(req.SigningKey).
+		SetAvatar(req.Avatar).
+		SetAvatarIv(req.AvatarIv).
+		SetAvatarAuthTag(req.AvatarAuthTag).
 		Save(ctx)
 
 	if err != nil {

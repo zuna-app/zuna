@@ -72,7 +72,10 @@ items:
               {
                 "username": "",
                 "identity_key": "",
-                "signing_key": ""
+                "signing_key": "",
+                "avatar": "",
+                "avatar_iv": "",
+                "avatar_auth_tag": ""
               }
           auth: inherit
         settings:
@@ -108,5 +111,5 @@ extensions:
     ignore:
       - node_modules
       - .git
-    exportedAt: '2026-04-13T22:57:06.610Z'
+    exportedAt: '2026-04-13T23:56:16.756Z'
     exportedUsing: Bruno

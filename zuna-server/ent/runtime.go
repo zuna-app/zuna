@@ -47,18 +47,6 @@ func init() {
 	userDescIsAdmin := userFields[5].Descriptor()
 	// user.DefaultIsAdmin holds the default value on creation for the is_admin field.
 	user.DefaultIsAdmin = userDescIsAdmin.Default.(bool)
-	// userDescAvatar is the schema descriptor for avatar field.
-	userDescAvatar := userFields[6].Descriptor()
-	// user.DefaultAvatar holds the default value on creation for the avatar field.
-	user.DefaultAvatar = userDescAvatar.Default.([]byte)
-	// userDescAvatarIv is the schema descriptor for avatar_iv field.
-	userDescAvatarIv := userFields[7].Descriptor()
-	// user.DefaultAvatarIv holds the default value on creation for the avatar_iv field.
-	user.DefaultAvatarIv = userDescAvatarIv.Default.([]byte)
-	// userDescAvatarAuthTag is the schema descriptor for avatar_auth_tag field.
-	userDescAvatarAuthTag := userFields[8].Descriptor()
-	// user.DefaultAvatarAuthTag holds the default value on creation for the avatar_auth_tag field.
-	user.DefaultAvatarAuthTag = userDescAvatarAuthTag.Default.([]byte)
 	// userDescID is the schema descriptor for id field.
 	userDescID := userFields[0].Descriptor()
 	// user.DefaultID holds the default value on creation for the id field.
