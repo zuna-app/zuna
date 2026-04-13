@@ -128,15 +128,48 @@ func joinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Code: 400, Error: "user already exists"})
 	}
 
-	u, err := EntClient.User.Create().
+	ctx := c.Request().Context()
+
+	tx, err := EntClient.Tx(ctx)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, err)
+	}
+
+	u, err := tx.User.Create().
 		SetUsername(req.Username).
 		SetIdentityKey(req.IdentityKey).
 		SetSigningKey(req.SigningKey).
-		Save(c.Request().Context())
+		Save(ctx)
 
 	if err != nil {
+		tx.Rollback()
 		fmt.Println(err)
-		return c.JSON(http.StatusInternalServerError, InternalServerError)
+		return c.JSON(http.StatusInternalServerError, err)
+	}
+
+	users, err := tx.User.Query().
+		Where(user.IDNEQ(u.ID)).
+		All(ctx)
+	if err != nil {
+		tx.Rollback()
+		fmt.Println(err)
+		return c.JSON(http.StatusInternalServerError, err)
+	}
+
+	for _, other := range users {
+		_, err := tx.Chat.Create().
+			AddUsers(u, other).
+			Save(ctx)
+		if err != nil {
+			tx.Rollback()
+			fmt.Println(err)
+			return c.JSON(http.StatusInternalServerError, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		fmt.Println(err)
+		return c.JSON(http.StatusInternalServerError, err)
 	}
 
 	return c.JSON(http.StatusOK, JoinResponse{
