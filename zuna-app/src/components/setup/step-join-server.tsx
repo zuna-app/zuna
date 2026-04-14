@@ -1,11 +1,11 @@
 import * as React from "react";
-import { ServerIcon, UserIcon } from "lucide-react";
+import { ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { PseudoAvatar } from "@/components/ui/pseudo-avatar";
 
 export interface ServerJoinData {
   serverAddress: string;
@@ -18,70 +18,8 @@ interface StepJoinServerProps {
   onBack?: () => void;
   showBack?: boolean;
   nextLabel?: string;
-}
-
-function getInitials(username: string): string {
-  const parts = username
-    .trim()
-    .split(/[\s_.\-]+/)
-    .filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  if (username.length >= 2) return username.slice(0, 2).toUpperCase();
-  return username.toUpperCase();
-}
-
-function getAvatarHue(username: string): number {
-  if (!username) return 220;
-  let hash = 0;
-  for (let i = 0; i < username.length; i++) {
-    hash = username.charCodeAt(i) + ((hash << 5) - hash);
-    hash |= 0;
-  }
-  return ((Math.abs(hash) % 360) + 360) % 360;
-}
-
-function PseudoAvatar({
-  username,
-  size = 40,
-}: {
-  username: string;
-  size?: number;
-}) {
-  const hue = getAvatarHue(username);
-  const bg = `hsl(${hue}, 60%, 50%)`;
-  const border = `hsl(${hue}, 60%, 38%)`;
-  const initials = username ? (
-    getInitials(username)
-  ) : (
-    <UserIcon className="size-4" />
-  );
-
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        background: username
-          ? `radial-gradient(circle at 35% 35%, hsl(${hue}, 70%, 62%), ${bg})`
-          : undefined,
-        backgroundColor: username ? undefined : "hsl(var(--muted))",
-        boxShadow: `0 0 0 2px ${username ? border : "hsl(var(--border))"}`,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: username ? "white" : "hsl(var(--muted-foreground))",
-        fontSize: size * 0.32,
-        fontWeight: 700,
-        letterSpacing: "-0.02em",
-        flexShrink: 0,
-        userSelect: "none",
-        transition: "all 0.2s ease",
-      }}
-    >
-      {initials}
-    </div>
-  );
+  loading?: boolean;
+  error?: string | null;
 }
 
 export function StepJoinServer({
@@ -89,6 +27,8 @@ export function StepJoinServer({
   onBack,
   showBack = true,
   nextLabel = "Join Server",
+  loading = false,
+  error = null,
 }: StepJoinServerProps) {
   const [serverAddress, setServerAddress] = React.useState("");
   const [serverPassword, setServerPassword] = React.useState("");
@@ -163,7 +103,6 @@ export function StepJoinServer({
 
         <div className="grid gap-3">
           <div className="flex items-center gap-2">
-            <UserIcon className="size-3.5 text-muted-foreground" />
             <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Your Identity
             </span>
@@ -187,7 +126,7 @@ export function StepJoinServer({
               />
             </div>
             <div className="flex flex-col items-center gap-1.5 mt-5 shrink-0">
-              <PseudoAvatar username={username} size={44} />
+              <PseudoAvatar name={username} size={44} />
               <span className="text-[10px] text-muted-foreground">Preview</span>
             </div>
           </div>
@@ -200,15 +139,22 @@ export function StepJoinServer({
 
       <div className="flex items-center justify-between">
         {showBack && onBack ? (
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" onClick={onBack} disabled={loading}>
             Back
           </Button>
         ) : (
           <div />
         )}
-        <Button onClick={handleNext} disabled={!canContinue}>
-          {nextLabel}
-        </Button>
+        <div className="flex flex-col items-end gap-1.5">
+          {error && (
+            <p className="text-xs text-destructive text-right max-w-56">
+              {error}
+            </p>
+          )}
+          <Button onClick={handleNext} disabled={!canContinue || loading}>
+            {loading ? "Joining…" : nextLabel}
+          </Button>
+        </div>
       </div>
     </div>
   );

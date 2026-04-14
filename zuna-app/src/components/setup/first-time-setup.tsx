@@ -5,6 +5,7 @@ import { StepKeys, type KeyPairs } from "./step-keys";
 import { StepPin } from "./step-pin";
 import { StepJoinServer, type ServerJoinData } from "./step-join-server";
 import { StepImport } from "./step-import";
+import { useServerConnector } from "@/hooks/useServerConnector";
 
 const STEPS: Step[] = [
   { label: "Create Keys", description: "Encryption & signing" },
@@ -17,10 +18,13 @@ interface FirstTimeSetupProps {
 }
 
 export function FirstTimeSetup({ onComplete }: FirstTimeSetupProps) {
+  const { joinServer } = useServerConnector();
   const [importing, setImporting] = React.useState(false);
   const [step, setStep] = React.useState(0);
   const [keys, setKeys] = React.useState<KeyPairs | null>(null);
   const [pendingKeys, setPendingKeys] = React.useState<KeyPairs | null>(null);
+  const [joinLoading, setJoinLoading] = React.useState(false);
+  const [joinError, setJoinError] = React.useState<string | null>(null);
 
   const generateKeys = React.useCallback(async () => {
     setKeys(null);
@@ -52,8 +56,17 @@ export function FirstTimeSetup({ onComplete }: FirstTimeSetupProps) {
     setStep(2);
   };
 
-  const handleServerJoin = (_data: ServerJoinData) => {
-    onComplete();
+  const handleServerJoin = async (data: ServerJoinData) => {
+    setJoinError(null);
+    setJoinLoading(true);
+    try {
+      await joinServer(data.serverAddress, data.username, new Uint8Array());
+      onComplete();
+    } catch (e: any) {
+      setJoinError(e?.message ?? "Failed to join server.");
+    } finally {
+      setJoinLoading(false);
+    }
   };
 
   return (
@@ -96,8 +109,13 @@ export function FirstTimeSetup({ onComplete }: FirstTimeSetupProps) {
                 {step === 2 && (
                   <StepJoinServer
                     onNext={handleServerJoin}
-                    onBack={() => setStep(1)}
+                    onBack={() => {
+                      setJoinError(null);
+                      setStep(1);
+                    }}
                     nextLabel="Finish Setup"
+                    loading={joinLoading}
+                    error={joinError}
                   />
                 )}
               </>

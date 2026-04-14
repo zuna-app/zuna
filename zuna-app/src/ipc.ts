@@ -17,8 +17,23 @@ import {
   vaultGet,
   vaultSet,
 } from "./storage/safeVault";
+import { decryptFile, encryptFile } from "./crypto/file";
 
 export function registerIPC() {
+  ipcMain.handle(
+    "file:encryptFile",
+    (_, data: Buffer, receiverPublicKey: string) => {
+      return encryptFile(data, receiverPublicKey);
+    },
+  );
+
+  ipcMain.handle(
+    "file:decryptFile",
+    (_, data: Buffer, senderPublicKey: string) => {
+      return decryptFile(data, senderPublicKey);
+    },
+  );
+
   ipcMain.handle("base64:encode", (_, str) => {
     return toBase64(str);
   });

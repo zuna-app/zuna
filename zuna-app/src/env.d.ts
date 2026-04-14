@@ -5,6 +5,8 @@ declare const MAIN_WINDOW_VITE_NAME: string;
 
 interface Window {
   security: {
+    encryptFile: (data: Buffer, receiverPublicKey: string) => Promise<Buffer>;
+    decryptFile: (data: Buffer, senderPublicKey: string) => Promise<Buffer>;
     encode: (str: string) => Promise<string>;
     decode: (base64: string) => Promise<string>;
     generateEncryptionKeyPair: () => Promise<{

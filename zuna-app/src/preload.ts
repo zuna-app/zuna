@@ -1,6 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("security", {
+  encryptFile: (data: Buffer, receiverPublicKey: string): Promise<Buffer> =>
+    ipcRenderer.invoke("file:encryptFile", data, receiverPublicKey),
+  decryptFile: (data: Buffer, senderPublicKey: string): Promise<Buffer> =>
+    ipcRenderer.invoke("file:decryptFile", data, senderPublicKey),
   encode: (str: string): Promise<string> =>
     ipcRenderer.invoke("base64:encode", str),
   decode: (base64: string): Promise<string> =>
@@ -38,8 +42,7 @@ contextBridge.exposeInMainWorld("system", {
 
 contextBridge.exposeInMainWorld("vault", {
   get: (key: string) => ipcRenderer.invoke("vault:get", key),
-  set: (key: string, value: Buffer) =>
-    ipcRenderer.invoke("vault:set", key, value.toString("base64")),
+  set: (key: string, value: any) => ipcRenderer.invoke("vault:set", key, value),
   delete: (key: string) => ipcRenderer.invoke("vault:delete", key),
   lock: () => ipcRenderer.invoke("vault:lock"),
   unlock: (password: string) => ipcRenderer.invoke("vault:unlock", password),

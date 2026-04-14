@@ -94,7 +94,7 @@ export function vaultGet(key: string): any {
   if (!vault) throw new Error("Vault locked");
 
   const val = vault.get(key);
-  if (val === undefined) throw new Error("Key not found");
+  if (val === undefined) return null;
 
   if (Buffer.isBuffer(val)) return Buffer.from(val);
   return val;
