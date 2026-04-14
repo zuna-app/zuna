@@ -17,7 +17,9 @@ type HandshakeRequest struct {
 }
 
 type HandshakeResponse struct {
-	Nonce string `json:"nonce"`
+	Nonce      string `json:"nonce"`
+	ServerName string `json:"server_name"`
+	ServerLogo string `json:"server_logo"`
 }
 
 type AuthRequest struct {
@@ -76,7 +78,9 @@ func authHandshakeEndpoint(c *echo.Context) error {
 	userDatas[req.Username] = userData
 
 	return c.JSON(http.StatusOK, HandshakeResponse{
-		Nonce: userData.ed25519Nonce,
+		Nonce:      userData.ed25519Nonce,
+		ServerName: Config.Server.Name,
+		ServerLogo: ServerLogoBase64,
 	})
 }
 

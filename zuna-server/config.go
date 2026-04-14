@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -24,10 +25,16 @@ type SQLiteConfig struct {
 	Database string `toml:"database"`
 }
 
+type ServerConfig struct {
+	Name string `toml:"name"`
+	Logo string `toml:"logo"`
+}
+
 type Configuration struct {
 	DatabaseType string       `toml:"database_type"`
 	MySQL        MySQLConfig  `toml:"mysql"`
 	SQLite       SQLiteConfig `toml:"sqlite"`
+	Server       ServerConfig `toml:"server"`
 }
 
 var Config = Configuration{
@@ -45,7 +52,13 @@ var Config = Configuration{
 	SQLite: SQLiteConfig{
 		Database: "zuna",
 	},
+	Server: ServerConfig{
+		Name: "Example Zuna server",
+		Logo: "logo.png",
+	},
 }
+
+var ServerLogoBase64 string
 
 func LoadConfig() error {
 	data, err := os.ReadFile(CONFIG_PATH)
@@ -69,6 +82,12 @@ func LoadConfig() error {
 		return errors.New("invalid database type, supported: mysql, sqlite")
 	}
 
+	logoData, err := os.ReadFile(Config.Server.Logo)
+	if err != nil {
+		return errors.New("could not load server logo")
+	}
+
+	ServerLogoBase64 = base64.StdEncoding.EncodeToString(logoData)
 	return nil
 }
 
