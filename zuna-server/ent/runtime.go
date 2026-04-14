@@ -33,10 +33,6 @@ func init() {
 	messageDescSentAt := messageFields[4].Descriptor()
 	// message.DefaultSentAt holds the default value on creation for the sent_at field.
 	message.DefaultSentAt = messageDescSentAt.Default.(func() time.Time)
-	// messageDescID is the schema descriptor for id field.
-	messageDescID := messageFields[0].Descriptor()
-	// message.DefaultID holds the default value on creation for the id field.
-	message.DefaultID = messageDescID.Default.(func() string)
 	userFields := schema.User{}.Fields()
 	_ = userFields
 	// userDescLastSeen is the schema descriptor for last_seen field.

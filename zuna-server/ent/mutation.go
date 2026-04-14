@@ -44,7 +44,7 @@ type AttachmentMutation struct {
 	mime_type           *string
 	original_file_name  *string
 	clearedFields       map[string]struct{}
-	message             *string
+	message             *int64
 	clearedmessage      bool
 	done                bool
 	oldValue            func(context.Context) (*Attachment, error)
@@ -300,7 +300,7 @@ func (m *AttachmentMutation) ResetOriginalFileName() {
 }
 
 // SetMessageID sets the "message" edge to the Message entity by id.
-func (m *AttachmentMutation) SetMessageID(id string) {
+func (m *AttachmentMutation) SetMessageID(id int64) {
 	m.message = &id
 }
 
@@ -315,7 +315,7 @@ func (m *AttachmentMutation) MessageCleared() bool {
 }
 
 // MessageID returns the "message" edge ID in the mutation.
-func (m *AttachmentMutation) MessageID() (id string, exists bool) {
+func (m *AttachmentMutation) MessageID() (id int64, exists bool) {
 	if m.message != nil {
 		return *m.message, true
 	}
@@ -325,7 +325,7 @@ func (m *AttachmentMutation) MessageID() (id string, exists bool) {
 // MessageIDs returns the "message" edge IDs in the mutation.
 // Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
 // MessageID instead. It exists only for internal usage by the builders.
-func (m *AttachmentMutation) MessageIDs() (ids []string) {
+func (m *AttachmentMutation) MessageIDs() (ids []int64) {
 	if id := m.message; id != nil {
 		ids = append(ids, *id)
 	}
@@ -604,8 +604,8 @@ type ChatMutation struct {
 	users           map[string]struct{}
 	removedusers    map[string]struct{}
 	clearedusers    bool
-	messages        map[string]struct{}
-	removedmessages map[string]struct{}
+	messages        map[int64]struct{}
+	removedmessages map[int64]struct{}
 	clearedmessages bool
 	done            bool
 	oldValue        func(context.Context) (*Chat, error)
@@ -771,9 +771,9 @@ func (m *ChatMutation) ResetUsers() {
 }
 
 // AddMessageIDs adds the "messages" edge to the Message entity by ids.
-func (m *ChatMutation) AddMessageIDs(ids ...string) {
+func (m *ChatMutation) AddMessageIDs(ids ...int64) {
 	if m.messages == nil {
-		m.messages = make(map[string]struct{})
+		m.messages = make(map[int64]struct{})
 	}
 	for i := range ids {
 		m.messages[ids[i]] = struct{}{}
@@ -791,9 +791,9 @@ func (m *ChatMutation) MessagesCleared() bool {
 }
 
 // RemoveMessageIDs removes the "messages" edge to the Message entity by IDs.
-func (m *ChatMutation) RemoveMessageIDs(ids ...string) {
+func (m *ChatMutation) RemoveMessageIDs(ids ...int64) {
 	if m.removedmessages == nil {
-		m.removedmessages = make(map[string]struct{})
+		m.removedmessages = make(map[int64]struct{})
 	}
 	for i := range ids {
 		delete(m.messages, ids[i])
@@ -802,7 +802,7 @@ func (m *ChatMutation) RemoveMessageIDs(ids ...string) {
 }
 
 // RemovedMessages returns the removed IDs of the "messages" edge to the Message entity.
-func (m *ChatMutation) RemovedMessagesIDs() (ids []string) {
+func (m *ChatMutation) RemovedMessagesIDs() (ids []int64) {
 	for id := range m.removedmessages {
 		ids = append(ids, id)
 	}
@@ -810,7 +810,7 @@ func (m *ChatMutation) RemovedMessagesIDs() (ids []string) {
 }
 
 // MessagesIDs returns the "messages" edge IDs in the mutation.
-func (m *ChatMutation) MessagesIDs() (ids []string) {
+func (m *ChatMutation) MessagesIDs() (ids []int64) {
 	for id := range m.messages {
 		ids = append(ids, id)
 	}
@@ -1045,7 +1045,7 @@ type MessageMutation struct {
 	config
 	op                 Op
 	typ                string
-	id                 *string
+	id                 *int64
 	cipher_text        *string
 	iv                 *string
 	auth_tag           *string
@@ -1084,7 +1084,7 @@ func newMessageMutation(c config, op Op, opts ...messageOption) *MessageMutation
 }
 
 // withMessageID sets the ID field of the mutation.
-func withMessageID(id string) messageOption {
+func withMessageID(id int64) messageOption {
 	return func(m *MessageMutation) {
 		var (
 			err   error
@@ -1136,13 +1136,13 @@ func (m MessageMutation) Tx() (*Tx, error) {
 
 // SetID sets the value of the id field. Note that this
 // operation is only accepted on creation of Message entities.
-func (m *MessageMutation) SetID(id string) {
+func (m *MessageMutation) SetID(id int64) {
 	m.id = &id
 }
 
 // ID returns the ID value in the mutation. Note that the ID is only available
 // if it was provided to the builder or after it was returned from the database.
-func (m *MessageMutation) ID() (id string, exists bool) {
+func (m *MessageMutation) ID() (id int64, exists bool) {
 	if m.id == nil {
 		return
 	}
@@ -1153,12 +1153,12 @@ func (m *MessageMutation) ID() (id string, exists bool) {
 // That means, if the mutation is applied within a transaction with an isolation level such
 // as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
 // or updated by the mutation.
-func (m *MessageMutation) IDs(ctx context.Context) ([]string, error) {
+func (m *MessageMutation) IDs(ctx context.Context) ([]int64, error) {
 	switch {
 	case m.op.Is(OpUpdateOne | OpDeleteOne):
 		id, exists := m.ID()
 		if exists {
-			return []string{id}, nil
+			return []int64{id}, nil
 		}
 		fallthrough
 	case m.op.Is(OpUpdate | OpDelete):
@@ -1185,7 +1185,7 @@ func (m *MessageMutation) CipherText() (r string, exists bool) {
 // OldCipherText returns the old "cipher_text" field's value of the Message entity.
 // If the Message object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *MessageMutation) OldCipherText(ctx context.Context) (v *string, err error) {
+func (m *MessageMutation) OldCipherText(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldCipherText is only allowed on UpdateOne operations")
 	}
@@ -1221,7 +1221,7 @@ func (m *MessageMutation) Iv() (r string, exists bool) {
 // OldIv returns the old "iv" field's value of the Message entity.
 // If the Message object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *MessageMutation) OldIv(ctx context.Context) (v *string, err error) {
+func (m *MessageMutation) OldIv(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldIv is only allowed on UpdateOne operations")
 	}
@@ -1257,7 +1257,7 @@ func (m *MessageMutation) AuthTag() (r string, exists bool) {
 // OldAuthTag returns the old "auth_tag" field's value of the Message entity.
 // If the Message object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *MessageMutation) OldAuthTag(ctx context.Context) (v *string, err error) {
+func (m *MessageMutation) OldAuthTag(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAuthTag is only allowed on UpdateOne operations")
 	}
@@ -1817,8 +1817,8 @@ type UserMutation struct {
 	chats           map[string]struct{}
 	removedchats    map[string]struct{}
 	clearedchats    bool
-	messages        map[string]struct{}
-	removedmessages map[string]struct{}
+	messages        map[int64]struct{}
+	removedmessages map[int64]struct{}
 	clearedmessages bool
 	done            bool
 	oldValue        func(context.Context) (*User, error)
@@ -2272,9 +2272,9 @@ func (m *UserMutation) ResetChats() {
 }
 
 // AddMessageIDs adds the "messages" edge to the Message entity by ids.
-func (m *UserMutation) AddMessageIDs(ids ...string) {
+func (m *UserMutation) AddMessageIDs(ids ...int64) {
 	if m.messages == nil {
-		m.messages = make(map[string]struct{})
+		m.messages = make(map[int64]struct{})
 	}
 	for i := range ids {
 		m.messages[ids[i]] = struct{}{}
@@ -2292,9 +2292,9 @@ func (m *UserMutation) MessagesCleared() bool {
 }
 
 // RemoveMessageIDs removes the "messages" edge to the Message entity by IDs.
-func (m *UserMutation) RemoveMessageIDs(ids ...string) {
+func (m *UserMutation) RemoveMessageIDs(ids ...int64) {
 	if m.removedmessages == nil {
-		m.removedmessages = make(map[string]struct{})
+		m.removedmessages = make(map[int64]struct{})
 	}
 	for i := range ids {
 		delete(m.messages, ids[i])
@@ -2303,7 +2303,7 @@ func (m *UserMutation) RemoveMessageIDs(ids ...string) {
 }
 
 // RemovedMessages returns the removed IDs of the "messages" edge to the Message entity.
-func (m *UserMutation) RemovedMessagesIDs() (ids []string) {
+func (m *UserMutation) RemovedMessagesIDs() (ids []int64) {
 	for id := range m.removedmessages {
 		ids = append(ids, id)
 	}
@@ -2311,7 +2311,7 @@ func (m *UserMutation) RemovedMessagesIDs() (ids []string) {
 }
 
 // MessagesIDs returns the "messages" edge IDs in the mutation.
-func (m *UserMutation) MessagesIDs() (ids []string) {
+func (m *UserMutation) MessagesIDs() (ids []int64) {
 	for id := range m.messages {
 		ids = append(ids, id)
 	}

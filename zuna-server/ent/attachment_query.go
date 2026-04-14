@@ -410,8 +410,8 @@ func (_q *AttachmentQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*A
 }
 
 func (_q *AttachmentQuery) loadMessage(ctx context.Context, query *MessageQuery, nodes []*Attachment, init func(*Attachment), assign func(*Attachment, *Message)) error {
-	ids := make([]string, 0, len(nodes))
-	nodeids := make(map[string][]*Attachment)
+	ids := make([]int64, 0, len(nodes))
+	nodeids := make(map[int64][]*Attachment)
 	for i := range nodes {
 		if nodes[i].message_attachments == nil {
 			continue

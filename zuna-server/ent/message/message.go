@@ -90,8 +90,6 @@ func ValidColumn(column string) bool {
 var (
 	// DefaultSentAt holds the default value on creation for the "sent_at" field.
 	DefaultSentAt func() time.Time
-	// DefaultID holds the default value on creation for the "id" field.
-	DefaultID func() string
 )
 
 // OrderOption defines the ordering options for the Message queries.

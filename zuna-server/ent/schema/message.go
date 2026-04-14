@@ -7,7 +7,6 @@ import (
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
-	"github.com/nrednav/cuid2"
 )
 
 // Message holds the schema definition for the Message entity.
@@ -18,12 +17,10 @@ type Message struct {
 // Fields of the Message.
 func (Message) Fields() []ent.Field {
 	return []ent.Field{
-		field.String("id").DefaultFunc(func() string {
-			return cuid2.Generate()
-		}),
-		field.String("cipher_text").Nillable().SchemaType(map[string]string{dialect.MySQL: "mediumtext"}),
-		field.String("iv").Nillable(),
-		field.String("auth_tag").Nillable(),
+		field.Int64("id"),
+		field.String("cipher_text").SchemaType(map[string]string{dialect.MySQL: "mediumtext"}),
+		field.String("iv"),
+		field.String("auth_tag"),
 		field.Time("sent_at").Default(time.Now),
 		field.Time("read_at").Nillable(),
 	}

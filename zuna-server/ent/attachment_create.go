@@ -59,7 +59,7 @@ func (_c *AttachmentCreate) SetNillableID(v *string) *AttachmentCreate {
 }
 
 // SetMessageID sets the "message" edge to the Message entity by ID.
-func (_c *AttachmentCreate) SetMessageID(id string) *AttachmentCreate {
+func (_c *AttachmentCreate) SetMessageID(id int64) *AttachmentCreate {
 	_c.mutation.SetMessageID(id)
 	return _c
 }
@@ -186,7 +186,7 @@ func (_c *AttachmentCreate) createSpec() (*Attachment, *sqlgraph.CreateSpec) {
 			Columns: []string{attachment.MessageColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

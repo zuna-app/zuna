@@ -18,13 +18,13 @@ import (
 type Message struct {
 	config `json:"-"`
 	// ID of the ent.
-	ID string `json:"id,omitempty"`
+	ID int64 `json:"id,omitempty"`
 	// CipherText holds the value of the "cipher_text" field.
-	CipherText *string `json:"cipher_text,omitempty"`
+	CipherText string `json:"cipher_text,omitempty"`
 	// Iv holds the value of the "iv" field.
-	Iv *string `json:"iv,omitempty"`
+	Iv string `json:"iv,omitempty"`
 	// AuthTag holds the value of the "auth_tag" field.
-	AuthTag *string `json:"auth_tag,omitempty"`
+	AuthTag string `json:"auth_tag,omitempty"`
 	// SentAt holds the value of the "sent_at" field.
 	SentAt time.Time `json:"sent_at,omitempty"`
 	// ReadAt holds the value of the "read_at" field.
@@ -86,7 +86,9 @@ func (*Message) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case message.FieldID, message.FieldCipherText, message.FieldIv, message.FieldAuthTag:
+		case message.FieldID:
+			values[i] = new(sql.NullInt64)
+		case message.FieldCipherText, message.FieldIv, message.FieldAuthTag:
 			values[i] = new(sql.NullString)
 		case message.FieldSentAt, message.FieldReadAt:
 			values[i] = new(sql.NullTime)
@@ -110,31 +112,28 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 	for i := range columns {
 		switch columns[i] {
 		case message.FieldID:
-			if value, ok := values[i].(*sql.NullString); !ok {
-				return fmt.Errorf("unexpected type %T for field id", values[i])
-			} else if value.Valid {
-				_m.ID = value.String
+			value, ok := values[i].(*sql.NullInt64)
+			if !ok {
+				return fmt.Errorf("unexpected type %T for field id", value)
 			}
+			_m.ID = int64(value.Int64)
 		case message.FieldCipherText:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field cipher_text", values[i])
 			} else if value.Valid {
-				_m.CipherText = new(string)
-				*_m.CipherText = value.String
+				_m.CipherText = value.String
 			}
 		case message.FieldIv:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field iv", values[i])
 			} else if value.Valid {
-				_m.Iv = new(string)
-				*_m.Iv = value.String
+				_m.Iv = value.String
 			}
 		case message.FieldAuthTag:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field auth_tag", values[i])
 			} else if value.Valid {
-				_m.AuthTag = new(string)
-				*_m.AuthTag = value.String
+				_m.AuthTag = value.String
 			}
 		case message.FieldSentAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -214,20 +213,14 @@ func (_m *Message) String() string {
 	var builder strings.Builder
 	builder.WriteString("Message(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
-	if v := _m.CipherText; v != nil {
-		builder.WriteString("cipher_text=")
-		builder.WriteString(*v)
-	}
+	builder.WriteString("cipher_text=")
+	builder.WriteString(_m.CipherText)
 	builder.WriteString(", ")
-	if v := _m.Iv; v != nil {
-		builder.WriteString("iv=")
-		builder.WriteString(*v)
-	}
+	builder.WriteString("iv=")
+	builder.WriteString(_m.Iv)
 	builder.WriteString(", ")
-	if v := _m.AuthTag; v != nil {
-		builder.WriteString("auth_tag=")
-		builder.WriteString(*v)
-	}
+	builder.WriteString("auth_tag=")
+	builder.WriteString(_m.AuthTag)
 	builder.WriteString(", ")
 	builder.WriteString("sent_at=")
 	builder.WriteString(_m.SentAt.Format(time.ANSIC))

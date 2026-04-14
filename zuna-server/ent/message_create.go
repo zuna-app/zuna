@@ -62,16 +62,8 @@ func (_c *MessageCreate) SetReadAt(v time.Time) *MessageCreate {
 }
 
 // SetID sets the "id" field.
-func (_c *MessageCreate) SetID(v string) *MessageCreate {
+func (_c *MessageCreate) SetID(v int64) *MessageCreate {
 	_c.mutation.SetID(v)
-	return _c
-}
-
-// SetNillableID sets the "id" field if the given value is not nil.
-func (_c *MessageCreate) SetNillableID(v *string) *MessageCreate {
-	if v != nil {
-		_c.SetID(*v)
-	}
 	return _c
 }
 
@@ -151,10 +143,6 @@ func (_c *MessageCreate) defaults() {
 		v := message.DefaultSentAt()
 		_c.mutation.SetSentAt(v)
 	}
-	if _, ok := _c.mutation.ID(); !ok {
-		v := message.DefaultID()
-		_c.mutation.SetID(v)
-	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -194,12 +182,9 @@ func (_c *MessageCreate) sqlSave(ctx context.Context) (*Message, error) {
 		}
 		return nil, err
 	}
-	if _spec.ID.Value != nil {
-		if id, ok := _spec.ID.Value.(string); ok {
-			_node.ID = id
-		} else {
-			return nil, fmt.Errorf("unexpected Message.ID type: %T", _spec.ID.Value)
-		}
+	if _spec.ID.Value != _node.ID {
+		id := _spec.ID.Value.(int64)
+		_node.ID = int64(id)
 	}
 	_c.mutation.id = &_node.ID
 	_c.mutation.done = true
@@ -209,7 +194,7 @@ func (_c *MessageCreate) sqlSave(ctx context.Context) (*Message, error) {
 func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 	var (
 		_node = &Message{config: _c.config}
-		_spec = sqlgraph.NewCreateSpec(message.Table, sqlgraph.NewFieldSpec(message.FieldID, field.TypeString))
+		_spec = sqlgraph.NewCreateSpec(message.Table, sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64))
 	)
 	if id, ok := _c.mutation.ID(); ok {
 		_node.ID = id
@@ -217,15 +202,15 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 	}
 	if value, ok := _c.mutation.CipherText(); ok {
 		_spec.SetField(message.FieldCipherText, field.TypeString, value)
-		_node.CipherText = &value
+		_node.CipherText = value
 	}
 	if value, ok := _c.mutation.Iv(); ok {
 		_spec.SetField(message.FieldIv, field.TypeString, value)
-		_node.Iv = &value
+		_node.Iv = value
 	}
 	if value, ok := _c.mutation.AuthTag(); ok {
 		_spec.SetField(message.FieldAuthTag, field.TypeString, value)
-		_node.AuthTag = &value
+		_node.AuthTag = value
 	}
 	if value, ok := _c.mutation.SentAt(); ok {
 		_spec.SetField(message.FieldSentAt, field.TypeTime, value)
@@ -333,6 +318,10 @@ func (_c *MessageCreateBulk) Save(ctx context.Context) ([]*Message, error) {
 					return nil, err
 				}
 				mutation.id = &nodes[i].ID
+				if specs[i].ID.Value != nil && nodes[i].ID == 0 {
+					id := specs[i].ID.Value.(int64)
+					nodes[i].ID = int64(id)
+				}
 				mutation.done = true
 				return nodes[i], nil
 			})

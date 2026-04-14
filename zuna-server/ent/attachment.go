@@ -28,7 +28,7 @@ type Attachment struct {
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the AttachmentQuery when eager-loading is set.
 	Edges               AttachmentEdges `json:"edges"`
-	message_attachments *string
+	message_attachments *int64
 	selectValues        sql.SelectValues
 }
 
@@ -60,7 +60,7 @@ func (*Attachment) scanValues(columns []string) ([]any, error) {
 		case attachment.FieldID, attachment.FieldSenderIdentityKey, attachment.FieldIv, attachment.FieldMimeType, attachment.FieldOriginalFileName:
 			values[i] = new(sql.NullString)
 		case attachment.ForeignKeys[0]: // message_attachments
-			values[i] = new(sql.NullString)
+			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -107,11 +107,11 @@ func (_m *Attachment) assignValues(columns []string, values []any) error {
 				_m.OriginalFileName = value.String
 			}
 		case attachment.ForeignKeys[0]:
-			if value, ok := values[i].(*sql.NullString); !ok {
-				return fmt.Errorf("unexpected type %T for field message_attachments", values[i])
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field message_attachments", value)
 			} else if value.Valid {
-				_m.message_attachments = new(string)
-				*_m.message_attachments = value.String
+				_m.message_attachments = new(int64)
+				*_m.message_attachments = int64(value.Int64)
 			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])

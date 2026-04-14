@@ -85,7 +85,7 @@ func (_u *AttachmentUpdate) SetNillableOriginalFileName(v *string) *AttachmentUp
 }
 
 // SetMessageID sets the "message" edge to the Message entity by ID.
-func (_u *AttachmentUpdate) SetMessageID(id string) *AttachmentUpdate {
+func (_u *AttachmentUpdate) SetMessageID(id int64) *AttachmentUpdate {
 	_u.mutation.SetMessageID(id)
 	return _u
 }
@@ -173,7 +173,7 @@ func (_u *AttachmentUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			Columns: []string{attachment.MessageColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
@@ -186,7 +186,7 @@ func (_u *AttachmentUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			Columns: []string{attachment.MessageColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -271,7 +271,7 @@ func (_u *AttachmentUpdateOne) SetNillableOriginalFileName(v *string) *Attachmen
 }
 
 // SetMessageID sets the "message" edge to the Message entity by ID.
-func (_u *AttachmentUpdateOne) SetMessageID(id string) *AttachmentUpdateOne {
+func (_u *AttachmentUpdateOne) SetMessageID(id int64) *AttachmentUpdateOne {
 	_u.mutation.SetMessageID(id)
 	return _u
 }
@@ -389,7 +389,7 @@ func (_u *AttachmentUpdateOne) sqlSave(ctx context.Context) (_node *Attachment, 
 			Columns: []string{attachment.MessageColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
@@ -402,7 +402,7 @@ func (_u *AttachmentUpdateOne) sqlSave(ctx context.Context) (_node *Attachment, 
 			Columns: []string{attachment.MessageColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

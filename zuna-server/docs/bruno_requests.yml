@@ -21,25 +21,6 @@ items:
       auth: inherit
     items:
       - info:
-          name: handshake
-          type: http
-          seq: 1
-        http:
-          method: POST
-          url: http://localhost:8080/auth/handshake
-          body:
-            type: json
-            data: |-
-              {
-                "username": ""
-              }
-          auth: inherit
-        settings:
-          encodeUrl: true
-          timeout: 0
-          followRedirects: true
-          maxRedirects: 5
-      - info:
           name: authorize
           type: http
           seq: 2
@@ -52,6 +33,25 @@ items:
               {
                 "username": "",
                 "signature": ""
+              }
+          auth: inherit
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+      - info:
+          name: handshake
+          type: http
+          seq: 1
+        http:
+          method: POST
+          url: http://localhost:8080/auth/handshake
+          body:
+            type: json
+            data: |-
+              {
+                "username": ""
               }
           auth: inherit
         settings:
@@ -102,11 +102,33 @@ items:
           timeout: 0
           followRedirects: true
           maxRedirects: 5
+      - info:
+          name: messages
+          type: http
+          seq: 2
+        http:
+          method: GET
+          url: http://localhost:8080/chat/message?limit=20&cursor=300
+          params:
+            - name: limit
+              value: '20'
+              type: query
+            - name: cursor
+              value: '300'
+              type: query
+          auth:
+            type: bearer
+            token: ''
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
 bundled: true
 extensions:
   bruno:
     ignore:
       - node_modules
       - .git
-    exportedAt: '2026-04-13T22:57:06.610Z'
+    exportedAt: '2026-04-14T21:28:48.965Z'
     exportedUsing: Bruno

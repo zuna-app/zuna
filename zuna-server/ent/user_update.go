@@ -158,14 +158,14 @@ func (_u *UserUpdate) AddChats(v ...*Chat) *UserUpdate {
 }
 
 // AddMessageIDs adds the "messages" edge to the Message entity by IDs.
-func (_u *UserUpdate) AddMessageIDs(ids ...string) *UserUpdate {
+func (_u *UserUpdate) AddMessageIDs(ids ...int64) *UserUpdate {
 	_u.mutation.AddMessageIDs(ids...)
 	return _u
 }
 
 // AddMessages adds the "messages" edges to the Message entity.
 func (_u *UserUpdate) AddMessages(v ...*Message) *UserUpdate {
-	ids := make([]string, len(v))
+	ids := make([]int64, len(v))
 	for i := range v {
 		ids[i] = v[i].ID
 	}
@@ -205,14 +205,14 @@ func (_u *UserUpdate) ClearMessages() *UserUpdate {
 }
 
 // RemoveMessageIDs removes the "messages" edge to Message entities by IDs.
-func (_u *UserUpdate) RemoveMessageIDs(ids ...string) *UserUpdate {
+func (_u *UserUpdate) RemoveMessageIDs(ids ...int64) *UserUpdate {
 	_u.mutation.RemoveMessageIDs(ids...)
 	return _u
 }
 
 // RemoveMessages removes "messages" edges to Message entities.
 func (_u *UserUpdate) RemoveMessages(v ...*Message) *UserUpdate {
-	ids := make([]string, len(v))
+	ids := make([]int64, len(v))
 	for i := range v {
 		ids[i] = v[i].ID
 	}
@@ -332,7 +332,7 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Columns: []string{user.MessagesColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
@@ -345,7 +345,7 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Columns: []string{user.MessagesColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -361,7 +361,7 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Columns: []string{user.MessagesColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -517,14 +517,14 @@ func (_u *UserUpdateOne) AddChats(v ...*Chat) *UserUpdateOne {
 }
 
 // AddMessageIDs adds the "messages" edge to the Message entity by IDs.
-func (_u *UserUpdateOne) AddMessageIDs(ids ...string) *UserUpdateOne {
+func (_u *UserUpdateOne) AddMessageIDs(ids ...int64) *UserUpdateOne {
 	_u.mutation.AddMessageIDs(ids...)
 	return _u
 }
 
 // AddMessages adds the "messages" edges to the Message entity.
 func (_u *UserUpdateOne) AddMessages(v ...*Message) *UserUpdateOne {
-	ids := make([]string, len(v))
+	ids := make([]int64, len(v))
 	for i := range v {
 		ids[i] = v[i].ID
 	}
@@ -564,14 +564,14 @@ func (_u *UserUpdateOne) ClearMessages() *UserUpdateOne {
 }
 
 // RemoveMessageIDs removes the "messages" edge to Message entities by IDs.
-func (_u *UserUpdateOne) RemoveMessageIDs(ids ...string) *UserUpdateOne {
+func (_u *UserUpdateOne) RemoveMessageIDs(ids ...int64) *UserUpdateOne {
 	_u.mutation.RemoveMessageIDs(ids...)
 	return _u
 }
 
 // RemoveMessages removes "messages" edges to Message entities.
 func (_u *UserUpdateOne) RemoveMessages(v ...*Message) *UserUpdateOne {
-	ids := make([]string, len(v))
+	ids := make([]int64, len(v))
 	for i := range v {
 		ids[i] = v[i].ID
 	}
@@ -721,7 +721,7 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Columns: []string{user.MessagesColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
@@ -734,7 +734,7 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Columns: []string{user.MessagesColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -750,7 +750,7 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Columns: []string{user.MessagesColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

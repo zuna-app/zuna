@@ -80,6 +80,7 @@ func main() {
 
 	chat := api.Group("/chat", authMiddleware)
 	chat.GET("/list", chatListEndpoint)
+	chat.GET("/messages", chatMessagesEndpoint)
 
 	// Create the central hub and start it
 	h := NewHub()

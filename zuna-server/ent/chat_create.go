@@ -50,14 +50,14 @@ func (_c *ChatCreate) AddUsers(v ...*User) *ChatCreate {
 }
 
 // AddMessageIDs adds the "messages" edge to the Message entity by IDs.
-func (_c *ChatCreate) AddMessageIDs(ids ...string) *ChatCreate {
+func (_c *ChatCreate) AddMessageIDs(ids ...int64) *ChatCreate {
 	_c.mutation.AddMessageIDs(ids...)
 	return _c
 }
 
 // AddMessages adds the "messages" edges to the Message entity.
 func (_c *ChatCreate) AddMessages(v ...*Message) *ChatCreate {
-	ids := make([]string, len(v))
+	ids := make([]int64, len(v))
 	for i := range v {
 		ids[i] = v[i].ID
 	}
@@ -166,7 +166,7 @@ func (_c *ChatCreate) createSpec() (*Chat, *sqlgraph.CreateSpec) {
 			Columns: []string{chat.MessagesColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeString),
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

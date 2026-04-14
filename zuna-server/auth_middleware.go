@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const TokenKey = "id"
+const IdKey = "id"
 
 func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
@@ -34,7 +34,7 @@ func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 			return c.JSON(http.StatusUnauthorized, Unauthorized)
 		}
 
-		ctx := context.WithValue(c.Request().Context(), TokenKey, userID)
+		ctx := context.WithValue(c.Request().Context(), IdKey, userID)
 		c.SetRequest(c.Request().WithContext(ctx))
 
 		return next(c)

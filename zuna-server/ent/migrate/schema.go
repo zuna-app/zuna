@@ -15,7 +15,7 @@ var (
 		{Name: "iv", Type: field.TypeString},
 		{Name: "mime_type", Type: field.TypeString},
 		{Name: "original_file_name", Type: field.TypeString},
-		{Name: "message_attachments", Type: field.TypeString},
+		{Name: "message_attachments", Type: field.TypeInt64},
 	}
 	// AttachmentsTable holds the schema information for the "attachments" table.
 	AttachmentsTable = &schema.Table{
@@ -43,7 +43,7 @@ var (
 	}
 	// MessagesColumns holds the columns for the "messages" table.
 	MessagesColumns = []*schema.Column{
-		{Name: "id", Type: field.TypeString},
+		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "cipher_text", Type: field.TypeString, SchemaType: map[string]string{"mysql": "mediumtext"}},
 		{Name: "iv", Type: field.TypeString},
 		{Name: "auth_tag", Type: field.TypeString},
