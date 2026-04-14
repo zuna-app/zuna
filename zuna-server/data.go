@@ -5,16 +5,16 @@ var userDatas = make(map[string]UserData)
 type UserData struct {
 	username     string
 	authToken    string
-	ed25519Nonce []byte
+	ed25519Nonce string
 }
 
 type ChatMemberDTO struct {
 	ID            string
 	Username      string
-	Avatar        []byte
-	AvatarIv      []byte
-	AvatarAuthTag []byte
-	IdentityKey   []byte
+	Avatar        string
+	AvatarIv      string
+	AvatarAuthTag string
+	IdentityKey   string
 }
 
 type ChatDTO struct {

@@ -1806,13 +1806,13 @@ type UserMutation struct {
 	typ             string
 	id              *string
 	username        *string
-	identity_key    *[]byte
-	signing_key     *[]byte
+	identity_key    *string
+	signing_key     *string
 	last_seen       *time.Time
 	is_admin        *bool
-	avatar          *[]byte
-	avatar_iv       *[]byte
-	avatar_auth_tag *[]byte
+	avatar          *string
+	avatar_iv       *string
+	avatar_auth_tag *string
 	clearedFields   map[string]struct{}
 	chats           map[string]struct{}
 	removedchats    map[string]struct{}
@@ -1966,12 +1966,12 @@ func (m *UserMutation) ResetUsername() {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (m *UserMutation) SetIdentityKey(b []byte) {
-	m.identity_key = &b
+func (m *UserMutation) SetIdentityKey(s string) {
+	m.identity_key = &s
 }
 
 // IdentityKey returns the value of the "identity_key" field in the mutation.
-func (m *UserMutation) IdentityKey() (r []byte, exists bool) {
+func (m *UserMutation) IdentityKey() (r string, exists bool) {
 	v := m.identity_key
 	if v == nil {
 		return
@@ -1982,7 +1982,7 @@ func (m *UserMutation) IdentityKey() (r []byte, exists bool) {
 // OldIdentityKey returns the old "identity_key" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldIdentityKey(ctx context.Context) (v []byte, err error) {
+func (m *UserMutation) OldIdentityKey(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldIdentityKey is only allowed on UpdateOne operations")
 	}
@@ -2002,12 +2002,12 @@ func (m *UserMutation) ResetIdentityKey() {
 }
 
 // SetSigningKey sets the "signing_key" field.
-func (m *UserMutation) SetSigningKey(b []byte) {
-	m.signing_key = &b
+func (m *UserMutation) SetSigningKey(s string) {
+	m.signing_key = &s
 }
 
 // SigningKey returns the value of the "signing_key" field in the mutation.
-func (m *UserMutation) SigningKey() (r []byte, exists bool) {
+func (m *UserMutation) SigningKey() (r string, exists bool) {
 	v := m.signing_key
 	if v == nil {
 		return
@@ -2018,7 +2018,7 @@ func (m *UserMutation) SigningKey() (r []byte, exists bool) {
 // OldSigningKey returns the old "signing_key" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldSigningKey(ctx context.Context) (v []byte, err error) {
+func (m *UserMutation) OldSigningKey(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldSigningKey is only allowed on UpdateOne operations")
 	}
@@ -2110,12 +2110,12 @@ func (m *UserMutation) ResetIsAdmin() {
 }
 
 // SetAvatar sets the "avatar" field.
-func (m *UserMutation) SetAvatar(b []byte) {
-	m.avatar = &b
+func (m *UserMutation) SetAvatar(s string) {
+	m.avatar = &s
 }
 
 // Avatar returns the value of the "avatar" field in the mutation.
-func (m *UserMutation) Avatar() (r []byte, exists bool) {
+func (m *UserMutation) Avatar() (r string, exists bool) {
 	v := m.avatar
 	if v == nil {
 		return
@@ -2126,7 +2126,7 @@ func (m *UserMutation) Avatar() (r []byte, exists bool) {
 // OldAvatar returns the old "avatar" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldAvatar(ctx context.Context) (v []byte, err error) {
+func (m *UserMutation) OldAvatar(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAvatar is only allowed on UpdateOne operations")
 	}
@@ -2146,12 +2146,12 @@ func (m *UserMutation) ResetAvatar() {
 }
 
 // SetAvatarIv sets the "avatar_iv" field.
-func (m *UserMutation) SetAvatarIv(b []byte) {
-	m.avatar_iv = &b
+func (m *UserMutation) SetAvatarIv(s string) {
+	m.avatar_iv = &s
 }
 
 // AvatarIv returns the value of the "avatar_iv" field in the mutation.
-func (m *UserMutation) AvatarIv() (r []byte, exists bool) {
+func (m *UserMutation) AvatarIv() (r string, exists bool) {
 	v := m.avatar_iv
 	if v == nil {
 		return
@@ -2162,7 +2162,7 @@ func (m *UserMutation) AvatarIv() (r []byte, exists bool) {
 // OldAvatarIv returns the old "avatar_iv" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldAvatarIv(ctx context.Context) (v []byte, err error) {
+func (m *UserMutation) OldAvatarIv(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAvatarIv is only allowed on UpdateOne operations")
 	}
@@ -2182,12 +2182,12 @@ func (m *UserMutation) ResetAvatarIv() {
 }
 
 // SetAvatarAuthTag sets the "avatar_auth_tag" field.
-func (m *UserMutation) SetAvatarAuthTag(b []byte) {
-	m.avatar_auth_tag = &b
+func (m *UserMutation) SetAvatarAuthTag(s string) {
+	m.avatar_auth_tag = &s
 }
 
 // AvatarAuthTag returns the value of the "avatar_auth_tag" field in the mutation.
-func (m *UserMutation) AvatarAuthTag() (r []byte, exists bool) {
+func (m *UserMutation) AvatarAuthTag() (r string, exists bool) {
 	v := m.avatar_auth_tag
 	if v == nil {
 		return
@@ -2198,7 +2198,7 @@ func (m *UserMutation) AvatarAuthTag() (r []byte, exists bool) {
 // OldAvatarAuthTag returns the old "avatar_auth_tag" field's value of the User entity.
 // If the User object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *UserMutation) OldAvatarAuthTag(ctx context.Context) (v []byte, err error) {
+func (m *UserMutation) OldAvatarAuthTag(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
 		return v, errors.New("OldAvatarAuthTag is only allowed on UpdateOne operations")
 	}
@@ -2450,14 +2450,14 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		m.SetUsername(v)
 		return nil
 	case user.FieldIdentityKey:
-		v, ok := value.([]byte)
+		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIdentityKey(v)
 		return nil
 	case user.FieldSigningKey:
-		v, ok := value.([]byte)
+		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
@@ -2478,21 +2478,21 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 		m.SetIsAdmin(v)
 		return nil
 	case user.FieldAvatar:
-		v, ok := value.([]byte)
+		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAvatar(v)
 		return nil
 	case user.FieldAvatarIv:
-		v, ok := value.([]byte)
+		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAvatarIv(v)
 		return nil
 	case user.FieldAvatarAuthTag:
-		v, ok := value.([]byte)
+		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}

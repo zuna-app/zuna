@@ -29,13 +29,13 @@ func (_c *UserCreate) SetUsername(v string) *UserCreate {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (_c *UserCreate) SetIdentityKey(v []byte) *UserCreate {
+func (_c *UserCreate) SetIdentityKey(v string) *UserCreate {
 	_c.mutation.SetIdentityKey(v)
 	return _c
 }
 
 // SetSigningKey sets the "signing_key" field.
-func (_c *UserCreate) SetSigningKey(v []byte) *UserCreate {
+func (_c *UserCreate) SetSigningKey(v string) *UserCreate {
 	_c.mutation.SetSigningKey(v)
 	return _c
 }
@@ -69,19 +69,19 @@ func (_c *UserCreate) SetNillableIsAdmin(v *bool) *UserCreate {
 }
 
 // SetAvatar sets the "avatar" field.
-func (_c *UserCreate) SetAvatar(v []byte) *UserCreate {
+func (_c *UserCreate) SetAvatar(v string) *UserCreate {
 	_c.mutation.SetAvatar(v)
 	return _c
 }
 
 // SetAvatarIv sets the "avatar_iv" field.
-func (_c *UserCreate) SetAvatarIv(v []byte) *UserCreate {
+func (_c *UserCreate) SetAvatarIv(v string) *UserCreate {
 	_c.mutation.SetAvatarIv(v)
 	return _c
 }
 
 // SetAvatarAuthTag sets the "avatar_auth_tag" field.
-func (_c *UserCreate) SetAvatarAuthTag(v []byte) *UserCreate {
+func (_c *UserCreate) SetAvatarAuthTag(v string) *UserCreate {
 	_c.mutation.SetAvatarAuthTag(v)
 	return _c
 }
@@ -245,11 +245,11 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 		_node.Username = value
 	}
 	if value, ok := _c.mutation.IdentityKey(); ok {
-		_spec.SetField(user.FieldIdentityKey, field.TypeBytes, value)
+		_spec.SetField(user.FieldIdentityKey, field.TypeString, value)
 		_node.IdentityKey = value
 	}
 	if value, ok := _c.mutation.SigningKey(); ok {
-		_spec.SetField(user.FieldSigningKey, field.TypeBytes, value)
+		_spec.SetField(user.FieldSigningKey, field.TypeString, value)
 		_node.SigningKey = value
 	}
 	if value, ok := _c.mutation.LastSeen(); ok {
@@ -261,15 +261,15 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 		_node.IsAdmin = value
 	}
 	if value, ok := _c.mutation.Avatar(); ok {
-		_spec.SetField(user.FieldAvatar, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatar, field.TypeString, value)
 		_node.Avatar = value
 	}
 	if value, ok := _c.mutation.AvatarIv(); ok {
-		_spec.SetField(user.FieldAvatarIv, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
 		_node.AvatarIv = value
 	}
 	if value, ok := _c.mutation.AvatarAuthTag(); ok {
-		_spec.SetField(user.FieldAvatarAuthTag, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatarAuthTag, field.TypeString, value)
 		_node.AvatarAuthTag = value
 	}
 	if nodes := _c.mutation.ChatsIDs(); len(nodes) > 0 {

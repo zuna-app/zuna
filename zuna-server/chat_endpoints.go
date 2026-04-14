@@ -1,22 +1,22 @@
 package main
 
 import (
-	"fmt"
 	"net/http"
 	"zuna-server/ent/user"
 
 	"github.com/labstack/echo/v5"
+	"github.com/rs/zerolog/log"
 )
 
 type ChatListResponse struct {
-	Chats []ChatDTO
+	Chats []ChatDTO `json:"chats"`
 }
 
 func chatListEndpoint(c *echo.Context) error {
 	id := c.QueryParam(ReqIdKey)
 	u, err := EntClient.User.Query().Where(user.IDEQ(id)).First(c.Request().Context())
 	if err != nil {
-		fmt.Println(err)
+		log.Error().Err(err).Str("id", id).Msg("failed to query user for chat list")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
@@ -26,7 +26,7 @@ func chatListEndpoint(c *echo.Context) error {
 
 	chats, err := u.QueryChats().WithUsers().All(c.Request().Context())
 	if err != nil {
-		fmt.Println(err)
+		log.Error().Err(err).Str("id", id).Msg("failed to query chats")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 

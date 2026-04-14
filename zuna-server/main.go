@@ -3,14 +3,16 @@ package main
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"log"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"zuna-server/ent"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -31,18 +33,27 @@ const ZunaAsciiArt = ` _____
 var EntClient *ent.Client
 
 type ErrorResponse struct {
-	Code  int    `json:"code"`
 	Error string `json:"error"`
 }
 
-var InternalServerError = ErrorResponse{Code: 500, Error: "internal server error"}
-var BadRequest = ErrorResponse{Code: 400, Error: "bad request"}
+var (
+	InternalServerError = ErrorResponse{Error: "internal server error"}
+	BadRequest          = ErrorResponse{Error: "bad request"}
+	Unauthorized        = ErrorResponse{Error: "unauthorized"}
+	Forbidden           = ErrorResponse{Error: "forbidden"}
+)
 
 func main() {
-	fmt.Println(ZunaAsciiArt)
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+
+	log.Info().Msg("  _____   _ _  _   _   ")
+	log.Info().Msg(" |_  / | | | \\| | /_\\  ")
+	log.Info().Msg("  / /| |_| | .` |/ _ \\ ")
+	log.Info().Msg(" /___|\\___/|_|\\_/_/ \\_\\")
+	log.Info().Msg("                       ")
 
 	if err := LoadConfig(); err != nil {
-		panic(err)
+		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -52,7 +63,7 @@ func main() {
 	defer EntClient.Close()
 
 	if err := EntClient.Schema.Create(ctx); err != nil {
-		log.Fatalf("failed creating schema resources: %v", err)
+		log.Fatal().Err(err).Msg("failed creating schema resources")
 	}
 
 	e := echo.New()
@@ -60,6 +71,7 @@ func main() {
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
 	}))
+	e.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	e.Binder = &StrictBinder{}
 
 	e.GET("/", func(c *echo.Context) error {
@@ -70,15 +82,19 @@ func main() {
 
 	auth := api.Group("/auth")
 	auth.POST("/handshake", authHandshakeEndpoint)
-	auth.POST("/auth", authAuthorizeEndpoint)
+	auth.POST("/login", authAuthorizeEndpoint)
 	auth.POST("/join", authJoinEndpoint)
 
 	chat := api.Group("/chat", authMiddleware)
 	chat.GET("/list", chatListEndpoint)
 
+	log.Info().Any("port", 8080).Msg("starting server")
 	if err := e.Start(":8080"); err != nil {
-		slog.Error("failed to start server", "error", err)
+		log.Error().Err(err).Msg("failed to start server")
 	}
+
+	<-ctx.Done()
+	log.Info().Msg("shutting down server")
 }
 
 func NewClient(ctx context.Context) *ent.Client {
@@ -87,7 +103,7 @@ func NewClient(ctx context.Context) *ent.Client {
 	if Config.DatabaseType == "mysql" {
 		client, err := ent.Open("mysql", databaseUrl)
 		if err != nil {
-			log.Fatalf("failed opening mysql: %v", err)
+			log.Fatal().Err(err).Msg("failed opening mysql connection")
 		}
 		return client
 	}
@@ -95,16 +111,17 @@ func NewClient(ctx context.Context) *ent.Client {
 	if Config.DatabaseType == "sqlite" {
 		db, err := sql.Open("sqlite", databaseUrl)
 		if err != nil {
-			log.Fatalf("failed opening sqlite: %v", err)
+			log.Fatal().Err(err).Msg("failed opening sqlite connection")
 		}
 
 		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-			log.Fatalf("failed enabling foreign keys: %v", err)
+			log.Fatal().Err(err).Msg("failed enabling sqlite foreign keys")
 		}
 
 		drv := entsql.OpenDB(dialect.SQLite, db)
 		return ent.NewClient(ent.Driver(drv))
 	}
 
-	panic("invalid database type, supported: mysql, sqlite")
+	log.Fatal().Msg("invalid database type, supported: mysql, sqlite")
+	return nil
 }

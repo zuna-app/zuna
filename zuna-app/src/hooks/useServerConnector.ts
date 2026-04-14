@@ -79,6 +79,7 @@ export const useServerConnector = () => {
       id: data.serverId,
       address: serverAddress,
       name: data.serverName ?? serverAddress,
+      username,
     };
 
     setServerList((prev) => {

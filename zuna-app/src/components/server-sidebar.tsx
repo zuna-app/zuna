@@ -96,7 +96,7 @@ export function ServerSidebar({ onAddServer }: ServerSidebarProps) {
           <button
             onClick={onAddServer}
             aria-label="Add server"
-            className="group flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground transition-all duration-150 hover:rounded-xl hover:bg-green-500 hover:text-white focus:outline-none"
+            className="group flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground transition-all duration-100 hover:rounded-xl hover:bg-sky-700 hover:text-white focus:outline-none"
           >
             <PlusIcon className="size-5" />
           </button>

@@ -101,6 +101,16 @@ func ByUsername(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUsername, opts...).ToFunc()
 }
 
+// ByIdentityKey orders the results by the identity_key field.
+func ByIdentityKey(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldIdentityKey, opts...).ToFunc()
+}
+
+// BySigningKey orders the results by the signing_key field.
+func BySigningKey(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSigningKey, opts...).ToFunc()
+}
+
 // ByLastSeen orders the results by the last_seen field.
 func ByLastSeen(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldLastSeen, opts...).ToFunc()
@@ -109,6 +119,21 @@ func ByLastSeen(opts ...sql.OrderTermOption) OrderOption {
 // ByIsAdmin orders the results by the is_admin field.
 func ByIsAdmin(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsAdmin, opts...).ToFunc()
+}
+
+// ByAvatar orders the results by the avatar field.
+func ByAvatar(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAvatar, opts...).ToFunc()
+}
+
+// ByAvatarIv orders the results by the avatar_iv field.
+func ByAvatarIv(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAvatarIv, opts...).ToFunc()
+}
+
+// ByAvatarAuthTag orders the results by the avatar_auth_tag field.
+func ByAvatarAuthTag(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAvatarAuthTag, opts...).ToFunc()
 }
 
 // ByChatsCount orders the results by chats count.

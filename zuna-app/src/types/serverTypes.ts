@@ -11,4 +11,5 @@ export interface Server {
   id: string;
   address: string;
   name: string;
+  username: string;
 }

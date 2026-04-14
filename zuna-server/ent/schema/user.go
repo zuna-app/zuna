@@ -21,13 +21,13 @@ func (User) Fields() []ent.Field {
 			return cuid2.Generate()
 		}),
 		field.String("username").Unique(),
-		field.Bytes("identity_key").Unique(),
-		field.Bytes("signing_key").Unique(),
+		field.String("identity_key").Unique(),
+		field.String("signing_key").Unique(),
 		field.Time("last_seen").Default(time.Now),
 		field.Bool("is_admin").Default(false),
-		field.Bytes("avatar"),
-		field.Bytes("avatar_iv"),
-		field.Bytes("avatar_auth_tag"),
+		field.String("avatar"),
+		field.String("avatar_iv"),
+		field.String("avatar_auth_tag"),
 	}
 }
 

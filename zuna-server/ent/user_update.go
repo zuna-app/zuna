@@ -45,14 +45,30 @@ func (_u *UserUpdate) SetNillableUsername(v *string) *UserUpdate {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (_u *UserUpdate) SetIdentityKey(v []byte) *UserUpdate {
+func (_u *UserUpdate) SetIdentityKey(v string) *UserUpdate {
 	_u.mutation.SetIdentityKey(v)
 	return _u
 }
 
+// SetNillableIdentityKey sets the "identity_key" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableIdentityKey(v *string) *UserUpdate {
+	if v != nil {
+		_u.SetIdentityKey(*v)
+	}
+	return _u
+}
+
 // SetSigningKey sets the "signing_key" field.
-func (_u *UserUpdate) SetSigningKey(v []byte) *UserUpdate {
+func (_u *UserUpdate) SetSigningKey(v string) *UserUpdate {
 	_u.mutation.SetSigningKey(v)
+	return _u
+}
+
+// SetNillableSigningKey sets the "signing_key" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableSigningKey(v *string) *UserUpdate {
+	if v != nil {
+		_u.SetSigningKey(*v)
+	}
 	return _u
 }
 
@@ -85,20 +101,44 @@ func (_u *UserUpdate) SetNillableIsAdmin(v *bool) *UserUpdate {
 }
 
 // SetAvatar sets the "avatar" field.
-func (_u *UserUpdate) SetAvatar(v []byte) *UserUpdate {
+func (_u *UserUpdate) SetAvatar(v string) *UserUpdate {
 	_u.mutation.SetAvatar(v)
 	return _u
 }
 
+// SetNillableAvatar sets the "avatar" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableAvatar(v *string) *UserUpdate {
+	if v != nil {
+		_u.SetAvatar(*v)
+	}
+	return _u
+}
+
 // SetAvatarIv sets the "avatar_iv" field.
-func (_u *UserUpdate) SetAvatarIv(v []byte) *UserUpdate {
+func (_u *UserUpdate) SetAvatarIv(v string) *UserUpdate {
 	_u.mutation.SetAvatarIv(v)
 	return _u
 }
 
+// SetNillableAvatarIv sets the "avatar_iv" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableAvatarIv(v *string) *UserUpdate {
+	if v != nil {
+		_u.SetAvatarIv(*v)
+	}
+	return _u
+}
+
 // SetAvatarAuthTag sets the "avatar_auth_tag" field.
-func (_u *UserUpdate) SetAvatarAuthTag(v []byte) *UserUpdate {
+func (_u *UserUpdate) SetAvatarAuthTag(v string) *UserUpdate {
 	_u.mutation.SetAvatarAuthTag(v)
+	return _u
+}
+
+// SetNillableAvatarAuthTag sets the "avatar_auth_tag" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableAvatarAuthTag(v *string) *UserUpdate {
+	if v != nil {
+		_u.SetAvatarAuthTag(*v)
+	}
 	return _u
 }
 
@@ -219,10 +259,10 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		_spec.SetField(user.FieldUsername, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.IdentityKey(); ok {
-		_spec.SetField(user.FieldIdentityKey, field.TypeBytes, value)
+		_spec.SetField(user.FieldIdentityKey, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.SigningKey(); ok {
-		_spec.SetField(user.FieldSigningKey, field.TypeBytes, value)
+		_spec.SetField(user.FieldSigningKey, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.LastSeen(); ok {
 		_spec.SetField(user.FieldLastSeen, field.TypeTime, value)
@@ -231,13 +271,13 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		_spec.SetField(user.FieldIsAdmin, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Avatar(); ok {
-		_spec.SetField(user.FieldAvatar, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatar, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.AvatarIv(); ok {
-		_spec.SetField(user.FieldAvatarIv, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.AvatarAuthTag(); ok {
-		_spec.SetField(user.FieldAvatarAuthTag, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatarAuthTag, field.TypeString, value)
 	}
 	if _u.mutation.ChatsCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -364,14 +404,30 @@ func (_u *UserUpdateOne) SetNillableUsername(v *string) *UserUpdateOne {
 }
 
 // SetIdentityKey sets the "identity_key" field.
-func (_u *UserUpdateOne) SetIdentityKey(v []byte) *UserUpdateOne {
+func (_u *UserUpdateOne) SetIdentityKey(v string) *UserUpdateOne {
 	_u.mutation.SetIdentityKey(v)
 	return _u
 }
 
+// SetNillableIdentityKey sets the "identity_key" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableIdentityKey(v *string) *UserUpdateOne {
+	if v != nil {
+		_u.SetIdentityKey(*v)
+	}
+	return _u
+}
+
 // SetSigningKey sets the "signing_key" field.
-func (_u *UserUpdateOne) SetSigningKey(v []byte) *UserUpdateOne {
+func (_u *UserUpdateOne) SetSigningKey(v string) *UserUpdateOne {
 	_u.mutation.SetSigningKey(v)
+	return _u
+}
+
+// SetNillableSigningKey sets the "signing_key" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableSigningKey(v *string) *UserUpdateOne {
+	if v != nil {
+		_u.SetSigningKey(*v)
+	}
 	return _u
 }
 
@@ -404,20 +460,44 @@ func (_u *UserUpdateOne) SetNillableIsAdmin(v *bool) *UserUpdateOne {
 }
 
 // SetAvatar sets the "avatar" field.
-func (_u *UserUpdateOne) SetAvatar(v []byte) *UserUpdateOne {
+func (_u *UserUpdateOne) SetAvatar(v string) *UserUpdateOne {
 	_u.mutation.SetAvatar(v)
 	return _u
 }
 
+// SetNillableAvatar sets the "avatar" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableAvatar(v *string) *UserUpdateOne {
+	if v != nil {
+		_u.SetAvatar(*v)
+	}
+	return _u
+}
+
 // SetAvatarIv sets the "avatar_iv" field.
-func (_u *UserUpdateOne) SetAvatarIv(v []byte) *UserUpdateOne {
+func (_u *UserUpdateOne) SetAvatarIv(v string) *UserUpdateOne {
 	_u.mutation.SetAvatarIv(v)
 	return _u
 }
 
+// SetNillableAvatarIv sets the "avatar_iv" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableAvatarIv(v *string) *UserUpdateOne {
+	if v != nil {
+		_u.SetAvatarIv(*v)
+	}
+	return _u
+}
+
 // SetAvatarAuthTag sets the "avatar_auth_tag" field.
-func (_u *UserUpdateOne) SetAvatarAuthTag(v []byte) *UserUpdateOne {
+func (_u *UserUpdateOne) SetAvatarAuthTag(v string) *UserUpdateOne {
 	_u.mutation.SetAvatarAuthTag(v)
+	return _u
+}
+
+// SetNillableAvatarAuthTag sets the "avatar_auth_tag" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableAvatarAuthTag(v *string) *UserUpdateOne {
+	if v != nil {
+		_u.SetAvatarAuthTag(*v)
+	}
 	return _u
 }
 
@@ -568,10 +648,10 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 		_spec.SetField(user.FieldUsername, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.IdentityKey(); ok {
-		_spec.SetField(user.FieldIdentityKey, field.TypeBytes, value)
+		_spec.SetField(user.FieldIdentityKey, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.SigningKey(); ok {
-		_spec.SetField(user.FieldSigningKey, field.TypeBytes, value)
+		_spec.SetField(user.FieldSigningKey, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.LastSeen(); ok {
 		_spec.SetField(user.FieldLastSeen, field.TypeTime, value)
@@ -580,13 +660,13 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 		_spec.SetField(user.FieldIsAdmin, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Avatar(); ok {
-		_spec.SetField(user.FieldAvatar, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatar, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.AvatarIv(); ok {
-		_spec.SetField(user.FieldAvatarIv, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatarIv, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.AvatarAuthTag(); ok {
-		_spec.SetField(user.FieldAvatarAuthTag, field.TypeBytes, value)
+		_spec.SetField(user.FieldAvatarAuthTag, field.TypeString, value)
 	}
 	if _u.mutation.ChatsCleared() {
 		edge := &sqlgraph.EdgeSpec{

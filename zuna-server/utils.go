@@ -2,15 +2,18 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/base64"
+
+	"github.com/rs/zerolog/log"
 )
 
-func generateEd25519Nonce() []byte {
+func generateEd25519Nonce() string {
 	b := make([]byte, 32)
 
 	_, err := rand.Read(b)
 	if err != nil {
-		panic(err) //TODO: handle err
+		log.Fatal().Err(err).Msg("failed to generate nonce")
 	}
 
-	return b
+	return base64.StdEncoding.EncodeToString(b)
 }

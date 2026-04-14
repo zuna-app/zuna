@@ -8,12 +8,10 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 
 createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <ThemeProvider>
-      <TooltipProvider>
-        <App />
-        <Toaster />
-      </TooltipProvider>
-    </ThemeProvider>
-  </StrictMode>,
+  <ThemeProvider>
+    <TooltipProvider>
+      <App />
+      <Toaster />
+    </TooltipProvider>
+  </ThemeProvider>,
 );

@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"zuna-server/ent/user"
 
 	"github.com/labstack/echo/v5"
+	"github.com/rs/zerolog/log"
 )
 
 const ReqIdKey = "id"
@@ -18,20 +18,20 @@ func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 		auth := c.Request().Header.Get("Authorization")
 
 		if auth == "" {
-			return c.JSON(http.StatusUnauthorized, ErrorResponse{Code: http.StatusUnauthorized, Error: "unauthorized"})
+			return c.JSON(http.StatusUnauthorized, Unauthorized)
 		}
 
 		const prefix = "Bearer "
 		if !strings.HasPrefix(auth, prefix) {
-			return c.JSON(http.StatusUnauthorized, ErrorResponse{Code: http.StatusUnauthorized, Error: "unauthorized"})
+			return c.JSON(http.StatusUnauthorized, Unauthorized)
 		}
 
 		token := strings.TrimPrefix(auth, prefix)
 
 		userID, err := validateToken(c, token)
 		if err != nil {
-			fmt.Println(err)
-			return c.JSON(http.StatusUnauthorized, ErrorResponse{Code: http.StatusUnauthorized, Error: "unauthorized"})
+			log.Warn().Err(err).Msg("token validation failed")
+			return c.JSON(http.StatusUnauthorized, Unauthorized)
 		}
 
 		ctx := context.WithValue(c.Request().Context(), ReqIdKey, userID)
