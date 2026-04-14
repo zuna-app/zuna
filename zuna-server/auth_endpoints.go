@@ -66,7 +66,13 @@ func authHandshakeEndpoint(c *echo.Context) error {
 		}
 	}
 
-	userData.ed25519Nonce = generateEd25519Nonce()
+	nonce, err := generateEd25519Nonce()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to generate ed25519 nonce")
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	userData.ed25519Nonce = nonce
 	userDatas[req.Username] = userData
 
 	return c.JSON(http.StatusOK, HandshakeResponse{
@@ -130,7 +136,7 @@ func authLoginEndpoint(c *echo.Context) error {
 	userDatas[req.Username] = userData
 
 	return c.JSON(http.StatusOK, AuthResponse{
-		Token:   userData.authToken,
+		Token: userData.authToken,
 	})
 }
 

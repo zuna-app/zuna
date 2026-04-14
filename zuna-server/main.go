@@ -23,13 +23,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const ZunaAsciiArt = ` _____                 
-|__  /   _ _ __   __ _ 
-  / / | | | '_ \ / _` + "`" + ` |
- / /| |_| | | | | (_| |
-/____\__,_|_| |_|\__,_|
-`
-
 var EntClient *ent.Client
 
 type ErrorResponse struct {

@@ -9,7 +9,7 @@ import (
 )
 
 func chatListEndpoint(c *echo.Context) error {
-	id, _ := c.Request().Context().Value("id").(string)
+	id, _ := c.Request().Context().Value(TokenKey).(string)
 	log.Info().Str("id", id).Msg("fetching chat list")
 	u, err := EntClient.User.Query().Where(user.IDEQ(id)).First(c.Request().Context())
 	if err != nil {
