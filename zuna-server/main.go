@@ -81,6 +81,30 @@ func main() {
 	chat := api.Group("/chat", authMiddleware)
 	chat.GET("/list", chatListEndpoint)
 
+	//router := NewRouter()
+	//hub := NewHub()
+	//
+	//// uruchom hub
+	//go hub.Run()
+	//
+	//// rejestracja handlerów WS
+	//router.Register("ping", func(c *HubClient, data interface{}) {
+	//	c.SendJSON(map[string]string{
+	//		"type": "pong",
+	//	})
+	//})
+	//
+	//// endpoint websocket
+	//e.GET("/ws", wsHandler(router, hub))
+
+	// Create the central hub and start it
+	h := NewHub()
+	go h.Run()
+
+	// Create message router with all handlers registered
+	msgRouter := NewMessageRouter(h)
+	e.GET("/ws", HandleWebSocket(h, msgRouter))
+
 	log.Info().Any("port", 8080).Msg("starting server")
 	if err := e.Start(":8080"); err != nil {
 		log.Error().Err(err).Msg("failed to start server")
