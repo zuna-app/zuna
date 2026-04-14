@@ -31,10 +31,10 @@ function MainApp() {
       />
       <div className="flex flex-1 min-h-0">
         <ServerSidebar onAddServer={() => setJoinDialogOpen(true)} />
-        <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
-          {selectedServer ? (
-            <AppServer server={selectedServer} />
-          ) : (
+        {selectedServer ? (
+          <AppServer server={selectedServer} />
+        ) : (
+          <div className="flex flex-1 items-center justify-center p-6 text-sm text-muted-foreground">
             <Empty>
               <EmptyHeader>
                 <EmptyMedia variant="icon">
@@ -55,8 +55,8 @@ function MainApp() {
                 </Button>
               </EmptyContent>
             </Empty>
-          )}
-        </div>
+          </div>
+        )}
       </div>
       <JoinServerDialog
         open={joinDialogOpen}

@@ -74,7 +74,7 @@ func authHandshakeEndpoint(c *echo.Context) error {
 	})
 }
 
-func authAuthorizeEndpoint(c *echo.Context) error {
+func authLoginEndpoint(c *echo.Context) error {
 	req := new(AuthRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)

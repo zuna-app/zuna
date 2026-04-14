@@ -82,7 +82,7 @@ func main() {
 
 	auth := api.Group("/auth")
 	auth.POST("/handshake", authHandshakeEndpoint)
-	auth.POST("/login", authAuthorizeEndpoint)
+	auth.POST("/login", authLoginEndpoint)
 	auth.POST("/join", authJoinEndpoint)
 
 	chat := api.Group("/chat", authMiddleware)

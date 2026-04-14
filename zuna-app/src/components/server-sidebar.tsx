@@ -29,7 +29,6 @@ function ServerIconButton({
           aria-label={server.name}
           className="group relative flex items-center focus:outline-none"
         >
-          {/* Active pill indicator */}
           <span
             className={cn(
               "absolute -left-3 w-1 rounded-r-full bg-foreground transition-all duration-150",
@@ -85,12 +84,10 @@ export function ServerSidebar({ onAddServer }: ServerSidebarProps) {
             ))}
           </div>
 
-          {/* Divider */}
           <div className="w-8 h-px bg-border/60 my-1 shrink-0" />
         </>
       )}
 
-      {/* Add server button */}
       <Tooltip>
         <TooltipTrigger asChild>
           <button

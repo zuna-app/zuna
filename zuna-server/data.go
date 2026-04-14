@@ -9,14 +9,10 @@ type UserData struct {
 }
 
 type ChatMemberDTO struct {
-	ID            string
-	Username      string
-	Avatar        string
-	AvatarIv      string
-	AvatarAuthTag string
-	IdentityKey   string
-}
-
-type ChatDTO struct {
-	Members []ChatMemberDTO
+	ID            string `json:"id"`
+	Username      string `json:"username"`
+	Avatar        string `json:"avatar"`
+	AvatarIv      string `json:"avatar_iv"`
+	AvatarAuthTag string `json:"avatar_auth_tag"`
+	IdentityKey   string `json:"identity_key"`
 }

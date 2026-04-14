@@ -1,21 +1,19 @@
 import { atom, useAtom } from "jotai";
-import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Server } from "@/types/serverTypes";
 
 export const serverTokensAtom = atom<Map<string, string>>(new Map());
+export const serverAuthErrorsAtom = atom<Map<string, string>>(new Map());
 
 export function useAuthorizer(server: Server) {
   const [serverTokens, setServerTokens] = useAtom(serverTokensAtom);
-  const [isAuthorizing, setIsAuthorizing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [serverAuthErrors, setServerAuthErrors] = useAtom(serverAuthErrorsAtom);
 
   const token = serverTokens.get(server.id) ?? null;
+  const error = serverAuthErrors.get(server.id) ?? null;
 
-  const authorize = async (username: string): Promise<string> => {
-    setIsAuthorizing(true);
-    setError(null);
-
-    try {
+  const mutation = useMutation({
+    mutationFn: async (username: string): Promise<string> => {
       const sigPrivateKey = await window.vault.get("sigPrivateKey");
       if (!sigPrivateKey) {
         throw new Error("Signing key not found in vault");
@@ -60,22 +58,36 @@ export function useAuthorizer(server: Server) {
       }
 
       const { token: newToken } = await authorizeRes.json();
-
+      return newToken;
+    },
+    onMutate: () => {
+      setServerAuthErrors((prev) => {
+        const next = new Map(prev);
+        next.delete(server.id);
+        return next;
+      });
+    },
+    onSuccess: (newToken) => {
       setServerTokens((prev) => {
         const next = new Map(prev);
         next.set(server.id, newToken);
         return next;
       });
-
-      return newToken;
-    } catch (err) {
+    },
+    onError: (err) => {
       const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      throw err;
-    } finally {
-      setIsAuthorizing(false);
-    }
-  };
+      setServerAuthErrors((prev) => {
+        const next = new Map(prev);
+        next.set(server.id, message);
+        return next;
+      });
+    },
+  });
 
-  return { authorize, token, isAuthorizing, error };
+  return {
+    authorize: mutation.mutateAsync,
+    token,
+    isAuthorizing: mutation.isPending,
+    error,
+  };
 }
