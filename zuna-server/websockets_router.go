@@ -74,11 +74,8 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 // ─── built-in handlers ────────────────────────────────────────────────────────
 
 func (r *MessageRouter) registerBuiltins() {
-	r.Register("chat", r.handleChat)
 	r.Register("ping", r.handlePing)
-	r.Register("test", r.handleTest)
-	r.Register("dm", r.handleDM)
-	r.Register("whoami", r.handleWhoami)
+	r.Register("message", r.handleMessage)
 }
 
 // handleChat broadcasts a chat message to every other connected client.

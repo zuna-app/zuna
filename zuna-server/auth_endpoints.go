@@ -135,6 +135,7 @@ func authLoginEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, ErrorResponse{Error: "invalid signature"})
 	}
 
+	userData.userId = u.ID
 	userData.ed25519Nonce = ""
 	userData.authToken = cuid2.Generate()
 	userDatas[req.Username] = userData

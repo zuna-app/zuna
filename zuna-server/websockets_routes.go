@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"zuna-server/ent/chat"
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -10,17 +13,82 @@ func (r *MessageRouter) handlePing(c HubClient, _ IncomingMessage) {
 	c.Send(OutgoingMessage{Type: "ping", Payload: "pong"})
 }
 
-type TestResponse struct {
-	A string
-	B string
+type MessageRequest struct {
+	ChatID     string `json:"chat_id"`
+	Token      string `json:"token"`
+	CipherText string `json:"cipher_text"`
+	Iv         string `json:"iv"`
+	AuthTag    string `json:"auth_tag"`
 }
 
-// handlePing responds with a pong directly to the sender.
-func (r *MessageRouter) handleTest(c HubClient, _ IncomingMessage) {
-	c.Send(OutgoingMessage{Type: "ping", Payload: TestResponse{
-		A: "qwer",
-		B: "asdf",
-	}})
+func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage) {
+	var req MessageRequest
+	if err := json.Unmarshal(msg.Payload, &req); err != nil {
+		sendError(c, "bad_request", "bad request")
+		return
+	}
+
+	userId, err := GetUserId(req.Token)
+	if err != nil {
+		sendError(c, "forbidden", "forbidden")
+	}
+
+	ctx := context.Background()
+
+	chatExists, err := EntClient.Chat.Query().
+		Where(chat.IDEQ(req.ChatID)).
+		Exist(ctx)
+
+	if err != nil {
+		log.Error().Err(err).Str("id", req.ChatID).Msg("failed to check if chat exists")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	if !chatExists {
+		sendError(c, "bad_payload", "bad request")
+		return
+	}
+
+	ch, err := EntClient.Chat.Query().
+		WithUsers().
+		Where(chat.IDEQ(req.ChatID)).
+		First(ctx)
+
+	if err != nil {
+		log.Error().Err(err).Str("id", req.ChatID).Msg("failed to query chat")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	isMember := false
+	for _, uu := range ch.Edges.Users {
+		if uu.ID == userId {
+			isMember = true
+			break
+		}
+	}
+
+	if !isMember {
+		sendError(c, "forbidden", "forbidden")
+		return
+	}
+
+	_, err = EntClient.Message.
+		Create().
+		SetCipherText(req.CipherText).
+		SetIv(req.Iv).
+		SetAuthTag(req.AuthTag).
+		SetUserID(userId).
+		SetChatID(req.ChatID).
+		Save(ctx)
+
+	if err != nil {
+		log.Error().Err(err).Str("id", req.ChatID).Msg("failed to insert message")
+		sendError(c, "internal_error", "internal error")
+	}
+
+	//TODO: Send to other members
 }
 
 // handleDM sends a message to a specific client by ID.
