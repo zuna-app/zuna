@@ -142,9 +142,8 @@ items:
             data: |-
               {
                 "type": "auth",
-                "payload": {
-                  "token": "asdf"
-                }
+                "token": "",
+                "payload": {}
               }
           auth: inherit
       - info:
@@ -158,9 +157,9 @@ items:
             data: |-
               {
                 "type": "message",
+                "token": "",
                 "payload": {
                   "chat_id": "",
-                  "token": "",
                   "cipher_text": "",
                   "iv": "",
                   "chat_id": "",
@@ -176,10 +175,11 @@ items:
         websocket:
           url: ws://localhost:8080/ws
           message:
-            type: json
+            type: text
             data: |-
               {
                 "type": "ping",
+                "token": "",
                 "payload": {
                   "ts": 0
                 }
@@ -196,11 +196,26 @@ items:
             data: |-
               {
                 "type": "mark_read",
+                "token": "",
                 "payload": {
-                  "token": "",
                   "timestamp": 0,
                   "message_id": 0
                 }
+              }
+          auth: inherit
+      - info:
+          name: last_seen
+          type: websocket
+          seq: 5
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "last_seen_request",
+                "token": "",
+                "payload": {}
               }
           auth: inherit
 bundled: true
@@ -209,5 +224,5 @@ extensions:
     ignore:
       - node_modules
       - .git
-    exportedAt: '2026-04-16T21:41:17.276Z'
+    exportedAt: '2026-04-16T22:37:38.810Z'
     exportedUsing: Bruno
