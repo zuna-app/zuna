@@ -40,7 +40,22 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 		return
 	}
 
-	if m.Edges.User.ID != userData.UserID {
+	ch, err := db.EntClient.Chat.Query().WithUsers().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("id", m.Edges.Chat.ID).Msg("failed to query chat")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	isMember := false
+	for _, u := range ch.Edges.Users {
+		if u.ID == userData.UserID {
+			isMember = true
+			break
+		}
+	}
+
+	if !isMember {
 		sendError(c, "forbidden", "forbidden")
 		return
 	}
@@ -54,13 +69,6 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 	err = db.EntClient.Message.UpdateOneID(req.MessageId).SetReadAt(time.Now()).Exec(ctx)
 	if err != nil {
 		log.Error().Err(err).Str("id", strconv.FormatInt(req.MessageId, 10)).Msg("failed to update message")
-		sendError(c, "internal_error", "internal error")
-		return
-	}
-
-	ch, err := db.EntClient.Chat.Query().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
-	if err != nil {
-		log.Error().Err(err).Str("id", m.Edges.Chat.ID).Msg("failed to query chat")
 		sendError(c, "internal_error", "internal error")
 		return
 	}
