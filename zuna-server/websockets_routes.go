@@ -8,6 +8,26 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type WsPingRequest struct {
+	Timestamp int64 `json:"ts"`
+}
+
+type WsPingResponse struct {
+	Timestamp int64 `json:"ts"`
+}
+
+func (r *MessageRouter) handlePing(c HubClient, msg IncomingMessage) {
+	var req WsPingRequest
+	if err := json.Unmarshal(msg.Payload, &req); err != nil {
+		sendError(c, "bad_request", "invalid json")
+		return
+	}
+
+	c.Send(OutgoingMessage{Type: "pong", Payload: WsPingResponse{
+		Timestamp: req.Timestamp,
+	}})
+}
+
 type WsAuthRequest struct {
 	Token string `json:"token"`
 }

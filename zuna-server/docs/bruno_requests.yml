@@ -46,7 +46,7 @@ items:
           seq: 1
         http:
           method: POST
-          url: http://localhost:8080/auth/handshake
+          url: http://localhost:8080/api/auth/handshake
           body:
             type: json
             data: |-
@@ -108,7 +108,7 @@ items:
           seq: 2
         http:
           method: GET
-          url: http://localhost:8080/chat/message?limit=20&cursor=300
+          url: http://localhost:8080/api/chat/message?limit=20&cursor=300
           params:
             - name: limit
               value: '20'
@@ -124,11 +124,72 @@ items:
           timeout: 0
           followRedirects: true
           maxRedirects: 5
+  - info:
+      name: websockets
+      type: folder
+      seq: 3
+    request:
+      auth: inherit
+    items:
+      - info:
+          name: auth
+          type: websocket
+          seq: 1
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "auth",
+                "payload": {
+                  "token": "asdf"
+                }
+              }
+          auth: inherit
+      - info:
+          name: message
+          type: websocket
+          seq: 2
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "message",
+                "payload": {
+                  "chat_id": "",
+                  "token": "",
+                  "cipher_text": "",
+                  "iv": "",
+                  "chat_id": "",
+                  "auth_tag": "",
+                  "local_id": ""
+                }
+              }
+          auth: inherit
+      - info:
+          name: ping
+          type: websocket
+          seq: 3
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "ping",
+                "payload": {
+                  "ts": 0
+                }
+              }
+          auth: inherit
 bundled: true
 extensions:
   bruno:
     ignore:
       - node_modules
       - .git
-    exportedAt: '2026-04-14T21:28:48.965Z'
+    exportedAt: '2026-04-16T16:29:24.852Z'
     exportedUsing: Bruno

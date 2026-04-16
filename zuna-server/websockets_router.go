@@ -74,6 +74,7 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 // ─── built-in handlers ────────────────────────────────────────────────────────
 
 func (r *MessageRouter) registerBuiltins() {
+	r.Register("ping", r.handlePing)
 	r.Register("auth", r.handleAuth)
 	r.Register("message", r.handleMessage)
 }
