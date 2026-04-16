@@ -1,6 +1,6 @@
 // Package router provides a message-type dispatcher that keeps handler logic
 // cleanly separated from the WebSocket plumbing.
-package main
+package ws
 
 import (
 	"encoding/json"

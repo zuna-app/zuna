@@ -1,11 +1,12 @@
 // Package hub manages all connected WebSocket clients and message broadcasting.
-package main
+package ws
 
 import (
 	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
+	"zuna-server/data"
 )
 
 // Message is the unit passed through the hub's broadcast channel.
@@ -68,10 +69,10 @@ func (h *Hub) Run() {
 		case client := <-h.Unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client.ID()]; ok {
-				ud, err := GetUserDataByConnectionId(client.ID())
+				ud, err := data.GetUserDataByConnectionId(client.ID())
 				if err == nil {
-					ud.connectionId = ""
-					userDataMap[ud.username] = ud
+					ud.ConnectionID = ""
+					data.UserDataMap[ud.Username] = ud
 				}
 
 				delete(h.clients, client.ID())

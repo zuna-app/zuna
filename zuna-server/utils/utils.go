@@ -1,11 +1,11 @@
-package main
+package utils
 
 import (
 	"crypto/rand"
 	"encoding/base64"
 )
 
-func generateEd25519Nonce() (string, error) {
+func GenerateEd25519Nonce() (string, error) {
 	b := make([]byte, 32)
 
 	_, err := rand.Read(b)

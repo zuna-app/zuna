@@ -1,10 +1,12 @@
-package main
+package rest
 
 import (
 	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"zuna-server/data"
+	"zuna-server/db"
 	"zuna-server/ent/user"
 
 	"github.com/labstack/echo/v5"
@@ -13,7 +15,7 @@ import (
 
 const IdKey = "id"
 
-func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		auth := c.Request().Header.Get("Authorization")
 
@@ -42,15 +44,15 @@ func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func validateToken(c *echo.Context, token string) (string, error) {
-	for _, userData := range userDataMap {
-		if userData.authToken != token {
+	for _, userData := range data.UserDataMap {
+		if userData.AuthToken != token {
 			continue
 		}
 
 		ctx := c.Request().Context()
-		u, err := EntClient.User.
+		u, err := db.EntClient.User.
 			Query().
-			Where(user.UsernameEQ(userData.username)).
+			Where(user.UsernameEQ(userData.Username)).
 			First(ctx)
 
 		if err != nil {

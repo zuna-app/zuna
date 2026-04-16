@@ -1,7 +1,7 @@
 // Package ws handles the low-level WebSocket lifecycle: upgrading HTTP
 // connections, running per-client read/write pumps, and wiring each client
 // into the Hub.
-package main
+package ws
 
 import (
 	"encoding/json"

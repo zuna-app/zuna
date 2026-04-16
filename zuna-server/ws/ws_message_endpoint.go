@@ -1,0 +1,141 @@
+package ws
+
+import (
+	"context"
+	"encoding/json"
+	"zuna-server/data"
+	"zuna-server/db"
+	"zuna-server/ent/chat"
+
+	"github.com/rs/zerolog/log"
+)
+
+type WsMessageRequest struct {
+	ChatId     string `json:"chat_id"`
+	Token      string `json:"token"`
+	CipherText string `json:"cipher_text"`
+	Iv         string `json:"iv"`
+	AuthTag    string `json:"auth_tag"`
+	LocalId    int    `json:"local_id"`
+}
+
+type WsMessageAckResponse struct {
+	LocalId   int    `json:"local_id"`
+	Id        int64  `json:"id"`
+	ChatId    string `json:"chat_id"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+type WsMessageReceiveResponse struct {
+	Id         int64  `json:"id"`
+	ChatId     string `json:"chat_id"`
+	CreatedAt  int64  `json:"created_at"`
+	SenderId   string `json:"sender_id"`
+	CipherText string `json:"cipher_text"`
+	Iv         string `json:"iv"`
+	AuthTag    string `json:"auth_tag"`
+}
+
+// Receive over: message
+// Response to chat members over: message_receive
+// Response to sender over: message_ack
+func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage) {
+	var req WsMessageRequest
+	if err := json.Unmarshal(msg.Payload, &req); err != nil {
+		sendError(c, "bad_request", "bad request")
+		return
+	}
+
+	userData, err := data.GetUserDataByToken(req.Token)
+	if err != nil {
+		sendError(c, "forbidden", "forbidden")
+	}
+
+	ctx := context.Background()
+
+	chatExists, err := db.EntClient.Chat.Query().
+		Where(chat.IDEQ(req.ChatId)).
+		Exist(ctx)
+
+	if err != nil {
+		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to check if chat exists")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	if !chatExists {
+		sendError(c, "bad_payload", "bad request")
+		return
+	}
+
+	ch, err := db.EntClient.Chat.Query().
+		WithUsers().
+		Where(chat.IDEQ(req.ChatId)).
+		First(ctx)
+
+	if err != nil {
+		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to query chat")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	isMember := false
+	for _, uu := range ch.Edges.Users {
+		if uu.ID == userData.UserID {
+			isMember = true
+			break
+		}
+	}
+
+	if !isMember {
+		sendError(c, "forbidden", "forbidden")
+		return
+	}
+
+	m, err := db.EntClient.Message.
+		Create().
+		SetCipherText(req.CipherText).
+		SetIv(req.Iv).
+		SetAuthTag(req.AuthTag).
+		SetUserID(userData.UserID).
+		SetChatID(req.ChatId).
+		Save(ctx)
+
+	if err != nil {
+		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to insert message")
+		sendError(c, "internal_error", "internal error")
+	}
+
+	c.Send(OutgoingMessage{Type: "message_ack", Payload: WsMessageAckResponse{
+		LocalId:   req.LocalId,
+		Id:        m.ID,
+		ChatId:    ch.ID,
+		CreatedAt: m.SentAt.UnixMilli(),
+	}})
+
+	for _, uu := range ch.Edges.Users {
+		if uu.ID == userData.UserID {
+			continue
+		}
+
+		ud, err := data.GetUserDataByUsername(uu.Username)
+		if err != nil {
+			continue
+		}
+
+		connectionId := ud.ConnectionID
+		if connectionId == "" {
+			continue // User disconnected from ws
+		}
+
+		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_receive", Payload: WsMessageReceiveResponse{
+			Id:         m.ID,
+			ChatId:     ch.ID,
+			CreatedAt:  m.SentAt.UnixMilli(),
+			SenderId:   connectionId,
+			CipherText: req.CipherText,
+			Iv:         req.Iv,
+			AuthTag:    req.AuthTag,
+		}})
+	}
+}
