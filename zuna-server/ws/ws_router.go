@@ -5,12 +5,14 @@ package ws
 import (
 	"encoding/json"
 	"log"
+	"zuna-server/data"
 )
 
 // IncomingMessage is the envelope every client must send.
 // The Type field selects which handler is invoked; Payload is passed as-is.
 type IncomingMessage struct {
 	Type    string          `json:"type"`
+	Token   string          `json:"token"`
 	Payload json.RawMessage `json:"payload"`
 }
 
@@ -22,7 +24,7 @@ type OutgoingMessage struct {
 
 // HandlerFunc is the signature every message handler must implement.
 // c is the originating client; msg is the fully-parsed incoming envelope.
-type HandlerFunc func(c HubClient, msg IncomingMessage)
+type HandlerFunc func(c HubClient, msg IncomingMessage, userData data.UserData)
 
 // MessageRouter maps message type strings to handler functions.
 type MessageRouter struct {
@@ -68,7 +70,18 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 		return
 	}
 
-	handler(c, msg)
+	if msg.Type == "auth" {
+		handler(c, msg, data.UserData{})
+		return
+	}
+
+	userData, err := data.GetUserDataByToken(msg.Token)
+	if err != nil {
+		sendError(c, "forbidden", "not authorized")
+		return
+	}
+
+	handler(c, msg, userData)
 }
 
 // ─── built-in handlers ────────────────────────────────────────────────────────

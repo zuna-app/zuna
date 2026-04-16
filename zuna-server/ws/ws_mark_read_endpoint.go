@@ -14,9 +14,8 @@ import (
 )
 
 type MessageReadRequest struct {
-	Token     string `json:"token"`
-	Timestamp int64  `json:"timestamp"`
-	MessageId int64  `json:"message_id"`
+	Timestamp int64 `json:"timestamp"`
+	MessageId int64 `json:"message_id"`
 }
 
 type MessageReadResponseMulticast struct {
@@ -26,16 +25,10 @@ type MessageReadResponseMulticast struct {
 
 // Receive over: mark_read
 // Response to chat members over: message_read_info
-func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage) {
+func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req MessageReadRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
 		sendError(c, "bad_request", "invalid json")
-		return
-	}
-
-	userData, err := data.GetUserDataByToken(req.Token)
-	if err != nil {
-		sendError(c, "forbidden", "forbidden")
 		return
 	}
 

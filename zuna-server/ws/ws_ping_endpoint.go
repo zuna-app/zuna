@@ -7,8 +7,7 @@ import (
 )
 
 type PingRequest struct {
-	Timestamp int64  `json:"ts"`
-	Token     string `json:"token"`
+	Timestamp int64 `json:"ts"`
 }
 
 type PingResponse struct {
@@ -17,21 +16,15 @@ type PingResponse struct {
 
 // Receive over: ping
 // Response to sender over: ping
-func (r *MessageRouter) handlePing(c HubClient, msg IncomingMessage) {
+func (r *MessageRouter) handlePing(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req PingRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
 		sendError(c, "bad_request", "invalid json")
 		return
 	}
 
-	ud, err := data.GetUserDataByToken(req.Token)
-	if err != nil {
-		sendError(c, "bad_request", "forbidden")
-		return
-	}
-
-	ud.LastSeen = time.Now().UnixMilli()
-	data.UserDataMap[ud.Username] = ud
+	userData.LastSeen = time.Now().UnixMilli()
+	data.UserDataMap[userData.Username] = userData
 
 	c.Send(OutgoingMessage{Type: "pong", Payload: PingResponse{
 		Timestamp: req.Timestamp,

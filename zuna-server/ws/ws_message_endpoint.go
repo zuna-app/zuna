@@ -12,7 +12,6 @@ import (
 
 type MessageRequest struct {
 	ChatId     string `json:"chat_id"`
-	Token      string `json:"token"`
 	CipherText string `json:"cipher_text"`
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`
@@ -39,16 +38,10 @@ type MessageReceiveResponseMulticast struct {
 // Receive over: message
 // Response to chat members over: message_receive
 // Response to sender over: message_ack
-func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage) {
+func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req MessageRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
 		sendError(c, "bad_request", "bad request")
-		return
-	}
-
-	userData, err := data.GetUserDataByToken(req.Token)
-	if err != nil {
-		sendError(c, "forbidden", "forbidden")
 		return
 	}
 

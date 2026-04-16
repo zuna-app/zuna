@@ -1,13 +1,8 @@
 package ws
 
 import (
-	"encoding/json"
 	"zuna-server/data"
 )
-
-type AuthRequest struct {
-	Token string `json:"token"`
-}
 
 type AuthResponse struct {
 	Success string `json:"success"`
@@ -15,14 +10,9 @@ type AuthResponse struct {
 
 // Receive over: auth
 // Response to sender over: auth_confirmation
-func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage) {
-	var req AuthRequest
-	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		sendError(c, "bad_request", "invalid json")
-		return
-	}
-
-	token := req.Token
+// WARNING: in this endpoint UserData is not set
+func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage, _ data.UserData) {
+	token := msg.Token
 	userData, err := data.GetUserDataByToken(token)
 	if err != nil {
 		sendError(c, "bad_request", "invalid token or not authorized over rest")
