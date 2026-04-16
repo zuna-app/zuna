@@ -77,6 +77,7 @@ func (r *MessageRouter) registerBuiltins() {
 	r.Register("ping", r.handlePing)
 	r.Register("auth", r.handleAuth)
 	r.Register("message", r.handleMessage)
+	r.Register("mark_read", r.handleMarkRead)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

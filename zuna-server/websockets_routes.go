@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"strconv"
+	"time"
 	"zuna-server/ent/chat"
+	"zuna-server/ent/message"
 
 	"github.com/rs/zerolog/log"
 )
@@ -14,6 +17,84 @@ type WsPingRequest struct {
 
 type WsPingResponse struct {
 	Timestamp int64 `json:"ts"`
+}
+
+type WsMessageRead struct {
+	Token     string `json:"token"`
+	Timestamp int64  `json:"timestamp"`
+	MessageId int64  `json:"message_id"`
+}
+
+type WsMessageReadInfo struct {
+	Timestamp int64 `json:"timestamp"`
+	MessageId int64 `json:"message_id"`
+}
+
+func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage) {
+	var req WsMessageRead
+	if err := json.Unmarshal(msg.Payload, &req); err != nil {
+		sendError(c, "bad_request", "invalid json")
+		return
+	}
+
+	userData, err := GetUserDataByToken(req.Token)
+	if err != nil {
+		sendError(c, "forbidden", "forbidden")
+	}
+
+	ctx := context.Background()
+	m, err := EntClient.Message.Query().WithUser().WithChat().Where(message.IDEQ(req.MessageId)).First(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("id", strconv.FormatInt(req.MessageId, 10)).Msg("failed to query message")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	if m.Edges.User.ID != userData.userId {
+		sendError(c, "forbidden", "forbidden")
+		return
+	}
+
+	if m.ReadAt != nil {
+		log.Warn().Err(err).Str("id", strconv.FormatInt(req.MessageId, 10)).Msg("message already marked as read")
+		sendError(c, "bad_request", "message already marked as read")
+		return
+	}
+
+	err = EntClient.Message.UpdateOneID(req.MessageId).SetReadAt(time.Now()).Exec(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("id", strconv.FormatInt(req.MessageId, 10)).Msg("failed to update message")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	ch, err := EntClient.Chat.Query().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("id", m.Edges.Chat.ID).Msg("failed to query chat")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
+
+	for _, uu := range ch.Edges.Users {
+		if uu.ID == userData.userId {
+			continue
+		}
+
+		ud, err := GetUserDataByUsername(uu.Username)
+		if err != nil {
+			continue
+		}
+
+		connectionId := ud.connectionId
+		if connectionId == "" {
+			continue // User disconnected from ws
+		}
+
+		r.h.SendTo(connectionId, OutgoingMessage{Type: "message_read_info", Payload: WsMessageReadInfo{
+			Timestamp: req.Timestamp,
+			MessageId: req.MessageId,
+		}})
+	}
 }
 
 func (r *MessageRouter) handlePing(c HubClient, msg IncomingMessage) {
