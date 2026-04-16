@@ -33,8 +33,8 @@ func chatListEndpoint(c *echo.Context) error {
 
 	members := make([]ChatMemberDTO, 0)
 
-	for _, chat := range chats {
-		for _, member := range chat.Edges.Users {
+	for _, c := range chats {
+		for _, member := range c.Edges.Users {
 			if member.ID == id {
 				continue
 			}

@@ -74,30 +74,8 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 // ─── built-in handlers ────────────────────────────────────────────────────────
 
 func (r *MessageRouter) registerBuiltins() {
-	r.Register("ping", r.handlePing)
+	r.Register("auth", r.handleAuth)
 	r.Register("message", r.handleMessage)
-}
-
-// handleChat broadcasts a chat message to every other connected client.
-func (r *MessageRouter) handleChat(c HubClient, msg IncomingMessage) {
-	type chatPayload struct {
-		Text string `json:"text"`
-	}
-
-	var p chatPayload
-	if err := json.Unmarshal(msg.Payload, &p); err != nil || p.Text == "" {
-		sendError(c, "bad_payload", "chat requires {text: string}")
-		return
-	}
-
-	r.h.Broadcast <- Message{
-		Payload: OutgoingMessage{
-			Type:    "chat",
-			Payload: map[string]string{"from": c.ID(), "text": p.Text},
-		},
-		Sender: c,
-	}
-	log.Printf("[chat] from=%s  text=%q", c.ID(), p.Text)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

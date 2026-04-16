@@ -6,10 +6,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/labstack/echo/v5"
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/labstack/echo/v5"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -49,9 +50,6 @@ type Client struct {
 	h    *Hub
 	r    *MessageRouter
 }
-
-// Ensure Client satisfies the hub.Client interface at compile time.
-var _ HubClient = (*Client)(nil)
 
 // ID returns the unique identifier assigned at connection time.
 func (c *Client) ID() string { return c.id }

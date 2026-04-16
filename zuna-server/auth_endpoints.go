@@ -59,7 +59,7 @@ func authHandshakeEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusNotFound, ErrorResponse{Error: "user does not exist"})
 	}
 
-	userData, exists := userDatas[req.Username]
+	userData, exists := userDataMap[req.Username]
 	if !exists {
 		userData = UserData{
 			username:     req.Username,
@@ -75,7 +75,7 @@ func authHandshakeEndpoint(c *echo.Context) error {
 	}
 
 	userData.ed25519Nonce = nonce
-	userDatas[req.Username] = userData
+	userDataMap[req.Username] = userData
 
 	return c.JSON(http.StatusOK, HandshakeResponse{
 		Nonce:      userData.ed25519Nonce,
@@ -99,7 +99,7 @@ func authLoginEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusNotFound, ErrorResponse{Error: "user does not exist"})
 	}
 
-	userData, exists := userDatas[req.Username]
+	userData, exists := userDataMap[req.Username]
 	if !exists {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{Error: "auth requested before handshake"})
 	}
@@ -138,7 +138,7 @@ func authLoginEndpoint(c *echo.Context) error {
 	userData.userId = u.ID
 	userData.ed25519Nonce = ""
 	userData.authToken = cuid2.Generate()
-	userDatas[req.Username] = userData
+	userDataMap[req.Username] = userData
 
 	return c.JSON(http.StatusOK, AuthResponse{
 		Token: userData.authToken,

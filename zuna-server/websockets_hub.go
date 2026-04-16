@@ -68,6 +68,12 @@ func (h *Hub) Run() {
 		case client := <-h.Unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client.ID()]; ok {
+				ud, err := GetUserDataByConnectionId(client.ID())
+				if err == nil {
+					ud.connectionId = ""
+					userDataMap[ud.username] = ud
+				}
+
 				delete(h.clients, client.ID())
 				log.Printf("[hub] client unregistered id=%s  total=%d", client.ID(), len(h.clients))
 			}

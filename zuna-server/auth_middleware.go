@@ -42,7 +42,7 @@ func authMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func validateToken(c *echo.Context, token string) (string, error) {
-	for _, userData := range userDatas {
+	for _, userData := range userDataMap {
 		if userData.authToken != token {
 			continue
 		}

@@ -2,13 +2,14 @@ package main
 
 import "errors"
 
-var userDatas = make(map[string]UserData)
+var userDataMap = make(map[string]UserData)
 
 type UserData struct {
 	userId       string
 	username     string
 	authToken    string
 	ed25519Nonce string
+	connectionId string
 }
 
 type ChatMemberDTO struct {
@@ -29,12 +30,32 @@ type MessageDTO struct {
 	ReadAt     int64  `json:"read_at"`
 }
 
-func GetUserId(token string) (string, error) {
-	for _, ud := range userDatas {
+func GetUserDataByToken(token string) (UserData, error) {
+	for _, ud := range userDataMap {
 		if ud.authToken == token {
-			return ud.userId, nil
+			return ud, nil
 		}
 	}
 
-	return "", errors.New("user is not logged in")
+	return UserData{}, errors.New("user is not logged in (token)")
+}
+
+func GetUserDataByUsername(username string) (UserData, error) {
+	for _, ud := range userDataMap {
+		if ud.username == username {
+			return ud, nil
+		}
+	}
+
+	return UserData{}, errors.New("user is not logged in (username)")
+}
+
+func GetUserDataByConnectionId(connectionId string) (UserData, error) {
+	for _, ud := range userDataMap {
+		if ud.connectionId == connectionId {
+			return ud, nil
+		}
+	}
+
+	return UserData{}, errors.New("user is not connected")
 }
