@@ -16,6 +16,7 @@ func (r *MessageRouter) handleLastSeenRequest(c HubClient, msg IncomingMessage, 
 		ls = append(ls, data.LastSeenDTO{
 			UserID:   ud.UserID,
 			LastSeen: ud.LastSeen,
+			Online:   ud.ConnectionID != "",
 		})
 	}
 

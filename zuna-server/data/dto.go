@@ -21,4 +21,5 @@ type MessageDTO struct {
 type LastSeenDTO struct {
 	UserID   string `json:"user_id"`
 	LastSeen int64  `json:"last_seen"`
+	Online   bool   `json:"online"`
 }
