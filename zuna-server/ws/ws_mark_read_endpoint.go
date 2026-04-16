@@ -13,13 +13,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type WsMessageRead struct {
+type MessageReadRequest struct {
 	Token     string `json:"token"`
 	Timestamp int64  `json:"timestamp"`
 	MessageId int64  `json:"message_id"`
 }
 
-type WsMessageReadInfo struct {
+type MessageReadResponseMulticast struct {
 	Timestamp int64 `json:"timestamp"`
 	MessageId int64 `json:"message_id"`
 }
@@ -27,7 +27,7 @@ type WsMessageReadInfo struct {
 // Receive over: mark_read
 // Response to chat members over: message_read_info
 func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage) {
-	var req WsMessageRead
+	var req MessageReadRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
 		sendError(c, "bad_request", "invalid json")
 		return
@@ -36,6 +36,7 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage) {
 	userData, err := data.GetUserDataByToken(req.Token)
 	if err != nil {
 		sendError(c, "forbidden", "forbidden")
+		return
 	}
 
 	ctx := context.Background()
@@ -86,7 +87,7 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage) {
 			continue // User disconnected from ws
 		}
 
-		r.h.SendTo(connectionId, OutgoingMessage{Type: "message_read_info", Payload: WsMessageReadInfo{
+		r.h.SendTo(connectionId, OutgoingMessage{Type: "message_read_info", Payload: MessageReadResponseMulticast{
 			Timestamp: req.Timestamp,
 			MessageId: req.MessageId,
 		}})

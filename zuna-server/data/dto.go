@@ -17,3 +17,8 @@ type MessageDTO struct {
 	SentAt     int64  `json:"sent_at"`
 	ReadAt     int64  `json:"read_at"`
 }
+
+type LastSeenDTO struct {
+	UserID   string `json:"user_id"`
+	LastSeen int64  `json:"last_seen"`
+}

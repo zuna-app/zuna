@@ -1,6 +1,8 @@
 package data
 
-import "errors"
+import (
+	"errors"
+)
 
 var UserDataMap = make(map[string]UserData)
 
@@ -10,6 +12,7 @@ type UserData struct {
 	AuthToken    string
 	Ed25519Nonce string
 	ConnectionID string
+	LastSeen     int64
 }
 
 func GetUserDataByToken(token string) (UserData, error) {

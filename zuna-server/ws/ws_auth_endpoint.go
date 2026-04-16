@@ -5,18 +5,18 @@ import (
 	"zuna-server/data"
 )
 
-type WsAuthRequest struct {
+type AuthRequest struct {
 	Token string `json:"token"`
 }
 
-type WsAuthResponse struct {
+type AuthResponse struct {
 	Success string `json:"success"`
 }
 
 // Receive over: auth
 // Response to sender over: auth_confirmation
 func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage) {
-	var req WsAuthRequest
+	var req AuthRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
 		sendError(c, "bad_request", "invalid json")
 		return
@@ -31,7 +31,7 @@ func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage) {
 
 	userData.ConnectionID = c.ID()
 	data.UserDataMap[userData.Username] = userData
-	c.Send(OutgoingMessage{Type: "auth_confirmation", Payload: WsAuthResponse{
+	c.Send(OutgoingMessage{Type: "auth_confirmation", Payload: AuthResponse{
 		Success: "ok",
 	}})
 }

@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type WsMessageRequest struct {
+type MessageRequest struct {
 	ChatId     string `json:"chat_id"`
 	Token      string `json:"token"`
 	CipherText string `json:"cipher_text"`
@@ -19,14 +19,14 @@ type WsMessageRequest struct {
 	LocalId    int    `json:"local_id"`
 }
 
-type WsMessageAckResponse struct {
+type MessageAckResponse struct {
 	LocalId   int    `json:"local_id"`
 	Id        int64  `json:"id"`
 	ChatId    string `json:"chat_id"`
 	CreatedAt int64  `json:"created_at"`
 }
 
-type WsMessageReceiveResponse struct {
+type MessageReceiveResponseMulticast struct {
 	Id         int64  `json:"id"`
 	ChatId     string `json:"chat_id"`
 	CreatedAt  int64  `json:"created_at"`
@@ -40,7 +40,7 @@ type WsMessageReceiveResponse struct {
 // Response to chat members over: message_receive
 // Response to sender over: message_ack
 func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage) {
-	var req WsMessageRequest
+	var req MessageRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
 		sendError(c, "bad_request", "bad request")
 		return
@@ -49,6 +49,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage) {
 	userData, err := data.GetUserDataByToken(req.Token)
 	if err != nil {
 		sendError(c, "forbidden", "forbidden")
+		return
 	}
 
 	ctx := context.Background()
@@ -106,7 +107,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage) {
 		sendError(c, "internal_error", "internal error")
 	}
 
-	c.Send(OutgoingMessage{Type: "message_ack", Payload: WsMessageAckResponse{
+	c.Send(OutgoingMessage{Type: "message_ack", Payload: MessageAckResponse{
 		LocalId:   req.LocalId,
 		Id:        m.ID,
 		ChatId:    ch.ID,
@@ -128,7 +129,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage) {
 			continue // User disconnected from ws
 		}
 
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_receive", Payload: WsMessageReceiveResponse{
+		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_receive", Payload: MessageReceiveResponseMulticast{
 			Id:         m.ID,
 			ChatId:     ch.ID,
 			CreatedAt:  m.SentAt.UnixMilli(),
