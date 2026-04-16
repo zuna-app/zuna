@@ -72,7 +72,7 @@ func (h *Hub) Run() {
 				ud, err := data.GetUserDataByConnectionId(client.ID())
 				if err == nil {
 					ud.ConnectionID = ""
-					data.UserDataMap[ud.Username] = ud
+					data.UpdateUserData(ud)
 				}
 
 				delete(h.clients, client.ID())

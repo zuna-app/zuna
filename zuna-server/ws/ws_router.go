@@ -70,14 +70,16 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 		return
 	}
 
-	if msg.Type == "auth" {
-		handler(c, msg, data.UserData{})
+	// Invalid token
+	userData, err := data.GetUserDataByToken(msg.Token)
+	if err != nil {
+		sendError(c, "forbidden", "invalid token or missing REST authentication")
 		return
 	}
 
-	userData, err := data.GetUserDataByToken(msg.Token)
-	if err != nil {
-		sendError(c, "forbidden", "not authorized")
+	// Missing connection ID in UserData, auth request over WS is required first
+	if userData.ConnectionID == "" && msg.Type != "auth" {
+		sendError(c, "forbidden", "auth over websockets required first")
 		return
 	}
 

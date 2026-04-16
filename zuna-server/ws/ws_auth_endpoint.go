@@ -10,17 +10,9 @@ type AuthResponse struct {
 
 // Receive over: auth
 // Response to sender over: auth_confirmation
-// WARNING: in this endpoint UserData is not set
-func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage, _ data.UserData) {
-	token := msg.Token
-	userData, err := data.GetUserDataByToken(token)
-	if err != nil {
-		sendError(c, "bad_request", "invalid token or not authorized over rest")
-		return
-	}
-
+func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage, userData data.UserData) {
 	userData.ConnectionID = c.ID()
-	data.UserDataMap[userData.Username] = userData
+	data.UpdateUserData(userData)
 	c.Send(OutgoingMessage{Type: "auth_confirmation", Payload: AuthResponse{
 		Success: "ok",
 	}})

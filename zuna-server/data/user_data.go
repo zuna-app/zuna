@@ -4,6 +4,7 @@ import (
 	"errors"
 )
 
+// username -> UserData
 var UserDataMap = make(map[string]UserData)
 
 type UserData struct {
@@ -43,4 +44,8 @@ func GetUserDataByConnectionId(connectionId string) (UserData, error) {
 	}
 
 	return UserData{}, errors.New("user is not connected")
+}
+
+func UpdateUserData(userData UserData) {
+	UserDataMap[userData.Username] = userData
 }

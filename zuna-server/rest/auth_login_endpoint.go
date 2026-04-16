@@ -37,8 +37,8 @@ func AuthLoginEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusNotFound, HttpErrorResponse{Error: "user does not exist"})
 	}
 
-	userData, exists := data.UserDataMap[req.Username]
-	if !exists {
+	userData, err := data.GetUserDataByUsername(req.Username)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "auth requested before handshake"})
 	}
 
@@ -76,7 +76,7 @@ func AuthLoginEndpoint(c *echo.Context) error {
 	userData.UserID = u.ID
 	userData.Ed25519Nonce = ""
 	userData.AuthToken = cuid2.Generate()
-	data.UserDataMap[req.Username] = userData
+	data.UpdateUserData(userData)
 
 	return c.JSON(http.StatusOK, AuthResponse{
 		Token: userData.AuthToken,

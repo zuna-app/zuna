@@ -24,7 +24,7 @@ func (r *MessageRouter) handlePing(c HubClient, msg IncomingMessage, userData da
 	}
 
 	userData.LastSeen = time.Now().UnixMilli()
-	data.UserDataMap[userData.Username] = userData
+	data.UpdateUserData(userData)
 
 	c.Send(OutgoingMessage{Type: "pong", Payload: PingResponse{
 		Timestamp: req.Timestamp,

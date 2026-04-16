@@ -36,8 +36,8 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusNotFound, HttpErrorResponse{Error: "user does not exist"})
 	}
 
-	userData, exists := data.UserDataMap[req.Username]
-	if !exists {
+	userData, err := data.GetUserDataByUsername(req.Username)
+	if err != nil {
 		userData = data.UserData{
 			Username:     req.Username,
 			AuthToken:    "",
@@ -52,7 +52,7 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 	}
 
 	userData.Ed25519Nonce = nonce
-	data.UserDataMap[req.Username] = userData
+	data.UpdateUserData(userData)
 
 	return c.JSON(http.StatusOK, HandshakeResponse{
 		Nonce:      userData.Ed25519Nonce,
