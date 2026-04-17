@@ -7,7 +7,7 @@ import (
 // Receive over: presence_request
 // Response to sender over: presence_response
 type PresenceResponse struct {
-	LastSeen []data.PresenceDTO `json:"last_seen"`
+	Presence []data.PresenceDTO `json:"presence"`
 }
 
 func (r *MessageRouter) handlePresenceRequest(c HubClient, msg IncomingMessage, userData data.UserData) {
@@ -20,7 +20,7 @@ func (r *MessageRouter) handlePresenceRequest(c HubClient, msg IncomingMessage, 
 		})
 	}
 
-	c.Send(OutgoingMessage{Type: "last_seen_response", Payload: PresenceResponse{
-		LastSeen: ls,
+	c.Send(OutgoingMessage{Type: "presence_response", Payload: PresenceResponse{
+		Presence: ls,
 	}})
 }
