@@ -3,7 +3,6 @@ package ws
 import (
 	"context"
 	"encoding/json"
-	"time"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/chat"
@@ -94,7 +93,6 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		SetAuthTag(req.AuthTag).
 		SetUserID(userData.UserID).
 		SetChatID(req.ChatId).
-		SetReadAt(time.Now()). // fixnij to kurwa "ent: missing required field \"Message.read_at\"
 		Save(ctx)
 
 	if err != nil {

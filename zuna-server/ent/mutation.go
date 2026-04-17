@@ -1343,9 +1343,22 @@ func (m *MessageMutation) OldReadAt(ctx context.Context) (v *time.Time, err erro
 	return oldValue.ReadAt, nil
 }
 
+// ClearReadAt clears the value of the "read_at" field.
+func (m *MessageMutation) ClearReadAt() {
+	m.read_at = nil
+	m.clearedFields[message.FieldReadAt] = struct{}{}
+}
+
+// ReadAtCleared returns if the "read_at" field was cleared in this mutation.
+func (m *MessageMutation) ReadAtCleared() bool {
+	_, ok := m.clearedFields[message.FieldReadAt]
+	return ok
+}
+
 // ResetReadAt resets all changes to the "read_at" field.
 func (m *MessageMutation) ResetReadAt() {
 	m.read_at = nil
+	delete(m.clearedFields, message.FieldReadAt)
 }
 
 // SetUserID sets the "user" edge to the User entity by id.
@@ -1640,7 +1653,11 @@ func (m *MessageMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *MessageMutation) ClearedFields() []string {
-	return nil
+	var fields []string
+	if m.FieldCleared(message.FieldReadAt) {
+		fields = append(fields, message.FieldReadAt)
+	}
+	return fields
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -1653,6 +1670,11 @@ func (m *MessageMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *MessageMutation) ClearField(name string) error {
+	switch name {
+	case message.FieldReadAt:
+		m.ClearReadAt()
+		return nil
+	}
 	return fmt.Errorf("unknown Message nullable field %s", name)
 }
 

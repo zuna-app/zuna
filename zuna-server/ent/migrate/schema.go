@@ -48,7 +48,7 @@ var (
 		{Name: "iv", Type: field.TypeString},
 		{Name: "auth_tag", Type: field.TypeString},
 		{Name: "sent_at", Type: field.TypeTime},
-		{Name: "read_at", Type: field.TypeTime},
+		{Name: "read_at", Type: field.TypeTime, Nullable: true},
 		{Name: "chat_messages", Type: field.TypeString},
 		{Name: "user_messages", Type: field.TypeString},
 	}

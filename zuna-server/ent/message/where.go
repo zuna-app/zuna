@@ -355,6 +355,16 @@ func ReadAtLTE(v time.Time) predicate.Message {
 	return predicate.Message(sql.FieldLTE(FieldReadAt, v))
 }
 
+// ReadAtIsNil applies the IsNil predicate on the "read_at" field.
+func ReadAtIsNil() predicate.Message {
+	return predicate.Message(sql.FieldIsNull(FieldReadAt))
+}
+
+// ReadAtNotNil applies the NotNil predicate on the "read_at" field.
+func ReadAtNotNil() predicate.Message {
+	return predicate.Message(sql.FieldNotNull(FieldReadAt))
+}
+
 // HasUser applies the HasEdge predicate on the "user" edge.
 func HasUser() predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {

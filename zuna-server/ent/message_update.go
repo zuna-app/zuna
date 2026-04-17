@@ -101,6 +101,12 @@ func (_u *MessageUpdate) SetNillableReadAt(v *time.Time) *MessageUpdate {
 	return _u
 }
 
+// ClearReadAt clears the value of the "read_at" field.
+func (_u *MessageUpdate) ClearReadAt() *MessageUpdate {
+	_u.mutation.ClearReadAt()
+	return _u
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *MessageUpdate) SetUserID(id string) *MessageUpdate {
 	_u.mutation.SetUserID(id)
@@ -240,6 +246,9 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.ReadAt(); ok {
 		_spec.SetField(message.FieldReadAt, field.TypeTime, value)
+	}
+	if _u.mutation.ReadAtCleared() {
+		_spec.ClearField(message.FieldReadAt, field.TypeTime)
 	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -434,6 +443,12 @@ func (_u *MessageUpdateOne) SetNillableReadAt(v *time.Time) *MessageUpdateOne {
 	return _u
 }
 
+// ClearReadAt clears the value of the "read_at" field.
+func (_u *MessageUpdateOne) ClearReadAt() *MessageUpdateOne {
+	_u.mutation.ClearReadAt()
+	return _u
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *MessageUpdateOne) SetUserID(id string) *MessageUpdateOne {
 	_u.mutation.SetUserID(id)
@@ -603,6 +618,9 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 	}
 	if value, ok := _u.mutation.ReadAt(); ok {
 		_spec.SetField(message.FieldReadAt, field.TypeTime, value)
+	}
+	if _u.mutation.ReadAtCleared() {
+		_spec.ClearField(message.FieldReadAt, field.TypeTime)
 	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{

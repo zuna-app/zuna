@@ -61,6 +61,14 @@ func (_c *MessageCreate) SetReadAt(v time.Time) *MessageCreate {
 	return _c
 }
 
+// SetNillableReadAt sets the "read_at" field if the given value is not nil.
+func (_c *MessageCreate) SetNillableReadAt(v *time.Time) *MessageCreate {
+	if v != nil {
+		_c.SetReadAt(*v)
+	}
+	return _c
+}
+
 // SetID sets the "id" field.
 func (_c *MessageCreate) SetID(v int64) *MessageCreate {
 	_c.mutation.SetID(v)
@@ -158,9 +166,6 @@ func (_c *MessageCreate) check() error {
 	}
 	if _, ok := _c.mutation.SentAt(); !ok {
 		return &ValidationError{Name: "sent_at", err: errors.New(`ent: missing required field "Message.sent_at"`)}
-	}
-	if _, ok := _c.mutation.ReadAt(); !ok {
-		return &ValidationError{Name: "read_at", err: errors.New(`ent: missing required field "Message.read_at"`)}
 	}
 	if len(_c.mutation.UserIDs()) == 0 {
 		return &ValidationError{Name: "user", err: errors.New(`ent: missing required edge "Message.user"`)}

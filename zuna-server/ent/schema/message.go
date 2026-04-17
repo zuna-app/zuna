@@ -22,7 +22,7 @@ func (Message) Fields() []ent.Field {
 		field.String("iv"),
 		field.String("auth_tag"),
 		field.Time("sent_at").Default(time.Now),
-		field.Time("read_at").Nillable(),
+		field.Time("read_at").Nillable().Optional().Default(nil),
 	}
 }
 
