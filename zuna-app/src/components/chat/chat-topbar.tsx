@@ -15,6 +15,7 @@ import {
   BellOff,
   UserRound,
 } from "lucide-react";
+import { usePresence } from "@/hooks/useZunaWebSocket";
 
 interface ChatTopbarProps {
   member: ChatMember;
@@ -45,20 +46,47 @@ function TopbarAction({
   );
 }
 
+const convertTimeToRelative = (timestamp: number) => {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  if (diff < 60 * 1000) return "just now";
+  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}m ago`;
+  if (diff < 24 * 60 * 60 * 1000)
+    return `${Math.floor(diff / (60 * 60 * 1000))}h ago`;
+
+  const date = new Date(timestamp);
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
 export function ChatTopbar({ member }: ChatTopbarProps) {
+  const { getMemberPresence } = usePresence();
+  const presence = getMemberPresence(member.id);
+
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border/40 bg-background shrink-0 z-10">
       <div className="flex items-center gap-3 min-w-0">
         <div className="relative shrink-0">
           <PseudoAvatar name={member.username} size={34} />
-          <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 ring-[1.5px] ring-background" />
+          <span
+            className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-[1.5px] ring-background ${
+              presence?.active ? "bg-emerald-500" : "bg-gray-500"
+            }`}
+          />
         </div>
         <div className="min-w-0">
           <p className="text-sm font-semibold leading-tight truncate">
             {member.username}
           </p>
-          <p className="text-[11px] text-emerald-500 leading-tight font-medium">
-            Online
+          <p
+            className={`text-[11px] leading-tight font-medium ${presence?.active ? "text-emerald-500" : "text-gray-500"}`}
+          >
+            {presence?.active
+              ? "Online"
+              : "Last seen " +
+                (presence?.lastSeen
+                  ? convertTimeToRelative(presence.lastSeen)
+                  : "sometimes ago")}
           </p>
         </div>
       </div>

@@ -161,6 +161,16 @@ export function useMessages(server: Server, chatId: string) {
   );
 
   useEffect(() => {
+    window.addEventListener("focus", () => {
+      wsSend("presence", { active: true });
+    });
+
+    window.addEventListener("blur", () => {
+      wsSend("presence", { active: false });
+    });
+  }, []);
+
+  useEffect(() => {
     const chatChanged =
       prevChatIdRef.current !== null && prevChatIdRef.current !== chatId;
     const justConnected =

@@ -1,4 +1,4 @@
-import { useAtomValue } from "jotai";
+import { atom, useAtomValue } from "jotai";
 import { useCallback, useRef } from "react";
 import useWebSocket, { ReadyState } from "react-use-websocket";
 import {
@@ -11,6 +11,23 @@ import { Server } from "@/types/serverTypes";
 export type ZunaResponse = {
   type: string;
   payload: any;
+};
+
+export interface MemberPresence {
+  userId: string;
+  active: boolean;
+  lastSeen: number;
+}
+
+const presenceAtom = atom<Map<string, MemberPresence>>(new Map());
+
+export const usePresence = () => {
+  const presence = useAtomValue(presenceAtom, { store: jotaiStore });
+  return {
+    getMemberPresence: (userId: string): MemberPresence | null => {
+      return presence.get(userId) ?? null;
+    },
+  };
 };
 
 export const useZunaWebSocket = (
@@ -44,6 +61,47 @@ export const useZunaWebSocket = (
   const onMessageStable = useCallback((event: MessageEvent) => {
     try {
       const data = JSON.parse(event.data);
+      if (data.type === "presence_update") {
+        const { user_id, active, last_seen } = data.payload.presence;
+        jotaiStore.set(presenceAtom, (prev) => {
+          const next = new Map(prev);
+          next.set(user_id, {
+            userId: user_id,
+            active,
+            lastSeen: last_seen,
+          });
+          return next;
+        });
+        return;
+      }
+      if (
+        data.type === "presence_response" &&
+        Array.isArray(data.payload.presence)
+      ) {
+        jotaiStore.set(presenceAtom, (prev) => {
+          const next = new Map(prev);
+          for (const p of data.payload.presence) {
+            next.set(p.user_id, {
+              userId: p.user_id,
+              active: p.active,
+              lastSeen: p.last_seen,
+            });
+          }
+          return next;
+        });
+        return;
+      }
+
+      if (data.type === "auth_confirmation") {
+        rawSendRef.current(
+          JSON.stringify({
+            type: "presence_request",
+            token: tokenRef.current ?? "",
+            payload: {},
+          }),
+        );
+      }
+
       if (data.type === "error" && data.payload?.code === "forbidden") {
         if (isReauthorizingRef.current) return;
         isReauthorizingRef.current = true;

@@ -92,11 +92,27 @@ export function ChatMessages({
       }),
     ).then((results) => {
       results.forEach(([key]) => inFlightRef.current.delete(key));
+
+      const container = scrollContainerRef.current;
+      const isNearBottom = container
+        ? container.scrollHeight -
+            container.scrollTop -
+            container.clientHeight <
+          100
+        : false;
+
       setDecrypted((prev) => {
         const next = new Map(prev);
         for (const [key, text] of results) next.set(key, text);
         return next;
       });
+
+      if (isNearBottom) {
+        requestAnimationFrame(() => {
+          const c = scrollContainerRef.current;
+          if (c) c.scrollTop = c.scrollHeight;
+        });
+      }
     });
   }, [messages, sharedSecret]);
 
