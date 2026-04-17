@@ -26,8 +26,9 @@ type SQLiteConfig struct {
 }
 
 type ServerConfig struct {
-	Name string `toml:"name"`
-	Logo string `toml:"logo"`
+	Name               string `toml:"name"`
+	Logo               string `toml:"logo"`
+	MaximumMessageSize int64  `toml:"maximum_message_size"`
 }
 
 type Configuration struct {
@@ -53,8 +54,9 @@ var Config = Configuration{
 		Database: "zuna",
 	},
 	Server: ServerConfig{
-		Name: "Example Zuna server",
-		Logo: "logo.png",
+		Name:               "Example Zuna server",
+		Logo:               "logo.png",
+		MaximumMessageSize: 8 * 1024, // 8KB
 	},
 }
 

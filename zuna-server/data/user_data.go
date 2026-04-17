@@ -1,7 +1,11 @@
 package data
 
 import (
+	"context"
 	"errors"
+	"zuna-server/db"
+
+	"github.com/rs/zerolog/log"
 )
 
 // username -> UserData
@@ -14,6 +18,28 @@ type UserData struct {
 	Ed25519Nonce string
 	ConnectionID string
 	LastSeen     int64
+	Active       bool
+}
+
+func InitializeUserManager() {
+	ctx := context.Background()
+	users, err := db.EntClient.User.Query().Where().All(ctx)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to query users")
+		return
+	}
+
+	for _, user := range users {
+		UserDataMap[user.Username] = UserData{
+			UserID:       user.ID,
+			Username:     user.Username,
+			AuthToken:    "",
+			Ed25519Nonce: "",
+			ConnectionID: "",
+			LastSeen:     0,
+			Active:       false,
+		}
+	}
 }
 
 func GetUserDataByToken(token string) (UserData, error) {

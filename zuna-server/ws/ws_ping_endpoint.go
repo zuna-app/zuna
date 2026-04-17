@@ -2,7 +2,6 @@ package ws
 
 import (
 	"encoding/json"
-	"time"
 	"zuna-server/data"
 )
 
@@ -22,9 +21,6 @@ func (r *MessageRouter) handlePing(c HubClient, msg IncomingMessage, userData da
 		sendError(c, "bad_request", "invalid json")
 		return
 	}
-
-	userData.LastSeen = time.Now().UnixMilli()
-	data.UpdateUserData(userData)
 
 	c.Send(OutgoingMessage{Type: "pong", Payload: PingResponse{
 		Timestamp: req.Timestamp,

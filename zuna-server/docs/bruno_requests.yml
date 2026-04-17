@@ -147,6 +147,41 @@ items:
               }
           auth: inherit
       - info:
+          name: presence
+          type: websocket
+          seq: 5
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "presence",
+                "token": "",
+                "payload": {
+                  "active": true
+                }
+              }
+          auth: inherit
+      - info:
+          name: mark_read
+          type: websocket
+          seq: 4
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "mark_read",
+                "token": "",
+                "payload": {
+                  "timestamp": 0,
+                  "message_id": 0
+                }
+              }
+          auth: inherit
+      - info:
           name: message
           type: websocket
           seq: 2
@@ -186,34 +221,16 @@ items:
               }
           auth: inherit
       - info:
-          name: mark_read
+          name: presence_request
           type: websocket
-          seq: 4
+          seq: 6
         websocket:
           url: ws://localhost:8080/ws
           message:
             type: json
             data: |-
               {
-                "type": "mark_read",
-                "token": "",
-                "payload": {
-                  "timestamp": 0,
-                  "message_id": 0
-                }
-              }
-          auth: inherit
-      - info:
-          name: last_seen
-          type: websocket
-          seq: 5
-        websocket:
-          url: ws://localhost:8080/ws
-          message:
-            type: json
-            data: |-
-              {
-                "type": "last_seen_request",
+                "type": "presence_request",
                 "token": "",
                 "payload": {}
               }
@@ -224,5 +241,5 @@ extensions:
     ignore:
       - node_modules
       - .git
-    exportedAt: '2026-04-16T22:37:38.810Z'
+    exportedAt: '2026-04-17T21:35:51.785Z'
     exportedUsing: Bruno

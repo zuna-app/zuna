@@ -6,6 +6,7 @@ import (
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/chat"
+	"zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
 )
@@ -42,6 +43,11 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 	var req MessageRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
 		sendError(c, "bad_request", "bad request")
+		return
+	}
+
+	if int64(len(req.CipherText)) > utils.Config.Server.MaximumMessageSize {
+		sendError(c, "bad_request", "message too large")
 		return
 	}
 

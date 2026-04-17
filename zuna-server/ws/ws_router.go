@@ -93,7 +93,8 @@ func (r *MessageRouter) registerBuiltins() {
 	r.Register("auth", r.handleAuth)
 	r.Register("message", r.handleMessage)
 	r.Register("mark_read", r.handleMarkRead)
-	r.Register("last_seen_request", r.handleLastSeenRequest)
+	r.Register("presence_request", r.handlePresenceRequest)
+	r.Register("presence", r.handlePresence)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

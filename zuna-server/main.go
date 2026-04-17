@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/rest"
 	"zuna-server/utils"
@@ -46,6 +47,8 @@ func main() {
 		log.Fatal().Err(err).Str("err", err.Error()).Msg("failed creating schema resources")
 		return
 	}
+
+	data.InitializeUserManager()
 
 	e := echo.New()
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
