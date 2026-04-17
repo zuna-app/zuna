@@ -1,12 +1,37 @@
 import { useEffect, useState } from "react";
 import { Server, ChatMember } from "@/types/serverTypes";
 import { useAuthorizer } from "@/hooks/useAuthorizer";
+import { useMessages } from "@/hooks/useMessages";
+import { useSharedSecret } from "@/hooks/useSharedSecret";
 import { Loader2 } from "lucide-react";
 import { ChatListPanel } from "@/components/chat/chat-list-panel";
 import { ChatTopbar } from "@/components/chat/chat-topbar";
 import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatEmptyState } from "@/components/chat/chat-empty-state";
+
+function ChatView({ server, member }: { server: Server; member: ChatMember }) {
+  const sharedSecret = useSharedSecret(member);
+  const { messages, loading, hasMore, sendMessage, fetchMore } = useMessages(
+    server,
+    member.chatId,
+  );
+
+  return (
+    <>
+      <ChatTopbar member={member} />
+      <ChatMessages
+        member={member}
+        messages={messages}
+        loading={loading}
+        hasMore={hasMore}
+        fetchMore={fetchMore}
+        sharedSecret={sharedSecret}
+      />
+      <ChatInput sharedSecret={sharedSecret} onSend={sendMessage} />
+    </>
+  );
+}
 
 export const AppServer = ({ server }: { server: Server }) => {
   const { authorize, token, isAuthorizing, error } = useAuthorizer(server);
@@ -59,11 +84,7 @@ export const AppServer = ({ server }: { server: Server }) => {
       />
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {selectedMember ? (
-          <>
-            <ChatTopbar member={selectedMember} />
-            <ChatMessages member={selectedMember} />
-            <ChatInput />
-          </>
+          <ChatView server={server} member={selectedMember} />
         ) : (
           <ChatEmptyState />
         )}

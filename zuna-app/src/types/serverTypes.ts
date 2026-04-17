@@ -9,6 +9,7 @@ export interface Server {
 
 export interface ChatMember {
   id: string;
+  chatId: string;
   username: string;
   avatar: string;
   avatarIv: string;

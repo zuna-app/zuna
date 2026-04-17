@@ -72,6 +72,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 	messages, err := db.EntClient.Message.Query().
 		Where(message.HasChatWith(chat.IDEQ(chatId)), message.IDLT(cursorInt)).
 		Order(ent.Desc(message.FieldID)).
+		WithUser().
 		Limit(limitInt).
 		All(ctx)
 
@@ -79,15 +80,20 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		log.Error().Err(err).Str("id", chatId).Msg("failed to query chat messages")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
-
+	
 	dtos := make([]data.MessageDTO, 0)
 	for _, m := range messages {
 		var readMillis int64
 		if m.ReadAt != nil {
 			readMillis = m.ReadAt.UnixMilli()
 		}
+		senderID := ""
+		if m.Edges.User != nil {
+			senderID = m.Edges.User.ID
+		}
 		dtos = append(dtos, data.MessageDTO{
 			ID:         m.ID,
+			SenderID:   senderID,
 			CipherText: m.CipherText,
 			Iv:         m.Iv,
 			AuthTag:    m.AuthTag,

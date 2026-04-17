@@ -5,7 +5,7 @@ go 1.26
 require (
 	entgo.io/ent v0.14.6
 	github.com/go-sql-driver/mysql v1.9.3
-	github.com/gorilla/websocket v1.5.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/labstack/echo/v5 v5.1.0
 	github.com/nrednav/cuid2 v1.1.0
 	github.com/pelletier/go-toml/v2 v2.3.0

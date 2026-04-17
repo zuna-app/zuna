@@ -3,6 +3,12 @@
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
 
+interface EncryptedMessage {
+  ciphertext: string;
+  iv: string;
+  authTag: string;
+}
+
 interface Window {
   security: {
     encryptFile: (data: Buffer, receiverPublicKey: string) => Promise<Buffer>;
@@ -17,10 +23,13 @@ interface Window {
       privateKey: string,
       publicKey: string,
     ) => Promise<string>;
-    encrypt: (sharedSecret: string, plaintext: string) => Promise<string>;
+    encrypt: (
+      sharedSecret: string,
+      plaintext: string,
+    ) => Promise<EncryptedMessage>;
     decrypt: (
       sharedSecret: string,
-      encryptedMessage: string,
+      encryptedMessage: EncryptedMessage,
     ) => Promise<string>;
     generateSigningKeyPair: () => Promise<{
       publicKey: string;

@@ -7,6 +7,8 @@ import { PasswordPrompter } from "@/components/password-prompter";
 import { ServerSidebar } from "@/components/server-sidebar";
 import { JoinServerDialog } from "@/components/join-server-dialog";
 import { useServerConnector } from "@/hooks/useServerConnector";
+import { usePing } from "@/hooks/usePing";
+import { Server } from "@/types/serverTypes";
 import {
   Empty,
   EmptyContent,
@@ -19,16 +21,37 @@ import { ArrowUpRightIcon, Folder } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppServer } from "./AppServer";
 
+function TitleBarWithServer({
+  server,
+  onSettings,
+}: {
+  server: Server;
+  onSettings?: () => void;
+}) {
+  const { latency } = usePing(server);
+  return (
+    <TitleBar
+      serverAddress={server.address}
+      ping={latency}
+      onSettings={onSettings}
+    />
+  );
+}
+
 function MainApp() {
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
   const { selectedServer } = useServerConnector();
 
   return (
     <div className="flex h-svh flex-col bg-background rounded-md overflow-hidden border border-neutral-600 dark:border-neutral-800">
-      <TitleBar
-        serverAddress={selectedServer?.address}
-        onSettings={() => console.log("settings")}
-      />
+      {selectedServer ? (
+        <TitleBarWithServer
+          server={selectedServer}
+          onSettings={() => console.log("settings")}
+        />
+      ) : (
+        <TitleBar onSettings={() => console.log("settings")} />
+      )}
       <div className="flex flex-1 min-h-0">
         <ServerSidebar onAddServer={() => setJoinDialogOpen(true)} />
         {selectedServer ? (

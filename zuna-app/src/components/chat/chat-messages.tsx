@@ -1,245 +1,308 @@
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { ChatMember } from "@/types/serverTypes";
+import { Message } from "@/hooks/useMessages";
 import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Check, CheckCheck } from "lucide-react";
+import { Check, CheckCheck, Loader2 } from "lucide-react";
 
-type MessageStatus = "sent" | "read";
+type MessageStatus = "pending" | "sent" | "read";
 
-interface DemoMessage {
-  id: string;
-  content: string;
-  isOwn: boolean;
-  timestamp: string;
-  showTimestamp?: boolean;
-  status?: MessageStatus;
+function formatTime(ms: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(ms));
 }
 
-const BASE_MESSAGES: Array<{ content: string; isOwn: boolean; ts: string }> = [
-  { content: "Hey! How's everything going?", isOwn: true, ts: "10:24 AM" },
-  {
-    content: "Pretty good, thanks for asking! Just wrapped up a big sprint.",
-    isOwn: false,
-    ts: "10:25 AM",
-  },
-  { content: "Nice! How did it go?", isOwn: true, ts: "10:25 AM" },
-  {
-    content:
-      "Really well actually. We finally shipped the feature we've been working on for weeks.",
-    isOwn: false,
-    ts: "10:26 AM",
-  },
-  {
-    content: "That's awesome, congrats! 🎉",
-    isOwn: true,
-    ts: "10:26 AM",
-  },
-  {
-    content: "Thanks! Did you get a chance to look at those files I sent?",
-    isOwn: false,
-    ts: "10:28 AM",
-  },
-  {
-    content:
-      "Yes, went through them this morning. Really solid work overall. I had a few minor suggestions but nothing major.",
-    isOwn: true,
-    ts: "10:31 AM",
-  },
-  {
-    content: "Oh great! What did you think of the architecture section?",
-    isOwn: false,
-    ts: "10:32 AM",
-  },
-  {
-    content:
-      "I think the modular approach is the right call. The alternative could get messy fast once you start scaling.",
-    isOwn: true,
-    ts: "10:33 AM",
-  },
-  {
-    content: "Exactly my thinking. Glad we're on the same page.",
-    isOwn: false,
-    ts: "10:33 AM",
-  },
-  {
-    content: "Are you free sometime this week to go over it together?",
-    isOwn: true,
-    ts: "10:35 AM",
-  },
-  {
-    content: "Thursday afternoon works for me. Say 3 PM?",
-    isOwn: false,
-    ts: "10:36 AM",
-  },
-  {
-    content: "Perfect, I'll send a calendar invite.",
-    isOwn: true,
-    ts: "10:36 AM",
-  },
-  { content: "Sounds good. See you then 👋", isOwn: false, ts: "10:37 AM" },
-];
-
-const TIMESTAMP_DIVIDERS = ["10:00 AM", "10:30 AM", "Now"];
-
-function generateMessages(member: ChatMember): DemoMessage[] {
-  const nameLen = member.username.length;
-  const offset = nameLen % 3;
-
-  const readCutoff = BASE_MESSAGES.length - 3;
-
-  return BASE_MESSAGES.map((m, i) => ({
-    id: `msg-${i}`,
-    content:
-      i === 0 ? `Hey ${member.username}! How's everything going?` : m.content,
-    isOwn: m.isOwn,
-    timestamp: m.ts,
-    showTimestamp:
-      i === 0 || i === Math.floor(BASE_MESSAGES.length / 2) + offset,
-    status: m.isOwn
-      ? ((i >= readCutoff ? "read" : "sent") as MessageStatus)
-      : undefined,
-  }));
+function messageKey(msg: Message): string {
+  return msg.id != null ? String(msg.id) : `local-${msg.localId}`;
 }
 
-function groupMessages(messages: DemoMessage[]) {
-  type GroupedMessage = DemoMessage & {
-    isFirst: boolean;
-    isLast: boolean;
-  };
+function sameGroup(a: Message, b: Message): boolean {
+  return a.senderId === b.senderId && b.sentAt - a.sentAt < 5 * 60 * 1000;
+}
 
-  const result: GroupedMessage[] = [];
-  for (let i = 0; i < messages.length; i++) {
+function groupMessages(messages: Message[]) {
+  return messages.map((msg, i) => {
     const prev = messages[i - 1];
     const next = messages[i + 1];
-    result.push({
-      ...messages[i],
-      isFirst: !prev || prev.isOwn !== messages[i].isOwn,
-      isLast: !next || next.isOwn !== messages[i].isOwn,
-    });
-  }
-  return result;
+    return {
+      ...msg,
+      isFirst: !prev || !sameGroup(prev, msg),
+      isLast: !next || !sameGroup(msg, next),
+      showDivider: i > 0 && (!prev || msg.sentAt - prev.sentAt > 5 * 60 * 1000),
+    };
+  });
 }
 
 interface ChatMessagesProps {
   member: ChatMember;
+  messages: Message[];
+  loading: boolean;
+  hasMore: boolean;
+  fetchMore: () => void;
+  sharedSecret: string | null;
 }
 
-export function ChatMessages({ member }: ChatMessagesProps) {
+export function ChatMessages({
+  member,
+  messages,
+  loading,
+  hasMore,
+  fetchMore,
+  sharedSecret,
+}: ChatMessagesProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
 
-  const messages = useMemo(() => generateMessages(member), [member.id]);
-  const grouped = useMemo(() => groupMessages(messages), [messages]);
+  const [decrypted, setDecrypted] = useState<Map<string, string>>(new Map());
+  const inFlightRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "instant" });
+    setDecrypted(new Map());
+    inFlightRef.current.clear();
   }, [member.id]);
 
+  useEffect(() => {
+    if (!sharedSecret) return;
+
+    const toDecrypt = messages.filter((m) => {
+      if (m.plaintext) return false;
+      const key = messageKey(m);
+      return !decrypted.has(key) && !inFlightRef.current.has(key);
+    });
+
+    if (!toDecrypt.length) return;
+
+    toDecrypt.forEach((m) => inFlightRef.current.add(messageKey(m)));
+
+    Promise.all(
+      toDecrypt.map(async (m) => {
+        try {
+          const text = await window.security.decrypt(sharedSecret, {
+            ciphertext: m.cipherText,
+            iv: m.iv,
+            authTag: m.authTag,
+          });
+          return [messageKey(m), text] as const;
+        } catch {
+          return [messageKey(m), "[decryption failed]"] as const;
+        }
+      }),
+    ).then((results) => {
+      results.forEach(([key]) => inFlightRef.current.delete(key));
+      setDecrypted((prev) => {
+        const next = new Map(prev);
+        for (const [key, text] of results) next.set(key, text);
+        return next;
+      });
+    });
+  }, [messages, sharedSecret]);
+
+  const needsInitialScrollRef = useRef(true);
+  useEffect(() => {
+    needsInitialScrollRef.current = true;
+  }, [member.id]);
+
+  const prevLastKeyRef = useRef<string | null>(null);
+  const prevLengthRef = useRef(0);
+
+  useEffect(() => {
+    if (messages.length === 0) {
+      prevLastKeyRef.current = null;
+      prevLengthRef.current = 0;
+      return;
+    }
+
+    const newLastKey = messageKey(messages[messages.length - 1]);
+    const newLength = messages.length;
+    const oldLastKey = prevLastKeyRef.current;
+    const oldLength = prevLengthRef.current;
+
+    prevLastKeyRef.current = newLastKey;
+    prevLengthRef.current = newLength;
+
+    if (needsInitialScrollRef.current && !loading) {
+      needsInitialScrollRef.current = false;
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+      return;
+    }
+
+    if (
+      oldLastKey !== null &&
+      newLastKey !== oldLastKey &&
+      newLength > oldLength
+    ) {
+      bottomRef.current?.scrollIntoView({ behavior: "instant" });
+    }
+  }, [messages, loading]);
+
+  const restoreScrollRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    if (restoreScrollRef.current) {
+      restoreScrollRef.current();
+      restoreScrollRef.current = null;
+    }
+  }, [messages.length]);
+
+  const handleFetchMore = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || !hasMore || loading) return;
+
+    const prevScrollHeight = container.scrollHeight;
+    const prevScrollTop = container.scrollTop;
+
+    restoreScrollRef.current = () => {
+      if (container) {
+        container.scrollTop =
+          container.scrollHeight - prevScrollHeight + prevScrollTop;
+      }
+    };
+
+    fetchMore();
+  }, [fetchMore, hasMore, loading]);
+
+  useEffect(() => {
+    const root = scrollContainerRef.current;
+    const sentinel = topSentinelRef.current;
+    if (!root || !sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) handleFetchMore();
+      },
+      { root, rootMargin: "150px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [handleFetchMore]);
+
+  const getText = (msg: Message): string => {
+    if (msg.plaintext) return msg.plaintext;
+    return decrypted.get(messageKey(msg)) ?? "…";
+  };
+
+  const getStatus = (msg: Message): MessageStatus => {
+    if (msg.pending) return "pending";
+    if (msg.readAt) return "read";
+    return "sent";
+  };
+
+  const grouped = groupMessages(messages);
+
   return (
-    <ScrollArea className="flex-1 min-h-0">
+    <div
+      ref={scrollContainerRef}
+      className="flex-1 min-h-0 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:hsl(var(--border))_transparent]"
+    >
       <div className="px-4 py-4 space-y-0.5">
-        <div className="flex items-center gap-3 py-3">
-          <div className="flex-1 h-px bg-border/40" />
-          <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
-            Today
-          </span>
-          <div className="flex-1 h-px bg-border/40" />
-        </div>
+        <div ref={topSentinelRef} />
 
-        {grouped.map((msg, i) => {
-          const showDivider = msg.showTimestamp && i > 0;
+        {loading && (
+          <div className="flex justify-center py-4">
+            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          </div>
+        )}
 
-          return (
-            <div key={msg.id}>
-              {showDivider && (
-                <div className="flex items-center gap-3 py-3 mt-2">
-                  <div className="flex-1 h-px bg-border/40" />
-                  <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
-                    {msg.timestamp}
-                  </span>
-                  <div className="flex-1 h-px bg-border/40" />
-                </div>
+        {messages.length > 0 && (
+          <div className="flex items-center gap-3 py-3">
+            <div className="flex-1 h-px bg-border/40" />
+            <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
+              {new Date(messages[0].sentAt).toLocaleDateString(undefined, {
+                month: "long",
+                day: "numeric",
+              })}
+            </span>
+            <div className="flex-1 h-px bg-border/40" />
+          </div>
+        )}
+
+        {grouped.map((msg) => (
+          <div key={messageKey(msg)}>
+            {msg.showDivider && (
+              <div className="flex items-center gap-3 py-3 mt-2">
+                <div className="flex-1 h-px bg-border/40" />
+                <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wider">
+                  {formatTime(msg.sentAt)}
+                </span>
+                <div className="flex-1 h-px bg-border/40" />
+              </div>
+            )}
+            <div
+              className={cn(
+                "flex",
+                msg.isOwn ? "justify-end" : "justify-start",
+                msg.isFirst ? "mt-3" : "mt-0.5",
               )}
+            >
               <div
                 className={cn(
-                  "flex",
-                  msg.isOwn ? "justify-end" : "justify-start",
-                  msg.isFirst ? "mt-3" : "mt-0.5",
+                  "relative max-w-[95%] lg:max-w-[65%] px-3.5 py-2 text-sm leading-relaxed wrap-break-word",
+                  msg.isOwn
+                    ? cn(
+                        "bg-primary text-primary-foreground",
+                        msg.isFirst && msg.isLast && "rounded-2xl",
+                        msg.isFirst &&
+                          !msg.isLast &&
+                          "rounded-t-2xl rounded-bl-2xl rounded-br-md",
+                        !msg.isFirst &&
+                          msg.isLast &&
+                          "rounded-b-2xl rounded-tl-2xl rounded-tr-md",
+                        !msg.isFirst &&
+                          !msg.isLast &&
+                          "rounded-l-2xl rounded-r-md",
+                      )
+                    : cn(
+                        "bg-muted/70 dark:bg-muted/40 text-foreground",
+                        msg.isFirst && msg.isLast && "rounded-2xl",
+                        msg.isFirst &&
+                          !msg.isLast &&
+                          "rounded-t-2xl rounded-br-2xl rounded-bl-md",
+                        !msg.isFirst &&
+                          msg.isLast &&
+                          "rounded-b-2xl rounded-tr-2xl rounded-tl-md",
+                        !msg.isFirst &&
+                          !msg.isLast &&
+                          "rounded-r-2xl rounded-l-md",
+                      ),
                 )}
               >
-                <div
+                <span>{getText(msg)}</span>
+                <span
+                  aria-hidden
+                  className="inline-block align-bottom ml-1.5 opacity-0 pointer-events-none select-none text-[10px]"
+                >
+                  {formatTime(msg.sentAt)}
+                  {msg.isOwn && "\u00a0\u00a0\u2713"}
+                </span>
+                <span
                   className={cn(
-                    "relative max-w-[95%] lg:max-w-[65%] px-3.5 py-2 text-sm leading-relaxed wrap-break-word",
+                    "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[10px]",
                     msg.isOwn
-                      ? cn(
-                          "bg-primary text-primary-foreground",
-                          msg.isFirst && msg.isLast && "rounded-2xl",
-                          msg.isFirst &&
-                            !msg.isLast &&
-                            "rounded-t-2xl rounded-bl-2xl rounded-br-md",
-                          !msg.isFirst &&
-                            msg.isLast &&
-                            "rounded-b-2xl rounded-tl-2xl rounded-tr-md",
-                          !msg.isFirst &&
-                            !msg.isLast &&
-                            "rounded-l-2xl rounded-r-md",
-                        )
-                      : cn(
-                          "bg-muted/70 dark:bg-muted/40 text-foreground",
-                          msg.isFirst && msg.isLast && "rounded-2xl",
-                          msg.isFirst &&
-                            !msg.isLast &&
-                            "rounded-t-2xl rounded-br-2xl rounded-bl-md",
-                          !msg.isFirst &&
-                            msg.isLast &&
-                            "rounded-b-2xl rounded-tr-2xl rounded-tl-md",
-                          !msg.isFirst &&
-                            !msg.isLast &&
-                            "rounded-r-2xl rounded-l-md",
-                        ),
+                      ? "text-primary-foreground/60"
+                      : "text-muted-foreground/50",
                   )}
                 >
-                  <span>{msg.content}</span>
-                  {msg.isLast && (
-                    <>
-                      <span
-                        aria-hidden
-                        className="inline-block align-bottom ml-1.5 opacity-0 pointer-events-none select-none text-[10px]"
-                      >
-                        {msg.timestamp}
-                        {msg.isOwn && msg.status && "\u00a0\u00a0\u2713"}
-                      </span>
-                      <span
-                        className={cn(
-                          "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[10px]",
-                          msg.isOwn
-                            ? "text-primary-foreground/60"
-                            : "text-muted-foreground/50",
-                        )}
-                      >
-                        {msg.timestamp}
-                        {msg.isOwn && msg.status === "sent" && (
-                          <Check
-                            className="size-3 shrink-0"
-                            strokeWidth={2.5}
-                          />
-                        )}
-                        {msg.isOwn && msg.status === "read" && (
-                          <CheckCheck
-                            className="size-3 shrink-0"
-                            strokeWidth={2.5}
-                          />
-                        )}
-                      </span>
-                    </>
+                  {formatTime(msg.sentAt)}
+                  {msg.isOwn && getStatus(msg) === "pending" && (
+                    <Loader2 className="size-3 shrink-0 animate-spin" />
                   )}
-                </div>
+                  {msg.isOwn && getStatus(msg) === "sent" && (
+                    <Check className="size-3 shrink-0" strokeWidth={2.5} />
+                  )}
+                  {msg.isOwn && getStatus(msg) === "read" && (
+                    <CheckCheck className="size-3 shrink-0" strokeWidth={2.5} />
+                  )}
+                </span>
               </div>
             </div>
-          );
-        })}
+          </div>
+        ))}
 
         <div ref={bottomRef} className="pt-1" />
       </div>
-    </ScrollArea>
+    </div>
   );
 }

@@ -38,6 +38,7 @@ func ChatListEndpoint(c *echo.Context) error {
 			}
 			members = append(members, data.ChatMemberDTO{
 				ID:            member.ID,
+				ChatID:        c.ID,
 				Username:      member.Username,
 				Avatar:        member.Avatar,
 				AvatarIv:      member.AvatarIv,

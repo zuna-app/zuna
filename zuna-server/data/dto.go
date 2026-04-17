@@ -2,6 +2,7 @@ package data
 
 type ChatMemberDTO struct {
 	ID            string `json:"id"`
+	ChatID        string `json:"chat_id"`
 	Username      string `json:"username"`
 	Avatar        string `json:"avatar"`
 	AvatarIv      string `json:"avatar_iv"`
@@ -11,6 +12,7 @@ type ChatMemberDTO struct {
 
 type MessageDTO struct {
 	ID         int64  `json:"id"`
+	SenderID	 string `json:"sender_id"`
 	CipherText string `json:"cipher_text"`
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`

@@ -13,10 +13,12 @@ function ActionButton({
   icon: Icon,
   label,
   onClick,
+  disabled,
 }: {
   icon: React.ElementType;
   label: string;
   onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <Tooltip>
@@ -26,6 +28,7 @@ function ActionButton({
           variant="ghost"
           size="icon"
           onClick={onClick}
+          disabled={disabled}
           className="size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
         >
           <Icon className="size-4.25" />
@@ -38,27 +41,60 @@ function ActionButton({
   );
 }
 
-export function ChatInput() {
+interface ChatInputProps {
+  sharedSecret: string | null;
+  onSend: (
+    cipherText: string,
+    iv: string,
+    authTag: string,
+    plaintext: string,
+  ) => void;
+}
+
+export function ChatInput({ sharedSecret, onSend }: ChatInputProps) {
   const [value, setValue] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const canSend = !!sharedSecret && !isSending;
+
+  const handleSend = useCallback(async () => {
+    const text = value.trim();
+    if (!text || !sharedSecret || isSending) return;
+
+    setIsSending(true);
+    setValue("");
+
+    try {
+      const encrypted = await window.security.encrypt(sharedSecret, text);
+      onSend(encrypted.ciphertext, encrypted.iv, encrypted.authTag, text);
+    } catch (err) {
+      console.error("[ChatInput] encryption failed:", err);
+      setValue(text);
+    } finally {
+      setIsSending(false);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    }
+  }, [value, sharedSecret, isSending, onSend]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        if (value.trim()) {
-          setValue("");
-          textareaRef.current?.focus();
-        }
+        handleSend();
       }
     },
-    [value],
+    [handleSend],
   );
 
   return (
     <div className="shrink-0 bg-background px-4 py-3">
       <div className="flex items-end gap-1.5">
-        <ActionButton icon={Paperclip} label="Attach file" />
+        <ActionButton
+          icon={Paperclip}
+          label="Attach file"
+          disabled={!canSend}
+        />
 
         <div
           className={cn(
@@ -72,7 +108,10 @@ export function ChatInput() {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message…"
+            placeholder={
+              sharedSecret ? "Message…" : "Establishing secure channel…"
+            }
+            disabled={!canSend && value === ""}
             rows={1}
             className={cn(
               "w-full bg-transparent border-none shadow-none resize-none",
@@ -84,8 +123,26 @@ export function ChatInput() {
           />
         </div>
 
-        <ActionButton icon={ImagePlus} label="Send image" />
-        <ActionButton icon={Smile} label="Insert emoji" />
+        <ActionButton icon={ImagePlus} label="Send image" disabled={!canSend} />
+        <ActionButton icon={Smile} label="Insert emoji" disabled={!canSend} />
+        {value.trim() && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                disabled={!canSend}
+                onClick={handleSend}
+                className="size-9 shrink-0 rounded-xl"
+              >
+                <Send className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">
+              Send
+            </TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </div>
   );

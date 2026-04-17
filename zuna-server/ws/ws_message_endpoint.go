@@ -3,6 +3,7 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"time"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/chat"
@@ -93,11 +94,13 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		SetAuthTag(req.AuthTag).
 		SetUserID(userData.UserID).
 		SetChatID(req.ChatId).
+		SetReadAt(time.Now()). // fixnij to kurwa "ent: missing required field \"Message.read_at\"
 		Save(ctx)
 
 	if err != nil {
 		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to insert message")
 		sendError(c, "internal_error", "internal error")
+		return
 	}
 
 	c.Send(OutgoingMessage{Type: "message_ack", Payload: MessageAckResponse{
@@ -126,7 +129,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 			Id:         m.ID,
 			ChatId:     ch.ID,
 			CreatedAt:  m.SentAt.UnixMilli(),
-			SenderId:   connectionId,
+			SenderId:   userData.UserID,
 			CipherText: req.CipherText,
 			Iv:         req.Iv,
 			AuthTag:    req.AuthTag,
