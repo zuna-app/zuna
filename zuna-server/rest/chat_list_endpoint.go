@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"zuna-server/data"
 	"zuna-server/db"
+	"zuna-server/ent"
+	"zuna-server/ent/message"
 	"zuna-server/ent/user"
 
 	"github.com/labstack/echo/v5"
@@ -31,19 +33,51 @@ func ChatListEndpoint(c *echo.Context) error {
 
 	members := make([]data.ChatMemberDTO, 0)
 
-	for _, c := range chats {
-		for _, member := range c.Edges.Users {
+	for _, ch := range chats {
+		lastMessage, err := ch.QueryMessages().WithUser().Order(ent.Desc(message.FieldID)).Limit(1).Order(ent.Desc(message.FieldID)).First(c.Request().Context())
+		lastSenderId := ""
+		lastCipherText := ""
+		lastIv := ""
+		lastAuthTag := ""
+		lastChatActivity := int64(0)
+
+		if err != nil && !ent.IsNotFound(err) {
+			log.Error().Err(err).Str("id", id).Msg("failed to query last chat message")
+			return c.JSON(http.StatusInternalServerError, InternalServerError)
+		}
+
+		if err == nil {
+			lastSenderId = lastMessage.Edges.User.ID
+			lastCipherText = lastMessage.CipherText
+			lastIv = lastMessage.Edges.User.ID
+			lastAuthTag = lastMessage.AuthTag
+			lastChatActivity = lastMessage.SentAt.UnixMilli()
+		}
+
+		unreadMessages, err := ch.QueryMessages().Where(message.ReadAtIsNil()).Count(c.Request().Context())
+		if err != nil {
+			log.Error().Err(err).Str("id", id).Msg("failed to count unread chat messages")
+			return c.JSON(http.StatusInternalServerError, InternalServerError)
+		}
+
+		for _, member := range ch.Edges.Users {
 			if member.ID == id {
 				continue
 			}
 			members = append(members, data.ChatMemberDTO{
-				ID:            member.ID,
-				ChatID:        c.ID,
-				Username:      member.Username,
-				Avatar:        member.Avatar,
-				AvatarIv:      member.AvatarIv,
-				AvatarAuthTag: member.AvatarAuthTag,
-				IdentityKey:   member.IdentityKey,
+				ID:                  member.ID,
+				ChatID:              ch.ID,
+				Username:            member.Username,
+				Avatar:              member.Avatar,
+				AvatarIv:            member.AvatarIv,
+				AvatarAuthTag:       member.AvatarAuthTag,
+				IdentityKey:         member.IdentityKey,
+				LastMessageSenderID: lastSenderId,
+				LastCipherText:      lastCipherText,
+				LastIv:              lastIv,
+				LastAuthTag:         lastAuthTag,
+				UnreadMessages:      unreadMessages,
+				LastChatActivity:    lastChatActivity,
 			})
 		}
 	}
