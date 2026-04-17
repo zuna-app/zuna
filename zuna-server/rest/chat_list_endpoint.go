@@ -49,7 +49,7 @@ func ChatListEndpoint(c *echo.Context) error {
 		if err == nil {
 			lastSenderId = lastMessage.Edges.User.ID
 			lastCipherText = lastMessage.CipherText
-			lastIv = lastMessage.Edges.User.ID
+			lastIv = lastMessage.Iv
 			lastAuthTag = lastMessage.AuthTag
 			lastChatActivity = lastMessage.SentAt.UnixMilli()
 		}
