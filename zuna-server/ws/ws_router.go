@@ -99,9 +99,17 @@ func (r *MessageRouter) registerBuiltins() {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-func sendError(c HubClient, code, detail string) {
+type ErrorResponse struct {
+	Code    string `json:"code"`
+	Details string `json:"details"`
+}
+
+func sendError(c HubClient, code, details string) {
 	c.Send(OutgoingMessage{
-		Type:    "error",
-		Payload: map[string]string{"code": code, "detail": detail},
+		Type: "error",
+		Payload: ErrorResponse{
+			Code:    code,
+			Details: details,
+		},
 	})
 }

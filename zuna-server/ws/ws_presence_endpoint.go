@@ -36,7 +36,7 @@ func (r *MessageRouter) handlePresence(c HubClient, msg IncomingMessage, userDat
 			continue
 		}
 
-		c.Send(OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
+		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
 			Presence: data.PresenceDTO{
 				UserID:   userData.UserID,
 				LastSeen: userData.LastSeen,
