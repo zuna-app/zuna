@@ -82,6 +82,7 @@ export function useMessages(
     if (!isFocusedRef.current) return;
     if (lastMessages) {
       const lastMsg = lastMessages[chatId];
+      wsSend("presence", { active: true });
       if (lastMsg) {
         updateLastMessage({
           chatId,
@@ -91,6 +92,7 @@ export function useMessages(
           lastActivityAt: lastMsg.lastActivityAt,
         });
       }
+      wsSend("mark_read", { chat_id: chatId, timestamp: Date.now() });
     }
   }, [chatId]);
 
@@ -184,6 +186,8 @@ export function useMessages(
           ];
         });
 
+        wsSend("mark_read", { chat_id: chatId, timestamp: Date.now() });
+
         if (sharedSecretRef.current) {
           window.security
             .decrypt(sharedSecretRef.current, {
@@ -207,6 +211,20 @@ export function useMessages(
               console.error("Failed to decrypt incoming message:", err);
             });
         }
+      } else if (
+        msg.type === "message_read_info" &&
+        msg.payload?.chat_id === chatId
+      ) {
+        setMessages((prev) => prev.map((m) => ({ ...m, readAt: Date.now() })));
+
+        updateLastMessage({
+          chatId,
+          senderId: lastMessagesRef.current?.[chatId]?.senderId ?? "",
+          content: lastMessagesRef.current?.[chatId]?.content ?? "",
+          unreadMessages: 0,
+          lastActivityAt:
+            lastMessagesRef.current?.[chatId]?.lastActivityAt ?? Date.now(),
+        });
       }
     },
     [chatId, updateLastMessage],
@@ -234,6 +252,9 @@ export function useMessages(
             lastActivityAt: lastMsg.lastActivityAt,
           });
         }
+
+        wsSend("mark_read", { chat_id: cId, timestamp: Date.now() });
+        console.log("chuj dupa");
       }
     };
 
