@@ -36,7 +36,7 @@ func InitializeUserManager() {
 			AuthToken:    "",
 			Ed25519Nonce: "",
 			ConnectionID: "",
-			LastSeen:     0,
+			LastSeen:     user.LastSeen.UnixMilli(),
 			Active:       false,
 		}
 	}
