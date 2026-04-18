@@ -77,6 +77,14 @@ func (h *Hub) Run() {
 
 				delete(h.clients, client.ID())
 				log.Printf("[hub] client unregistered id=%s  total=%d", client.ID(), len(h.clients))
+
+				h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
+					Presence: data.PresenceDTO{
+						UserID:   ud.UserID,
+						LastSeen: ud.LastSeen,
+						Active:   ud.Active,
+					},
+				}})
 			}
 			h.mu.Unlock()
 
