@@ -2,10 +2,9 @@ package rest
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image/png"
-	"io"
 	"net/http"
-	"strings"
 	"zuna-server/db"
 	"zuna-server/ent/user"
 	"zuna-server/storage"
@@ -16,41 +15,24 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type AvatarSetRequest struct {
+	Avatar string `json:"avatar"`
+}
+
 type AvatarSetResponse struct {
 	AvatarKey string `json:"avatarKey"`
 }
 
 func AvatarSetEndpoint(c *echo.Context) error {
-	req := c.Request()
-	req.Body = http.MaxBytesReader(c.Response(), req.Body, int64(utils.Config.Server.MaximumAvatarSize)+1024)
-
-	var avatarBytes []byte
-	contentType := req.Header.Get("Content-Type")
-
-	if !strings.HasPrefix(contentType, "multipart/form-data") {
+	req := new(AvatarSetRequest)
+	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
-	fileHeader, err := c.FormFile("avatar")
+	avatarBytes, err := base64.StdEncoding.DecodeString(req.Avatar)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to decode avatar")
 		return c.JSON(http.StatusBadRequest, BadRequest)
-	}
-
-	if fileHeader.Size > int64(utils.Config.Server.MaximumAvatarSize) {
-		return c.JSON(http.StatusRequestEntityTooLarge, BadRequest)
-	}
-
-	file, err := fileHeader.Open()
-	if err != nil {
-		log.Error().Err(err).Msg("failed to open avatar form file")
-		return c.JSON(http.StatusInternalServerError, InternalServerError)
-	}
-	defer file.Close()
-
-	avatarBytes, err = io.ReadAll(io.LimitReader(file, int64(utils.Config.Server.MaximumAvatarSize)+1))
-	if err != nil {
-		log.Error().Err(err).Msg("failed to read avatar form file")
-		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
 	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > utils.Config.Server.MaximumAvatarSize {

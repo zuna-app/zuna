@@ -1,24 +1,27 @@
 package rest
 
 import (
+	"bytes"
+	"encoding/base64"
+	"image/png"
 	"net/http"
 	"regexp"
 	"zuna-server/db"
 	"zuna-server/ent/user"
+	"zuna-server/storage"
 	"zuna-server/utils"
 
+	"github.com/nrednav/cuid2"
 	"github.com/rs/zerolog/log"
 
 	"github.com/labstack/echo/v5"
 )
 
 type JoinRequest struct {
-	Username      string `json:"username"`
-	IdentityKey   string `json:"identity_key"`
-	SigningKey    string `json:"signing_key"`
-	Avatar        string `json:"avatar"`
-	AvatarIv      string `json:"avatar_iv"`
-	AvatarAuthTag string `json:"avatar_auth_tag"`
+	Username    string `json:"username"`
+	IdentityKey string `json:"identity_key"`
+	SigningKey  string `json:"signing_key"`
+	Avatar      string `json:"avatar"`
 }
 
 type JoinResponse struct {
@@ -59,6 +62,27 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "username already taken"})
 	}
 
+	avatarBytes, err := base64.StdEncoding.DecodeString(req.Avatar)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > utils.Config.Server.MaximumAvatarSize {
+		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	_, err = png.Decode(bytes.NewReader(avatarBytes))
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	avatarKey := cuid2.Generate()
+	err = storage.StoreData(avatarKey, avatarBytes)
+	if err != nil {
+		log.Error().Err(err).Str("username", req.Username).Msg("failed to store avatar")
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
 	ctx := c.Request().Context()
 
 	tx, err := db.EntClient.Tx(ctx)
@@ -71,7 +95,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		SetUsername(req.Username).
 		SetIdentityKey(req.IdentityKey).
 		SetSigningKey(req.SigningKey).
-		SetAvatarKey("").
+		SetAvatarKey(avatarKey).
 		Save(ctx)
 
 	if err != nil {
