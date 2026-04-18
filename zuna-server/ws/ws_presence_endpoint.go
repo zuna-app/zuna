@@ -1,9 +1,13 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 	"zuna-server/data"
+	"zuna-server/db"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Receive over: presence
@@ -26,6 +30,15 @@ func (r *MessageRouter) handlePresence(c HubClient, msg IncomingMessage, userDat
 	userData.LastSeen = time.Now().UnixMilli()
 	userData.Active = req.Active
 	data.UpdateUserData(userData)
+
+	ctx := context.Background()
+
+	err := db.EntClient.User.UpdateOneID(userData.UserID).SetLastSeen(time.UnixMilli(userData.LastSeen)).Exec(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("id", userData.UserID).Msg("failed to update user")
+		sendError(c, "internal_error", "internal error")
+		return
+	}
 
 	for _, ud := range data.UserDataMap {
 		if ud.ConnectionID == "" {
