@@ -139,5 +139,5 @@ func BuildDatabaseUrl() string {
 	}
 
 	// _fk=1 is required for foreign keys support
-	return fmt.Sprintf("file:%s.db?_fk=1", Config.SQLite.Database)
+	return fmt.Sprintf("file:%s.db?_fk=1&_journal_mode=WAL&_busy_timeout=5000", Config.SQLite.Database)
 }

@@ -30,8 +30,17 @@ func NewClient(ctx context.Context) *ent.Client {
 			log.Fatal().Err(err).Msg("failed opening sqlite connection")
 		}
 
+		//db.SetMaxOpenConns(1)
 		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 			log.Fatal().Err(err).Msg("failed enabling sqlite foreign keys")
+		}
+
+		if _, err := db.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
+			log.Fatal().Err(err).Msg("failed enabling sqlite WAL mode")
+		}
+
+		if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
+			log.Fatal().Err(err).Msg("failed setting sqlite busy timeout")
 		}
 
 		drv := entsql.OpenDB(dialect.SQLite, db)
