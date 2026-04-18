@@ -89,7 +89,12 @@ export function ChatInput({ sharedSecret, onSend }: ChatInputProps) {
 
   return (
     <div className="shrink-0 bg-background px-4 py-3">
-      <div className="flex items-end gap-1.5">
+      <div
+        className="flex items-end gap-1.5"
+        onMouseDown={(e) => {
+          if (e.target !== textareaRef.current) e.preventDefault();
+        }}
+      >
         <ActionButton
           icon={Paperclip}
           label="Attach file"
@@ -108,6 +113,7 @@ export function ChatInput({ sharedSecret, onSend }: ChatInputProps) {
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={handleKeyDown}
+            onBlur={() => setTimeout(() => textareaRef.current?.focus(), 0)}
             placeholder={
               sharedSecret ? "Message…" : "Establishing secure channel…"
             }
