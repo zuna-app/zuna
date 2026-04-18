@@ -44,7 +44,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "username must contain only letters and numbers"})
 	}
 
-	if !utils.ValidateEd25519PublicKey(req.IdentityKey) {
+	if !utils.ValidateX25519PublicKey(req.IdentityKey) {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
