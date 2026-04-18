@@ -5,8 +5,9 @@ export function useSharedSecret(member: ChatMember | null): string | null {
   const [sharedSecret, setSharedSecret] = useState<string | null>(null);
 
   useEffect(() => {
+    setSharedSecret(null);
+
     if (!member?.identityKey) {
-      setSharedSecret(null);
       return;
     }
 

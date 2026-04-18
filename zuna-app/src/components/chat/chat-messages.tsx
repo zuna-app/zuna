@@ -1,8 +1,18 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+  useState,
+} from "react";
 import { ChatMember } from "@/types/serverTypes";
 import { Message } from "@/hooks/useMessages";
 import { cn } from "@/lib/utils";
 import { Check, CheckCheck, Loader2 } from "lucide-react";
+import { DelayedSpinner } from "../ui/delayed-spinner";
+import { useEmotes } from "@/hooks/useEmotes";
+import { MessageOgPreview } from "./og-preview";
+import { extractFirstUrl } from "@/hooks/useOgPreview";
 
 type MessageStatus = "pending" | "sent" | "read";
 
@@ -55,22 +65,35 @@ export function ChatMessages({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const pinnedToBottomRef = useRef(false);
 
   const [decrypted, setDecrypted] = useState<Map<string, string>>(new Map());
   const inFlightRef = useRef<Set<string>>(new Set());
+  const lastSharedSecretRef = useRef<string | null>(null);
 
   useEffect(() => {
     setDecrypted(new Map());
     inFlightRef.current.clear();
+    lastSharedSecretRef.current = null;
   }, [member.id]);
 
   useEffect(() => {
     if (!sharedSecret) return;
 
+    const secretChanged = sharedSecret !== lastSharedSecretRef.current;
+    if (secretChanged) {
+      lastSharedSecretRef.current = sharedSecret;
+      inFlightRef.current.clear();
+      setDecrypted(new Map());
+    }
+
     const toDecrypt = messages.filter((m) => {
       if (m.plaintext) return false;
       const key = messageKey(m);
-      return !decrypted.has(key) && !inFlightRef.current.has(key);
+      if (inFlightRef.current.has(key)) return false;
+      if (!secretChanged && decrypted.has(key)) return false;
+      return true;
     });
 
     if (!toDecrypt.length) return;
@@ -116,15 +139,43 @@ export function ChatMessages({
     });
   }, [messages, sharedSecret]);
 
+  // caly ten handler od scrollowania trzeba wywalic i przepisac bo to jest tragedia jakas
+  // i zreszta ledwo to dziala
   const needsInitialScrollRef = useRef(true);
   useEffect(() => {
     needsInitialScrollRef.current = true;
+    pinnedToBottomRef.current = false;
   }, [member.id]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      pinnedToBottomRef.current =
+        container.scrollHeight - container.scrollTop - container.clientHeight <
+        50;
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(() => {
+      if (pinnedToBottomRef.current) {
+        const container = scrollContainerRef.current;
+        if (container) container.scrollTop = container.scrollHeight;
+      }
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   const prevLastKeyRef = useRef<string | null>(null);
   const prevLengthRef = useRef(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (messages.length === 0) {
       prevLastKeyRef.current = null;
       prevLengthRef.current = 0;
@@ -142,6 +193,7 @@ export function ChatMessages({
     if (needsInitialScrollRef.current && !loading) {
       needsInitialScrollRef.current = false;
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
+      pinnedToBottomRef.current = true;
       return;
     }
 
@@ -151,8 +203,15 @@ export function ChatMessages({
       newLength > oldLength
     ) {
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
+      pinnedToBottomRef.current = true;
     }
   }, [messages, loading]);
+
+  const scrollToBottomIfPinned = useCallback(() => {
+    if (!pinnedToBottomRef.current) return;
+    const c = scrollContainerRef.current;
+    if (c) c.scrollTop = c.scrollHeight;
+  }, []);
 
   const restoreScrollRef = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -195,15 +254,68 @@ export function ChatMessages({
     return () => observer.disconnect();
   }, [handleFetchMore]);
 
-  const getText = (msg: Message): string => {
-    if (msg.plaintext) return msg.plaintext;
-    return decrypted.get(messageKey(msg)) ?? "…";
+  const { emoteMap } = useEmotes();
+
+  const URL_SPLIT_RE = /(https?:\/\/[^\s<>"']+)/i;
+
+  const renderMessage = (text: string) => {
+    // Split on URLs first, then on emote tokens within non-URL segments
+    const urlParts = text.split(URL_SPLIT_RE);
+
+    return urlParts.map((part, i) => {
+      if (URL_SPLIT_RE.test(part)) {
+        const clean = part.replace(/[.,;:!?)'"\]]+$/, "");
+        const trailing = part.slice(clean.length);
+        return (
+          <span key={i}>
+            <button
+              type="button"
+              onClick={() => window.shell.openExternal(clean)}
+              className="underline underline-offset-2 opacity-90 hover:opacity-100 cursor-pointer break-all"
+            >
+              {clean}
+            </button>
+            {trailing}
+          </span>
+        );
+      }
+
+      // Non-URL: split further for emotes
+      const emoteParts = part.split(/(\b[a-zA-Z0-9_]+\b)/g);
+      return emoteParts.map((ep, j) => {
+        const src = emoteMap.get(ep);
+        if (src) {
+          return (
+            <img
+              key={`${i}-${j}`}
+              src={src}
+              alt={ep}
+              className="inline-block align-middle h-[2em]"
+            />
+          );
+        }
+        return <span key={`${i}-${j}`}>{ep}</span>;
+      });
+    });
+  };
+
+  const getText = (msg: Message): React.ReactNode => {
+    const message = !msg.plaintext
+      ? (decrypted.get(messageKey(msg)) ?? "…")
+      : msg.plaintext;
+
+    return <>{renderMessage(message)}</>;
   };
 
   const getStatus = (msg: Message): MessageStatus => {
     if (msg.pending) return "pending";
     if (msg.readAt) return "read";
     return "sent";
+  };
+
+  const getPlaintextStr = (msg: Message): string => {
+    if (msg.plaintext) return msg.plaintext;
+    return decrypted.get(messageKey(msg)) ?? "";
   };
 
   const grouped = groupMessages(messages);
@@ -213,12 +325,12 @@ export function ChatMessages({
       ref={scrollContainerRef}
       className="flex-1 min-h-0 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:hsl(var(--border))_transparent]"
     >
-      <div className="px-4 py-4 space-y-0.5">
+      <div ref={contentRef} className="px-4 py-4 space-y-0.5">
         <div ref={topSentinelRef} />
 
         {loading && (
           <div className="flex justify-center py-4">
-            <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            <DelayedSpinner />
           </div>
         )}
 
@@ -248,8 +360,8 @@ export function ChatMessages({
             )}
             <div
               className={cn(
-                "flex",
-                msg.isOwn ? "justify-end" : "justify-start",
+                "flex flex-col",
+                msg.isOwn ? "items-end" : "items-start",
                 msg.isFirst ? "mt-3" : "mt-0.5",
               )}
             >
@@ -313,6 +425,19 @@ export function ChatMessages({
                   )}
                 </span>
               </div>
+              {(() => {
+                const plaintext = getPlaintextStr(msg);
+                const url = plaintext ? extractFirstUrl(plaintext) : null;
+                return url ? (
+                  <div className="max-w-[75%] lg:max-w-[45%] w-full">
+                    <MessageOgPreview
+                      url={url}
+                      isOwn={msg.isOwn}
+                      onLoad={scrollToBottomIfPinned}
+                    />
+                  </div>
+                ) : null;
+              })()}
             </div>
           </div>
         ))}

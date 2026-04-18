@@ -4,7 +4,6 @@ import { useZunaWebSocket, ZunaResponse } from "@/hooks/useZunaWebSocket";
 import { useAuthorizedServerFetch } from "@/hooks/useServerFetch";
 import { Server } from "@/types/serverTypes";
 import { useLastMessagesUpdater } from "./useLastChatMessages";
-import { useSharedSecret, useSharedSecrets } from "./useSharedSecret";
 
 const MESSAGES_LIMIT = 50;
 const MAX_CURSOR = "9223372036854775807";
@@ -75,6 +74,9 @@ export function useMessages(
 
   const lastMessagesRef = useRef(lastMessages);
   lastMessagesRef.current = lastMessages;
+
+  const sharedSecretRef = useRef(sharedSecret);
+  sharedSecretRef.current = sharedSecret;
 
   useEffect(() => {
     if (!isFocusedRef.current) return;
@@ -182,9 +184,9 @@ export function useMessages(
           ];
         });
 
-        if (sharedSecret) {
+        if (sharedSecretRef.current) {
           window.security
-            .decrypt(sharedSecret, {
+            .decrypt(sharedSecretRef.current, {
               ciphertext: recv.cipher_text,
               iv: recv.iv,
               authTag: recv.auth_tag,
@@ -216,7 +218,7 @@ export function useMessages(
   );
 
   useEffect(() => {
-    window.addEventListener("focus", () => {
+    const onFocus = () => {
       isFocusedRef.current = true;
       wsSend("presence", { active: true });
       const msgs = lastMessagesRef.current;
@@ -233,13 +235,21 @@ export function useMessages(
           });
         }
       }
-    });
+    };
 
-    window.addEventListener("blur", () => {
+    const onBlur = () => {
       isFocusedRef.current = false;
       wsSend("presence", { active: false });
-    });
-  }, []);
+    };
+
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [wsSend]);
 
   useEffect(() => {
     const chatChanged =

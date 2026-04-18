@@ -9,6 +9,14 @@ interface EncryptedMessage {
   authTag: string;
 }
 
+interface OgData {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  siteName?: string;
+}
+
 interface Window {
   security: {
     encryptFile: (data: Buffer, receiverPublicKey: string) => Promise<Buffer>;
@@ -53,5 +61,11 @@ interface Window {
     unlock: (password: string) => Promise<void>;
     isFirstTimeSetup: () => Promise<boolean>;
     import: (base64Data: string) => Promise<boolean>;
+  };
+  og: {
+    fetch: (url: string) => Promise<OgData | null>;
+  };
+  shell: {
+    openExternal: (url: string) => Promise<void>;
   };
 }

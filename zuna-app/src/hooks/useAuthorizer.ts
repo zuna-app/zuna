@@ -4,6 +4,9 @@ import { Server } from "@/types/serverTypes";
 
 export const serverTokensAtom = atom<Map<string, string>>(new Map());
 export const serverAuthErrorsAtom = atom<Map<string, string>>(new Map());
+export const serverMetaAtom = atom<
+  Map<string, { name: string | null; logo: string | null }>
+>(new Map());
 
 export const jotaiStore = createStore();
 
@@ -23,7 +26,15 @@ export async function reauthorize(server: Server): Promise<void> {
     const text = await handshakeRes.text().catch(() => handshakeRes.statusText);
     throw new Error(`Handshake failed (${handshakeRes.status}): ${text}`);
   }
-  const { nonce } = await handshakeRes.json();
+  const { nonce, server_name, server_logo } = await handshakeRes.json();
+  jotaiStore.set(serverMetaAtom, (prev) => {
+    const next = new Map(prev);
+    next.set(server.id, {
+      name: server_name ?? null,
+      logo: server_logo ?? null,
+    });
+    return next;
+  });
   const signature = await window.security.signMessage(sigPrivateKey, nonce);
 
   const loginRes = await fetch(`http://${server.address}/api/auth/login`, {
@@ -57,7 +68,9 @@ export function useAuthorizer(server: Server) {
   const error = serverAuthErrors.get(server.id) ?? null;
 
   const mutation = useMutation({
-    mutationFn: async (username: string): Promise<string> => {
+    mutationFn: async (
+      username: string,
+    ): Promise<{ token: string; name: string | null; logo: string | null }> => {
       const sigPrivateKey = await window.vault.get("sigPrivateKey");
       if (!sigPrivateKey) {
         throw new Error("Signing key not found in vault");
@@ -79,7 +92,7 @@ export function useAuthorizer(server: Server) {
         throw new Error(`Handshake failed (${handshakeRes.status}): ${text}`);
       }
 
-      const { nonce } = await handshakeRes.json();
+      const { nonce, server_name, server_logo } = await handshakeRes.json();
 
       const signature = await window.security.signMessage(sigPrivateKey, nonce);
 
@@ -102,7 +115,11 @@ export function useAuthorizer(server: Server) {
       }
 
       const { token: newToken } = await authorizeRes.json();
-      return newToken;
+      return {
+        token: newToken,
+        name: server_name ?? null,
+        logo: server_logo ?? null,
+      };
     },
     onMutate: () => {
       setServerAuthErrors((prev) => {
@@ -111,10 +128,15 @@ export function useAuthorizer(server: Server) {
         return next;
       });
     },
-    onSuccess: (newToken) => {
+    onSuccess: ({ token: newToken, name, logo }) => {
       setServerTokens((prev) => {
         const next = new Map(prev);
         next.set(server.id, newToken);
+        return next;
+      });
+      jotaiStore.set(serverMetaAtom, (prev) => {
+        const next = new Map(prev);
+        next.set(server.id, { name, logo });
         return next;
       });
     },
@@ -129,7 +151,8 @@ export function useAuthorizer(server: Server) {
   });
 
   return {
-    authorize: mutation.mutateAsync,
+    authorize: (username: string) =>
+      mutation.mutateAsync(username).then((r) => r.token),
     token,
     isAuthorizing: mutation.isPending,
     error,

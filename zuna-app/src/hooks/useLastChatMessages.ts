@@ -2,7 +2,7 @@ import { atom, useAtom, useAtomValue } from "jotai";
 import { jotaiStore } from "./useAuthorizer";
 import { ChatMember, LastMessage, Server } from "@/types/serverTypes";
 import { useEffect } from "react";
-import { useSharedSecret, useSharedSecrets } from "./useSharedSecret";
+import { useSharedSecrets } from "./useSharedSecret";
 
 export const lastMessagesAtom = atom<Record<string, LastMessage>>({});
 
@@ -61,10 +61,6 @@ export const useLastChatMessages = (server: Server, members: ChatMember[]) => {
       }
     });
   }, [members, sharedSecrets]);
-
-  useEffect(() => {
-    console.log(lastMessages);
-  }, [lastMessages]);
 
   return {
     lastMessages,

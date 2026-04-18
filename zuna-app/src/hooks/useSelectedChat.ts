@@ -1,5 +1,4 @@
 import { atom, useAtom } from "jotai";
-import { Chat } from "@/types/serverTypes";
 
 export const selectedChatAtom = atom<string | null>(null);
 

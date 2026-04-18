@@ -1,5 +1,7 @@
 import { BrowserWindow, ipcMain } from "electron";
 import { toBase64, fromBase64 } from "./crypto/base64";
+import { registerOgIPC } from "./og-ipc";
+import { registerShellIPC } from "./shell-ipc";
 import {
   computeSharedSecret,
   decrypt,
@@ -20,6 +22,9 @@ import {
 import { decryptFile, encryptFile } from "./crypto/file";
 
 export function registerIPC() {
+  registerOgIPC();
+  registerShellIPC();
+
   ipcMain.handle(
     "file:encryptFile",
     (_, data: Buffer, receiverPublicKey: string) => {

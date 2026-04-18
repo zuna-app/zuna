@@ -40,6 +40,14 @@ contextBridge.exposeInMainWorld("system", {
   close: () => ipcRenderer.invoke("window:close"),
 });
 
+contextBridge.exposeInMainWorld("og", {
+  fetch: (url: string) => ipcRenderer.invoke("og:fetch", url),
+});
+
+contextBridge.exposeInMainWorld("shell", {
+  openExternal: (url: string) => ipcRenderer.invoke("shell:openExternal", url),
+});
+
 contextBridge.exposeInMainWorld("vault", {
   get: (key: string) => ipcRenderer.invoke("vault:get", key),
   set: (key: string, value: any) => ipcRenderer.invoke("vault:set", key, value),

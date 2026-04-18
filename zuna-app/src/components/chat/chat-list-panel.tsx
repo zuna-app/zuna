@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
+import { useAtomValue } from "jotai";
 import { Server, ChatMember } from "@/types/serverTypes";
+import { serverMetaAtom, jotaiStore } from "@/hooks/useAuthorizer";
 import { useChatList } from "@/hooks/useChatList";
 import { ChatListItem } from "@/components/chat/chat-list-item";
 import { Input } from "@/components/ui/input";
@@ -37,6 +39,9 @@ export function ChatListPanel({
 }: ChatListPanelProps) {
   const [search, setSearch] = useState("");
   const { data, isLoading, error } = useChatList(server);
+  const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
+  const serverName =
+    serverMeta.get(server.id)?.name ?? server.name ?? server.address;
 
   const { lastMessages } = useLastChatMessages(server, data ?? []);
 
@@ -49,7 +54,7 @@ export function ChatListPanel({
   return (
     <div className="flex w-75 shrink-0 flex-col border-r border-border/40 bg-neutral-50 dark:bg-neutral-950/50 h-full">
       <div className="flex items-center justify-between px-4 pt-4 pb-3">
-        <h2 className="text-base font-bold tracking-tight">Messages</h2>
+        <h2 className="text-base font-bold tracking-tight">{serverName}</h2>
         <Button
           variant="ghost"
           size="icon-sm"

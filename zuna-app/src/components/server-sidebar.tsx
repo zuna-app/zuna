@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useAtomValue } from "jotai";
 import { PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PseudoAvatar } from "@/components/ui/pseudo-avatar";
@@ -9,24 +10,31 @@ import {
 } from "@/components/ui/tooltip";
 import { Server } from "@/types/serverTypes";
 import { useServerConnector } from "@/hooks/useServerConnector";
+import { serverMetaAtom, jotaiStore } from "@/hooks/useAuthorizer";
 
 interface ServerIconButtonProps {
   server: Server;
   isActive: boolean;
   onClick: () => void;
+  displayName: string;
+  logo: string | null;
 }
 
 function ServerIconButton({
   server,
   isActive,
   onClick,
+  displayName,
+  logo,
 }: ServerIconButtonProps) {
+  const rounded = isActive ? "xl" : "full";
+  const borderRadius = isActive ? "0.75rem" : "50%";
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           onClick={onClick}
-          aria-label={server.name}
+          aria-label={displayName}
           className="group relative flex items-center focus:outline-none"
         >
           <span
@@ -44,16 +52,25 @@ function ServerIconButton({
               isActive ? "rounded-xl" : "rounded-full group-hover:rounded-xl",
             )}
           >
-            <PseudoAvatar
-              name={server.name || server.address}
-              size={44}
-              rounded={isActive ? "xl" : "full"}
-            />
+            {logo ? (
+              <img
+                src={`data:image/png;base64,${logo}`}
+                alt={displayName}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius,
+                  objectFit: "cover",
+                }}
+              />
+            ) : (
+              <PseudoAvatar name={displayName} size={44} rounded={rounded} />
+            )}
           </div>
         </button>
       </TooltipTrigger>
       <TooltipContent side="right">
-        <span className="font-medium">{server.name || server.address}</span>
+        <span className="font-medium">{displayName}</span>
         <span className="ml-1.5 text-muted-foreground/70 font-normal text-[10px]">
           {server.address}
         </span>
@@ -68,20 +85,28 @@ interface ServerSidebarProps {
 
 export function ServerSidebar({ onAddServer }: ServerSidebarProps) {
   const { serverList, selectedServer, selectServer } = useServerConnector();
+  const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
 
   return (
     <div className="flex w-17 shrink-0 flex-col items-center gap-2 border-r border-border/50 bg-neutral-100 py-3 dark:bg-neutral-900 overflow-y-auto">
       {serverList.length > 0 && (
         <>
           <div className="flex flex-col items-center gap-2 w-full px-3">
-            {serverList.map((server) => (
-              <ServerIconButton
-                key={server.id}
-                server={server}
-                isActive={selectedServer?.id === server.id}
-                onClick={() => selectServer(server)}
-              />
-            ))}
+            {serverList.map((server) => {
+              const meta = serverMeta.get(server.id);
+              const displayName = meta?.name ?? server.name ?? server.address;
+              const logo = meta?.logo ?? null;
+              return (
+                <ServerIconButton
+                  key={server.id}
+                  server={server}
+                  isActive={selectedServer?.id === server.id}
+                  onClick={() => selectServer(server)}
+                  displayName={displayName}
+                  logo={logo}
+                />
+              );
+            })}
           </div>
 
           <div className="w-8 h-px bg-border/60 my-1 shrink-0" />
