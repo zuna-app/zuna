@@ -47,7 +47,7 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 
 	nonce, err := utils.GenerateEd25519Nonce()
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to generate ed25519 nonce")
+		log.Error().Err(err).Msg("failed to generate ed25519 nonce")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 

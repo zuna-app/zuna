@@ -2,12 +2,16 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
 )
 
 type StrictBinder struct{}
+
+const maxJSONBodyBytes = 1 << 20
 
 func (b *StrictBinder) Bind(c *echo.Context, data any) error {
 	req := c.Request()
@@ -16,11 +20,17 @@ func (b *StrictBinder) Bind(c *echo.Context, data any) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "empty body")
 	}
 
+	//req.Body = http.MaxBytesReader(c.Response(), req.Body, maxJSONBodyBytes)
+
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(data); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "missing fields")
+	}
+
+	if err := decoder.Decode(&struct{}{}); err != nil && !errors.Is(err, io.EOF) {
+		return echo.NewHTTPError(http.StatusBadRequest, "unexpected trailing data")
 	}
 
 	return nil

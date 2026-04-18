@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
 	"zuna-server/storage"
@@ -64,28 +63,31 @@ func AvatarSetEndpoint(c *echo.Context) error {
 	}
 
 	avatarKey := cuid2.Generate()
-	id, _ := c.Request().Context().Value(IdKey).(string)
-	userData, _ := data.GetUserDataByToken(id)
-	u, err := db.EntClient.User.Query().Where(user.IDEQ(userData.UserID)).First(c.Request().Context())
+	userID, ok := c.Request().Context().Value(IdKey).(string)
+	if !ok || userID == "" {
+		return c.JSON(http.StatusUnauthorized, Unauthorized)
+	}
+
+	u, err := db.EntClient.User.Query().Where(user.IDEQ(userID)).First(c.Request().Context())
 	if err != nil {
-		log.Error().Err(err).Str("userId", userData.UserID).Msg("failed to query user")
+		log.Error().Err(err).Str("userId", userID).Msg("failed to query user")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
 	err = storage.StoreData(avatarKey, avatarBytes)
 	if err != nil {
-		log.Error().Err(err).Str("userId", userData.UserID).Msg("failed to store avatar")
+		log.Error().Err(err).Str("userId", userID).Msg("failed to store avatar")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
 	err = storage.DeleteData(u.AvatarKey)
 	if err != nil {
-		log.Error().Err(err).Str("userId", userData.UserID).Msg("failed to delete old avatar")
+		log.Error().Err(err).Str("userId", userID).Msg("failed to delete old avatar")
 	}
 
-	err = db.EntClient.User.Update().Where(user.IDEQ(userData.UserID)).SetAvatarKey(avatarKey).Exec(c.Request().Context())
+	err = db.EntClient.User.Update().Where(user.IDEQ(userID)).SetAvatarKey(avatarKey).Exec(c.Request().Context())
 	if err != nil {
-		log.Error().Err(err).Str("userId", userData.UserID).Msg("failed to update user avatar key")
+		log.Error().Err(err).Str("userId", userID).Msg("failed to update user avatar key")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 

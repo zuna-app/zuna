@@ -2,12 +2,16 @@ package storage
 
 import (
 	"os"
-	"path/filepath"
 	"zuna-server/utils"
+
+	securejoin "github.com/cyphar/filepath-securejoin"
 )
 
 func GetDataByKey(key string) ([]byte, error) {
-	storagePath := utils.Config.Server.StorageDirectory + string(filepath.Separator) + key
+	storagePath, err := securejoin.SecureJoin(utils.Config.Server.StorageDirectory, key)
+	if err != nil {
+		return nil, err
+	}
 
 	data, err := os.ReadFile(storagePath)
 	if err != nil {
@@ -17,9 +21,12 @@ func GetDataByKey(key string) ([]byte, error) {
 }
 
 func StoreData(key string, data []byte) error {
-	storagePath := utils.Config.Server.StorageDirectory + string(filepath.Separator) + key
+	storagePath, err := securejoin.SecureJoin(utils.Config.Server.StorageDirectory, key)
+	if err != nil {
+		return err
+	}
 
-	err := os.WriteFile(storagePath, data, 0600)
+	err = os.WriteFile(storagePath, data, 0600)
 	if err != nil {
 		return err
 	}
@@ -27,9 +34,16 @@ func StoreData(key string, data []byte) error {
 }
 
 func DeleteData(key string) error {
-	storagePath := utils.Config.Server.StorageDirectory + string(filepath.Separator) + key
+	if key == "" {
+		return nil
+	}
 
-	err := os.Remove(storagePath)
+	storagePath, err := securejoin.SecureJoin(utils.Config.Server.StorageDirectory, key)
+	if err != nil {
+		return err
+	}
+
+	err = os.Remove(storagePath)
 	if err != nil {
 		return err
 	}

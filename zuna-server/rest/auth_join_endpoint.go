@@ -2,8 +2,10 @@ package rest
 
 import (
 	"net/http"
+	"regexp"
 	"zuna-server/db"
 	"zuna-server/ent/user"
+	"zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
 
@@ -23,13 +25,31 @@ type JoinResponse struct {
 	ID string `json:"id"`
 }
 
+var usernameAllowedChars = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+
 func AuthJoinEndpoint(c *echo.Context) error {
 	req := new(JoinRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
-	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(c.Param("username"))).Exist(c.Request().Context())
+	if len(req.Username) < utils.Config.Server.MinUsernameLength || len(req.Username) > utils.Config.Server.MaxUsernameLength {
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid username length"})
+	}
+
+	if !usernameAllowedChars.MatchString(req.Username) {
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "username must contain only letters and numbers"})
+	}
+
+	if !utils.ValidateEd25519PublicKey(req.IdentityKey) {
+		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	if !utils.ValidateEd25519PublicKey(req.SigningKey) {
+		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
 	if err != nil {
 		log.Error().Err(err).Msg("failed to check user existence")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)

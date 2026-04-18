@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"errors"
+	"sync"
 	"zuna-server/db"
 
 	"github.com/rs/zerolog/log"
@@ -10,6 +11,7 @@ import (
 
 // username -> UserData
 var UserDataMap = make(map[string]UserData)
+var userDataMutex sync.RWMutex
 
 type UserData struct {
 	UserID       string
@@ -30,6 +32,7 @@ func InitializeUserManager() {
 	}
 
 	for _, user := range users {
+		userDataMutex.Lock()
 		UserDataMap[user.Username] = UserData{
 			UserID:       user.ID,
 			Username:     user.Username,
@@ -39,10 +42,14 @@ func InitializeUserManager() {
 			LastSeen:     user.LastSeen.UnixMilli(),
 			Active:       false,
 		}
+		userDataMutex.Unlock()
 	}
 }
 
 func GetUserDataByToken(token string) (UserData, error) {
+	userDataMutex.RLock()
+	defer userDataMutex.RUnlock()
+
 	for _, ud := range UserDataMap {
 		if ud.AuthToken == token {
 			return ud, nil
@@ -53,6 +60,9 @@ func GetUserDataByToken(token string) (UserData, error) {
 }
 
 func GetUserDataByUsername(username string) (UserData, error) {
+	userDataMutex.RLock()
+	defer userDataMutex.RUnlock()
+
 	for _, ud := range UserDataMap {
 		if ud.Username == username {
 			return ud, nil
@@ -63,6 +73,9 @@ func GetUserDataByUsername(username string) (UserData, error) {
 }
 
 func GetUserDataByConnectionId(connectionId string) (UserData, error) {
+	userDataMutex.RLock()
+	defer userDataMutex.RUnlock()
+
 	for _, ud := range UserDataMap {
 		if ud.ConnectionID == connectionId {
 			return ud, nil
@@ -73,5 +86,20 @@ func GetUserDataByConnectionId(connectionId string) (UserData, error) {
 }
 
 func UpdateUserData(userData UserData) {
+	userDataMutex.Lock()
+	defer userDataMutex.Unlock()
+
 	UserDataMap[userData.Username] = userData
+}
+
+func GetUserDataSnapshot() []UserData {
+	userDataMutex.RLock()
+	defer userDataMutex.RUnlock()
+
+	users := make([]UserData, 0, len(UserDataMap))
+	for _, ud := range UserDataMap {
+		users = append(users, ud)
+	}
+
+	return users
 }

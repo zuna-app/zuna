@@ -44,23 +44,20 @@ func AuthMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func validateToken(c *echo.Context, token string) (string, error) {
-	for _, userData := range data.UserDataMap {
-		if userData.AuthToken != token {
-			continue
-		}
-
-		ctx := c.Request().Context()
-		u, err := db.EntClient.User.
-			Query().
-			Where(user.UsernameEQ(userData.Username)).
-			First(ctx)
-
-		if err != nil {
-			return "", err //TODO: Don't send error to client
-		}
-
-		return u.ID, nil
+	userData, err := data.GetUserDataByToken(token)
+	if err != nil {
+		return "", errors.New("invalid token")
 	}
 
-	return "", errors.New("invalid token")
+	ctx := c.Request().Context()
+	u, err := db.EntClient.User.
+		Query().
+		Where(user.UsernameEQ(userData.Username)).
+		First(ctx)
+
+	if err != nil {
+		return "", err //TODO: Don't send error to client
+	}
+
+	return u.ID, nil
 }

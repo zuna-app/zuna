@@ -40,7 +40,7 @@ func (r *MessageRouter) handlePresence(c HubClient, msg IncomingMessage, userDat
 		return
 	}
 
-	for _, ud := range data.UserDataMap {
+	for _, ud := range data.GetUserDataSnapshot() {
 		if ud.ConnectionID == "" {
 			continue
 		}

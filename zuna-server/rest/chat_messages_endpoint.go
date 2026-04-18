@@ -13,12 +13,20 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const (
+	maxMessagesLimit = 200
+)
+
 type MessagesResponse struct {
 	Messages []data.MessageDTO `json:"messages"`
 }
 
 func ChatMessagesEndpoint(c *echo.Context) error {
-	userId := c.Request().Context().Value(IdKey).(string)
+	userId, ok := c.Request().Context().Value(IdKey).(string)
+	if !ok || userId == "" {
+		return c.JSON(http.StatusUnauthorized, Unauthorized)
+	}
+
 	chatId := c.QueryParam("chat_id")
 	limit := c.QueryParam("limit")
 	cursor := c.QueryParam("cursor")
@@ -26,6 +34,10 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 
 	limitInt, err := strconv.Atoi(limit)
 	if err != nil {
+		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	if limitInt < 1 || limitInt > maxMessagesLimit {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
@@ -80,7 +92,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		log.Error().Err(err).Str("id", chatId).Msg("failed to query chat messages")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
-	
+
 	dtos := make([]data.MessageDTO, 0)
 	for _, m := range messages {
 		var readMillis int64

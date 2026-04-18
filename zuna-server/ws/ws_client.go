@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -31,6 +32,18 @@ const (
 
 	// Size of the per-client outbound send buffer.
 	sendBufferSize = 256
+
+	// Size of the per-client inbound dispatch queue.
+	dispatchQueueSize = 64
+
+	// Number of workers processing messages from a single client.
+	dispatchWorkers = 8
+
+	// Per-client sustained message rate (messages per second).
+	wsRateLimit = 40
+
+	// Per-client burst allowance (messages).
+	wsRateBurst = 80
 )
 
 var upgrader = websocket.Upgrader{
@@ -44,11 +57,13 @@ var upgrader = websocket.Upgrader{
 // It pairs a WebSocket connection with a buffered send channel and
 // runs independent read/write pumps in separate goroutines.
 type Client struct {
-	id   string
-	conn *websocket.Conn
-	send chan []byte
-	h    *Hub
-	r    *MessageRouter
+	id            string
+	conn          *websocket.Conn
+	send          chan []byte
+	dispatchQueue chan []byte
+	h             *Hub
+	r             *MessageRouter
+	rateLimiter   *rate.Limiter
 }
 
 // ID returns the unique identifier assigned at connection time.
@@ -88,11 +103,13 @@ func HandleWebSocket(h *Hub, r *MessageRouter) echo.HandlerFunc {
 		}
 
 		client := &Client{
-			id:   uuid.NewString(),
-			conn: conn,
-			send: make(chan []byte, sendBufferSize),
-			h:    h,
-			r:    r,
+			id:            uuid.NewString(),
+			conn:          conn,
+			send:          make(chan []byte, sendBufferSize),
+			dispatchQueue: make(chan []byte, dispatchQueueSize),
+			h:             h,
+			r:             r,
+			rateLimiter:   rate.NewLimiter(wsRateLimit, wsRateBurst),
 		}
 
 		// Register with the hub before starting pumps so we never miss a
@@ -101,6 +118,7 @@ func HandleWebSocket(h *Hub, r *MessageRouter) echo.HandlerFunc {
 
 		// Each pump runs in its own goroutine; writePump owns the connection
 		// write side, readPump owns the read side – no locking needed.
+		client.startDispatchWorkers()
 		go client.writePump()
 		go client.readPump()
 
@@ -108,10 +126,21 @@ func HandleWebSocket(h *Hub, r *MessageRouter) echo.HandlerFunc {
 	}
 }
 
+func (c *Client) startDispatchWorkers() {
+	for i := 0; i < dispatchWorkers; i++ {
+		go func() {
+			for raw := range c.dispatchQueue {
+				c.r.Dispatch(c, raw)
+			}
+		}()
+	}
+}
+
 // readPump reads messages from the WebSocket connection and dispatches them
 // to the message router. It is the only goroutine that reads from conn.
 func (c *Client) readPump() {
 	defer func() {
+		close(c.dispatchQueue)
 		c.h.Unregister <- c
 		c.conn.Close()
 	}()
@@ -134,9 +163,18 @@ func (c *Client) readPump() {
 			break
 		}
 
-		// Dispatch to the router concurrently so a slow handler never
-		// blocks other incoming messages on this connection.
-		go c.r.Dispatch(c, raw)
+		if !c.rateLimiter.Allow() {
+			log.Printf("[ws] rate limit exceeded client=%s", c.id)
+			sendError(c, "rate_limited", "too many messages, slow down")
+			return
+		}
+
+		select {
+		case c.dispatchQueue <- raw:
+		default:
+			log.Printf("[ws] dispatch queue overflow client=%s", c.id)
+			return
+		}
 	}
 }
 

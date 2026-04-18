@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/rest"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
@@ -51,6 +54,8 @@ func main() {
 	data.InitializeUserManager()
 
 	e := echo.New()
+	e.Use(middleware.Recover())
+	//e.Use(middleware.BodyLimit(utils.Config.Server.MaximumAvatarSize + 1024*1024))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
@@ -62,18 +67,34 @@ func main() {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
 
+	// Auth endpoints: 10 requests/minute per IP, burst of 5.
+	// These trigger expensive crypto (ed25519) or write new DB rows, so they
+	// are kept deliberately tight.
+	authLimiter := rest.NewRateLimiter(
+		rate.Every(6*time.Second), // 10 req/min
+		5,
+		10*time.Minute,
+	)
+
+	// General API endpoints: 120 requests/minute per IP, burst of 30.
+	apiLimiter := rest.NewRateLimiter(
+		rate.Every(500*time.Millisecond), // 120 req/min
+		30,
+		10*time.Minute,
+	)
+
 	api := e.Group("/api")
 
-	auth := api.Group("/auth")
+	auth := api.Group("/auth", authLimiter.Middleware())
 	auth.POST("/handshake", rest.AuthHandshakeEndpoint)
 	auth.POST("/login", rest.AuthLoginEndpoint)
 	auth.POST("/join", rest.AuthJoinEndpoint)
 
-	chat := api.Group("/chat", rest.AuthMiddleware)
+	chat := api.Group("/chat", rest.AuthMiddleware, apiLimiter.Middleware())
 	chat.GET("/list", rest.ChatListEndpoint)
 	chat.GET("/messages", rest.ChatMessagesEndpoint)
 
-	avatar := api.Group("/avatar", rest.AuthMiddleware)
+	avatar := api.Group("/avatar", rest.AuthMiddleware, apiLimiter.Middleware())
 	avatar.GET("/", rest.AvatarGetEndpoint)
 	avatar.PUT("/", rest.AvatarSetEndpoint)
 
@@ -83,8 +104,8 @@ func main() {
 	msgRouter := ws.NewMessageRouter(h)
 	e.GET("/ws", ws.HandleWebSocket(h, msgRouter))
 
-	log.Info().Any("port", 8080).Msg("starting server")
-	if err := e.Start(":8080"); err != nil {
+	log.Info().Str("bind-addr", utils.Config.Server.BindAddress).Int("port", utils.Config.Server.Port).Msg("starting server")
+	if err := e.Start(fmt.Sprintf("%s:%d", utils.Config.Server.BindAddress, utils.Config.Server.Port)); err != nil {
 		log.Error().Err(err).Msg("failed to start server")
 	}
 

@@ -12,7 +12,7 @@ type PresenceResponse struct {
 
 func (r *MessageRouter) handlePresenceRequest(c HubClient, msg IncomingMessage, userData data.UserData) {
 	ls := make([]data.PresenceDTO, 0)
-	for _, ud := range data.UserDataMap {
+	for _, ud := range data.GetUserDataSnapshot() {
 		ls = append(ls, data.PresenceDTO{
 			UserID:   ud.UserID,
 			LastSeen: ud.LastSeen,

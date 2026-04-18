@@ -26,11 +26,15 @@ type SQLiteConfig struct {
 }
 
 type ServerConfig struct {
+	BindAddress        string `toml:"bind_address"`
+	Port               int    `toml:"port"`
 	Name               string `toml:"name"`
 	Logo               string `toml:"logo"`
 	MaximumMessageSize int64  `toml:"maximum_message_size"`
 	StorageDirectory   string `toml:"storage_directory"`
 	MaximumAvatarSize  int64  `toml:"maximum_avatar_size"`
+	MinUsernameLength  int    `toml:"min_username_length"`
+	MaxUsernameLength  int    `toml:"max_username_length"`
 }
 
 type Configuration struct {
@@ -56,11 +60,15 @@ var Config = Configuration{
 		Database: "zuna",
 	},
 	Server: ServerConfig{
+		BindAddress:        "0.0.0.0",
+		Port:               8080,
 		Name:               "Example Zuna server",
 		Logo:               "logo.png",
 		MaximumMessageSize: 8 * 1024, // 8KB
 		StorageDirectory:   "storage_data",
 		MaximumAvatarSize:  5 * 1024 * 1024, // 5MB
+		MinUsernameLength:  3,
+		MaxUsernameLength:  32,
 	},
 }
 
