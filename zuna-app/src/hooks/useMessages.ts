@@ -3,6 +3,8 @@ import { ReadyState } from "react-use-websocket";
 import { useZunaWebSocket, ZunaResponse } from "@/hooks/useZunaWebSocket";
 import { useAuthorizedServerFetch } from "@/hooks/useServerFetch";
 import { Server } from "@/types/serverTypes";
+import { useLastMessagesUpdater } from "./useLastChatMessages";
+import { useSharedSecret, useSharedSecrets } from "./useSharedSecret";
 
 const MESSAGES_LIMIT = 50;
 const MAX_CURSOR = "9223372036854775807";
@@ -49,7 +51,11 @@ type MessageReceivePayload = {
   auth_tag: string;
 };
 
-export function useMessages(server: Server, chatId: string) {
+export function useMessages(
+  server: Server,
+  chatId: string,
+  sharedSecret: string | null,
+) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -58,8 +64,33 @@ export function useMessages(server: Server, chatId: string) {
   const isFetchingRef = useRef(false);
   const prevReadyStateRef = useRef<ReadyState | null>(null);
   const prevChatIdRef = useRef<string | null>(null);
+  const isFocusedRef = useRef(
+    typeof document !== "undefined" ? document.hasFocus() : true,
+  );
+  const chatIdRef = useRef(chatId);
+  chatIdRef.current = chatId;
 
+  const { lastMessages, updateLastMessage } = useLastMessagesUpdater();
   const { authorizedFetch } = useAuthorizedServerFetch(server);
+
+  const lastMessagesRef = useRef(lastMessages);
+  lastMessagesRef.current = lastMessages;
+
+  useEffect(() => {
+    if (!isFocusedRef.current) return;
+    if (lastMessages) {
+      const lastMsg = lastMessages[chatId];
+      if (lastMsg) {
+        updateLastMessage({
+          chatId,
+          senderId: lastMsg.senderId,
+          content: lastMsg.content,
+          unreadMessages: 0,
+          lastActivityAt: lastMsg.lastActivityAt,
+        });
+      }
+    }
+  }, [chatId]);
 
   const fetchMessages = useCallback(
     async (cursor: string = MAX_CURSOR) => {
@@ -150,9 +181,33 @@ export function useMessages(server: Server, chatId: string) {
             },
           ];
         });
+
+        if (sharedSecret) {
+          window.security
+            .decrypt(sharedSecret, {
+              ciphertext: recv.cipher_text,
+              iv: recv.iv,
+              authTag: recv.auth_tag,
+            })
+            .then((plaintext) => {
+              updateLastMessage({
+                chatId,
+                senderId: recv.sender_id,
+                content: plaintext,
+                unreadMessages: isFocusedRef.current
+                  ? 0
+                  : (lastMessagesRef.current?.[chatId]?.unreadMessages ?? 0) +
+                    1,
+                lastActivityAt: recv.created_at,
+              });
+            })
+            .catch((err) => {
+              console.error("Failed to decrypt incoming message:", err);
+            });
+        }
       }
     },
-    [chatId],
+    [chatId, updateLastMessage],
   );
 
   const { sendMessage: wsSend, readyState } = useZunaWebSocket(
@@ -162,10 +217,26 @@ export function useMessages(server: Server, chatId: string) {
 
   useEffect(() => {
     window.addEventListener("focus", () => {
+      isFocusedRef.current = true;
       wsSend("presence", { active: true });
+      const msgs = lastMessagesRef.current;
+      const cId = chatIdRef.current;
+      if (msgs && cId) {
+        const lastMsg = msgs[cId];
+        if (lastMsg && lastMsg.unreadMessages > 0) {
+          updateLastMessage({
+            chatId: cId,
+            senderId: lastMsg.senderId,
+            content: lastMsg.content,
+            unreadMessages: 0,
+            lastActivityAt: lastMsg.lastActivityAt,
+          });
+        }
+      }
     });
 
     window.addEventListener("blur", () => {
+      isFocusedRef.current = false;
       wsSend("presence", { active: false });
     });
   }, []);
@@ -215,8 +286,16 @@ export function useMessages(server: Server, chatId: string) {
         auth_tag: authTag,
         local_id: localId,
       });
+
+      updateLastMessage({
+        chatId,
+        senderId: server.id,
+        content: plaintext,
+        unreadMessages: 0,
+        lastActivityAt: optimistic.sentAt,
+      });
     },
-    [chatId, wsSend],
+    [chatId, wsSend, updateLastMessage],
   );
 
   const fetchMore = useCallback(() => {

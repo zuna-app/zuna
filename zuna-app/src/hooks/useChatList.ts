@@ -20,7 +20,13 @@ export function useChatList(server: Server) {
         avatarIv: m.avatar_iv ?? "",
         avatarAuthTag: m.avatar_auth_tag ?? "",
         identityKey: m.identity_key ?? "",
-      })) as ChatMember[];
+        senderId: m.last_message_sender_id ?? "",
+        ciphertext: m.cipher_text ?? "",
+        iv: m.iv ?? "",
+        authTag: m.auth_tag ?? "",
+        unreadMessages: m.unread_messages ?? 0,
+        lastActivityAt: m.last_chat_activity ?? 0,
+      }));
     },
   });
 }

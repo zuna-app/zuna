@@ -1,44 +1,28 @@
-import { ChatMember } from "@/types/serverTypes";
+import { ChatMember, Server } from "@/types/serverTypes";
 import { PseudoAvatar } from "@/components/ui/pseudo-avatar";
 import { cn } from "@/lib/utils";
-
-const PREVIEW_MESSAGES = [
-  "Hey, how's it going?",
-  "Did you see the latest updates?",
-  "Let's catch up soon!",
-  "Sounds good to me 👍",
-  "I'll check and get back to you",
-  "Just sent you the files!",
-  "Are you free this afternoon?",
-  "Thanks, that was really helpful!",
-];
-
-const TIMES = ["just now", "2m", "15m", "1h", "3h", "Yesterday", "Mon"];
-
-function deriveIndex(str: string, length: number): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-    hash |= 0;
-  }
-  return ((Math.abs(hash) % length) + length) % length;
-}
+import { usePresence } from "@/hooks/useZunaWebSocket";
+import { useLastChatMessages } from "@/hooks/useLastChatMessages";
+import { convertTimeToRelative } from "./chat-topbar";
 
 interface ChatListItemProps {
+  lastMessage:
+    | ReturnType<typeof useLastChatMessages>["lastMessages"][string]
+    | null;
   member: ChatMember;
   isSelected: boolean;
   onClick: () => void;
 }
 
 export function ChatListItem({
+  lastMessage,
   member,
   isSelected,
   onClick,
 }: ChatListItemProps) {
-  const preview =
-    PREVIEW_MESSAGES[deriveIndex(member.id, PREVIEW_MESSAGES.length)];
-  const time = TIMES[deriveIndex(member.username, TIMES.length)];
-  const isUnread = deriveIndex(member.id + "unread", 3) === 0;
+  const { getMemberPresence } = usePresence();
+  const presence = getMemberPresence(member.id);
+  const unreadCount = lastMessage?.unreadMessages ?? 0;
 
   return (
     <button
@@ -52,7 +36,12 @@ export function ChatListItem({
     >
       <div className="relative shrink-0">
         <PseudoAvatar name={member.username} size={42} />
-        <span className="absolute bottom-0.5 right-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-background" />
+        <span
+          className={cn(
+            "absolute bottom-0.5 right-0.5 size-2.5 rounded-full ring-2 ring-background",
+            presence?.active ? "bg-emerald-500" : "bg-muted-foreground",
+          )}
+        />
       </div>
 
       <div className="flex-1 min-w-0">
@@ -60,7 +49,7 @@ export function ChatListItem({
           <span
             className={cn(
               "text-sm truncate",
-              isUnread ? "font-semibold" : "font-medium",
+              lastMessage?.unreadMessages ? "font-semibold" : "font-medium",
             )}
           >
             {member.username}
@@ -68,27 +57,31 @@ export function ChatListItem({
           <span
             className={cn(
               "text-[10px] shrink-0 tabular-nums",
-              isUnread ? "text-primary font-semibold" : "text-muted-foreground",
+              lastMessage?.unreadMessages
+                ? "text-primary font-semibold"
+                : "text-muted-foreground",
             )}
           >
-            {time}
+            {lastMessage && lastMessage.lastActivityAt > 0
+              ? convertTimeToRelative(lastMessage.lastActivityAt)
+              : ""}
           </span>
         </div>
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <p
             className={cn(
               "text-xs truncate",
-              isUnread
+              lastMessage?.unreadMessages
                 ? "text-foreground/80 font-medium"
                 : "text-muted-foreground",
             )}
           >
-            {preview}
+            {lastMessage ? lastMessage.content : "No messages yet"}
           </p>
-          {isUnread && (
+          {unreadCount > 0 && (
             <span className="size-4 shrink-0 rounded-full bg-primary flex items-center justify-center">
               <span className="text-[9px] font-bold text-primary-foreground leading-none">
-                {deriveIndex(member.id + "count", 5) + 1}
+                {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             </span>
           )}

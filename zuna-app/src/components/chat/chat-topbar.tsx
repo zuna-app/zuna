@@ -46,7 +46,7 @@ function TopbarAction({
   );
 }
 
-const convertTimeToRelative = (timestamp: number) => {
+export const convertTimeToRelative = (timestamp: number) => {
   const now = Date.now();
   const diff = now - timestamp;
 

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PencilLine, Search, MessageSquarePlus } from "lucide-react";
+import { useLastChatMessages } from "@/hooks/useLastChatMessages";
 
 interface ChatListPanelProps {
   server: Server;
@@ -36,6 +37,8 @@ export function ChatListPanel({
 }: ChatListPanelProps) {
   const [search, setSearch] = useState("");
   const { data, isLoading, error } = useChatList(server);
+
+  const { lastMessages } = useLastChatMessages(server, data ?? []);
 
   const filtered = useMemo(() => {
     const term = search.toLowerCase().trim();
@@ -93,6 +96,7 @@ export function ChatListPanel({
               <ChatListItem
                 key={member.id}
                 member={member}
+                lastMessage={lastMessages[member.chatId] ?? null}
                 isSelected={selectedMember?.id === member.id}
                 onClick={() => onSelect(member)}
               />

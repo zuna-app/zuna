@@ -7,7 +7,7 @@ export interface Server {
   username: string;
 }
 
-export interface ChatMember {
+export interface ChatMemberRaw {
   id: string;
   chatId: string;
   username: string;
@@ -15,6 +15,23 @@ export interface ChatMember {
   avatarIv: string;
   avatarAuthTag: string;
   identityKey: string;
+}
+
+export type ChatMember = ChatMemberRaw & {
+  senderId: string;
+  ciphertext: string;
+  iv: string;
+  authTag: string;
+  unreadMessages: number;
+  lastActivityAt: number;
+};
+
+export interface LastMessage {
+  chatId: string;
+  senderId: string;
+  content: string;
+  unreadMessages: number;
+  lastActivityAt: number;
 }
 
 export interface Chat {

@@ -9,12 +9,14 @@ import { ChatTopbar } from "@/components/chat/chat-topbar";
 import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatEmptyState } from "@/components/chat/chat-empty-state";
+import { useSelectedChat } from "@/hooks/useSelectedChat";
 
 function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const sharedSecret = useSharedSecret(member);
   const { messages, loading, hasMore, sendMessage, fetchMore } = useMessages(
     server,
     member.chatId,
+    sharedSecret,
   );
 
   return (
@@ -36,6 +38,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
 export const AppServer = ({ server }: { server: Server }) => {
   const { authorize, token, isAuthorizing, error } = useAuthorizer(server);
   const [selectedMember, setSelectedMember] = useState<ChatMember | null>(null);
+  const { selectChat } = useSelectedChat();
 
   useEffect(() => {
     if (!token && !error) {
@@ -45,6 +48,7 @@ export const AppServer = ({ server }: { server: Server }) => {
 
   useEffect(() => {
     setSelectedMember(null);
+    selectChat(null);
   }, [server.id]);
 
   if (isAuthorizing) {
@@ -80,7 +84,10 @@ export const AppServer = ({ server }: { server: Server }) => {
       <ChatListPanel
         server={server}
         selectedMember={selectedMember}
-        onSelect={setSelectedMember}
+        onSelect={(member) => {
+          setSelectedMember(member);
+          selectChat(member.chatId);
+        }}
       />
       <div className="flex flex-1 flex-col min-h-0 overflow-hidden">
         {selectedMember ? (

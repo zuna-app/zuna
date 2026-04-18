@@ -1,0 +1,72 @@
+import { atom, useAtom, useAtomValue } from "jotai";
+import { jotaiStore } from "./useAuthorizer";
+import { ChatMember, LastMessage, Server } from "@/types/serverTypes";
+import { useEffect } from "react";
+import { useSharedSecret, useSharedSecrets } from "./useSharedSecret";
+
+export const lastMessagesAtom = atom<Record<string, LastMessage>>({});
+
+export const useLastMessagesUpdater = () => {
+  const [lastMessages, setLastMessages] = useAtom(lastMessagesAtom, {
+    store: jotaiStore,
+  });
+
+  return {
+    lastMessages,
+    updateLastMessage: (message: LastMessage) => {
+      setLastMessages((prev) => ({
+        ...prev,
+        [message.chatId]: message,
+      }));
+    },
+  };
+};
+
+export const useLastChatMessages = (server: Server, members: ChatMember[]) => {
+  const [lastMessages, setLastMessages] = useAtom(lastMessagesAtom);
+  const sharedSecrets = useSharedSecrets(members);
+
+  useEffect(() => {
+    members.forEach(async (m) => {
+      const secret = sharedSecrets ? sharedSecrets[m.id] : null;
+      if (!secret) {
+        return;
+      }
+
+      try {
+        const content = m.ciphertext
+          ? await window.security.decrypt(secret, {
+              ciphertext: m.ciphertext,
+              iv: m.iv,
+              authTag: m.authTag,
+            })
+          : "No messages yet";
+
+        setLastMessages((prev) => {
+          if (prev[m.chatId]) return prev;
+
+          return {
+            ...prev,
+            [m.chatId]: {
+              chatId: m.chatId,
+              senderId: m.senderId,
+              content: content,
+              unreadMessages: m.unreadMessages,
+              lastActivityAt: m.lastActivityAt,
+            },
+          };
+        });
+      } catch (e) {
+        console.error("Failed to decrypt message for chat " + m.chatId, e);
+      }
+    });
+  }, [members, sharedSecrets]);
+
+  useEffect(() => {
+    console.log(lastMessages);
+  }, [lastMessages]);
+
+  return {
+    lastMessages,
+  };
+};
