@@ -72,7 +72,8 @@ items:
               {
                 "username": "",
                 "identity_key": "",
-                "signing_key": ""
+                "signing_key": "",
+                "avatar": ""
               }
           auth: inherit
         settings:
@@ -258,18 +259,18 @@ items:
           followRedirects: true
           maxRedirects: 5
       - info:
-          name: avatar_put
+          name: avatar_post
           type: http
           seq: 2
         http:
-          method: PUT
+          method: POST
           url: http://localhost:8080/api/avatar
           body:
-            type: multipart-form
-            data:
-              - name: avatar
-                type: text
-                value: ''
+            type: json
+            data: |-
+              {
+                "avatar": ""
+              }
           auth:
             type: bearer
             token: TOKEN
@@ -284,5 +285,5 @@ extensions:
     ignore:
       - node_modules
       - .git
-    exportedAt: '2026-04-18T10:15:01.308Z'
+    exportedAt: '2026-04-18T16:06:05.123Z'
     exportedUsing: Bruno
