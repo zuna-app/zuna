@@ -24,12 +24,8 @@ const (
 	FieldLastSeen = "last_seen"
 	// FieldIsAdmin holds the string denoting the is_admin field in the database.
 	FieldIsAdmin = "is_admin"
-	// FieldAvatar holds the string denoting the avatar field in the database.
-	FieldAvatar = "avatar"
-	// FieldAvatarIv holds the string denoting the avatar_iv field in the database.
-	FieldAvatarIv = "avatar_iv"
-	// FieldAvatarAuthTag holds the string denoting the avatar_auth_tag field in the database.
-	FieldAvatarAuthTag = "avatar_auth_tag"
+	// FieldAvatarKey holds the string denoting the avatar_key field in the database.
+	FieldAvatarKey = "avatar_key"
 	// EdgeChats holds the string denoting the chats edge name in mutations.
 	EdgeChats = "chats"
 	// EdgeMessages holds the string denoting the messages edge name in mutations.
@@ -58,9 +54,7 @@ var Columns = []string{
 	FieldSigningKey,
 	FieldLastSeen,
 	FieldIsAdmin,
-	FieldAvatar,
-	FieldAvatarIv,
-	FieldAvatarAuthTag,
+	FieldAvatarKey,
 }
 
 var (
@@ -84,6 +78,8 @@ var (
 	DefaultLastSeen func() time.Time
 	// DefaultIsAdmin holds the default value on creation for the "is_admin" field.
 	DefaultIsAdmin bool
+	// DefaultAvatarKey holds the default value on creation for the "avatar_key" field.
+	DefaultAvatarKey string
 	// DefaultID holds the default value on creation for the "id" field.
 	DefaultID func() string
 )
@@ -121,19 +117,9 @@ func ByIsAdmin(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsAdmin, opts...).ToFunc()
 }
 
-// ByAvatar orders the results by the avatar field.
-func ByAvatar(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAvatar, opts...).ToFunc()
-}
-
-// ByAvatarIv orders the results by the avatar_iv field.
-func ByAvatarIv(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAvatarIv, opts...).ToFunc()
-}
-
-// ByAvatarAuthTag orders the results by the avatar_auth_tag field.
-func ByAvatarAuthTag(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldAvatarAuthTag, opts...).ToFunc()
+// ByAvatarKey orders the results by the avatar_key field.
+func ByAvatarKey(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAvatarKey, opts...).ToFunc()
 }
 
 // ByChatsCount orders the results by chats count.

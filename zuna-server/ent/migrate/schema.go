@@ -80,9 +80,7 @@ var (
 		{Name: "signing_key", Type: field.TypeString, Unique: true},
 		{Name: "last_seen", Type: field.TypeTime},
 		{Name: "is_admin", Type: field.TypeBool, Default: false},
-		{Name: "avatar", Type: field.TypeString},
-		{Name: "avatar_iv", Type: field.TypeString},
-		{Name: "avatar_auth_tag", Type: field.TypeString},
+		{Name: "avatar_key", Type: field.TypeString, Default: ""},
 	}
 	// UsersTable holds the schema information for the "users" table.
 	UsersTable = &schema.Table{

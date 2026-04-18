@@ -29,6 +29,8 @@ type ServerConfig struct {
 	Name               string `toml:"name"`
 	Logo               string `toml:"logo"`
 	MaximumMessageSize int64  `toml:"maximum_message_size"`
+	StorageDirectory   string `toml:"storage_directory"`
+	MaximumAvatarSize  int64  `toml:"maximum_avatar_size"`
 }
 
 type Configuration struct {
@@ -57,6 +59,8 @@ var Config = Configuration{
 		Name:               "Example Zuna server",
 		Logo:               "logo.png",
 		MaximumMessageSize: 8 * 1024, // 8KB
+		StorageDirectory:   "storage_data",
+		MaximumAvatarSize:  5 * 1024 * 1024, // 5MB
 	},
 }
 
@@ -84,12 +88,25 @@ func LoadConfig() error {
 		return errors.New("invalid database type, supported: mysql, sqlite")
 	}
 
+	storageDir := strings.TrimSpace(Config.Server.StorageDirectory)
+	if storageDir == "" {
+		return errors.New("invalid storage directory")
+	}
+
 	logoData, err := os.ReadFile(Config.Server.Logo)
 	if err != nil {
 		return errors.New("could not load server logo")
 	}
 
 	ServerLogoBase64 = base64.StdEncoding.EncodeToString(logoData)
+
+	if _, err := os.Stat(Config.Server.StorageDirectory); os.IsNotExist(err) {
+		err := os.MkdirAll(Config.Server.StorageDirectory, 0755)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

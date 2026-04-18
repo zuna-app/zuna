@@ -25,9 +25,7 @@ func (User) Fields() []ent.Field {
 		field.String("signing_key").Unique(),
 		field.Time("last_seen").Default(time.Now),
 		field.Bool("is_admin").Default(false),
-		field.String("avatar"),
-		field.String("avatar_iv"),
-		field.String("avatar_auth_tag"),
+		field.String("avatar_key").Default(""),
 	}
 }
 

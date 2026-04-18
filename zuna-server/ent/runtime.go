@@ -43,6 +43,10 @@ func init() {
 	userDescIsAdmin := userFields[5].Descriptor()
 	// user.DefaultIsAdmin holds the default value on creation for the is_admin field.
 	user.DefaultIsAdmin = userDescIsAdmin.Default.(bool)
+	// userDescAvatarKey is the schema descriptor for avatar_key field.
+	userDescAvatarKey := userFields[6].Descriptor()
+	// user.DefaultAvatarKey holds the default value on creation for the avatar_key field.
+	user.DefaultAvatarKey = userDescAvatarKey.Default.(string)
 	// userDescID is the schema descriptor for id field.
 	userDescID := userFields[0].Descriptor()
 	// user.DefaultID holds the default value on creation for the id field.

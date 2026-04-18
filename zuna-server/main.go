@@ -73,6 +73,10 @@ func main() {
 	chat.GET("/list", rest.ChatListEndpoint)
 	chat.GET("/messages", rest.ChatMessagesEndpoint)
 
+	avatar := api.Group("/avatar", rest.AuthMiddleware)
+	avatar.GET("/", rest.AvatarGetEndpoint)
+	avatar.PUT("/", rest.AvatarSetEndpoint)
+
 	h := ws.NewHub()
 	go h.Run()
 

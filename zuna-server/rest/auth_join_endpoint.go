@@ -51,9 +51,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		SetUsername(req.Username).
 		SetIdentityKey(req.IdentityKey).
 		SetSigningKey(req.SigningKey).
-		SetAvatar(req.Avatar).
-		SetAvatarIv(req.AvatarIv).
-		SetAvatarAuthTag(req.AvatarAuthTag).
+		SetAvatarKey("").
 		Save(ctx)
 
 	if err != nil {
