@@ -37,11 +37,17 @@ type ServerConfig struct {
 	MaxUsernameLength  int    `toml:"max_username_length"`
 }
 
+type SevenTvConfig struct {
+	Enabled   bool   `toml:"enabled"`
+	EmotesSet string `toml:"emotes_set"`
+}
+
 type Configuration struct {
-	DatabaseType string       `toml:"database_type"`
-	MySQL        MySQLConfig  `toml:"mysql"`
-	SQLite       SQLiteConfig `toml:"sqlite"`
-	Server       ServerConfig `toml:"server"`
+	DatabaseType string        `toml:"database_type"`
+	MySQL        MySQLConfig   `toml:"mysql"`
+	SQLite       SQLiteConfig  `toml:"sqlite"`
+	SevenTv      SevenTvConfig `toml:"sevenTv"`
+	Server       ServerConfig  `toml:"server"`
 }
 
 var Config = Configuration{
@@ -69,6 +75,10 @@ var Config = Configuration{
 		MaximumAvatarSize:  5 * 1024 * 1024, // 5MB
 		MinUsernameLength:  3,
 		MaxUsernameLength:  32,
+	},
+	SevenTv: SevenTvConfig{
+		Enabled:   true,
+		EmotesSet: "https://7tv.app/emote-sets/01KPH7Q8GRK92MVD9YK1H71FV6",
 	},
 }
 
@@ -107,6 +117,17 @@ func LoadConfig() error {
 	}
 
 	ServerLogoBase64 = base64.StdEncoding.EncodeToString(logoData)
+
+	if Config.SevenTv.Enabled {
+		Config.SevenTv.EmotesSet = strings.TrimSuffix(Config.SevenTv.EmotesSet, "/")
+		parts := strings.Split(Config.SevenTv.EmotesSet, "/")
+		if !strings.HasPrefix(Config.SevenTv.EmotesSet, "https://7tv.app/emote-sets/") {
+			return errors.New("invalid 7TV emotes set URL")
+		}
+
+		id := parts[len(parts)-1]
+		Config.SevenTv.EmotesSet = id
+	}
 
 	if _, err := os.Stat(Config.Server.StorageDirectory); os.IsNotExist(err) {
 		err := os.MkdirAll(Config.Server.StorageDirectory, 0755)
