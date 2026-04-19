@@ -31,6 +31,24 @@ func AttachmentDownloadEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
+	ch, err := a.QueryMessage().QueryChat().WithUsers().First(c.Request().Context())
+	if err != nil {
+		log.Error().Err(err).Str("attachmentId", attachmentID).Msg("failed to query attachment chat")
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	hasAccess := false
+	for _, u := range ch.Edges.Users {
+		if u.ID == userID {
+			hasAccess = true
+			break
+		}
+	}
+
+	if !hasAccess {
+		return c.JSON(http.StatusForbidden, Forbidden)
+	}
+
 	fileBytes, err := storage.GetDataByKey(a.ID)
 	if err != nil {
 		log.Error().Err(err).Str("attachmentId", a.ID).Msg("failed to read attachment from storage")

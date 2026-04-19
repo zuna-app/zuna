@@ -131,6 +131,10 @@ func LoadConfig() error {
 		return errors.New("could not load server logo")
 	}
 
+	if Config.Limits.MaxAttachmentSize > 512*1024*1024 {
+		return errors.New("max attachment size cannot be larger than 512MB")
+	}
+
 	ServerLogoBase64 = base64.StdEncoding.EncodeToString(logoData)
 	RequestSizeLimit = max(Config.Limits.MaxMessageSize, Config.Limits.MaxAvatarSize, Config.Limits.MaxAttachmentSize) + 1024*1024
 

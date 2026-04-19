@@ -8,7 +8,7 @@ import (
 )
 
 func GetDataByKey(key string) ([]byte, error) {
-	storagePath, err := securejoin.SecureJoin(config.Config.Server.StorageDirectory, key)
+	storagePath, err := securejoin.SecureJoin(config.Config.Server.StorageDirectory, key + ".bin")
 	if err != nil {
 		return nil, err
 	}
@@ -21,7 +21,7 @@ func GetDataByKey(key string) ([]byte, error) {
 }
 
 func StoreData(key string, data []byte) error {
-	storagePath, err := securejoin.SecureJoin(config.Config.Server.StorageDirectory, key)
+	storagePath, err := securejoin.SecureJoin(config.Config.Server.StorageDirectory, key + ".bin")
 	if err != nil {
 		return err
 	}
@@ -38,7 +38,7 @@ func DeleteData(key string) error {
 		return nil
 	}
 
-	storagePath, err := securejoin.SecureJoin(config.Config.Server.StorageDirectory, key)
+	storagePath, err := securejoin.SecureJoin(config.Config.Server.StorageDirectory, key + ".bin")
 	if err != nil {
 		return err
 	}
