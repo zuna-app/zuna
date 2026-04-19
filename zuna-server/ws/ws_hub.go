@@ -109,7 +109,7 @@ func (h *Hub) Run() {
 								continue
 							}
 
-							h.SendTo(currentUserData.ConnectionID, OutgoingMessage{Type: "writing_indicator_update", Payload: WritingIndicatorMulticast{
+							h.SendTo(currentUserData.ConnectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
 								ChatID:  ch.ID,
 								UserID:  ud.UserID,
 								Writing: false,

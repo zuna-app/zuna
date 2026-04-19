@@ -11,8 +11,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Receive over: writing_indicator
-// Response multicast over: writing_indicator_update
+// Receive over: write
+// Response multicast over: write_receive
 type WritingIndicatorRequest struct {
 	ChatID  string `json:"chat_id"`
 	Writing bool   `json:"writing"`
@@ -73,7 +73,7 @@ func (r *MessageRouter) handleWritingIndicator(c HubClient, msg IncomingMessage,
 			continue
 		}
 
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "writing_indicator_update", Payload: WritingIndicatorMulticast{
+		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
 			ChatID:  req.ChatID,
 			UserID:  userData.UserID,
 			Writing: req.Writing,
