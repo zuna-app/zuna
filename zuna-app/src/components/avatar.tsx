@@ -1,4 +1,4 @@
-import { base64ToImageUrl, getFirstLetters } from "@/utils/basicUtils";
+import { getFirstLetters } from "@/utils/basicUtils";
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "./ui/avatar";
 
 export const ZunaAvatar = ({
@@ -14,10 +14,7 @@ export const ZunaAvatar = ({
 }) => {
   return (
     <Avatar>
-      <AvatarImage
-        src={src ? base64ToImageUrl(src) : undefined}
-        alt={`@${username}`}
-      />
+      <AvatarImage src={src} alt={`@${username}`} />
       <AvatarFallback>{getFirstLetters(username)}</AvatarFallback>
       {!noBadge && (
         <>

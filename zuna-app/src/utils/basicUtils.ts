@@ -18,7 +18,3 @@ export const getFirstLetters = (str: string) => {
   }
   return words[0][0].toUpperCase() + words[1][0].toUpperCase();
 };
-
-export const base64ToImageUrl = (base64: string) => {
-  return `data:image/png;base64,${base64}`;
-};

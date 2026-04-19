@@ -1,9 +1,7 @@
 package rest
 
 import (
-	"bytes"
 	"encoding/base64"
-	"image/png"
 	"net/http"
 	"regexp"
 	"zuna-server/config"
@@ -75,11 +73,6 @@ func AuthJoinEndpoint(c *echo.Context) error {
 
 	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > config.Config.Limits.MaxAvatarSize {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "avatar size exceeds limit"})
-	}
-
-	_, err = png.Decode(bytes.NewReader(avatarBytes))
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar format"})
 	}
 
 	avatarKey := cuid2.Generate()
