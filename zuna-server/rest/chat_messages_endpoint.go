@@ -8,13 +8,10 @@ import (
 	"zuna-server/ent"
 	"zuna-server/ent/chat"
 	"zuna-server/ent/message"
+	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
-)
-
-const (
-	maxMessagesLimit = 200
 )
 
 type MessagesResponse struct {
@@ -22,10 +19,7 @@ type MessagesResponse struct {
 }
 
 func ChatMessagesEndpoint(c *echo.Context) error {
-	userId, ok := c.Request().Context().Value(IdKey).(string)
-	if !ok || userId == "" {
-		return c.JSON(http.StatusUnauthorized, Unauthorized)
-	}
+	userId, _ := c.Request().Context().Value(IdKey).(string)
 
 	chatId := c.QueryParam("chat_id")
 	limit := c.QueryParam("limit")
@@ -34,16 +28,16 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 
 	limitInt, err := strconv.Atoi(limit)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
-	if limitInt < 1 || limitInt > maxMessagesLimit {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+	if limitInt < 1 || limitInt > 200 {
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "too many messages requested"})
 	}
 
 	cursorInt, err := strconv.ParseInt(cursor, 10, 64)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
 	chatExists, err := db.EntClient.Chat.Query().
@@ -56,7 +50,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 	}
 
 	if !chatExists {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "chat does not exist"})
 	}
 
 	ch, err := db.EntClient.Chat.Query().
@@ -69,15 +63,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
-	isMember := false
-	for _, uu := range ch.Edges.Users {
-		if uu.ID == userId {
-			isMember = true
-			break
-		}
-	}
-
-	if !isMember {
+	if !utils.IsMember(userId, ch.Edges.Users) {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 

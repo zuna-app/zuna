@@ -5,20 +5,18 @@ import (
 	"zuna-server/db"
 	"zuna-server/ent/attachment"
 	"zuna-server/storage"
+	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
 )
 
 func AttachmentDownloadEndpoint(c *echo.Context) error {
-	userID, ok := c.Request().Context().Value(IdKey).(string)
-	if !ok || userID == "" {
-		return c.JSON(http.StatusUnauthorized, Unauthorized)
-	}
-
+	userID, _ := c.Request().Context().Value(IdKey).(string)
 	attachmentID := c.QueryParam("id")
+
 	if attachmentID == "" {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
 	a, err := db.EntClient.Attachment.Query().
@@ -37,15 +35,7 @@ func AttachmentDownloadEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
-	hasAccess := false
-	for _, u := range ch.Edges.Users {
-		if u.ID == userID {
-			hasAccess = true
-			break
-		}
-	}
-
-	if !hasAccess {
+	if !utils.IsMember(userID, ch.Edges.Users) {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 

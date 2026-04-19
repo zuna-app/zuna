@@ -34,7 +34,7 @@ var usernameAllowedChars = regexp.MustCompile(`^[A-Za-z0-9]+$`)
 func AuthJoinEndpoint(c *echo.Context) error {
 	req := new(JoinRequest)
 	if err := c.Bind(req); err != nil {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
 	if len(req.Username) < config.Config.Limits.MinUsernameLength || len(req.Username) > config.Config.Limits.MaxUsernameLength {
@@ -84,7 +84,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		avatarBase := strings.Replace(split[1], "base64,", "", -1)
 		avatarBytes, err := base64.StdEncoding.DecodeString(avatarBase)
 		if err != nil {
-			return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar"})
+			return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar data"})
 		}
 
 		if len(avatarBytes) == 0 || int64(len(avatarBytes)) > config.Config.Limits.MaxAvatarSize {

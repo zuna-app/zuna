@@ -18,10 +18,7 @@ type AttachmentUploadResponse struct {
 }
 
 func AttachmentUploadEndpoint(c *echo.Context) error {
-	userID, ok := c.Request().Context().Value(IdKey).(string)
-	if !ok || userID == "" {
-		return c.JSON(http.StatusUnauthorized, Unauthorized)
-	}
+	userID, _ := c.Request().Context().Value(IdKey).(string)
 
 	u, err := db.EntClient.User.Query().Where(user.IDEQ(userID)).First(c.Request().Context())
 	if err != nil {
@@ -31,10 +28,14 @@ func AttachmentUploadEndpoint(c *echo.Context) error {
 
 	sizeStr := c.FormValue("size")
 	if sizeStr == "" {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 	size, err := strconv.ParseInt(sizeStr, 10, 64)
-	if err != nil || size > config.Config.Limits.MaxAttachmentSize {
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
+	}
+
+	if size > config.Config.Limits.MaxAttachmentSize {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "attachment exceeds maximum allowed size"})
 	}
 
@@ -42,7 +43,7 @@ func AttachmentUploadEndpoint(c *echo.Context) error {
 	metadataIv := c.FormValue("metadata_iv")
 	metadataAuthTag := c.FormValue("metadata_auth_tag")
 	if encryptedMeta == "" || metadataIv == "" || metadataAuthTag == "" {
-		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "missing metadata fields"})
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
 	fileHeader, fileInfo, err := c.Request().FormFile("file")

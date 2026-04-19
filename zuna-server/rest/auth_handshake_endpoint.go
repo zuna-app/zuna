@@ -27,7 +27,7 @@ type HandshakeResponse struct {
 func AuthHandshakeEndpoint(c *echo.Context) error {
 	req := new(HandshakeRequest)
 	if err := c.Bind(req); err != nil {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
 	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())

@@ -20,7 +20,7 @@ type ChatListResponse struct {
 
 func ChatListEndpoint(c *echo.Context) error {
 	id, _ := c.Request().Context().Value(IdKey).(string)
-	log.Info().Str("id", id).Msg("fetching chat list")
+
 	u, err := db.EntClient.User.Query().Where(user.IDEQ(id)).First(c.Request().Context())
 	if err != nil {
 		log.Error().Err(err).Str("id", id).Msg("failed to query user for chat list")

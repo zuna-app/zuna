@@ -6,7 +6,7 @@ type HttpErrorResponse struct {
 
 var (
 	InternalServerError = HttpErrorResponse{Error: "internal server error"}
-	BadRequest          = HttpErrorResponse{Error: "bad request"}
+	InvalidRequest      = HttpErrorResponse{Error: "invalid request"}
 	Unauthorized        = HttpErrorResponse{Error: "unauthorized"}
 	Forbidden           = HttpErrorResponse{Error: "forbidden"}
 )

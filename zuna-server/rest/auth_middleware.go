@@ -56,7 +56,7 @@ func validateToken(c *echo.Context, token string) (string, error) {
 		First(ctx)
 
 	if err != nil {
-		return "", err //TODO: Don't send error to client
+		return "", err
 	}
 
 	return u.ID, nil

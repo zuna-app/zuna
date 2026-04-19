@@ -8,6 +8,7 @@ import (
 	"zuna-server/db"
 	"zuna-server/ent/chat"
 	"zuna-server/ent/message"
+	"zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
 )
@@ -39,15 +40,7 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 		return
 	}
 
-	isMember := false
-	for _, u := range ch.Edges.Users {
-		if u.ID == userData.UserID {
-			isMember = true
-			break
-		}
-	}
-
-	if !isMember {
+	if !utils.IsMember(userData.UserID, ch.Edges.Users) {
 		sendError(c, "forbidden", "forbidden")
 		return
 	}

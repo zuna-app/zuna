@@ -7,6 +7,7 @@ import (
 	"zuna-server/db"
 	"zuna-server/ent/chat"
 	"zuna-server/ent/user"
+	"zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
 )
@@ -45,16 +46,7 @@ func (r *MessageRouter) handleWritingIndicator(c HubClient, msg IncomingMessage,
 		return
 	}
 
-	isMember := false
-
-	for _, uu := range ch.Edges.Users {
-		if uu.ID == userData.UserID {
-			isMember = true
-			break
-		}
-	}
-
-	if !isMember {
+	if !utils.IsMember(userData.UserID, ch.Edges.Users) {
 		sendError(c, "bad_request", "user is not a member of the chat")
 		return
 	}

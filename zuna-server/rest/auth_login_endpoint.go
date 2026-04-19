@@ -25,7 +25,7 @@ type LoginResponse struct {
 func AuthLoginEndpoint(c *echo.Context) error {
 	req := new(LoginRequest)
 	if err := c.Bind(req); err != nil {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
 	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
@@ -37,8 +37,8 @@ func AuthLoginEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusNotFound, HttpErrorResponse{Error: "user does not exist"})
 	}
 
-	userData, err := data.GetUserDataByUsername(req.Username)
-	if err != nil {
+	userData, _ := data.GetUserDataByUsername(req.Username)
+	if userData.Ed25519Nonce == "" {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "auth requested before handshake"})
 	}
 
@@ -68,7 +68,7 @@ func AuthLoginEndpoint(c *echo.Context) error {
 	nonce := []byte(userData.Ed25519Nonce)
 	valid := ed25519.Verify(key, nonce, decodedSig)
 	if !valid {
-		return c.JSON(http.StatusUnauthorized, HttpErrorResponse{Error: "invalid signature"})
+		return c.JSON(http.StatusUnauthorized, HttpErrorResponse{Error: "signature validation failed"})
 	}
 
 	userData.UserID = u.ID

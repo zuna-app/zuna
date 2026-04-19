@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"zuna-server/config"
+	"zuna-server/ent"
 )
 
 func GenerateEd25519Nonce() (string, error) {
@@ -40,4 +41,13 @@ func ValidateServerPassword(password string) bool {
 	}
 
 	return password == config.Config.Server.Password
+}
+
+func IsMember(userID string, members []*ent.User) bool {
+	for _, m := range members {
+		if m.ID == userID {
+			return true
+		}
+	}
+	return false
 }
