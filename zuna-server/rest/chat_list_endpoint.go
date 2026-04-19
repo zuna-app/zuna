@@ -67,17 +67,17 @@ func ChatListEndpoint(c *echo.Context) error {
 				continue
 			}
 
+			avatarString := ""
 			avatarBytes, err := storage.GetDataByKey(member.AvatarKey)
-			if err != nil {
-				log.Warn().Err(err).Str("id", id).Msg("failed to get avatar data from storage")
-				avatarBytes = []byte{}
+			if err == nil {
+				avatarString = "data:" + member.AvatarMime + ";base64," + base64.StdEncoding.EncodeToString(avatarBytes)
 			}
 
 			members = append(members, data.ChatMemberDTO{
 				ID:                  member.ID,
 				ChatID:              ch.ID,
 				Username:            member.Username,
-				Avatar:              "data:image/png;base64," + base64.StdEncoding.EncodeToString(avatarBytes),
+				Avatar:              avatarString,
 				IdentityKey:         member.IdentityKey,
 				LastMessageSenderID: lastSenderId,
 				LastCipherText:      lastCipherText,

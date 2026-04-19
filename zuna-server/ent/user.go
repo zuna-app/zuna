@@ -27,6 +27,8 @@ type User struct {
 	LastSeen time.Time `json:"last_seen,omitempty"`
 	// IsAdmin holds the value of the "is_admin" field.
 	IsAdmin bool `json:"is_admin,omitempty"`
+	// AvatarMime holds the value of the "avatar_mime" field.
+	AvatarMime string `json:"avatar_mime,omitempty"`
 	// AvatarKey holds the value of the "avatar_key" field.
 	AvatarKey string `json:"avatar_key,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -82,7 +84,7 @@ func (*User) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case user.FieldIsAdmin:
 			values[i] = new(sql.NullBool)
-		case user.FieldID, user.FieldUsername, user.FieldIdentityKey, user.FieldSigningKey, user.FieldAvatarKey:
+		case user.FieldID, user.FieldUsername, user.FieldIdentityKey, user.FieldSigningKey, user.FieldAvatarMime, user.FieldAvatarKey:
 			values[i] = new(sql.NullString)
 		case user.FieldLastSeen:
 			values[i] = new(sql.NullTime)
@@ -136,6 +138,12 @@ func (_m *User) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field is_admin", values[i])
 			} else if value.Valid {
 				_m.IsAdmin = value.Bool
+			}
+		case user.FieldAvatarMime:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field avatar_mime", values[i])
+			} else if value.Valid {
+				_m.AvatarMime = value.String
 			}
 		case user.FieldAvatarKey:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -208,6 +216,9 @@ func (_m *User) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("is_admin=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IsAdmin))
+	builder.WriteString(", ")
+	builder.WriteString("avatar_mime=")
+	builder.WriteString(_m.AvatarMime)
 	builder.WriteString(", ")
 	builder.WriteString("avatar_key=")
 	builder.WriteString(_m.AvatarKey)

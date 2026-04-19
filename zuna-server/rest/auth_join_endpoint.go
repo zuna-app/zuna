@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"regexp"
+	"strings"
 	"zuna-server/config"
 	"zuna-server/db"
 	"zuna-server/ent/user"
@@ -66,20 +67,36 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "username already taken"})
 	}
 
-	avatarBytes, err := base64.StdEncoding.DecodeString(req.Avatar)
-	if err != nil {
-		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar"})
-	}
+	avatarKey := ""
+	avatarMime := ""
 
-	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > config.Config.Limits.MaxAvatarSize {
-		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "avatar size exceeds limit"})
-	}
+	if req.Avatar != "" {
+		if !strings.HasPrefix(req.Avatar, "data:") && !strings.Contains(req.Avatar, "base64,") {
+			return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar format"})
+		}
 
-	avatarKey := cuid2.Generate()
-	err = storage.StoreData(avatarKey, avatarBytes)
-	if err != nil {
-		log.Error().Err(err).Str("username", req.Username).Msg("failed to store avatar")
-		return c.JSON(http.StatusInternalServerError, InternalServerError)
+		split := strings.Split(req.Avatar, ";")
+		if len(split) < 2 {
+			return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar format"})
+		}
+
+		avatarMime = strings.TrimPrefix(split[0], "data:")
+		avatarBase := strings.Replace(split[1], "base64,", "", -1)
+		avatarBytes, err := base64.StdEncoding.DecodeString(avatarBase)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar"})
+		}
+
+		if len(avatarBytes) == 0 || int64(len(avatarBytes)) > config.Config.Limits.MaxAvatarSize {
+			return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "avatar size exceeds limit"})
+		}
+
+		avatarKey = cuid2.Generate()
+		err = storage.StoreData(avatarKey, avatarBytes)
+		if err != nil {
+			log.Error().Err(err).Str("username", req.Username).Msg("failed to store avatar")
+			return c.JSON(http.StatusInternalServerError, InternalServerError)
+		}
 	}
 
 	ctx := c.Request().Context()
@@ -95,6 +112,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		SetIdentityKey(req.IdentityKey).
 		SetSigningKey(req.SigningKey).
 		SetAvatarKey(avatarKey).
+		SetAvatarMime(avatarMime).
 		Save(ctx)
 
 	if err != nil {

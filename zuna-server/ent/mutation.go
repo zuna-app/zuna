@@ -1811,6 +1811,7 @@ type UserMutation struct {
 	signing_key        *string
 	last_seen          *time.Time
 	is_admin           *bool
+	avatar_mime        *string
 	avatar_key         *string
 	clearedFields      map[string]struct{}
 	chats              map[string]struct{}
@@ -2111,6 +2112,42 @@ func (m *UserMutation) ResetIsAdmin() {
 	m.is_admin = nil
 }
 
+// SetAvatarMime sets the "avatar_mime" field.
+func (m *UserMutation) SetAvatarMime(s string) {
+	m.avatar_mime = &s
+}
+
+// AvatarMime returns the value of the "avatar_mime" field in the mutation.
+func (m *UserMutation) AvatarMime() (r string, exists bool) {
+	v := m.avatar_mime
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAvatarMime returns the old "avatar_mime" field's value of the User entity.
+// If the User object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserMutation) OldAvatarMime(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAvatarMime is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAvatarMime requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAvatarMime: %w", err)
+	}
+	return oldValue.AvatarMime, nil
+}
+
+// ResetAvatarMime resets all changes to the "avatar_mime" field.
+func (m *UserMutation) ResetAvatarMime() {
+	m.avatar_mime = nil
+}
+
 // SetAvatarKey sets the "avatar_key" field.
 func (m *UserMutation) SetAvatarKey(s string) {
 	m.avatar_key = &s
@@ -2343,7 +2380,7 @@ func (m *UserMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserMutation) Fields() []string {
-	fields := make([]string, 0, 6)
+	fields := make([]string, 0, 7)
 	if m.username != nil {
 		fields = append(fields, user.FieldUsername)
 	}
@@ -2358,6 +2395,9 @@ func (m *UserMutation) Fields() []string {
 	}
 	if m.is_admin != nil {
 		fields = append(fields, user.FieldIsAdmin)
+	}
+	if m.avatar_mime != nil {
+		fields = append(fields, user.FieldAvatarMime)
 	}
 	if m.avatar_key != nil {
 		fields = append(fields, user.FieldAvatarKey)
@@ -2380,6 +2420,8 @@ func (m *UserMutation) Field(name string) (ent.Value, bool) {
 		return m.LastSeen()
 	case user.FieldIsAdmin:
 		return m.IsAdmin()
+	case user.FieldAvatarMime:
+		return m.AvatarMime()
 	case user.FieldAvatarKey:
 		return m.AvatarKey()
 	}
@@ -2401,6 +2443,8 @@ func (m *UserMutation) OldField(ctx context.Context, name string) (ent.Value, er
 		return m.OldLastSeen(ctx)
 	case user.FieldIsAdmin:
 		return m.OldIsAdmin(ctx)
+	case user.FieldAvatarMime:
+		return m.OldAvatarMime(ctx)
 	case user.FieldAvatarKey:
 		return m.OldAvatarKey(ctx)
 	}
@@ -2446,6 +2490,13 @@ func (m *UserMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIsAdmin(v)
+		return nil
+	case user.FieldAvatarMime:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAvatarMime(v)
 		return nil
 	case user.FieldAvatarKey:
 		v, ok := value.(string)
@@ -2517,6 +2568,9 @@ func (m *UserMutation) ResetField(name string) error {
 		return nil
 	case user.FieldIsAdmin:
 		m.ResetIsAdmin()
+		return nil
+	case user.FieldAvatarMime:
+		m.ResetAvatarMime()
 		return nil
 	case user.FieldAvatarKey:
 		m.ResetAvatarKey()

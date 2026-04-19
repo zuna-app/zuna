@@ -24,6 +24,8 @@ const (
 	FieldLastSeen = "last_seen"
 	// FieldIsAdmin holds the string denoting the is_admin field in the database.
 	FieldIsAdmin = "is_admin"
+	// FieldAvatarMime holds the string denoting the avatar_mime field in the database.
+	FieldAvatarMime = "avatar_mime"
 	// FieldAvatarKey holds the string denoting the avatar_key field in the database.
 	FieldAvatarKey = "avatar_key"
 	// EdgeChats holds the string denoting the chats edge name in mutations.
@@ -63,6 +65,7 @@ var Columns = []string{
 	FieldSigningKey,
 	FieldLastSeen,
 	FieldIsAdmin,
+	FieldAvatarMime,
 	FieldAvatarKey,
 }
 
@@ -87,6 +90,8 @@ var (
 	DefaultLastSeen func() time.Time
 	// DefaultIsAdmin holds the default value on creation for the "is_admin" field.
 	DefaultIsAdmin bool
+	// DefaultAvatarMime holds the default value on creation for the "avatar_mime" field.
+	DefaultAvatarMime string
 	// DefaultAvatarKey holds the default value on creation for the "avatar_key" field.
 	DefaultAvatarKey string
 	// DefaultID holds the default value on creation for the "id" field.
@@ -124,6 +129,11 @@ func ByLastSeen(opts ...sql.OrderTermOption) OrderOption {
 // ByIsAdmin orders the results by the is_admin field.
 func ByIsAdmin(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsAdmin, opts...).ToFunc()
+}
+
+// ByAvatarMime orders the results by the avatar_mime field.
+func ByAvatarMime(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAvatarMime, opts...).ToFunc()
 }
 
 // ByAvatarKey orders the results by the avatar_key field.

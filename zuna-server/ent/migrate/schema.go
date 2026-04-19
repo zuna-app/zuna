@@ -86,6 +86,7 @@ var (
 		{Name: "signing_key", Type: field.TypeString, Unique: true},
 		{Name: "last_seen", Type: field.TypeTime},
 		{Name: "is_admin", Type: field.TypeBool, Default: false},
+		{Name: "avatar_mime", Type: field.TypeString, Default: ""},
 		{Name: "avatar_key", Type: field.TypeString, Default: ""},
 	}
 	// UsersTable holds the schema information for the "users" table.

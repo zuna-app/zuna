@@ -90,6 +90,11 @@ func IsAdmin(v bool) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldIsAdmin, v))
 }
 
+// AvatarMime applies equality check predicate on the "avatar_mime" field. It's identical to AvatarMimeEQ.
+func AvatarMime(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAvatarMime, v))
+}
+
 // AvatarKey applies equality check predicate on the "avatar_key" field. It's identical to AvatarKeyEQ.
 func AvatarKey(v string) predicate.User {
 	return predicate.User(sql.FieldEQ(FieldAvatarKey, v))
@@ -338,6 +343,71 @@ func IsAdminEQ(v bool) predicate.User {
 // IsAdminNEQ applies the NEQ predicate on the "is_admin" field.
 func IsAdminNEQ(v bool) predicate.User {
 	return predicate.User(sql.FieldNEQ(FieldIsAdmin, v))
+}
+
+// AvatarMimeEQ applies the EQ predicate on the "avatar_mime" field.
+func AvatarMimeEQ(v string) predicate.User {
+	return predicate.User(sql.FieldEQ(FieldAvatarMime, v))
+}
+
+// AvatarMimeNEQ applies the NEQ predicate on the "avatar_mime" field.
+func AvatarMimeNEQ(v string) predicate.User {
+	return predicate.User(sql.FieldNEQ(FieldAvatarMime, v))
+}
+
+// AvatarMimeIn applies the In predicate on the "avatar_mime" field.
+func AvatarMimeIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldIn(FieldAvatarMime, vs...))
+}
+
+// AvatarMimeNotIn applies the NotIn predicate on the "avatar_mime" field.
+func AvatarMimeNotIn(vs ...string) predicate.User {
+	return predicate.User(sql.FieldNotIn(FieldAvatarMime, vs...))
+}
+
+// AvatarMimeGT applies the GT predicate on the "avatar_mime" field.
+func AvatarMimeGT(v string) predicate.User {
+	return predicate.User(sql.FieldGT(FieldAvatarMime, v))
+}
+
+// AvatarMimeGTE applies the GTE predicate on the "avatar_mime" field.
+func AvatarMimeGTE(v string) predicate.User {
+	return predicate.User(sql.FieldGTE(FieldAvatarMime, v))
+}
+
+// AvatarMimeLT applies the LT predicate on the "avatar_mime" field.
+func AvatarMimeLT(v string) predicate.User {
+	return predicate.User(sql.FieldLT(FieldAvatarMime, v))
+}
+
+// AvatarMimeLTE applies the LTE predicate on the "avatar_mime" field.
+func AvatarMimeLTE(v string) predicate.User {
+	return predicate.User(sql.FieldLTE(FieldAvatarMime, v))
+}
+
+// AvatarMimeContains applies the Contains predicate on the "avatar_mime" field.
+func AvatarMimeContains(v string) predicate.User {
+	return predicate.User(sql.FieldContains(FieldAvatarMime, v))
+}
+
+// AvatarMimeHasPrefix applies the HasPrefix predicate on the "avatar_mime" field.
+func AvatarMimeHasPrefix(v string) predicate.User {
+	return predicate.User(sql.FieldHasPrefix(FieldAvatarMime, v))
+}
+
+// AvatarMimeHasSuffix applies the HasSuffix predicate on the "avatar_mime" field.
+func AvatarMimeHasSuffix(v string) predicate.User {
+	return predicate.User(sql.FieldHasSuffix(FieldAvatarMime, v))
+}
+
+// AvatarMimeEqualFold applies the EqualFold predicate on the "avatar_mime" field.
+func AvatarMimeEqualFold(v string) predicate.User {
+	return predicate.User(sql.FieldEqualFold(FieldAvatarMime, v))
+}
+
+// AvatarMimeContainsFold applies the ContainsFold predicate on the "avatar_mime" field.
+func AvatarMimeContainsFold(v string) predicate.User {
+	return predicate.User(sql.FieldContainsFold(FieldAvatarMime, v))
 }
 
 // AvatarKeyEQ applies the EQ predicate on the "avatar_key" field.

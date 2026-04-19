@@ -94,10 +94,6 @@ func main() {
 	chat.GET("/list", rest.ChatListEndpoint)
 	chat.GET("/messages", rest.ChatMessagesEndpoint)
 
-	avatar := api.Group("/avatar", rest.AuthMiddleware, apiLimiter.Middleware())
-	avatar.GET("/", rest.AvatarGetEndpoint)
-	avatar.PUT("/", rest.AvatarSetEndpoint)
-
 	attachment := api.Group("/attachment", rest.AuthMiddleware, apiLimiter.Middleware())
 	attachment.PUT("/upload", rest.AttachmentUploadEndpoint)
 

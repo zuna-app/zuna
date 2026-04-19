@@ -69,6 +69,20 @@ func (_c *UserCreate) SetNillableIsAdmin(v *bool) *UserCreate {
 	return _c
 }
 
+// SetAvatarMime sets the "avatar_mime" field.
+func (_c *UserCreate) SetAvatarMime(v string) *UserCreate {
+	_c.mutation.SetAvatarMime(v)
+	return _c
+}
+
+// SetNillableAvatarMime sets the "avatar_mime" field if the given value is not nil.
+func (_c *UserCreate) SetNillableAvatarMime(v *string) *UserCreate {
+	if v != nil {
+		_c.SetAvatarMime(*v)
+	}
+	return _c
+}
+
 // SetAvatarKey sets the "avatar_key" field.
 func (_c *UserCreate) SetAvatarKey(v string) *UserCreate {
 	_c.mutation.SetAvatarKey(v)
@@ -185,6 +199,10 @@ func (_c *UserCreate) defaults() {
 		v := user.DefaultIsAdmin
 		_c.mutation.SetIsAdmin(v)
 	}
+	if _, ok := _c.mutation.AvatarMime(); !ok {
+		v := user.DefaultAvatarMime
+		_c.mutation.SetAvatarMime(v)
+	}
 	if _, ok := _c.mutation.AvatarKey(); !ok {
 		v := user.DefaultAvatarKey
 		_c.mutation.SetAvatarKey(v)
@@ -211,6 +229,9 @@ func (_c *UserCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsAdmin(); !ok {
 		return &ValidationError{Name: "is_admin", err: errors.New(`ent: missing required field "User.is_admin"`)}
+	}
+	if _, ok := _c.mutation.AvatarMime(); !ok {
+		return &ValidationError{Name: "avatar_mime", err: errors.New(`ent: missing required field "User.avatar_mime"`)}
 	}
 	if _, ok := _c.mutation.AvatarKey(); !ok {
 		return &ValidationError{Name: "avatar_key", err: errors.New(`ent: missing required field "User.avatar_key"`)}
@@ -269,6 +290,10 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.IsAdmin(); ok {
 		_spec.SetField(user.FieldIsAdmin, field.TypeBool, value)
 		_node.IsAdmin = value
+	}
+	if value, ok := _c.mutation.AvatarMime(); ok {
+		_spec.SetField(user.FieldAvatarMime, field.TypeString, value)
+		_node.AvatarMime = value
 	}
 	if value, ok := _c.mutation.AvatarKey(); ok {
 		_spec.SetField(user.FieldAvatarKey, field.TypeString, value)

@@ -101,6 +101,20 @@ func (_u *UserUpdate) SetNillableIsAdmin(v *bool) *UserUpdate {
 	return _u
 }
 
+// SetAvatarMime sets the "avatar_mime" field.
+func (_u *UserUpdate) SetAvatarMime(v string) *UserUpdate {
+	_u.mutation.SetAvatarMime(v)
+	return _u
+}
+
+// SetNillableAvatarMime sets the "avatar_mime" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableAvatarMime(v *string) *UserUpdate {
+	if v != nil {
+		_u.SetAvatarMime(*v)
+	}
+	return _u
+}
+
 // SetAvatarKey sets the "avatar_key" field.
 func (_u *UserUpdate) SetAvatarKey(v string) *UserUpdate {
 	_u.mutation.SetAvatarKey(v)
@@ -278,6 +292,9 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.IsAdmin(); ok {
 		_spec.SetField(user.FieldIsAdmin, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AvatarMime(); ok {
+		_spec.SetField(user.FieldAvatarMime, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.AvatarKey(); ok {
 		_spec.SetField(user.FieldAvatarKey, field.TypeString, value)
@@ -507,6 +524,20 @@ func (_u *UserUpdateOne) SetNillableIsAdmin(v *bool) *UserUpdateOne {
 	return _u
 }
 
+// SetAvatarMime sets the "avatar_mime" field.
+func (_u *UserUpdateOne) SetAvatarMime(v string) *UserUpdateOne {
+	_u.mutation.SetAvatarMime(v)
+	return _u
+}
+
+// SetNillableAvatarMime sets the "avatar_mime" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableAvatarMime(v *string) *UserUpdateOne {
+	if v != nil {
+		_u.SetAvatarMime(*v)
+	}
+	return _u
+}
+
 // SetAvatarKey sets the "avatar_key" field.
 func (_u *UserUpdateOne) SetAvatarKey(v string) *UserUpdateOne {
 	_u.mutation.SetAvatarKey(v)
@@ -714,6 +745,9 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.IsAdmin(); ok {
 		_spec.SetField(user.FieldIsAdmin, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.AvatarMime(); ok {
+		_spec.SetField(user.FieldAvatarMime, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.AvatarKey(); ok {
 		_spec.SetField(user.FieldAvatarKey, field.TypeString, value)
