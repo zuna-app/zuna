@@ -6,8 +6,8 @@ import { FirstTimeSetup } from "@/components/setup/first-time-setup";
 import { PasswordPrompter } from "@/components/password-prompter";
 import { ServerSidebar } from "@/components/server-sidebar";
 import { JoinServerDialog } from "@/components/join-server-dialog";
-import { useServerConnector } from "@/hooks/useServerConnector";
-import { usePing } from "@/hooks/usePing";
+import { useServerConnector } from "@/hooks/server/useServerConnector";
+import { usePing } from "@/hooks/server/usePing";
 import { Server } from "@/types/serverTypes";
 import {
   Empty,

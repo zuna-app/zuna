@@ -2,15 +2,15 @@ import * as React from "react";
 import { useAtomValue } from "jotai";
 import { PlusIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { PseudoAvatar } from "@/components/ui/pseudo-avatar";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Server } from "@/types/serverTypes";
-import { useServerConnector } from "@/hooks/useServerConnector";
-import { serverMetaAtom, jotaiStore } from "@/hooks/useAuthorizer";
+import { useServerConnector } from "@/hooks/server/useServerConnector";
+import { serverMetaAtom, jotaiStore } from "@/hooks/auth/useAuthorizer";
+import { ZunaAvatar } from "./avatar";
 
 interface ServerIconButtonProps {
   server: Server;
@@ -52,20 +52,14 @@ function ServerIconButton({
               isActive ? "rounded-xl" : "rounded-full group-hover:rounded-xl",
             )}
           >
-            {logo ? (
-              <img
-                src={`data:image/png;base64,${logo}`}
-                alt={displayName}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius,
-                  objectFit: "cover",
-                }}
+            {
+              <ZunaAvatar
+                username={displayName}
+                src={logo ? `data:image/png;base64,${logo}` : undefined}
+                isOnline={false}
+                noBadge
               />
-            ) : (
-              <PseudoAvatar name={displayName} size={44} rounded={rounded} />
-            )}
+            }
           </div>
         </button>
       </TooltipTrigger>

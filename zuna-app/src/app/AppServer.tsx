@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { Server, ChatMember } from "@/types/serverTypes";
-import { useAuthorizer } from "@/hooks/useAuthorizer";
-import { useMessages } from "@/hooks/useMessages";
-import { useSharedSecret } from "@/hooks/useSharedSecret";
+import { useAuthorizer } from "@/hooks/auth/useAuthorizer";
+import { useMessages } from "@/hooks/chat/useMessages";
+import { useSharedSecret } from "@/hooks/ws/useSharedSecret";
+import { useBackgroundMessages } from "@/hooks/ws/useBackgroundMessages";
 import { Loader2 } from "lucide-react";
 import { ChatListPanel } from "@/components/chat/chat-list-panel";
 import { ChatTopbar } from "@/components/chat/chat-topbar";
 import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatEmptyState } from "@/components/chat/chat-empty-state";
-import { useSelectedChat } from "@/hooks/useSelectedChat";
+import { useSelectedChat } from "@/hooks/chat/useSelectedChat";
 
 function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const sharedSecret = useSharedSecret(member);
@@ -39,6 +40,8 @@ export const AppServer = ({ server }: { server: Server }) => {
   const { authorize, token, isAuthorizing, error } = useAuthorizer(server);
   const [selectedMember, setSelectedMember] = useState<ChatMember | null>(null);
   const { selectChat } = useSelectedChat();
+
+  useBackgroundMessages(server);
 
   useEffect(() => {
     if (!token && !error) {

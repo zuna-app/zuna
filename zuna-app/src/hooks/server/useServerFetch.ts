@@ -1,6 +1,9 @@
 import { useAtom, useSetAtom } from "jotai";
 import { useCallback } from "react";
-import { serverTokensAtom, serverAuthErrorsAtom } from "@/hooks/useAuthorizer";
+import {
+  serverTokensAtom,
+  serverAuthErrorsAtom,
+} from "@/hooks/auth/useAuthorizer";
 import { Server } from "@/types/serverTypes";
 
 export function useServerFetch(server: Server) {

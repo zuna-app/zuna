@@ -5,7 +5,7 @@ import { StepKeys, type KeyPairs } from "./step-keys";
 import { StepPin } from "./step-pin";
 import { StepJoinServer, type ServerJoinData } from "./step-join-server";
 import { StepImport } from "./step-import";
-import { useServerConnector } from "@/hooks/useServerConnector";
+import { useServerConnector } from "@/hooks/server/useServerConnector";
 
 const STEPS: Step[] = [
   { label: "Create Keys", description: "Encryption & signing" },
@@ -60,7 +60,12 @@ export function FirstTimeSetup({ onComplete }: FirstTimeSetupProps) {
     setJoinError(null);
     setJoinLoading(true);
     try {
-      await joinServer(data.serverAddress, data.username, new Uint8Array());
+      await joinServer(
+        data.serverAddress,
+        data.username,
+        data.serverPassword,
+        data.avatar || "",
+      );
       onComplete();
     } catch (e: any) {
       setJoinError(e?.message ?? "Failed to join server.");

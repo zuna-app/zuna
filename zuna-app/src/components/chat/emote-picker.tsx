@@ -7,7 +7,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Search } from "lucide-react";
-import { useEmotes } from "@/hooks/useEmotes";
+import { useEmotes } from "@/hooks/ui/useEmotes";
 import { EmojiConvertor } from "emoji-js";
 
 const emojiConvertor = new EmojiConvertor();

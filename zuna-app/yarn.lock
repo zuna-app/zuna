@@ -6614,6 +6614,11 @@ raw-body@^3.0.0, raw-body@^3.0.1:
     iconv-lite "~0.7.0"
     unpipe "~1.0.0"
 
+react-avatar-editor@^15.1.0:
+  version "15.1.0"
+  resolved "https://registry.yarnpkg.com/react-avatar-editor/-/react-avatar-editor-15.1.0.tgz#f7d00cf6983b07cd9cd7c874e0ec5558e7cfbfba"
+  integrity sha512-Zto7u9l6Wd5LPPtjeFJ+7uwoT4bs01OSgkN2kxD18lWl8IiZ0GY3nWCbKPx4qIU7Au1vENsMJm19rfVWHHayaQ==
+
 react-dom@^19.2.5:
   version "19.2.5"
   resolved "https://registry.yarnpkg.com/react-dom/-/react-dom-19.2.5.tgz#b8768b10837d0b8e9ca5b9e2d58dff3d880ea25e"

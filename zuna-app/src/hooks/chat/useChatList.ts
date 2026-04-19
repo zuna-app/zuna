@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useAuthorizedServerFetch } from "@/hooks/useServerFetch";
+import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
 import { ChatMember, Server } from "@/types/serverTypes";
 
 export function useChatList(server: Server) {
@@ -17,8 +17,6 @@ export function useChatList(server: Server) {
         chatId: m.chat_id,
         username: m.username,
         avatar: m.avatar ?? "",
-        avatarIv: m.avatar_iv ?? "",
-        avatarAuthTag: m.avatar_auth_tag ?? "",
         identityKey: m.identity_key ?? "",
         senderId: m.last_message_sender_id ?? "",
         ciphertext: m.cipher_text ?? "",

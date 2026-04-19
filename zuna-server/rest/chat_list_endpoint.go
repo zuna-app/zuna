@@ -77,7 +77,7 @@ func ChatListEndpoint(c *echo.Context) error {
 				ID:                  member.ID,
 				ChatID:              ch.ID,
 				Username:            member.Username,
-				Avatar:              base64.StdEncoding.EncodeToString(avatarBytes),
+				Avatar:              "data:image/png;base64," + base64.StdEncoding.EncodeToString(avatarBytes),
 				IdentityKey:         member.IdentityKey,
 				LastMessageSenderID: lastSenderId,
 				LastCipherText:      lastCipherText,

@@ -12,8 +12,6 @@ export interface ChatMemberRaw {
   chatId: string;
   username: string;
   avatar: string;
-  avatarIv: string;
-  avatarAuthTag: string;
   identityKey: string;
 }
 

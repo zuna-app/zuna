@@ -1,14 +1,14 @@
 import { useState, useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { Server, ChatMember } from "@/types/serverTypes";
-import { serverMetaAtom, jotaiStore } from "@/hooks/useAuthorizer";
-import { useChatList } from "@/hooks/useChatList";
+import { serverMetaAtom, jotaiStore } from "@/hooks/auth/useAuthorizer";
+import { useChatList } from "@/hooks/chat/useChatList";
 import { ChatListItem } from "@/components/chat/chat-list-item";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PencilLine, Search, MessageSquarePlus } from "lucide-react";
-import { useLastChatMessages } from "@/hooks/useLastChatMessages";
+import { useLastChatMessages } from "@/hooks/chat/useLastChatMessages";
 
 interface ChatListPanelProps {
   server: Server;

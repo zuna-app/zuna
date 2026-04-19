@@ -13,11 +13,11 @@ import {
 } from "@/components/ui/popover";
 import { Paperclip, Smile, Send, ImagePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useEmotes } from "@/hooks/useEmotes";
+import { useEmotes } from "@/hooks/ui/useEmotes";
 import { ActionButton } from "./action-button";
 import { EmotePicker } from "./emote-picker";
 import { OgPreviewCard } from "./og-preview";
-import { extractFirstUrl, useOgPreview } from "@/hooks/useOgPreview";
+import { extractFirstUrl, useOgPreview } from "@/hooks/ui/useOgPreview";
 
 export interface ChatInputProps {
   sharedSecret: string | null;

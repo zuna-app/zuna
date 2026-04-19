@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ExternalLink, Globe, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useOgPreview } from "@/hooks/useOgPreview";
+import { useOgPreview } from "@/hooks/ui/useOgPreview";
 
 interface OgPreviewCardProps {
   url: string;

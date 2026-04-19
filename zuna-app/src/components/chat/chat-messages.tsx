@@ -6,13 +6,13 @@ import {
   useState,
 } from "react";
 import { ChatMember } from "@/types/serverTypes";
-import { Message } from "@/hooks/useMessages";
+import { Message } from "@/hooks/chat/useMessages";
 import { cn } from "@/lib/utils";
 import { Check, CheckCheck, Loader2 } from "lucide-react";
 import { DelayedSpinner } from "../ui/delayed-spinner";
-import { useEmotes } from "@/hooks/useEmotes";
+import { useEmotes } from "@/hooks/ui/useEmotes";
 import { MessageOgPreview } from "./og-preview";
-import { extractFirstUrl } from "@/hooks/useOgPreview";
+import { extractFirstUrl } from "@/hooks/ui/useOgPreview";
 
 type MessageStatus = "pending" | "sent" | "read";
 

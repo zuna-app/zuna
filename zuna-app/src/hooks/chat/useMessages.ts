@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReadyState } from "react-use-websocket";
-import { useZunaWebSocket, ZunaResponse } from "@/hooks/useZunaWebSocket";
-import { useAuthorizedServerFetch } from "@/hooks/useServerFetch";
+import { useWsConnection } from "@/hooks/ws/useWsConnection";
+import { useWsHandler } from "@/hooks/ws/useWsHandler";
+import {
+  WS_MSG,
+  MessageAckPayload,
+  MessageReceivePayload,
+  MessageReadInfoPayload,
+} from "@/hooks/ws/wsTypes";
+import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
 import { Server } from "@/types/serverTypes";
 import { useLastMessagesUpdater } from "./useLastChatMessages";
 
@@ -33,23 +40,6 @@ type RawMessageDTO = {
   read_at: number;
 };
 
-type MessageAckPayload = {
-  local_id: number;
-  id: number;
-  chat_id: string;
-  created_at: number;
-};
-
-type MessageReceivePayload = {
-  id: number;
-  chat_id: string;
-  created_at: number;
-  sender_id: string;
-  cipher_text: string;
-  iv: string;
-  auth_tag: string;
-};
-
 export function useMessages(
   server: Server,
   chatId: string,
@@ -78,11 +68,112 @@ export function useMessages(
   const sharedSecretRef = useRef(sharedSecret);
   sharedSecretRef.current = sharedSecret;
 
+  const { sendMessage: wsSend, readyState } = useWsConnection(server);
+
+  // ── Typed message handlers ─────────────────────────────────────────────────
+
+  useWsHandler<MessageAckPayload>(server, WS_MSG.MESSAGE_ACK, (payload) => {
+    if (payload.chat_id !== chatIdRef.current) return;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.localId === payload.local_id
+          ? {
+              ...m,
+              id: payload.id,
+              sentAt: payload.created_at,
+              pending: false,
+              isOwn: true,
+              localId: null,
+            }
+          : m,
+      ),
+    );
+  });
+
+  useWsHandler<MessageReceivePayload>(
+    server,
+    WS_MSG.MESSAGE_RECEIVE,
+    (payload) => {
+      if (payload.chat_id !== chatIdRef.current) return;
+
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === payload.id)) return prev;
+        return [
+          ...prev,
+          {
+            id: payload.id,
+            localId: null,
+            chatId: chatIdRef.current,
+            cipherText: payload.cipher_text,
+            iv: payload.iv,
+            authTag: payload.auth_tag,
+            sentAt: payload.created_at,
+            senderId: payload.sender_id,
+            isOwn: false,
+            pending: false,
+          },
+        ];
+      });
+
+      wsSend(WS_MSG.MARK_READ, {
+        chat_id: chatIdRef.current,
+        timestamp: Date.now(),
+      });
+
+      if (sharedSecretRef.current) {
+        window.security
+          .decrypt(sharedSecretRef.current, {
+            ciphertext: payload.cipher_text,
+            iv: payload.iv,
+            authTag: payload.auth_tag,
+          })
+          .then((plaintext) => {
+            updateLastMessage({
+              chatId: chatIdRef.current,
+              senderId: payload.sender_id,
+              content: plaintext,
+              unreadMessages: isFocusedRef.current
+                ? 0
+                : (lastMessagesRef.current?.[chatIdRef.current]
+                    ?.unreadMessages ?? 0) + 1,
+              lastActivityAt: payload.created_at,
+            });
+          })
+          .catch((err) => {
+            console.error(
+              "[useMessages] Failed to decrypt incoming message:",
+              err,
+            );
+          });
+      }
+    },
+  );
+
+  useWsHandler<MessageReadInfoPayload>(
+    server,
+    WS_MSG.MESSAGE_READ_INFO,
+    (payload) => {
+      if (payload.chat_id !== chatIdRef.current) return;
+      setMessages((prev) => prev.map((m) => ({ ...m, readAt: Date.now() })));
+      updateLastMessage({
+        chatId: chatIdRef.current,
+        senderId: lastMessagesRef.current?.[chatIdRef.current]?.senderId ?? "",
+        content: lastMessagesRef.current?.[chatIdRef.current]?.content ?? "",
+        unreadMessages: 0,
+        lastActivityAt:
+          lastMessagesRef.current?.[chatIdRef.current]?.lastActivityAt ??
+          Date.now(),
+      });
+    },
+  );
+
+  // ── Chat-open effect ───────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!isFocusedRef.current) return;
     if (lastMessages) {
       const lastMsg = lastMessages[chatId];
-      wsSend("presence", { active: true });
+      wsSend(WS_MSG.PRESENCE, { active: true });
       if (lastMsg) {
         updateLastMessage({
           chatId,
@@ -92,9 +183,48 @@ export function useMessages(
           lastActivityAt: lastMsg.lastActivityAt,
         });
       }
-      wsSend("mark_read", { chat_id: chatId, timestamp: Date.now() });
+      wsSend(WS_MSG.MARK_READ, { chat_id: chatId, timestamp: Date.now() });
     }
   }, [chatId]);
+
+  // ── Window focus / blur ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const onFocus = () => {
+      isFocusedRef.current = true;
+      wsSend(WS_MSG.PRESENCE, { active: true });
+      const msgs = lastMessagesRef.current;
+      const cId = chatIdRef.current;
+      if (msgs && cId) {
+        const lastMsg = msgs[cId];
+        if (lastMsg && lastMsg.unreadMessages > 0) {
+          updateLastMessage({
+            chatId: cId,
+            senderId: lastMsg.senderId,
+            content: lastMsg.content,
+            unreadMessages: 0,
+            lastActivityAt: lastMsg.lastActivityAt,
+          });
+        }
+        wsSend(WS_MSG.MARK_READ, { chat_id: cId, timestamp: Date.now() });
+      }
+    };
+
+    const onBlur = () => {
+      isFocusedRef.current = false;
+      wsSend(WS_MSG.PRESENCE, { active: false });
+    };
+
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [wsSend]);
+
+  // ── History fetch ──────────────────────────────────────────────────────────
 
   const fetchMessages = useCallback(
     async (cursor: string = MAX_CURSOR) => {
@@ -144,134 +274,6 @@ export function useMessages(
     [authorizedFetch, chatId],
   );
 
-  const onMessage = useCallback(
-    (msg: ZunaResponse) => {
-      if (msg.type === "message_ack" && msg.payload?.chat_id === chatId) {
-        const ack = msg.payload as MessageAckPayload;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.localId === ack.local_id
-              ? {
-                  ...m,
-                  id: ack.id,
-                  sentAt: ack.created_at,
-                  pending: false,
-                  isOwn: true,
-                  localId: null,
-                }
-              : m,
-          ),
-        );
-      } else if (
-        msg.type === "message_receive" &&
-        msg.payload?.chat_id === chatId
-      ) {
-        const recv = msg.payload as MessageReceivePayload;
-        setMessages((prev) => {
-          if (prev.some((m) => m.id === recv.id)) return prev;
-          return [
-            ...prev,
-            {
-              id: recv.id,
-              localId: null,
-              chatId,
-              cipherText: recv.cipher_text,
-              iv: recv.iv,
-              authTag: recv.auth_tag,
-              sentAt: recv.created_at,
-              senderId: recv.sender_id,
-              isOwn: false,
-              pending: false,
-            },
-          ];
-        });
-
-        wsSend("mark_read", { chat_id: chatId, timestamp: Date.now() });
-
-        if (sharedSecretRef.current) {
-          window.security
-            .decrypt(sharedSecretRef.current, {
-              ciphertext: recv.cipher_text,
-              iv: recv.iv,
-              authTag: recv.auth_tag,
-            })
-            .then((plaintext) => {
-              updateLastMessage({
-                chatId,
-                senderId: recv.sender_id,
-                content: plaintext,
-                unreadMessages: isFocusedRef.current
-                  ? 0
-                  : (lastMessagesRef.current?.[chatId]?.unreadMessages ?? 0) +
-                    1,
-                lastActivityAt: recv.created_at,
-              });
-            })
-            .catch((err) => {
-              console.error("Failed to decrypt incoming message:", err);
-            });
-        }
-      } else if (
-        msg.type === "message_read_info" &&
-        msg.payload?.chat_id === chatId
-      ) {
-        setMessages((prev) => prev.map((m) => ({ ...m, readAt: Date.now() })));
-
-        updateLastMessage({
-          chatId,
-          senderId: lastMessagesRef.current?.[chatId]?.senderId ?? "",
-          content: lastMessagesRef.current?.[chatId]?.content ?? "",
-          unreadMessages: 0,
-          lastActivityAt:
-            lastMessagesRef.current?.[chatId]?.lastActivityAt ?? Date.now(),
-        });
-      }
-    },
-    [chatId, updateLastMessage],
-  );
-
-  const { sendMessage: wsSend, readyState } = useZunaWebSocket(
-    server,
-    onMessage,
-  );
-
-  useEffect(() => {
-    const onFocus = () => {
-      isFocusedRef.current = true;
-      wsSend("presence", { active: true });
-      const msgs = lastMessagesRef.current;
-      const cId = chatIdRef.current;
-      if (msgs && cId) {
-        const lastMsg = msgs[cId];
-        if (lastMsg && lastMsg.unreadMessages > 0) {
-          updateLastMessage({
-            chatId: cId,
-            senderId: lastMsg.senderId,
-            content: lastMsg.content,
-            unreadMessages: 0,
-            lastActivityAt: lastMsg.lastActivityAt,
-          });
-        }
-
-        wsSend("mark_read", { chat_id: cId, timestamp: Date.now() });
-        console.log("chuj dupa");
-      }
-    };
-
-    const onBlur = () => {
-      isFocusedRef.current = false;
-      wsSend("presence", { active: false });
-    };
-
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
-
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [wsSend]);
-
   useEffect(() => {
     const chatChanged =
       prevChatIdRef.current !== null && prevChatIdRef.current !== chatId;
@@ -293,6 +295,8 @@ export function useMessages(
     prevChatIdRef.current = chatId;
   }, [readyState, chatId, fetchMessages]);
 
+  // ── Send ───────────────────────────────────────────────────────────────────
+
   const sendChatMessage = useCallback(
     (cipherText: string, iv: string, authTag: string, plaintext: string) => {
       const localId = ++localIdCounter.current;
@@ -310,7 +314,7 @@ export function useMessages(
         plaintext,
       };
       setMessages((prev) => [...prev, optimistic]);
-      wsSend("message", {
+      wsSend(WS_MSG.MESSAGE, {
         chat_id: chatId,
         cipher_text: cipherText,
         iv,

@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Provider as JotaiProvider } from "jotai";
-import { jotaiStore } from "@/hooks/useAuthorizer";
+import { jotaiStore } from "@/hooks/auth/useAuthorizer";
 
 import "./index.css";
 import App from "./app/App";

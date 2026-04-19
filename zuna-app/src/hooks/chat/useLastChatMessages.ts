@@ -1,8 +1,8 @@
 import { atom, useAtom, useAtomValue } from "jotai";
-import { jotaiStore } from "./useAuthorizer";
+import { jotaiStore } from "../auth/useAuthorizer";
 import { ChatMember, LastMessage, Server } from "@/types/serverTypes";
 import { useEffect } from "react";
-import { useSharedSecrets } from "./useSharedSecret";
+import { useSharedSecrets } from "../ws/useSharedSecret";
 
 export const lastMessagesAtom = atom<Record<string, LastMessage>>({});
 

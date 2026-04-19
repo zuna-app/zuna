@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ReadyState } from "react-use-websocket";
-import { useZunaWebSocket, ZunaResponse } from "@/hooks/useZunaWebSocket";
 import { Server } from "@/types/serverTypes";
+import { useWsConnection } from "@/hooks/ws/useWsConnection";
+import { useWsHandler } from "@/hooks/ws/useWsHandler";
+import { WS_MSG, PongPayload } from "@/hooks/ws/wsTypes";
 
 const PING_INTERVAL_MS = 5000;
 const PONG_TIMEOUT_MS = 8000;
@@ -11,6 +13,8 @@ export function usePing(server: Server) {
   const pendingTs = useRef<number | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const { sendMessage, readyState } = useWsConnection(server);
+
   const clearPongTimeout = () => {
     if (timeoutRef.current !== null) {
       clearTimeout(timeoutRef.current);
@@ -18,21 +22,18 @@ export function usePing(server: Server) {
     }
   };
 
-  const handleMessage = useCallback((message: ZunaResponse) => {
-    if (message.type !== "pong") return;
-    const ts: number = message.payload?.ts;
+  useWsHandler<PongPayload>(server, WS_MSG.PONG, (payload) => {
+    const { ts } = payload;
     if (typeof ts !== "number" || pendingTs.current !== ts) return;
     clearPongTimeout();
     setLatency(Date.now() - ts);
     pendingTs.current = null;
-  }, []);
-
-  const { sendMessage, readyState } = useZunaWebSocket(server, handleMessage);
+  });
 
   const sendPing = useCallback(() => {
     const ts = Date.now();
     pendingTs.current = ts;
-    sendMessage("ping", { ts });
+    sendMessage(WS_MSG.PING, { ts });
 
     clearPongTimeout();
     timeoutRef.current = setTimeout(() => {

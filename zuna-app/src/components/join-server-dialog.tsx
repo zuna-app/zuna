@@ -10,7 +10,7 @@ import {
   StepJoinServer,
   type ServerJoinData,
 } from "@/components/setup/step-join-server";
-import { useServerConnector } from "@/hooks/useServerConnector";
+import { useServerConnector } from "@/hooks/server/useServerConnector";
 
 interface JoinServerDialogProps {
   open: boolean;
@@ -31,7 +31,12 @@ export function JoinServerDialog({
   const handleNext = async (data: ServerJoinData) => {
     setError(null);
     try {
-      await joinServer(data.serverAddress, data.username, new Uint8Array());
+      await joinServer(
+        data.serverAddress,
+        data.username,
+        data.serverPassword,
+        data.avatar || "",
+      );
       onOpenChange(false);
     } catch (e: any) {
       setError(e?.message ?? "Failed to join server.");

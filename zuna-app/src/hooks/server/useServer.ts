@@ -1,5 +1,5 @@
 import { useAtomValue } from "jotai";
-import { serverListAtom } from "./useServerConnector";
+import { serverListAtom } from "../server/useServerConnector";
 
 export function useServer(serverId: string) {
   const serverList = useAtomValue(serverListAtom);

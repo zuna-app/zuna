@@ -45,11 +45,13 @@ export const useServerConnector = () => {
     mutationFn: async ({
       address,
       username,
+      password,
       avatar,
     }: {
       address: string;
       username: string;
-      avatar: Uint8Array;
+      password: string;
+      avatar: string;
     }) => {
       const [encPublicKey, sigPublicKey] = await Promise.all([
         window.vault.get("encPublicKey"),
@@ -66,9 +68,8 @@ export const useServerConnector = () => {
         body: JSON.stringify({
           identity_key: encPublicKey,
           signing_key: sigPublicKey,
-          avatar: "",
-          avatar_iv: "",
-          avatar_auth_tag: "",
+          avatar: avatar,
+          server_password: password,
           username,
         }),
       });
@@ -100,10 +101,11 @@ export const useServerConnector = () => {
   const joinServer = (
     address: string,
     username: string,
-    avatar: Uint8Array,
+    password: string,
+    avatar: string,
   ): Promise<void> =>
     joinMutation
-      .mutateAsync({ address, username, avatar })
+      .mutateAsync({ address, username, password, avatar })
       .then(() => undefined);
 
   return { serverList, selectedServer, selectServer, isLoading, joinServer };

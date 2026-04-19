@@ -1,5 +1,4 @@
 import { ChatMember } from "@/types/serverTypes";
-import { PseudoAvatar } from "@/components/ui/pseudo-avatar";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -15,7 +14,10 @@ import {
   BellOff,
   UserRound,
 } from "lucide-react";
-import { usePresence } from "@/hooks/useZunaWebSocket";
+import { usePresence } from "@/hooks/ws/usePresence";
+import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "../ui/avatar";
+import { convertTimeToRelative, getFirstLetters } from "@/utils/basicUtils";
+import { ZunaAvatar } from "../avatar";
 
 interface ChatTopbarProps {
   member: ChatMember;
@@ -46,19 +48,6 @@ function TopbarAction({
   );
 }
 
-export const convertTimeToRelative = (timestamp: number) => {
-  const now = Date.now();
-  const diff = now - timestamp;
-
-  if (diff < 60 * 1000) return "just now";
-  if (diff < 60 * 60 * 1000) return `${Math.floor(diff / (60 * 1000))}m ago`;
-  if (diff < 24 * 60 * 60 * 1000)
-    return `${Math.floor(diff / (60 * 60 * 1000))}h ago`;
-
-  const date = new Date(timestamp);
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-};
-
 export function ChatTopbar({ member }: ChatTopbarProps) {
   const { getMemberPresence } = usePresence();
   const presence = getMemberPresence(member.id);
@@ -67,11 +56,10 @@ export function ChatTopbar({ member }: ChatTopbarProps) {
     <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border/40 bg-background shrink-0 z-10">
       <div className="flex items-center gap-3 min-w-0">
         <div className="relative shrink-0">
-          <PseudoAvatar name={member.username} size={34} />
-          <span
-            className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-[1.5px] ring-background ${
-              presence?.active ? "bg-emerald-500" : "bg-gray-500"
-            }`}
+          <ZunaAvatar
+            username={member.username}
+            src={member.avatar}
+            isOnline={presence?.active ?? false}
           />
         </div>
         <div className="min-w-0">

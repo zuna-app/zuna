@@ -1,0 +1,70 @@
+export const WS_MSG = {
+  AUTH: "auth",
+  AUTH_CONFIRMATION: "auth_confirmation",
+  PRESENCE: "presence",
+  PRESENCE_REQUEST: "presence_request",
+  PRESENCE_UPDATE: "presence_update",
+  PRESENCE_RESPONSE: "presence_response",
+  PING: "ping",
+  PONG: "pong",
+  MESSAGE: "message",
+  MESSAGE_ACK: "message_ack",
+  MESSAGE_RECEIVE: "message_receive",
+  MESSAGE_READ_INFO: "message_read_info",
+  MARK_READ: "mark_read",
+  ERROR: "error",
+} as const;
+
+export type WsMsgType = (typeof WS_MSG)[keyof typeof WS_MSG];
+
+export interface MemberPresence {
+  userId: string;
+  active: boolean;
+  lastSeen: number;
+}
+
+export interface PresenceUpdatePayload {
+  presence: {
+    user_id: string;
+    active: boolean;
+    last_seen: number;
+  };
+}
+
+export interface PresenceResponsePayload {
+  presence: Array<{
+    user_id: string;
+    active: boolean;
+    last_seen: number;
+  }>;
+}
+
+export interface ErrorPayload {
+  code: string;
+  message?: string;
+}
+
+export interface MessageAckPayload {
+  local_id: number;
+  id: number;
+  chat_id: string;
+  created_at: number;
+}
+
+export interface MessageReceivePayload {
+  id: number;
+  chat_id: string;
+  created_at: number;
+  sender_id: string;
+  cipher_text: string;
+  iv: string;
+  auth_tag: string;
+}
+
+export interface MessageReadInfoPayload {
+  chat_id: string;
+}
+
+export interface PongPayload {
+  ts: number;
+}

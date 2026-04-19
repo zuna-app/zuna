@@ -1,9 +1,9 @@
 import { ChatMember, Server } from "@/types/serverTypes";
-import { PseudoAvatar } from "@/components/ui/pseudo-avatar";
 import { cn } from "@/lib/utils";
-import { usePresence } from "@/hooks/useZunaWebSocket";
-import { useLastChatMessages } from "@/hooks/useLastChatMessages";
-import { convertTimeToRelative } from "./chat-topbar";
+import { usePresence } from "@/hooks/ws/usePresence";
+import { useLastChatMessages } from "@/hooks/chat/useLastChatMessages";
+import { convertTimeToRelative } from "@/utils/basicUtils";
+import { ZunaAvatar } from "../avatar";
 
 interface ChatListItemProps {
   lastMessage:
@@ -35,12 +35,10 @@ export function ChatListItem({
       )}
     >
       <div className="relative shrink-0">
-        <PseudoAvatar name={member.username} size={42} />
-        <span
-          className={cn(
-            "absolute bottom-0.5 right-0.5 size-2.5 rounded-full ring-2 ring-background",
-            presence?.active ? "bg-emerald-500" : "bg-muted-foreground",
-          )}
+        <ZunaAvatar
+          username={member.username}
+          src={member.avatar}
+          isOnline={presence?.active ?? false}
         />
       </div>
 
