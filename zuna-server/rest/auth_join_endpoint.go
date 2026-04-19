@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"net/http"
 	"regexp"
+	"zuna-server/config"
 	"zuna-server/db"
 	"zuna-server/ent/user"
 	"zuna-server/storage"
@@ -18,10 +19,11 @@ import (
 )
 
 type JoinRequest struct {
-	Username    string `json:"username"`
-	IdentityKey string `json:"identity_key"`
-	SigningKey  string `json:"signing_key"`
-	Avatar      string `json:"avatar"`
+	Username       string `json:"username"`
+	IdentityKey    string `json:"identity_key"`
+	SigningKey     string `json:"signing_key"`
+	Avatar         string `json:"avatar"`
+	ServerPassword string `json:"server_password"`
 }
 
 type JoinResponse struct {
@@ -36,7 +38,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
-	if len(req.Username) < utils.Config.Server.MinUsernameLength || len(req.Username) > utils.Config.Server.MaxUsernameLength {
+	if len(req.Username) < config.Config.Limits.MinUsernameLength || len(req.Username) > config.Config.Limits.MaxUsernameLength {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid username length"})
 	}
 
@@ -44,12 +46,16 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "username must contain only letters and numbers"})
 	}
 
+	if !utils.ValidateServerPassword(req.ServerPassword) {
+		return c.JSON(http.StatusUnauthorized, HttpErrorResponse{Error: "invalid server password"})
+	}
+
 	if !utils.ValidateX25519PublicKey(req.IdentityKey) {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid identity key"})
 	}
 
 	if !utils.ValidateEd25519PublicKey(req.SigningKey) {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid signing key"})
 	}
 
 	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
@@ -64,16 +70,16 @@ func AuthJoinEndpoint(c *echo.Context) error {
 
 	avatarBytes, err := base64.StdEncoding.DecodeString(req.Avatar)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar"})
 	}
 
-	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > utils.Config.Server.MaximumAvatarSize {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > config.Config.Limits.MaxAvatarSize {
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "avatar size exceeds limit"})
 	}
 
 	_, err = png.Decode(bytes.NewReader(avatarBytes))
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid avatar format"})
 	}
 
 	avatarKey := cuid2.Generate()

@@ -7,6 +7,7 @@ import (
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
+	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/nrednav/cuid2"
@@ -14,8 +15,9 @@ import (
 )
 
 type AuthRequest struct {
-	Username  string `json:"username"`
-	Signature string `json:"signature"`
+	Username       string `json:"username"`
+	Signature      string `json:"signature"`
+	ServerPassword string `json:"server_password"`
 }
 
 type AuthResponse struct {
@@ -26,6 +28,10 @@ func AuthLoginEndpoint(c *echo.Context) error {
 	req := new(AuthRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)
+	}
+
+	if !utils.ValidateServerPassword(req.ServerPassword) {
+		return c.JSON(http.StatusUnauthorized, HttpErrorResponse{Error: "invalid server password"})
 	}
 
 	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
@@ -55,7 +61,6 @@ func AuthLoginEndpoint(c *echo.Context) error {
 
 	decodedSigKey, err := base64.StdEncoding.DecodeString(u.SigningKey)
 	if err != nil {
-		log.Error().Err(err).Str("username", req.Username).Msg("failed to decode signing key")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
@@ -63,8 +68,7 @@ func AuthLoginEndpoint(c *echo.Context) error {
 
 	decodedSig, err := base64.StdEncoding.DecodeString(req.Signature)
 	if err != nil {
-		log.Warn().Err(err).Str("username", req.Username).Msg("failed to decode signature")
-		return c.JSON(http.StatusBadRequest, BadRequest)
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid signature"})
 	}
 
 	nonce := []byte(userData.Ed25519Nonce)

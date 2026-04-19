@@ -3,8 +3,8 @@ package db
 import (
 	"context"
 	"database/sql"
+	"zuna-server/config"
 	"zuna-server/ent"
-	"zuna-server/utils"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
@@ -14,9 +14,9 @@ import (
 var EntClient *ent.Client
 
 func NewClient(ctx context.Context) *ent.Client {
-	databaseUrl := utils.BuildDatabaseUrl()
+	databaseUrl := config.BuildDatabaseUrl()
 
-	if utils.Config.DatabaseType == "mysql" {
+	if config.Config.DatabaseType == "mysql" {
 		client, err := ent.Open("mysql", databaseUrl)
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed opening mysql connection")
@@ -24,7 +24,7 @@ func NewClient(ctx context.Context) *ent.Client {
 		return client
 	}
 
-	if utils.Config.DatabaseType == "sqlite" {
+	if config.Config.DatabaseType == "sqlite" {
 		db, err := sql.Open("sqlite", databaseUrl)
 		if err != nil {
 			log.Fatal().Err(err).Msg("failed opening sqlite connection")

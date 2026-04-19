@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"zuna-server/config"
 )
 
 func GenerateEd25519Nonce() (string, error) {
@@ -31,4 +32,12 @@ func ValidateX25519PublicKey(b64 string) bool {
 		return false
 	}
 	return len(decoded) == 44
+}
+
+func ValidateServerPassword(password string) bool {
+	if config.Config.Server.Password == "" {
+		return true
+	}
+
+	return password == config.Config.Server.Password
 }

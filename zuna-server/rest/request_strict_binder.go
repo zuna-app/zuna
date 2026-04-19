@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"zuna-server/config"
 
 	"github.com/labstack/echo/v5"
 )
@@ -20,7 +21,7 @@ func (b *StrictBinder) Bind(c *echo.Context, data any) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "empty body")
 	}
 
-	//req.Body = http.MaxBytesReader(c.Response(), req.Body, maxJSONBodyBytes)
+	req.Body = http.MaxBytesReader(c.Response(), req.Body, config.Config.Limits.MaxAvatarSize+1024*1024)
 
 	decoder := json.NewDecoder(req.Body)
 	decoder.DisallowUnknownFields()

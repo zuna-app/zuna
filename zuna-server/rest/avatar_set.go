@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"image/png"
 	"net/http"
+	"zuna-server/config"
 	"zuna-server/db"
 	"zuna-server/ent/user"
 	"zuna-server/storage"
-	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/nrednav/cuid2"
@@ -35,7 +35,7 @@ func AvatarSetEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 
-	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > utils.Config.Server.MaximumAvatarSize {
+	if len(avatarBytes) == 0 || int64(len(avatarBytes)) > config.Config.Limits.MaxAvatarSize {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
 

@@ -2,6 +2,7 @@ package rest
 
 import (
 	"net/http"
+	"zuna-server/config"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
@@ -58,9 +59,9 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, HandshakeResponse{
 		Nonce:            userData.Ed25519Nonce,
-		ServerName:       utils.Config.Server.Name,
-		ServerLogo:       utils.ServerLogoBase64,
-		SevenTvEnabled:   utils.Config.SevenTv.Enabled,
-		SevenTvEmotesSet: utils.Config.SevenTv.EmotesSet,
+		ServerName:       config.Config.Server.Name,
+		ServerLogo:       config.ServerLogoBase64,
+		SevenTvEnabled:   config.Config.SevenTv.Enabled,
+		SevenTvEmotesSet: config.Config.SevenTv.EmotesSet,
 	})
 }

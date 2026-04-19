@@ -10,10 +10,10 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"zuna-server/config"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/rest"
-	"zuna-server/utils"
 	"zuna-server/ws"
 
 	"github.com/rs/zerolog"
@@ -36,7 +36,7 @@ func main() {
 	log.Info().Msg(" /___|\\___/|_|\\_/_/ \\_\\")
 	log.Info().Msg("                       ")
 
-	if err := utils.LoadConfig(); err != nil {
+	if err := config.LoadConfig(); err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
@@ -55,7 +55,7 @@ func main() {
 
 	e := echo.New()
 	e.Use(middleware.Recover())
-	//e.Use(middleware.BodyLimit(utils.Config.Server.MaximumAvatarSize + 1024*1024))
+	e.Use(middleware.BodyLimit(config.RequestSizeLimit))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
@@ -104,8 +104,8 @@ func main() {
 	msgRouter := ws.NewMessageRouter(h)
 	e.GET("/ws", ws.HandleWebSocket(h, msgRouter))
 
-	log.Info().Str("bind-addr", utils.Config.Server.BindAddress).Int("port", utils.Config.Server.Port).Msg("starting server")
-	if err := e.Start(fmt.Sprintf("%s:%d", utils.Config.Server.BindAddress, utils.Config.Server.Port)); err != nil {
+	log.Info().Str("bind-addr", config.Config.Server.BindAddress).Int("port", config.Config.Server.Port).Msg("starting server")
+	if err := e.Start(fmt.Sprintf("%s:%d", config.Config.Server.BindAddress, config.Config.Server.Port)); err != nil {
 		log.Error().Err(err).Msg("failed to start server")
 	}
 
