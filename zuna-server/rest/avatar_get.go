@@ -30,8 +30,8 @@ func AvatarGetEndpoint(c *echo.Context) error {
 
 	data, err := storage.GetDataByKey(avatarKey)
 	if err != nil {
-		log.Error().Err(err).Str("avatarKey", avatarKey).Msg("failed to get avatar data by key")
-		return c.JSON(http.StatusInternalServerError, InternalServerError)
+		log.Warn().Err(err).Str("avatarKey", avatarKey).Msg("failed to get avatar data by key")
+		data = []byte{}
 	}
 
 	return c.Blob(http.StatusOK, "image/png", data)

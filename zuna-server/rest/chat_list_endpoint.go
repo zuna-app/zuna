@@ -69,8 +69,8 @@ func ChatListEndpoint(c *echo.Context) error {
 
 			avatarBytes, err := storage.GetDataByKey(member.AvatarKey)
 			if err != nil {
-				log.Error().Err(err).Str("id", id).Msg("failed to get avatar data from storage")
-				return c.JSON(http.StatusInternalServerError, InternalServerError)
+				log.Warn().Err(err).Str("id", id).Msg("failed to get avatar data from storage")
+				avatarBytes = []byte{}
 			}
 
 			members = append(members, data.ChatMemberDTO{
