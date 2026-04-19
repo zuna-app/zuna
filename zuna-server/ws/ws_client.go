@@ -157,6 +157,8 @@ func (c *Client) readPump() {
 			if websocket.IsUnexpectedCloseError(err,
 				websocket.CloseGoingAway,
 				websocket.CloseAbnormalClosure,
+				websocket.CloseNormalClosure,
+				websocket.CloseNoStatusReceived,
 			) {
 				log.Printf("[ws] read error client=%s: %v", c.id, err)
 			}
@@ -233,7 +235,9 @@ func (c *Client) writePump() {
 		case <-ticker.C:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				log.Printf("[ws] ping error client=%s: %v", c.id, err)
+				if err != websocket.ErrCloseSent {
+					log.Printf("[ws] ping error client=%s: %v", c.id, err)
+				}
 				return
 			}
 		}
