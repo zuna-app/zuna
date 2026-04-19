@@ -11,7 +11,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Paperclip, Smile, Send, ImagePlus } from "lucide-react";
+import { Paperclip, Smile, Send, ImagePlus, X, FileIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEmotes } from "@/hooks/ui/useEmotes";
 import { ActionButton } from "./action-button";
@@ -19,7 +19,13 @@ import { EmotePicker } from "./emote-picker";
 import { OgPreviewCard } from "./og-preview";
 import { extractFirstUrl, useOgPreview } from "@/hooks/ui/useOgPreview";
 
-const WRITE_IDLE_MS = 2500;
+const WRITE_IDLE_MS = 5000;
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export interface ChatInputProps {
   sharedSecret: string | null;
@@ -30,6 +36,9 @@ export interface ChatInputProps {
     plaintext: string,
   ) => void;
   onWrite?: (writing: boolean) => void;
+  onSendFile?: (file: File, plaintext: string) => void;
+  pendingFile: File | null;
+  onPendingFileChange: (file: File | null) => void;
 }
 
 type Suggestion = {
@@ -49,12 +58,22 @@ function detectSuggestion(
   return { query: match[1], start: before.length - match[0].length };
 }
 
-export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
+export function ChatInput({
+  sharedSecret,
+  onSend,
+  onWrite,
+  onSendFile,
+  pendingFile,
+  onPendingFileChange,
+}: ChatInputProps) {
   const [value, setValue] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [ogDismissed, setOgDismissed] = useState<string | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const isWritingRef = useRef(false);
   const writeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,6 +106,7 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
   const { emoteMap } = useEmotes();
 
   const canSend = !!sharedSecret && !isSending;
+  const canSendNow = canSend && (!!value.trim() || !!pendingFile);
   useEffect(() => {
     if (!suggestion) return;
     const el = suggestionListRef.current?.querySelector<HTMLElement>(
@@ -190,8 +210,23 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
   }, []);
 
   const handleSend = useCallback(async () => {
+    if (!sharedSecret || isSending) return;
+
+    if (pendingFile) {
+      if (!onSendFile) return;
+      const text = value.trim();
+      onPendingFileChange(null);
+      setValue("");
+      setOgDismissed(null);
+      if (writeTimeoutRef.current) clearTimeout(writeTimeoutRef.current);
+      setWriting(false);
+      onSendFile(pendingFile, text);
+      setTimeout(() => textareaRef.current?.focus(), 0);
+      return;
+    }
+
     const text = value.trim();
-    if (!text || !sharedSecret || isSending) return;
+    if (!text) return;
 
     setIsSending(true);
     setValue("");
@@ -209,7 +244,25 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
       setIsSending(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [value, sharedSecret, isSending, onSend]);
+  }, [
+    value,
+    sharedSecret,
+    isSending,
+    pendingFile,
+    onSend,
+    onSendFile,
+    onPendingFileChange,
+    setWriting,
+  ]);
+
+  const handleFileInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) onPendingFileChange(file);
+      e.target.value = "";
+    },
+    [onPendingFileChange],
+  );
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -265,6 +318,21 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
 
   return (
     <div className="shrink-0 bg-background px-4 py-3">
+      {/* Hidden file inputs */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileInputChange}
+      />
+
       <div
         className="flex items-end gap-1.5"
         onMouseDown={(e) => {
@@ -275,6 +343,7 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
           icon={Paperclip}
           label="Attach file"
           disabled={!canSend}
+          onClick={() => fileInputRef.current?.click()}
         />
 
         <div
@@ -324,6 +393,28 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
             </div>
           )}
 
+          {pendingFile && (
+            <div className="flex items-center gap-2 px-3 pt-2.5 mb-2.5">
+              <div className="flex items-center gap-2 bg-muted/60 border border-border/60 rounded-lg px-2.5 py-1.5 text-xs max-w-xs">
+                <FileIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate font-medium">{pendingFile.name}</span>
+                <span className="shrink-0 text-muted-foreground">
+                  {formatFileSize(pendingFile.size)}
+                </span>
+                <button
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    onPendingFileChange(null);
+                  }}
+                  className="shrink-0 ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            </div>
+          )}
+
           <Textarea
             ref={textareaRef}
             value={value}
@@ -335,9 +426,13 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
               }
             }}
             placeholder={
-              sharedSecret ? "Message…" : "Establishing secure channel…"
+              pendingFile
+                ? "Add a message… (optional)"
+                : sharedSecret
+                  ? "Message…"
+                  : "Establishing secure channel…"
             }
-            disabled={!canSend && value === ""}
+            disabled={!canSend && value === "" && !pendingFile}
             rows={1}
             className={cn(
               "w-full bg-transparent border-none shadow-none resize-none",
@@ -378,7 +473,12 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
           )}
         </div>
 
-        <ActionButton icon={ImagePlus} label="Send image" disabled={!canSend} />
+        <ActionButton
+          icon={ImagePlus}
+          label="Send image"
+          disabled={!canSend}
+          onClick={() => imageInputRef.current?.click()}
+        />
 
         <Tooltip>
           <Popover
@@ -419,7 +519,7 @@ export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
           </TooltipContent>
         </Tooltip>
 
-        {value.trim() && (
+        {canSendNow && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

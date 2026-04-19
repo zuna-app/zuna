@@ -19,8 +19,14 @@ interface OgData {
 
 interface Window {
   security: {
-    encryptFile: (data: Buffer, receiverPublicKey: string) => Promise<Buffer>;
-    decryptFile: (data: Buffer, senderPublicKey: string) => Promise<Buffer>;
+    encryptFile: (
+      data: Uint8Array,
+      receiverPublicKey: string,
+    ) => Promise<Uint8Array>;
+    decryptFile: (
+      data: Uint8Array,
+      senderPublicKey: string,
+    ) => Promise<Uint8Array>;
     encode: (str: string) => Promise<string>;
     decode: (base64: string) => Promise<string>;
     generateEncryptionKeyPair: () => Promise<{

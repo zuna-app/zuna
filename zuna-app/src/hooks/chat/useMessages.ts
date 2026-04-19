@@ -9,41 +9,52 @@ import {
   MessageReadInfoPayload,
 } from "@/hooks/ws/wsTypes";
 import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
-import { Server } from "@/types/serverTypes";
+import { jotaiStore, serverTokensAtom } from "@/hooks/auth/useAuthorizer";
+import { Message, RawMessageDTO, Server } from "@/types/serverTypes";
 import { useLastMessagesUpdater } from "./useLastChatMessages";
 
 const MESSAGES_LIMIT = 50;
 const MAX_CURSOR = "9223372036854775807";
 
-export type Message = {
-  id: number | null;
-  localId: number | null;
-  chatId: string;
-  cipherText: string;
-  iv: string;
-  authTag: string;
-  sentAt: number;
-  readAt?: number;
-  senderId: string;
-  isOwn: boolean;
-  pending: boolean;
-  plaintext?: string;
-};
-
-type RawMessageDTO = {
-  id: number;
-  sender_id: string;
-  cipher_text: string;
-  iv: string;
-  auth_tag: string;
-  sent_at: number;
-  read_at: number;
-};
+function xhrUpload(
+  url: string,
+  token: string,
+  formData: FormData,
+  onProgress: (pct: number) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status === 201) {
+        try {
+          const response = JSON.parse(xhr.responseText) as {
+            attachment_id: string;
+          };
+          resolve(response.attachment_id);
+        } catch {
+          reject(new Error("Invalid upload response"));
+        }
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status}`));
+      }
+    });
+    xhr.addEventListener("error", () => reject(new Error("Upload failed")));
+    xhr.send(formData);
+  });
+}
 
 export function useMessages(
   server: Server,
   chatId: string,
   sharedSecret: string | null,
+  identityKey: string,
 ) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -84,6 +95,15 @@ export function useMessages(
               pending: false,
               isOwn: true,
               localId: null,
+              uploadProgress: undefined,
+              attachmentId: payload.attachment_id ?? m.attachmentId,
+              attachmentMetadata:
+                payload.attachment_metadata ?? m.attachmentMetadata,
+              attachmentMetadataIv:
+                payload.attachment_metadata_iv ?? m.attachmentMetadataIv,
+              attachmentMetadataAuthTag:
+                payload.attachment_metadata_auth_tag ??
+                m.attachmentMetadataAuthTag,
             }
           : m,
       ),
@@ -111,6 +131,10 @@ export function useMessages(
             senderId: payload.sender_id,
             isOwn: false,
             pending: false,
+            attachmentId: payload.attachment_id,
+            attachmentMetadata: payload.attachment_metadata,
+            attachmentMetadataIv: payload.attachment_metadata_iv,
+            attachmentMetadataAuthTag: payload.attachment_metadata_auth_tag,
           },
         ];
       });
@@ -248,6 +272,10 @@ export function useMessages(
           senderId: m.sender_id,
           isOwn: m.sender_id === server.id,
           pending: false,
+          attachmentId: m.attachment_id,
+          attachmentMetadata: m.attachment_metadata,
+          attachmentMetadataIv: m.attachment_metadata_iv,
+          attachmentMetadataAuthTag: m.attachment_metadata_auth_tag,
         }));
 
         if (cursor === MAX_CURSOR) {
@@ -340,11 +368,132 @@ export function useMessages(
     }
   }, [messages, loading, hasMore, fetchMessages]);
 
+  // ── Upload & send attachment ───────────────────────────────────────────────
+
+  const uploadAndSend = useCallback(
+    async (file: File, plaintext: string) => {
+      const localId = ++localIdCounter.current;
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: null,
+          localId,
+          chatId,
+          cipherText: "",
+          iv: "",
+          authTag: "",
+          sentAt: Date.now(),
+          senderId: server.id,
+          isOwn: true,
+          pending: true,
+          plaintext,
+          uploadProgress: 0,
+          attachmentFilename: file.name,
+        },
+      ]);
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const fileUint8 = new Uint8Array(arrayBuffer);
+        const encryptedBytes = await window.security.encryptFile(
+          fileUint8,
+          identityKey,
+        );
+
+        const metadataJson = JSON.stringify({
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+        });
+        const secret = sharedSecretRef.current;
+        if (!secret) throw new Error("No shared secret available");
+        const encMeta = await window.security.encrypt(secret, metadataJson);
+
+        const textToEncrypt = plaintext.trim() || "\u200b"; // zero-width space placeholder
+        const encText = await window.security.encrypt(secret, textToEncrypt);
+
+        const encryptedBlob = new Blob([
+          encryptedBytes.buffer.slice(
+            encryptedBytes.byteOffset,
+            encryptedBytes.byteOffset + encryptedBytes.byteLength,
+          ) as ArrayBuffer,
+        ]);
+        const formData = new FormData();
+        formData.append("size", String(encryptedBlob.size));
+        formData.append("metadata", encMeta.ciphertext);
+        formData.append("metadata_iv", encMeta.iv);
+        formData.append("metadata_auth_tag", encMeta.authTag);
+        formData.append("file", encryptedBlob, file.name);
+
+        const token = jotaiStore.get(serverTokensAtom).get(server.id) ?? "";
+
+        const attachmentId = await xhrUpload(
+          `http://${server.address}/api/attachment/upload`,
+          token,
+          formData,
+          (pct) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.localId === localId ? { ...m, uploadProgress: pct } : m,
+              ),
+            );
+          },
+        );
+
+        // Transition local message: remove progress indicator, fill in cipher fields.
+        // Clear attachmentFilename so chat-messages.tsx uses the decrypted metadata
+        // (which carries the real size and mimeType) instead of a stub with size: 0.
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.localId === localId
+              ? {
+                  ...m,
+                  uploadProgress: undefined,
+                  cipherText: encText.ciphertext,
+                  iv: encText.iv,
+                  authTag: encText.authTag,
+                  plaintext: plaintext.trim() || undefined,
+                  attachmentId,
+                  attachmentFilename: undefined,
+                  attachmentMetadata: encMeta.ciphertext,
+                  attachmentMetadataIv: encMeta.iv,
+                  attachmentMetadataAuthTag: encMeta.authTag,
+                }
+              : m,
+          ),
+        );
+
+        wsSend(WS_MSG.MESSAGE, {
+          chat_id: chatId,
+          cipher_text: encText.ciphertext,
+          iv: encText.iv,
+          auth_tag: encText.authTag,
+          local_id: localId,
+          attachment_id: attachmentId,
+        });
+
+        updateLastMessage({
+          chatId,
+          senderId: server.id,
+          content: plaintext.trim() || `📎 ${file.name}`,
+          unreadMessages: 0,
+          lastActivityAt: Date.now(),
+        });
+      } catch (err) {
+        console.error("[useMessages] uploadAndSend failed:", err);
+        setMessages((prev) => prev.filter((m) => m.localId !== localId));
+      }
+    },
+    [chatId, server, identityKey, wsSend, updateLastMessage],
+  );
+
   return {
     messages,
     loading,
     hasMore,
     sendMessage: sendChatMessage,
+    uploadAndSend,
     fetchMore,
     readyState,
   };

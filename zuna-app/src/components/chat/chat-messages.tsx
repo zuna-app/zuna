@@ -5,16 +5,30 @@ import {
   useCallback,
   useState,
 } from "react";
-import { ChatMember } from "@/types/serverTypes";
-import { Message } from "@/hooks/chat/useMessages";
+import { ChatMember, Message } from "@/types/serverTypes";
+import { Server } from "@/types/serverTypes";
 import { cn } from "@/lib/utils";
-import { Check, CheckCheck, Loader2 } from "lucide-react";
+import {
+  Check,
+  CheckCheck,
+  Loader2,
+  FileIcon,
+  Download,
+  ImageIcon,
+} from "lucide-react";
 import { DelayedSpinner } from "../ui/delayed-spinner";
 import { useEmotes } from "@/hooks/ui/useEmotes";
 import { MessageOgPreview } from "./og-preview";
 import { extractFirstUrl } from "@/hooks/ui/useOgPreview";
+import { useAttachmentDownload } from "@/hooks/chat/useAttachmentDownload";
 
 type MessageStatus = "pending" | "sent" | "read";
+
+interface AttachmentMeta {
+  name: string;
+  size: number;
+  mimeType: string;
+}
 
 function formatTime(ms: number): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -22,6 +36,12 @@ function formatTime(ms: number): string {
     minute: "2-digit",
     hour12: false,
   }).format(new Date(ms));
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function messageKey(msg: Message): string {
@@ -46,6 +66,7 @@ function groupMessages(messages: Message[]) {
 }
 
 interface ChatMessagesProps {
+  server: Server;
   member: ChatMember;
   messages: Message[];
   loading: boolean;
@@ -54,7 +75,191 @@ interface ChatMessagesProps {
   sharedSecret: string | null;
 }
 
+function isImageMime(mime: string) {
+  return mime.startsWith("image/");
+}
+
+interface AttachmentCardProps {
+  server: Server;
+  attachmentId: string;
+  senderIdentityKey: string;
+  meta: AttachmentMeta | null;
+  isOwn: boolean;
+  textContent: React.ReactNode;
+  sentAt: number;
+  status: MessageStatus;
+}
+
+function AttachmentCard({
+  server,
+  attachmentId,
+  senderIdentityKey,
+  meta,
+  isOwn,
+  textContent,
+  sentAt,
+  status,
+}: AttachmentCardProps) {
+  const mimeType = meta?.mimeType ?? "";
+  const isImage = isImageMime(mimeType);
+
+  const { url, loading, error, download, saveFile } = useAttachmentDownload(
+    server,
+    attachmentId,
+    senderIdentityKey,
+    mimeType,
+    isImage, // auto-fetch images
+  );
+
+  return (
+    <>
+      {isImage ? (
+        <div className="relative group">
+          {url ? (
+            <img
+              src={url}
+              alt={meta?.name ?? "Image"}
+              className="w-full max-h-72 object-cover cursor-pointer block"
+              onClick={() => window.shell.openExternal(url)}
+            />
+          ) : error ? (
+            <div
+              className={cn(
+                "flex flex-col items-center gap-1.5 p-4 text-[11px] opacity-60 min-w-40 min-h-28 justify-center",
+                isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
+              )}
+            >
+              <ImageIcon className="size-5" />
+              <span>Failed to load</span>
+              <button
+                type="button"
+                onClick={download}
+                className="underline underline-offset-2"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <div
+              className={cn(
+                "flex flex-col items-center gap-2 p-6 opacity-50 min-h-28 justify-center",
+                isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
+              )}
+            >
+              <Loader2 className="size-5 animate-spin" />
+              <span className="text-[10px]">Loading…</span>
+            </div>
+          )}
+          {url && (
+            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-t from-black/55 to-transparent pointer-events-none select-none">
+              <span className="text-[10px] text-white/90">
+                {formatTime(sentAt)}
+              </span>
+              {isOwn && status === "pending" && (
+                <Loader2 className="size-3 shrink-0 text-white/80 animate-spin" />
+              )}
+              {isOwn && status === "sent" && (
+                <Check
+                  className="size-3 shrink-0 text-white/80"
+                  strokeWidth={2.5}
+                />
+              )}
+              {isOwn && status === "read" && (
+                <CheckCheck
+                  className="size-3 shrink-0 text-white/80"
+                  strokeWidth={2.5}
+                />
+              )}
+            </div>
+          )}
+          {textContent && (
+            <div
+              className={cn(
+                "px-3.5 py-2 border-t text-sm",
+                isOwn ? "border-primary-foreground/20" : "border-border/40",
+              )}
+            >
+              {textContent}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="px-3.5 py-2">
+          <div className="flex items-center gap-2.5 min-w-40 pb-0.5">
+            <div
+              className={cn(
+                "flex items-center justify-center size-8 shrink-0 rounded-lg",
+                isOwn ? "bg-primary-foreground/15" : "bg-muted-foreground/10",
+              )}
+            >
+              <FileIcon className="size-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate leading-tight">
+                {meta?.name ?? "Attachment"}
+              </p>
+              {meta && meta.size > 0 && (
+                <p className="text-[10px] opacity-60 mt-px">
+                  {formatFileSize(meta.size)}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => saveFile(meta?.name ?? "file")}
+              disabled={loading}
+              className={cn(
+                "shrink-0 rounded-lg p-1.5 transition-colors",
+                isOwn
+                  ? "hover:bg-primary-foreground/15 text-primary-foreground/70 hover:text-primary-foreground"
+                  : "hover:bg-muted-foreground/10 text-muted-foreground hover:text-foreground",
+                loading && "opacity-40 cursor-not-allowed",
+              )}
+              title={loading ? "Downloading…" : "Download"}
+            >
+              {loading ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Download className="size-3.5" />
+              )}
+            </button>
+          </div>
+          {error && <p className="text-[10px] opacity-60 mt-0.5">{error}</p>}
+          {textContent && (
+            <div
+              className={cn(
+                "mt-1.5 pt-1.5 border-t",
+                isOwn ? "border-primary-foreground/20" : "border-border/40",
+              )}
+            >
+              {textContent}
+            </div>
+          )}
+          <div
+            className={cn(
+              "flex items-center justify-end gap-0.5 mt-1 text-[10px]",
+              isOwn ? "text-primary-foreground/60" : "text-muted-foreground/50",
+            )}
+          >
+            {formatTime(sentAt)}
+            {isOwn && status === "pending" && (
+              <Loader2 className="size-3 shrink-0 animate-spin" />
+            )}
+            {isOwn && status === "sent" && (
+              <Check className="size-3 shrink-0" strokeWidth={2.5} />
+            )}
+            {isOwn && status === "read" && (
+              <CheckCheck className="size-3 shrink-0" strokeWidth={2.5} />
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function ChatMessages({
+  server,
   member,
   messages,
   loading,
@@ -72,9 +277,16 @@ export function ChatMessages({
   const inFlightRef = useRef<Set<string>>(new Set());
   const lastSharedSecretRef = useRef<string | null>(null);
 
+  const [decryptedMeta, setDecryptedMeta] = useState<
+    Map<string, AttachmentMeta>
+  >(new Map());
+  const metaInFlightRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     setDecrypted(new Map());
+    setDecryptedMeta(new Map());
     inFlightRef.current.clear();
+    metaInFlightRef.current.clear();
     lastSharedSecretRef.current = null;
   }, [member.id]);
 
@@ -136,6 +348,54 @@ export function ChatMessages({
           if (c) c.scrollTop = c.scrollHeight;
         });
       }
+    });
+  }, [messages, sharedSecret]);
+
+  useEffect(() => {
+    if (!sharedSecret) return;
+
+    const toDecryptMeta = messages.filter((m) => {
+      if (
+        !m.attachmentMetadata ||
+        !m.attachmentMetadataIv ||
+        !m.attachmentMetadataAuthTag
+      )
+        return false;
+      if (m.attachmentFilename) return false; // already have plaintext name
+      const key = messageKey(m);
+      if (metaInFlightRef.current.has(key)) return false;
+      if (decryptedMeta.has(key)) return false;
+      return true;
+    });
+
+    if (!toDecryptMeta.length) return;
+
+    toDecryptMeta.forEach((m) => metaInFlightRef.current.add(messageKey(m)));
+
+    Promise.all(
+      toDecryptMeta.map(async (m) => {
+        const key = messageKey(m);
+        try {
+          const json = await window.security.decrypt(sharedSecret, {
+            ciphertext: m.attachmentMetadata!,
+            iv: m.attachmentMetadataIv!,
+            authTag: m.attachmentMetadataAuthTag!,
+          });
+          const meta = JSON.parse(json) as AttachmentMeta;
+          return [key, meta] as const;
+        } catch {
+          return [key, null] as const;
+        }
+      }),
+    ).then((results) => {
+      results.forEach(([key]) => metaInFlightRef.current.delete(key));
+      setDecryptedMeta((prev) => {
+        const next = new Map(prev);
+        for (const [key, meta] of results) {
+          if (meta) next.set(key, meta);
+        }
+        return next;
+      });
     });
   }, [messages, sharedSecret]);
 
@@ -304,7 +564,17 @@ export function ChatMessages({
       ? (decrypted.get(messageKey(msg)) ?? "…")
       : msg.plaintext;
 
+    // Hide zero-width space placeholder used for attachment-only messages
+    if (message === "\u200b") return null;
+
     return <>{renderMessage(message)}</>;
+  };
+
+  const getAttachmentMeta = (msg: Message): AttachmentMeta | null => {
+    if (msg.attachmentFilename) {
+      return { name: msg.attachmentFilename, size: 0, mimeType: "" };
+    }
+    return decryptedMeta.get(messageKey(msg)) ?? null;
   };
 
   const getStatus = (msg: Message): MessageStatus => {
@@ -367,7 +637,10 @@ export function ChatMessages({
             >
               <div
                 className={cn(
-                  "relative max-w-[95%] lg:max-w-[65%] px-3.5 py-2 text-sm leading-relaxed wrap-break-word",
+                  "relative max-w-[95%] lg:max-w-[65%] text-sm leading-relaxed wrap-break-word",
+                  msg.attachmentId && msg.uploadProgress === undefined
+                    ? "overflow-hidden p-0"
+                    : "px-3.5 py-2",
                   msg.isOwn
                     ? cn(
                         "bg-primary text-primary-foreground",
@@ -397,33 +670,97 @@ export function ChatMessages({
                       ),
                 )}
               >
-                <span>{getText(msg)}</span>
-                <span
-                  aria-hidden
-                  className="inline-block align-bottom ml-1.5 opacity-0 pointer-events-none select-none text-[10px]"
-                >
-                  {formatTime(msg.sentAt)}
-                  {msg.isOwn && "\u00a0\u00a0\u2713"}
-                </span>
-                <span
-                  className={cn(
-                    "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[10px]",
-                    msg.isOwn
-                      ? "text-primary-foreground/60"
-                      : "text-muted-foreground/50",
-                  )}
-                >
-                  {formatTime(msg.sentAt)}
-                  {msg.isOwn && getStatus(msg) === "pending" && (
-                    <Loader2 className="size-3 shrink-0 animate-spin" />
-                  )}
-                  {msg.isOwn && getStatus(msg) === "sent" && (
-                    <Check className="size-3 shrink-0" strokeWidth={2.5} />
-                  )}
-                  {msg.isOwn && getStatus(msg) === "read" && (
-                    <CheckCheck className="size-3 shrink-0" strokeWidth={2.5} />
-                  )}
-                </span>
+                {msg.uploadProgress !== undefined ? (
+                  // Upload in progress
+                  <div className="min-w-45">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileIcon className="size-3.5 shrink-0 opacity-70" />
+                      <span className="text-sm font-medium truncate max-w-40">
+                        {msg.attachmentFilename ?? "File"}
+                      </span>
+                    </div>
+                    <div className="h-1 rounded-full bg-primary-foreground/20 overflow-hidden">
+                      <div
+                        className="h-full bg-primary-foreground/70 rounded-full transition-all duration-200"
+                        style={{ width: `${msg.uploadProgress}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-1 text-[10px] opacity-60">
+                      <span>Uploading…</span>
+                      <span>{msg.uploadProgress}%</span>
+                    </div>
+                  </div>
+                ) : msg.attachmentId || msg.attachmentFilename ? (
+                  // Attachment card
+                  <>
+                    {msg.attachmentId ? (
+                      <AttachmentCard
+                        server={server}
+                        attachmentId={msg.attachmentId}
+                        senderIdentityKey={member.identityKey}
+                        meta={getAttachmentMeta(msg)}
+                        isOwn={msg.isOwn}
+                        textContent={getText(msg)}
+                        sentAt={msg.sentAt}
+                        status={getStatus(msg)}
+                      />
+                    ) : (
+                      // Local pending (upload finished but ack not yet received)
+                      <div className="flex items-center gap-2.5 min-w-40 pb-0.5">
+                        <div
+                          className={cn(
+                            "flex items-center justify-center size-8 shrink-0 rounded-lg",
+                            msg.isOwn
+                              ? "bg-primary-foreground/15"
+                              : "bg-muted-foreground/10",
+                          )}
+                        >
+                          <FileIcon className="size-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate leading-tight">
+                            {msg.attachmentFilename ?? "Attachment"}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <span>{getText(msg)}</span>
+                )}
+                {!(msg.attachmentId && msg.uploadProgress === undefined) && (
+                  <>
+                    <span
+                      aria-hidden
+                      className="inline-block align-bottom ml-1.5 opacity-0 pointer-events-none select-none text-[10px]"
+                    >
+                      {formatTime(msg.sentAt)}
+                      {msg.isOwn && "\u00a0\u00a0\u2713"}
+                    </span>
+                    <span
+                      className={cn(
+                        "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[10px]",
+                        msg.isOwn
+                          ? "text-primary-foreground/60"
+                          : "text-muted-foreground/50",
+                      )}
+                    >
+                      {formatTime(msg.sentAt)}
+                      {msg.isOwn && getStatus(msg) === "pending" && (
+                        <Loader2 className="size-3 shrink-0 animate-spin" />
+                      )}
+                      {msg.isOwn && getStatus(msg) === "sent" && (
+                        <Check className="size-3 shrink-0" strokeWidth={2.5} />
+                      )}
+                      {msg.isOwn && getStatus(msg) === "read" && (
+                        <CheckCheck
+                          className="size-3 shrink-0"
+                          strokeWidth={2.5}
+                        />
+                      )}
+                    </span>
+                  </>
+                )}
               </div>
               {(() => {
                 const plaintext = getPlaintextStr(msg);

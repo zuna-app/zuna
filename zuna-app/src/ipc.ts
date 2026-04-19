@@ -27,15 +27,15 @@ export function registerIPC() {
 
   ipcMain.handle(
     "file:encryptFile",
-    (_, data: Buffer, receiverPublicKey: string) => {
-      return encryptFile(data, receiverPublicKey);
+    (_, data: Uint8Array, receiverPublicKey: string) => {
+      return new Uint8Array(encryptFile(Buffer.from(data), receiverPublicKey));
     },
   );
 
   ipcMain.handle(
     "file:decryptFile",
-    (_, data: Buffer, senderPublicKey: string) => {
-      return decryptFile(data, senderPublicKey);
+    (_, data: Uint8Array, senderPublicKey: string) => {
+      return new Uint8Array(decryptFile(Buffer.from(data), senderPublicKey));
     },
   );
 

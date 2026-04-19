@@ -31,10 +31,6 @@ func AttachmentDownloadEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
-	if a.Edges.User.ID != userID {
-		return c.JSON(http.StatusForbidden, Forbidden)
-	}
-
 	fileBytes, err := storage.GetDataByKey(a.ID)
 	if err != nil {
 		log.Error().Err(err).Str("attachmentId", a.ID).Msg("failed to read attachment from storage")

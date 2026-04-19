@@ -95,7 +95,7 @@ func main() {
 	chat.GET("/messages", rest.ChatMessagesEndpoint)
 
 	attachment := api.Group("/attachment", rest.AuthMiddleware, apiLimiter.Middleware())
-	attachment.PUT("/upload", rest.AttachmentUploadEndpoint)
+	attachment.POST("/upload", rest.AttachmentUploadEndpoint)
 	attachment.GET("/download", rest.AttachmentDownloadEndpoint)
 
 	h := ws.NewHub()

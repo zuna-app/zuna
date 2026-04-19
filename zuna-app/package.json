@@ -60,6 +60,8 @@
     "react": "^19.2.5",
     "react-avatar-editor": "^15.1.0",
     "react-dom": "^19.2.5",
+    "react-dropzone": "^15.0.0",
+    "react-spinners": "^0.17.0",
     "react-use-websocket": "^4.13.0",
     "shadcn": "^4.2.0",
     "sonner": "^2.0.7",

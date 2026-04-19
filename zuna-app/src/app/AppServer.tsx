@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useDropzone } from "react-dropzone";
 import { Server, ChatMember } from "@/types/serverTypes";
 import { useAuthorizer } from "@/hooks/auth/useAuthorizer";
 import { useMessages } from "@/hooks/chat/useMessages";
@@ -6,7 +7,7 @@ import { useSharedSecret } from "@/hooks/ws/useSharedSecret";
 import { useBackgroundMessages } from "@/hooks/ws/useBackgroundMessages";
 import { useWsConnection } from "@/hooks/ws/useWsConnection";
 import { WS_MSG } from "@/hooks/ws/wsTypes";
-import { Loader2 } from "lucide-react";
+import { Loader2, Upload } from "lucide-react";
 import { ChatListPanel } from "@/components/chat/chat-list-panel";
 import { ChatTopbar } from "@/components/chat/chat-topbar";
 import { ChatMessages } from "@/components/chat/chat-messages";
@@ -16,12 +17,11 @@ import { useSelectedChat } from "@/hooks/chat/useSelectedChat";
 
 function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const sharedSecret = useSharedSecret(member);
-  const { messages, loading, hasMore, sendMessage, fetchMore } = useMessages(
-    server,
-    member.chatId,
-    sharedSecret,
-  );
+  const { messages, loading, hasMore, sendMessage, uploadAndSend, fetchMore } =
+    useMessages(server, member.chatId, sharedSecret, member.identityKey);
   const { sendMessage: wsSend } = useWsConnection(server);
+
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const handleWrite = useCallback(
     (writing: boolean) => {
@@ -30,10 +30,40 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
     [wsSend, member.chatId],
   );
 
+  const handleSendFile = useCallback(
+    (file: File, plaintext: string) => {
+      uploadAndSend(file, plaintext);
+    },
+    [uploadAndSend],
+  );
+
+  const { getRootProps, isDragActive } = useDropzone({
+    onDrop: (acceptedFiles) => {
+      if (!sharedSecret) return;
+      const file = acceptedFiles[0];
+      if (file) setPendingFile(file);
+    },
+    noClick: true,
+    noKeyboard: true,
+    disabled: !sharedSecret,
+  });
+
   return (
-    <>
+    <div
+      className="flex flex-col flex-1 min-h-0 overflow-hidden relative"
+      {...getRootProps()}
+    >
+      {isDragActive && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm border-2 border-dashed border-primary pointer-events-none">
+          <div className="flex flex-col items-center gap-2 text-primary">
+            <Upload className="size-8" />
+            <span className="text-sm font-medium">Drop to attach</span>
+          </div>
+        </div>
+      )}
       <ChatTopbar member={member} />
       <ChatMessages
+        server={server}
         member={member}
         messages={messages}
         loading={loading}
@@ -45,8 +75,11 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         sharedSecret={sharedSecret}
         onSend={sendMessage}
         onWrite={handleWrite}
+        onSendFile={handleSendFile}
+        pendingFile={pendingFile}
+        onPendingFileChange={setPendingFile}
       />
-    </>
+    </div>
   );
 }
 

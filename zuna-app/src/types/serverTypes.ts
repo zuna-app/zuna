@@ -35,3 +35,40 @@ export interface LastMessage {
 export interface Chat {
   members: ChatMember[];
 }
+
+export type Message = {
+  id: number | null;
+  localId: number | null;
+  chatId: string;
+  cipherText: string;
+  iv: string;
+  authTag: string;
+  sentAt: number;
+  readAt?: number;
+  senderId: string;
+  isOwn: boolean;
+  pending: boolean;
+  plaintext?: string;
+  attachmentId?: string;
+  attachmentMetadata?: string;
+  attachmentMetadataIv?: string;
+  attachmentMetadataAuthTag?: string;
+  /** Plaintext filename for local upload-in-progress messages */
+  attachmentFilename?: string;
+  /** 0-100 while uploading; undefined once WS message has been sent */
+  uploadProgress?: number;
+};
+
+export type RawMessageDTO = {
+  id: number;
+  sender_id: string;
+  cipher_text: string;
+  iv: string;
+  auth_tag: string;
+  sent_at: number;
+  read_at: number;
+  attachment_id?: string;
+  attachment_metadata?: string;
+  attachment_metadata_iv?: string;
+  attachment_metadata_auth_tag?: string;
+};

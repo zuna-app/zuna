@@ -51,6 +51,10 @@ export interface MessageAckPayload {
   id: number;
   chat_id: string;
   created_at: number;
+  attachment_id?: string;
+  attachment_metadata?: string;
+  attachment_metadata_iv?: string;
+  attachment_metadata_auth_tag?: string;
 }
 
 export interface MessageReceivePayload {
@@ -61,6 +65,10 @@ export interface MessageReceivePayload {
   cipher_text: string;
   iv: string;
   auth_tag: string;
+  attachment_id?: string;
+  attachment_metadata?: string;
+  attachment_metadata_iv?: string;
+  attachment_metadata_auth_tag?: string;
 }
 
 export interface MessageReadInfoPayload {

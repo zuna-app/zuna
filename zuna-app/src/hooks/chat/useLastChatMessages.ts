@@ -34,13 +34,15 @@ export const useLastChatMessages = (server: Server, members: ChatMember[]) => {
       }
 
       try {
-        const content = m.ciphertext
+        let content = m.ciphertext
           ? await window.security.decrypt(secret, {
               ciphertext: m.ciphertext,
               iv: m.iv,
               authTag: m.authTag,
             })
           : "No messages yet";
+        // Zero-width space is the placeholder for attachment-only messages
+        if (content === "\u200b") content = "\uD83D\uDCCE Attachment";
 
         setLastMessages((prev) => {
           if (prev[m.chatId]) return prev;

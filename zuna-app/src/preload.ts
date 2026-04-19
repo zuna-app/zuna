@@ -1,9 +1,15 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("security", {
-  encryptFile: (data: Buffer, receiverPublicKey: string): Promise<Buffer> =>
+  encryptFile: (
+    data: Uint8Array,
+    receiverPublicKey: string,
+  ): Promise<Uint8Array> =>
     ipcRenderer.invoke("file:encryptFile", data, receiverPublicKey),
-  decryptFile: (data: Buffer, senderPublicKey: string): Promise<Buffer> =>
+  decryptFile: (
+    data: Uint8Array,
+    senderPublicKey: string,
+  ): Promise<Uint8Array> =>
     ipcRenderer.invoke("file:decryptFile", data, senderPublicKey),
   encode: (str: string): Promise<string> =>
     ipcRenderer.invoke("base64:encode", str),

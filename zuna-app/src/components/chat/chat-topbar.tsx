@@ -19,6 +19,7 @@ import { useWriting } from "@/hooks/ws/usePresence";
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { convertTimeToRelative, getFirstLetters } from "@/utils/basicUtils";
 import { ZunaAvatar } from "../avatar";
+import { PulseLoader } from "react-spinners";
 
 interface ChatTopbarProps {
   member: ChatMember;
@@ -78,14 +79,24 @@ export function ChatTopbar({ member }: ChatTopbarProps) {
                   : "text-gray-500"
             }`}
           >
-            {isTyping
-              ? "Typing…"
-              : presence?.active
-                ? "Online"
-                : "Last seen " +
-                  (presence?.lastSeen
-                    ? convertTimeToRelative(presence.lastSeen)
-                    : "sometimes ago")}
+            {isTyping ? (
+              <span className="flex flex-row items-center gap-0.5">
+                <PulseLoader
+                  color="currentColor"
+                  size={3}
+                  className="mt-0.5"
+                  speedMultiplier={0.85}
+                />
+                typing
+              </span>
+            ) : presence?.active ? (
+              "Online"
+            ) : (
+              "Last seen " +
+              (presence?.lastSeen
+                ? convertTimeToRelative(presence.lastSeen)
+                : "sometimes ago")
+            )}
           </p>
         </div>
       </div>
