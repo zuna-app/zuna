@@ -2,14 +2,10 @@
 package ws
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"sync"
 	"zuna-server/data"
-	"zuna-server/db"
-	"zuna-server/ent/chat"
-	"zuna-server/ent/user"
 
 	"github.com/rs/zerolog/log"
 )
@@ -83,42 +79,42 @@ func (h *Hub) Run() {
 				delete(h.clients, client.ID())
 				log.Printf("[hub] client unregistered id=%s  total=%d", client.ID(), len(h.clients))
 
-				for _, cid := range h.clients {
-					if cid.ID() == client.ID() {
-						continue
-					}
-					h.SendTo(cid.ID(), OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
-						Presence: data.PresenceDTO{
-							UserID:   ud.UserID,
-							LastSeen: ud.LastSeen,
-							Active:   ud.Active,
-						},
-					}})
-				}
+				// for _, cid := range h.clients {
+				// 	if cid.ID() == client.ID() {
+				// 		continue
+				// 	}
+				// 	h.SendTo(cid.ID(), OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
+				// 		Presence: data.PresenceDTO{
+				// 			UserID:   ud.UserID,
+				// 			LastSeen: ud.LastSeen,
+				// 			Active:   ud.Active,
+				// 		},
+				// 	}})
+				// }
 
-				chats, err := db.EntClient.Chat.Query().WithUsers().Where(chat.HasUsersWith(user.IDEQ(ud.UserID))).All(context.Background())
-				if err == nil {
-					for _, ch := range chats {
-						for _, uu := range ch.Edges.Users {
-							if uu.ID == ud.UserID {
-								continue
-							}
+				// chats, err := db.EntClient.Chat.Query().WithUsers().Where(chat.HasUsersWith(user.IDEQ(ud.UserID))).All(context.Background())
+				// if err == nil {
+				// 	for _, ch := range chats {
+				// 		for _, uu := range ch.Edges.Users {
+				// 			if uu.ID == ud.UserID {
+				// 				continue
+				// 			}
 
-							currentUserData, _ := data.GetUserDataByUsername(uu.Username)
-							if currentUserData.ConnectionID == "" {
-								continue
-							}
+				// 			currentUserData, _ := data.GetUserDataByUsername(uu.Username)
+				// 			if currentUserData.ConnectionID == "" {
+				// 				continue
+				// 			}
 
-							h.SendTo(currentUserData.ConnectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
-								ChatID:  ch.ID,
-								UserID:  ud.UserID,
-								Writing: false,
-							}})
-						}
-					}
-				} else {
-					log.Error().Err(err).Str("userId", ud.UserID).Msg("failed to query chats for writing indicator update on disconnect")
-				}
+				// 			h.SendTo(currentUserData.ConnectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
+				// 				ChatID:  ch.ID,
+				// 				UserID:  ud.UserID,
+				// 				Writing: false,
+				// 			}})
+				// 		}
+				// 	}
+				// } else {
+				// 	log.Error().Err(err).Str("userId", ud.UserID).Msg("failed to query chats for writing indicator update on disconnect")
+				// }
 			}
 			h.mu.Unlock()
 
@@ -155,6 +151,7 @@ func (h *Hub) SendTo(clientID string, v any) error {
 	if !ok {
 		return fmt.Errorf("client %q not found", clientID)
 	}
+
 	return c.Send(v)
 }
 

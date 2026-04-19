@@ -19,9 +19,9 @@ type WritingIndicatorRequest struct {
 }
 
 type WritingIndicatorMulticast struct {
-	ChatID  string `json:"chat_id"`
-	UserID  string `json:"user_id"`
-	Writing bool   `json:"writing"`
+	ChatID   string `json:"chat_id"`
+	SenderID string `json:"sender_id"`
+	Writing  bool   `json:"writing"`
 }
 
 func (r *MessageRouter) handleWritingIndicator(c HubClient, msg IncomingMessage, userData data.UserData) {
@@ -74,9 +74,9 @@ func (r *MessageRouter) handleWritingIndicator(c HubClient, msg IncomingMessage,
 		}
 
 		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
-			ChatID:  req.ChatID,
-			UserID:  userData.UserID,
-			Writing: req.Writing,
+			ChatID:   req.ChatID,
+			SenderID: userData.UserID,
+			Writing:  req.Writing,
 		}})
 
 	}
