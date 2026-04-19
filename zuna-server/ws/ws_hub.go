@@ -2,11 +2,16 @@
 package ws
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"zuna-server/data"
+	"zuna-server/db"
+	"zuna-server/ent/chat"
+	"zuna-server/ent/user"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Message is the unit passed through the hub's broadcast channel.
@@ -89,6 +94,30 @@ func (h *Hub) Run() {
 							Active:   ud.Active,
 						},
 					}})
+				}
+
+				chats, err := db.EntClient.Chat.Query().WithUsers().Where(chat.HasUsersWith(user.IDEQ(ud.UserID))).All(context.Background())
+				if err == nil {
+					for _, ch := range chats {
+						for _, uu := range ch.Edges.Users {
+							if uu.ID == ud.UserID {
+								continue
+							}
+
+							currentUserData, _ := data.GetUserDataByUsername(uu.Username)
+							if currentUserData.ConnectionID == "" {
+								continue
+							}
+
+							h.SendTo(currentUserData.ConnectionID, OutgoingMessage{Type: "writing_indicator_update", Payload: WritingIndicatorMulticast{
+								ChatID:  ch.ID,
+								UserID:  ud.UserID,
+								Writing: false,
+							}})
+						}
+					}
+				} else {
+					log.Error().Err(err).Str("userId", ud.UserID).Msg("failed to query chats for writing indicator update on disconnect")
 				}
 			}
 			h.mu.Unlock()
