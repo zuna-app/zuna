@@ -39,6 +39,6 @@ func (Message) Edges() []ent.Edge {
 			Unique().
 			Required(),
 
-		edge.To("attachments", Attachment.Type),
+		edge.To("attachment", Attachment.Type).Unique(),
 	}
 }

@@ -12,16 +12,16 @@ const (
 	Label = "attachment"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
-	// FieldSenderIdentityKey holds the string denoting the sender_identity_key field in the database.
-	FieldSenderIdentityKey = "sender_identity_key"
-	// FieldIv holds the string denoting the iv field in the database.
-	FieldIv = "iv"
-	// FieldMimeType holds the string denoting the mime_type field in the database.
-	FieldMimeType = "mime_type"
-	// FieldOriginalFileName holds the string denoting the original_file_name field in the database.
-	FieldOriginalFileName = "original_file_name"
+	// FieldMetadata holds the string denoting the metadata field in the database.
+	FieldMetadata = "metadata"
+	// FieldMetadataIv holds the string denoting the metadata_iv field in the database.
+	FieldMetadataIv = "metadata_iv"
+	// FieldMetadataAuthTag holds the string denoting the metadata_auth_tag field in the database.
+	FieldMetadataAuthTag = "metadata_auth_tag"
 	// EdgeMessage holds the string denoting the message edge name in mutations.
 	EdgeMessage = "message"
+	// EdgeUser holds the string denoting the user edge name in mutations.
+	EdgeUser = "user"
 	// Table holds the table name of the attachment in the database.
 	Table = "attachments"
 	// MessageTable is the table that holds the message relation/edge.
@@ -30,22 +30,29 @@ const (
 	// It exists in this package in order to avoid circular dependency with the "message" package.
 	MessageInverseTable = "messages"
 	// MessageColumn is the table column denoting the message relation/edge.
-	MessageColumn = "message_attachments"
+	MessageColumn = "message_attachment"
+	// UserTable is the table that holds the user relation/edge.
+	UserTable = "attachments"
+	// UserInverseTable is the table name for the User entity.
+	// It exists in this package in order to avoid circular dependency with the "user" package.
+	UserInverseTable = "users"
+	// UserColumn is the table column denoting the user relation/edge.
+	UserColumn = "user_attachments"
 )
 
 // Columns holds all SQL columns for attachment fields.
 var Columns = []string{
 	FieldID,
-	FieldSenderIdentityKey,
-	FieldIv,
-	FieldMimeType,
-	FieldOriginalFileName,
+	FieldMetadata,
+	FieldMetadataIv,
+	FieldMetadataAuthTag,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "attachments"
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
-	"message_attachments",
+	"message_attachment",
+	"user_attachments",
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -76,24 +83,19 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
 }
 
-// BySenderIdentityKey orders the results by the sender_identity_key field.
-func BySenderIdentityKey(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldSenderIdentityKey, opts...).ToFunc()
+// ByMetadata orders the results by the metadata field.
+func ByMetadata(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMetadata, opts...).ToFunc()
 }
 
-// ByIv orders the results by the iv field.
-func ByIv(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldIv, opts...).ToFunc()
+// ByMetadataIv orders the results by the metadata_iv field.
+func ByMetadataIv(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMetadataIv, opts...).ToFunc()
 }
 
-// ByMimeType orders the results by the mime_type field.
-func ByMimeType(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldMimeType, opts...).ToFunc()
-}
-
-// ByOriginalFileName orders the results by the original_file_name field.
-func ByOriginalFileName(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldOriginalFileName, opts...).ToFunc()
+// ByMetadataAuthTag orders the results by the metadata_auth_tag field.
+func ByMetadataAuthTag(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldMetadataAuthTag, opts...).ToFunc()
 }
 
 // ByMessageField orders the results by message field.
@@ -102,10 +104,24 @@ func ByMessageField(field string, opts ...sql.OrderTermOption) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newMessageStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByUserField orders the results by user field.
+func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newUserStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newMessageStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(MessageInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.M2O, true, MessageTable, MessageColumn),
+		sqlgraph.Edge(sqlgraph.O2O, true, MessageTable, MessageColumn),
+	)
+}
+func newUserStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(UserInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, UserTable, UserColumn),
 	)
 }

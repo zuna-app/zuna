@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"zuna-server/ent/attachment"
 	"zuna-server/ent/chat"
 	"zuna-server/ent/message"
 	"zuna-server/ent/user"
@@ -43,8 +44,8 @@ type MessageEdges struct {
 	User *User `json:"user,omitempty"`
 	// Chat holds the value of the chat edge.
 	Chat *Chat `json:"chat,omitempty"`
-	// Attachments holds the value of the attachments edge.
-	Attachments []*Attachment `json:"attachments,omitempty"`
+	// Attachment holds the value of the attachment edge.
+	Attachment *Attachment `json:"attachment,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
 	loadedTypes [3]bool
@@ -72,13 +73,15 @@ func (e MessageEdges) ChatOrErr() (*Chat, error) {
 	return nil, &NotLoadedError{edge: "chat"}
 }
 
-// AttachmentsOrErr returns the Attachments value or an error if the edge
-// was not loaded in eager-loading.
-func (e MessageEdges) AttachmentsOrErr() ([]*Attachment, error) {
-	if e.loadedTypes[2] {
-		return e.Attachments, nil
+// AttachmentOrErr returns the Attachment value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e MessageEdges) AttachmentOrErr() (*Attachment, error) {
+	if e.Attachment != nil {
+		return e.Attachment, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: attachment.Label}
 	}
-	return nil, &NotLoadedError{edge: "attachments"}
+	return nil, &NotLoadedError{edge: "attachment"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -185,9 +188,9 @@ func (_m *Message) QueryChat() *ChatQuery {
 	return NewMessageClient(_m.config).QueryChat(_m)
 }
 
-// QueryAttachments queries the "attachments" edge of the Message entity.
-func (_m *Message) QueryAttachments() *AttachmentQuery {
-	return NewMessageClient(_m.config).QueryAttachments(_m)
+// QueryAttachment queries the "attachment" edge of the Message entity.
+func (_m *Message) QueryAttachment() *AttachmentQuery {
+	return NewMessageClient(_m.config).QueryAttachment(_m)
 }
 
 // Update returns a builder for updating this Message.

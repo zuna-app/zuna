@@ -81,7 +81,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
-	messages, err := db.EntClient.Message.Query().
+	messages, err := db.EntClient.Message.Query().WithAttachment().
 		Where(message.HasChatWith(chat.IDEQ(chatId)), message.IDLT(cursorInt)).
 		Order(ent.Desc(message.FieldID)).
 		WithUser().
@@ -103,14 +103,32 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		if m.Edges.User != nil {
 			senderID = m.Edges.User.ID
 		}
+
+		attachmentId := ""
+		attachmentMetadata := ""
+		attachmentMetadataIv := ""
+		attachmentMetadataAuthTag := ""
+
+		if m.Edges.Attachment != nil {
+			attachment := m.Edges.Attachment
+			attachmentId = attachment.ID
+			attachmentMetadata = attachment.Metadata
+			attachmentMetadataIv = attachment.MetadataIv
+			attachmentMetadataAuthTag = attachment.MetadataAuthTag
+		}
+
 		dtos = append(dtos, data.MessageDTO{
-			ID:         m.ID,
-			SenderID:   senderID,
-			CipherText: m.CipherText,
-			Iv:         m.Iv,
-			AuthTag:    m.AuthTag,
-			SentAt:     m.SentAt.UnixMilli(),
-			ReadAt:     readMillis,
+			ID:                        m.ID,
+			SenderID:                  senderID,
+			CipherText:                m.CipherText,
+			Iv:                        m.Iv,
+			AuthTag:                   m.AuthTag,
+			SentAt:                    m.SentAt.UnixMilli(),
+			ReadAt:                    readMillis,
+			AttachmentID:              attachmentId,
+			AttachmentMetadata:        attachmentMetadata,
+			AttachmentMetadataIv:      attachmentMetadataIv,
+			AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
 		})
 	}
 

@@ -9,6 +9,7 @@ import (
 	"zuna-server/ent/attachment"
 	"zuna-server/ent/message"
 	"zuna-server/ent/predicate"
+	"zuna-server/ent/user"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
@@ -24,6 +25,7 @@ type AttachmentQuery struct {
 	inters      []Interceptor
 	predicates  []predicate.Attachment
 	withMessage *MessageQuery
+	withUser    *UserQuery
 	withFKs     bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
@@ -75,7 +77,29 @@ func (_q *AttachmentQuery) QueryMessage() *MessageQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(attachment.Table, attachment.FieldID, selector),
 			sqlgraph.To(message.Table, message.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, attachment.MessageTable, attachment.MessageColumn),
+			sqlgraph.Edge(sqlgraph.O2O, true, attachment.MessageTable, attachment.MessageColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryUser chains the current query on the "user" edge.
+func (_q *AttachmentQuery) QueryUser() *UserQuery {
+	query := (&UserClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(attachment.Table, attachment.FieldID, selector),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, attachment.UserTable, attachment.UserColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -276,6 +300,7 @@ func (_q *AttachmentQuery) Clone() *AttachmentQuery {
 		inters:      append([]Interceptor{}, _q.inters...),
 		predicates:  append([]predicate.Attachment{}, _q.predicates...),
 		withMessage: _q.withMessage.Clone(),
+		withUser:    _q.withUser.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -293,18 +318,29 @@ func (_q *AttachmentQuery) WithMessage(opts ...func(*MessageQuery)) *AttachmentQ
 	return _q
 }
 
+// WithUser tells the query-builder to eager-load the nodes that are connected to
+// the "user" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *AttachmentQuery) WithUser(opts ...func(*UserQuery)) *AttachmentQuery {
+	query := (&UserClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withUser = query
+	return _q
+}
+
 // GroupBy is used to group vertices by one or more fields/columns.
 // It is often used with aggregate functions, like: count, max, mean, min, sum.
 //
 // Example:
 //
 //	var v []struct {
-//		SenderIdentityKey string `json:"sender_identity_key,omitempty"`
+//		Metadata string `json:"metadata,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.Attachment.Query().
-//		GroupBy(attachment.FieldSenderIdentityKey).
+//		GroupBy(attachment.FieldMetadata).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *AttachmentQuery) GroupBy(field string, fields ...string) *AttachmentGroupBy {
@@ -322,11 +358,11 @@ func (_q *AttachmentQuery) GroupBy(field string, fields ...string) *AttachmentGr
 // Example:
 //
 //	var v []struct {
-//		SenderIdentityKey string `json:"sender_identity_key,omitempty"`
+//		Metadata string `json:"metadata,omitempty"`
 //	}
 //
 //	client.Attachment.Query().
-//		Select(attachment.FieldSenderIdentityKey).
+//		Select(attachment.FieldMetadata).
 //		Scan(ctx, &v)
 func (_q *AttachmentQuery) Select(fields ...string) *AttachmentSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -372,11 +408,12 @@ func (_q *AttachmentQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*A
 		nodes       = []*Attachment{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [1]bool{
+		loadedTypes = [2]bool{
 			_q.withMessage != nil,
+			_q.withUser != nil,
 		}
 	)
-	if _q.withMessage != nil {
+	if _q.withMessage != nil || _q.withUser != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -406,6 +443,12 @@ func (_q *AttachmentQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*A
 			return nil, err
 		}
 	}
+	if query := _q.withUser; query != nil {
+		if err := _q.loadUser(ctx, query, nodes, nil,
+			func(n *Attachment, e *User) { n.Edges.User = e }); err != nil {
+			return nil, err
+		}
+	}
 	return nodes, nil
 }
 
@@ -413,10 +456,10 @@ func (_q *AttachmentQuery) loadMessage(ctx context.Context, query *MessageQuery,
 	ids := make([]int64, 0, len(nodes))
 	nodeids := make(map[int64][]*Attachment)
 	for i := range nodes {
-		if nodes[i].message_attachments == nil {
+		if nodes[i].message_attachment == nil {
 			continue
 		}
-		fk := *nodes[i].message_attachments
+		fk := *nodes[i].message_attachment
 		if _, ok := nodeids[fk]; !ok {
 			ids = append(ids, fk)
 		}
@@ -433,7 +476,39 @@ func (_q *AttachmentQuery) loadMessage(ctx context.Context, query *MessageQuery,
 	for _, n := range neighbors {
 		nodes, ok := nodeids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "message_attachments" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected foreign-key "message_attachment" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
+func (_q *AttachmentQuery) loadUser(ctx context.Context, query *UserQuery, nodes []*Attachment, init func(*Attachment), assign func(*Attachment, *User)) error {
+	ids := make([]string, 0, len(nodes))
+	nodeids := make(map[string][]*Attachment)
+	for i := range nodes {
+		if nodes[i].user_attachments == nil {
+			continue
+		}
+		fk := *nodes[i].user_attachments
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(user.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "user_attachments" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)

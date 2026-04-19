@@ -97,19 +97,23 @@ func (_c *MessageCreate) SetChat(v *Chat) *MessageCreate {
 	return _c.SetChatID(v.ID)
 }
 
-// AddAttachmentIDs adds the "attachments" edge to the Attachment entity by IDs.
-func (_c *MessageCreate) AddAttachmentIDs(ids ...string) *MessageCreate {
-	_c.mutation.AddAttachmentIDs(ids...)
+// SetAttachmentID sets the "attachment" edge to the Attachment entity by ID.
+func (_c *MessageCreate) SetAttachmentID(id string) *MessageCreate {
+	_c.mutation.SetAttachmentID(id)
 	return _c
 }
 
-// AddAttachments adds the "attachments" edges to the Attachment entity.
-func (_c *MessageCreate) AddAttachments(v ...*Attachment) *MessageCreate {
-	ids := make([]string, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
+// SetNillableAttachmentID sets the "attachment" edge to the Attachment entity by ID if the given value is not nil.
+func (_c *MessageCreate) SetNillableAttachmentID(id *string) *MessageCreate {
+	if id != nil {
+		_c = _c.SetAttachmentID(*id)
 	}
-	return _c.AddAttachmentIDs(ids...)
+	return _c
+}
+
+// SetAttachment sets the "attachment" edge to the Attachment entity.
+func (_c *MessageCreate) SetAttachment(v *Attachment) *MessageCreate {
+	return _c.SetAttachmentID(v.ID)
 }
 
 // Mutation returns the MessageMutation object of the builder.
@@ -259,12 +263,12 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 		_node.chat_messages = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
-	if nodes := _c.mutation.AttachmentsIDs(); len(nodes) > 0 {
+	if nodes := _c.mutation.AttachmentIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
+			Rel:     sqlgraph.O2O,
 			Inverse: false,
-			Table:   message.AttachmentsTable,
-			Columns: []string{message.AttachmentsColumn},
+			Table:   message.AttachmentTable,
+			Columns: []string{message.AttachmentColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),

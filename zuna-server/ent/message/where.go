@@ -411,21 +411,21 @@ func HasChatWith(preds ...predicate.Chat) predicate.Message {
 	})
 }
 
-// HasAttachments applies the HasEdge predicate on the "attachments" edge.
-func HasAttachments() predicate.Message {
+// HasAttachment applies the HasEdge predicate on the "attachment" edge.
+func HasAttachment() predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, AttachmentsTable, AttachmentsColumn),
+			sqlgraph.Edge(sqlgraph.O2O, false, AttachmentTable, AttachmentColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
 }
 
-// HasAttachmentsWith applies the HasEdge predicate on the "attachments" edge with a given conditions (other predicates).
-func HasAttachmentsWith(preds ...predicate.Attachment) predicate.Message {
+// HasAttachmentWith applies the HasEdge predicate on the "attachment" edge with a given conditions (other predicates).
+func HasAttachmentWith(preds ...predicate.Attachment) predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
-		step := newAttachmentsStep()
+		step := newAttachmentStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

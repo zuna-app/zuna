@@ -36,19 +36,20 @@ const (
 // AttachmentMutation represents an operation that mutates the Attachment nodes in the graph.
 type AttachmentMutation struct {
 	config
-	op                  Op
-	typ                 string
-	id                  *string
-	sender_identity_key *string
-	iv                  *string
-	mime_type           *string
-	original_file_name  *string
-	clearedFields       map[string]struct{}
-	message             *int64
-	clearedmessage      bool
-	done                bool
-	oldValue            func(context.Context) (*Attachment, error)
-	predicates          []predicate.Attachment
+	op                Op
+	typ               string
+	id                *string
+	metadata          *string
+	metadata_iv       *string
+	metadata_auth_tag *string
+	clearedFields     map[string]struct{}
+	message           *int64
+	clearedmessage    bool
+	user              *string
+	cleareduser       bool
+	done              bool
+	oldValue          func(context.Context) (*Attachment, error)
+	predicates        []predicate.Attachment
 }
 
 var _ ent.Mutation = (*AttachmentMutation)(nil)
@@ -155,148 +156,112 @@ func (m *AttachmentMutation) IDs(ctx context.Context) ([]string, error) {
 	}
 }
 
-// SetSenderIdentityKey sets the "sender_identity_key" field.
-func (m *AttachmentMutation) SetSenderIdentityKey(s string) {
-	m.sender_identity_key = &s
+// SetMetadata sets the "metadata" field.
+func (m *AttachmentMutation) SetMetadata(s string) {
+	m.metadata = &s
 }
 
-// SenderIdentityKey returns the value of the "sender_identity_key" field in the mutation.
-func (m *AttachmentMutation) SenderIdentityKey() (r string, exists bool) {
-	v := m.sender_identity_key
+// Metadata returns the value of the "metadata" field in the mutation.
+func (m *AttachmentMutation) Metadata() (r string, exists bool) {
+	v := m.metadata
 	if v == nil {
 		return
 	}
 	return *v, true
 }
 
-// OldSenderIdentityKey returns the old "sender_identity_key" field's value of the Attachment entity.
+// OldMetadata returns the old "metadata" field's value of the Attachment entity.
 // If the Attachment object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *AttachmentMutation) OldSenderIdentityKey(ctx context.Context) (v string, err error) {
+func (m *AttachmentMutation) OldMetadata(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldSenderIdentityKey is only allowed on UpdateOne operations")
+		return v, errors.New("OldMetadata is only allowed on UpdateOne operations")
 	}
 	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldSenderIdentityKey requires an ID field in the mutation")
+		return v, errors.New("OldMetadata requires an ID field in the mutation")
 	}
 	oldValue, err := m.oldValue(ctx)
 	if err != nil {
-		return v, fmt.Errorf("querying old value for OldSenderIdentityKey: %w", err)
+		return v, fmt.Errorf("querying old value for OldMetadata: %w", err)
 	}
-	return oldValue.SenderIdentityKey, nil
+	return oldValue.Metadata, nil
 }
 
-// ResetSenderIdentityKey resets all changes to the "sender_identity_key" field.
-func (m *AttachmentMutation) ResetSenderIdentityKey() {
-	m.sender_identity_key = nil
+// ResetMetadata resets all changes to the "metadata" field.
+func (m *AttachmentMutation) ResetMetadata() {
+	m.metadata = nil
 }
 
-// SetIv sets the "iv" field.
-func (m *AttachmentMutation) SetIv(s string) {
-	m.iv = &s
+// SetMetadataIv sets the "metadata_iv" field.
+func (m *AttachmentMutation) SetMetadataIv(s string) {
+	m.metadata_iv = &s
 }
 
-// Iv returns the value of the "iv" field in the mutation.
-func (m *AttachmentMutation) Iv() (r string, exists bool) {
-	v := m.iv
+// MetadataIv returns the value of the "metadata_iv" field in the mutation.
+func (m *AttachmentMutation) MetadataIv() (r string, exists bool) {
+	v := m.metadata_iv
 	if v == nil {
 		return
 	}
 	return *v, true
 }
 
-// OldIv returns the old "iv" field's value of the Attachment entity.
+// OldMetadataIv returns the old "metadata_iv" field's value of the Attachment entity.
 // If the Attachment object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *AttachmentMutation) OldIv(ctx context.Context) (v string, err error) {
+func (m *AttachmentMutation) OldMetadataIv(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldIv is only allowed on UpdateOne operations")
+		return v, errors.New("OldMetadataIv is only allowed on UpdateOne operations")
 	}
 	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldIv requires an ID field in the mutation")
+		return v, errors.New("OldMetadataIv requires an ID field in the mutation")
 	}
 	oldValue, err := m.oldValue(ctx)
 	if err != nil {
-		return v, fmt.Errorf("querying old value for OldIv: %w", err)
+		return v, fmt.Errorf("querying old value for OldMetadataIv: %w", err)
 	}
-	return oldValue.Iv, nil
+	return oldValue.MetadataIv, nil
 }
 
-// ResetIv resets all changes to the "iv" field.
-func (m *AttachmentMutation) ResetIv() {
-	m.iv = nil
+// ResetMetadataIv resets all changes to the "metadata_iv" field.
+func (m *AttachmentMutation) ResetMetadataIv() {
+	m.metadata_iv = nil
 }
 
-// SetMimeType sets the "mime_type" field.
-func (m *AttachmentMutation) SetMimeType(s string) {
-	m.mime_type = &s
+// SetMetadataAuthTag sets the "metadata_auth_tag" field.
+func (m *AttachmentMutation) SetMetadataAuthTag(s string) {
+	m.metadata_auth_tag = &s
 }
 
-// MimeType returns the value of the "mime_type" field in the mutation.
-func (m *AttachmentMutation) MimeType() (r string, exists bool) {
-	v := m.mime_type
+// MetadataAuthTag returns the value of the "metadata_auth_tag" field in the mutation.
+func (m *AttachmentMutation) MetadataAuthTag() (r string, exists bool) {
+	v := m.metadata_auth_tag
 	if v == nil {
 		return
 	}
 	return *v, true
 }
 
-// OldMimeType returns the old "mime_type" field's value of the Attachment entity.
+// OldMetadataAuthTag returns the old "metadata_auth_tag" field's value of the Attachment entity.
 // If the Attachment object wasn't provided to the builder, the object is fetched from the database.
 // An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *AttachmentMutation) OldMimeType(ctx context.Context) (v string, err error) {
+func (m *AttachmentMutation) OldMetadataAuthTag(ctx context.Context) (v string, err error) {
 	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldMimeType is only allowed on UpdateOne operations")
+		return v, errors.New("OldMetadataAuthTag is only allowed on UpdateOne operations")
 	}
 	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldMimeType requires an ID field in the mutation")
+		return v, errors.New("OldMetadataAuthTag requires an ID field in the mutation")
 	}
 	oldValue, err := m.oldValue(ctx)
 	if err != nil {
-		return v, fmt.Errorf("querying old value for OldMimeType: %w", err)
+		return v, fmt.Errorf("querying old value for OldMetadataAuthTag: %w", err)
 	}
-	return oldValue.MimeType, nil
+	return oldValue.MetadataAuthTag, nil
 }
 
-// ResetMimeType resets all changes to the "mime_type" field.
-func (m *AttachmentMutation) ResetMimeType() {
-	m.mime_type = nil
-}
-
-// SetOriginalFileName sets the "original_file_name" field.
-func (m *AttachmentMutation) SetOriginalFileName(s string) {
-	m.original_file_name = &s
-}
-
-// OriginalFileName returns the value of the "original_file_name" field in the mutation.
-func (m *AttachmentMutation) OriginalFileName() (r string, exists bool) {
-	v := m.original_file_name
-	if v == nil {
-		return
-	}
-	return *v, true
-}
-
-// OldOriginalFileName returns the old "original_file_name" field's value of the Attachment entity.
-// If the Attachment object wasn't provided to the builder, the object is fetched from the database.
-// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
-func (m *AttachmentMutation) OldOriginalFileName(ctx context.Context) (v string, err error) {
-	if !m.op.Is(OpUpdateOne) {
-		return v, errors.New("OldOriginalFileName is only allowed on UpdateOne operations")
-	}
-	if m.id == nil || m.oldValue == nil {
-		return v, errors.New("OldOriginalFileName requires an ID field in the mutation")
-	}
-	oldValue, err := m.oldValue(ctx)
-	if err != nil {
-		return v, fmt.Errorf("querying old value for OldOriginalFileName: %w", err)
-	}
-	return oldValue.OriginalFileName, nil
-}
-
-// ResetOriginalFileName resets all changes to the "original_file_name" field.
-func (m *AttachmentMutation) ResetOriginalFileName() {
-	m.original_file_name = nil
+// ResetMetadataAuthTag resets all changes to the "metadata_auth_tag" field.
+func (m *AttachmentMutation) ResetMetadataAuthTag() {
+	m.metadata_auth_tag = nil
 }
 
 // SetMessageID sets the "message" edge to the Message entity by id.
@@ -338,6 +303,45 @@ func (m *AttachmentMutation) ResetMessage() {
 	m.clearedmessage = false
 }
 
+// SetUserID sets the "user" edge to the User entity by id.
+func (m *AttachmentMutation) SetUserID(id string) {
+	m.user = &id
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (m *AttachmentMutation) ClearUser() {
+	m.cleareduser = true
+}
+
+// UserCleared reports if the "user" edge to the User entity was cleared.
+func (m *AttachmentMutation) UserCleared() bool {
+	return m.cleareduser
+}
+
+// UserID returns the "user" edge ID in the mutation.
+func (m *AttachmentMutation) UserID() (id string, exists bool) {
+	if m.user != nil {
+		return *m.user, true
+	}
+	return
+}
+
+// UserIDs returns the "user" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// UserID instead. It exists only for internal usage by the builders.
+func (m *AttachmentMutation) UserIDs() (ids []string) {
+	if id := m.user; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetUser resets all changes to the "user" edge.
+func (m *AttachmentMutation) ResetUser() {
+	m.user = nil
+	m.cleareduser = false
+}
+
 // Where appends a list predicates to the AttachmentMutation builder.
 func (m *AttachmentMutation) Where(ps ...predicate.Attachment) {
 	m.predicates = append(m.predicates, ps...)
@@ -372,18 +376,15 @@ func (m *AttachmentMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AttachmentMutation) Fields() []string {
-	fields := make([]string, 0, 4)
-	if m.sender_identity_key != nil {
-		fields = append(fields, attachment.FieldSenderIdentityKey)
+	fields := make([]string, 0, 3)
+	if m.metadata != nil {
+		fields = append(fields, attachment.FieldMetadata)
 	}
-	if m.iv != nil {
-		fields = append(fields, attachment.FieldIv)
+	if m.metadata_iv != nil {
+		fields = append(fields, attachment.FieldMetadataIv)
 	}
-	if m.mime_type != nil {
-		fields = append(fields, attachment.FieldMimeType)
-	}
-	if m.original_file_name != nil {
-		fields = append(fields, attachment.FieldOriginalFileName)
+	if m.metadata_auth_tag != nil {
+		fields = append(fields, attachment.FieldMetadataAuthTag)
 	}
 	return fields
 }
@@ -393,14 +394,12 @@ func (m *AttachmentMutation) Fields() []string {
 // schema.
 func (m *AttachmentMutation) Field(name string) (ent.Value, bool) {
 	switch name {
-	case attachment.FieldSenderIdentityKey:
-		return m.SenderIdentityKey()
-	case attachment.FieldIv:
-		return m.Iv()
-	case attachment.FieldMimeType:
-		return m.MimeType()
-	case attachment.FieldOriginalFileName:
-		return m.OriginalFileName()
+	case attachment.FieldMetadata:
+		return m.Metadata()
+	case attachment.FieldMetadataIv:
+		return m.MetadataIv()
+	case attachment.FieldMetadataAuthTag:
+		return m.MetadataAuthTag()
 	}
 	return nil, false
 }
@@ -410,14 +409,12 @@ func (m *AttachmentMutation) Field(name string) (ent.Value, bool) {
 // database failed.
 func (m *AttachmentMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
 	switch name {
-	case attachment.FieldSenderIdentityKey:
-		return m.OldSenderIdentityKey(ctx)
-	case attachment.FieldIv:
-		return m.OldIv(ctx)
-	case attachment.FieldMimeType:
-		return m.OldMimeType(ctx)
-	case attachment.FieldOriginalFileName:
-		return m.OldOriginalFileName(ctx)
+	case attachment.FieldMetadata:
+		return m.OldMetadata(ctx)
+	case attachment.FieldMetadataIv:
+		return m.OldMetadataIv(ctx)
+	case attachment.FieldMetadataAuthTag:
+		return m.OldMetadataAuthTag(ctx)
 	}
 	return nil, fmt.Errorf("unknown Attachment field %s", name)
 }
@@ -427,33 +424,26 @@ func (m *AttachmentMutation) OldField(ctx context.Context, name string) (ent.Val
 // type.
 func (m *AttachmentMutation) SetField(name string, value ent.Value) error {
 	switch name {
-	case attachment.FieldSenderIdentityKey:
+	case attachment.FieldMetadata:
 		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
-		m.SetSenderIdentityKey(v)
+		m.SetMetadata(v)
 		return nil
-	case attachment.FieldIv:
+	case attachment.FieldMetadataIv:
 		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
-		m.SetIv(v)
+		m.SetMetadataIv(v)
 		return nil
-	case attachment.FieldMimeType:
+	case attachment.FieldMetadataAuthTag:
 		v, ok := value.(string)
 		if !ok {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
-		m.SetMimeType(v)
-		return nil
-	case attachment.FieldOriginalFileName:
-		v, ok := value.(string)
-		if !ok {
-			return fmt.Errorf("unexpected type %T for field %s", value, name)
-		}
-		m.SetOriginalFileName(v)
+		m.SetMetadataAuthTag(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Attachment field %s", name)
@@ -504,17 +494,14 @@ func (m *AttachmentMutation) ClearField(name string) error {
 // It returns an error if the field is not defined in the schema.
 func (m *AttachmentMutation) ResetField(name string) error {
 	switch name {
-	case attachment.FieldSenderIdentityKey:
-		m.ResetSenderIdentityKey()
+	case attachment.FieldMetadata:
+		m.ResetMetadata()
 		return nil
-	case attachment.FieldIv:
-		m.ResetIv()
+	case attachment.FieldMetadataIv:
+		m.ResetMetadataIv()
 		return nil
-	case attachment.FieldMimeType:
-		m.ResetMimeType()
-		return nil
-	case attachment.FieldOriginalFileName:
-		m.ResetOriginalFileName()
+	case attachment.FieldMetadataAuthTag:
+		m.ResetMetadataAuthTag()
 		return nil
 	}
 	return fmt.Errorf("unknown Attachment field %s", name)
@@ -522,9 +509,12 @@ func (m *AttachmentMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *AttachmentMutation) AddedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.message != nil {
 		edges = append(edges, attachment.EdgeMessage)
+	}
+	if m.user != nil {
+		edges = append(edges, attachment.EdgeUser)
 	}
 	return edges
 }
@@ -537,13 +527,17 @@ func (m *AttachmentMutation) AddedIDs(name string) []ent.Value {
 		if id := m.message; id != nil {
 			return []ent.Value{*id}
 		}
+	case attachment.EdgeUser:
+		if id := m.user; id != nil {
+			return []ent.Value{*id}
+		}
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *AttachmentMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	return edges
 }
 
@@ -555,9 +549,12 @@ func (m *AttachmentMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *AttachmentMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 1)
+	edges := make([]string, 0, 2)
 	if m.clearedmessage {
 		edges = append(edges, attachment.EdgeMessage)
+	}
+	if m.cleareduser {
+		edges = append(edges, attachment.EdgeUser)
 	}
 	return edges
 }
@@ -568,6 +565,8 @@ func (m *AttachmentMutation) EdgeCleared(name string) bool {
 	switch name {
 	case attachment.EdgeMessage:
 		return m.clearedmessage
+	case attachment.EdgeUser:
+		return m.cleareduser
 	}
 	return false
 }
@@ -579,6 +578,9 @@ func (m *AttachmentMutation) ClearEdge(name string) error {
 	case attachment.EdgeMessage:
 		m.ClearMessage()
 		return nil
+	case attachment.EdgeUser:
+		m.ClearUser()
+		return nil
 	}
 	return fmt.Errorf("unknown Attachment unique edge %s", name)
 }
@@ -589,6 +591,9 @@ func (m *AttachmentMutation) ResetEdge(name string) error {
 	switch name {
 	case attachment.EdgeMessage:
 		m.ResetMessage()
+		return nil
+	case attachment.EdgeUser:
+		m.ResetUser()
 		return nil
 	}
 	return fmt.Errorf("unknown Attachment edge %s", name)
@@ -1043,25 +1048,24 @@ func (m *ChatMutation) ResetEdge(name string) error {
 // MessageMutation represents an operation that mutates the Message nodes in the graph.
 type MessageMutation struct {
 	config
-	op                 Op
-	typ                string
-	id                 *int64
-	cipher_text        *string
-	iv                 *string
-	auth_tag           *string
-	sent_at            *time.Time
-	read_at            *time.Time
-	clearedFields      map[string]struct{}
-	user               *string
-	cleareduser        bool
-	chat               *string
-	clearedchat        bool
-	attachments        map[string]struct{}
-	removedattachments map[string]struct{}
-	clearedattachments bool
-	done               bool
-	oldValue           func(context.Context) (*Message, error)
-	predicates         []predicate.Message
+	op                Op
+	typ               string
+	id                *int64
+	cipher_text       *string
+	iv                *string
+	auth_tag          *string
+	sent_at           *time.Time
+	read_at           *time.Time
+	clearedFields     map[string]struct{}
+	user              *string
+	cleareduser       bool
+	chat              *string
+	clearedchat       bool
+	attachment        *string
+	clearedattachment bool
+	done              bool
+	oldValue          func(context.Context) (*Message, error)
+	predicates        []predicate.Message
 }
 
 var _ ent.Mutation = (*MessageMutation)(nil)
@@ -1439,58 +1443,43 @@ func (m *MessageMutation) ResetChat() {
 	m.clearedchat = false
 }
 
-// AddAttachmentIDs adds the "attachments" edge to the Attachment entity by ids.
-func (m *MessageMutation) AddAttachmentIDs(ids ...string) {
-	if m.attachments == nil {
-		m.attachments = make(map[string]struct{})
-	}
-	for i := range ids {
-		m.attachments[ids[i]] = struct{}{}
-	}
+// SetAttachmentID sets the "attachment" edge to the Attachment entity by id.
+func (m *MessageMutation) SetAttachmentID(id string) {
+	m.attachment = &id
 }
 
-// ClearAttachments clears the "attachments" edge to the Attachment entity.
-func (m *MessageMutation) ClearAttachments() {
-	m.clearedattachments = true
+// ClearAttachment clears the "attachment" edge to the Attachment entity.
+func (m *MessageMutation) ClearAttachment() {
+	m.clearedattachment = true
 }
 
-// AttachmentsCleared reports if the "attachments" edge to the Attachment entity was cleared.
-func (m *MessageMutation) AttachmentsCleared() bool {
-	return m.clearedattachments
+// AttachmentCleared reports if the "attachment" edge to the Attachment entity was cleared.
+func (m *MessageMutation) AttachmentCleared() bool {
+	return m.clearedattachment
 }
 
-// RemoveAttachmentIDs removes the "attachments" edge to the Attachment entity by IDs.
-func (m *MessageMutation) RemoveAttachmentIDs(ids ...string) {
-	if m.removedattachments == nil {
-		m.removedattachments = make(map[string]struct{})
-	}
-	for i := range ids {
-		delete(m.attachments, ids[i])
-		m.removedattachments[ids[i]] = struct{}{}
-	}
-}
-
-// RemovedAttachments returns the removed IDs of the "attachments" edge to the Attachment entity.
-func (m *MessageMutation) RemovedAttachmentsIDs() (ids []string) {
-	for id := range m.removedattachments {
-		ids = append(ids, id)
+// AttachmentID returns the "attachment" edge ID in the mutation.
+func (m *MessageMutation) AttachmentID() (id string, exists bool) {
+	if m.attachment != nil {
+		return *m.attachment, true
 	}
 	return
 }
 
-// AttachmentsIDs returns the "attachments" edge IDs in the mutation.
-func (m *MessageMutation) AttachmentsIDs() (ids []string) {
-	for id := range m.attachments {
-		ids = append(ids, id)
+// AttachmentIDs returns the "attachment" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AttachmentID instead. It exists only for internal usage by the builders.
+func (m *MessageMutation) AttachmentIDs() (ids []string) {
+	if id := m.attachment; id != nil {
+		ids = append(ids, *id)
 	}
 	return
 }
 
-// ResetAttachments resets all changes to the "attachments" edge.
-func (m *MessageMutation) ResetAttachments() {
-	m.attachments = nil
-	m.clearedattachments = false
-	m.removedattachments = nil
+// ResetAttachment resets all changes to the "attachment" edge.
+func (m *MessageMutation) ResetAttachment() {
+	m.attachment = nil
+	m.clearedattachment = false
 }
 
 // Where appends a list predicates to the MessageMutation builder.
@@ -1710,8 +1699,8 @@ func (m *MessageMutation) AddedEdges() []string {
 	if m.chat != nil {
 		edges = append(edges, message.EdgeChat)
 	}
-	if m.attachments != nil {
-		edges = append(edges, message.EdgeAttachments)
+	if m.attachment != nil {
+		edges = append(edges, message.EdgeAttachment)
 	}
 	return edges
 }
@@ -1728,12 +1717,10 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 		if id := m.chat; id != nil {
 			return []ent.Value{*id}
 		}
-	case message.EdgeAttachments:
-		ids := make([]ent.Value, 0, len(m.attachments))
-		for id := range m.attachments {
-			ids = append(ids, id)
+	case message.EdgeAttachment:
+		if id := m.attachment; id != nil {
+			return []ent.Value{*id}
 		}
-		return ids
 	}
 	return nil
 }
@@ -1741,23 +1728,12 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MessageMutation) RemovedEdges() []string {
 	edges := make([]string, 0, 3)
-	if m.removedattachments != nil {
-		edges = append(edges, message.EdgeAttachments)
-	}
 	return edges
 }
 
 // RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
 // the given name in this mutation.
 func (m *MessageMutation) RemovedIDs(name string) []ent.Value {
-	switch name {
-	case message.EdgeAttachments:
-		ids := make([]ent.Value, 0, len(m.removedattachments))
-		for id := range m.removedattachments {
-			ids = append(ids, id)
-		}
-		return ids
-	}
 	return nil
 }
 
@@ -1770,8 +1746,8 @@ func (m *MessageMutation) ClearedEdges() []string {
 	if m.clearedchat {
 		edges = append(edges, message.EdgeChat)
 	}
-	if m.clearedattachments {
-		edges = append(edges, message.EdgeAttachments)
+	if m.clearedattachment {
+		edges = append(edges, message.EdgeAttachment)
 	}
 	return edges
 }
@@ -1784,8 +1760,8 @@ func (m *MessageMutation) EdgeCleared(name string) bool {
 		return m.cleareduser
 	case message.EdgeChat:
 		return m.clearedchat
-	case message.EdgeAttachments:
-		return m.clearedattachments
+	case message.EdgeAttachment:
+		return m.clearedattachment
 	}
 	return false
 }
@@ -1799,6 +1775,9 @@ func (m *MessageMutation) ClearEdge(name string) error {
 		return nil
 	case message.EdgeChat:
 		m.ClearChat()
+		return nil
+	case message.EdgeAttachment:
+		m.ClearAttachment()
 		return nil
 	}
 	return fmt.Errorf("unknown Message unique edge %s", name)
@@ -1814,8 +1793,8 @@ func (m *MessageMutation) ResetEdge(name string) error {
 	case message.EdgeChat:
 		m.ResetChat()
 		return nil
-	case message.EdgeAttachments:
-		m.ResetAttachments()
+	case message.EdgeAttachment:
+		m.ResetAttachment()
 		return nil
 	}
 	return fmt.Errorf("unknown Message edge %s", name)
@@ -1824,25 +1803,28 @@ func (m *MessageMutation) ResetEdge(name string) error {
 // UserMutation represents an operation that mutates the User nodes in the graph.
 type UserMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *string
-	username        *string
-	identity_key    *string
-	signing_key     *string
-	last_seen       *time.Time
-	is_admin        *bool
-	avatar_key      *string
-	clearedFields   map[string]struct{}
-	chats           map[string]struct{}
-	removedchats    map[string]struct{}
-	clearedchats    bool
-	messages        map[int64]struct{}
-	removedmessages map[int64]struct{}
-	clearedmessages bool
-	done            bool
-	oldValue        func(context.Context) (*User, error)
-	predicates      []predicate.User
+	op                 Op
+	typ                string
+	id                 *string
+	username           *string
+	identity_key       *string
+	signing_key        *string
+	last_seen          *time.Time
+	is_admin           *bool
+	avatar_key         *string
+	clearedFields      map[string]struct{}
+	chats              map[string]struct{}
+	removedchats       map[string]struct{}
+	clearedchats       bool
+	messages           map[int64]struct{}
+	removedmessages    map[int64]struct{}
+	clearedmessages    bool
+	attachments        map[string]struct{}
+	removedattachments map[string]struct{}
+	clearedattachments bool
+	done               bool
+	oldValue           func(context.Context) (*User, error)
+	predicates         []predicate.User
 }
 
 var _ ent.Mutation = (*UserMutation)(nil)
@@ -2273,6 +2255,60 @@ func (m *UserMutation) ResetMessages() {
 	m.removedmessages = nil
 }
 
+// AddAttachmentIDs adds the "attachments" edge to the Attachment entity by ids.
+func (m *UserMutation) AddAttachmentIDs(ids ...string) {
+	if m.attachments == nil {
+		m.attachments = make(map[string]struct{})
+	}
+	for i := range ids {
+		m.attachments[ids[i]] = struct{}{}
+	}
+}
+
+// ClearAttachments clears the "attachments" edge to the Attachment entity.
+func (m *UserMutation) ClearAttachments() {
+	m.clearedattachments = true
+}
+
+// AttachmentsCleared reports if the "attachments" edge to the Attachment entity was cleared.
+func (m *UserMutation) AttachmentsCleared() bool {
+	return m.clearedattachments
+}
+
+// RemoveAttachmentIDs removes the "attachments" edge to the Attachment entity by IDs.
+func (m *UserMutation) RemoveAttachmentIDs(ids ...string) {
+	if m.removedattachments == nil {
+		m.removedattachments = make(map[string]struct{})
+	}
+	for i := range ids {
+		delete(m.attachments, ids[i])
+		m.removedattachments[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedAttachments returns the removed IDs of the "attachments" edge to the Attachment entity.
+func (m *UserMutation) RemovedAttachmentsIDs() (ids []string) {
+	for id := range m.removedattachments {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// AttachmentsIDs returns the "attachments" edge IDs in the mutation.
+func (m *UserMutation) AttachmentsIDs() (ids []string) {
+	for id := range m.attachments {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetAttachments resets all changes to the "attachments" edge.
+func (m *UserMutation) ResetAttachments() {
+	m.attachments = nil
+	m.clearedattachments = false
+	m.removedattachments = nil
+}
+
 // Where appends a list predicates to the UserMutation builder.
 func (m *UserMutation) Where(ps ...predicate.User) {
 	m.predicates = append(m.predicates, ps...)
@@ -2491,12 +2527,15 @@ func (m *UserMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *UserMutation) AddedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.chats != nil {
 		edges = append(edges, user.EdgeChats)
 	}
 	if m.messages != nil {
 		edges = append(edges, user.EdgeMessages)
+	}
+	if m.attachments != nil {
+		edges = append(edges, user.EdgeAttachments)
 	}
 	return edges
 }
@@ -2517,18 +2556,27 @@ func (m *UserMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeAttachments:
+		ids := make([]ent.Value, 0, len(m.attachments))
+		for id := range m.attachments {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *UserMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.removedchats != nil {
 		edges = append(edges, user.EdgeChats)
 	}
 	if m.removedmessages != nil {
 		edges = append(edges, user.EdgeMessages)
+	}
+	if m.removedattachments != nil {
+		edges = append(edges, user.EdgeAttachments)
 	}
 	return edges
 }
@@ -2549,18 +2597,27 @@ func (m *UserMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case user.EdgeAttachments:
+		ids := make([]ent.Value, 0, len(m.removedattachments))
+		for id := range m.removedattachments {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *UserMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.clearedchats {
 		edges = append(edges, user.EdgeChats)
 	}
 	if m.clearedmessages {
 		edges = append(edges, user.EdgeMessages)
+	}
+	if m.clearedattachments {
+		edges = append(edges, user.EdgeAttachments)
 	}
 	return edges
 }
@@ -2573,6 +2630,8 @@ func (m *UserMutation) EdgeCleared(name string) bool {
 		return m.clearedchats
 	case user.EdgeMessages:
 		return m.clearedmessages
+	case user.EdgeAttachments:
+		return m.clearedattachments
 	}
 	return false
 }
@@ -2594,6 +2653,9 @@ func (m *UserMutation) ResetEdge(name string) error {
 		return nil
 	case user.EdgeMessages:
 		m.ResetMessages()
+		return nil
+	case user.EdgeAttachments:
+		m.ResetAttachments()
 		return nil
 	}
 	return fmt.Errorf("unknown User edge %s", name)

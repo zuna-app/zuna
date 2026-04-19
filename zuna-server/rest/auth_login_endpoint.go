@@ -13,17 +13,17 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type AuthRequest struct {
+type LoginRequest struct {
 	Username  string `json:"username"`
 	Signature string `json:"signature"`
 }
 
-type AuthResponse struct {
+type LoginResponse struct {
 	Token string `json:"token"`
 }
 
 func AuthLoginEndpoint(c *echo.Context) error {
-	req := new(AuthRequest)
+	req := new(LoginRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)
 	}
@@ -76,7 +76,7 @@ func AuthLoginEndpoint(c *echo.Context) error {
 	userData.AuthToken = cuid2.Generate()
 	data.UpdateUserData(userData)
 
-	return c.JSON(http.StatusOK, AuthResponse{
+	return c.JSON(http.StatusOK, LoginResponse{
 		Token: userData.AuthToken,
 	})
 }

@@ -18,10 +18,9 @@ func (Attachment) Fields() []ent.Field {
 		field.String("id").DefaultFunc(func() string {
 			return cuid2.Generate()
 		}),
-		field.String("sender_identity_key"),
-		field.String("iv"),
-		field.String("mime_type"),
-		field.String("original_file_name"),
+		field.String("metadata"),
+		field.String("metadata_iv"),
+		field.String("metadata_auth_tag"),
 	}
 }
 
@@ -29,8 +28,10 @@ func (Attachment) Fields() []ent.Field {
 func (Attachment) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.From("message", Message.Type).
+			Ref("attachment").
+			Unique(),
+		edge.From("user", User.Type).
 			Ref("attachments").
-			Unique().
-			Required(),
+			Unique().Required(),
 	}
 }

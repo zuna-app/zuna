@@ -9,6 +9,7 @@ import (
 	"zuna-server/ent/attachment"
 	"zuna-server/ent/message"
 	"zuna-server/ent/predicate"
+	"zuna-server/ent/user"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
@@ -28,58 +29,44 @@ func (_u *AttachmentUpdate) Where(ps ...predicate.Attachment) *AttachmentUpdate 
 	return _u
 }
 
-// SetSenderIdentityKey sets the "sender_identity_key" field.
-func (_u *AttachmentUpdate) SetSenderIdentityKey(v string) *AttachmentUpdate {
-	_u.mutation.SetSenderIdentityKey(v)
+// SetMetadata sets the "metadata" field.
+func (_u *AttachmentUpdate) SetMetadata(v string) *AttachmentUpdate {
+	_u.mutation.SetMetadata(v)
 	return _u
 }
 
-// SetNillableSenderIdentityKey sets the "sender_identity_key" field if the given value is not nil.
-func (_u *AttachmentUpdate) SetNillableSenderIdentityKey(v *string) *AttachmentUpdate {
+// SetNillableMetadata sets the "metadata" field if the given value is not nil.
+func (_u *AttachmentUpdate) SetNillableMetadata(v *string) *AttachmentUpdate {
 	if v != nil {
-		_u.SetSenderIdentityKey(*v)
+		_u.SetMetadata(*v)
 	}
 	return _u
 }
 
-// SetIv sets the "iv" field.
-func (_u *AttachmentUpdate) SetIv(v string) *AttachmentUpdate {
-	_u.mutation.SetIv(v)
+// SetMetadataIv sets the "metadata_iv" field.
+func (_u *AttachmentUpdate) SetMetadataIv(v string) *AttachmentUpdate {
+	_u.mutation.SetMetadataIv(v)
 	return _u
 }
 
-// SetNillableIv sets the "iv" field if the given value is not nil.
-func (_u *AttachmentUpdate) SetNillableIv(v *string) *AttachmentUpdate {
+// SetNillableMetadataIv sets the "metadata_iv" field if the given value is not nil.
+func (_u *AttachmentUpdate) SetNillableMetadataIv(v *string) *AttachmentUpdate {
 	if v != nil {
-		_u.SetIv(*v)
+		_u.SetMetadataIv(*v)
 	}
 	return _u
 }
 
-// SetMimeType sets the "mime_type" field.
-func (_u *AttachmentUpdate) SetMimeType(v string) *AttachmentUpdate {
-	_u.mutation.SetMimeType(v)
+// SetMetadataAuthTag sets the "metadata_auth_tag" field.
+func (_u *AttachmentUpdate) SetMetadataAuthTag(v string) *AttachmentUpdate {
+	_u.mutation.SetMetadataAuthTag(v)
 	return _u
 }
 
-// SetNillableMimeType sets the "mime_type" field if the given value is not nil.
-func (_u *AttachmentUpdate) SetNillableMimeType(v *string) *AttachmentUpdate {
+// SetNillableMetadataAuthTag sets the "metadata_auth_tag" field if the given value is not nil.
+func (_u *AttachmentUpdate) SetNillableMetadataAuthTag(v *string) *AttachmentUpdate {
 	if v != nil {
-		_u.SetMimeType(*v)
-	}
-	return _u
-}
-
-// SetOriginalFileName sets the "original_file_name" field.
-func (_u *AttachmentUpdate) SetOriginalFileName(v string) *AttachmentUpdate {
-	_u.mutation.SetOriginalFileName(v)
-	return _u
-}
-
-// SetNillableOriginalFileName sets the "original_file_name" field if the given value is not nil.
-func (_u *AttachmentUpdate) SetNillableOriginalFileName(v *string) *AttachmentUpdate {
-	if v != nil {
-		_u.SetOriginalFileName(*v)
+		_u.SetMetadataAuthTag(*v)
 	}
 	return _u
 }
@@ -90,9 +77,28 @@ func (_u *AttachmentUpdate) SetMessageID(id int64) *AttachmentUpdate {
 	return _u
 }
 
+// SetNillableMessageID sets the "message" edge to the Message entity by ID if the given value is not nil.
+func (_u *AttachmentUpdate) SetNillableMessageID(id *int64) *AttachmentUpdate {
+	if id != nil {
+		_u = _u.SetMessageID(*id)
+	}
+	return _u
+}
+
 // SetMessage sets the "message" edge to the Message entity.
 func (_u *AttachmentUpdate) SetMessage(v *Message) *AttachmentUpdate {
 	return _u.SetMessageID(v.ID)
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (_u *AttachmentUpdate) SetUserID(id string) *AttachmentUpdate {
+	_u.mutation.SetUserID(id)
+	return _u
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (_u *AttachmentUpdate) SetUser(v *User) *AttachmentUpdate {
+	return _u.SetUserID(v.ID)
 }
 
 // Mutation returns the AttachmentMutation object of the builder.
@@ -103,6 +109,12 @@ func (_u *AttachmentUpdate) Mutation() *AttachmentMutation {
 // ClearMessage clears the "message" edge to the Message entity.
 func (_u *AttachmentUpdate) ClearMessage() *AttachmentUpdate {
 	_u.mutation.ClearMessage()
+	return _u
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (_u *AttachmentUpdate) ClearUser() *AttachmentUpdate {
+	_u.mutation.ClearUser()
 	return _u
 }
 
@@ -135,8 +147,8 @@ func (_u *AttachmentUpdate) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *AttachmentUpdate) check() error {
-	if _u.mutation.MessageCleared() && len(_u.mutation.MessageIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Attachment.message"`)
+	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Attachment.user"`)
 	}
 	return nil
 }
@@ -153,21 +165,18 @@ func (_u *AttachmentUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			}
 		}
 	}
-	if value, ok := _u.mutation.SenderIdentityKey(); ok {
-		_spec.SetField(attachment.FieldSenderIdentityKey, field.TypeString, value)
+	if value, ok := _u.mutation.Metadata(); ok {
+		_spec.SetField(attachment.FieldMetadata, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.Iv(); ok {
-		_spec.SetField(attachment.FieldIv, field.TypeString, value)
+	if value, ok := _u.mutation.MetadataIv(); ok {
+		_spec.SetField(attachment.FieldMetadataIv, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.MimeType(); ok {
-		_spec.SetField(attachment.FieldMimeType, field.TypeString, value)
-	}
-	if value, ok := _u.mutation.OriginalFileName(); ok {
-		_spec.SetField(attachment.FieldOriginalFileName, field.TypeString, value)
+	if value, ok := _u.mutation.MetadataAuthTag(); ok {
+		_spec.SetField(attachment.FieldMetadataAuthTag, field.TypeString, value)
 	}
 	if _u.mutation.MessageCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2O,
 			Inverse: true,
 			Table:   attachment.MessageTable,
 			Columns: []string{attachment.MessageColumn},
@@ -180,13 +189,42 @@ func (_u *AttachmentUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	}
 	if nodes := _u.mutation.MessageIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2O,
 			Inverse: true,
 			Table:   attachment.MessageTable,
 			Columns: []string{attachment.MessageColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UserCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   attachment.UserTable,
+			Columns: []string{attachment.UserColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UserIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   attachment.UserTable,
+			Columns: []string{attachment.UserColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeString),
 			},
 		}
 		for _, k := range nodes {
@@ -214,58 +252,44 @@ type AttachmentUpdateOne struct {
 	mutation *AttachmentMutation
 }
 
-// SetSenderIdentityKey sets the "sender_identity_key" field.
-func (_u *AttachmentUpdateOne) SetSenderIdentityKey(v string) *AttachmentUpdateOne {
-	_u.mutation.SetSenderIdentityKey(v)
+// SetMetadata sets the "metadata" field.
+func (_u *AttachmentUpdateOne) SetMetadata(v string) *AttachmentUpdateOne {
+	_u.mutation.SetMetadata(v)
 	return _u
 }
 
-// SetNillableSenderIdentityKey sets the "sender_identity_key" field if the given value is not nil.
-func (_u *AttachmentUpdateOne) SetNillableSenderIdentityKey(v *string) *AttachmentUpdateOne {
+// SetNillableMetadata sets the "metadata" field if the given value is not nil.
+func (_u *AttachmentUpdateOne) SetNillableMetadata(v *string) *AttachmentUpdateOne {
 	if v != nil {
-		_u.SetSenderIdentityKey(*v)
+		_u.SetMetadata(*v)
 	}
 	return _u
 }
 
-// SetIv sets the "iv" field.
-func (_u *AttachmentUpdateOne) SetIv(v string) *AttachmentUpdateOne {
-	_u.mutation.SetIv(v)
+// SetMetadataIv sets the "metadata_iv" field.
+func (_u *AttachmentUpdateOne) SetMetadataIv(v string) *AttachmentUpdateOne {
+	_u.mutation.SetMetadataIv(v)
 	return _u
 }
 
-// SetNillableIv sets the "iv" field if the given value is not nil.
-func (_u *AttachmentUpdateOne) SetNillableIv(v *string) *AttachmentUpdateOne {
+// SetNillableMetadataIv sets the "metadata_iv" field if the given value is not nil.
+func (_u *AttachmentUpdateOne) SetNillableMetadataIv(v *string) *AttachmentUpdateOne {
 	if v != nil {
-		_u.SetIv(*v)
+		_u.SetMetadataIv(*v)
 	}
 	return _u
 }
 
-// SetMimeType sets the "mime_type" field.
-func (_u *AttachmentUpdateOne) SetMimeType(v string) *AttachmentUpdateOne {
-	_u.mutation.SetMimeType(v)
+// SetMetadataAuthTag sets the "metadata_auth_tag" field.
+func (_u *AttachmentUpdateOne) SetMetadataAuthTag(v string) *AttachmentUpdateOne {
+	_u.mutation.SetMetadataAuthTag(v)
 	return _u
 }
 
-// SetNillableMimeType sets the "mime_type" field if the given value is not nil.
-func (_u *AttachmentUpdateOne) SetNillableMimeType(v *string) *AttachmentUpdateOne {
+// SetNillableMetadataAuthTag sets the "metadata_auth_tag" field if the given value is not nil.
+func (_u *AttachmentUpdateOne) SetNillableMetadataAuthTag(v *string) *AttachmentUpdateOne {
 	if v != nil {
-		_u.SetMimeType(*v)
-	}
-	return _u
-}
-
-// SetOriginalFileName sets the "original_file_name" field.
-func (_u *AttachmentUpdateOne) SetOriginalFileName(v string) *AttachmentUpdateOne {
-	_u.mutation.SetOriginalFileName(v)
-	return _u
-}
-
-// SetNillableOriginalFileName sets the "original_file_name" field if the given value is not nil.
-func (_u *AttachmentUpdateOne) SetNillableOriginalFileName(v *string) *AttachmentUpdateOne {
-	if v != nil {
-		_u.SetOriginalFileName(*v)
+		_u.SetMetadataAuthTag(*v)
 	}
 	return _u
 }
@@ -276,9 +300,28 @@ func (_u *AttachmentUpdateOne) SetMessageID(id int64) *AttachmentUpdateOne {
 	return _u
 }
 
+// SetNillableMessageID sets the "message" edge to the Message entity by ID if the given value is not nil.
+func (_u *AttachmentUpdateOne) SetNillableMessageID(id *int64) *AttachmentUpdateOne {
+	if id != nil {
+		_u = _u.SetMessageID(*id)
+	}
+	return _u
+}
+
 // SetMessage sets the "message" edge to the Message entity.
 func (_u *AttachmentUpdateOne) SetMessage(v *Message) *AttachmentUpdateOne {
 	return _u.SetMessageID(v.ID)
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (_u *AttachmentUpdateOne) SetUserID(id string) *AttachmentUpdateOne {
+	_u.mutation.SetUserID(id)
+	return _u
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (_u *AttachmentUpdateOne) SetUser(v *User) *AttachmentUpdateOne {
+	return _u.SetUserID(v.ID)
 }
 
 // Mutation returns the AttachmentMutation object of the builder.
@@ -289,6 +332,12 @@ func (_u *AttachmentUpdateOne) Mutation() *AttachmentMutation {
 // ClearMessage clears the "message" edge to the Message entity.
 func (_u *AttachmentUpdateOne) ClearMessage() *AttachmentUpdateOne {
 	_u.mutation.ClearMessage()
+	return _u
+}
+
+// ClearUser clears the "user" edge to the User entity.
+func (_u *AttachmentUpdateOne) ClearUser() *AttachmentUpdateOne {
+	_u.mutation.ClearUser()
 	return _u
 }
 
@@ -334,8 +383,8 @@ func (_u *AttachmentUpdateOne) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *AttachmentUpdateOne) check() error {
-	if _u.mutation.MessageCleared() && len(_u.mutation.MessageIDs()) > 0 {
-		return errors.New(`ent: clearing a required unique edge "Attachment.message"`)
+	if _u.mutation.UserCleared() && len(_u.mutation.UserIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "Attachment.user"`)
 	}
 	return nil
 }
@@ -369,21 +418,18 @@ func (_u *AttachmentUpdateOne) sqlSave(ctx context.Context) (_node *Attachment, 
 			}
 		}
 	}
-	if value, ok := _u.mutation.SenderIdentityKey(); ok {
-		_spec.SetField(attachment.FieldSenderIdentityKey, field.TypeString, value)
+	if value, ok := _u.mutation.Metadata(); ok {
+		_spec.SetField(attachment.FieldMetadata, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.Iv(); ok {
-		_spec.SetField(attachment.FieldIv, field.TypeString, value)
+	if value, ok := _u.mutation.MetadataIv(); ok {
+		_spec.SetField(attachment.FieldMetadataIv, field.TypeString, value)
 	}
-	if value, ok := _u.mutation.MimeType(); ok {
-		_spec.SetField(attachment.FieldMimeType, field.TypeString, value)
-	}
-	if value, ok := _u.mutation.OriginalFileName(); ok {
-		_spec.SetField(attachment.FieldOriginalFileName, field.TypeString, value)
+	if value, ok := _u.mutation.MetadataAuthTag(); ok {
+		_spec.SetField(attachment.FieldMetadataAuthTag, field.TypeString, value)
 	}
 	if _u.mutation.MessageCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2O,
 			Inverse: true,
 			Table:   attachment.MessageTable,
 			Columns: []string{attachment.MessageColumn},
@@ -396,13 +442,42 @@ func (_u *AttachmentUpdateOne) sqlSave(ctx context.Context) (_node *Attachment, 
 	}
 	if nodes := _u.mutation.MessageIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2O,
 			Inverse: true,
 			Table:   attachment.MessageTable,
 			Columns: []string{attachment.MessageColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.UserCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   attachment.UserTable,
+			Columns: []string{attachment.UserColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.UserIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   attachment.UserTable,
+			Columns: []string{attachment.UserColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeString),
 			},
 		}
 		for _, k := range nodes {

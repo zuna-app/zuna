@@ -41,9 +41,11 @@ type UserEdges struct {
 	Chats []*Chat `json:"chats,omitempty"`
 	// Messages holds the value of the messages edge.
 	Messages []*Message `json:"messages,omitempty"`
+	// Attachments holds the value of the attachments edge.
+	Attachments []*Attachment `json:"attachments,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // ChatsOrErr returns the Chats value or an error if the edge
@@ -62,6 +64,15 @@ func (e UserEdges) MessagesOrErr() ([]*Message, error) {
 		return e.Messages, nil
 	}
 	return nil, &NotLoadedError{edge: "messages"}
+}
+
+// AttachmentsOrErr returns the Attachments value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) AttachmentsOrErr() ([]*Attachment, error) {
+	if e.loadedTypes[2] {
+		return e.Attachments, nil
+	}
+	return nil, &NotLoadedError{edge: "attachments"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -153,6 +164,11 @@ func (_m *User) QueryChats() *ChatQuery {
 // QueryMessages queries the "messages" edge of the User entity.
 func (_m *User) QueryMessages() *MessageQuery {
 	return NewUserClient(_m.config).QueryMessages(_m)
+}
+
+// QueryAttachments queries the "attachments" edge of the User entity.
+func (_m *User) QueryAttachments() *AttachmentQuery {
+	return NewUserClient(_m.config).QueryAttachments(_m)
 }
 
 // Update returns a builder for updating this User.

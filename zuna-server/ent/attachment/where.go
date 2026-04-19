@@ -64,284 +64,214 @@ func IDContainsFold(id string) predicate.Attachment {
 	return predicate.Attachment(sql.FieldContainsFold(FieldID, id))
 }
 
-// SenderIdentityKey applies equality check predicate on the "sender_identity_key" field. It's identical to SenderIdentityKeyEQ.
-func SenderIdentityKey(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldSenderIdentityKey, v))
+// Metadata applies equality check predicate on the "metadata" field. It's identical to MetadataEQ.
+func Metadata(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEQ(FieldMetadata, v))
 }
 
-// Iv applies equality check predicate on the "iv" field. It's identical to IvEQ.
-func Iv(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldIv, v))
+// MetadataIv applies equality check predicate on the "metadata_iv" field. It's identical to MetadataIvEQ.
+func MetadataIv(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEQ(FieldMetadataIv, v))
 }
 
-// MimeType applies equality check predicate on the "mime_type" field. It's identical to MimeTypeEQ.
-func MimeType(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldMimeType, v))
+// MetadataAuthTag applies equality check predicate on the "metadata_auth_tag" field. It's identical to MetadataAuthTagEQ.
+func MetadataAuthTag(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEQ(FieldMetadataAuthTag, v))
 }
 
-// OriginalFileName applies equality check predicate on the "original_file_name" field. It's identical to OriginalFileNameEQ.
-func OriginalFileName(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldOriginalFileName, v))
+// MetadataEQ applies the EQ predicate on the "metadata" field.
+func MetadataEQ(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEQ(FieldMetadata, v))
 }
 
-// SenderIdentityKeyEQ applies the EQ predicate on the "sender_identity_key" field.
-func SenderIdentityKeyEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldSenderIdentityKey, v))
+// MetadataNEQ applies the NEQ predicate on the "metadata" field.
+func MetadataNEQ(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldNEQ(FieldMetadata, v))
 }
 
-// SenderIdentityKeyNEQ applies the NEQ predicate on the "sender_identity_key" field.
-func SenderIdentityKeyNEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNEQ(FieldSenderIdentityKey, v))
+// MetadataIn applies the In predicate on the "metadata" field.
+func MetadataIn(vs ...string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldIn(FieldMetadata, vs...))
 }
 
-// SenderIdentityKeyIn applies the In predicate on the "sender_identity_key" field.
-func SenderIdentityKeyIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldIn(FieldSenderIdentityKey, vs...))
+// MetadataNotIn applies the NotIn predicate on the "metadata" field.
+func MetadataNotIn(vs ...string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldNotIn(FieldMetadata, vs...))
 }
 
-// SenderIdentityKeyNotIn applies the NotIn predicate on the "sender_identity_key" field.
-func SenderIdentityKeyNotIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNotIn(FieldSenderIdentityKey, vs...))
+// MetadataGT applies the GT predicate on the "metadata" field.
+func MetadataGT(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldGT(FieldMetadata, v))
 }
 
-// SenderIdentityKeyGT applies the GT predicate on the "sender_identity_key" field.
-func SenderIdentityKeyGT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGT(FieldSenderIdentityKey, v))
+// MetadataGTE applies the GTE predicate on the "metadata" field.
+func MetadataGTE(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldGTE(FieldMetadata, v))
 }
 
-// SenderIdentityKeyGTE applies the GTE predicate on the "sender_identity_key" field.
-func SenderIdentityKeyGTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGTE(FieldSenderIdentityKey, v))
+// MetadataLT applies the LT predicate on the "metadata" field.
+func MetadataLT(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldLT(FieldMetadata, v))
 }
 
-// SenderIdentityKeyLT applies the LT predicate on the "sender_identity_key" field.
-func SenderIdentityKeyLT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLT(FieldSenderIdentityKey, v))
+// MetadataLTE applies the LTE predicate on the "metadata" field.
+func MetadataLTE(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldLTE(FieldMetadata, v))
 }
 
-// SenderIdentityKeyLTE applies the LTE predicate on the "sender_identity_key" field.
-func SenderIdentityKeyLTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLTE(FieldSenderIdentityKey, v))
+// MetadataContains applies the Contains predicate on the "metadata" field.
+func MetadataContains(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldContains(FieldMetadata, v))
 }
 
-// SenderIdentityKeyContains applies the Contains predicate on the "sender_identity_key" field.
-func SenderIdentityKeyContains(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContains(FieldSenderIdentityKey, v))
+// MetadataHasPrefix applies the HasPrefix predicate on the "metadata" field.
+func MetadataHasPrefix(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldHasPrefix(FieldMetadata, v))
 }
 
-// SenderIdentityKeyHasPrefix applies the HasPrefix predicate on the "sender_identity_key" field.
-func SenderIdentityKeyHasPrefix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasPrefix(FieldSenderIdentityKey, v))
+// MetadataHasSuffix applies the HasSuffix predicate on the "metadata" field.
+func MetadataHasSuffix(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldHasSuffix(FieldMetadata, v))
 }
 
-// SenderIdentityKeyHasSuffix applies the HasSuffix predicate on the "sender_identity_key" field.
-func SenderIdentityKeyHasSuffix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasSuffix(FieldSenderIdentityKey, v))
+// MetadataEqualFold applies the EqualFold predicate on the "metadata" field.
+func MetadataEqualFold(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEqualFold(FieldMetadata, v))
 }
 
-// SenderIdentityKeyEqualFold applies the EqualFold predicate on the "sender_identity_key" field.
-func SenderIdentityKeyEqualFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEqualFold(FieldSenderIdentityKey, v))
+// MetadataContainsFold applies the ContainsFold predicate on the "metadata" field.
+func MetadataContainsFold(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldContainsFold(FieldMetadata, v))
 }
 
-// SenderIdentityKeyContainsFold applies the ContainsFold predicate on the "sender_identity_key" field.
-func SenderIdentityKeyContainsFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContainsFold(FieldSenderIdentityKey, v))
+// MetadataIvEQ applies the EQ predicate on the "metadata_iv" field.
+func MetadataIvEQ(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEQ(FieldMetadataIv, v))
 }
 
-// IvEQ applies the EQ predicate on the "iv" field.
-func IvEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldIv, v))
+// MetadataIvNEQ applies the NEQ predicate on the "metadata_iv" field.
+func MetadataIvNEQ(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldNEQ(FieldMetadataIv, v))
 }
 
-// IvNEQ applies the NEQ predicate on the "iv" field.
-func IvNEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNEQ(FieldIv, v))
+// MetadataIvIn applies the In predicate on the "metadata_iv" field.
+func MetadataIvIn(vs ...string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldIn(FieldMetadataIv, vs...))
 }
 
-// IvIn applies the In predicate on the "iv" field.
-func IvIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldIn(FieldIv, vs...))
+// MetadataIvNotIn applies the NotIn predicate on the "metadata_iv" field.
+func MetadataIvNotIn(vs ...string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldNotIn(FieldMetadataIv, vs...))
 }
 
-// IvNotIn applies the NotIn predicate on the "iv" field.
-func IvNotIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNotIn(FieldIv, vs...))
+// MetadataIvGT applies the GT predicate on the "metadata_iv" field.
+func MetadataIvGT(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldGT(FieldMetadataIv, v))
 }
 
-// IvGT applies the GT predicate on the "iv" field.
-func IvGT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGT(FieldIv, v))
+// MetadataIvGTE applies the GTE predicate on the "metadata_iv" field.
+func MetadataIvGTE(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldGTE(FieldMetadataIv, v))
 }
 
-// IvGTE applies the GTE predicate on the "iv" field.
-func IvGTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGTE(FieldIv, v))
+// MetadataIvLT applies the LT predicate on the "metadata_iv" field.
+func MetadataIvLT(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldLT(FieldMetadataIv, v))
 }
 
-// IvLT applies the LT predicate on the "iv" field.
-func IvLT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLT(FieldIv, v))
+// MetadataIvLTE applies the LTE predicate on the "metadata_iv" field.
+func MetadataIvLTE(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldLTE(FieldMetadataIv, v))
 }
 
-// IvLTE applies the LTE predicate on the "iv" field.
-func IvLTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLTE(FieldIv, v))
+// MetadataIvContains applies the Contains predicate on the "metadata_iv" field.
+func MetadataIvContains(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldContains(FieldMetadataIv, v))
 }
 
-// IvContains applies the Contains predicate on the "iv" field.
-func IvContains(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContains(FieldIv, v))
+// MetadataIvHasPrefix applies the HasPrefix predicate on the "metadata_iv" field.
+func MetadataIvHasPrefix(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldHasPrefix(FieldMetadataIv, v))
 }
 
-// IvHasPrefix applies the HasPrefix predicate on the "iv" field.
-func IvHasPrefix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasPrefix(FieldIv, v))
+// MetadataIvHasSuffix applies the HasSuffix predicate on the "metadata_iv" field.
+func MetadataIvHasSuffix(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldHasSuffix(FieldMetadataIv, v))
 }
 
-// IvHasSuffix applies the HasSuffix predicate on the "iv" field.
-func IvHasSuffix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasSuffix(FieldIv, v))
+// MetadataIvEqualFold applies the EqualFold predicate on the "metadata_iv" field.
+func MetadataIvEqualFold(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEqualFold(FieldMetadataIv, v))
 }
 
-// IvEqualFold applies the EqualFold predicate on the "iv" field.
-func IvEqualFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEqualFold(FieldIv, v))
+// MetadataIvContainsFold applies the ContainsFold predicate on the "metadata_iv" field.
+func MetadataIvContainsFold(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldContainsFold(FieldMetadataIv, v))
 }
 
-// IvContainsFold applies the ContainsFold predicate on the "iv" field.
-func IvContainsFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContainsFold(FieldIv, v))
+// MetadataAuthTagEQ applies the EQ predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagEQ(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEQ(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeEQ applies the EQ predicate on the "mime_type" field.
-func MimeTypeEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldMimeType, v))
+// MetadataAuthTagNEQ applies the NEQ predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagNEQ(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldNEQ(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeNEQ applies the NEQ predicate on the "mime_type" field.
-func MimeTypeNEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNEQ(FieldMimeType, v))
+// MetadataAuthTagIn applies the In predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagIn(vs ...string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldIn(FieldMetadataAuthTag, vs...))
 }
 
-// MimeTypeIn applies the In predicate on the "mime_type" field.
-func MimeTypeIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldIn(FieldMimeType, vs...))
+// MetadataAuthTagNotIn applies the NotIn predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagNotIn(vs ...string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldNotIn(FieldMetadataAuthTag, vs...))
 }
 
-// MimeTypeNotIn applies the NotIn predicate on the "mime_type" field.
-func MimeTypeNotIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNotIn(FieldMimeType, vs...))
+// MetadataAuthTagGT applies the GT predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagGT(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldGT(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeGT applies the GT predicate on the "mime_type" field.
-func MimeTypeGT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGT(FieldMimeType, v))
+// MetadataAuthTagGTE applies the GTE predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagGTE(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldGTE(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeGTE applies the GTE predicate on the "mime_type" field.
-func MimeTypeGTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGTE(FieldMimeType, v))
+// MetadataAuthTagLT applies the LT predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagLT(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldLT(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeLT applies the LT predicate on the "mime_type" field.
-func MimeTypeLT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLT(FieldMimeType, v))
+// MetadataAuthTagLTE applies the LTE predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagLTE(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldLTE(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeLTE applies the LTE predicate on the "mime_type" field.
-func MimeTypeLTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLTE(FieldMimeType, v))
+// MetadataAuthTagContains applies the Contains predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagContains(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldContains(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeContains applies the Contains predicate on the "mime_type" field.
-func MimeTypeContains(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContains(FieldMimeType, v))
+// MetadataAuthTagHasPrefix applies the HasPrefix predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagHasPrefix(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldHasPrefix(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeHasPrefix applies the HasPrefix predicate on the "mime_type" field.
-func MimeTypeHasPrefix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasPrefix(FieldMimeType, v))
+// MetadataAuthTagHasSuffix applies the HasSuffix predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagHasSuffix(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldHasSuffix(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeHasSuffix applies the HasSuffix predicate on the "mime_type" field.
-func MimeTypeHasSuffix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasSuffix(FieldMimeType, v))
+// MetadataAuthTagEqualFold applies the EqualFold predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagEqualFold(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldEqualFold(FieldMetadataAuthTag, v))
 }
 
-// MimeTypeEqualFold applies the EqualFold predicate on the "mime_type" field.
-func MimeTypeEqualFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEqualFold(FieldMimeType, v))
-}
-
-// MimeTypeContainsFold applies the ContainsFold predicate on the "mime_type" field.
-func MimeTypeContainsFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContainsFold(FieldMimeType, v))
-}
-
-// OriginalFileNameEQ applies the EQ predicate on the "original_file_name" field.
-func OriginalFileNameEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEQ(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameNEQ applies the NEQ predicate on the "original_file_name" field.
-func OriginalFileNameNEQ(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNEQ(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameIn applies the In predicate on the "original_file_name" field.
-func OriginalFileNameIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldIn(FieldOriginalFileName, vs...))
-}
-
-// OriginalFileNameNotIn applies the NotIn predicate on the "original_file_name" field.
-func OriginalFileNameNotIn(vs ...string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldNotIn(FieldOriginalFileName, vs...))
-}
-
-// OriginalFileNameGT applies the GT predicate on the "original_file_name" field.
-func OriginalFileNameGT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGT(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameGTE applies the GTE predicate on the "original_file_name" field.
-func OriginalFileNameGTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldGTE(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameLT applies the LT predicate on the "original_file_name" field.
-func OriginalFileNameLT(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLT(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameLTE applies the LTE predicate on the "original_file_name" field.
-func OriginalFileNameLTE(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldLTE(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameContains applies the Contains predicate on the "original_file_name" field.
-func OriginalFileNameContains(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContains(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameHasPrefix applies the HasPrefix predicate on the "original_file_name" field.
-func OriginalFileNameHasPrefix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasPrefix(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameHasSuffix applies the HasSuffix predicate on the "original_file_name" field.
-func OriginalFileNameHasSuffix(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldHasSuffix(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameEqualFold applies the EqualFold predicate on the "original_file_name" field.
-func OriginalFileNameEqualFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldEqualFold(FieldOriginalFileName, v))
-}
-
-// OriginalFileNameContainsFold applies the ContainsFold predicate on the "original_file_name" field.
-func OriginalFileNameContainsFold(v string) predicate.Attachment {
-	return predicate.Attachment(sql.FieldContainsFold(FieldOriginalFileName, v))
+// MetadataAuthTagContainsFold applies the ContainsFold predicate on the "metadata_auth_tag" field.
+func MetadataAuthTagContainsFold(v string) predicate.Attachment {
+	return predicate.Attachment(sql.FieldContainsFold(FieldMetadataAuthTag, v))
 }
 
 // HasMessage applies the HasEdge predicate on the "message" edge.
@@ -349,7 +279,7 @@ func HasMessage() predicate.Attachment {
 	return predicate.Attachment(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, MessageTable, MessageColumn),
+			sqlgraph.Edge(sqlgraph.O2O, true, MessageTable, MessageColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
@@ -359,6 +289,29 @@ func HasMessage() predicate.Attachment {
 func HasMessageWith(preds ...predicate.Message) predicate.Attachment {
 	return predicate.Attachment(func(s *sql.Selector) {
 		step := newMessageStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasUser applies the HasEdge predicate on the "user" edge.
+func HasUser() predicate.Attachment {
+	return predicate.Attachment(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, UserTable, UserColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasUserWith applies the HasEdge predicate on the "user" edge with a given conditions (other predicates).
+func HasUserWith(preds ...predicate.User) predicate.Attachment {
+	return predicate.Attachment(func(s *sql.Selector) {
+		step := newUserStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

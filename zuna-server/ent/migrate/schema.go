@@ -11,11 +11,11 @@ var (
 	// AttachmentsColumns holds the columns for the "attachments" table.
 	AttachmentsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString},
-		{Name: "sender_identity_key", Type: field.TypeString},
-		{Name: "iv", Type: field.TypeString},
-		{Name: "mime_type", Type: field.TypeString},
-		{Name: "original_file_name", Type: field.TypeString},
-		{Name: "message_attachments", Type: field.TypeInt64},
+		{Name: "metadata", Type: field.TypeString},
+		{Name: "metadata_iv", Type: field.TypeString},
+		{Name: "metadata_auth_tag", Type: field.TypeString},
+		{Name: "message_attachment", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "user_attachments", Type: field.TypeString},
 	}
 	// AttachmentsTable holds the schema information for the "attachments" table.
 	AttachmentsTable = &schema.Table{
@@ -24,9 +24,15 @@ var (
 		PrimaryKey: []*schema.Column{AttachmentsColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "attachments_messages_attachments",
-				Columns:    []*schema.Column{AttachmentsColumns[5]},
+				Symbol:     "attachments_messages_attachment",
+				Columns:    []*schema.Column{AttachmentsColumns[4]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "attachments_users_attachments",
+				Columns:    []*schema.Column{AttachmentsColumns[5]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 		},
@@ -125,6 +131,7 @@ var (
 
 func init() {
 	AttachmentsTable.ForeignKeys[0].RefTable = MessagesTable
+	AttachmentsTable.ForeignKeys[1].RefTable = UsersTable
 	MessagesTable.ForeignKeys[0].RefTable = ChatsTable
 	MessagesTable.ForeignKeys[1].RefTable = UsersTable
 	UserChatsTable.ForeignKeys[0].RefTable = UsersTable

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"zuna-server/ent/attachment"
 	"zuna-server/ent/message"
+	"zuna-server/ent/user"
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
@@ -20,27 +21,21 @@ type AttachmentCreate struct {
 	hooks    []Hook
 }
 
-// SetSenderIdentityKey sets the "sender_identity_key" field.
-func (_c *AttachmentCreate) SetSenderIdentityKey(v string) *AttachmentCreate {
-	_c.mutation.SetSenderIdentityKey(v)
+// SetMetadata sets the "metadata" field.
+func (_c *AttachmentCreate) SetMetadata(v string) *AttachmentCreate {
+	_c.mutation.SetMetadata(v)
 	return _c
 }
 
-// SetIv sets the "iv" field.
-func (_c *AttachmentCreate) SetIv(v string) *AttachmentCreate {
-	_c.mutation.SetIv(v)
+// SetMetadataIv sets the "metadata_iv" field.
+func (_c *AttachmentCreate) SetMetadataIv(v string) *AttachmentCreate {
+	_c.mutation.SetMetadataIv(v)
 	return _c
 }
 
-// SetMimeType sets the "mime_type" field.
-func (_c *AttachmentCreate) SetMimeType(v string) *AttachmentCreate {
-	_c.mutation.SetMimeType(v)
-	return _c
-}
-
-// SetOriginalFileName sets the "original_file_name" field.
-func (_c *AttachmentCreate) SetOriginalFileName(v string) *AttachmentCreate {
-	_c.mutation.SetOriginalFileName(v)
+// SetMetadataAuthTag sets the "metadata_auth_tag" field.
+func (_c *AttachmentCreate) SetMetadataAuthTag(v string) *AttachmentCreate {
+	_c.mutation.SetMetadataAuthTag(v)
 	return _c
 }
 
@@ -64,9 +59,28 @@ func (_c *AttachmentCreate) SetMessageID(id int64) *AttachmentCreate {
 	return _c
 }
 
+// SetNillableMessageID sets the "message" edge to the Message entity by ID if the given value is not nil.
+func (_c *AttachmentCreate) SetNillableMessageID(id *int64) *AttachmentCreate {
+	if id != nil {
+		_c = _c.SetMessageID(*id)
+	}
+	return _c
+}
+
 // SetMessage sets the "message" edge to the Message entity.
 func (_c *AttachmentCreate) SetMessage(v *Message) *AttachmentCreate {
 	return _c.SetMessageID(v.ID)
+}
+
+// SetUserID sets the "user" edge to the User entity by ID.
+func (_c *AttachmentCreate) SetUserID(id string) *AttachmentCreate {
+	_c.mutation.SetUserID(id)
+	return _c
+}
+
+// SetUser sets the "user" edge to the User entity.
+func (_c *AttachmentCreate) SetUser(v *User) *AttachmentCreate {
+	return _c.SetUserID(v.ID)
 }
 
 // Mutation returns the AttachmentMutation object of the builder.
@@ -112,20 +126,17 @@ func (_c *AttachmentCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *AttachmentCreate) check() error {
-	if _, ok := _c.mutation.SenderIdentityKey(); !ok {
-		return &ValidationError{Name: "sender_identity_key", err: errors.New(`ent: missing required field "Attachment.sender_identity_key"`)}
+	if _, ok := _c.mutation.Metadata(); !ok {
+		return &ValidationError{Name: "metadata", err: errors.New(`ent: missing required field "Attachment.metadata"`)}
 	}
-	if _, ok := _c.mutation.Iv(); !ok {
-		return &ValidationError{Name: "iv", err: errors.New(`ent: missing required field "Attachment.iv"`)}
+	if _, ok := _c.mutation.MetadataIv(); !ok {
+		return &ValidationError{Name: "metadata_iv", err: errors.New(`ent: missing required field "Attachment.metadata_iv"`)}
 	}
-	if _, ok := _c.mutation.MimeType(); !ok {
-		return &ValidationError{Name: "mime_type", err: errors.New(`ent: missing required field "Attachment.mime_type"`)}
+	if _, ok := _c.mutation.MetadataAuthTag(); !ok {
+		return &ValidationError{Name: "metadata_auth_tag", err: errors.New(`ent: missing required field "Attachment.metadata_auth_tag"`)}
 	}
-	if _, ok := _c.mutation.OriginalFileName(); !ok {
-		return &ValidationError{Name: "original_file_name", err: errors.New(`ent: missing required field "Attachment.original_file_name"`)}
-	}
-	if len(_c.mutation.MessageIDs()) == 0 {
-		return &ValidationError{Name: "message", err: errors.New(`ent: missing required edge "Attachment.message"`)}
+	if len(_c.mutation.UserIDs()) == 0 {
+		return &ValidationError{Name: "user", err: errors.New(`ent: missing required edge "Attachment.user"`)}
 	}
 	return nil
 }
@@ -162,25 +173,21 @@ func (_c *AttachmentCreate) createSpec() (*Attachment, *sqlgraph.CreateSpec) {
 		_node.ID = id
 		_spec.ID.Value = id
 	}
-	if value, ok := _c.mutation.SenderIdentityKey(); ok {
-		_spec.SetField(attachment.FieldSenderIdentityKey, field.TypeString, value)
-		_node.SenderIdentityKey = value
+	if value, ok := _c.mutation.Metadata(); ok {
+		_spec.SetField(attachment.FieldMetadata, field.TypeString, value)
+		_node.Metadata = value
 	}
-	if value, ok := _c.mutation.Iv(); ok {
-		_spec.SetField(attachment.FieldIv, field.TypeString, value)
-		_node.Iv = value
+	if value, ok := _c.mutation.MetadataIv(); ok {
+		_spec.SetField(attachment.FieldMetadataIv, field.TypeString, value)
+		_node.MetadataIv = value
 	}
-	if value, ok := _c.mutation.MimeType(); ok {
-		_spec.SetField(attachment.FieldMimeType, field.TypeString, value)
-		_node.MimeType = value
-	}
-	if value, ok := _c.mutation.OriginalFileName(); ok {
-		_spec.SetField(attachment.FieldOriginalFileName, field.TypeString, value)
-		_node.OriginalFileName = value
+	if value, ok := _c.mutation.MetadataAuthTag(); ok {
+		_spec.SetField(attachment.FieldMetadataAuthTag, field.TypeString, value)
+		_node.MetadataAuthTag = value
 	}
 	if nodes := _c.mutation.MessageIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
+			Rel:     sqlgraph.O2O,
 			Inverse: true,
 			Table:   attachment.MessageTable,
 			Columns: []string{attachment.MessageColumn},
@@ -192,7 +199,24 @@ func (_c *AttachmentCreate) createSpec() (*Attachment, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.message_attachments = &nodes[0]
+		_node.message_attachment = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.UserIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   attachment.UserTable,
+			Columns: []string{attachment.UserColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.user_attachments = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

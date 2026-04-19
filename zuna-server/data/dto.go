@@ -15,13 +15,17 @@ type ChatMemberDTO struct {
 }
 
 type MessageDTO struct {
-	ID         int64  `json:"id"`
-	SenderID   string `json:"sender_id"`
-	CipherText string `json:"cipher_text"`
-	Iv         string `json:"iv"`
-	AuthTag    string `json:"auth_tag"`
-	SentAt     int64  `json:"sent_at"`
-	ReadAt     int64  `json:"read_at"`
+	ID                        int64  `json:"id"`
+	SenderID                  string `json:"sender_id"`
+	CipherText                string `json:"cipher_text"`
+	Iv                        string `json:"iv"`
+	AuthTag                   string `json:"auth_tag"`
+	SentAt                    int64  `json:"sent_at"`
+	ReadAt                    int64  `json:"read_at"`
+	AttachmentID              string `json:"attachment_id"`
+	AttachmentMetadata        string `json:"attachment_metadata"`
+	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
+	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
 }
 
 type PresenceDTO struct {

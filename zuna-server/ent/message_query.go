@@ -22,14 +22,14 @@ import (
 // MessageQuery is the builder for querying Message entities.
 type MessageQuery struct {
 	config
-	ctx             *QueryContext
-	order           []message.OrderOption
-	inters          []Interceptor
-	predicates      []predicate.Message
-	withUser        *UserQuery
-	withChat        *ChatQuery
-	withAttachments *AttachmentQuery
-	withFKs         bool
+	ctx            *QueryContext
+	order          []message.OrderOption
+	inters         []Interceptor
+	predicates     []predicate.Message
+	withUser       *UserQuery
+	withChat       *ChatQuery
+	withAttachment *AttachmentQuery
+	withFKs        bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -110,8 +110,8 @@ func (_q *MessageQuery) QueryChat() *ChatQuery {
 	return query
 }
 
-// QueryAttachments chains the current query on the "attachments" edge.
-func (_q *MessageQuery) QueryAttachments() *AttachmentQuery {
+// QueryAttachment chains the current query on the "attachment" edge.
+func (_q *MessageQuery) QueryAttachment() *AttachmentQuery {
 	query := (&AttachmentClient{config: _q.config}).Query()
 	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
 		if err := _q.prepareQuery(ctx); err != nil {
@@ -124,7 +124,7 @@ func (_q *MessageQuery) QueryAttachments() *AttachmentQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(message.Table, message.FieldID, selector),
 			sqlgraph.To(attachment.Table, attachment.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, message.AttachmentsTable, message.AttachmentsColumn),
+			sqlgraph.Edge(sqlgraph.O2O, false, message.AttachmentTable, message.AttachmentColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -319,14 +319,14 @@ func (_q *MessageQuery) Clone() *MessageQuery {
 		return nil
 	}
 	return &MessageQuery{
-		config:          _q.config,
-		ctx:             _q.ctx.Clone(),
-		order:           append([]message.OrderOption{}, _q.order...),
-		inters:          append([]Interceptor{}, _q.inters...),
-		predicates:      append([]predicate.Message{}, _q.predicates...),
-		withUser:        _q.withUser.Clone(),
-		withChat:        _q.withChat.Clone(),
-		withAttachments: _q.withAttachments.Clone(),
+		config:         _q.config,
+		ctx:            _q.ctx.Clone(),
+		order:          append([]message.OrderOption{}, _q.order...),
+		inters:         append([]Interceptor{}, _q.inters...),
+		predicates:     append([]predicate.Message{}, _q.predicates...),
+		withUser:       _q.withUser.Clone(),
+		withChat:       _q.withChat.Clone(),
+		withAttachment: _q.withAttachment.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -355,14 +355,14 @@ func (_q *MessageQuery) WithChat(opts ...func(*ChatQuery)) *MessageQuery {
 	return _q
 }
 
-// WithAttachments tells the query-builder to eager-load the nodes that are connected to
-// the "attachments" edge. The optional arguments are used to configure the query builder of the edge.
-func (_q *MessageQuery) WithAttachments(opts ...func(*AttachmentQuery)) *MessageQuery {
+// WithAttachment tells the query-builder to eager-load the nodes that are connected to
+// the "attachment" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MessageQuery) WithAttachment(opts ...func(*AttachmentQuery)) *MessageQuery {
 	query := (&AttachmentClient{config: _q.config}).Query()
 	for _, opt := range opts {
 		opt(query)
 	}
-	_q.withAttachments = query
+	_q.withAttachment = query
 	return _q
 }
 
@@ -448,7 +448,7 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 		loadedTypes = [3]bool{
 			_q.withUser != nil,
 			_q.withChat != nil,
-			_q.withAttachments != nil,
+			_q.withAttachment != nil,
 		}
 	)
 	if _q.withUser != nil || _q.withChat != nil {
@@ -487,10 +487,9 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 			return nil, err
 		}
 	}
-	if query := _q.withAttachments; query != nil {
-		if err := _q.loadAttachments(ctx, query, nodes,
-			func(n *Message) { n.Edges.Attachments = []*Attachment{} },
-			func(n *Message, e *Attachment) { n.Edges.Attachments = append(n.Edges.Attachments, e) }); err != nil {
+	if query := _q.withAttachment; query != nil {
+		if err := _q.loadAttachment(ctx, query, nodes, nil,
+			func(n *Message, e *Attachment) { n.Edges.Attachment = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -561,32 +560,29 @@ func (_q *MessageQuery) loadChat(ctx context.Context, query *ChatQuery, nodes []
 	}
 	return nil
 }
-func (_q *MessageQuery) loadAttachments(ctx context.Context, query *AttachmentQuery, nodes []*Message, init func(*Message), assign func(*Message, *Attachment)) error {
+func (_q *MessageQuery) loadAttachment(ctx context.Context, query *AttachmentQuery, nodes []*Message, init func(*Message), assign func(*Message, *Attachment)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int64]*Message)
 	for i := range nodes {
 		fks = append(fks, nodes[i].ID)
 		nodeids[nodes[i].ID] = nodes[i]
-		if init != nil {
-			init(nodes[i])
-		}
 	}
 	query.withFKs = true
 	query.Where(predicate.Attachment(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(message.AttachmentsColumn), fks...))
+		s.Where(sql.InValues(s.C(message.AttachmentColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		fk := n.message_attachments
+		fk := n.message_attachment
 		if fk == nil {
-			return fmt.Errorf(`foreign-key "message_attachments" is nil for node %v`, n.ID)
+			return fmt.Errorf(`foreign-key "message_attachment" is nil for node %v`, n.ID)
 		}
 		node, ok := nodeids[*fk]
 		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "message_attachments" returned %v for node %v`, *fk, n.ID)
+			return fmt.Errorf(`unexpected referenced foreign-key "message_attachment" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

@@ -34,5 +34,6 @@ func (User) Edges() []ent.Edge {
 	return []ent.Edge{
 		edge.To("chats", Chat.Type),
 		edge.To("messages", Message.Type),
+		edge.To("attachments", Attachment.Type),
 	}
 }

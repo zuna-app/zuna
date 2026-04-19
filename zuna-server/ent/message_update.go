@@ -129,19 +129,23 @@ func (_u *MessageUpdate) SetChat(v *Chat) *MessageUpdate {
 	return _u.SetChatID(v.ID)
 }
 
-// AddAttachmentIDs adds the "attachments" edge to the Attachment entity by IDs.
-func (_u *MessageUpdate) AddAttachmentIDs(ids ...string) *MessageUpdate {
-	_u.mutation.AddAttachmentIDs(ids...)
+// SetAttachmentID sets the "attachment" edge to the Attachment entity by ID.
+func (_u *MessageUpdate) SetAttachmentID(id string) *MessageUpdate {
+	_u.mutation.SetAttachmentID(id)
 	return _u
 }
 
-// AddAttachments adds the "attachments" edges to the Attachment entity.
-func (_u *MessageUpdate) AddAttachments(v ...*Attachment) *MessageUpdate {
-	ids := make([]string, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
+// SetNillableAttachmentID sets the "attachment" edge to the Attachment entity by ID if the given value is not nil.
+func (_u *MessageUpdate) SetNillableAttachmentID(id *string) *MessageUpdate {
+	if id != nil {
+		_u = _u.SetAttachmentID(*id)
 	}
-	return _u.AddAttachmentIDs(ids...)
+	return _u
+}
+
+// SetAttachment sets the "attachment" edge to the Attachment entity.
+func (_u *MessageUpdate) SetAttachment(v *Attachment) *MessageUpdate {
+	return _u.SetAttachmentID(v.ID)
 }
 
 // Mutation returns the MessageMutation object of the builder.
@@ -161,25 +165,10 @@ func (_u *MessageUpdate) ClearChat() *MessageUpdate {
 	return _u
 }
 
-// ClearAttachments clears all "attachments" edges to the Attachment entity.
-func (_u *MessageUpdate) ClearAttachments() *MessageUpdate {
-	_u.mutation.ClearAttachments()
+// ClearAttachment clears the "attachment" edge to the Attachment entity.
+func (_u *MessageUpdate) ClearAttachment() *MessageUpdate {
+	_u.mutation.ClearAttachment()
 	return _u
-}
-
-// RemoveAttachmentIDs removes the "attachments" edge to Attachment entities by IDs.
-func (_u *MessageUpdate) RemoveAttachmentIDs(ids ...string) *MessageUpdate {
-	_u.mutation.RemoveAttachmentIDs(ids...)
-	return _u
-}
-
-// RemoveAttachments removes "attachments" edges to Attachment entities.
-func (_u *MessageUpdate) RemoveAttachments(v ...*Attachment) *MessageUpdate {
-	ids := make([]string, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveAttachmentIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -308,12 +297,12 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
-	if _u.mutation.AttachmentsCleared() {
+	if _u.mutation.AttachmentCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
+			Rel:     sqlgraph.O2O,
 			Inverse: false,
-			Table:   message.AttachmentsTable,
-			Columns: []string{message.AttachmentsColumn},
+			Table:   message.AttachmentTable,
+			Columns: []string{message.AttachmentColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),
@@ -321,28 +310,12 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := _u.mutation.RemovedAttachmentsIDs(); len(nodes) > 0 && !_u.mutation.AttachmentsCleared() {
+	if nodes := _u.mutation.AttachmentIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
+			Rel:     sqlgraph.O2O,
 			Inverse: false,
-			Table:   message.AttachmentsTable,
-			Columns: []string{message.AttachmentsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.AttachmentsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   message.AttachmentsTable,
-			Columns: []string{message.AttachmentsColumn},
+			Table:   message.AttachmentTable,
+			Columns: []string{message.AttachmentColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),
@@ -471,19 +444,23 @@ func (_u *MessageUpdateOne) SetChat(v *Chat) *MessageUpdateOne {
 	return _u.SetChatID(v.ID)
 }
 
-// AddAttachmentIDs adds the "attachments" edge to the Attachment entity by IDs.
-func (_u *MessageUpdateOne) AddAttachmentIDs(ids ...string) *MessageUpdateOne {
-	_u.mutation.AddAttachmentIDs(ids...)
+// SetAttachmentID sets the "attachment" edge to the Attachment entity by ID.
+func (_u *MessageUpdateOne) SetAttachmentID(id string) *MessageUpdateOne {
+	_u.mutation.SetAttachmentID(id)
 	return _u
 }
 
-// AddAttachments adds the "attachments" edges to the Attachment entity.
-func (_u *MessageUpdateOne) AddAttachments(v ...*Attachment) *MessageUpdateOne {
-	ids := make([]string, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
+// SetNillableAttachmentID sets the "attachment" edge to the Attachment entity by ID if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillableAttachmentID(id *string) *MessageUpdateOne {
+	if id != nil {
+		_u = _u.SetAttachmentID(*id)
 	}
-	return _u.AddAttachmentIDs(ids...)
+	return _u
+}
+
+// SetAttachment sets the "attachment" edge to the Attachment entity.
+func (_u *MessageUpdateOne) SetAttachment(v *Attachment) *MessageUpdateOne {
+	return _u.SetAttachmentID(v.ID)
 }
 
 // Mutation returns the MessageMutation object of the builder.
@@ -503,25 +480,10 @@ func (_u *MessageUpdateOne) ClearChat() *MessageUpdateOne {
 	return _u
 }
 
-// ClearAttachments clears all "attachments" edges to the Attachment entity.
-func (_u *MessageUpdateOne) ClearAttachments() *MessageUpdateOne {
-	_u.mutation.ClearAttachments()
+// ClearAttachment clears the "attachment" edge to the Attachment entity.
+func (_u *MessageUpdateOne) ClearAttachment() *MessageUpdateOne {
+	_u.mutation.ClearAttachment()
 	return _u
-}
-
-// RemoveAttachmentIDs removes the "attachments" edge to Attachment entities by IDs.
-func (_u *MessageUpdateOne) RemoveAttachmentIDs(ids ...string) *MessageUpdateOne {
-	_u.mutation.RemoveAttachmentIDs(ids...)
-	return _u
-}
-
-// RemoveAttachments removes "attachments" edges to Attachment entities.
-func (_u *MessageUpdateOne) RemoveAttachments(v ...*Attachment) *MessageUpdateOne {
-	ids := make([]string, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveAttachmentIDs(ids...)
 }
 
 // Where appends a list predicates to the MessageUpdate builder.
@@ -680,12 +642,12 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
-	if _u.mutation.AttachmentsCleared() {
+	if _u.mutation.AttachmentCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
+			Rel:     sqlgraph.O2O,
 			Inverse: false,
-			Table:   message.AttachmentsTable,
-			Columns: []string{message.AttachmentsColumn},
+			Table:   message.AttachmentTable,
+			Columns: []string{message.AttachmentColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),
@@ -693,28 +655,12 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
-	if nodes := _u.mutation.RemovedAttachmentsIDs(); len(nodes) > 0 && !_u.mutation.AttachmentsCleared() {
+	if nodes := _u.mutation.AttachmentIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
+			Rel:     sqlgraph.O2O,
 			Inverse: false,
-			Table:   message.AttachmentsTable,
-			Columns: []string{message.AttachmentsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.AttachmentsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   message.AttachmentsTable,
-			Columns: []string{message.AttachmentsColumn},
+			Table:   message.AttachmentTable,
+			Columns: []string{message.AttachmentColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),

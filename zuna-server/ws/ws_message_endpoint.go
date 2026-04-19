@@ -6,34 +6,44 @@ import (
 	"zuna-server/config"
 	"zuna-server/data"
 	"zuna-server/db"
+	"zuna-server/ent/attachment"
 	"zuna-server/ent/chat"
 
 	"github.com/rs/zerolog/log"
 )
 
 type MessageRequest struct {
-	ChatId     string `json:"chat_id"`
-	CipherText string `json:"cipher_text"`
-	Iv         string `json:"iv"`
-	AuthTag    string `json:"auth_tag"`
-	LocalId    int    `json:"local_id"`
+	ChatId       string `json:"chat_id"`
+	CipherText   string `json:"cipher_text"`
+	Iv           string `json:"iv"`
+	AuthTag      string `json:"auth_tag"`
+	LocalId      int    `json:"local_id"`
+	AttachmentID string `json:"attachment_id"`
 }
 
 type MessageAckResponse struct {
-	LocalId   int    `json:"local_id"`
-	Id        int64  `json:"id"`
-	ChatId    string `json:"chat_id"`
-	CreatedAt int64  `json:"created_at"`
+	LocalId                   int    `json:"local_id"`
+	Id                        int64  `json:"id"`
+	ChatId                    string `json:"chat_id"`
+	CreatedAt                 int64  `json:"created_at"`
+	AttachmentID              string `json:"attachment_id"`
+	AttachmentMetadata        string `json:"attachment_metadata"`
+	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
+	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
 }
 
 type MessageReceiveResponseMulticast struct {
-	Id         int64  `json:"id"`
-	ChatId     string `json:"chat_id"`
-	CreatedAt  int64  `json:"created_at"`
-	SenderId   string `json:"sender_id"`
-	CipherText string `json:"cipher_text"`
-	Iv         string `json:"iv"`
-	AuthTag    string `json:"auth_tag"`
+	Id                        int64  `json:"id"`
+	ChatId                    string `json:"chat_id"`
+	CreatedAt                 int64  `json:"created_at"`
+	SenderId                  string `json:"sender_id"`
+	CipherText                string `json:"cipher_text"`
+	Iv                        string `json:"iv"`
+	AuthTag                   string `json:"auth_tag"`
+	AttachmentID              string `json:"attachment_id"`
+	AttachmentMetadata        string `json:"attachment_metadata"`
+	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
+	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
 }
 
 // Receive over: message
@@ -107,11 +117,51 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		return
 	}
 
+	attachmentId := req.AttachmentID
+	attachmentMetadata := ""
+	attachmentMetadataIv := ""
+	attachmentMetadataAuthTag := ""
+
+	if req.AttachmentID != "" {
+		a, err := db.EntClient.Attachment.Query().WithUser().Where(attachment.IDEQ(req.AttachmentID)).First(ctx)
+
+		if err != nil {
+			log.Error().Err(err).Str("attachmentId", req.AttachmentID).Msg("could not query attachment for update")
+			sendError(c, "internal_error", "internal error")
+			return
+		}
+
+		if a.Edges.User.ID != userData.UserID {
+			log.Error().Str("attachmentId", req.AttachmentID).Msg("attachment does not belong to user")
+			sendError(c, "forbidden", "forbidden")
+			return
+		}
+
+		_, err = db.EntClient.Attachment.Update().
+			Where(attachment.IDEQ(req.AttachmentID)).
+			SetMessageID(m.ID).
+			Save(ctx)
+
+		if err != nil {
+			log.Error().Err(err).Str("attachmentId", req.AttachmentID).Msg("failed to update attachment with message ID")
+			sendError(c, "internal_error", "internal error")
+			return
+		}
+
+		attachmentMetadata = a.Metadata
+		attachmentMetadataIv = a.MetadataIv
+		attachmentMetadataAuthTag = a.MetadataAuthTag
+	}
+
 	c.Send(OutgoingMessage{Type: "message_ack", Payload: MessageAckResponse{
-		LocalId:   req.LocalId,
-		Id:        m.ID,
-		ChatId:    ch.ID,
-		CreatedAt: m.SentAt.UnixMilli(),
+		LocalId:                   req.LocalId,
+		Id:                        m.ID,
+		ChatId:                    ch.ID,
+		CreatedAt:                 m.SentAt.UnixMilli(),
+		AttachmentID:              attachmentId,
+		AttachmentMetadata:        attachmentMetadata,
+		AttachmentMetadataIv:      attachmentMetadataIv,
+		AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
 	}})
 
 	for _, uu := range ch.Edges.Users {
@@ -130,13 +180,17 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		}
 
 		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_receive", Payload: MessageReceiveResponseMulticast{
-			Id:         m.ID,
-			ChatId:     ch.ID,
-			CreatedAt:  m.SentAt.UnixMilli(),
-			SenderId:   userData.UserID,
-			CipherText: req.CipherText,
-			Iv:         req.Iv,
-			AuthTag:    req.AuthTag,
+			Id:                        m.ID,
+			ChatId:                    ch.ID,
+			CreatedAt:                 m.SentAt.UnixMilli(),
+			SenderId:                  userData.UserID,
+			CipherText:                req.CipherText,
+			Iv:                        req.Iv,
+			AuthTag:                   req.AuthTag,
+			AttachmentID:              attachmentId,
+			AttachmentMetadata:        attachmentMetadata,
+			AttachmentMetadataIv:      attachmentMetadataIv,
+			AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
 		}})
 	}
 }

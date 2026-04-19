@@ -28,8 +28,8 @@ const (
 	EdgeUser = "user"
 	// EdgeChat holds the string denoting the chat edge name in mutations.
 	EdgeChat = "chat"
-	// EdgeAttachments holds the string denoting the attachments edge name in mutations.
-	EdgeAttachments = "attachments"
+	// EdgeAttachment holds the string denoting the attachment edge name in mutations.
+	EdgeAttachment = "attachment"
 	// Table holds the table name of the message in the database.
 	Table = "messages"
 	// UserTable is the table that holds the user relation/edge.
@@ -46,13 +46,13 @@ const (
 	ChatInverseTable = "chats"
 	// ChatColumn is the table column denoting the chat relation/edge.
 	ChatColumn = "chat_messages"
-	// AttachmentsTable is the table that holds the attachments relation/edge.
-	AttachmentsTable = "attachments"
-	// AttachmentsInverseTable is the table name for the Attachment entity.
+	// AttachmentTable is the table that holds the attachment relation/edge.
+	AttachmentTable = "attachments"
+	// AttachmentInverseTable is the table name for the Attachment entity.
 	// It exists in this package in order to avoid circular dependency with the "attachment" package.
-	AttachmentsInverseTable = "attachments"
-	// AttachmentsColumn is the table column denoting the attachments relation/edge.
-	AttachmentsColumn = "message_attachments"
+	AttachmentInverseTable = "attachments"
+	// AttachmentColumn is the table column denoting the attachment relation/edge.
+	AttachmentColumn = "message_attachment"
 )
 
 // Columns holds all SQL columns for message fields.
@@ -139,17 +139,10 @@ func ByChatField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
-// ByAttachmentsCount orders the results by attachments count.
-func ByAttachmentsCount(opts ...sql.OrderTermOption) OrderOption {
+// ByAttachmentField orders the results by attachment field.
+func ByAttachmentField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborsCount(s, newAttachmentsStep(), opts...)
-	}
-}
-
-// ByAttachments orders the results by attachments terms.
-func ByAttachments(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
-	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newAttachmentsStep(), append([]sql.OrderTerm{term}, terms...)...)
+		sqlgraph.OrderByNeighborTerms(s, newAttachmentStep(), sql.OrderByField(field, opts...))
 	}
 }
 func newUserStep() *sqlgraph.Step {
@@ -166,10 +159,10 @@ func newChatStep() *sqlgraph.Step {
 		sqlgraph.Edge(sqlgraph.M2O, true, ChatTable, ChatColumn),
 	)
 }
-func newAttachmentsStep() *sqlgraph.Step {
+func newAttachmentStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
-		sqlgraph.To(AttachmentsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, AttachmentsTable, AttachmentsColumn),
+		sqlgraph.To(AttachmentInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, AttachmentTable, AttachmentColumn),
 	)
 }
