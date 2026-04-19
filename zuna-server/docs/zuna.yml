@@ -1,0 +1,292 @@
+opencollection: 1.0.0
+info:
+  name: zuna
+config:
+  proxy:
+    inherit: true
+    config:
+      protocol: http
+      hostname: ''
+      port: ''
+      auth:
+        username: ''
+        password: ''
+      bypassProxy: ''
+items:
+  - info:
+      name: auth
+      type: folder
+      seq: 1
+    request:
+      auth: inherit
+    items:
+      - info:
+          name: authorize
+          type: http
+          seq: 2
+        http:
+          method: POST
+          url: http://localhost:8080/api/auth/authorize
+          body:
+            type: json
+            data: |-
+              {
+                "username": "",
+                "signature": "",
+                "server_password": ""
+              }
+          auth: inherit
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+      - info:
+          name: handshake
+          type: http
+          seq: 1
+        http:
+          method: POST
+          url: http://localhost:8080/api/auth/handshake
+          body:
+            type: json
+            data: |-
+              {
+                "username": ""
+              }
+          auth: inherit
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+      - info:
+          name: join
+          type: http
+          seq: 3
+        http:
+          method: POST
+          url: http://localhost:8080/api/auth/join
+          body:
+            type: json
+            data: |-
+              {
+                "username": "",
+                "identity_key": "",
+                "signing_key": "",
+                "avatar": "",
+                "server_password": ""
+              }
+          auth: inherit
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+  - info:
+      name: avatar
+      type: folder
+      seq: 4
+    request:
+      auth: inherit
+    items:
+      - info:
+          name: avatar
+          type: http
+          seq: 3
+        http:
+          method: GET
+          url: http://localhost:8080/api/avatar
+          auth:
+            type: bearer
+            token: TOKEN
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+      - info:
+          name: avatar_post
+          type: http
+          seq: 2
+        http:
+          method: POST
+          url: http://localhost:8080/api/avatar
+          body:
+            type: json
+            data: |-
+              {
+                "avatar": ""
+              }
+          auth:
+            type: bearer
+            token: TOKEN
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+  - info:
+      name: chat
+      type: folder
+      seq: 2
+    request:
+      auth: inherit
+    items:
+      - info:
+          name: list
+          type: http
+          seq: 1
+        http:
+          method: GET
+          url: http://localhost:8080/api/chat/list
+          auth:
+            type: bearer
+            token: ''
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+      - info:
+          name: messages
+          type: http
+          seq: 2
+        http:
+          method: GET
+          url: http://localhost:8080/api/chat/message?limit=20&cursor=300
+          params:
+            - name: limit
+              value: '20'
+              type: query
+            - name: cursor
+              value: '300'
+              type: query
+          auth:
+            type: bearer
+            token: ''
+        settings:
+          encodeUrl: true
+          timeout: 0
+          followRedirects: true
+          maxRedirects: 5
+  - info:
+      name: websockets
+      type: folder
+      seq: 3
+    request:
+      auth: inherit
+    items:
+      - info:
+          name: auth
+          type: websocket
+          seq: 1
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "auth",
+                "token": "",
+                "payload": {
+                  "server_password": ""
+                }
+              }
+          auth: inherit
+      - info:
+          name: mark_read
+          type: websocket
+          seq: 4
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "mark_read",
+                "token": "",
+                "payload": {
+                  "chat_id": ""
+                }
+              }
+          auth: inherit
+      - info:
+          name: message
+          type: websocket
+          seq: 2
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "message",
+                "token": "",
+                "payload": {
+                  "chat_id": "",
+                  "cipher_text": "",
+                  "iv": "",
+                  "chat_id": "",
+                  "auth_tag": "",
+                  "local_id": ""
+                }
+              }
+          auth: inherit
+      - info:
+          name: ping
+          type: websocket
+          seq: 3
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: text
+            data: |-
+              {
+                "type": "ping",
+                "token": "",
+                "payload": {
+                  "ts": 0
+                }
+              }
+          auth: inherit
+      - info:
+          name: presence
+          type: websocket
+          seq: 5
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "presence",
+                "token": "",
+                "payload": {
+                  "active": true
+                }
+              }
+          auth: inherit
+      - info:
+          name: presence_request
+          type: websocket
+          seq: 6
+        websocket:
+          url: ws://localhost:8080/ws
+          message:
+            type: json
+            data: |-
+              {
+                "type": "presence_request",
+                "token": "",
+                "payload": {}
+              }
+          auth: inherit
+bundled: true
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git
+    exportedAt: '2026-04-19T11:52:10.320Z'
+    exportedUsing: Bruno
