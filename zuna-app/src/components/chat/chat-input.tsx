@@ -19,6 +19,8 @@ import { EmotePicker } from "./emote-picker";
 import { OgPreviewCard } from "./og-preview";
 import { extractFirstUrl, useOgPreview } from "@/hooks/ui/useOgPreview";
 
+const WRITE_IDLE_MS = 2500;
+
 export interface ChatInputProps {
   sharedSecret: string | null;
   onSend: (
@@ -27,6 +29,7 @@ export interface ChatInputProps {
     authTag: string,
     plaintext: string,
   ) => void;
+  onWrite?: (writing: boolean) => void;
 }
 
 type Suggestion = {
@@ -46,12 +49,30 @@ function detectSuggestion(
   return { query: match[1], start: before.length - match[0].length };
 }
 
-export function ChatInput({ sharedSecret, onSend }: ChatInputProps) {
+export function ChatInput({ sharedSecret, onSend, onWrite }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
   const [ogDismissed, setOgDismissed] = useState<string | null>(null);
+
+  const isWritingRef = useRef(false);
+  const writeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onWriteRef = useRef(onWrite);
+  onWriteRef.current = onWrite;
+
+  const setWriting = useCallback((writing: boolean) => {
+    if (isWritingRef.current === writing) return;
+    isWritingRef.current = writing;
+    onWriteRef.current?.(writing);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (writeTimeoutRef.current) clearTimeout(writeTimeoutRef.current);
+      if (isWritingRef.current) onWriteRef.current?.(false);
+    };
+  }, []);
 
   const detectedUrl = extractFirstUrl(value);
   const ogUrl = detectedUrl && detectedUrl !== ogDismissed ? detectedUrl : null;
@@ -78,6 +99,18 @@ export function ChatInput({ sharedSecret, onSend }: ChatInputProps) {
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = e.target.value;
       setValue(newValue);
+
+      if (newValue.trim()) {
+        setWriting(true);
+        if (writeTimeoutRef.current) clearTimeout(writeTimeoutRef.current);
+        writeTimeoutRef.current = setTimeout(
+          () => setWriting(false),
+          WRITE_IDLE_MS,
+        );
+      } else {
+        if (writeTimeoutRef.current) clearTimeout(writeTimeoutRef.current);
+        setWriting(false);
+      }
 
       if (emoteMap.size === 0) return;
 
@@ -163,6 +196,8 @@ export function ChatInput({ sharedSecret, onSend }: ChatInputProps) {
     setIsSending(true);
     setValue("");
     setOgDismissed(null);
+    if (writeTimeoutRef.current) clearTimeout(writeTimeoutRef.current);
+    setWriting(false);
 
     try {
       const encrypted = await window.security.encrypt(sharedSecret, text);

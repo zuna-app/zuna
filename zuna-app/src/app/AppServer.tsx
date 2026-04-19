@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Server, ChatMember } from "@/types/serverTypes";
 import { useAuthorizer } from "@/hooks/auth/useAuthorizer";
 import { useMessages } from "@/hooks/chat/useMessages";
 import { useSharedSecret } from "@/hooks/ws/useSharedSecret";
 import { useBackgroundMessages } from "@/hooks/ws/useBackgroundMessages";
+import { useWsConnection } from "@/hooks/ws/useWsConnection";
+import { WS_MSG } from "@/hooks/ws/wsTypes";
 import { Loader2 } from "lucide-react";
 import { ChatListPanel } from "@/components/chat/chat-list-panel";
 import { ChatTopbar } from "@/components/chat/chat-topbar";
@@ -19,6 +21,14 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
     member.chatId,
     sharedSecret,
   );
+  const { sendMessage: wsSend } = useWsConnection(server);
+
+  const handleWrite = useCallback(
+    (writing: boolean) => {
+      wsSend(WS_MSG.WRITE, { chat_id: member.chatId, writing });
+    },
+    [wsSend, member.chatId],
+  );
 
   return (
     <>
@@ -31,7 +41,11 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         fetchMore={fetchMore}
         sharedSecret={sharedSecret}
       />
-      <ChatInput sharedSecret={sharedSecret} onSend={sendMessage} />
+      <ChatInput
+        sharedSecret={sharedSecret}
+        onSend={sendMessage}
+        onWrite={handleWrite}
+      />
     </>
   );
 }

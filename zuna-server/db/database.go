@@ -30,7 +30,7 @@ func NewClient(ctx context.Context) *ent.Client {
 			log.Fatal().Err(err).Msg("failed opening sqlite connection")
 		}
 
-		//db.SetMaxOpenConns(1)
+		db.SetMaxOpenConns(1)
 		if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 			log.Fatal().Err(err).Msg("failed enabling sqlite foreign keys")
 		}

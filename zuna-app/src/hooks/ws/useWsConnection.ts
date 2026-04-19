@@ -8,12 +8,13 @@ import {
 } from "@/hooks/auth/useAuthorizer";
 import { Server } from "@/types/serverTypes";
 import { dispatch } from "./wsRegistry";
-import { presenceAtom } from "./usePresence";
+import { presenceAtom, writingAtom } from "./usePresence";
 import {
   WS_MSG,
   PresenceUpdatePayload,
   PresenceResponsePayload,
   ErrorPayload,
+  WriteReceivePayload,
 } from "./wsTypes";
 
 /**
@@ -115,6 +116,18 @@ export function useWsConnection(server: Server) {
           return next;
         });
       }
+      return;
+    }
+
+    if (type === WS_MSG.WRITE_RECEIVE) {
+      const { chat_id, sender_id, writing } = payload as WriteReceivePayload;
+      const presence = jotaiStore.get(presenceAtom);
+      if (!presence.get(sender_id)?.active) return;
+      jotaiStore.set(writingAtom, (prev) => {
+        const next = new Map(prev);
+        next.set(sender_id, { chatId: chat_id, writing });
+        return next;
+      });
       return;
     }
 

@@ -12,6 +12,8 @@ export const WS_MSG = {
   MESSAGE_RECEIVE: "message_receive",
   MESSAGE_READ_INFO: "message_read_info",
   MARK_READ: "mark_read",
+  WRITE: "write",
+  WRITE_RECEIVE: "write_receive",
   ERROR: "error",
 } as const;
 
@@ -67,4 +69,10 @@ export interface MessageReadInfoPayload {
 
 export interface PongPayload {
   ts: number;
+}
+
+export interface WriteReceivePayload {
+  chat_id: string;
+  sender_id: string;
+  writing: boolean;
 }

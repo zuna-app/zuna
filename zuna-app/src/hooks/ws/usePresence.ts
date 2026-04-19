@@ -11,3 +11,20 @@ export function usePresence() {
       presence.get(userId) ?? null,
   };
 }
+
+interface WritingState {
+  chatId: string;
+  writing: boolean;
+}
+
+export const writingAtom = atom<Map<string, WritingState>>(new Map());
+
+export function useWriting() {
+  const writing = useAtomValue(writingAtom, { store: jotaiStore });
+  return {
+    isMemberTyping: (userId: string, chatId: string): boolean => {
+      const state = writing.get(userId);
+      return state?.writing === true && state.chatId === chatId;
+    },
+  };
+}

@@ -15,6 +15,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { usePresence } from "@/hooks/ws/usePresence";
+import { useWriting } from "@/hooks/ws/usePresence";
 import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { convertTimeToRelative, getFirstLetters } from "@/utils/basicUtils";
 import { ZunaAvatar } from "../avatar";
@@ -50,7 +51,9 @@ function TopbarAction({
 
 export function ChatTopbar({ member }: ChatTopbarProps) {
   const { getMemberPresence } = usePresence();
+  const { isMemberTyping } = useWriting();
   const presence = getMemberPresence(member.id);
+  const isTyping = presence?.active && isMemberTyping(member.id, member.chatId);
 
   return (
     <div className="flex items-center justify-between gap-4 px-4 py-3 border-b border-border/40 bg-background shrink-0 z-10">
@@ -67,14 +70,22 @@ export function ChatTopbar({ member }: ChatTopbarProps) {
             {member.username}
           </p>
           <p
-            className={`text-[11px] leading-tight font-medium ${presence?.active ? "text-emerald-500" : "text-gray-500"}`}
+            className={`text-[11px] leading-tight font-medium ${
+              isTyping
+                ? "text-emerald-500"
+                : presence?.active
+                  ? "text-emerald-500"
+                  : "text-gray-500"
+            }`}
           >
-            {presence?.active
-              ? "Online"
-              : "Last seen " +
-                (presence?.lastSeen
-                  ? convertTimeToRelative(presence.lastSeen)
-                  : "sometimes ago")}
+            {isTyping
+              ? "Typing…"
+              : presence?.active
+                ? "Online"
+                : "Last seen " +
+                  (presence?.lastSeen
+                    ? convertTimeToRelative(presence.lastSeen)
+                    : "sometimes ago")}
           </p>
         </div>
       </div>
