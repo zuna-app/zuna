@@ -6,6 +6,7 @@ import (
 	"zuna-server/config"
 	"zuna-server/data"
 	"zuna-server/db"
+	"zuna-server/ent"
 	"zuna-server/ent/attachment"
 	"zuna-server/ent/chat"
 	"zuna-server/utils"
@@ -53,7 +54,7 @@ type MessageReceiveResponseMulticast struct {
 func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req MessageRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		sendError(c, "bad_request", "bad request")
+		sendInvalidRequest(c)
 		return
 	}
 
@@ -64,34 +65,24 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 	ctx := context.Background()
 
-	chatExists, err := db.EntClient.Chat.Query().
-		Where(chat.IDEQ(req.ChatId)).
-		Exist(ctx)
-
-	if err != nil {
-		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to check if chat exists")
-		sendError(c, "internal_error", "internal error")
-		return
-	}
-
-	if !chatExists {
-		sendError(c, "bad_payload", "bad request")
-		return
-	}
-
 	ch, err := db.EntClient.Chat.Query().
 		WithUsers().
 		Where(chat.IDEQ(req.ChatId)).
 		First(ctx)
 
+	if ent.IsNotFound(err) {
+		sendError(c, "bad_request", "chat does not exist")
+		return
+	}
+
 	if err != nil {
 		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to query chat")
-		sendError(c, "internal_error", "internal error")
+		sendInternalServerError(c)
 		return
 	}
 
 	if !utils.IsMember(userData.UserID, ch.Edges.Users) {
-		sendError(c, "forbidden", "forbidden")
+		sendForbidden(c)
 		return
 	}
 
@@ -106,7 +97,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 	if err != nil {
 		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to insert message")
-		sendError(c, "internal_error", "internal error")
+		sendInternalServerError(c)
 		return
 	}
 
@@ -120,13 +111,13 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 		if err != nil {
 			log.Error().Err(err).Str("attachmentId", req.AttachmentID).Msg("could not query attachment for update")
-			sendError(c, "internal_error", "internal error")
+			sendInternalServerError(c)
 			return
 		}
 
 		if a.Edges.User.ID != userData.UserID {
 			log.Error().Str("attachmentId", req.AttachmentID).Msg("attachment does not belong to user")
-			sendError(c, "forbidden", "forbidden")
+			sendForbidden(c)
 			return
 		}
 
@@ -137,7 +128,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 		if err != nil {
 			log.Error().Err(err).Str("attachmentId", req.AttachmentID).Msg("failed to update attachment with message ID")
-			sendError(c, "internal_error", "internal error")
+			sendInternalServerError(c)
 			return
 		}
 

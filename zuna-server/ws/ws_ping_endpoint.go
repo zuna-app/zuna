@@ -18,7 +18,7 @@ type PingResponse struct {
 func (r *MessageRouter) handlePing(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req PingRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		sendError(c, "bad_request", "invalid json")
+		sendInvalidRequest(c)
 		return
 	}
 

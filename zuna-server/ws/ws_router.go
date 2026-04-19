@@ -66,7 +66,7 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 	handler, ok := r.handlers[msg.Type]
 	if !ok {
 		log.Printf("[router] unknown type=%q from client=%s", msg.Type, c.ID())
-		sendError(c, "unknown_type", "no handler registered for type: "+msg.Type)
+		sendError(c, "bad_request", "invalid request type")
 		return
 	}
 
@@ -113,4 +113,16 @@ func sendError(c HubClient, code, details string) {
 			Details: details,
 		},
 	})
+}
+
+func sendInvalidRequest(c HubClient) {
+	sendError(c, "bad_request", "invalid request payload")
+}
+
+func sendInternalServerError(c HubClient) {
+	sendError(c, "internal_server_error", "internal server error")
+}
+
+func sendForbidden(c HubClient) {
+	sendError(c, "forbidden", "forbidden")
 }

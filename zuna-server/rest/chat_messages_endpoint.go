@@ -40,23 +40,14 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
-	chatExists, err := db.EntClient.Chat.Query().
-		Where(chat.IDEQ(chatId)).
-		Exist(ctx)
-
-	if err != nil {
-		log.Error().Err(err).Str("id", chatId).Msg("failed to check if chat exists")
-		return c.JSON(http.StatusInternalServerError, InternalServerError)
-	}
-
-	if !chatExists {
-		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "chat does not exist"})
-	}
-
 	ch, err := db.EntClient.Chat.Query().
 		WithUsers().
 		Where(chat.IDEQ(chatId)).
 		First(ctx)
+
+	if err != nil && ent.IsNotFound(err) {
+		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "chat does not exist"})
+	}
 
 	if err != nil {
 		log.Error().Err(err).Str("id", chatId).Msg("failed to query chat")

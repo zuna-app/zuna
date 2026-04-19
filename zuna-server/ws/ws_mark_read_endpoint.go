@@ -27,7 +27,7 @@ type MessageReadResponseMulticast struct {
 func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req MessageReadRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		sendError(c, "bad_request", "invalid json")
+		sendInvalidRequest(c)
 		return
 	}
 
@@ -36,12 +36,12 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 	ch, err := db.EntClient.Chat.Query().WithUsers().Where(chat.IDEQ(req.ChatID)).First(ctx)
 	if err != nil {
 		log.Error().Err(err).Str("id", req.ChatID).Msg("failed to query chat")
-		sendError(c, "internal_error", "internal error")
+		sendInternalServerError(c)
 		return
 	}
 
 	if !utils.IsMember(userData.UserID, ch.Edges.Users) {
-		sendError(c, "forbidden", "forbidden")
+		sendForbidden(c)
 		return
 	}
 
@@ -51,7 +51,7 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 		Exec(ctx)
 	if err != nil {
 		log.Error().Err(err).Str("chat_id", ch.ID).Msg("failed to batch update messages")
-		sendError(c, "internal_error", "internal error")
+		sendInternalServerError(c)
 		return
 	}
 

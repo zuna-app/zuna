@@ -28,26 +28,26 @@ type WritingIndicatorMulticast struct {
 func (r *MessageRouter) handleWritingIndicator(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req WritingIndicatorRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		sendError(c, "bad_request", "bad request")
+		sendInvalidRequest(c)
 		return
 	}
 
 	u, err := db.EntClient.User.Query().Where(user.IDEQ(userData.UserID)).First(context.Background())
 	if err != nil {
 		log.Error().Err(err).Str("id", userData.UserID).Msg("failed to query user for writing indicator")
-		sendError(c, "internal_error", "internal error")
+		sendInternalServerError(c)
 		return
 	}
 
 	ch, err := u.QueryChats().WithUsers().Where(chat.IDEQ(req.ChatID)).First(context.Background())
 	if err != nil {
 		log.Error().Err(err).Str("id", req.ChatID).Msg("failed to query chat for writing indicator")
-		sendError(c, "internal_error", "internal error")
+		sendInternalServerError(c)
 		return
 	}
 
 	if !utils.IsMember(userData.UserID, ch.Edges.Users) {
-		sendError(c, "bad_request", "user is not a member of the chat")
+		sendForbidden(c)
 		return
 	}
 

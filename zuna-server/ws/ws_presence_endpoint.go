@@ -23,7 +23,7 @@ type PresenceResponseMulticast struct {
 func (r *MessageRouter) handlePresence(c HubClient, msg IncomingMessage, userData data.UserData) {
 	var req PresenceRequest
 	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		sendError(c, "bad_request", "bad request")
+		sendInvalidRequest(c)
 		return
 	}
 
@@ -36,7 +36,7 @@ func (r *MessageRouter) handlePresence(c HubClient, msg IncomingMessage, userDat
 	err := db.EntClient.User.UpdateOneID(userData.UserID).SetLastSeen(time.UnixMilli(userData.LastSeen)).Exec(ctx)
 	if err != nil {
 		log.Error().Err(err).Str("id", userData.UserID).Msg("failed to update user")
-		sendError(c, "internal_error", "internal error")
+		sendInternalServerError(c)
 		return
 	}
 
