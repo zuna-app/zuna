@@ -1,12 +1,14 @@
 package rest
 
 import (
+	"encoding/base64"
 	"net/http"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent"
 	"zuna-server/ent/message"
 	"zuna-server/ent/user"
+	"zuna-server/storage"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -64,11 +66,18 @@ func ChatListEndpoint(c *echo.Context) error {
 			if member.ID == id {
 				continue
 			}
+
+			avatarBytes, err := storage.GetDataByKey(member.AvatarKey)
+			if err != nil {
+				log.Error().Err(err).Str("id", id).Msg("failed to get avatar data from storage")
+				return c.JSON(http.StatusInternalServerError, InternalServerError)
+			}
+
 			members = append(members, data.ChatMemberDTO{
 				ID:                  member.ID,
 				ChatID:              ch.ID,
 				Username:            member.Username,
-				AvatarKey:           member.AvatarKey,
+				Avatar:              base64.StdEncoding.EncodeToString(avatarBytes),
 				IdentityKey:         member.IdentityKey,
 				LastMessageSenderID: lastSenderId,
 				LastCipherText:      lastCipherText,

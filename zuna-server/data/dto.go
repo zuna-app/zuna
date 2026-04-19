@@ -4,7 +4,7 @@ type ChatMemberDTO struct {
 	ID                  string `json:"id"`
 	ChatID              string `json:"chat_id"`
 	Username            string `json:"username"`
-	AvatarKey           string `json:"avatar_key"`
+	Avatar              string `json:"avatar_key"`
 	IdentityKey         string `json:"identity_key"`
 	LastMessageSenderID string `json:"last_message_sender_id"`
 	LastCipherText      string `json:"cipher_text"`
