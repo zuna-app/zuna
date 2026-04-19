@@ -7,7 +7,6 @@ import (
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
-	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/nrednav/cuid2"
@@ -15,9 +14,8 @@ import (
 )
 
 type AuthRequest struct {
-	Username       string `json:"username"`
-	Signature      string `json:"signature"`
-	ServerPassword string `json:"server_password"`
+	Username  string `json:"username"`
+	Signature string `json:"signature"`
 }
 
 type AuthResponse struct {
@@ -28,10 +26,6 @@ func AuthLoginEndpoint(c *echo.Context) error {
 	req := new(AuthRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, BadRequest)
-	}
-
-	if !utils.ValidateServerPassword(req.ServerPassword) {
-		return c.JSON(http.StatusUnauthorized, HttpErrorResponse{Error: "invalid server password"})
 	}
 
 	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
