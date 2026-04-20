@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 	"zuna-server/config"
 	"zuna-server/ent"
 
@@ -64,6 +65,7 @@ type NotificationRequest struct {
 	CipherText string `json:"cipher_text"`
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`
+	Timestamp  int64  `json:"timestamp"`
 }
 
 func SendNotificationToGateway(userId, cipherText string, iv string, authTag string) {
@@ -73,19 +75,31 @@ func SendNotificationToGateway(userId, cipherText string, iv string, authTag str
 		CipherText: cipherText,
 		Iv:         iv,
 		AuthTag:    authTag,
+		Timestamp:  time.Now().UnixMilli(),
 	}
 
 	payload, err := json.Marshal(body)
 	if err != nil {
+		log.Warn().Err(err).Msg("failed to marshal notification request")
 		return
 	}
 
 	url := fmt.Sprintf("%s:%d/api/notification", config.Config.Gateway.Addreess, config.Config.Gateway.Port)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to create request")
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "ZunaServer")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to send notification to gateway")
 		return
 	}
-
 	defer resp.Body.Close()
 }

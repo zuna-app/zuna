@@ -96,10 +96,15 @@ func realIP(r *http.Request) string {
 func (rl *RateLimiter) Middleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
+			userAgent := c.Request().UserAgent()
+			if userAgent != "ZunaServer" {
+				return c.JSON(http.StatusForbidden, Forbidden)
+			}
+
 			ip := realIP(c.Request())
 			if !rl.limiterFor(ip).Allow() {
 				log.Warn().Str("ip", ip).Str("path", c.Request().URL.Path).Msg("rate limit exceeded")
-				return c.JSON(http.StatusTooManyRequests, HttpErrorResponse{Error: "too many requests"})
+				return c.JSON(http.StatusForbidden, Forbidden)
 			}
 			return next(c)
 		}
