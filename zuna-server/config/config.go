@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
@@ -30,7 +31,7 @@ type ServerConfig struct {
 	Port             int    `toml:"port"`
 	Password         string `toml:"password" comment:"Optional server password, if set clients will be required to provide this password to connect"`
 	Name             string `toml:"name"`
-	Logo             string `toml:"logo" comment:"Server logo file, png format"`
+	Logo             string `toml:"logo" comment:"Server logo file"`
 	StorageDirectory string `toml:"storage_directory" comment:"Directory for storing attachements and avatars"`
 }
 
@@ -92,7 +93,7 @@ var Config = Configuration{
 	},
 }
 
-var ServerLogoBase64 string
+var ServerLogoData string
 var RequestSizeLimit int64
 
 func LoadConfig() error {
@@ -135,7 +136,7 @@ func LoadConfig() error {
 		return errors.New("max attachment size cannot be larger than 512MB")
 	}
 
-	ServerLogoBase64 = base64.StdEncoding.EncodeToString(logoData)
+	ServerLogoData = "data:" + http.DetectContentType(logoData) + ";base64," + base64.StdEncoding.EncodeToString(logoData)
 	RequestSizeLimit = max(Config.Limits.MaxMessageSize, Config.Limits.MaxAvatarSize, Config.Limits.MaxAttachmentSize) + 1024*1024
 
 	if Config.SevenTv.Enabled {
