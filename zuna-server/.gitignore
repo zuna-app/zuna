@@ -2,6 +2,8 @@ config.toml
 *.db
 *.png
 storage_data/
+*.db-shm
+*.db-wal
 
 # Created by https://www.toptal.com/developers/gitignore/api/go,goland+all,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=go,goland+all,linux
