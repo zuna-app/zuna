@@ -8,6 +8,7 @@ import (
 	"zuna-server/db"
 	"zuna-server/ent/chat"
 	"zuna-server/ent/message"
+	"zuna-server/ent/user"
 	"zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
@@ -46,7 +47,7 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 	}
 
 	err = db.EntClient.Message.Update().
-		Where(message.HasChatWith(chat.IDEQ(req.ChatID)), message.SentAtLTE(time.UnixMilli(req.Timestamp))).
+		Where(message.HasChatWith(chat.IDEQ(req.ChatID)), message.SentAtLTE(time.UnixMilli(req.Timestamp)), message.HasUserWith(user.IDNEQ(userData.UserID))).
 		SetReadAt(time.Now()).
 		Exec(ctx)
 	if err != nil {
