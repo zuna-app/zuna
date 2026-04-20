@@ -368,6 +368,7 @@ async function joinServer(store) {
       username,
       identityKey: store.encPublicKey,
       signingKey: store.sigPublicKey,
+      serverPassword: "test1234",
     });
   } catch (err) {
     print(`  [error] Registration failed: ${err.message}`);

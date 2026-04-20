@@ -24,8 +24,18 @@ export function useBackgroundMessages(server: Server) {
     server,
     WS_MSG.MESSAGE_RECEIVE,
     (payload) => {
-      const { chat_id, created_at, sender_id, cipher_text, iv, auth_tag } =
-        payload;
+      const {
+        chat_id,
+        created_at,
+        sender_id,
+        cipher_text,
+        iv,
+        auth_tag,
+        attachment_id,
+        attachment_metadata,
+        attachment_metadata_auth_tag,
+        attachment_metadata_iv,
+      } = payload;
 
       if (jotaiStore.get(selectedChatAtom) === chat_id) return;
 
@@ -39,7 +49,7 @@ export function useBackgroundMessages(server: Server) {
           updateLastMessage({
             chatId: chat_id,
             senderId: sender_id,
-            content: plaintext,
+            content: attachment_id ? "\uD83D\uDCCE Attachment" : plaintext,
             unreadMessages: currentLastMessages[chat_id]
               ? currentLastMessages[chat_id].unreadMessages + 1
               : 1,

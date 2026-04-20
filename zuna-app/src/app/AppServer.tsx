@@ -72,6 +72,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         sharedSecret={sharedSecret}
       />
       <ChatInput
+        key={member.chatId}
         sharedSecret={sharedSecret}
         onSend={sendMessage}
         onWrite={handleWrite}

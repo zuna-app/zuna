@@ -46,9 +46,8 @@ export class ZunaAPI {
       username,
       identity_key: identityKey,
       signing_key: signingKey,
+      server_password: "test1234",
       avatar: "",
-      avatar_iv: "",
-      avatar_auth_tag: "",
     });
   }
 

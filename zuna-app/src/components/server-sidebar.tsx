@@ -10,7 +10,6 @@ import {
 import { Server } from "@/types/serverTypes";
 import { useServerConnector } from "@/hooks/server/useServerConnector";
 import { serverMetaAtom, jotaiStore } from "@/hooks/auth/useAuthorizer";
-import { ZunaAvatar } from "./avatar";
 
 interface ServerIconButtonProps {
   server: Server;
@@ -52,14 +51,29 @@ function ServerIconButton({
               isActive ? "rounded-xl" : "rounded-full group-hover:rounded-xl",
             )}
           >
-            {
-              <ZunaAvatar
-                username={displayName}
-                src={logo ? `data:image/png;base64,${logo}` : undefined}
-                isOnline={false}
-                noBadge
+            {logo ? (
+              <img
+                // base64
+                src={`data:image/png;base64,${logo}`}
+                alt={`${displayName} logo`}
+                style={{ borderRadius }}
+                className={cn(
+                  "size-10 transition-all duration-150 hover:brightness-95 hover:transform hover:scale-105",
+                  isActive
+                    ? "rounded-xl"
+                    : "rounded-full group-hover:rounded-xl",
+                )}
               />
-            }
+            ) : (
+              <div
+                className={cn(
+                  "size-10 flex items-center justify-center bg-muted text-muted-foreground",
+                  rounded,
+                )}
+              >
+                {displayName[0].toUpperCase()}
+              </div>
+            )}
           </div>
         </button>
       </TooltipTrigger>
