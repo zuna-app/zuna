@@ -51,6 +51,7 @@ type SevenTvConfig struct {
 type GatewayConfig struct {
 	Addreess string `toml:"bind_address"`
 	Port     int    `toml:"port"`
+	Password string `toml:"password" comment:"Gateway password, may be empty for public gateway"`
 }
 
 type Configuration struct {
@@ -100,6 +101,7 @@ var Config = Configuration{
 	Gateway: GatewayConfig{
 		Addreess: "http://gateway.zuna.chat",
 		Port:     8080,
+		Password: "",
 	},
 }
 

@@ -17,14 +17,15 @@ type LimitsConfig struct {
 	NotificationBurstLimit int   `toml:"notification_burst_limit" comment:"Maximum burst size for notifications received from server"`
 }
 
-type Configuration struct {
-	Limits  LimitsConfig  `toml:"limits" comment:"Limits for various server parameters"`
-	Gateway GatewayConfig `toml:"gateway" comment:"Gateway server configuration"`
-}
-
 type GatewayConfig struct {
 	BindAddress string `toml:"bind_address"`
 	Port        int    `toml:"port"`
+	Password    string `toml:"password" comment:"Gateway password, strongly recommended for non-public gateways. Server must send it to authenticate notifications."`
+}
+
+type Configuration struct {
+	Limits  LimitsConfig  `toml:"limits" comment:"Limits for various server parameters"`
+	Gateway GatewayConfig `toml:"gateway" comment:"Gateway server configuration"`
 }
 
 var Config = Configuration{
@@ -38,6 +39,7 @@ var Config = Configuration{
 	Gateway: GatewayConfig{
 		BindAddress: "0.0.0.0",
 		Port:        8080,
+		Password:    "",
 	},
 }
 

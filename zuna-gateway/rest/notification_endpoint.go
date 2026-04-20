@@ -3,6 +3,7 @@ package rest
 import (
 	"net/http"
 	"time"
+	"zuna-gateway/config"
 	"zuna-gateway/data"
 	"zuna-gateway/ws"
 
@@ -16,6 +17,7 @@ type NotificationRequest struct {
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`
 	Timestamp  int64  `json:"timestamp"`
+	Password   string `json:"password"`
 }
 
 type WsNotificationInfoResponse struct {
@@ -26,11 +28,19 @@ type WsNotificationInfoResponse struct {
 }
 
 func NotificationEndpoint(c *echo.Context) error {
+	userAgent := c.Request().UserAgent()
+	if userAgent != "ZunaServer" {
+		return c.JSON(http.StatusForbidden, Forbidden)
+	}
+
 	req := new(NotificationRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
+	if config.Config.Gateway.Password != "" && req.Password != config.Config.Gateway.Password {
+		return c.JSON(http.StatusForbidden, Forbidden)
+	}
 	currentMillis := time.Now().UnixMilli()
 	if req.Timestamp < currentMillis-5*1000 || req.Timestamp > currentMillis+100 {
 		return c.JSON(http.StatusForbidden, Forbidden)

@@ -66,6 +66,7 @@ type NotificationRequest struct {
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`
 	Timestamp  int64  `json:"timestamp"`
+	Password   string `json:"password"`
 }
 
 func SendNotificationToGateway(userId, cipherText string, iv string, authTag string) {
@@ -76,6 +77,7 @@ func SendNotificationToGateway(userId, cipherText string, iv string, authTag str
 		Iv:         iv,
 		AuthTag:    authTag,
 		Timestamp:  time.Now().UnixMilli(),
+		Password:   config.Config.Gateway.Password,
 	}
 
 	payload, err := json.Marshal(body)
