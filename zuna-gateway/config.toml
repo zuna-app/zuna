@@ -1,9 +1,0 @@
-# Limits for various server parameters
-[limits]
-# Maximum size of incoming requests in bytes
-max_request_size = 8192
-
-# Gateway server configuration
-[gateway]
-bind_address = '0.0.0.0'
-port = 8080
