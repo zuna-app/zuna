@@ -15,12 +15,15 @@ import (
 )
 
 type MessageRequest struct {
-	ChatId       string `json:"chat_id"`
-	CipherText   string `json:"cipher_text"`
-	Iv           string `json:"iv"`
-	AuthTag      string `json:"auth_tag"`
-	LocalId      int    `json:"local_id"`
-	AttachmentID string `json:"attachment_id"`
+	ChatId          string `json:"chat_id"`
+	CipherText      string `json:"cipher_text"`
+	Iv              string `json:"iv"`
+	AuthTag         string `json:"auth_tag"`
+	ShortCipherText string `json:"short_cipher_text"`
+	ShortIv         string `json:"short_iv"`
+	ShortAuthTag    string `json:"short_auth_tag"`
+	LocalId         int    `json:"local_id"`
+	AttachmentID    string `json:"attachment_id"`
 }
 
 type MessageAckResponse struct {
@@ -160,7 +163,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 		connectionId := ud.ConnectionID
 		if connectionId == "" || !ud.Active {
-			utils.SendNotificationToGateway(ud.UserID, req.CipherText, req.Iv, req.AuthTag)
+			utils.SendNotificationToGateway(ud.UserID, req.ShortCipherText, req.ShortIv, req.ShortAuthTag)
 		}
 
 		if connectionId == "" {
