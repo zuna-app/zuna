@@ -25,7 +25,6 @@ type Configuration struct {
 type GatewayConfig struct {
 	BindAddress string `toml:"bind_address"`
 	Port        int    `toml:"port"`
-	Password    string `toml:"password" comment:"Password for authenticating servers"`
 }
 
 var Config = Configuration{
@@ -39,7 +38,6 @@ var Config = Configuration{
 	Gateway: GatewayConfig{
 		BindAddress: "0.0.0.0",
 		Port:        8080,
-		Password:    "1234",
 	},
 }
 

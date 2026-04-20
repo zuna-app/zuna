@@ -2,7 +2,6 @@ package rest
 
 import (
 	"net/http"
-	"zuna-gateway/config"
 	"zuna-gateway/data"
 	"zuna-gateway/ws"
 
@@ -12,7 +11,6 @@ import (
 type NotificationRequest struct {
 	UserID     string `json:"user_id"`
 	ServerID   string `json:"server_id"`
-	Token      string `json:"token"`
 	CipherText string `json:"cipher_text"`
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`
@@ -29,10 +27,6 @@ func NotificationEndpoint(c *echo.Context) error {
 	req := new(NotificationRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
-	}
-
-	if req.Token != config.Config.Gateway.Password {
-		return c.JSON(http.StatusUnauthorized, Unauthorized)
 	}
 
 	user, err := data.GetUserByUserId(req.UserID)

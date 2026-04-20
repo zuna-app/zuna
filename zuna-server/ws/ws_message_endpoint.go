@@ -159,8 +159,12 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		}
 
 		connectionId := ud.ConnectionID
+		if connectionId == "" || !ud.Active {
+			utils.SendNotificationToGateway(ud.UserID, req.CipherText, req.Iv, req.AuthTag)
+		}
+
 		if connectionId == "" {
-			continue // User disconnected from ws
+			continue
 		}
 
 		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_receive", Payload: MessageReceiveResponseMulticast{

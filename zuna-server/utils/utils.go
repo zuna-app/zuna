@@ -1,11 +1,17 @@
 package utils
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"zuna-server/config"
 	"zuna-server/ent"
+
+	"github.com/rs/zerolog/log"
 )
 
 func GenerateEd25519Nonce() (string, error) {
@@ -50,4 +56,36 @@ func IsMember(userID string, members []*ent.User) bool {
 		}
 	}
 	return false
+}
+
+type NotificationRequest struct {
+	UserID     string `json:"user_id"`
+	ServerID   string `json:"server_id"`
+	CipherText string `json:"cipher_text"`
+	Iv         string `json:"iv"`
+	AuthTag    string `json:"auth_tag"`
+}
+
+func SendNotificationToGateway(userId, cipherText string, iv string, authTag string) {
+	body := NotificationRequest{
+		UserID:     userId,
+		ServerID:   config.Config.Server.Name,
+		CipherText: cipherText,
+		Iv:         iv,
+		AuthTag:    authTag,
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return
+	}
+
+	url := fmt.Sprintf("%s:%d/api/notification", config.Config.Gateway.Addreess, config.Config.Gateway.Port)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to send notification to gateway")
+		return
+	}
+
+	defer resp.Body.Close()
 }
