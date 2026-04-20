@@ -54,7 +54,7 @@ function ServerIconButton({
             {logo ? (
               <img
                 // base64
-                src={`data:image/png;base64,${logo}`}
+                src={logo}
                 alt={`${displayName} logo`}
                 style={{ borderRadius }}
                 className={cn(
