@@ -14,6 +14,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var HubInstance *Hub
+
 // Message is the unit passed through the hub's broadcast channel.
 // Payload is any JSON-serialisable value; the hub marshals it once before
 // fanning out to all recipients.

@@ -6,10 +6,12 @@ import (
 	"regexp"
 	"strings"
 	"zuna-server/config"
+	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
 	"zuna-server/storage"
 	"zuna-server/utils"
+	"zuna-server/ws"
 
 	"github.com/nrednav/cuid2"
 	"github.com/rs/zerolog/log"
@@ -144,6 +146,14 @@ func AuthJoinEndpoint(c *echo.Context) error {
 	if err := tx.Commit(); err != nil {
 		log.Error().Err(err).Str("username", req.Username).Msg("failed to commit join transaction")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	for _, ud := range data.GetUserDataSnapshot() {
+		if ud.ConnectionID != "" {
+			continue
+		}
+
+		ws.HubInstance.SendTo(ud.ConnectionID, ws.OutgoingMessage{Type: "user_joined", Payload: map[string]string{}})
 	}
 
 	return c.JSON(http.StatusOK, JoinResponse{

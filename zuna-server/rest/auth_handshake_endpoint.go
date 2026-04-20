@@ -60,7 +60,7 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 	return c.JSON(http.StatusOK, HandshakeResponse{
 		Nonce:            userData.Ed25519Nonce,
 		ServerName:       config.Config.Server.Name,
-		ServerLogo:       config.ServerLogoBase64,
+		ServerLogo:       config.ServerLogoData,
 		SevenTvEnabled:   config.Config.SevenTv.Enabled,
 		SevenTvEmotesSet: config.Config.SevenTv.EmotesSet,
 	})

@@ -98,11 +98,11 @@ func main() {
 	attachment.POST("/upload", rest.AttachmentUploadEndpoint)
 	attachment.GET("/download", rest.AttachmentDownloadEndpoint)
 
-	h := ws.NewHub()
-	go h.Run()
+	ws.HubInstance = ws.NewHub()
+	go ws.HubInstance.Run()
 
-	msgRouter := ws.NewMessageRouter(h)
-	e.GET("/ws", ws.HandleWebSocket(h, msgRouter))
+	msgRouter := ws.NewMessageRouter(ws.HubInstance)
+	e.GET("/ws", ws.HandleWebSocket(ws.HubInstance, msgRouter))
 
 	log.Info().Str("bind-addr", config.Config.Server.BindAddress).Int("port", config.Config.Server.Port).Msg("starting server")
 	if err := e.Start(fmt.Sprintf("%s:%d", config.Config.Server.BindAddress, config.Config.Server.Port)); err != nil {

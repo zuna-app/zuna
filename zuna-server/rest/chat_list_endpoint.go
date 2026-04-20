@@ -56,7 +56,7 @@ func ChatListEndpoint(c *echo.Context) error {
 			lastChatActivity = lastMessage.SentAt.UnixMilli()
 		}
 
-		unreadMessages, err := ch.QueryMessages().Where(message.ReadAtIsNil()).Count(c.Request().Context())
+		unreadMessages, err := ch.QueryMessages().Where(message.ReadAtIsNil(), message.HasUserWith(user.IDNEQ(id))).Count(c.Request().Context())
 		if err != nil {
 			log.Error().Err(err).Str("id", id).Msg("failed to count unread chat messages")
 			return c.JSON(http.StatusInternalServerError, InternalServerError)
