@@ -121,7 +121,6 @@ export function useWsConnection(server: Server) {
 
     if (type === WS_MSG.WRITE_RECEIVE) {
       const { chat_id, sender_id, writing } = payload as WriteReceivePayload;
-      console.log("write receive", { chat_id, sender_id, writing });
       const presence = jotaiStore.get(presenceAtom);
       if (!presence.get(sender_id)?.active) return;
       jotaiStore.set(writingAtom, (prev) => {

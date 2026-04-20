@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ChatMember, Server } from "@/types/serverTypes";
 import { DelayedSpinner } from "../ui/delayed-spinner";
 import { useEmotes } from "@/hooks/ui/useEmotes";
@@ -36,7 +37,7 @@ export function ChatMessages({
     useScrollBehavior(messages, member.id, hasMore, loading, fetchMore);
   const { emoteMap } = useEmotes();
 
-  const grouped = groupMessages(messages);
+  const grouped = useMemo(() => groupMessages(messages), [messages]);
 
   return (
     <div

@@ -1,10 +1,13 @@
+import React from "react";
 import { formatTime } from "./types";
 
 interface MessageDividerProps {
   sentAt: number;
 }
 
-export function MessageDivider({ sentAt }: MessageDividerProps) {
+export const MessageDivider = React.memo(function MessageDivider({
+  sentAt,
+}: MessageDividerProps) {
   return (
     <div className="flex items-center gap-3 py-3 mt-2">
       <div className="flex-1 h-px bg-border/40" />
@@ -14,4 +17,4 @@ export function MessageDivider({ sentAt }: MessageDividerProps) {
       <div className="flex-1 h-px bg-border/40" />
     </div>
   );
-}
+});

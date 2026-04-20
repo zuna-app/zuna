@@ -239,7 +239,7 @@ export function ChatInput({
                   ? "Message…"
                   : "Establishing secure channel…"
             }
-            disabled={!canSend && value === "" && !pendingFile}
+            //disabled={!canSend && value === "" && !pendingFile}
             rows={1}
             className={cn(
               "w-full bg-transparent border-none shadow-none resize-none",

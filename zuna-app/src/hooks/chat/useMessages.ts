@@ -70,6 +70,12 @@ export function useMessages(
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
 
+  // Stable refs so fetchMore doesn’t recreate on every message update.
+  const messagesRef = useRef<Message[]>([]);
+  messagesRef.current = messages;
+  const hasMoreRef = useRef(hasMore);
+  hasMoreRef.current = hasMore;
+
   const { lastMessages, updateLastMessage } = useLastMessagesUpdater();
   const { authorizedFetch } = useAuthorizedServerFetch(server);
 
@@ -178,7 +184,15 @@ export function useMessages(
     WS_MSG.MESSAGE_READ_INFO,
     (payload) => {
       if (payload.chat_id !== chatIdRef.current) return;
-      setMessages((prev) => prev.map((m) => ({ ...m, readAt: Date.now() })));
+      const now = Date.now();
+      setMessages((prev) => {
+        // Only rebuild objects that actually need the readAt timestamp.
+        const needsUpdate = prev.some((m) => m.isOwn && !m.readAt);
+        if (!needsUpdate) return prev;
+        return prev.map((m) =>
+          m.isOwn && !m.readAt ? { ...m, readAt: now } : m,
+        );
+      });
       updateLastMessage({
         chatId: chatIdRef.current,
         senderId: lastMessagesRef.current?.[chatIdRef.current]?.senderId ?? "",
@@ -323,7 +337,16 @@ export function useMessages(
     prevChatIdRef.current = chatId;
   }, [readyState, chatId, fetchMessages]);
 
-  // ── Send ───────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (messages.length > MESSAGES_LIMIT) {
+      setHasMore(true);
+      setMessages((prev) =>
+        prev.length > MESSAGES_LIMIT
+          ? prev.slice(prev.length - MESSAGES_LIMIT)
+          : prev,
+      );
+    }
+  }, [messages.length]);
 
   const sendChatMessage = useCallback(
     (cipherText: string, iv: string, authTag: string, plaintext: string) => {
@@ -362,11 +385,11 @@ export function useMessages(
   );
 
   const fetchMore = useCallback(() => {
-    const oldest = messages.find((m) => m.id !== null);
-    if (oldest?.id != null && !loading && hasMore) {
+    const oldest = messagesRef.current.find((m) => m.id !== null);
+    if (oldest?.id != null && !isFetchingRef.current && hasMoreRef.current) {
       fetchMessages(String(oldest.id));
     }
-  }, [messages, loading, hasMore, fetchMessages]);
+  }, [fetchMessages]);
 
   // ── Upload & send attachment ───────────────────────────────────────────────
 

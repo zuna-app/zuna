@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import type { Message } from "@/types/serverTypes";
 import { messageKey, type AttachmentMeta } from "./types";
 
@@ -117,17 +117,21 @@ export function useMessageDecryption(
     });
   }, [messages, sharedSecret]);
 
-  function getRawText(msg: Message): string {
-    const text = msg.plaintext ?? decrypted.get(messageKey(msg)) ?? "…";
-    return text;
-  }
+  const getRawText = useCallback(
+    (msg: Message): string =>
+      msg.plaintext ?? decrypted.get(messageKey(msg)) ?? "…",
+    [decrypted],
+  );
 
-  function getAttachmentMeta(msg: Message): AttachmentMeta | null {
-    if (msg.attachmentFilename) {
-      return { name: msg.attachmentFilename, size: 0, mimeType: "" };
-    }
-    return decryptedMeta.get(messageKey(msg)) ?? null;
-  }
+  const getAttachmentMeta = useCallback(
+    (msg: Message): AttachmentMeta | null => {
+      if (msg.attachmentFilename) {
+        return { name: msg.attachmentFilename, size: 0, mimeType: "" };
+      }
+      return decryptedMeta.get(messageKey(msg)) ?? null;
+    },
+    [decryptedMeta],
+  );
 
   return { getRawText, getAttachmentMeta };
 }

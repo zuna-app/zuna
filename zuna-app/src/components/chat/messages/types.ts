@@ -14,12 +14,26 @@ export type GroupedMessage = Message & {
   showDivider: boolean;
 };
 
+const _timeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+const _timeCache = new Map<number, string>();
+
 export function formatTime(ms: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(ms));
+  // Key by minute – we only display HH:MM so two timestamps in the same
+  // minute produce identical output and can share the cached string.
+  const key = Math.floor(ms / 60_000);
+  let cached = _timeCache.get(key);
+  if (cached === undefined) {
+    cached = _timeFormatter.format(new Date(key * 60_000));
+    _timeCache.set(key, cached);
+    // Keep memory bounded (1440 slots ≈ one day of unique minutes).
+    if (_timeCache.size > 1440) _timeCache.clear();
+  }
+  return cached;
 }
 
 export function formatFileSize(bytes: number): string {
