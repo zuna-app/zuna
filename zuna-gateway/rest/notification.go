@@ -1,9 +1,12 @@
-package ws
+package rest
 
 import (
-	"encoding/json"
+	"net/http"
 	"zuna-gateway/config"
 	"zuna-gateway/data"
+	"zuna-gateway/ws"
+
+	"github.com/labstack/echo/v5"
 )
 
 type NotificationRequest struct {
@@ -15,34 +18,30 @@ type NotificationRequest struct {
 	AuthTag    string `json:"auth_tag"`
 }
 
-type NotificationInfoResponse struct {
+type WsNotificationInfoResponse struct {
 	ServerID   string `json:"server_id"`
 	CipherText string `json:"cipher_text"`
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`
 }
 
-func (r *MessageRouter) handleNotification(c HubClient, msg IncomingMessage) {
-	var req NotificationRequest
-	if err := json.Unmarshal(msg.Payload, &req); err != nil {
-		sendInvalidRequest(c)
-		return
+func NotificationEndpoint(c *echo.Context) error {
+	req := new(NotificationRequest)
+	if err := c.Bind(req); err != nil {
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
 	if req.Token != config.Config.Gateway.Password {
-		sendForbidden(c)
-		return
+		return c.JSON(http.StatusUnauthorized, Unauthorized)
 	}
 
 	user, err := data.GetUserByUserId(req.UserID)
 	if err != nil {
-		sendForbidden(c)
-		return
+		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
 	if !user.IsInServer(req.ServerID) {
-		sendForbidden(c)
-		return
+		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
 	connectedFromDesktop := user.IsConnectedFromDesktop()
@@ -51,11 +50,13 @@ func (r *MessageRouter) handleNotification(c HubClient, msg IncomingMessage) {
 			continue
 		}
 
-		r.h.SendTo(conn.ConnectionID, OutgoingMessage{Type: "notification_info", Payload: NotificationInfoResponse{
+		ws.HubInstance.SendTo(conn.ConnectionID, ws.OutgoingMessage{Type: "notification_info", Payload: WsNotificationInfoResponse{
 			ServerID:   req.ServerID,
 			CipherText: req.CipherText,
 			Iv:         req.Iv,
 			AuthTag:    req.AuthTag,
 		}})
 	}
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }

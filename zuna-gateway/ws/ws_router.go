@@ -76,7 +76,6 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 
 func (r *MessageRouter) registerBuiltins() {
 	r.Register("register_request", r.handleRegisterUser)
-	r.Register("notification", r.handleNotification)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

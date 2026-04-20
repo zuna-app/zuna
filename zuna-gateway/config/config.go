@@ -10,9 +10,11 @@ import (
 const ConfigFilePath = "config.toml"
 
 type LimitsConfig struct {
-	MaxRequestSize int64 `toml:"max_request_size" comment:"Maximum size of incoming requests in bytes"`
-	WsRateLimit    int   `toml:"ws_rate_limit" comment:"Maximum number of WebSocket messages per second"`
-	WsBurstLimit   int   `toml:"ws_burst_limit" comment:"Maximum burst size for WebSocket messages"`
+	MaxRequestSize         int64 `toml:"max_request_size" comment:"Maximum size of incoming requests in bytes"`
+	WsRateLimit            int   `toml:"ws_rate_limit" comment:"Maximum number of WebSocket messages per second"`
+	WsBurstLimit           int   `toml:"ws_burst_limit" comment:"Maximum burst size for WebSocket messages"`
+	NotificationRateLimit  int   `toml:"notification_rate_limit" comment:"Maximum number of notifications received from server"`
+	NotificationBurstLimit int   `toml:"notification_burst_limit" comment:"Maximum burst size for notifications received from server"`
 }
 
 type Configuration struct {
@@ -28,9 +30,11 @@ type GatewayConfig struct {
 
 var Config = Configuration{
 	Limits: LimitsConfig{
-		MaxRequestSize: 8 * 1024,
-		WsRateLimit:    7,
-		WsBurstLimit:   80,
+		MaxRequestSize:         8 * 1024,
+		WsRateLimit:            4,
+		WsBurstLimit:           10,
+		NotificationRateLimit:  7,
+		NotificationBurstLimit: 80,
 	},
 	Gateway: GatewayConfig{
 		BindAddress: "0.0.0.0",

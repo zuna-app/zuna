@@ -48,6 +48,12 @@ type SevenTvConfig struct {
 	EmotesSet string `toml:"emotes_set" comment:"7TV emotes set URL"`
 }
 
+type GatewayConfig struct {
+	Addreess string `toml:"bind_address"`
+	Port     int    `toml:"port"`
+	Password string `toml:"password"`
+}
+
 type Configuration struct {
 	DatabaseType string        `toml:"database_type" comment:"Type of database to use, supported: mysql, sqlite"`
 	MySQL        MySQLConfig   `toml:"mysql" comment:"MySQL specific settings, only used if database_type is set to mysql"`
@@ -55,6 +61,7 @@ type Configuration struct {
 	SevenTv      SevenTvConfig `toml:"sevenTv" comment:"7TV integration settings, 7TV is popular emotes platform used on Twitch"`
 	Server       ServerConfig  `toml:"server" comment:"Zuna server settings"`
 	Limits       LimitsConfig  `toml:"limits" comment:"Limits for various server parameters"`
+	Gateway      GatewayConfig `toml:"gateway" comment:"Gateway server configuration, required for sending push notification to clients"`
 }
 
 var Config = Configuration{
@@ -90,6 +97,11 @@ var Config = Configuration{
 	SevenTv: SevenTvConfig{
 		Enabled:   true,
 		EmotesSet: "https://7tv.app/emote-sets/01KPH7Q8GRK92MVD9YK1H71FV6",
+	},
+	Gateway: GatewayConfig{
+		Addreess: "gateway.zuna.chat",
+		Port:     8080,
+		Password: "1234",
 	},
 }
 

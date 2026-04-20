@@ -6,13 +6,16 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 	"zuna-gateway/config"
+	"zuna-gateway/rest"
 	"zuna-gateway/ws"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -36,6 +39,15 @@ func main() {
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
 	}))
 	e.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	apiLimiter := rest.NewRateLimiter(
+		rate.Limit(config.Config.Limits.NotificationRateLimit),
+		config.Config.Limits.NotificationBurstLimit,
+		10*time.Minute,
+	)
+
+	api := e.Group("/api", apiLimiter.Middleware())
+	api.POST("/notification", rest.NotificationEndpoint)
 
 	ws.HubInstance = ws.NewHub()
 	go ws.HubInstance.Run()
