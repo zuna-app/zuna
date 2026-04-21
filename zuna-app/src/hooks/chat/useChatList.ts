@@ -26,5 +26,6 @@ export function useChatList(server: Server) {
         lastActivityAt: m.last_chat_activity ?? 0,
       }));
     },
+    staleTime: 30_000,
   });
 }

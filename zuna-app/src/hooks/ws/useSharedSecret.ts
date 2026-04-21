@@ -1,13 +1,48 @@
 import { useState, useEffect } from "react";
 import { ChatMember } from "@/types/serverTypes";
 
+// Session-level caches — keyed by identity key (public key), valid for entire session.
+// `computeSharedSecret` is pure/deterministic; no need to recompute per render/refetch.
+const sharedSecretCache = new Map<string, string>();
+let cachedPrivateKey: string | null = null;
+
+async function getPrivateKey(): Promise<string | null> {
+  if (cachedPrivateKey) return cachedPrivateKey;
+  const key = await window.vault.get("encPrivateKey");
+  if (key) cachedPrivateKey = key;
+  return cachedPrivateKey;
+}
+
+async function getSharedSecret(identityKey: string): Promise<string | null> {
+  const cached = sharedSecretCache.get(identityKey);
+  if (cached) return cached;
+  const privateKey = await getPrivateKey();
+  if (!privateKey) return null;
+  const secret = await window.security.computeSharedSecret(
+    privateKey,
+    identityKey,
+  );
+  sharedSecretCache.set(identityKey, secret);
+  return secret;
+}
+
 export function useSharedSecret(member: ChatMember | null): string | null {
-  const [sharedSecret, setSharedSecret] = useState<string | null>(null);
+  const [sharedSecret, setSharedSecret] = useState<string | null>(() =>
+    member?.identityKey
+      ? (sharedSecretCache.get(member.identityKey) ?? null)
+      : null,
+  );
 
   useEffect(() => {
-    setSharedSecret(null);
-
     if (!member?.identityKey) {
+      setSharedSecret(null);
+      return;
+    }
+
+    // Return cached value synchronously without IPC
+    const cached = sharedSecretCache.get(member.identityKey);
+    if (cached) {
+      setSharedSecret(cached);
       return;
     }
 
@@ -15,12 +50,7 @@ export function useSharedSecret(member: ChatMember | null): string | null {
 
     (async () => {
       try {
-        const privateKey = await window.vault.get("encPrivateKey");
-        if (!privateKey || cancelled) return;
-        const secret = await window.security.computeSharedSecret(
-          privateKey,
-          member.identityKey,
-        );
+        const secret = await getSharedSecret(member.identityKey);
         if (!cancelled) setSharedSecret(secret);
       } catch {
         if (!cancelled) setSharedSecret(null);
@@ -44,8 +74,22 @@ export function useSharedSecrets(
   > | null>(null);
 
   useEffect(() => {
-    if (!members) {
+    if (!members || members.length === 0) {
       setSharedSecrets(null);
+      return;
+    }
+
+    // If every member's secret is already cached, return synchronously with no IPC
+    const membersWithKeys = members.filter((m) => m.identityKey);
+    const allCached = membersWithKeys.every((m) =>
+      sharedSecretCache.has(m.identityKey),
+    );
+    if (allCached) {
+      const secrets: Record<string, string> = {};
+      for (const m of membersWithKeys) {
+        secrets[m.id] = sharedSecretCache.get(m.identityKey)!;
+      }
+      setSharedSecrets(secrets);
       return;
     }
 
@@ -53,23 +97,25 @@ export function useSharedSecrets(
 
     (async () => {
       try {
-        const privateKey = await window.vault.get("encPrivateKey");
-        if (!privateKey || cancelled) return;
+        // Only fetch secrets for uncached identity keys; resolve cached ones immediately
+        const results = await Promise.all(
+          membersWithKeys.map(async (member) => {
+            try {
+              const secret = await getSharedSecret(member.identityKey);
+              return secret ? { id: member.id, secret } : null;
+            } catch {
+              return null;
+            }
+          }),
+        );
 
-        const secrets: Record<string, string> = {};
-        for (const member of members) {
-          if (!member.identityKey) continue;
-          try {
-            const secret = await window.security.computeSharedSecret(
-              privateKey,
-              member.identityKey,
-            );
-            secrets[member.id] = secret;
-          } catch {
-            // skip members we can't compute a secret for
+        if (!cancelled) {
+          const secrets: Record<string, string> = {};
+          for (const result of results) {
+            if (result) secrets[result.id] = result.secret;
           }
+          setSharedSecrets(secrets);
         }
-        if (!cancelled) setSharedSecrets(secrets);
       } catch {
         if (!cancelled) setSharedSecrets(null);
       }

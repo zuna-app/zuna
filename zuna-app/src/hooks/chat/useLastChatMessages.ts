@@ -33,6 +33,11 @@ export const useLastChatMessages = (server: Server, members: ChatMember[]) => {
         return;
       }
 
+      // Skip expensive IPC decrypt if we already have this message cached
+      if (jotaiStore.get(lastMessagesAtom)[m.chatId]) {
+        return;
+      }
+
       try {
         let content = m.ciphertext
           ? await window.security.decrypt(secret, {
