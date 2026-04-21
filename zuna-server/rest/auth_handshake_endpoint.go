@@ -22,6 +22,8 @@ type HandshakeResponse struct {
 	ServerLogo       string `json:"server_logo"`
 	SevenTvEnabled   bool   `json:"seven_tv_enabled"`
 	SevenTvEmotesSet string `json:"seven_tv_emotes_set"`
+	GatewayAddress   string `json:"gateway_address"`
+	GatewayPort      int    `json:"gateway_port"`
 }
 
 func AuthHandshakeEndpoint(c *echo.Context) error {
@@ -63,5 +65,7 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 		ServerLogo:       config.ServerLogoData,
 		SevenTvEnabled:   config.Config.SevenTv.Enabled,
 		SevenTvEmotesSet: config.Config.SevenTv.EmotesSet,
+		GatewayAddress:   config.Config.Gateway.Address,
+		GatewayPort:      config.Config.Gateway.Port,
 	})
 }

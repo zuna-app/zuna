@@ -51,7 +51,7 @@ type SevenTvConfig struct {
 }
 
 type GatewayConfig struct {
-	Addreess string `toml:"bind_address"`
+	Address  string `toml:"bind_address"`
 	Port     int    `toml:"port"`
 	Password string `toml:"password" comment:"Gateway password, may be empty for public gateway"`
 }
@@ -102,7 +102,7 @@ var Config = Configuration{
 		EmotesSet: "https://7tv.app/emote-sets/01KPH7Q8GRK92MVD9YK1H71FV6",
 	},
 	Gateway: GatewayConfig{
-		Addreess: "http://gateway.zuna.chat",
+		Address:  "http://gateway.zuna.chat",
 		Port:     8080,
 		Password: "",
 	},
