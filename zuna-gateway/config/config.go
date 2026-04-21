@@ -38,7 +38,7 @@ var Config = Configuration{
 	},
 	Gateway: GatewayConfig{
 		BindAddress: "0.0.0.0",
-		Port:        8080,
+		Port:        25511,
 		Password:    "",
 	},
 }
