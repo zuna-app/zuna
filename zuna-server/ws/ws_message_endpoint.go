@@ -9,6 +9,7 @@ import (
 	"zuna-server/ent"
 	"zuna-server/ent/attachment"
 	"zuna-server/ent/chat"
+	"zuna-server/ent/user"
 	"zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
@@ -89,6 +90,13 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		return
 	}
 
+	user, err := db.EntClient.User.Query().Where(user.IDEQ(userData.UserID)).First(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("userId", userData.UserID).Msg("failed to query user")
+		sendInternalServerError(c)
+		return
+	}
+
 	m, err := db.EntClient.Message.
 		Create().
 		SetCipherText(req.CipherText).
@@ -163,7 +171,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 		connectionId := ud.ConnectionID
 		if connectionId == "" || !ud.Active {
-			utils.SendNotificationToGateway(ud.UserID, req.ShortCipherText, req.ShortIv, req.ShortAuthTag)
+			utils.SendNotificationToGateway(ud.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag)
 		}
 
 		if connectionId == "" {

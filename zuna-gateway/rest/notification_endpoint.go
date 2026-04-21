@@ -11,22 +11,24 @@ import (
 )
 
 type NotificationRequest struct {
-	UserID     string `json:"user_id"`
-	ServerID   string `json:"server_id"`
-	CipherText string `json:"cipher_text"`
-	Iv         string `json:"iv"`
-	AuthTag    string `json:"auth_tag"`
-	Timestamp  int64  `json:"timestamp"`
-	Password   string `json:"password"`
-	Signature  string `json:"signature"`
+	UserID            string `json:"user_id"`
+	ServerID          string `json:"server_id"`
+	CipherText        string `json:"cipher_text"`
+	Iv                string `json:"iv"`
+	AuthTag           string `json:"auth_tag"`
+	Timestamp         int64  `json:"timestamp"`
+	Password          string `json:"password"`
+	Signature         string `json:"signature"`
+	SenderIdentityKey string `json:"sender_identity_key"`
 }
 
 type WsNotificationInfoResponse struct {
-	ServerID   string `json:"server_id"`
-	CipherText string `json:"cipher_text"`
-	Iv         string `json:"iv"`
-	AuthTag    string `json:"auth_tag"`
-	Signature  string `json:"signature"`
+	ServerID          string `json:"server_id"`
+	SenderIdentityKey string `json:"sender_identity_key"`
+	CipherText        string `json:"cipher_text"`
+	Iv                string `json:"iv"`
+	AuthTag           string `json:"auth_tag"`
+	Signature         string `json:"signature"`
 }
 
 func NotificationEndpoint(c *echo.Context) error {
@@ -70,11 +72,12 @@ func NotificationEndpoint(c *echo.Context) error {
 		}
 
 		ws.HubInstance.SendTo(conn.ConnectionID, ws.OutgoingMessage{Type: "notification_info", Payload: WsNotificationInfoResponse{
-			ServerID:   req.ServerID,
-			CipherText: req.CipherText,
-			Iv:         req.Iv,
-			AuthTag:    req.AuthTag,
-			Signature:  req.Signature,
+			ServerID:          req.ServerID,
+			SenderIdentityKey: req.SenderIdentityKey,
+			CipherText:        req.CipherText,
+			Iv:                req.Iv,
+			AuthTag:           req.AuthTag,
+			Signature:         req.Signature,
 		}})
 	}
 
