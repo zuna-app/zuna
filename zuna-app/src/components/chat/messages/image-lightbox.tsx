@@ -19,12 +19,11 @@ export function ImageLightbox({
   onDownload,
 }: ImageLightboxProps) {
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()} >
+    <DialogPrimitive.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay
           className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 duration-100"
           onClick={onClose}
-        
         />
         <DialogPrimitive.Content
           aria-describedby={undefined}
