@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
+import { useAtomValue } from "jotai";
 import { Server, ChatMember } from "@/types/serverTypes";
-import { useAuthorizer } from "@/hooks/auth/useAuthorizer";
+import {
+  useAuthorizer,
+  serverMetaAtom,
+  jotaiStore,
+} from "@/hooks/auth/useAuthorizer";
 import { useMessages } from "@/hooks/chat/useMessages";
 import { useSharedSecret } from "@/hooks/ws/useSharedSecret";
 import { useBackgroundMessages } from "@/hooks/ws/useBackgroundMessages";
@@ -20,6 +25,10 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const { messages, loading, hasMore, sendMessage, uploadAndSend, fetchMore } =
     useMessages(server, member.chatId, sharedSecret, member.identityKey);
   const { sendMessage: wsSend } = useWsConnection(server);
+  const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
+  const meta = serverMeta.get(server.id);
+  const sevenTvEnabled = meta?.sevenTvEnabled ?? true;
+  const sevenTvEmotesSet = meta?.sevenTvEmotesSet ?? null;
 
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
@@ -70,6 +79,8 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         hasMore={hasMore}
         fetchMore={fetchMore}
         sharedSecret={sharedSecret}
+        sevenTvEnabled={sevenTvEnabled}
+        sevenTvEmotesSet={sevenTvEmotesSet}
       />
       <ChatInput
         key={member.chatId}
@@ -79,6 +90,8 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         onSendFile={handleSendFile}
         pendingFile={pendingFile}
         onPendingFileChange={setPendingFile}
+        sevenTvEnabled={sevenTvEnabled}
+        sevenTvEmotesSet={sevenTvEmotesSet}
       />
     </div>
   );

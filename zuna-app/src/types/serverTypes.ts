@@ -5,6 +5,8 @@ export interface Server {
   address: string;
   name: string;
   username: string;
+  publicKey: string | null;
+  serverId: string | null;
 }
 
 export interface ChatMemberRaw {

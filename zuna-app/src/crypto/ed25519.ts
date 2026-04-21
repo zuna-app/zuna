@@ -36,3 +36,27 @@ export function signMessage(privateKey: string, nonce: string): string {
 
   return signature.toString("base64");
 }
+
+export function verifySignature(
+  publicKey: string,
+  serverId: string,
+  signature: string,
+): boolean {
+  const publicKeyDer = Buffer.concat([
+    Buffer.from("302a300506032b6570032100", "hex"), // ASN.1 header for ed25519 SPKI
+    Buffer.from(publicKey, "base64"),
+  ]);
+
+  const publicKeyObj = crypto.createPublicKey({
+    key: publicKeyDer,
+    format: "der",
+    type: "spki",
+  });
+
+  return crypto.verify(
+    null,
+    Buffer.from(serverId, "utf8"),
+    publicKeyObj,
+    Buffer.from(signature, "base64"),
+  );
+}

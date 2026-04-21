@@ -154,17 +154,6 @@ func LoadConfig() error {
 	ServerLogoData = "data:" + http.DetectContentType(logoData) + ";base64," + base64.StdEncoding.EncodeToString(logoData)
 	RequestSizeLimit = max(Config.Limits.MaxMessageSize, Config.Limits.MaxAvatarSize, Config.Limits.MaxAttachmentSize) + 1024*1024
 
-	if Config.SevenTv.Enabled {
-		Config.SevenTv.EmotesSet = strings.TrimSuffix(Config.SevenTv.EmotesSet, "/")
-		parts := strings.Split(Config.SevenTv.EmotesSet, "/")
-		if !strings.HasPrefix(Config.SevenTv.EmotesSet, "https://7tv.app/emote-sets/") {
-			return errors.New("invalid 7TV emotes set URL")
-		}
-
-		id := parts[len(parts)-1]
-		Config.SevenTv.EmotesSet = id
-	}
-
 	if _, err := os.Stat(Config.Server.StorageDirectory); os.IsNotExist(err) {
 		err := os.MkdirAll(Config.Server.StorageDirectory, 0755)
 		if err != nil {

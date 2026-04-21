@@ -34,10 +34,16 @@ const allNativeEmoji: NativeEmoji[] = (() => {
 
 interface EmotePickerProps {
   onSelect: (value: string) => void;
+  sevenTvEnabled: boolean;
+  sevenTvEmotesSet: string | null;
 }
 
-export function EmotePicker({ onSelect }: EmotePickerProps) {
-  const { emoteMap, loading } = useEmotes();
+export function EmotePicker({
+  onSelect,
+  sevenTvEnabled,
+  sevenTvEmotesSet,
+}: EmotePickerProps) {
+  const { emoteMap, loading } = useEmotes(sevenTvEmotesSet, sevenTvEnabled);
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
 
@@ -67,52 +73,56 @@ export function EmotePicker({ onSelect }: EmotePickerProps) {
         />
       </div>
 
-      <Tabs defaultValue="7tv">
+      <Tabs defaultValue={sevenTvEnabled ? "7tv" : "emoji"}>
         <TabsList className="w-full h-7 mb-1">
-          <TabsTrigger value="7tv" className="flex-1 text-xs h-full">
-            7TV
-          </TabsTrigger>
+          {sevenTvEnabled && (
+            <TabsTrigger value="7tv" className="flex-1 text-xs h-full">
+              7TV
+            </TabsTrigger>
+          )}
           <TabsTrigger value="emoji" className="flex-1 text-xs h-full">
             Emoji
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="7tv">
-          <div className="h-52 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:hsl(var(--border))_transparent]">
-            {loading ? (
-              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                Loading emotes…
-              </div>
-            ) : sevenTvEntries.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                No emotes found
-              </div>
-            ) : (
-              <div className="grid grid-cols-7 gap-0.5">
-                {sevenTvEntries.slice(0, 140).map(([name, url]) => (
-                  <Tooltip key={name}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => onSelect(name)}
-                        className="flex items-center justify-center rounded-md p-1 hover:bg-muted/60 transition-colors"
-                      >
-                        <img
-                          src={url}
-                          alt={name}
-                          className="h-7 w-7 object-contain"
-                        />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="text-xs">
-                      {name}
-                    </TooltipContent>
-                  </Tooltip>
-                ))}
-              </div>
-            )}
-          </div>
-        </TabsContent>
+        {sevenTvEnabled && (
+          <TabsContent value="7tv">
+            <div className="h-52 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:hsl(var(--border))_transparent]">
+              {loading ? (
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  Loading emotes…
+                </div>
+              ) : sevenTvEntries.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  No emotes found
+                </div>
+              ) : (
+                <div className="grid grid-cols-7 gap-0.5">
+                  {sevenTvEntries.slice(0, 140).map(([name, url]) => (
+                    <Tooltip key={name}>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={() => onSelect(name)}
+                          className="flex items-center justify-center rounded-md p-1 hover:bg-muted/60 transition-colors"
+                        >
+                          <img
+                            src={url}
+                            alt={name}
+                            className="h-7 w-7 object-contain"
+                          />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {name}
+                      </TooltipContent>
+                    </Tooltip>
+                  ))}
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        )}
 
         <TabsContent value="emoji">
           <div className="h-52 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:hsl(var(--border))_transparent]">

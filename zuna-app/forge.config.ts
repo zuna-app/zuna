@@ -11,6 +11,7 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     icon: "./src/assets/zuna",
+    extraResource: ["./src/assets/zuna.png"],
   },
   rebuildConfig: {},
   makers: [

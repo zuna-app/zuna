@@ -30,6 +30,8 @@ export interface ChatInputProps {
   onSendFile?: (file: File, plaintext: string) => void;
   pendingFile: File | null;
   onPendingFileChange: (file: File | null) => void;
+  sevenTvEnabled?: boolean;
+  sevenTvEmotesSet?: string | null;
 }
 
 export function ChatInput({
@@ -39,6 +41,8 @@ export function ChatInput({
   onSendFile,
   pendingFile,
   onPendingFileChange,
+  sevenTvEnabled = true,
+  sevenTvEmotesSet = null,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -51,7 +55,7 @@ export function ChatInput({
   const pickerOpenRef = useRef(false);
 
   const { setWriting, writeTimeoutRef } = useWritingIndicator(onWrite);
-  const { emoteMap } = useEmotes();
+  const { emoteMap } = useEmotes(sevenTvEmotesSet, sevenTvEnabled);
 
   const {
     suggestion,
@@ -119,6 +123,24 @@ export function ChatInput({
       const file = e.target.files?.[0];
       if (file) onPendingFileChange(file);
       e.target.value = "";
+    },
+    [onPendingFileChange],
+  );
+
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === "file") {
+          const file = items[i].getAsFile();
+          if (file) {
+            e.preventDefault();
+            onPendingFileChange(file);
+            return;
+          }
+        }
+      }
     },
     [onPendingFileChange],
   );
@@ -232,6 +254,7 @@ export function ChatInput({
             value={value}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={
               pendingFile
                 ? "Add a message… (optional)"
@@ -275,6 +298,8 @@ export function ChatInput({
         <EmotePickerButton
           disabled={!canSend}
           open={pickerOpen}
+          sevenTvEnabled={sevenTvEnabled}
+          sevenTvEmotesSet={sevenTvEmotesSet}
           onOpenChange={(open) => {
             pickerOpenRef.current = open;
             setPickerOpen(open);

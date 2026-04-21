@@ -27,6 +27,7 @@ type LoginResponse struct {
 }
 
 func AuthLoginEndpoint(c *echo.Context) error {
+	log.Debug().Msg("login endpoint hit")
 	req := new(LoginRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
@@ -34,6 +35,7 @@ func AuthLoginEndpoint(c *echo.Context) error {
 
 	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
 	if err != nil {
+		log.Error().Err(err).Str("username", req.Username).Msg("failed to query user existence for login")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 
@@ -59,6 +61,7 @@ func AuthLoginEndpoint(c *echo.Context) error {
 
 	decodedSigKey, err := base64.StdEncoding.DecodeString(u.SigningKey)
 	if err != nil {
+		log.Error().Err(err).Str("username", req.Username).Msg("failed to decode signing key for auth")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
 	}
 

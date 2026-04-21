@@ -50,6 +50,11 @@ interface Window {
       privateKey: string;
     }>;
     signMessage: (privateKey: string, message: string) => Promise<string>;
+    verifySignature: (
+      publicKey: string,
+      serverId: string,
+      signature: string,
+    ) => Promise<boolean>;
   };
   env: {
     platform: string;

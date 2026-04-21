@@ -17,6 +17,8 @@ interface ChatMessagesProps {
   hasMore: boolean;
   fetchMore: () => void;
   sharedSecret: string | null;
+  sevenTvEnabled?: boolean;
+  sevenTvEmotesSet?: string | null;
 }
 
 export function ChatMessages({
@@ -27,6 +29,8 @@ export function ChatMessages({
   hasMore,
   fetchMore,
   sharedSecret,
+  sevenTvEnabled,
+  sevenTvEmotesSet,
 }: ChatMessagesProps) {
   const { getRawText, getAttachmentMeta } = useMessageDecryption(
     messages,
@@ -35,7 +39,7 @@ export function ChatMessages({
   );
   const { scrollRef, contentRef, topSentinelRef, scrollToBottomIfPinned } =
     useScrollBehavior(messages, member.id, hasMore, loading, fetchMore);
-  const { emoteMap } = useEmotes();
+  const { emoteMap } = useEmotes(sevenTvEmotesSet, sevenTvEnabled);
 
   const grouped = useMemo(() => groupMessages(messages), [messages]);
 

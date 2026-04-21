@@ -175,8 +175,7 @@ export const SevenTV = {
       `${BASE_V3}/emote-sets/${encodeURIComponent(emoteSetId)}`,
     ),
 
-  getGlobalEmoteSet: () =>
-    apiFetch<EmoteSet>(`${BASE_V3}/emote-sets/01JAT952T30KCJ2P27X0TPEM72`),
+  getGlobalEmoteSet: () => apiFetch<EmoteSet>(`${BASE_V3}/emote-sets/global`),
 };
 
 // ─── URL helpers ─────────────────────────────────────────────────────────────

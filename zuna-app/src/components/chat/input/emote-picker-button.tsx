@@ -17,6 +17,8 @@ interface EmotePickerButtonProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (name: string) => void;
+  sevenTvEnabled: boolean;
+  sevenTvEmotesSet: string | null;
 }
 
 export function EmotePickerButton({
@@ -24,6 +26,8 @@ export function EmotePickerButton({
   open,
   onOpenChange,
   onSelect,
+  sevenTvEnabled,
+  sevenTvEmotesSet,
 }: EmotePickerButtonProps) {
   return (
     <Tooltip>
@@ -42,7 +46,11 @@ export function EmotePickerButton({
           </PopoverTrigger>
         </TooltipTrigger>
         <PopoverContent side="top" align="end" className="w-72 p-3">
-          <EmotePicker onSelect={onSelect} />
+          <EmotePicker
+            onSelect={onSelect}
+            sevenTvEnabled={sevenTvEnabled}
+            sevenTvEmotesSet={sevenTvEmotesSet}
+          />
         </PopoverContent>
       </Popover>
       <TooltipContent side="top" className="text-xs">

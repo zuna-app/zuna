@@ -8,7 +8,11 @@ import {
   encrypt,
   generateEncryptionKeyPair,
 } from "./crypto/x25519";
-import { generateSigningKeyPair, signMessage } from "./crypto/ed25519";
+import {
+  generateSigningKeyPair,
+  signMessage,
+  verifySignature,
+} from "./crypto/ed25519";
 import { decryptWithPassword, encryptWithPassword } from "./crypto/scrypt";
 import {
   importVault,
@@ -80,6 +84,13 @@ export function registerIPC() {
     "ed25519:signMessage",
     (_, privateKey: string, message: string) => {
       return signMessage(privateKey, message);
+    },
+  );
+
+  ipcMain.handle(
+    "ed25519:verifySignature",
+    (_, publicKey: string, serverId: string, signature: string) => {
+      return verifySignature(publicKey, serverId, signature);
     },
   );
 

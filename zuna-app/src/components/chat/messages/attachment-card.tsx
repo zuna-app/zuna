@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   Check,
   CheckCheck,
@@ -15,6 +16,9 @@ import {
   type AttachmentMeta,
   type MessageStatus,
 } from "./types";
+import { ImageLightbox } from "./image-lightbox";
+
+const IMAGE_INLINE_SIZE_LIMIT = 8 * 1024 * 1024; // 8 MB
 
 function isImageMime(mime: string) {
   return mime.startsWith("image/");
@@ -45,88 +49,105 @@ export function AttachmentCard({
 }: AttachmentCardProps) {
   const mimeType = meta?.mimeType ?? "";
   const isImage = isImageMime(mimeType);
+  // Images over 8 MB are shown as file attachments to avoid huge inline loads
+  const isInlineImage =
+    isImage && meta !== null && meta.size <= IMAGE_INLINE_SIZE_LIMIT;
+
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const { url, loading, error, download, saveFile } = useAttachmentDownload(
     server,
     attachmentId,
     senderIdentityKey,
     mimeType,
-    isImage,
+    isInlineImage,
   );
 
   return (
     <>
-      {isImage ? (
-        <div className="relative group">
-          {url ? (
-            <img
-              src={url}
-              alt={meta?.name ?? "Image"}
-              className="w-full max-h-72 object-cover cursor-pointer block"
-              onLoad={onLoad}
-              onClick={() => window.shell.openExternal(url)}
-            />
-          ) : error ? (
-            <div
-              className={cn(
-                "flex flex-col items-center gap-1.5 p-4 text-[11px] opacity-60 min-w-40 min-h-28 justify-center",
-                isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
-              )}
-            >
-              <ImageIcon className="size-5" />
-              <span>Failed to load</span>
-              <button
-                type="button"
-                onClick={download}
-                className="underline underline-offset-2"
-              >
-                Retry
-              </button>
-            </div>
-          ) : (
-            <div
-              className={cn(
-                "flex flex-col items-center gap-2 p-6 opacity-50 min-h-28 justify-center",
-                isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
-              )}
-            >
-              <Loader2 className="size-5 animate-spin" />
-              <span className="text-[10px]">Loading…</span>
-            </div>
-          )}
+      {isInlineImage ? (
+        <>
           {url && (
-            <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-t from-black/55 to-transparent pointer-events-none select-none">
-              <span className="text-[10px] text-white/90">
-                {formatTime(sentAt)}
-              </span>
-              {isOwn && status === "pending" && (
-                <Loader2 className="size-3 shrink-0 text-white/80 animate-spin" />
-              )}
-              {isOwn && status === "sent" && (
-                <Check
-                  className="size-3 shrink-0 text-white/80"
-                  strokeWidth={2.5}
-                />
-              )}
-              {isOwn && status === "read" && (
-                <CheckCheck
-                  className="size-3 shrink-0 text-white/80"
-                  strokeWidth={2.5}
-                />
-              )}
-            </div>
+            <ImageLightbox
+              open={lightboxOpen}
+              onClose={() => setLightboxOpen(false)}
+              src={url}
+              alt={meta?.name}
+              fileName={meta?.name}
+              onDownload={() => saveFile(meta?.name ?? "image")}
+            />
           )}
-          {textContent && (
-            <div
-              className={cn(
-                "px-3.5 py-2 border-t text-sm",
-                isOwn ? "border-primary-foreground/20" : "border-border/40",
-              )}
-            >
-              {textContent}
-            </div>
-          )}
-        </div>
+          <div className="relative group">
+            {url ? (
+              <img
+                src={url}
+                alt={meta?.name ?? "Image"}
+                className="w-full max-h-72 object-cover cursor-pointer block"
+                onLoad={onLoad}
+                onClick={() => setLightboxOpen(true)}
+              />
+            ) : error ? (
+              <div
+                className={cn(
+                  "flex flex-col items-center gap-1.5 p-4 text-[11px] opacity-60 min-w-40 min-h-28 justify-center",
+                  isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
+                )}
+              >
+                <ImageIcon className="size-5" />
+                <span>Failed to load</span>
+                <button
+                  type="button"
+                  onClick={download}
+                  className="underline underline-offset-2"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "flex flex-col items-center gap-2 p-6 opacity-50 min-h-28 justify-center",
+                  isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
+                )}
+              >
+                <Loader2 className="size-5 animate-spin" />
+                <span className="text-[10px]">Loading…</span>
+              </div>
+            )}
+            {url && (
+              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-t from-black/55 to-transparent pointer-events-none select-none">
+                <span className="text-[10px] text-white/90">
+                  {formatTime(sentAt)}
+                </span>
+                {isOwn && status === "pending" && (
+                  <Loader2 className="size-3 shrink-0 text-white/80 animate-spin" />
+                )}
+                {isOwn && status === "sent" && (
+                  <Check
+                    className="size-3 shrink-0 text-white/80"
+                    strokeWidth={2.5}
+                  />
+                )}
+                {isOwn && status === "read" && (
+                  <CheckCheck
+                    className="size-3 shrink-0 text-white/80"
+                    strokeWidth={2.5}
+                  />
+                )}
+              </div>
+            )}
+            {textContent && (
+              <div
+                className={cn(
+                  "px-3.5 py-2 border-t text-sm",
+                  isOwn ? "border-primary-foreground/20" : "border-border/40",
+                )}
+              >
+                {textContent}
+              </div>
+            )}
+          </div>
+        </>
       ) : (
         <div className="px-3.5 py-2">
           <div className="flex items-center gap-2.5 min-w-40 pb-0.5">

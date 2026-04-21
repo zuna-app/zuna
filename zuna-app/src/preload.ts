@@ -34,6 +34,17 @@ contextBridge.exposeInMainWorld("security", {
   }> => ipcRenderer.invoke("ed25519:generateSigningKeyPair"),
   signMessage: (privateKey: string, message: string): Promise<string> =>
     ipcRenderer.invoke("ed25519:signMessage", privateKey, message),
+  verifySignature: (
+    publicKey: string,
+    serverId: string,
+    signature: string,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke(
+      "ed25519:verifySignature",
+      publicKey,
+      serverId,
+      signature,
+    ),
 });
 
 contextBridge.exposeInMainWorld("env", {

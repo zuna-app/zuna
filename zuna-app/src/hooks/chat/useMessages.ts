@@ -423,7 +423,12 @@ export function useMessages(
   }, [messages.length]);
 
   const sendChatMessage = useCallback(
-    (cipherText: string, iv: string, authTag: string, plaintext: string) => {
+    async (
+      cipherText: string,
+      iv: string,
+      authTag: string,
+      plaintext: string,
+    ) => {
       const localId = ++localIdCounter.current;
       const optimistic: Message = {
         id: null,
@@ -439,12 +444,23 @@ export function useMessages(
         plaintext,
       };
       setMessages((prev) => [...prev, optimistic]);
+
+      const previewContent =
+        plaintext.length <= 100 ? plaintext : plaintext.slice(0, 100) + "...";
+      const encryptedPreviewContent = await window.security.encrypt(
+        sharedSecretRef.current!,
+        previewContent,
+      );
+
       wsSend(WS_MSG.MESSAGE, {
         chat_id: chatId,
         cipher_text: cipherText,
         iv,
         auth_tag: authTag,
         local_id: localId,
+        short_cipher_text: encryptedPreviewContent.ciphertext,
+        short_iv: encryptedPreviewContent.iv,
+        short_auth_tag: encryptedPreviewContent.authTag,
       });
 
       updateLastMessage({

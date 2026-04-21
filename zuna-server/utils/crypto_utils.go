@@ -31,10 +31,20 @@ func LoadServerKeypair() error {
 		return LoadServerKeypair()
 	}
 
-	ServerPublicKey = pubKeyData
-	ServerPrivateKey = privKeyData
-	ServerPublicKeyBase64 = base64.StdEncoding.EncodeToString(ServerPublicKey)
-	ServerPrivateKeyBase64 = base64.StdEncoding.EncodeToString(ServerPrivateKey)
+	pubDecoded, err := base64.StdEncoding.DecodeString(string(pubKeyData))
+	if err != nil {
+		return err
+	}
+
+	privDecoded, err := base64.StdEncoding.DecodeString(string(privKeyData))
+	if err != nil {
+		return err
+	}
+
+	ServerPublicKey = pubDecoded
+	ServerPrivateKey = privDecoded
+	ServerPublicKeyBase64 = string(pubKeyData)
+	ServerPrivateKeyBase64 = string(privKeyData)
 
 	return nil
 }
