@@ -16,15 +16,18 @@ export function useScrollBehavior(
   const programmaticScrollRef = useRef(false);
   const restoreScrollRef = useRef<(() => void) | null>(null);
 
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((smooth = false) => {
     const el = scrollRef.current;
     if (!el) return;
     programmaticScrollRef.current = true;
-    el.scrollTop = el.scrollHeight;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth ? "smooth" : "instant",
+    });
   }, []);
 
   const scrollToBottomIfPinned = useCallback(() => {
-    if (isPinnedRef.current) scrollToBottom();
+    if (isPinnedRef.current) scrollToBottom(true);
   }, [scrollToBottom]);
 
   useLayoutEffect(() => {
@@ -34,7 +37,7 @@ export function useScrollBehavior(
 
   useEffect(() => {
     isPinnedRef.current = true;
-    scrollToBottom();
+    scrollToBottom(false);
   }, [memberId]);
 
   useEffect(() => {
@@ -56,7 +59,7 @@ export function useScrollBehavior(
     const content = contentRef.current;
     if (!content) return;
     const ro = new ResizeObserver(() => {
-      if (isPinnedRef.current) scrollToBottom();
+      if (isPinnedRef.current) scrollToBottom(true);
     });
     ro.observe(content);
     return () => ro.disconnect();
@@ -67,8 +70,10 @@ export function useScrollBehavior(
     const prev = prevMsgCountRef.current;
     prevMsgCountRef.current = messages.length;
     const isInitial = prev === 0;
-    if (isInitial || (messages.length > prev && isPinnedRef.current)) {
-      scrollToBottom();
+    if (isInitial) {
+      scrollToBottom(false);
+    } else if (messages.length > prev && isPinnedRef.current) {
+      scrollToBottom(true);
     }
   }, [messages, scrollToBottom]);
 

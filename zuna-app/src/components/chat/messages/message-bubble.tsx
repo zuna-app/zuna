@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { motion } from "motion/react";
 import { Check, CheckCheck, FileIcon, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Server } from "@/types/serverTypes";
@@ -89,7 +90,10 @@ export const MessageBubble = React.memo(
       rawText && rawText !== "\u200b" ? extractFirstUrl(rawText) : null;
 
     return (
-      <div
+      <motion.div
+        initial={{ opacity: 1, y: 8, x: 0, scale: 1 }}
+        animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
+        transition={{ type: "spring", duration: 0.25, bounce: 0.2 }}
         className={cn(
           "flex flex-col",
           msg.isOwn ? "items-end" : "items-start",
@@ -219,7 +223,7 @@ export const MessageBubble = React.memo(
             <MessageOgPreview url={ogUrl} isOwn={msg.isOwn} onLoad={onLoad} />
           </div>
         )}
-      </div>
+      </motion.div>
     );
   },
   (prev, next) =>
