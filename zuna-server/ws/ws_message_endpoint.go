@@ -171,7 +171,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 		connectionId := ud.ConnectionID
 		if connectionId == "" || !ud.Active {
-			utils.SendNotificationToGateway(ud.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag)
+			utils.SendNotificationToGateway(ud.UserID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag)
 		}
 
 		if connectionId == "" {

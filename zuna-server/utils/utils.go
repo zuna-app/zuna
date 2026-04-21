@@ -31,6 +31,7 @@ func IsMember(userID string, members []*ent.User) bool {
 
 type NotificationRequest struct {
 	UserID            string `json:"user_id"`
+	SenderID          string `json:"sender_id"`
 	ServerID          string `json:"server_id"`
 	SenderIdentityKey string `json:"sender_identity_key"`
 	CipherText        string `json:"cipher_text"`
@@ -41,9 +42,10 @@ type NotificationRequest struct {
 	Signature         string `json:"signature"`
 }
 
-func SendNotificationToGateway(userId string, senderIdentityKey string, cipherText string, iv string, authTag string) {
+func SendNotificationToGateway(userId string, senderId string, senderIdentityKey string, cipherText string, iv string, authTag string) {
 	body := NotificationRequest{
 		UserID:            userId,
+		SenderID:          senderId,
 		ServerID:          config.Config.Server.ServerID,
 		SenderIdentityKey: senderIdentityKey,
 		CipherText:        cipherText,

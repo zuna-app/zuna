@@ -99,7 +99,7 @@ var Config = Configuration{
 	},
 	SevenTv: SevenTvConfig{
 		Enabled:   true,
-		EmotesSet: "https://7tv.app/emote-sets/01KPH7Q8GRK92MVD9YK1H71FV6",
+		EmotesSet: "01KPH7Q8GRK92MVD9YK1H71FV6",
 	},
 	Gateway: GatewayConfig{
 		Address:  "http://gateway.zuna.chat",

@@ -12,6 +12,7 @@ import (
 
 type NotificationRequest struct {
 	UserID            string `json:"user_id"`
+	SenderID          string `json:"sender_id"`
 	ServerID          string `json:"server_id"`
 	CipherText        string `json:"cipher_text"`
 	Iv                string `json:"iv"`
@@ -24,6 +25,7 @@ type NotificationRequest struct {
 
 type WsNotificationInfoResponse struct {
 	ServerID          string `json:"server_id"`
+	SenderID          string `json:"sender_id"`
 	SenderIdentityKey string `json:"sender_identity_key"`
 	CipherText        string `json:"cipher_text"`
 	Iv                string `json:"iv"`
@@ -73,6 +75,7 @@ func NotificationEndpoint(c *echo.Context) error {
 
 		ws.HubInstance.SendTo(conn.ConnectionID, ws.OutgoingMessage{Type: "notification_info", Payload: WsNotificationInfoResponse{
 			ServerID:          req.ServerID,
+			SenderID:          req.SenderID,
 			SenderIdentityKey: req.SenderIdentityKey,
 			CipherText:        req.CipherText,
 			Iv:                req.Iv,
