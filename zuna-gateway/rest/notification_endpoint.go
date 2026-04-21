@@ -38,6 +38,12 @@ func NotificationEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
+	// Required for APN
+	totalLen := len(req.UserID) + len(req.CipherText) + len(req.Iv) + len(req.AuthTag)
+	if totalLen > 3*1024 {
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
+	}
+
 	if config.Config.Gateway.Password != "" && req.Password != config.Config.Gateway.Password {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
