@@ -14,6 +14,12 @@ type ChatMemberDTO struct {
 	LastChatActivity    int64  `json:"last_chat_activity"`
 }
 
+type UserInfoDTO struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Avatar   string `json:"avatar"`
+}
+
 type MessageDTO struct {
 	ID                        int64  `json:"id"`
 	SenderID                  string `json:"sender_id"`
