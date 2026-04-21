@@ -3,6 +3,7 @@ import { BrowserWindow, nativeImage, Notification } from "electron";
 import { vaultGet } from "../storage/safeVault";
 import { computeSharedSecret, decrypt } from "../crypto/x25519";
 import type { Server } from "../types/serverTypes";
+import { verifySignature } from "@/crypto/ed25519";
 
 interface NotificationInfoPayload {
   server_id: string;
@@ -125,6 +126,19 @@ function handleNotification(payload: NotificationInfoPayload): void {
     const server = serverList.find((s) => s.serverId === payload.server_id);
     if (!server) return;
 
+    const serverPublicKey = server.publicKey;
+    if (!serverPublicKey) return;
+
+    const isValid = verifySignature(
+      serverPublicKey,
+      payload.server_id,
+      payload.signature,
+    );
+    if (!isValid) {
+      console.warn("Received notification with invalid signature, ignoring");
+      return;
+    }
+
     const usersRaw = vaultGet("users") as
       | string
       | Record<string, { username: string; avatar: string }>
@@ -152,8 +166,12 @@ function handleNotification(payload: NotificationInfoPayload): void {
       // focus the app window
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
+        console.log("here");
         if (win.isMinimized()) win.restore();
+        win.setAlwaysOnTop(true);
+        win.show();
         win.focus();
+        win.setAlwaysOnTop(false);
       }
     });
     n.show();
