@@ -4,9 +4,11 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"net/http"
+	"zuna-server/config"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
+	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/nrednav/cuid2"
@@ -19,7 +21,9 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token string `json:"token"`
+	Token     string `json:"token"`
+	ServerID  string `json:"server_id"`
+	Signature string `json:"signature"`
 }
 
 func AuthLoginEndpoint(c *echo.Context) error {
@@ -77,6 +81,8 @@ func AuthLoginEndpoint(c *echo.Context) error {
 	data.UpdateUserData(userData)
 
 	return c.JSON(http.StatusOK, LoginResponse{
-		Token: userData.AuthToken,
+		Token:     userData.AuthToken,
+		ServerID:  config.Config.Server.ServerID,
+		Signature: utils.SignEd25519(config.Config.Server.ServerID),
 	})
 }

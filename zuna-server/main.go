@@ -14,6 +14,7 @@ import (
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/rest"
+	"zuna-server/utils"
 	"zuna-server/ws"
 
 	"github.com/rs/zerolog"
@@ -38,6 +39,12 @@ func main() {
 
 	if err := config.LoadConfig(); err != nil {
 		log.Fatal().Err(err).Msg("failed to load config")
+		return
+	}
+
+	if err := utils.LoadServerKeypair(); err != nil {
+		log.Fatal().Err(err).Msg("failed to load server keypair")
+		return
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

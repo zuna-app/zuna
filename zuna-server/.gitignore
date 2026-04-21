@@ -1,13 +1,11 @@
 config.toml
 *.db
-*.png
-storage_data/
-<<<<<<< HEAD
-logo.gif
-=======
 *.db-shm
 *.db-wal
->>>>>>> c045bea8145486ef95a900ebd3bd0ae6cc404376
+*.png
+*.gif
+*.key
+storage_data/
 
 # Created by https://www.toptal.com/developers/gitignore/api/go,goland+all,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=go,goland+all,linux

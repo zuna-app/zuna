@@ -2,9 +2,6 @@ package utils
 
 import (
 	"bytes"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,33 +11,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 )
-
-func GenerateEd25519Nonce() (string, error) {
-	b := make([]byte, 32)
-
-	_, err := rand.Read(b)
-	if err != nil {
-		return "", err
-	}
-
-	return base64.StdEncoding.EncodeToString(b), nil
-}
-
-func ValidateEd25519PublicKey(b64 string) bool {
-	decoded, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return false
-	}
-	return len(decoded) == ed25519.PublicKeySize
-}
-
-func ValidateX25519PublicKey(b64 string) bool {
-	decoded, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		return false
-	}
-	return len(decoded) == 44
-}
 
 func ValidateServerPassword(password string) bool {
 	if config.Config.Server.Password == "" {
@@ -67,17 +37,19 @@ type NotificationRequest struct {
 	AuthTag    string `json:"auth_tag"`
 	Timestamp  int64  `json:"timestamp"`
 	Password   string `json:"password"`
+	Signature  string `json:"signature"`
 }
 
 func SendNotificationToGateway(userId, cipherText string, iv string, authTag string) {
 	body := NotificationRequest{
 		UserID:     userId,
-		ServerID:   config.Config.Server.Name,
+		ServerID:   config.Config.Server.ServerID,
 		CipherText: cipherText,
 		Iv:         iv,
 		AuthTag:    authTag,
 		Timestamp:  time.Now().UnixMilli(),
 		Password:   config.Config.Gateway.Password,
+		Signature:  SignEd25519(config.Config.Server.ServerID),
 	}
 
 	payload, err := json.Marshal(body)

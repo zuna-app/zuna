@@ -18,6 +18,7 @@ type NotificationRequest struct {
 	AuthTag    string `json:"auth_tag"`
 	Timestamp  int64  `json:"timestamp"`
 	Password   string `json:"password"`
+	Signature  string `json:"signature"`
 }
 
 type WsNotificationInfoResponse struct {
@@ -25,6 +26,7 @@ type WsNotificationInfoResponse struct {
 	CipherText string `json:"cipher_text"`
 	Iv         string `json:"iv"`
 	AuthTag    string `json:"auth_tag"`
+	Signature  string `json:"signature"`
 }
 
 func NotificationEndpoint(c *echo.Context) error {
@@ -72,6 +74,7 @@ func NotificationEndpoint(c *echo.Context) error {
 			CipherText: req.CipherText,
 			Iv:         req.Iv,
 			AuthTag:    req.AuthTag,
+			Signature:  req.Signature,
 		}})
 	}
 

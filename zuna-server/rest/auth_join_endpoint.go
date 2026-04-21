@@ -28,7 +28,9 @@ type JoinRequest struct {
 }
 
 type JoinResponse struct {
-	ID string `json:"id"`
+	ID              string `json:"id"`
+	ServerID        string `json:"server_id"`
+	ServerPublicKey string `json:"server_public_key"`
 }
 
 var usernameAllowedChars = regexp.MustCompile(`^[A-Za-z0-9]+$`)
@@ -157,6 +159,8 @@ func AuthJoinEndpoint(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, JoinResponse{
-		ID: u.ID,
+		ID:              u.ID,
+		ServerID:        config.Config.Server.ServerID,
+		ServerPublicKey: utils.ServerPublicKeyBase64,
 	})
 }

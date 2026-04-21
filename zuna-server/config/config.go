@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/nrednav/cuid2"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -33,6 +34,7 @@ type ServerConfig struct {
 	Name             string `toml:"name"`
 	Logo             string `toml:"logo" comment:"Server logo file"`
 	StorageDirectory string `toml:"storage_directory" comment:"Directory for storing attachements and avatars"`
+	ServerID         string `toml:"server_id" comment:"Automatically generated unique server ID, never change this value"`
 }
 
 type LimitsConfig struct {
@@ -86,6 +88,7 @@ var Config = Configuration{
 		Name:             "Example Zuna server",
 		Logo:             "logo.png",
 		StorageDirectory: "storage_data",
+		ServerID:         cuid2.Generate(),
 	},
 	Limits: LimitsConfig{
 		MinUsernameLength: 3,
