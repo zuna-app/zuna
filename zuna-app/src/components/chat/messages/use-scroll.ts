@@ -95,6 +95,11 @@ export function useScrollBehavior(
     fetchMore();
   }, [fetchMore, hasMore, loading]);
 
+  const handleFetchMoreRef = useRef(handleFetchMore);
+  useEffect(() => {
+    handleFetchMoreRef.current = handleFetchMore;
+  });
+
   useEffect(() => {
     const root = scrollRef.current;
     const sentinel = topSentinelRef.current;
@@ -102,14 +107,14 @@ export function useScrollBehavior(
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) handleFetchMore();
+        if (entry.isIntersecting) handleFetchMoreRef.current();
       },
       { root, rootMargin: "150px" },
     );
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [handleFetchMore]);
+  }, []);
 
   return { scrollRef, contentRef, topSentinelRef, scrollToBottomIfPinned };
 }

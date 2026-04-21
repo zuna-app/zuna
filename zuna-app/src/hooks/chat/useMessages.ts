@@ -62,11 +62,15 @@ export function useMessages(
 
   const localIdCounter = useRef(0);
   const isFetchingRef = useRef(false);
+  const wasOlderPaginationRef = useRef(false);
   const prevReadyStateRef = useRef<ReadyState | null>(null);
   const prevChatIdRef = useRef<string | null>(null);
   const isFocusedRef = useRef(
     typeof document !== "undefined" ? document.hasFocus() : true,
   );
+  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isInactiveRef = useRef(false);
+  const lastPresenceRef = useRef<boolean | null>(null);
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
 
@@ -145,10 +149,12 @@ export function useMessages(
         ];
       });
 
-      wsSend(WS_MSG.MARK_READ, {
-        chat_id: chatIdRef.current,
-        timestamp: Date.now(),
-      });
+      if (isFocusedRef.current) {
+        wsSend(WS_MSG.MARK_READ, {
+          chat_id: chatIdRef.current,
+          timestamp: Date.now(),
+        });
+      }
 
       if (sharedSecretRef.current) {
         window.security
@@ -225,12 +231,46 @@ export function useMessages(
     }
   }, [chatId]);
 
-  // ── Window focus / blur ────────────────────────────────────────────────────
+  // ── Window focus / blur / minimize / inactivity ──────────────────────────
 
   useEffect(() => {
+    const INACTIVITY_MS = 5 * 60 * 1000;
+
+    const sendPresence = (active: boolean) => {
+      if (lastPresenceRef.current === active) return;
+      lastPresenceRef.current = active;
+      wsSend(WS_MSG.PRESENCE, { active });
+    };
+
+    const clearInactivityTimer = () => {
+      if (inactivityTimerRef.current) {
+        clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = null;
+      }
+    };
+
+    const startInactivityTimer = () => {
+      clearInactivityTimer();
+      inactivityTimerRef.current = setTimeout(() => {
+        isInactiveRef.current = true;
+        sendPresence(false);
+      }, INACTIVITY_MS);
+    };
+
+    const onActivity = () => {
+      if (!isFocusedRef.current) return;
+      if (isInactiveRef.current) {
+        isInactiveRef.current = false;
+        sendPresence(true);
+      }
+      startInactivityTimer();
+    };
+
     const onFocus = () => {
       isFocusedRef.current = true;
-      wsSend(WS_MSG.PRESENCE, { active: true });
+      isInactiveRef.current = false;
+      sendPresence(true);
+      startInactivityTimer();
       const msgs = lastMessagesRef.current;
       const cId = chatIdRef.current;
       if (msgs && cId) {
@@ -250,15 +290,44 @@ export function useMessages(
 
     const onBlur = () => {
       isFocusedRef.current = false;
-      wsSend(WS_MSG.PRESENCE, { active: false });
+      isInactiveRef.current = false;
+      clearInactivityTimer();
+      sendPresence(false);
     };
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        isFocusedRef.current = false;
+        isInactiveRef.current = false;
+        clearInactivityTimer();
+        sendPresence(false);
+      } else if (
+        document.visibilityState === "visible" &&
+        document.hasFocus()
+      ) {
+        isFocusedRef.current = true;
+        isInactiveRef.current = false;
+        sendPresence(true);
+        startInactivityTimer();
+      }
+    };
+
+    const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown"] as const;
+    ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, onActivity));
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    if (isFocusedRef.current) {
+      startInactivityTimer();
+    }
 
     return () => {
+      ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, onActivity));
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      clearInactivityTimer();
     };
   }, [wsSend]);
 
@@ -302,6 +371,7 @@ export function useMessages(
             return [...fetched, ...uniquePending];
           });
         } else {
+          wasOlderPaginationRef.current = true;
           setMessages((prev) => [...fetched, ...prev]);
         }
 
@@ -338,6 +408,10 @@ export function useMessages(
   }, [readyState, chatId, fetchMessages]);
 
   useEffect(() => {
+    if (wasOlderPaginationRef.current) {
+      wasOlderPaginationRef.current = false;
+      return;
+    }
     if (messages.length > MESSAGES_LIMIT) {
       setHasMore(true);
       setMessages((prev) =>
