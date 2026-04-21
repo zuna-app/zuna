@@ -24,6 +24,10 @@ import {
   vaultSet,
 } from "./storage/safeVault";
 import { decryptFile, encryptFile } from "./crypto/file";
+import {
+  startGatewayListeners,
+  stopGatewayListeners,
+} from "./gateway/gatewayListener";
 
 export function registerIPC() {
   registerOgIPC();

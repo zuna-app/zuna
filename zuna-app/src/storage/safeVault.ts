@@ -2,6 +2,10 @@ import { app } from "electron";
 import fs from "fs";
 import path from "path";
 import { decryptWithPassword, encryptWithPassword } from "@/crypto/scrypt";
+import {
+  startGatewayListeners,
+  stopGatewayListeners,
+} from "@/gateway/gatewayListener";
 
 let vault: Map<string, any> | null = null;
 let currentPassword: string | null = null;
@@ -69,6 +73,8 @@ export function loadAndUnlockVault(password: string) {
       return [k, entry.data];
     }),
   );
+
+  startGatewayListeners();
 }
 
 export function lockVault() {
@@ -88,6 +94,8 @@ export function lockVault() {
     clearTimeout(saveTimer);
     saveTimer = null;
   }
+
+  stopGatewayListeners();
 }
 
 export function vaultGet(key: string): any {

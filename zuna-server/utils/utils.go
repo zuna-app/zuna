@@ -62,7 +62,7 @@ func SendNotificationToGateway(userId string, senderId string, senderIdentityKey
 		return
 	}
 
-	url := fmt.Sprintf("%s:%d/api/notification", config.Config.Gateway.Address, config.Config.Gateway.Port)
+	url := fmt.Sprintf("http://%s/api/notification", config.Config.Gateway.Address)
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
 	if err != nil {

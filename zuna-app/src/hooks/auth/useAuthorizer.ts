@@ -195,6 +195,44 @@ export function useAuthorizer(server: Server) {
         throw new Error("Invalid signature from server. Possible MITM attack?");
       }
 
+      const usersRes = await fetch(`http://${server.address}/api/chat/users`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${newToken}`,
+        },
+      });
+
+      if (!usersRes.ok) {
+        const text = await usersRes.text().catch(() => usersRes.statusText);
+        throw new Error(
+          `Failed to fetch user list (${usersRes.status}): ${text}`,
+        );
+      }
+
+      const { users } = await usersRes.json();
+
+      if (!users || !Array.isArray(users)) {
+        throw new Error("Invalid user list received from server");
+      }
+
+      window.vault.get("users").then((data) => {
+        let usersMap: Record<string, { username: any; avatar: any }> = {};
+        if (data) {
+          try {
+            usersMap = JSON.parse(data);
+          } catch {
+            console.warn("Failed to parse users from vault, starting fresh");
+          }
+        }
+        for (const user of users) {
+          usersMap[user.id] = { username: user.username, avatar: user.avatar };
+        }
+        window.vault.set("users", JSON.stringify(usersMap)).catch((err) => {
+          console.error("Failed to save users to vault", err);
+        });
+      });
+
       return {
         token: newToken,
         name: server_name ?? null,
@@ -221,7 +259,6 @@ export function useAuthorizer(server: Server) {
     }) => {
       setServerTokens((prev) => {
         const next = new Map(prev);
-        111;
         next.set(server.id, newToken);
         return next;
       });
