@@ -167,7 +167,9 @@ export function useMessages(
             updateLastMessage({
               chatId: chatIdRef.current,
               senderId: payload.sender_id,
-              content: plaintext,
+              content: payload.attachment_id
+                ? "\uD83D\uDCCE Attachment"
+                : plaintext,
               unreadMessages: isFocusedRef.current
                 ? 0
                 : (lastMessagesRef.current?.[chatIdRef.current]
