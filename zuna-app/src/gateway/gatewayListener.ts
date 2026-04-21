@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import { nativeImage, Notification } from "electron";
+import { BrowserWindow, nativeImage, Notification } from "electron";
 import { vaultGet } from "../storage/safeVault";
 import { computeSharedSecret, decrypt } from "../crypto/x25519";
 import type { Server } from "../types/serverTypes";
@@ -140,13 +140,23 @@ function handleNotification(payload: NotificationInfoPayload): void {
     }
     const senderInfo = usersList[payload.sender_id];
 
-    new Notification({
+    const n = new Notification({
       title: senderInfo?.username || "New Message",
       body: plaintext,
       icon: senderInfo?.avatar
         ? nativeImage.createFromDataURL(senderInfo.avatar)
         : undefined,
-    }).show();
+    });
+
+    n.on("click", () => {
+      // focus the app window
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win) {
+        if (win.isMinimized()) win.restore();
+        win.focus();
+      }
+    });
+    n.show();
   } catch (e) {
     // ignore decrypt errors (e.g. wrong key, tampered message)
     console.error("Failed to handle notification:", e);
