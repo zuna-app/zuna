@@ -107,7 +107,8 @@ export function ChatInput({
 
   const canSend = !!sharedSecret && !isSending;
   const isEditing = !!editingMessage;
-  const canSendNow = canSend && (!!value.trim() || (!!pendingFile && !isEditing));
+  const canSendNow =
+    canSend && (!!value.trim() || (!!pendingFile && !isEditing));
 
   useAutoFocus(textareaRef, pickerOpenRef, canSend);
 
@@ -244,7 +245,9 @@ export function ChatInput({
         <div className="mb-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-primary">Editing message</p>
+              <p className="text-xs font-medium text-primary">
+                Editing message
+              </p>
               <p className="text-xs text-muted-foreground truncate">
                 {editingMessage.originalText || "(empty message)"}
               </p>
@@ -310,9 +313,9 @@ export function ChatInput({
                   ? "Add a message… (optional)"
                   : isEditing
                     ? "Edit message…"
-                  : sharedSecret
-                    ? "Message…"
-                    : "Establishing secure channel…"
+                    : sharedSecret
+                      ? "Message…"
+                      : "Establishing secure channel…"
             }
             rows={1}
             className={cn(

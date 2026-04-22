@@ -63,12 +63,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   );
 
   const handleSend = useCallback(
-    (
-      cipherText: string,
-      iv: string,
-      authTag: string,
-      plaintext: string,
-    ) => {
+    (cipherText: string, iv: string, authTag: string, plaintext: string) => {
       if (editingMessage) {
         editMessage(editingMessage.id, cipherText, iv, authTag, plaintext);
         setEditingMessage(null);
