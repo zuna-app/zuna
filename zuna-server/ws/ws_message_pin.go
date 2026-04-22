@@ -38,11 +38,6 @@ func (r *MessageRouter) handlePinMessage(c HubClient, msg IncomingMessage, userD
 		return
 	}
 
-	if m.Edges.User.ID != userData.UserID {
-		sendForbidden(c)
-		return
-	}
-
 	pinned := !m.Pinned
 	ch, err := db.EntClient.Chat.Query().WithUsers().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
 	if err != nil {
