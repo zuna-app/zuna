@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
+
+  --color-bg-base: #060d1a;
+  --color-bg-card: #0a1628;
+  --color-bg-elevated: #0f1f3d;
+  --color-bg-hover: #142649;
+  --color-accent: #2563eb;
+  --color-accent-light: #3b82f6;
+  --color-accent-glow: #60a5fa;
+  --color-border: #1a3050;
+  --color-border-light: #234878;
+
+  --animate-float: float 8s ease-in-out infinite;
+  --animate-float-delayed: float 8s ease-in-out 3s infinite;
+  --animate-pulse-glow: pulseGlow 4s ease-in-out infinite;
+  --animate-pulse-glow-delayed: pulseGlow 4s ease-in-out 2s infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #060d1a;
+  color: #f1f5f9;
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #060d1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1a3050;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #234878;
+}
+
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 50%, #818cf8 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
