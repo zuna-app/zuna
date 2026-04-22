@@ -8,7 +8,7 @@ import {
   MessageReceivePayload,
   MessageReadInfoPayload,
   MessageDeleteReceivePayload,
-  MessageEditReceivePayload,
+  MessageModifyReceivePayload,
 } from "@/hooks/ws/wsTypes";
 import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
 import { jotaiStore, serverTokensAtom } from "@/hooks/auth/useAuthorizer";
@@ -197,9 +197,9 @@ export function useMessages(
     },
   );
 
-  useWsHandler<MessageEditReceivePayload>(
+  useWsHandler<MessageModifyReceivePayload>(
     server,
-    WS_MSG.MESSAGE_EDIT_RECEIVE,
+    WS_MSG.MESSAGE_MODIFY_RECEIVE,
     (payload) => {
       setMessages((prev) =>
         prev.map((m) =>
@@ -527,7 +527,7 @@ export function useMessages(
         ),
       );
 
-      wsSend(WS_MSG.MESSAGE_EDIT, {
+      wsSend(WS_MSG.MESSAGE_MODIFY, {
         id: messageId,
         cipher_text: cipherText,
         iv,

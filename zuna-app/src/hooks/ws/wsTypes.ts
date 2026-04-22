@@ -13,8 +13,8 @@ export const WS_MSG = {
   MESSAGE_READ_INFO: "message_read_info",
   MESSAGE_DELETE: "message_delete",
   MESSAGE_DELETE_RECEIVE: "message_delete_receive",
-  MESSAGE_EDIT: "message_edit",
-  MESSAGE_EDIT_RECEIVE: "message_edit_receive",
+  MESSAGE_MODIFY: "message_modify",
+  MESSAGE_MODIFY_RECEIVE: "message_modify_receive",
   MARK_READ: "mark_read",
   WRITE: "write",
   WRITE_RECEIVE: "write_receive",
@@ -87,14 +87,14 @@ export interface MessageDeleteReceivePayload {
   id: number;
 }
 
-export interface MessageEditPayload {
+export interface MessageModifyPayload {
   id: number;
   cipher_text: string;
   iv: string;
   auth_tag: string;
 }
 
-export interface MessageEditReceivePayload {
+export interface MessageModifyReceivePayload {
   id: number;
   chat_id: string;
   sender_id: string;
