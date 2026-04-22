@@ -62,7 +62,7 @@ export const useServerConnector = () => {
         throw new Error("Encryption or signing key not found in vault");
       }
 
-      const res = await fetch(`http://${address}/api/auth/join`, {
+      const res = await fetch(`https://${address}/api/auth/join`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

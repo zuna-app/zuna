@@ -9,7 +9,7 @@ import { Server } from "@/types/serverTypes";
 export function useServerFetch(server: Server) {
   const serverFetch = useCallback(
     async (path: string, options?: RequestInit): Promise<Response> => {
-      const res = await fetch(`http://${server.address}${path}`, options);
+      const res = await fetch(`https://${server.address}${path}`, options);
       if (!res.ok) {
         const text = await res.text().catch(() => res.statusText);
         throw new Error(`${res.status}: ${text}`);
@@ -31,7 +31,7 @@ export function useAuthorizedServerFetch(server: Server) {
       const token = serverTokens.get(server.id);
       if (!token) throw new Error("No token available");
 
-      const res = await fetch(`http://${server.address}${path}`, {
+      const res = await fetch(`https://${server.address}${path}`, {
         ...options,
         headers: {
           ...options?.headers,

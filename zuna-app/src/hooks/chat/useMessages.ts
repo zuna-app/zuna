@@ -544,7 +544,7 @@ export function useMessages(
         const token = jotaiStore.get(serverTokensAtom).get(server.id) ?? "";
 
         const attachmentId = await xhrUpload(
-          `http://${server.address}/api/attachment/upload`,
+          `https://${server.address}/api/attachment/upload`,
           token,
           formData,
           (pct) => {

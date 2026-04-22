@@ -5,7 +5,7 @@ import WebSocket from "ws";
  *   { type, token, payload }
  *
  * On connection:
- *   1. A raw WebSocket connection is made to ws://<address>/ws
+ *   1. A raw WebSocket connection is made to wss://<address>/ws
  *   2. An "auth" frame is immediately sent.
  *   3. connect() resolves once the server replies with "auth_confirmation".
  */
@@ -24,7 +24,7 @@ export class ZunaWebSocket {
    */
   connect() {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://${this.address}/ws`);
+      const ws = new WebSocket(`wss://${this.address}/ws`);
       this._ws = ws;
 
       ws.on("open", () => {

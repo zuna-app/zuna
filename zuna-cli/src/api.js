@@ -15,7 +15,7 @@ export class ZunaAPI {
   // ─── Internal helpers ───────────────────────────────────────────────────────
 
   async _post(path, body) {
-    const res = await fetch(`http://${this.address}${path}`, {
+    const res = await fetch(`https://${this.address}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -27,7 +27,7 @@ export class ZunaAPI {
 
   async _get(path) {
     if (!this.token) throw new Error("Not authenticated. Call login() first.");
-    const res = await fetch(`http://${this.address}${path}`, {
+    const res = await fetch(`https://${this.address}${path}`, {
       headers: { Authorization: `Bearer ${this.token}` },
     });
     const text = await res.text();
