@@ -18,7 +18,7 @@ const config: ForgeConfig = {
     new MakerSquirrel({
       setupIcon: "./src/assets/icon.ico",
     }),
-    new MakerZIP({}, ["linux"]),
+    new MakerZIP({}, ["linux", "darwin"]),
     new MakerDeb({
       options: {
         icon: "./src/assets/zuna.png",
