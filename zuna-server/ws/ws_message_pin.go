@@ -7,6 +7,7 @@ import (
 	"zuna-server/db"
 	"zuna-server/ent/chat"
 	"zuna-server/ent/message"
+	"zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
 )
@@ -47,6 +48,11 @@ func (r *MessageRouter) handlePinMessage(c HubClient, msg IncomingMessage, userD
 	if err != nil {
 		log.Error().Err(err).Msg("failed to query chat")
 		sendInternalServerError(c)
+		return
+	}
+
+	if !utils.IsMember(userData.UserID, ch.Edges.Users) {
+		sendForbidden(c)
 		return
 	}
 
