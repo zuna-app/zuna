@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   Check,
@@ -284,7 +284,22 @@ export const MessageBubble = React.memo(
   }: MessageBubbleProps) {
     const status = getStatus(msg);
     const [isOpenMenuContext, setIsOpenMenuContext] = useState(false);
+    const messageRef = useRef<HTMLDivElement | null>(null);
     const { sendMessage: wsSend } = useWsConnection(server);
+
+    const getSelectedMessageText = () => {
+      const selection = window.getSelection();
+      const bubble = messageRef.current;
+      if (!selection || !bubble || selection.isCollapsed) return "";
+
+      const anchorNode = selection.anchorNode;
+      const focusNode = selection.focusNode;
+      if (!anchorNode || !focusNode) return "";
+      if (!bubble.contains(anchorNode) || !bubble.contains(focusNode))
+        return "";
+
+      return selection.toString().trim();
+    };
 
     const codeBlock = useMemo(
       () => (rawText && rawText !== "\u200b" ? parseCodeBlock(rawText) : null),
@@ -320,8 +335,9 @@ export const MessageBubble = React.memo(
             setIsOpenMenuContext(open);
           }}
         >
-          <ContextMenuTrigger asChild>
+          <ContextMenuTrigger asChild className="select-text">
             <div
+              ref={messageRef}
               className={cn(
                 "relative text-sm leading-relaxed wrap-break-word",
                 codeBlock
@@ -520,7 +536,9 @@ export const MessageBubble = React.memo(
             </ContextMenuItem>
             <ContextMenuItem
               onClick={() => {
-                navigator.clipboard.writeText(rawText);
+                navigator.clipboard.writeText(
+                  getSelectedMessageText() || rawText,
+                );
               }}
             >
               <Copy className="size-4" />
