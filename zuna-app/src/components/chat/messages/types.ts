@@ -47,7 +47,7 @@ export function messageKey(msg: Message): string {
 }
 
 export function sameGroup(a: Message, b: Message): boolean {
-  return a.senderId === b.senderId && b.sentAt - a.sentAt < 5 * 60 * 1000;
+  return a.senderId === b.senderId && b.sentAt - a.sentAt < 60 * 60 * 1000;
 }
 
 export function groupMessages(messages: Message[]): GroupedMessage[] {
@@ -58,7 +58,8 @@ export function groupMessages(messages: Message[]): GroupedMessage[] {
       ...msg,
       isFirst: !prev || !sameGroup(prev, msg),
       isLast: !next || !sameGroup(msg, next),
-      showDivider: i > 0 && (!prev || msg.sentAt - prev.sentAt > 5 * 60 * 1000),
+      showDivider:
+        i > 0 && (!prev || msg.sentAt - prev.sentAt > 60 * 60 * 1000),
     };
   });
 }

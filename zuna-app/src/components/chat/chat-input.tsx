@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { Paperclip, ImagePlus } from "lucide-react";
+import { Paperclip, ImagePlus, Code2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEmotes } from "@/hooks/ui/useEmotes";
 import { ActionButton } from "./action-button";
@@ -15,6 +15,12 @@ import { useWritingIndicator } from "./input/use-writing-indicator";
 import { useAutoFocus } from "./input/use-auto-focus";
 import { useEmoteSuggestion } from "./input/use-emote-suggestion";
 import { useSendMessage } from "./input/use-send-message";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const WRITE_IDLE_MS = 5000;
 
@@ -47,6 +53,8 @@ export function ChatInput({
   const [value, setValue] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [ogDismissed, setOgDismissed] = useState<string | null>(null);
+  const [codeMode, setCodeMode] = useState(false);
+  const [codeLang, setCodeLang] = useState("");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -85,6 +93,9 @@ export function ChatInput({
     writeTimeoutRef,
     setOgDismissed,
     textareaRef,
+    codeMode,
+    codeLang,
+    setCodeMode,
   });
 
   const canSend = !!sharedSecret && !isSending;
@@ -256,13 +267,14 @@ export function ChatInput({
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
-              pendingFile
-                ? "Add a message… (optional)"
-                : sharedSecret
-                  ? "Message…"
-                  : "Establishing secure channel…"
+              codeMode
+                ? "Paste or type your code…"
+                : pendingFile
+                  ? "Add a message… (optional)"
+                  : sharedSecret
+                    ? "Message…"
+                    : "Establishing secure channel…"
             }
-            //disabled={!canSend && value === "" && !pendingFile}
             rows={1}
             className={cn(
               "w-full bg-transparent border-none shadow-none resize-none",
@@ -270,6 +282,7 @@ export function ChatInput({
               "placeholder:text-muted-foreground/40",
               "focus-visible:ring-0 focus-visible:border-none",
               "min-h-0 max-h-40 field-sizing-content",
+              codeMode && "font-mono text-xs",
             )}
           />
           {(ogUrl || ogLoading) && (
@@ -283,17 +296,43 @@ export function ChatInput({
               )}
             </div>
           )}
-          {previewTokens && (
+          {/* {previewTokens && (
             <EmotePreview tokens={previewTokens} emoteMap={emoteMap} />
-          )}
+          )} */}
         </div>
 
-        <ActionButton
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={!canSend}
+              onClick={() => {
+                setCodeMode((v) => !v);
+                setTimeout(() => textareaRef.current?.focus(), 0);
+              }}
+              className={cn(
+                "size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors",
+                codeMode
+                  ? "bg-primary/15 text-primary hover:bg-primary/20"
+                  : "",
+              )}
+            >
+              <Code2 className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" className="text-xs">
+            {codeMode ? "Exit code mode" : "Code mode"}
+          </TooltipContent>
+        </Tooltip>
+
+        {/* <ActionButton
           icon={ImagePlus}
           label="Send image"
           disabled={!canSend}
           onClick={() => imageInputRef.current?.click()}
-        />
+        /> */}
 
         <EmotePickerButton
           disabled={!canSend}

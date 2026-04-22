@@ -53,6 +53,7 @@
     "clsx": "^2.1.1",
     "electron-squirrel-startup": "^1.0.1",
     "emoji-js": "^3.9.0",
+    "highlight.js": "^11.11.1",
     "input-otp": "^1.4.2",
     "jotai": "^2.19.1",
     "lucide-react": "^1.8.0",

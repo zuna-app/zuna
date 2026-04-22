@@ -236,7 +236,7 @@ export function useMessages(
   // ── Window focus / blur / minimize / inactivity ──────────────────────────
 
   useEffect(() => {
-    const INACTIVITY_MS = 5 * 60 * 1000;
+    const INACTIVITY_MS = 1 * 60 * 1000;
 
     const sendPresence = (active: boolean) => {
       if (lastPresenceRef.current === active) return;

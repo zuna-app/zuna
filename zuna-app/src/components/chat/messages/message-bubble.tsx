@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Check, CheckCheck, FileIcon, Loader2 } from "lucide-react";
+import { Check, CheckCheck, FileIcon, Loader2, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Server } from "@/types/serverTypes";
 import { MessageOgPreview } from "../og-preview";
@@ -21,8 +21,80 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
+import hljs from "highlight.js";
+import "highlight.js/styles/atom-one-dark.min.css";
 
 const URL_SPLIT_RE = /(https?:\/\/[^\s<>"']+)/i;
+
+const CODE_BLOCK_RE = /^```(\w*)\n([\s\S]+)\n?```$/;
+
+function parseCodeBlock(
+  text: string,
+): { language: string; code: string } | null {
+  const m = CODE_BLOCK_RE.exec(text.trim());
+  if (!m) return null;
+  return { language: m[1] ?? "", code: m[2] };
+}
+
+function CodeBlock({
+  language,
+  code,
+  isOwn,
+}: {
+  language: string;
+  code: string;
+  isOwn: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const highlighted = useMemo(() => {
+    return hljs.highlightAuto(code);
+  }, [language, code]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl overflow-hidden text-xs leading-relaxed",
+        isOwn ? "bg-black/30" : "bg-black/60",
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center justify-between px-3 py-1.5",
+          isOwn ? "bg-black/20" : "bg-black/30",
+        )}
+      >
+        <span className="text-[10px] text-white/40 uppercase tracking-wider">
+          {highlighted.language || "code"}{" "}
+        </span>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="flex items-center gap-1 text-[10px] text-white/40 hover:text-white/80 transition-colors"
+        >
+          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-3 m-0 bg-transparent rounded-xl mb-5">
+        <code
+          className={cn(
+            "hljs rounded-xl",
+            highlighted.language && `language-${highlighted.language}`,
+          )}
+          dangerouslySetInnerHTML={{ __html: highlighted.value }}
+        />
+      </pre>
+    </div>
+  );
+}
 
 function EmoteHoverCard({
   name,
@@ -187,6 +259,11 @@ export const MessageBubble = React.memo(
   }: MessageBubbleProps) {
     const status = getStatus(msg);
 
+    const codeBlock = useMemo(
+      () => (rawText && rawText !== "\u200b" ? parseCodeBlock(rawText) : null),
+      [rawText],
+    );
+
     const textContent = useMemo(
       () =>
         rawText === "\u200b" ? null : (
@@ -196,7 +273,9 @@ export const MessageBubble = React.memo(
     );
 
     const ogUrl =
-      rawText && rawText !== "\u200b" ? extractFirstUrl(rawText) : null;
+      rawText && rawText !== "\u200b" && !codeBlock
+        ? extractFirstUrl(rawText)
+        : null;
 
     return (
       <motion.div
@@ -211,10 +290,13 @@ export const MessageBubble = React.memo(
       >
         <div
           className={cn(
-            "relative max-w-[95%] lg:max-w-[65%] text-sm leading-relaxed wrap-break-word",
+            "relative text-sm leading-relaxed wrap-break-word",
+            codeBlock
+              ? "max-w-[95%] lg:max-w-[80%] p-0 overflow-hidden"
+              : "max-w-[95%] lg:max-w-[65%]",
             msg.attachmentId && msg.uploadProgress === undefined
               ? "overflow-hidden p-0"
-              : "px-3.5 py-2",
+              : !codeBlock && "px-3.5 py-2",
             msg.isOwn
               ? cn(
                   "bg-primary text-primary-foreground",
@@ -293,25 +375,17 @@ export const MessageBubble = React.memo(
                 </div>
               )}
             </>
-          ) : (
-            <span>{textContent}</span>
-          )}
-
-          {!(msg.attachmentId && msg.uploadProgress === undefined) && (
-            <>
-              <span
-                aria-hidden
-                className="inline-block align-bottom ml-1.5 opacity-0 pointer-events-none select-none text-[10px]"
-              >
-                {formatTime(msg.sentAt)}
-                {msg.isOwn && "\u00a0\u00a0\u2713"}
-              </span>
+          ) : codeBlock ? (
+            <div className="relative">
+              <CodeBlock
+                language={codeBlock.language}
+                code={codeBlock.code}
+                isOwn={msg.isOwn}
+              />
               <span
                 className={cn(
-                  "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[10px]",
-                  msg.isOwn
-                    ? "text-primary-foreground/60"
-                    : "text-muted-foreground/50",
+                  "absolute bottom-2 right-3 flex items-center gap-0.5 text-[10px]",
+                  "text-white/30",
                 )}
               >
                 {formatTime(msg.sentAt)}
@@ -323,8 +397,42 @@ export const MessageBubble = React.memo(
                   <CheckCheck className="size-3 shrink-0" strokeWidth={2.5} />
                 )}
               </span>
-            </>
+            </div>
+          ) : (
+            <span>{textContent}</span>
           )}
+
+          {!(msg.attachmentId && msg.uploadProgress === undefined) &&
+            !codeBlock && (
+              <>
+                <span
+                  aria-hidden
+                  className="inline-block align-bottom ml-1.5 opacity-0 pointer-events-none select-none text-[10px]"
+                >
+                  {formatTime(msg.sentAt)}
+                  {msg.isOwn && "\u00a0\u00a0\u2713"}
+                </span>
+                <span
+                  className={cn(
+                    "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[10px]",
+                    msg.isOwn
+                      ? "text-primary-foreground/60"
+                      : "text-muted-foreground/50",
+                  )}
+                >
+                  {formatTime(msg.sentAt)}
+                  {msg.isOwn && status === "pending" && (
+                    <DelayedMessageSpinner />
+                  )}
+                  {msg.isOwn && status === "sent" && (
+                    <Check className="size-3 shrink-0" strokeWidth={2.5} />
+                  )}
+                  {msg.isOwn && status === "read" && (
+                    <CheckCheck className="size-3 shrink-0" strokeWidth={2.5} />
+                  )}
+                </span>
+              </>
+            )}
         </div>
 
         {ogUrl && (

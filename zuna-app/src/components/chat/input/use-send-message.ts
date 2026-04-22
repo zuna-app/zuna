@@ -17,6 +17,9 @@ interface UseSendMessageParams {
   writeTimeoutRef: React.RefObject<ReturnType<typeof setTimeout> | null>;
   setOgDismissed: React.Dispatch<React.SetStateAction<string | null>>;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  codeMode?: boolean;
+  codeLang?: string;
+  setCodeMode?: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 export function useSendMessage({
@@ -31,6 +34,9 @@ export function useSendMessage({
   writeTimeoutRef,
   setOgDismissed,
   textareaRef,
+  codeMode,
+  codeLang,
+  setCodeMode,
 }: UseSendMessageParams) {
   const [isSending, setIsSending] = useState(false);
 
@@ -50,12 +56,17 @@ export function useSendMessage({
       return;
     }
 
-    const text = value.trim();
-    if (!text) return;
+    const rawText = value.trim();
+    if (!rawText) return;
+    const text =
+      codeMode && rawText
+        ? `\`\`\`${codeLang ?? ""}\n${rawText}\n\`\`\``
+        : rawText;
 
     setIsSending(true);
     setValue("");
     setOgDismissed(null);
+    if (codeMode && setCodeMode) setCodeMode(false);
     if (writeTimeoutRef.current) clearTimeout(writeTimeoutRef.current);
     setWriting(false);
 
@@ -64,7 +75,7 @@ export function useSendMessage({
       onSend(encrypted.ciphertext, encrypted.iv, encrypted.authTag, text);
     } catch (err) {
       console.error("[ChatInput] encryption failed:", err);
-      setValue(text);
+      setValue(rawText);
     } finally {
       setIsSending(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
@@ -79,6 +90,9 @@ export function useSendMessage({
     onPendingFileChange,
     setWriting,
     setOgDismissed,
+    codeMode,
+    codeLang,
+    setCodeMode,
   ]);
 
   return { isSending, handleSend };
