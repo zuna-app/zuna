@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 	"zuna-server/config"
+	"zuna-server/crypto"
 	"zuna-server/ent"
 
 	"github.com/rs/zerolog/log"
@@ -53,7 +54,7 @@ func SendNotificationToGateway(userId string, senderId string, senderIdentityKey
 		AuthTag:           authTag,
 		Timestamp:         time.Now().UnixMilli(),
 		Password:          config.Config.Gateway.Password,
-		Signature:         SignEd25519(config.Config.Server.ServerID),
+		Signature:         crypto.SignEd25519(config.Config.Server.ServerID),
 	}
 
 	payload, err := json.Marshal(body)

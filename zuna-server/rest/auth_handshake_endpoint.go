@@ -3,10 +3,10 @@ package rest
 import (
 	"net/http"
 	"zuna-server/config"
+	"zuna-server/crypto"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
-	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -49,7 +49,7 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 		}
 	}
 
-	nonce, err := utils.GenerateEd25519Nonce()
+	nonce, err := crypto.GenerateEd25519Nonce()
 	if err != nil {
 		log.Error().Err(err).Msg("failed to generate ed25519 nonce")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)

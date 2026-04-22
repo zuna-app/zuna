@@ -55,14 +55,32 @@ type GatewayConfig struct {
 	Password string `toml:"password" comment:"Gateway password, may be empty for public gateway"`
 }
 
+type LiveKitConfig struct {
+	Enabled   bool   `toml:"enabled" comment:"Enable LiveKit (self-hosted) - required for calls and screen sharing"`
+	ApiKey    string `toml:"api_key" comment:"LiveKit API key - same as in LiveKit configuration"`
+	ApiSecret string `toml:"api_secret" comment:"LiveKit API secret - same as in LiveKit configuration"`
+	Address   string `toml:"url" comment:"LiveKit server address - in most cases your public server public IP"`
+	Port      int    `toml:"port" comment:"LiveKit server port - same as in LiveKit configuration"`
+}
+
+type TLSConfig struct {
+	AutoGenerate  bool   `toml:"auto_generate" comment:"Automatically generate self-signed TLS certificate. If used in production better use domain and free LetsEncrypt certificates and provide your own certificate and key files."`
+	PublicAddress string `toml:"public_address" comment:"Public address of server, required if using auto generated certificate"`
+
+	CertFile string `toml:"cert_file" comment:"Path to TLS certificate file"`
+	KeyFile  string `toml:"key_file" comment:"Path to TLS key file"`
+}
+
 type Configuration struct {
 	DatabaseType string        `toml:"database_type" comment:"Type of database to use, supported: mysql, sqlite"`
 	MySQL        MySQLConfig   `toml:"mysql" comment:"MySQL specific settings, only used if database_type is set to mysql"`
 	SQLite       SQLiteConfig  `toml:"sqlite" comment:"SQLite specific settings, only used if database_type is set to sqlite"`
 	SevenTv      SevenTvConfig `toml:"sevenTv" comment:"7TV integration settings, 7TV is popular emotes platform used on Twitch"`
 	Server       ServerConfig  `toml:"server" comment:"Zuna server settings"`
+	LiveKit      LiveKitConfig `toml:"livekit" comment:"LiveKit settings, required for calls and screen sharing"`
 	Limits       LimitsConfig  `toml:"limits" comment:"Limits for various server parameters"`
 	Gateway      GatewayConfig `toml:"gateway" comment:"Gateway server configuration, required for sending push notification to clients"`
+	TLS          TLSConfig     `toml:"tls" comment:"TLS configuration"`
 }
 
 var Config = Configuration{
@@ -103,6 +121,19 @@ var Config = Configuration{
 	Gateway: GatewayConfig{
 		Address:  "gateway.zuna.chat:25511",
 		Password: "",
+	},
+	LiveKit: LiveKitConfig{
+		Enabled:   false,
+		ApiKey:    "",
+		ApiSecret: "",
+		Address:   "",
+		Port:      7880,
+	},
+	TLS: TLSConfig{
+		AutoGenerate:  true,
+		PublicAddress: "1.2.3.4",
+		CertFile:      "server_tls_cert.pem",
+		KeyFile:       "server_tls_key.pem",
 	},
 }
 

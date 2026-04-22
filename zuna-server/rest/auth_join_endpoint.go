@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 	"zuna-server/config"
+	"zuna-server/crypto"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
@@ -53,11 +54,11 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, HttpErrorResponse{Error: "invalid server password"})
 	}
 
-	if !utils.ValidateX25519PublicKey(req.IdentityKey) {
+	if !crypto.ValidateX25519PublicKey(req.IdentityKey) {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid identity key"})
 	}
 
-	if !utils.ValidateEd25519PublicKey(req.SigningKey) {
+	if !crypto.ValidateEd25519PublicKey(req.SigningKey) {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid signing key"})
 	}
 
@@ -161,6 +162,6 @@ func AuthJoinEndpoint(c *echo.Context) error {
 	return c.JSON(http.StatusOK, JoinResponse{
 		ID:              u.ID,
 		ServerID:        config.Config.Server.ServerID,
-		ServerPublicKey: utils.ServerPublicKeyBase64,
+		ServerPublicKey: crypto.ServerPublicKeyBase64,
 	})
 }

@@ -7,6 +7,8 @@ config.toml
 *.key
 storage_data/
 *.DS_Store
+*.crt
+*.pem
 
 # Created by https://www.toptal.com/developers/gitignore/api/go,goland+all,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=go,goland+all,linux

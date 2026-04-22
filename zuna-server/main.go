@@ -11,10 +11,10 @@ import (
 	"syscall"
 	"time"
 	"zuna-server/config"
+	"zuna-server/crypto"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/rest"
-	"zuna-server/utils"
 	"zuna-server/ws"
 
 	"github.com/rs/zerolog"
@@ -42,7 +42,12 @@ func main() {
 		return
 	}
 
-	if err := utils.LoadServerKeypair(); err != nil {
+	if err := crypto.LoadServerTLSCertificate(); err != nil {
+		log.Fatal().Err(err).Msg("failed to load server TLS certificate")
+		return
+	}
+
+	if err := crypto.LoadServerKeypair(); err != nil {
 		log.Fatal().Err(err).Msg("failed to load server keypair")
 		return
 	}
@@ -61,6 +66,7 @@ func main() {
 	data.InitializeUserManager()
 
 	e := echo.New()
+
 	e.Use(middleware.Recover())
 	e.Use(middleware.BodyLimit(config.RequestSizeLimit))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -113,8 +119,14 @@ func main() {
 	e.GET("/ws", ws.HandleWebSocket(ws.HubInstance, msgRouter))
 
 	log.Info().Str("bind-addr", config.Config.Server.BindAddress).Int("port", config.Config.Server.Port).Msg("starting server")
-	if err := e.Start(fmt.Sprintf("%s:%d", config.Config.Server.BindAddress, config.Config.Server.Port)); err != nil {
+
+	sc := echo.StartConfig{
+		Address: fmt.Sprintf("%s:%d", config.Config.Server.BindAddress, config.Config.Server.Port),
+	}
+
+	if err := sc.StartTLS(ctx, e, crypto.ServerTLSCertificate, crypto.ServerTLSKey); err != http.ErrServerClosed {
 		log.Error().Err(err).Msg("failed to start server")
+		return
 	}
 
 	<-ctx.Done()

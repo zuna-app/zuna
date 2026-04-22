@@ -5,10 +5,10 @@ import (
 	"encoding/base64"
 	"net/http"
 	"zuna-server/config"
+	"zuna-server/crypto"
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/ent/user"
-	"zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/nrednav/cuid2"
@@ -86,6 +86,6 @@ func AuthLoginEndpoint(c *echo.Context) error {
 	return c.JSON(http.StatusOK, LoginResponse{
 		Token:     userData.AuthToken,
 		ServerID:  config.Config.Server.ServerID,
-		Signature: utils.SignEd25519(config.Config.Server.ServerID),
+		Signature: crypto.SignEd25519(config.Config.Server.ServerID),
 	})
 }

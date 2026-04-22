@@ -1,6 +1,0 @@
-1. Timeout przy dołączaniu do serwera + default port jak nie jest wpisany
-2. Zmiana avatarów (jak beda settingsy)
-3. Refresh listy userów jak dołączy ktoś nowy (nowy pakiet)
-4. Refresh czasu ostatniej wiadomosci na liscie
-5. Refresh emote seta (jak dojdzie nowa emotka do seta)
-6. Wysylac info do backendy po x minutach braku aktywnosci nawet jak okno jest sfocusowane
