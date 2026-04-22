@@ -33,7 +33,7 @@ type MessageDTO struct {
 	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
 	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
 	Modified                  bool   `json:"modified"`
-	Pinned                    bool   `json:"pin"`
+	Pinned                    bool   `json:"pinned"`
 }
 
 type PresenceDTO struct {

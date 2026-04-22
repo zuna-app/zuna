@@ -29,6 +29,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
     hasMore,
     sendMessage,
     editMessage,
+    togglePinMessage,
     uploadAndSend,
     fetchMore,
   } = useMessages(server, member.chatId, sharedSecret, member.identityKey);
@@ -125,7 +126,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
           </div>
         </div>
       )}
-      <ChatTopbar member={member} />
+      <ChatTopbar member={member} server={server} sharedSecret={sharedSecret} />
       <ChatMessages
         server={server}
         member={member}
@@ -137,6 +138,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         getAttachmentMeta={getAttachmentMeta}
         sevenTvEnabled={sevenTvEnabled}
         sevenTvEmotesSet={sevenTvEmotesSet}
+        onTogglePinMessage={togglePinMessage}
         onEditMessage={(messageId, rawText) => {
           setPendingFile(null);
           setEditingMessage({ id: messageId, originalText: rawText });

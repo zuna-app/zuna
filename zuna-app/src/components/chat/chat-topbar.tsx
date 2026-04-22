@@ -1,4 +1,4 @@
-import { ChatMember } from "@/types/serverTypes";
+import { ChatMember, Server } from "@/types/serverTypes";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -20,9 +20,12 @@ import { Avatar, AvatarBadge, AvatarFallback, AvatarImage } from "../ui/avatar";
 import { convertTimeToRelative, getFirstLetters } from "@/utils/basicUtils";
 import { ZunaAvatar } from "../avatar";
 import { PulseLoader } from "react-spinners";
+import { PinnedMessagesPanel } from "./pinned-messages-panel";
 
 interface ChatTopbarProps {
   member: ChatMember;
+  server: Server;
+  sharedSecret: string | null;
 }
 
 function TopbarAction({
@@ -50,7 +53,7 @@ function TopbarAction({
   );
 }
 
-export function ChatTopbar({ member }: ChatTopbarProps) {
+export function ChatTopbar({ member, server, sharedSecret }: ChatTopbarProps) {
   const { getMemberPresence } = usePresence();
   const { isMemberTyping } = useWriting();
   const presence = getMemberPresence(member.id);
@@ -104,6 +107,11 @@ export function ChatTopbar({ member }: ChatTopbarProps) {
       <div className="flex items-center gap-0.5 shrink-0">
         <TopbarAction icon={Phone} label="Voice call" />
         <TopbarAction icon={Search} label="Search in conversation" />
+        <PinnedMessagesPanel
+          server={server}
+          member={member}
+          sharedSecret={sharedSecret}
+        />
         <TopbarAction icon={BellOff} label="Mute notifications" />
         <TopbarAction icon={MoreHorizontal} label="More options" />
       </div>

@@ -15,6 +15,8 @@ export const WS_MSG = {
   MESSAGE_DELETE_RECEIVE: "message_delete_receive",
   MESSAGE_MODIFY: "message_modify",
   MESSAGE_MODIFY_RECEIVE: "message_modify_receive",
+  MESSAGE_PIN: "message_pin",
+  MESSAGE_PIN_RECEIVE: "message_pin_receive",
   MARK_READ: "mark_read",
   WRITE: "write",
   WRITE_RECEIVE: "write_receive",
@@ -103,6 +105,15 @@ export interface MessageModifyReceivePayload {
   cipher_text: string;
   iv: string;
   auth_tag: string;
+}
+
+export interface MessagePinPayload {
+  id: number;
+}
+
+export interface MessagePinReceivePayload {
+  id: number;
+  pinned: boolean;
 }
 
 export interface PongPayload {

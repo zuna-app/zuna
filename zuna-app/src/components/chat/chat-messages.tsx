@@ -24,6 +24,7 @@ interface ChatMessagesProps {
   sevenTvEnabled?: boolean;
   sevenTvEmotesSet?: string | null;
   onEditMessage: (messageId: number, rawText: string) => void;
+  onTogglePinMessage: (messageId: number) => void;
 }
 
 export function ChatMessages({
@@ -38,6 +39,7 @@ export function ChatMessages({
   sevenTvEnabled,
   sevenTvEmotesSet,
   onEditMessage,
+  onTogglePinMessage,
 }: ChatMessagesProps) {
   const { scrollRef, contentRef, topSentinelRef, scrollToBottomIfPinned } =
     useScrollBehavior(messages, member.id, hasMore, loading, fetchMore);
@@ -88,6 +90,7 @@ export function ChatMessages({
               emoteDataMap={emoteDataMap}
               onLoad={scrollToBottomIfPinned}
               onEditMessage={onEditMessage}
+              onTogglePinMessage={onTogglePinMessage}
             />
           </div>
         ))}

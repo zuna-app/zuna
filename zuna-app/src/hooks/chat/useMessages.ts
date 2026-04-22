@@ -9,6 +9,7 @@ import {
   MessageReadInfoPayload,
   MessageDeleteReceivePayload,
   MessageModifyReceivePayload,
+  MessagePinReceivePayload,
 } from "@/hooks/ws/wsTypes";
 import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
 import { jotaiStore, serverTokensAtom } from "@/hooks/auth/useAuthorizer";
@@ -220,6 +221,18 @@ export function useMessages(
     },
   );
 
+  useWsHandler<MessagePinReceivePayload>(
+    server,
+    WS_MSG.MESSAGE_PIN_RECEIVE,
+    (payload) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === payload.id ? { ...m, pinned: payload.pinned } : m,
+        ),
+      );
+    },
+  );
+
   useWsHandler<MessageReadInfoPayload>(
     server,
     WS_MSG.MESSAGE_READ_INFO,
@@ -395,7 +408,7 @@ export function useMessages(
           attachmentMetadataIv: m.attachment_metadata_iv,
           attachmentMetadataAuthTag: m.attachment_metadata_auth_tag,
           modified: m.modified,
-          pinned: m.pinned,
+          pinned: m.pinned ?? m.pin ?? false,
         }));
 
         if (cursor === MAX_CURSOR) {
@@ -546,6 +559,16 @@ export function useMessages(
     [wsSend],
   );
 
+  const togglePinMessage = useCallback(
+    (messageId: number) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, pinned: !m.pinned } : m)),
+      );
+      wsSend(WS_MSG.MESSAGE_PIN, { id: messageId });
+    },
+    [wsSend],
+  );
+
   const fetchMore = useCallback(() => {
     const oldest = messagesRef.current.find((m) => m.id !== null);
     if (oldest?.id != null && !isFetchingRef.current && hasMoreRef.current) {
@@ -683,6 +706,7 @@ export function useMessages(
     hasMore,
     sendMessage: sendChatMessage,
     editMessage: editChatMessage,
+    togglePinMessage,
     uploadAndSend,
     fetchMore,
     readyState,

@@ -8,6 +8,7 @@ import {
   Copy,
   Reply,
   Pin,
+  PinOff,
   Edit,
   Delete,
 } from "lucide-react";
@@ -265,6 +266,7 @@ interface MessageBubbleProps {
   emoteDataMap: EmoteDataMap;
   onLoad: () => void;
   onEditMessage: (messageId: number, rawText: string) => void;
+  onTogglePinMessage: (messageId: number) => void;
 }
 
 export const MessageBubble = React.memo(
@@ -278,6 +280,7 @@ export const MessageBubble = React.memo(
     emoteDataMap,
     onLoad,
     onEditMessage,
+    onTogglePinMessage,
   }: MessageBubbleProps) {
     const status = getStatus(msg);
     const [isOpenMenuContext, setIsOpenMenuContext] = useState(false);
@@ -331,6 +334,7 @@ export const MessageBubble = React.memo(
                   ? cn(
                       "bg-primary text-primary-foreground",
                       isOpenMenuContext && "bg-primary/80",
+                      msg.pinned && "bg-violet-900",
                       msg.isFirst && msg.isLast && "rounded-2xl",
                       msg.isFirst &&
                         !msg.isLast &&
@@ -344,7 +348,8 @@ export const MessageBubble = React.memo(
                     )
                   : cn(
                       "bg-muted/70 dark:bg-muted/40 text-foreground",
-                      isOpenMenuContext && "bg-muted/70 dark:bg-muted/40",
+                      isOpenMenuContext && "bg-muted dark:bg-muted/70",
+                      msg.pinned && "bg-violet-900 dark:bg-violet-900",
                       msg.isFirst && msg.isLast && "rounded-2xl",
                       msg.isFirst &&
                         !msg.isLast &&
@@ -495,9 +500,23 @@ export const MessageBubble = React.memo(
               <Reply className="size-4" />
               Reply
             </ContextMenuItem>
-            <ContextMenuItem>
-              <Pin className="size-4" />
-              Pin
+            <ContextMenuItem
+              onClick={() => {
+                if (msg.id == null || msg.pending) return;
+                onTogglePinMessage(msg.id);
+              }}
+            >
+              {msg.pinned ? (
+                <>
+                  <PinOff className="size-4" />
+                  Unpin
+                </>
+              ) : (
+                <>
+                  <Pin className="size-4" />
+                  Pin
+                </>
+              )}
             </ContextMenuItem>
             <ContextMenuItem
               onClick={() => {
@@ -555,5 +574,7 @@ export const MessageBubble = React.memo(
     prev.emoteMap === next.emoteMap &&
     prev.emoteDataMap === next.emoteDataMap &&
     prev.onLoad === next.onLoad &&
-    prev.onEditMessage === next.onEditMessage,
+    prev.onEditMessage === next.onEditMessage &&
+    prev.onTogglePinMessage === next.onTogglePinMessage &&
+    prev.msg.pinned === next.msg.pinned,
 );

@@ -76,5 +76,6 @@ export type RawMessageDTO = {
   attachment_metadata_iv?: string;
   attachment_metadata_auth_tag?: string;
   modified: boolean;
-  pinned: boolean;
+  pinned?: boolean;
+  pin?: boolean;
 };
