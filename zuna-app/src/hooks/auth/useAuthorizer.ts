@@ -55,7 +55,7 @@ export async function reauthorize(server: Server): Promise<void> {
   if (!sigPrivateKey) throw new Error("Signing key not found in vault");
 
   const handshakeRes = await fetch(
-    `http://${server.address}/api/auth/handshake`,
+    `https://${server.address}/api/auth/handshake`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -88,7 +88,7 @@ export async function reauthorize(server: Server): Promise<void> {
   saveGatewayToVault(server.id, gateway_address);
   const signature = await window.security.signMessage(sigPrivateKey, nonce);
 
-  const loginRes = await fetch(`http://${server.address}/api/auth/login`, {
+  const loginRes = await fetch(`https://${server.address}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username: server.username, signature }),
@@ -135,7 +135,7 @@ export function useAuthorizer(server: Server) {
       }
 
       const handshakeRes = await fetch(
-        `http://${server.address}/api/auth/handshake`,
+        `https://${server.address}/api/auth/handshake`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -162,7 +162,7 @@ export function useAuthorizer(server: Server) {
       const signature = await window.security.signMessage(sigPrivateKey, nonce);
 
       const authorizeRes = await fetch(
-        `http://${server.address}/api/auth/login`,
+        `https://${server.address}/api/auth/login`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -195,7 +195,7 @@ export function useAuthorizer(server: Server) {
         throw new Error("Invalid signature from server. Possible MITM attack?");
       }
 
-      const usersRes = await fetch(`http://${server.address}/api/chat/users`, {
+      const usersRes = await fetch(`https://${server.address}/api/chat/users`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
