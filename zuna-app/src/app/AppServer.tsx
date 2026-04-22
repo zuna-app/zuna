@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useAtomValue } from "jotai";
 import { Server, ChatMember } from "@/types/serverTypes";
@@ -19,6 +19,7 @@ import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatEmptyState } from "@/components/chat/chat-empty-state";
 import { useSelectedChat } from "@/hooks/chat/useSelectedChat";
+import { useMessageDecryption } from "@/components/chat/messages/use-decryption";
 
 function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const sharedSecret = useSharedSecret(member);
@@ -36,6 +37,11 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const meta = serverMeta.get(server.id);
   const sevenTvEnabled = meta?.sevenTvEnabled ?? true;
   const sevenTvEmotesSet = meta?.sevenTvEmotesSet ?? null;
+  const { getRawText, getAttachmentMeta } = useMessageDecryption(
+    messages,
+    sharedSecret,
+    member.id,
+  );
 
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [editingMessage, setEditingMessage] = useState<{
@@ -75,6 +81,26 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
     [editingMessage, editMessage, sendMessage],
   );
 
+  const lastEditableMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message.isOwn || message.id == null || message.pending) continue;
+      return {
+        id: message.id,
+        originalText:
+          getRawText(message) === "\u200b" ? "" : getRawText(message),
+      };
+    }
+
+    return null;
+  }, [getRawText, messages]);
+
+  const handleStartEditLastMessage = useCallback(() => {
+    if (!lastEditableMessage) return;
+    setPendingFile(null);
+    setEditingMessage(lastEditableMessage);
+  }, [lastEditableMessage]);
+
   const { getRootProps, isDragActive } = useDropzone({
     onDrop: (acceptedFiles) => {
       if (!sharedSecret) return;
@@ -107,7 +133,8 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         loading={loading}
         hasMore={hasMore}
         fetchMore={fetchMore}
-        sharedSecret={sharedSecret}
+        getRawText={getRawText}
+        getAttachmentMeta={getAttachmentMeta}
         sevenTvEnabled={sevenTvEnabled}
         sevenTvEmotesSet={sevenTvEmotesSet}
         onEditMessage={(messageId, rawText) => {
@@ -127,6 +154,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         sevenTvEmotesSet={sevenTvEmotesSet}
         editingMessage={editingMessage}
         onCancelEdit={() => setEditingMessage(null)}
+        onEditLastMessage={handleStartEditLastMessage}
       />
     </div>
   );

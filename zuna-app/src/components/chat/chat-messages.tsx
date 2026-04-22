@@ -2,10 +2,13 @@ import { useMemo } from "react";
 import { ChatMember, Server } from "@/types/serverTypes";
 import { DelayedSpinner } from "../ui/delayed-spinner";
 import { useEmotes } from "@/hooks/ui/useEmotes";
-import { groupMessages, messageKey } from "./messages/types";
+import {
+  groupMessages,
+  messageKey,
+  type AttachmentMeta,
+} from "./messages/types";
 import { MessageBubble } from "./messages/message-bubble";
 import { MessageDivider } from "./messages/message-divider";
-import { useMessageDecryption } from "./messages/use-decryption";
 import { useScrollBehavior } from "./messages/use-scroll";
 import type { Message } from "@/types/serverTypes";
 
@@ -16,7 +19,8 @@ interface ChatMessagesProps {
   loading: boolean;
   hasMore: boolean;
   fetchMore: () => void;
-  sharedSecret: string | null;
+  getRawText: (msg: Message) => string;
+  getAttachmentMeta: (msg: Message) => AttachmentMeta | null;
   sevenTvEnabled?: boolean;
   sevenTvEmotesSet?: string | null;
   onEditMessage: (messageId: number, rawText: string) => void;
@@ -29,16 +33,12 @@ export function ChatMessages({
   loading,
   hasMore,
   fetchMore,
-  sharedSecret,
+  getRawText,
+  getAttachmentMeta,
   sevenTvEnabled,
   sevenTvEmotesSet,
   onEditMessage,
 }: ChatMessagesProps) {
-  const { getRawText, getAttachmentMeta } = useMessageDecryption(
-    messages,
-    sharedSecret,
-    member.id,
-  );
   const { scrollRef, contentRef, topSentinelRef, scrollToBottomIfPinned } =
     useScrollBehavior(messages, member.id, hasMore, loading, fetchMore);
   const { emoteMap, emoteDataMap } = useEmotes(
