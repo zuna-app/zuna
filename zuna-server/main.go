@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"zuna-server/data"
 	"zuna-server/db"
 	"zuna-server/rest"
+	"zuna-server/utils"
 	"zuna-server/ws"
 
 	"github.com/rs/zerolog"
@@ -51,6 +53,8 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load server keypair")
 		return
 	}
+
+	utils.ValidateGatewayConnection()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -124,11 +128,9 @@ func main() {
 		Address: fmt.Sprintf("%s:%d", config.Config.Server.BindAddress, config.Config.Server.Port),
 	}
 
-	if err := sc.StartTLS(ctx, e, crypto.ServerTLSCertificate, crypto.ServerTLSKey); err != http.ErrServerClosed {
+	if err := sc.StartTLS(ctx, e, crypto.ServerTLSCertificate, crypto.ServerTLSKey); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
 		log.Error().Err(err).Msg("failed to start server")
 		return
 	}
-
-	<-ctx.Done()
 	log.Info().Msg("shutting down server")
 }

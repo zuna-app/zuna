@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -39,6 +40,7 @@ func main() {
 	}
 
 	ctx := context.Background()
+
 	e := echo.New()
 	e.Use(middleware.Recover())
 	e.Use(middleware.BodyLimit(config.Config.Limits.MaxRequestSize))
@@ -56,6 +58,7 @@ func main() {
 
 	api := e.Group("/api", apiLimiter.Middleware())
 	api.POST("/notification", rest.NotificationEndpoint)
+	api.GET("/validate", rest.ValidateEndpoint)
 
 	ws.HubInstance = ws.NewHub()
 	go ws.HubInstance.Run()
@@ -68,11 +71,10 @@ func main() {
 		Address: fmt.Sprintf("%s:%d", config.Config.Gateway.BindAddress, config.Config.Gateway.Port),
 	}
 
-	if err := sc.StartTLS(ctx, e, crypto.ServerTLSCertificate, crypto.ServerTLSKey); err != http.ErrServerClosed {
+	if err := sc.StartTLS(ctx, e, crypto.ServerTLSCertificate, crypto.ServerTLSKey); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
 		log.Error().Err(err).Msg("failed to start server")
 		return
 	}
 
-	<-ctx.Done()
 	log.Info().Msg("shutting down server")
 }

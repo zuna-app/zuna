@@ -51,8 +51,9 @@ type SevenTvConfig struct {
 }
 
 type GatewayConfig struct {
-	Address  string `toml:"address"`
-	Password string `toml:"password" comment:"Gateway password, may be empty for public gateway"`
+	Address         string `toml:"address"`
+	Password        string `toml:"password" comment:"Gateway password, may be empty for public gateway"`
+	AllowSelfSigned bool   `toml:"allow_self_signed" comment:"Allow self-signed TLS certificate for gateway connection"`
 }
 
 type LiveKitConfig struct {
@@ -119,8 +120,9 @@ var Config = Configuration{
 		EmotesSet: "01KPH7Q8GRK92MVD9YK1H71FV6",
 	},
 	Gateway: GatewayConfig{
-		Address:  "gateway.zuna.chat:25511",
-		Password: "",
+		Address:         "gateway.zuna.chat:25511",
+		Password:        "",
+		AllowSelfSigned: false,
 	},
 	LiveKit: LiveKitConfig{
 		Enabled:   false,

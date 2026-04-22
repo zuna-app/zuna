@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -81,4 +82,36 @@ func SendNotificationToGateway(userId string, senderId string, senderIdentityKey
 		return
 	}
 	defer resp.Body.Close()
+}
+
+func ValidateGatewayConnection() {
+	url := fmt.Sprintf("https://%s/api/validate?password=%s", config.Config.Gateway.Address, config.Config.Gateway.Password)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to create request for gateway validation")
+		return
+	}
+
+	req.Header.Set("User-Agent", "ZunaServer")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: config.Config.Gateway.AllowSelfSigned,
+			},
+		},
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Warn().Err(err).Msg("connection to gateway failed, notifications will not work")
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Warn().Int("status_code", resp.StatusCode).Msg("gateway validation failed, check if password is correct")
+		return
+	}
+
+	log.Info().Msg("successfully validated connection to gateway")
 }
