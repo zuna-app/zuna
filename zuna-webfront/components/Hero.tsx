@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Shield, Lock, Server, Download, ArrowRight, FileText } from "lucide-react";
+import { Shield, Lock, Server, Download, ArrowRight, FileText, FlaskConical } from "lucide-react";
 
 function ChatMockup() {
   return (
@@ -174,6 +174,19 @@ export default function Hero() {
               Zuna is a fully self-hosted, end-to-end encrypted messaging platform.
               Your server, your keys, your data — the server never sees plaintext. Ever.
             </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.25 }}
+              className="flex items-start gap-3 bg-amber-500/8 border border-amber-500/25 rounded-xl px-4 py-3 mb-8 max-w-lg"
+            >
+              <FlaskConical className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-amber-300/80 text-sm leading-relaxed">
+                <span className="font-semibold text-amber-300">Early alpha.</span>{" "}
+                Zuna is under active development — some features may be incomplete or unavailable.
+              </p>
+            </motion.div>
 
             <motion.div
               initial={{ opacity: 0, y: 20 }}

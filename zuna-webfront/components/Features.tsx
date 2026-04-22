@@ -28,7 +28,7 @@ const features = [
     iconColor: "text-violet-400",
     title: "Voice & Video Calls",
     description:
-      "Crystal-clear encrypted group calls and screen sharing powered by LiveKit WebRTC — the same open-source engine trusted by major platforms. No telemetry.",
+      "Crystal-clear encrypted calls and screen sharing powered by LiveKit WebRTC — the same open-source engine trusted by major platforms. No telemetry.",
     tag: "LiveKit WebRTC",
   },
   {
@@ -83,8 +83,8 @@ export default function Features() {
             <span className="gradient-text">nothing you don&apos;t.</span>
           </h2>
           <p className="text-slate-400 text-lg max-w-2xl mx-auto">
-            Zuna is engineered from the ground up with privacy as the foundation —
-            not an afterthought.
+            Zuna is engineered from the ground up with privacy as the foundation
+            — not an afterthought.
           </p>
         </motion.div>
 
@@ -103,18 +103,24 @@ export default function Features() {
               >
                 <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
 
-                <div className={`w-11 h-11 ${feature.iconBg} rounded-xl flex items-center justify-center mb-5 transition-transform duration-300 group-hover:scale-110`}>
+                <div
+                  className={`w-11 h-11 ${feature.iconBg} rounded-xl flex items-center justify-center mb-5 transition-transform duration-300 group-hover:scale-110`}
+                >
                   <Icon className={`w-5 h-5 ${feature.iconColor}`} />
                 </div>
 
                 <div className="flex items-start justify-between gap-3 mb-3">
-                  <h3 className="text-white font-semibold text-lg leading-tight">{feature.title}</h3>
+                  <h3 className="text-white font-semibold text-lg leading-tight">
+                    {feature.title}
+                  </h3>
                   <span className="text-xs font-mono text-slate-500 bg-bg-elevated border border-border px-2 py-1 rounded-md whitespace-nowrap flex-shrink-0 mt-0.5">
                     {feature.tag}
                   </span>
                 </div>
 
-                <p className="text-slate-400 text-sm leading-relaxed">{feature.description}</p>
+                <p className="text-slate-400 text-sm leading-relaxed">
+                  {feature.description}
+                </p>
               </motion.div>
             );
           })}
