@@ -107,6 +107,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 			AttachmentMetadataIv:      attachmentMetadataIv,
 			AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
 			Modified:                  m.Modified,
+			Pinned:                    m.Pinned,
 		})
 	}
 

@@ -50,6 +50,8 @@ type MessageReceiveResponseMulticast struct {
 	AttachmentMetadata        string `json:"attachment_metadata"`
 	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
 	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
+	Modified                  bool   `json:"modified"`
+	Pinned                    bool   `json:"pinned"`
 }
 
 // Receive over: message
@@ -190,6 +192,8 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 			AttachmentMetadata:        attachmentMetadata,
 			AttachmentMetadataIv:      attachmentMetadataIv,
 			AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
+			Modified:                  false,
+			Pinned:                    false,
 		}})
 	}
 }

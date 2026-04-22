@@ -117,7 +117,7 @@ var Config = Configuration{
 	},
 	SevenTv: SevenTvConfig{
 		Enabled:   true,
-		EmotesSet: "01KPH7Q8GRK92MVD9YK1H71FV6",
+		EmotesSet: "global",
 	},
 	Gateway: GatewayConfig{
 		Address:         "gateway.zuna.chat:25511",
