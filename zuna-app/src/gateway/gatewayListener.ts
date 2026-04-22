@@ -62,7 +62,7 @@ export function stopGatewayListeners(): void {
 }
 
 function connectToGateway(address: string, servers: Server[]): void {
-  const ws = new WebSocket(`ws://${address}/ws`);
+  const ws = new WebSocket(`wss://${address}/ws`);
   activeConnections.set(address, ws);
 
   ws.on("open", () => {

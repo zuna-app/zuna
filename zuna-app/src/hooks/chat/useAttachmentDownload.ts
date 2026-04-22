@@ -34,7 +34,7 @@ async function downloadAndDecrypt(
   mimeType: string,
 ): Promise<string> {
   const res = await fetch(
-    `http://${serverAddress}/api/attachment/download?id=${encodeURIComponent(attachmentId)}`,
+    `https://${serverAddress}/api/attachment/download?id=${encodeURIComponent(attachmentId)}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
 

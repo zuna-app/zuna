@@ -52,7 +52,7 @@ export function useWsConnection(server: Server) {
     sendMessage: rawSend,
     lastMessage,
     readyState,
-  } = useWebSocket(token ? `ws://${server.address}/ws` : null, {
+  } = useWebSocket(token ? `wss://${server.address}/ws` : null, {
     shouldReconnect: () => true,
     share: true,
     reconnectAttempts: 10,
