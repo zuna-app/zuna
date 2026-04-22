@@ -6,6 +6,7 @@ config.toml
 *.gif
 *.key
 storage_data/
+*.DS_Store
 
 # Created by https://www.toptal.com/developers/gitignore/api/go,goland+all,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=go,goland+all,linux

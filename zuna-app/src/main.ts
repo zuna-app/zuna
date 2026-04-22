@@ -14,6 +14,7 @@ import { registerIPC } from "./ipc";
 import { lockVault } from "./storage/safeVault";
 
 const isLinux = process.platform === "linux";
+const isMac = process.platform === "darwin";
 
 if (started) {
   app.quit();
@@ -30,8 +31,7 @@ const createWindow = () => {
     width: 1450,
     height: 1000,
     frame: false,
-    titleBarStyle: "hiddenInset",
-    titleBarOverlay: false,
+    ...(!isMac ? { titleBarStyle: "hiddenInset", titleBarOverlay: false } : {}),
     transparent: isLinux,
     hasShadow: !isLinux,
     webPreferences: {
