@@ -50,11 +50,7 @@ export function TitleBar({ serverAddress, ping, onSettings }: TitleBarProps) {
   return (
     <div className="app-drag flex h-10 shrink-0 select-none items-center border-b border-border/50 bg-neutral-100 dark:bg-neutral-900">
       <div className="flex flex-1 items-center gap-3 pl-3">
-        <img
-          src={"./src/assets/zuna.png"}
-          alt="Zuna"
-          className="size-5 shrink-0"
-        />
+        <img src={"public/zuna.png"} alt="Zuna" className="size-5 shrink-0" />
         <span className="text-sm font-semibold tracking-wide text-foreground/90">
           Zuna
         </span>

@@ -83,7 +83,6 @@ jobs:
           files: |
             zuna-app/out/make/**/*.exe
             zuna-app/out/make/**/*.nupkg
-            zuna-app/out/make/**/RELEASES
 
   build-macos:
     name: Build (macOS)

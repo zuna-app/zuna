@@ -22,12 +22,15 @@ if (started) {
 
 registerIPC();
 
+app.dock?.setIcon(path.join(__dirname, "public/zuna.png"));
+console.log(path.join(__dirname, "public/zuna.png"));
+
 let tray: Tray | null = null;
 let forceQuit = false;
 
 const createWindow = () => {
   const mainWindow = new BrowserWindow({
-    icon: path.join(__dirname, "assets/zuna.png"),
+    icon: path.join(__dirname, "public/zuna.png"),
     width: 1450,
     height: 1000,
     frame: false,
@@ -67,8 +70,8 @@ const createWindow = () => {
   mainWindow.webContents.openDevTools();
 
   const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, "assets/zuna.png")
-    : path.join(app.getAppPath(), "src/assets/zuna.png");
+    ? path.join(process.resourcesPath, "public/zuna.png")
+    : path.join(app.getAppPath(), "public/zuna.png");
   const trayIcon = nativeImage
     .createFromPath(iconPath)
     .resize({ width: 16, height: 16 });
