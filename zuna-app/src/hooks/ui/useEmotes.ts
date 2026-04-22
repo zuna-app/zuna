@@ -3,14 +3,23 @@ import { SevenTV, emoteUrl, EmoteV3 } from "@/lib/seventv";
 
 // Module-level caches keyed by emote set ID (GLOBAL_KEY = global set).
 const GLOBAL_KEY = "__global__";
-const cacheByKey = new Map<string, ReadonlyMap<string, string>>();
-const pendingByKey = new Map<string, Promise<ReadonlyMap<string, string>>>();
 
-const EMPTY_MAP: ReadonlyMap<string, string> = new Map();
+interface EmoteCache {
+  emoteMap: ReadonlyMap<string, string>;
+  emoteDataMap: ReadonlyMap<string, EmoteV3>;
+}
+
+const cacheByKey = new Map<string, EmoteCache>();
+const pendingByKey = new Map<string, Promise<EmoteCache>>();
+
+const EMPTY_CACHE: EmoteCache = {
+  emoteMap: new Map<string, string>(),
+  emoteDataMap: new Map<string, EmoteV3>(),
+};
 
 async function loadEmotes(
   emoteSetId: string | null | undefined,
-): Promise<ReadonlyMap<string, string>> {
+): Promise<EmoteCache> {
   const key = emoteSetId || GLOBAL_KEY;
 
   const cached = cacheByKey.get(key);
@@ -22,12 +31,16 @@ async function loadEmotes(
   const promise = (
     emoteSetId ? SevenTV.getEmoteSet(emoteSetId) : SevenTV.getGlobalEmoteSet()
   ).then((set) => {
-    const map = new Map<string, string>();
+    const urlMap = new Map<string, string>();
+    const dataMap = new Map<string, EmoteV3>();
     for (const emote of set.emotes as EmoteV3[]) {
       const url = emoteUrl(emote);
-      if (url) map.set(emote.name, url);
+      if (url) {
+        urlMap.set(emote.name, url);
+        dataMap.set(emote.name, emote);
+      }
     }
-    const result: ReadonlyMap<string, string> = map;
+    const result: EmoteCache = { emoteMap: urlMap, emoteDataMap: dataMap };
     cacheByKey.set(key, result);
     pendingByKey.delete(key);
     return result;
@@ -38,10 +51,13 @@ async function loadEmotes(
 }
 
 export type EmoteMap = ReadonlyMap<string, string>;
+export type EmoteDataMap = ReadonlyMap<string, EmoteV3>;
 
 export interface UseEmotesResult {
   /** Emote name → CDN image URL */
   emoteMap: EmoteMap;
+  /** Emote name → full EmoteV3 data (for hover panels etc.) */
+  emoteDataMap: EmoteDataMap;
   loading: boolean;
   error: Error | null;
 }
@@ -57,22 +73,22 @@ export function useEmotes(
 ): UseEmotesResult {
   const key = emoteSetId || GLOBAL_KEY;
 
-  const [emoteMap, setEmoteMap] = useState<EmoteMap>(() =>
-    enabled ? (cacheByKey.get(key) ?? EMPTY_MAP) : EMPTY_MAP,
+  const [cache, setCache] = useState<EmoteCache>(() =>
+    enabled ? (cacheByKey.get(key) ?? EMPTY_CACHE) : EMPTY_CACHE,
   );
   const [loading, setLoading] = useState(() => enabled && !cacheByKey.has(key));
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
     if (!enabled) {
-      setEmoteMap(EMPTY_MAP);
+      setCache(EMPTY_CACHE);
       setLoading(false);
       return;
     }
 
     const cached = cacheByKey.get(key);
     if (cached) {
-      setEmoteMap(cached);
+      setCache(cached);
       setLoading(false);
       return;
     }
@@ -81,9 +97,9 @@ export function useEmotes(
     setLoading(true);
 
     loadEmotes(emoteSetId)
-      .then((map) => {
+      .then((c) => {
         if (!cancelled) {
-          setEmoteMap(map);
+          setCache(c);
           setLoading(false);
         }
       })
@@ -99,5 +115,10 @@ export function useEmotes(
     };
   }, [enabled, key]);
 
-  return { emoteMap, loading, error };
+  return {
+    emoteMap: cache.emoteMap,
+    emoteDataMap: cache.emoteDataMap,
+    loading,
+    error,
+  };
 }

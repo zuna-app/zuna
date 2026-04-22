@@ -39,7 +39,10 @@ export function ChatMessages({
   );
   const { scrollRef, contentRef, topSentinelRef, scrollToBottomIfPinned } =
     useScrollBehavior(messages, member.id, hasMore, loading, fetchMore);
-  const { emoteMap } = useEmotes(sevenTvEmotesSet, sevenTvEnabled);
+  const { emoteMap, emoteDataMap } = useEmotes(
+    sevenTvEmotesSet,
+    sevenTvEnabled,
+  );
 
   const grouped = useMemo(() => groupMessages(messages), [messages]);
 
@@ -80,6 +83,7 @@ export function ChatMessages({
               rawText={getRawText(msg)}
               attachmentMeta={getAttachmentMeta(msg)}
               emoteMap={emoteMap}
+              emoteDataMap={emoteDataMap}
               onLoad={scrollToBottomIfPinned}
             />
           </div>
