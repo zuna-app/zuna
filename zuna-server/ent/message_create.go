@@ -69,6 +69,34 @@ func (_c *MessageCreate) SetNillableReadAt(v *time.Time) *MessageCreate {
 	return _c
 }
 
+// SetPinned sets the "pinned" field.
+func (_c *MessageCreate) SetPinned(v bool) *MessageCreate {
+	_c.mutation.SetPinned(v)
+	return _c
+}
+
+// SetNillablePinned sets the "pinned" field if the given value is not nil.
+func (_c *MessageCreate) SetNillablePinned(v *bool) *MessageCreate {
+	if v != nil {
+		_c.SetPinned(*v)
+	}
+	return _c
+}
+
+// SetModified sets the "modified" field.
+func (_c *MessageCreate) SetModified(v bool) *MessageCreate {
+	_c.mutation.SetModified(v)
+	return _c
+}
+
+// SetNillableModified sets the "modified" field if the given value is not nil.
+func (_c *MessageCreate) SetNillableModified(v *bool) *MessageCreate {
+	if v != nil {
+		_c.SetModified(*v)
+	}
+	return _c
+}
+
 // SetID sets the "id" field.
 func (_c *MessageCreate) SetID(v int64) *MessageCreate {
 	_c.mutation.SetID(v)
@@ -95,6 +123,44 @@ func (_c *MessageCreate) SetChatID(id string) *MessageCreate {
 // SetChat sets the "chat" edge to the Chat entity.
 func (_c *MessageCreate) SetChat(v *Chat) *MessageCreate {
 	return _c.SetChatID(v.ID)
+}
+
+// SetReplyID sets the "reply" edge to the Message entity by ID.
+func (_c *MessageCreate) SetReplyID(id int64) *MessageCreate {
+	_c.mutation.SetReplyID(id)
+	return _c
+}
+
+// SetNillableReplyID sets the "reply" edge to the Message entity by ID if the given value is not nil.
+func (_c *MessageCreate) SetNillableReplyID(id *int64) *MessageCreate {
+	if id != nil {
+		_c = _c.SetReplyID(*id)
+	}
+	return _c
+}
+
+// SetReply sets the "reply" edge to the Message entity.
+func (_c *MessageCreate) SetReply(v *Message) *MessageCreate {
+	return _c.SetReplyID(v.ID)
+}
+
+// SetReplyToID sets the "reply_to" edge to the Message entity by ID.
+func (_c *MessageCreate) SetReplyToID(id int64) *MessageCreate {
+	_c.mutation.SetReplyToID(id)
+	return _c
+}
+
+// SetNillableReplyToID sets the "reply_to" edge to the Message entity by ID if the given value is not nil.
+func (_c *MessageCreate) SetNillableReplyToID(id *int64) *MessageCreate {
+	if id != nil {
+		_c = _c.SetReplyToID(*id)
+	}
+	return _c
+}
+
+// SetReplyTo sets the "reply_to" edge to the Message entity.
+func (_c *MessageCreate) SetReplyTo(v *Message) *MessageCreate {
+	return _c.SetReplyToID(v.ID)
 }
 
 // SetAttachmentID sets the "attachment" edge to the Attachment entity by ID.
@@ -155,6 +221,14 @@ func (_c *MessageCreate) defaults() {
 		v := message.DefaultSentAt()
 		_c.mutation.SetSentAt(v)
 	}
+	if _, ok := _c.mutation.Pinned(); !ok {
+		v := message.DefaultPinned
+		_c.mutation.SetPinned(v)
+	}
+	if _, ok := _c.mutation.Modified(); !ok {
+		v := message.DefaultModified
+		_c.mutation.SetModified(v)
+	}
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -170,6 +244,12 @@ func (_c *MessageCreate) check() error {
 	}
 	if _, ok := _c.mutation.SentAt(); !ok {
 		return &ValidationError{Name: "sent_at", err: errors.New(`ent: missing required field "Message.sent_at"`)}
+	}
+	if _, ok := _c.mutation.Pinned(); !ok {
+		return &ValidationError{Name: "pinned", err: errors.New(`ent: missing required field "Message.pinned"`)}
+	}
+	if _, ok := _c.mutation.Modified(); !ok {
+		return &ValidationError{Name: "modified", err: errors.New(`ent: missing required field "Message.modified"`)}
 	}
 	if len(_c.mutation.UserIDs()) == 0 {
 		return &ValidationError{Name: "user", err: errors.New(`ent: missing required edge "Message.user"`)}
@@ -229,6 +309,14 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 		_spec.SetField(message.FieldReadAt, field.TypeTime, value)
 		_node.ReadAt = &value
 	}
+	if value, ok := _c.mutation.Pinned(); ok {
+		_spec.SetField(message.FieldPinned, field.TypeBool, value)
+		_node.Pinned = value
+	}
+	if value, ok := _c.mutation.Modified(); ok {
+		_spec.SetField(message.FieldModified, field.TypeBool, value)
+		_node.Modified = value
+	}
 	if nodes := _c.mutation.UserIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -261,6 +349,39 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.chat_messages = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ReplyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   message.ReplyTable,
+			Columns: []string{message.ReplyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.message_reply_to = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ReplyToIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   message.ReplyToTable,
+			Columns: []string{message.ReplyToColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.AttachmentIDs(); len(nodes) > 0 {

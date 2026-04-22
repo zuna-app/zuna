@@ -55,7 +55,10 @@ var (
 		{Name: "auth_tag", Type: field.TypeString},
 		{Name: "sent_at", Type: field.TypeTime},
 		{Name: "read_at", Type: field.TypeTime, Nullable: true},
+		{Name: "pinned", Type: field.TypeBool, Default: false},
+		{Name: "modified", Type: field.TypeBool, Default: false},
 		{Name: "chat_messages", Type: field.TypeString},
+		{Name: "message_reply_to", Type: field.TypeInt64, Unique: true, Nullable: true},
 		{Name: "user_messages", Type: field.TypeString},
 	}
 	// MessagesTable holds the schema information for the "messages" table.
@@ -66,13 +69,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "messages_chats_messages",
-				Columns:    []*schema.Column{MessagesColumns[6]},
+				Columns:    []*schema.Column{MessagesColumns[8]},
 				RefColumns: []*schema.Column{ChatsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
+				Symbol:     "messages_messages_reply_to",
+				Columns:    []*schema.Column{MessagesColumns[9]},
+				RefColumns: []*schema.Column{MessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
 				Symbol:     "messages_users_messages",
-				Columns:    []*schema.Column{MessagesColumns[7]},
+				Columns:    []*schema.Column{MessagesColumns[10]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -134,7 +143,8 @@ func init() {
 	AttachmentsTable.ForeignKeys[0].RefTable = MessagesTable
 	AttachmentsTable.ForeignKeys[1].RefTable = UsersTable
 	MessagesTable.ForeignKeys[0].RefTable = ChatsTable
-	MessagesTable.ForeignKeys[1].RefTable = UsersTable
+	MessagesTable.ForeignKeys[1].RefTable = MessagesTable
+	MessagesTable.ForeignKeys[2].RefTable = UsersTable
 	UserChatsTable.ForeignKeys[0].RefTable = UsersTable
 	UserChatsTable.ForeignKeys[1].RefTable = ChatsTable
 }

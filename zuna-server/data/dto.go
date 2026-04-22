@@ -32,6 +32,7 @@ type MessageDTO struct {
 	AttachmentMetadata        string `json:"attachment_metadata"`
 	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
 	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
+	Modified                  bool   `json:"modified"`
 }
 
 type PresenceDTO struct {

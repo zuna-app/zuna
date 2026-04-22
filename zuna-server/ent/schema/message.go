@@ -24,6 +24,7 @@ func (Message) Fields() []ent.Field {
 		field.Time("sent_at").Default(time.Now),
 		field.Time("read_at").Nillable().Optional().Default(nil),
 		field.Bool("pinned").Default(false),
+		field.Bool("modified").Default(false),
 	}
 }
 
@@ -40,14 +41,11 @@ func (Message) Edges() []ent.Edge {
 			Unique().
 			Required(),
 
-		edge.To("reply_to", Message.Type).
-			Unique().
-			Field("reply_to_id"),
-
 		edge.From("reply", Message.Type).
 			Ref("reply_to").
 			Unique(),
 
+		edge.To("reply_to", Message.Type).Unique(),
 		edge.To("attachment", Attachment.Type).Unique(),
 	}
 }

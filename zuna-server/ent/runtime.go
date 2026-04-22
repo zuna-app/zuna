@@ -33,6 +33,14 @@ func init() {
 	messageDescSentAt := messageFields[4].Descriptor()
 	// message.DefaultSentAt holds the default value on creation for the sent_at field.
 	message.DefaultSentAt = messageDescSentAt.Default.(func() time.Time)
+	// messageDescPinned is the schema descriptor for pinned field.
+	messageDescPinned := messageFields[6].Descriptor()
+	// message.DefaultPinned holds the default value on creation for the pinned field.
+	message.DefaultPinned = messageDescPinned.Default.(bool)
+	// messageDescModified is the schema descriptor for modified field.
+	messageDescModified := messageFields[7].Descriptor()
+	// message.DefaultModified holds the default value on creation for the modified field.
+	message.DefaultModified = messageDescModified.Default.(bool)
 	userFields := schema.User{}.Fields()
 	_ = userFields
 	// userDescLastSeen is the schema descriptor for last_seen field.

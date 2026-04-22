@@ -30,12 +30,17 @@ type Message struct {
 	SentAt time.Time `json:"sent_at,omitempty"`
 	// ReadAt holds the value of the "read_at" field.
 	ReadAt *time.Time `json:"read_at,omitempty"`
+	// Pinned holds the value of the "pinned" field.
+	Pinned bool `json:"pinned,omitempty"`
+	// Modified holds the value of the "modified" field.
+	Modified bool `json:"modified,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the MessageQuery when eager-loading is set.
-	Edges         MessageEdges `json:"edges"`
-	chat_messages *string
-	user_messages *string
-	selectValues  sql.SelectValues
+	Edges            MessageEdges `json:"edges"`
+	chat_messages    *string
+	message_reply_to *int64
+	user_messages    *string
+	selectValues     sql.SelectValues
 }
 
 // MessageEdges holds the relations/edges for other nodes in the graph.
@@ -44,11 +49,15 @@ type MessageEdges struct {
 	User *User `json:"user,omitempty"`
 	// Chat holds the value of the chat edge.
 	Chat *Chat `json:"chat,omitempty"`
+	// Reply holds the value of the reply edge.
+	Reply *Message `json:"reply,omitempty"`
+	// ReplyTo holds the value of the reply_to edge.
+	ReplyTo *Message `json:"reply_to,omitempty"`
 	// Attachment holds the value of the attachment edge.
 	Attachment *Attachment `json:"attachment,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [5]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -73,12 +82,34 @@ func (e MessageEdges) ChatOrErr() (*Chat, error) {
 	return nil, &NotLoadedError{edge: "chat"}
 }
 
+// ReplyOrErr returns the Reply value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e MessageEdges) ReplyOrErr() (*Message, error) {
+	if e.Reply != nil {
+		return e.Reply, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: message.Label}
+	}
+	return nil, &NotLoadedError{edge: "reply"}
+}
+
+// ReplyToOrErr returns the ReplyTo value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e MessageEdges) ReplyToOrErr() (*Message, error) {
+	if e.ReplyTo != nil {
+		return e.ReplyTo, nil
+	} else if e.loadedTypes[3] {
+		return nil, &NotFoundError{label: message.Label}
+	}
+	return nil, &NotLoadedError{edge: "reply_to"}
+}
+
 // AttachmentOrErr returns the Attachment value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e MessageEdges) AttachmentOrErr() (*Attachment, error) {
 	if e.Attachment != nil {
 		return e.Attachment, nil
-	} else if e.loadedTypes[2] {
+	} else if e.loadedTypes[4] {
 		return nil, &NotFoundError{label: attachment.Label}
 	}
 	return nil, &NotLoadedError{edge: "attachment"}
@@ -89,6 +120,8 @@ func (*Message) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case message.FieldPinned, message.FieldModified:
+			values[i] = new(sql.NullBool)
 		case message.FieldID:
 			values[i] = new(sql.NullInt64)
 		case message.FieldCipherText, message.FieldIv, message.FieldAuthTag:
@@ -97,7 +130,9 @@ func (*Message) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullTime)
 		case message.ForeignKeys[0]: // chat_messages
 			values[i] = new(sql.NullString)
-		case message.ForeignKeys[1]: // user_messages
+		case message.ForeignKeys[1]: // message_reply_to
+			values[i] = new(sql.NullInt64)
+		case message.ForeignKeys[2]: // user_messages
 			values[i] = new(sql.NullString)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -151,6 +186,18 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 				_m.ReadAt = new(time.Time)
 				*_m.ReadAt = value.Time
 			}
+		case message.FieldPinned:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field pinned", values[i])
+			} else if value.Valid {
+				_m.Pinned = value.Bool
+			}
+		case message.FieldModified:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field modified", values[i])
+			} else if value.Valid {
+				_m.Modified = value.Bool
+			}
 		case message.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field chat_messages", values[i])
@@ -159,6 +206,13 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 				*_m.chat_messages = value.String
 			}
 		case message.ForeignKeys[1]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field message_reply_to", value)
+			} else if value.Valid {
+				_m.message_reply_to = new(int64)
+				*_m.message_reply_to = int64(value.Int64)
+			}
+		case message.ForeignKeys[2]:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field user_messages", values[i])
 			} else if value.Valid {
@@ -186,6 +240,16 @@ func (_m *Message) QueryUser() *UserQuery {
 // QueryChat queries the "chat" edge of the Message entity.
 func (_m *Message) QueryChat() *ChatQuery {
 	return NewMessageClient(_m.config).QueryChat(_m)
+}
+
+// QueryReply queries the "reply" edge of the Message entity.
+func (_m *Message) QueryReply() *MessageQuery {
+	return NewMessageClient(_m.config).QueryReply(_m)
+}
+
+// QueryReplyTo queries the "reply_to" edge of the Message entity.
+func (_m *Message) QueryReplyTo() *MessageQuery {
+	return NewMessageClient(_m.config).QueryReplyTo(_m)
 }
 
 // QueryAttachment queries the "attachment" edge of the Message entity.
@@ -232,6 +296,12 @@ func (_m *Message) String() string {
 		builder.WriteString("read_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("pinned=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Pinned))
+	builder.WriteString(", ")
+	builder.WriteString("modified=")
+	builder.WriteString(fmt.Sprintf("%v", _m.Modified))
 	builder.WriteByte(')')
 	return builder.String()
 }

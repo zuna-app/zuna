@@ -698,6 +698,38 @@ func (c *MessageClient) QueryChat(_m *Message) *ChatQuery {
 	return query
 }
 
+// QueryReply queries the reply edge of a Message.
+func (c *MessageClient) QueryReply(_m *Message) *MessageQuery {
+	query := (&MessageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, id),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, message.ReplyTable, message.ReplyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryReplyTo queries the reply_to edge of a Message.
+func (c *MessageClient) QueryReplyTo(_m *Message) *MessageQuery {
+	query := (&MessageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, id),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, message.ReplyToTable, message.ReplyToColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryAttachment queries the attachment edge of a Message.
 func (c *MessageClient) QueryAttachment(_m *Message) *AttachmentQuery {
 	query := (&AttachmentClient{config: c.config}).Query()

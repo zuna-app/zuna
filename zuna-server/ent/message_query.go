@@ -28,6 +28,8 @@ type MessageQuery struct {
 	predicates     []predicate.Message
 	withUser       *UserQuery
 	withChat       *ChatQuery
+	withReply      *MessageQuery
+	withReplyTo    *MessageQuery
 	withAttachment *AttachmentQuery
 	withFKs        bool
 	// intermediate query (i.e. traversal path).
@@ -103,6 +105,50 @@ func (_q *MessageQuery) QueryChat() *ChatQuery {
 			sqlgraph.From(message.Table, message.FieldID, selector),
 			sqlgraph.To(chat.Table, chat.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, message.ChatTable, message.ChatColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryReply chains the current query on the "reply" edge.
+func (_q *MessageQuery) QueryReply() *MessageQuery {
+	query := (&MessageClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, selector),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, message.ReplyTable, message.ReplyColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryReplyTo chains the current query on the "reply_to" edge.
+func (_q *MessageQuery) QueryReplyTo() *MessageQuery {
+	query := (&MessageClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(message.Table, message.FieldID, selector),
+			sqlgraph.To(message.Table, message.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, message.ReplyToTable, message.ReplyToColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -326,6 +372,8 @@ func (_q *MessageQuery) Clone() *MessageQuery {
 		predicates:     append([]predicate.Message{}, _q.predicates...),
 		withUser:       _q.withUser.Clone(),
 		withChat:       _q.withChat.Clone(),
+		withReply:      _q.withReply.Clone(),
+		withReplyTo:    _q.withReplyTo.Clone(),
 		withAttachment: _q.withAttachment.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
@@ -352,6 +400,28 @@ func (_q *MessageQuery) WithChat(opts ...func(*ChatQuery)) *MessageQuery {
 		opt(query)
 	}
 	_q.withChat = query
+	return _q
+}
+
+// WithReply tells the query-builder to eager-load the nodes that are connected to
+// the "reply" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MessageQuery) WithReply(opts ...func(*MessageQuery)) *MessageQuery {
+	query := (&MessageClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withReply = query
+	return _q
+}
+
+// WithReplyTo tells the query-builder to eager-load the nodes that are connected to
+// the "reply_to" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *MessageQuery) WithReplyTo(opts ...func(*MessageQuery)) *MessageQuery {
+	query := (&MessageClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withReplyTo = query
 	return _q
 }
 
@@ -445,13 +515,15 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 		nodes       = []*Message{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [5]bool{
 			_q.withUser != nil,
 			_q.withChat != nil,
+			_q.withReply != nil,
+			_q.withReplyTo != nil,
 			_q.withAttachment != nil,
 		}
 	)
-	if _q.withUser != nil || _q.withChat != nil {
+	if _q.withUser != nil || _q.withChat != nil || _q.withReply != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -484,6 +556,18 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 	if query := _q.withChat; query != nil {
 		if err := _q.loadChat(ctx, query, nodes, nil,
 			func(n *Message, e *Chat) { n.Edges.Chat = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withReply; query != nil {
+		if err := _q.loadReply(ctx, query, nodes, nil,
+			func(n *Message, e *Message) { n.Edges.Reply = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withReplyTo; query != nil {
+		if err := _q.loadReplyTo(ctx, query, nodes, nil,
+			func(n *Message, e *Message) { n.Edges.ReplyTo = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -557,6 +641,66 @@ func (_q *MessageQuery) loadChat(ctx context.Context, query *ChatQuery, nodes []
 		for i := range nodes {
 			assign(nodes[i], n)
 		}
+	}
+	return nil
+}
+func (_q *MessageQuery) loadReply(ctx context.Context, query *MessageQuery, nodes []*Message, init func(*Message), assign func(*Message, *Message)) error {
+	ids := make([]int64, 0, len(nodes))
+	nodeids := make(map[int64][]*Message)
+	for i := range nodes {
+		if nodes[i].message_reply_to == nil {
+			continue
+		}
+		fk := *nodes[i].message_reply_to
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(message.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "message_reply_to" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
+func (_q *MessageQuery) loadReplyTo(ctx context.Context, query *MessageQuery, nodes []*Message, init func(*Message), assign func(*Message, *Message)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Message)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+	}
+	query.withFKs = true
+	query.Where(predicate.Message(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(message.ReplyToColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.message_reply_to
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "message_reply_to" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "message_reply_to" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
 	}
 	return nil
 }

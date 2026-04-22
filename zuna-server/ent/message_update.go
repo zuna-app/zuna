@@ -107,6 +107,34 @@ func (_u *MessageUpdate) ClearReadAt() *MessageUpdate {
 	return _u
 }
 
+// SetPinned sets the "pinned" field.
+func (_u *MessageUpdate) SetPinned(v bool) *MessageUpdate {
+	_u.mutation.SetPinned(v)
+	return _u
+}
+
+// SetNillablePinned sets the "pinned" field if the given value is not nil.
+func (_u *MessageUpdate) SetNillablePinned(v *bool) *MessageUpdate {
+	if v != nil {
+		_u.SetPinned(*v)
+	}
+	return _u
+}
+
+// SetModified sets the "modified" field.
+func (_u *MessageUpdate) SetModified(v bool) *MessageUpdate {
+	_u.mutation.SetModified(v)
+	return _u
+}
+
+// SetNillableModified sets the "modified" field if the given value is not nil.
+func (_u *MessageUpdate) SetNillableModified(v *bool) *MessageUpdate {
+	if v != nil {
+		_u.SetModified(*v)
+	}
+	return _u
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *MessageUpdate) SetUserID(id string) *MessageUpdate {
 	_u.mutation.SetUserID(id)
@@ -127,6 +155,44 @@ func (_u *MessageUpdate) SetChatID(id string) *MessageUpdate {
 // SetChat sets the "chat" edge to the Chat entity.
 func (_u *MessageUpdate) SetChat(v *Chat) *MessageUpdate {
 	return _u.SetChatID(v.ID)
+}
+
+// SetReplyID sets the "reply" edge to the Message entity by ID.
+func (_u *MessageUpdate) SetReplyID(id int64) *MessageUpdate {
+	_u.mutation.SetReplyID(id)
+	return _u
+}
+
+// SetNillableReplyID sets the "reply" edge to the Message entity by ID if the given value is not nil.
+func (_u *MessageUpdate) SetNillableReplyID(id *int64) *MessageUpdate {
+	if id != nil {
+		_u = _u.SetReplyID(*id)
+	}
+	return _u
+}
+
+// SetReply sets the "reply" edge to the Message entity.
+func (_u *MessageUpdate) SetReply(v *Message) *MessageUpdate {
+	return _u.SetReplyID(v.ID)
+}
+
+// SetReplyToID sets the "reply_to" edge to the Message entity by ID.
+func (_u *MessageUpdate) SetReplyToID(id int64) *MessageUpdate {
+	_u.mutation.SetReplyToID(id)
+	return _u
+}
+
+// SetNillableReplyToID sets the "reply_to" edge to the Message entity by ID if the given value is not nil.
+func (_u *MessageUpdate) SetNillableReplyToID(id *int64) *MessageUpdate {
+	if id != nil {
+		_u = _u.SetReplyToID(*id)
+	}
+	return _u
+}
+
+// SetReplyTo sets the "reply_to" edge to the Message entity.
+func (_u *MessageUpdate) SetReplyTo(v *Message) *MessageUpdate {
+	return _u.SetReplyToID(v.ID)
 }
 
 // SetAttachmentID sets the "attachment" edge to the Attachment entity by ID.
@@ -162,6 +228,18 @@ func (_u *MessageUpdate) ClearUser() *MessageUpdate {
 // ClearChat clears the "chat" edge to the Chat entity.
 func (_u *MessageUpdate) ClearChat() *MessageUpdate {
 	_u.mutation.ClearChat()
+	return _u
+}
+
+// ClearReply clears the "reply" edge to the Message entity.
+func (_u *MessageUpdate) ClearReply() *MessageUpdate {
+	_u.mutation.ClearReply()
+	return _u
+}
+
+// ClearReplyTo clears the "reply_to" edge to the Message entity.
+func (_u *MessageUpdate) ClearReplyTo() *MessageUpdate {
+	_u.mutation.ClearReplyTo()
 	return _u
 }
 
@@ -239,6 +317,12 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.ReadAtCleared() {
 		_spec.ClearField(message.FieldReadAt, field.TypeTime)
 	}
+	if value, ok := _u.mutation.Pinned(); ok {
+		_spec.SetField(message.FieldPinned, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Modified(); ok {
+		_spec.SetField(message.FieldModified, field.TypeBool, value)
+	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -290,6 +374,64 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(chat.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ReplyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   message.ReplyTable,
+			Columns: []string{message.ReplyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ReplyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   message.ReplyTable,
+			Columns: []string{message.ReplyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ReplyToCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   message.ReplyToTable,
+			Columns: []string{message.ReplyToColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ReplyToIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   message.ReplyToTable,
+			Columns: []string{message.ReplyToColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -422,6 +564,34 @@ func (_u *MessageUpdateOne) ClearReadAt() *MessageUpdateOne {
 	return _u
 }
 
+// SetPinned sets the "pinned" field.
+func (_u *MessageUpdateOne) SetPinned(v bool) *MessageUpdateOne {
+	_u.mutation.SetPinned(v)
+	return _u
+}
+
+// SetNillablePinned sets the "pinned" field if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillablePinned(v *bool) *MessageUpdateOne {
+	if v != nil {
+		_u.SetPinned(*v)
+	}
+	return _u
+}
+
+// SetModified sets the "modified" field.
+func (_u *MessageUpdateOne) SetModified(v bool) *MessageUpdateOne {
+	_u.mutation.SetModified(v)
+	return _u
+}
+
+// SetNillableModified sets the "modified" field if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillableModified(v *bool) *MessageUpdateOne {
+	if v != nil {
+		_u.SetModified(*v)
+	}
+	return _u
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *MessageUpdateOne) SetUserID(id string) *MessageUpdateOne {
 	_u.mutation.SetUserID(id)
@@ -442,6 +612,44 @@ func (_u *MessageUpdateOne) SetChatID(id string) *MessageUpdateOne {
 // SetChat sets the "chat" edge to the Chat entity.
 func (_u *MessageUpdateOne) SetChat(v *Chat) *MessageUpdateOne {
 	return _u.SetChatID(v.ID)
+}
+
+// SetReplyID sets the "reply" edge to the Message entity by ID.
+func (_u *MessageUpdateOne) SetReplyID(id int64) *MessageUpdateOne {
+	_u.mutation.SetReplyID(id)
+	return _u
+}
+
+// SetNillableReplyID sets the "reply" edge to the Message entity by ID if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillableReplyID(id *int64) *MessageUpdateOne {
+	if id != nil {
+		_u = _u.SetReplyID(*id)
+	}
+	return _u
+}
+
+// SetReply sets the "reply" edge to the Message entity.
+func (_u *MessageUpdateOne) SetReply(v *Message) *MessageUpdateOne {
+	return _u.SetReplyID(v.ID)
+}
+
+// SetReplyToID sets the "reply_to" edge to the Message entity by ID.
+func (_u *MessageUpdateOne) SetReplyToID(id int64) *MessageUpdateOne {
+	_u.mutation.SetReplyToID(id)
+	return _u
+}
+
+// SetNillableReplyToID sets the "reply_to" edge to the Message entity by ID if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillableReplyToID(id *int64) *MessageUpdateOne {
+	if id != nil {
+		_u = _u.SetReplyToID(*id)
+	}
+	return _u
+}
+
+// SetReplyTo sets the "reply_to" edge to the Message entity.
+func (_u *MessageUpdateOne) SetReplyTo(v *Message) *MessageUpdateOne {
+	return _u.SetReplyToID(v.ID)
 }
 
 // SetAttachmentID sets the "attachment" edge to the Attachment entity by ID.
@@ -477,6 +685,18 @@ func (_u *MessageUpdateOne) ClearUser() *MessageUpdateOne {
 // ClearChat clears the "chat" edge to the Chat entity.
 func (_u *MessageUpdateOne) ClearChat() *MessageUpdateOne {
 	_u.mutation.ClearChat()
+	return _u
+}
+
+// ClearReply clears the "reply" edge to the Message entity.
+func (_u *MessageUpdateOne) ClearReply() *MessageUpdateOne {
+	_u.mutation.ClearReply()
+	return _u
+}
+
+// ClearReplyTo clears the "reply_to" edge to the Message entity.
+func (_u *MessageUpdateOne) ClearReplyTo() *MessageUpdateOne {
+	_u.mutation.ClearReplyTo()
 	return _u
 }
 
@@ -584,6 +804,12 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 	if _u.mutation.ReadAtCleared() {
 		_spec.ClearField(message.FieldReadAt, field.TypeTime)
 	}
+	if value, ok := _u.mutation.Pinned(); ok {
+		_spec.SetField(message.FieldPinned, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.Modified(); ok {
+		_spec.SetField(message.FieldModified, field.TypeBool, value)
+	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -635,6 +861,64 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(chat.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ReplyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   message.ReplyTable,
+			Columns: []string{message.ReplyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ReplyIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   message.ReplyTable,
+			Columns: []string{message.ReplyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ReplyToCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   message.ReplyToTable,
+			Columns: []string{message.ReplyToColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ReplyToIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   message.ReplyToTable,
+			Columns: []string{message.ReplyToColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

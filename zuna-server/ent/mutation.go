@@ -1056,11 +1056,17 @@ type MessageMutation struct {
 	auth_tag          *string
 	sent_at           *time.Time
 	read_at           *time.Time
+	pinned            *bool
+	modified          *bool
 	clearedFields     map[string]struct{}
 	user              *string
 	cleareduser       bool
 	chat              *string
 	clearedchat       bool
+	reply             *int64
+	clearedreply      bool
+	reply_to          *int64
+	clearedreply_to   bool
 	attachment        *string
 	clearedattachment bool
 	done              bool
@@ -1365,6 +1371,78 @@ func (m *MessageMutation) ResetReadAt() {
 	delete(m.clearedFields, message.FieldReadAt)
 }
 
+// SetPinned sets the "pinned" field.
+func (m *MessageMutation) SetPinned(b bool) {
+	m.pinned = &b
+}
+
+// Pinned returns the value of the "pinned" field in the mutation.
+func (m *MessageMutation) Pinned() (r bool, exists bool) {
+	v := m.pinned
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPinned returns the old "pinned" field's value of the Message entity.
+// If the Message object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageMutation) OldPinned(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPinned is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPinned requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPinned: %w", err)
+	}
+	return oldValue.Pinned, nil
+}
+
+// ResetPinned resets all changes to the "pinned" field.
+func (m *MessageMutation) ResetPinned() {
+	m.pinned = nil
+}
+
+// SetModified sets the "modified" field.
+func (m *MessageMutation) SetModified(b bool) {
+	m.modified = &b
+}
+
+// Modified returns the value of the "modified" field in the mutation.
+func (m *MessageMutation) Modified() (r bool, exists bool) {
+	v := m.modified
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModified returns the old "modified" field's value of the Message entity.
+// If the Message object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageMutation) OldModified(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModified is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModified requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModified: %w", err)
+	}
+	return oldValue.Modified, nil
+}
+
+// ResetModified resets all changes to the "modified" field.
+func (m *MessageMutation) ResetModified() {
+	m.modified = nil
+}
+
 // SetUserID sets the "user" edge to the User entity by id.
 func (m *MessageMutation) SetUserID(id string) {
 	m.user = &id
@@ -1443,6 +1521,84 @@ func (m *MessageMutation) ResetChat() {
 	m.clearedchat = false
 }
 
+// SetReplyID sets the "reply" edge to the Message entity by id.
+func (m *MessageMutation) SetReplyID(id int64) {
+	m.reply = &id
+}
+
+// ClearReply clears the "reply" edge to the Message entity.
+func (m *MessageMutation) ClearReply() {
+	m.clearedreply = true
+}
+
+// ReplyCleared reports if the "reply" edge to the Message entity was cleared.
+func (m *MessageMutation) ReplyCleared() bool {
+	return m.clearedreply
+}
+
+// ReplyID returns the "reply" edge ID in the mutation.
+func (m *MessageMutation) ReplyID() (id int64, exists bool) {
+	if m.reply != nil {
+		return *m.reply, true
+	}
+	return
+}
+
+// ReplyIDs returns the "reply" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ReplyID instead. It exists only for internal usage by the builders.
+func (m *MessageMutation) ReplyIDs() (ids []int64) {
+	if id := m.reply; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetReply resets all changes to the "reply" edge.
+func (m *MessageMutation) ResetReply() {
+	m.reply = nil
+	m.clearedreply = false
+}
+
+// SetReplyToID sets the "reply_to" edge to the Message entity by id.
+func (m *MessageMutation) SetReplyToID(id int64) {
+	m.reply_to = &id
+}
+
+// ClearReplyTo clears the "reply_to" edge to the Message entity.
+func (m *MessageMutation) ClearReplyTo() {
+	m.clearedreply_to = true
+}
+
+// ReplyToCleared reports if the "reply_to" edge to the Message entity was cleared.
+func (m *MessageMutation) ReplyToCleared() bool {
+	return m.clearedreply_to
+}
+
+// ReplyToID returns the "reply_to" edge ID in the mutation.
+func (m *MessageMutation) ReplyToID() (id int64, exists bool) {
+	if m.reply_to != nil {
+		return *m.reply_to, true
+	}
+	return
+}
+
+// ReplyToIDs returns the "reply_to" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ReplyToID instead. It exists only for internal usage by the builders.
+func (m *MessageMutation) ReplyToIDs() (ids []int64) {
+	if id := m.reply_to; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetReplyTo resets all changes to the "reply_to" edge.
+func (m *MessageMutation) ResetReplyTo() {
+	m.reply_to = nil
+	m.clearedreply_to = false
+}
+
 // SetAttachmentID sets the "attachment" edge to the Attachment entity by id.
 func (m *MessageMutation) SetAttachmentID(id string) {
 	m.attachment = &id
@@ -1516,7 +1672,7 @@ func (m *MessageMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MessageMutation) Fields() []string {
-	fields := make([]string, 0, 5)
+	fields := make([]string, 0, 7)
 	if m.cipher_text != nil {
 		fields = append(fields, message.FieldCipherText)
 	}
@@ -1531,6 +1687,12 @@ func (m *MessageMutation) Fields() []string {
 	}
 	if m.read_at != nil {
 		fields = append(fields, message.FieldReadAt)
+	}
+	if m.pinned != nil {
+		fields = append(fields, message.FieldPinned)
+	}
+	if m.modified != nil {
+		fields = append(fields, message.FieldModified)
 	}
 	return fields
 }
@@ -1550,6 +1712,10 @@ func (m *MessageMutation) Field(name string) (ent.Value, bool) {
 		return m.SentAt()
 	case message.FieldReadAt:
 		return m.ReadAt()
+	case message.FieldPinned:
+		return m.Pinned()
+	case message.FieldModified:
+		return m.Modified()
 	}
 	return nil, false
 }
@@ -1569,6 +1735,10 @@ func (m *MessageMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldSentAt(ctx)
 	case message.FieldReadAt:
 		return m.OldReadAt(ctx)
+	case message.FieldPinned:
+		return m.OldPinned(ctx)
+	case message.FieldModified:
+		return m.OldModified(ctx)
 	}
 	return nil, fmt.Errorf("unknown Message field %s", name)
 }
@@ -1612,6 +1782,20 @@ func (m *MessageMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetReadAt(v)
+		return nil
+	case message.FieldPinned:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPinned(v)
+		return nil
+	case message.FieldModified:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModified(v)
 		return nil
 	}
 	return fmt.Errorf("unknown Message field %s", name)
@@ -1686,18 +1870,30 @@ func (m *MessageMutation) ResetField(name string) error {
 	case message.FieldReadAt:
 		m.ResetReadAt()
 		return nil
+	case message.FieldPinned:
+		m.ResetPinned()
+		return nil
+	case message.FieldModified:
+		m.ResetModified()
+		return nil
 	}
 	return fmt.Errorf("unknown Message field %s", name)
 }
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *MessageMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.user != nil {
 		edges = append(edges, message.EdgeUser)
 	}
 	if m.chat != nil {
 		edges = append(edges, message.EdgeChat)
+	}
+	if m.reply != nil {
+		edges = append(edges, message.EdgeReply)
+	}
+	if m.reply_to != nil {
+		edges = append(edges, message.EdgeReplyTo)
 	}
 	if m.attachment != nil {
 		edges = append(edges, message.EdgeAttachment)
@@ -1717,6 +1913,14 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 		if id := m.chat; id != nil {
 			return []ent.Value{*id}
 		}
+	case message.EdgeReply:
+		if id := m.reply; id != nil {
+			return []ent.Value{*id}
+		}
+	case message.EdgeReplyTo:
+		if id := m.reply_to; id != nil {
+			return []ent.Value{*id}
+		}
 	case message.EdgeAttachment:
 		if id := m.attachment; id != nil {
 			return []ent.Value{*id}
@@ -1727,7 +1931,7 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MessageMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	return edges
 }
 
@@ -1739,12 +1943,18 @@ func (m *MessageMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *MessageMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 5)
 	if m.cleareduser {
 		edges = append(edges, message.EdgeUser)
 	}
 	if m.clearedchat {
 		edges = append(edges, message.EdgeChat)
+	}
+	if m.clearedreply {
+		edges = append(edges, message.EdgeReply)
+	}
+	if m.clearedreply_to {
+		edges = append(edges, message.EdgeReplyTo)
 	}
 	if m.clearedattachment {
 		edges = append(edges, message.EdgeAttachment)
@@ -1760,6 +1970,10 @@ func (m *MessageMutation) EdgeCleared(name string) bool {
 		return m.cleareduser
 	case message.EdgeChat:
 		return m.clearedchat
+	case message.EdgeReply:
+		return m.clearedreply
+	case message.EdgeReplyTo:
+		return m.clearedreply_to
 	case message.EdgeAttachment:
 		return m.clearedattachment
 	}
@@ -1775,6 +1989,12 @@ func (m *MessageMutation) ClearEdge(name string) error {
 		return nil
 	case message.EdgeChat:
 		m.ClearChat()
+		return nil
+	case message.EdgeReply:
+		m.ClearReply()
+		return nil
+	case message.EdgeReplyTo:
+		m.ClearReplyTo()
 		return nil
 	case message.EdgeAttachment:
 		m.ClearAttachment()
@@ -1792,6 +2012,12 @@ func (m *MessageMutation) ResetEdge(name string) error {
 		return nil
 	case message.EdgeChat:
 		m.ResetChat()
+		return nil
+	case message.EdgeReply:
+		m.ResetReply()
+		return nil
+	case message.EdgeReplyTo:
+		m.ResetReplyTo()
 		return nil
 	case message.EdgeAttachment:
 		m.ResetAttachment()

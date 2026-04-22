@@ -80,6 +80,16 @@ func ReadAt(v time.Time) predicate.Message {
 	return predicate.Message(sql.FieldEQ(FieldReadAt, v))
 }
 
+// Pinned applies equality check predicate on the "pinned" field. It's identical to PinnedEQ.
+func Pinned(v bool) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldPinned, v))
+}
+
+// Modified applies equality check predicate on the "modified" field. It's identical to ModifiedEQ.
+func Modified(v bool) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldModified, v))
+}
+
 // CipherTextEQ applies the EQ predicate on the "cipher_text" field.
 func CipherTextEQ(v string) predicate.Message {
 	return predicate.Message(sql.FieldEQ(FieldCipherText, v))
@@ -365,6 +375,26 @@ func ReadAtNotNil() predicate.Message {
 	return predicate.Message(sql.FieldNotNull(FieldReadAt))
 }
 
+// PinnedEQ applies the EQ predicate on the "pinned" field.
+func PinnedEQ(v bool) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldPinned, v))
+}
+
+// PinnedNEQ applies the NEQ predicate on the "pinned" field.
+func PinnedNEQ(v bool) predicate.Message {
+	return predicate.Message(sql.FieldNEQ(FieldPinned, v))
+}
+
+// ModifiedEQ applies the EQ predicate on the "modified" field.
+func ModifiedEQ(v bool) predicate.Message {
+	return predicate.Message(sql.FieldEQ(FieldModified, v))
+}
+
+// ModifiedNEQ applies the NEQ predicate on the "modified" field.
+func ModifiedNEQ(v bool) predicate.Message {
+	return predicate.Message(sql.FieldNEQ(FieldModified, v))
+}
+
 // HasUser applies the HasEdge predicate on the "user" edge.
 func HasUser() predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
@@ -403,6 +433,52 @@ func HasChat() predicate.Message {
 func HasChatWith(preds ...predicate.Chat) predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
 		step := newChatStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasReply applies the HasEdge predicate on the "reply" edge.
+func HasReply() predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, ReplyTable, ReplyColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasReplyWith applies the HasEdge predicate on the "reply" edge with a given conditions (other predicates).
+func HasReplyWith(preds ...predicate.Message) predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := newReplyStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasReplyTo applies the HasEdge predicate on the "reply_to" edge.
+func HasReplyTo() predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, ReplyToTable, ReplyToColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasReplyToWith applies the HasEdge predicate on the "reply_to" edge with a given conditions (other predicates).
+func HasReplyToWith(preds ...predicate.Message) predicate.Message {
+	return predicate.Message(func(s *sql.Selector) {
+		step := newReplyToStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

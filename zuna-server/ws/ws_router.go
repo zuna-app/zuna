@@ -96,6 +96,7 @@ func (r *MessageRouter) registerBuiltins() {
 	r.Register("presence_request", r.handlePresenceRequest)
 	r.Register("presence", r.handlePresence)
 	r.Register("write", r.handleWritingIndicator)
+	r.Register("message_modify", r.handleModifyMessage)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

@@ -24,10 +24,18 @@ const (
 	FieldSentAt = "sent_at"
 	// FieldReadAt holds the string denoting the read_at field in the database.
 	FieldReadAt = "read_at"
+	// FieldPinned holds the string denoting the pinned field in the database.
+	FieldPinned = "pinned"
+	// FieldModified holds the string denoting the modified field in the database.
+	FieldModified = "modified"
 	// EdgeUser holds the string denoting the user edge name in mutations.
 	EdgeUser = "user"
 	// EdgeChat holds the string denoting the chat edge name in mutations.
 	EdgeChat = "chat"
+	// EdgeReply holds the string denoting the reply edge name in mutations.
+	EdgeReply = "reply"
+	// EdgeReplyTo holds the string denoting the reply_to edge name in mutations.
+	EdgeReplyTo = "reply_to"
 	// EdgeAttachment holds the string denoting the attachment edge name in mutations.
 	EdgeAttachment = "attachment"
 	// Table holds the table name of the message in the database.
@@ -46,6 +54,14 @@ const (
 	ChatInverseTable = "chats"
 	// ChatColumn is the table column denoting the chat relation/edge.
 	ChatColumn = "chat_messages"
+	// ReplyTable is the table that holds the reply relation/edge.
+	ReplyTable = "messages"
+	// ReplyColumn is the table column denoting the reply relation/edge.
+	ReplyColumn = "message_reply_to"
+	// ReplyToTable is the table that holds the reply_to relation/edge.
+	ReplyToTable = "messages"
+	// ReplyToColumn is the table column denoting the reply_to relation/edge.
+	ReplyToColumn = "message_reply_to"
 	// AttachmentTable is the table that holds the attachment relation/edge.
 	AttachmentTable = "attachments"
 	// AttachmentInverseTable is the table name for the Attachment entity.
@@ -63,12 +79,15 @@ var Columns = []string{
 	FieldAuthTag,
 	FieldSentAt,
 	FieldReadAt,
+	FieldPinned,
+	FieldModified,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "messages"
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
 	"chat_messages",
+	"message_reply_to",
 	"user_messages",
 }
 
@@ -90,6 +109,10 @@ func ValidColumn(column string) bool {
 var (
 	// DefaultSentAt holds the default value on creation for the "sent_at" field.
 	DefaultSentAt func() time.Time
+	// DefaultPinned holds the default value on creation for the "pinned" field.
+	DefaultPinned bool
+	// DefaultModified holds the default value on creation for the "modified" field.
+	DefaultModified bool
 )
 
 // OrderOption defines the ordering options for the Message queries.
@@ -125,6 +148,16 @@ func ByReadAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldReadAt, opts...).ToFunc()
 }
 
+// ByPinned orders the results by the pinned field.
+func ByPinned(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPinned, opts...).ToFunc()
+}
+
+// ByModified orders the results by the modified field.
+func ByModified(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldModified, opts...).ToFunc()
+}
+
 // ByUserField orders the results by user field.
 func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -136,6 +169,20 @@ func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
 func ByChatField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newChatStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByReplyField orders the results by reply field.
+func ByReplyField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newReplyStep(), sql.OrderByField(field, opts...))
+	}
+}
+
+// ByReplyToField orders the results by reply_to field.
+func ByReplyToField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newReplyToStep(), sql.OrderByField(field, opts...))
 	}
 }
 
@@ -157,6 +204,20 @@ func newChatStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ChatInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, ChatTable, ChatColumn),
+	)
+}
+func newReplyStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(Table, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, true, ReplyTable, ReplyColumn),
+	)
+}
+func newReplyToStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(Table, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, ReplyToTable, ReplyToColumn),
 	)
 }
 func newAttachmentStep() *sqlgraph.Step {
