@@ -3,8 +3,10 @@ package ws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"zuna-server/data"
 	"zuna-server/db"
+	"zuna-server/ent/chat"
 	"zuna-server/ent/message"
 
 	"github.com/rs/zerolog/log"
@@ -52,7 +54,12 @@ func (r *MessageRouter) handleDeleteMessage(c HubClient, msg IncomingMessage, us
 		return
 	}
 
-	ch := m.Edges.Chat
+	ch, err := db.EntClient.Chat.Query().WithUsers().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
+  if err != nil {
+    log.Error().Err(err).Msg("failed to query chat")
+    sendInternalServerError(c)
+    return
+  }
 
 	_, err = db.EntClient.Message.Delete().Where(message.IDEQ(req.Id)).Exec(ctx)
 	if err != nil {
@@ -62,14 +69,12 @@ func (r *MessageRouter) handleDeleteMessage(c HubClient, msg IncomingMessage, us
 	}
 
 	for _, uu := range ch.Edges.Users {
-		if uu.ID == userData.UserID {
-			continue
-		}
-
 		ud, err := data.GetUserDataByUsername(uu.Username)
 		if err != nil || ud.ConnectionID == "" {
 			continue
 		}
+
+		fmt.Printf("Sending message delete for message %d to user %s\n", m.ID, uu.Username)
 
 		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_delete_receive", Payload: DeleteMessageResponseMulticast{
 			Id: m.ID,

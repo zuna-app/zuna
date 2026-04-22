@@ -7,6 +7,7 @@ import {
   MessageAckPayload,
   MessageReceivePayload,
   MessageReadInfoPayload,
+  MessageDeleteReceivePayload,
 } from "@/hooks/ws/wsTypes";
 import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
 import { jotaiStore, serverTokensAtom } from "@/hooks/auth/useAuthorizer";
@@ -184,6 +185,14 @@ export function useMessages(
             );
           });
       }
+    },
+  );
+
+  useWsHandler<MessageDeleteReceivePayload>(
+    server,
+    WS_MSG.MESSAGE_DELETE_RECEIVE,
+    (payload) => {
+      setMessages((prev) => prev.filter((m) => m.id !== payload.id));
     },
   );
 

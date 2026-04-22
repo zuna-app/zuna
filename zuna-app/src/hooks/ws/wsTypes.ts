@@ -78,13 +78,11 @@ export interface MessageReadInfoPayload {
 }
 
 export interface MessageDeletePayload {
-  chat_id: string;
-  message_id: number;
+  id: number;
 }
 
 export interface MessageDeleteReceivePayload {
-  chat_id: string;
-  message_id: number;
+  id: number;
 }
 
 export interface PongPayload {
