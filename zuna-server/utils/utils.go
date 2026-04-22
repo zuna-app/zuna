@@ -64,7 +64,7 @@ func SendNotificationToGateway(userId string, senderId string, senderIdentityKey
 		return
 	}
 
-	url := fmt.Sprintf("http://%s/api/notification", config.Config.Gateway.Address)
+	url := fmt.Sprintf("https://%s/api/notification", config.Config.Gateway.Address)
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
 	if err != nil {
@@ -75,7 +75,14 @@ func SendNotificationToGateway(userId string, senderId string, senderIdentityKey
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "ZunaServer")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: config.Config.Gateway.AllowSelfSigned,
+			},
+		},
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to send notification to gateway")
