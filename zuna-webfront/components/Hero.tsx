@@ -1,7 +1,15 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Shield, Lock, Server, Download, ArrowRight, FileText, FlaskConical } from "lucide-react";
+import {
+  Shield,
+  Lock,
+  Server,
+  Download,
+  ArrowRight,
+  FileText,
+  FlaskConical,
+} from "lucide-react";
 
 function ChatMockup() {
   return (
@@ -23,7 +31,10 @@ function ChatMockup() {
         </div>
       </div>
 
-      <div className="p-4 space-y-3" style={{ background: "rgba(6,13,26,0.4)" }}>
+      <div
+        className="p-4 space-y-3"
+        style={{ background: "rgba(6,13,26,0.4)" }}
+      >
         <motion.div
           initial={{ opacity: 0, x: -15 }}
           animate={{ opacity: 1, x: 0 }}
@@ -34,7 +45,9 @@ function ChatMockup() {
             A
           </div>
           <div className="bg-bg-elevated border border-border/50 rounded-2xl rounded-bl-sm px-3 py-2 max-w-[78%]">
-            <p className="text-slate-200 text-sm">Hey! Sending the contract 📎</p>
+            <p className="text-slate-200 text-sm">
+              Hey! Sending the contract 📎
+            </p>
             <span className="text-slate-500 text-xs">10:24</span>
           </div>
         </motion.div>
@@ -54,10 +67,14 @@ function ChatMockup() {
                 <FileText className="w-4 h-4 text-accent-glow" />
               </div>
               <div>
-                <div className="text-slate-200 text-xs font-medium">Contract_Final.pdf</div>
+                <div className="text-slate-200 text-xs font-medium">
+                  Contract_Final.pdf
+                </div>
                 <div className="flex items-center gap-1 mt-0.5">
                   <Lock className="w-2.5 h-2.5 text-emerald-400" />
-                  <span className="text-emerald-400 text-xs">Encrypted · 2.4 MB</span>
+                  <span className="text-emerald-400 text-xs">
+                    Encrypted · 2.4 MB
+                  </span>
                 </div>
               </div>
             </div>
@@ -104,7 +121,9 @@ function ChatMockup() {
 
       <div className="px-4 pb-4 pt-2">
         <div className="bg-bg-elevated border border-border rounded-xl px-4 py-2.5 flex items-center gap-3">
-          <span className="text-slate-500 text-sm flex-1">Message Alice...</span>
+          <span className="text-slate-500 text-sm flex-1">
+            Message Alice...
+          </span>
           <Lock className="w-3.5 h-3.5 text-accent-light flex-shrink-0" />
         </div>
       </div>
@@ -113,7 +132,11 @@ function ChatMockup() {
 }
 
 export default function Hero() {
-  const cryptoBadges = ["X25519 Key Exchange", "AES-256-GCM", "Ed25519 Signatures"];
+  const cryptoBadges = [
+    "X25519 Key Exchange",
+    "AES-256-GCM",
+    "Ed25519 Signatures",
+  ];
 
   return (
     <section className="min-h-screen flex items-center relative overflow-hidden pt-16">
@@ -171,8 +194,9 @@ export default function Hero() {
               transition={{ duration: 0.6, delay: 0.2 }}
               className="text-slate-400 text-lg leading-relaxed mb-10 max-w-lg"
             >
-              Zuna is a fully self-hosted, end-to-end encrypted messaging platform.
-              Your server, your keys, your data — the server never sees plaintext. Ever.
+              Zuna is a fully self-hosted, end-to-end encrypted messaging
+              platform. Your server, your keys, your data — the server never
+              sees plaintext. Ever.
             </motion.p>
 
             <motion.div
@@ -183,8 +207,11 @@ export default function Hero() {
             >
               <FlaskConical className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
               <p className="text-amber-300/80 text-sm leading-relaxed">
-                <span className="font-semibold text-amber-300">Early alpha.</span>{" "}
-                Zuna is under active development — some features may be incomplete or unavailable.
+                <span className="font-semibold text-amber-300">
+                  Early alpha.
+                </span>{" "}
+                Zuna is under active development — some features may be
+                incomplete or unavailable.
               </p>
             </motion.div>
 
@@ -196,7 +223,10 @@ export default function Hero() {
             >
               <motion.a
                 href="#downloads"
-                whileHover={{ scale: 1.03, boxShadow: "0 0 32px rgba(37,99,235,0.45)" }}
+                whileHover={{
+                  scale: 1.03,
+                  boxShadow: "0 0 32px rgba(37,99,235,0.45)",
+                }}
                 whileTap={{ scale: 0.97 }}
                 className="flex items-center gap-2 bg-accent hover:bg-accent-light text-white font-semibold px-7 py-3.5 rounded-xl transition-colors"
               >
@@ -254,8 +284,12 @@ export default function Hero() {
                   <Shield className="w-4 h-4 text-emerald-400" />
                 </div>
                 <div>
-                  <div className="text-white text-xs font-semibold whitespace-nowrap">Zero-Knowledge</div>
-                  <div className="text-slate-400 text-xs whitespace-nowrap">Server sees ciphertext only</div>
+                  <div className="text-white text-xs font-semibold whitespace-nowrap">
+                    Zero-Knowledge
+                  </div>
+                  <div className="text-slate-400 text-xs whitespace-nowrap">
+                    Server sees ciphertext only
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -271,8 +305,12 @@ export default function Hero() {
                   <Server className="w-4 h-4 text-accent-glow" />
                 </div>
                 <div>
-                  <div className="text-white text-xs font-semibold whitespace-nowrap">Self-Hosted</div>
-                  <div className="text-slate-400 text-xs whitespace-nowrap">Docker in 5 minutes</div>
+                  <div className="text-white text-xs font-semibold whitespace-nowrap">
+                    Self-Hosted
+                  </div>
+                  <div className="text-slate-400 text-xs whitespace-nowrap">
+                    Docker in 5 minutes
+                  </div>
                 </div>
               </div>
             </motion.div>
