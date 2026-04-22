@@ -15,12 +15,17 @@ export function useMessageDecryption(
   const inFlightRef = useRef<Set<string>>(new Set());
   const metaInFlightRef = useRef<Set<string>>(new Set());
   const lastSharedSecretRef = useRef<string | null>(null);
+  const cipherFingerprintRef = useRef<Map<string, string>>(new Map());
+
+  const getCipherFingerprint = (m: Message) =>
+    `${m.cipherText}|${m.iv}|${m.authTag}`;
 
   useEffect(() => {
     setDecrypted(new Map());
     setDecryptedMeta(new Map());
     inFlightRef.current.clear();
     metaInFlightRef.current.clear();
+    cipherFingerprintRef.current.clear();
     lastSharedSecretRef.current = null;
   }, [memberId]);
 
@@ -31,14 +36,18 @@ export function useMessageDecryption(
     if (secretChanged) {
       lastSharedSecretRef.current = sharedSecret;
       inFlightRef.current.clear();
+      cipherFingerprintRef.current.clear();
       setDecrypted(new Map());
     }
 
     const toDecrypt = messages.filter((m) => {
       if (m.plaintext) return false;
       const key = messageKey(m);
+      const fingerprint = getCipherFingerprint(m);
+      const prevFingerprint = cipherFingerprintRef.current.get(key);
+      const payloadChanged = prevFingerprint !== fingerprint;
       if (inFlightRef.current.has(key)) return false;
-      if (!secretChanged && decrypted.has(key)) return false;
+      if (!secretChanged && !payloadChanged && decrypted.has(key)) return false;
       return true;
     });
 
@@ -48,22 +57,27 @@ export function useMessageDecryption(
 
     Promise.all(
       toDecrypt.map(async (m) => {
+        const key = messageKey(m);
+        const fingerprint = getCipherFingerprint(m);
         try {
           const text = await window.security.decrypt(sharedSecret, {
             ciphertext: m.cipherText,
             iv: m.iv,
             authTag: m.authTag,
           });
-          return [messageKey(m), text] as const;
+          return [key, text, fingerprint] as const;
         } catch {
-          return [messageKey(m), "[decryption failed]"] as const;
+          return [key, "[decryption failed]", fingerprint] as const;
         }
       }),
     ).then((results) => {
       results.forEach(([key]) => inFlightRef.current.delete(key));
       setDecrypted((prev) => {
         const next = new Map(prev);
-        for (const [key, text] of results) next.set(key, text);
+        for (const [key, text, fingerprint] of results) {
+          next.set(key, text);
+          cipherFingerprintRef.current.set(key, fingerprint);
+        }
         return next;
       });
     });

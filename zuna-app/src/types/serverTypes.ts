@@ -59,6 +59,8 @@ export type Message = {
   attachmentFilename?: string;
   /** 0-100 while uploading; undefined once WS message has been sent */
   uploadProgress?: number;
+  modified: boolean;
+  pinned: boolean;
 };
 
 export type RawMessageDTO = {
@@ -73,4 +75,6 @@ export type RawMessageDTO = {
   attachment_metadata?: string;
   attachment_metadata_iv?: string;
   attachment_metadata_auth_tag?: string;
+  modified: boolean;
+  pinned: boolean;
 };

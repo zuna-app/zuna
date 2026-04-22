@@ -43,6 +43,7 @@ export interface ChatInputProps {
     originalText: string;
   } | null;
   onCancelEdit?: () => void;
+  onEditLastMessage?: () => void;
 }
 
 export function ChatInput({
@@ -56,6 +57,7 @@ export function ChatInput({
   sevenTvEmotesSet = null,
   editingMessage = null,
   onCancelEdit,
+  onEditLastMessage,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -219,9 +221,33 @@ export function ChatInput({
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
+        return;
+      }
+
+      if (
+        e.key === "ArrowUp" &&
+        !isEditing &&
+        !e.altKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.shiftKey &&
+        value.length === 0 &&
+        e.currentTarget.selectionStart === 0 &&
+        e.currentTarget.selectionEnd === 0
+      ) {
+        e.preventDefault();
+        onEditLastMessage?.();
       }
     },
-    [handleSend, commitSuggestion, setSuggestion, suggestionRef],
+    [
+      handleSend,
+      commitSuggestion,
+      isEditing,
+      onEditLastMessage,
+      setSuggestion,
+      suggestionRef,
+      value.length,
+    ],
   );
 
   return (

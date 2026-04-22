@@ -147,6 +147,8 @@ export function useMessages(
             attachmentMetadata: payload.attachment_metadata,
             attachmentMetadataIv: payload.attachment_metadata_iv,
             attachmentMetadataAuthTag: payload.attachment_metadata_auth_tag,
+            modified: payload.modified ?? false,
+            pinned: payload.pinned ?? false,
           },
         ];
       });
@@ -209,6 +211,8 @@ export function useMessages(
                 cipherText: payload.cipher_text,
                 iv: payload.iv,
                 authTag: payload.auth_tag,
+                plaintext: undefined,
+                modified: true,
               }
             : m,
         ),
@@ -390,6 +394,8 @@ export function useMessages(
           attachmentMetadata: m.attachment_metadata,
           attachmentMetadataIv: m.attachment_metadata_iv,
           attachmentMetadataAuthTag: m.attachment_metadata_auth_tag,
+          modified: m.modified,
+          pinned: m.pinned,
         }));
 
         if (cursor === MAX_CURSOR) {
@@ -473,6 +479,8 @@ export function useMessages(
         isOwn: true,
         pending: true,
         plaintext,
+        modified: false,
+        pinned: false,
       };
       setMessages((prev) => [...prev, optimistic]);
 
@@ -522,6 +530,7 @@ export function useMessages(
                 iv,
                 authTag,
                 plaintext,
+                modified: true,
               }
             : m,
         ),
@@ -566,6 +575,8 @@ export function useMessages(
           plaintext,
           uploadProgress: 0,
           attachmentFilename: file.name,
+          modified: false,
+          pinned: false,
         },
       ]);
 
@@ -635,6 +646,8 @@ export function useMessages(
                   attachmentMetadata: encMeta.ciphertext,
                   attachmentMetadataIv: encMeta.iv,
                   attachmentMetadataAuthTag: encMeta.authTag,
+                  modified: false,
+                  pinned: false,
                 }
               : m,
           ),

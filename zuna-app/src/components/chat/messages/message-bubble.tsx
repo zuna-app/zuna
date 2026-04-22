@@ -1,10 +1,21 @@
 import React, { useMemo, useState } from "react";
 import { motion } from "motion/react";
-import { Check, CheckCheck, FileIcon, Loader2, Copy } from "lucide-react";
+import {
+  Check,
+  CheckCheck,
+  FileIcon,
+  Loader2,
+  Copy,
+  Reply,
+  Pin,
+  Edit,
+  Delete,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Server } from "@/types/serverTypes";
 import { MessageOgPreview } from "../og-preview";
 import { extractFirstUrl } from "@/hooks/ui/useOgPreview";
+import { BiCheck, BiCheckDouble } from "react-icons/bi";
 import {
   formatTime,
   getStatus,
@@ -437,30 +448,41 @@ export const MessageBubble = React.memo(
                   <>
                     <span
                       aria-hidden
-                      className="inline-block align-bottom ml-1.5 opacity-0 pointer-events-none select-none text-[10px]"
+                      className={cn(
+                        "inline-block align-bottom ml-3 opacity-0 pointer-events-none select-none text-[12px] whitespace-nowrap",
+                        msg.isOwn ? "ml-3" : "ml-2",
+                      )}
                     >
+                      {msg.modified && "edited\u00a0"}
                       {formatTime(msg.sentAt)}
                       {msg.isOwn && "\u00a0\u00a0\u2713"}
                     </span>
                     <span
                       className={cn(
-                        "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[10px]",
+                        "absolute bottom-2 right-3.5 flex items-center gap-0.5 text-[12px] whitespace-nowrap",
                         msg.isOwn
                           ? "text-primary-foreground/60"
                           : "text-muted-foreground/50",
                       )}
                     >
+                      {msg.modified && (
+                        <span className="text-[12px] pr-0.5">edited</span>
+                      )}
+
                       {formatTime(msg.sentAt)}
                       {msg.isOwn && status === "pending" && (
                         <DelayedMessageSpinner />
                       )}
                       {msg.isOwn && status === "sent" && (
-                        <Check className="size-3 shrink-0" strokeWidth={2.5} />
+                        <BiCheck
+                          className="size-5 shrink-0"
+                          strokeWidth={0.5}
+                        />
                       )}
                       {msg.isOwn && status === "read" && (
-                        <CheckCheck
-                          className="size-3 shrink-0"
-                          strokeWidth={2.5}
+                        <BiCheckDouble
+                          className="size-5 shrink-0"
+                          strokeWidth={0.5}
                         />
                       )}
                     </span>
@@ -469,13 +491,20 @@ export const MessageBubble = React.memo(
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem>Reply</ContextMenuItem>
-            <ContextMenuItem>Pin</ContextMenuItem>
+            <ContextMenuItem>
+              <Reply className="size-4" />
+              Reply
+            </ContextMenuItem>
+            <ContextMenuItem>
+              <Pin className="size-4" />
+              Pin
+            </ContextMenuItem>
             <ContextMenuItem
               onClick={() => {
                 navigator.clipboard.writeText(rawText);
               }}
             >
+              <Copy className="size-4" />
               Copy
             </ContextMenuItem>
             {msg.isOwn && (
@@ -487,6 +516,7 @@ export const MessageBubble = React.memo(
                     onEditMessage(msg.id, rawText === "\u200b" ? "" : rawText);
                   }}
                 >
+                  <Edit className="size-4" />
                   Edit
                 </ContextMenuItem>
                 <ContextMenuItem
@@ -495,6 +525,7 @@ export const MessageBubble = React.memo(
                     wsSend(WS_MSG.MESSAGE_DELETE, { id: msg.id });
                   }}
                 >
+                  <Delete className="size-4" />
                   Delete
                 </ContextMenuItem>
               </>

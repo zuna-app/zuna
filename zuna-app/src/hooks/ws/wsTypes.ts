@@ -73,6 +73,8 @@ export interface MessageReceivePayload {
   attachment_metadata?: string;
   attachment_metadata_iv?: string;
   attachment_metadata_auth_tag?: string;
+  modified: boolean;
+  pinned: boolean;
 }
 
 export interface MessageReadInfoPayload {
