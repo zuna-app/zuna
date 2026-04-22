@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"time"
 	"zuna-gateway/config"
+	"zuna-gateway/crypto"
 	"zuna-gateway/rest"
 	"zuna-gateway/ws"
 
@@ -31,6 +33,12 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
 
+	if err := crypto.LoadServerTLSCertificate(); err != nil {
+		log.Fatal().Err(err).Msg("failed to load server TLS certificate")
+		return
+	}
+
+	ctx := context.Background()
 	e := echo.New()
 	e.Use(middleware.Recover())
 	e.Use(middleware.BodyLimit(config.Config.Limits.MaxRequestSize))
@@ -56,9 +64,15 @@ func main() {
 	e.GET("/ws", ws.HandleWebSocket(ws.HubInstance, msgRouter))
 
 	log.Info().Str("bind-addr", config.Config.Gateway.BindAddress).Int("port", config.Config.Gateway.Port).Msg("starting server")
-	if err := e.Start(fmt.Sprintf("%s:%d", config.Config.Gateway.BindAddress, config.Config.Gateway.Port)); err != nil {
-		log.Error().Err(err).Msg("failed to start server")
+	sc := echo.StartConfig{
+		Address: fmt.Sprintf("%s:%d", config.Config.Gateway.BindAddress, config.Config.Gateway.Port),
 	}
 
+	if err := sc.StartTLS(ctx, e, crypto.ServerTLSCertificate, crypto.ServerTLSKey); err != http.ErrServerClosed {
+		log.Error().Err(err).Msg("failed to start server")
+		return
+	}
+
+	<-ctx.Done()
 	log.Info().Msg("shutting down server")
 }

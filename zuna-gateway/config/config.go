@@ -23,9 +23,18 @@ type GatewayConfig struct {
 	Password    string `toml:"password" comment:"Gateway password, strongly recommended for non-public gateways. Server must send it to authenticate notifications."`
 }
 
+type TLSConfig struct {
+	AutoGenerate  bool   `toml:"auto_generate" comment:"Automatically generate self-signed TLS certificate. If used in production better use domain and free LetsEncrypt certificates and provide your own certificate and key files."`
+	PublicAddress string `toml:"public_address" comment:"Public address of server, required if using auto generated certificate"`
+
+	CertFile string `toml:"cert_file" comment:"Path to TLS certificate file"`
+	KeyFile  string `toml:"key_file" comment:"Path to TLS key file"`
+}
+
 type Configuration struct {
 	Limits  LimitsConfig  `toml:"limits" comment:"Limits for various server parameters"`
 	Gateway GatewayConfig `toml:"gateway" comment:"Gateway server configuration"`
+	TLS     TLSConfig     `toml:"tls" comment:"TLS configuration"`
 }
 
 var Config = Configuration{
@@ -40,6 +49,12 @@ var Config = Configuration{
 		BindAddress: "0.0.0.0",
 		Port:        25511,
 		Password:    "",
+	},
+	TLS: TLSConfig{
+		AutoGenerate:  true,
+		PublicAddress: "1.2.3.4",
+		CertFile:      "server_tls_cert.pem",
+		KeyFile:       "server_tls_key.pem",
 	},
 }
 
