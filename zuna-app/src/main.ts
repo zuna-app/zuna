@@ -108,12 +108,21 @@ const createWindow = () => {
 app.on("ready", createWindow);
 
 app.on("before-quit", () => {
+  forceQuit = true;
   lockVault();
 });
 
 app.on("window-all-closed", () => {});
 
 app.on("activate", () => {
+  const mainWindow = BrowserWindow.getAllWindows()[0];
+
+  if (mainWindow) {
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
