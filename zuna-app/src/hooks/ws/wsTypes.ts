@@ -13,6 +13,8 @@ export const WS_MSG = {
   MESSAGE_READ_INFO: "message_read_info",
   MESSAGE_DELETE: "message_delete",
   MESSAGE_DELETE_RECEIVE: "message_delete_receive",
+  MESSAGE_EDIT: "message_edit",
+  MESSAGE_EDIT_RECEIVE: "message_edit_receive",
   MARK_READ: "mark_read",
   WRITE: "write",
   WRITE_RECEIVE: "write_receive",
@@ -83,6 +85,22 @@ export interface MessageDeletePayload {
 
 export interface MessageDeleteReceivePayload {
   id: number;
+}
+
+export interface MessageEditPayload {
+  id: number;
+  cipher_text: string;
+  iv: string;
+  auth_tag: string;
+}
+
+export interface MessageEditReceivePayload {
+  id: number;
+  chat_id: string;
+  sender_id: string;
+  cipher_text: string;
+  iv: string;
+  auth_tag: string;
 }
 
 export interface PongPayload {

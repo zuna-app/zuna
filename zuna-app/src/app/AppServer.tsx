@@ -22,8 +22,15 @@ import { useSelectedChat } from "@/hooks/chat/useSelectedChat";
 
 function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const sharedSecret = useSharedSecret(member);
-  const { messages, loading, hasMore, sendMessage, uploadAndSend, fetchMore } =
-    useMessages(server, member.chatId, sharedSecret, member.identityKey);
+  const {
+    messages,
+    loading,
+    hasMore,
+    sendMessage,
+    editMessage,
+    uploadAndSend,
+    fetchMore,
+  } = useMessages(server, member.chatId, sharedSecret, member.identityKey);
   const { sendMessage: wsSend } = useWsConnection(server);
   const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
   const meta = serverMeta.get(server.id);
@@ -31,6 +38,15 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
   const sevenTvEmotesSet = meta?.sevenTvEmotesSet ?? null;
 
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [editingMessage, setEditingMessage] = useState<{
+    id: number;
+    originalText: string;
+  } | null>(null);
+
+  useEffect(() => {
+    setEditingMessage(null);
+    setPendingFile(null);
+  }, [member.chatId]);
 
   const handleWrite = useCallback(
     (writing: boolean) => {
@@ -44,6 +60,24 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
       uploadAndSend(file, plaintext);
     },
     [uploadAndSend],
+  );
+
+  const handleSend = useCallback(
+    (
+      cipherText: string,
+      iv: string,
+      authTag: string,
+      plaintext: string,
+    ) => {
+      if (editingMessage) {
+        editMessage(editingMessage.id, cipherText, iv, authTag, plaintext);
+        setEditingMessage(null);
+        return;
+      }
+
+      sendMessage(cipherText, iv, authTag, plaintext);
+    },
+    [editingMessage, editMessage, sendMessage],
   );
 
   const { getRootProps, isDragActive } = useDropzone({
@@ -81,17 +115,23 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         sharedSecret={sharedSecret}
         sevenTvEnabled={sevenTvEnabled}
         sevenTvEmotesSet={sevenTvEmotesSet}
+        onEditMessage={(messageId, rawText) => {
+          setPendingFile(null);
+          setEditingMessage({ id: messageId, originalText: rawText });
+        }}
       />
       <ChatInput
         key={member.chatId}
         sharedSecret={sharedSecret}
-        onSend={sendMessage}
+        onSend={handleSend}
         onWrite={handleWrite}
         onSendFile={handleSendFile}
         pendingFile={pendingFile}
         onPendingFileChange={setPendingFile}
         sevenTvEnabled={sevenTvEnabled}
         sevenTvEmotesSet={sevenTvEmotesSet}
+        editingMessage={editingMessage}
+        onCancelEdit={() => setEditingMessage(null)}
       />
     </div>
   );

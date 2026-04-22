@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { Paperclip, ImagePlus, Code2 } from "lucide-react";
+import { Paperclip, ImagePlus, Code2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEmotes } from "@/hooks/ui/useEmotes";
 import { ActionButton } from "./action-button";
@@ -38,6 +38,11 @@ export interface ChatInputProps {
   onPendingFileChange: (file: File | null) => void;
   sevenTvEnabled?: boolean;
   sevenTvEmotesSet?: string | null;
+  editingMessage?: {
+    id: number;
+    originalText: string;
+  } | null;
+  onCancelEdit?: () => void;
 }
 
 export function ChatInput({
@@ -49,6 +54,8 @@ export function ChatInput({
   onPendingFileChange,
   sevenTvEnabled = true,
   sevenTvEmotesSet = null,
+  editingMessage = null,
+  onCancelEdit,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -99,9 +106,16 @@ export function ChatInput({
   });
 
   const canSend = !!sharedSecret && !isSending;
-  const canSendNow = canSend && (!!value.trim() || !!pendingFile);
+  const isEditing = !!editingMessage;
+  const canSendNow = canSend && (!!value.trim() || (!!pendingFile && !isEditing));
 
   useAutoFocus(textareaRef, pickerOpenRef, canSend);
+
+  useEffect(() => {
+    if (!editingMessage) return;
+    setValue(editingMessage.originalText);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [editingMessage]);
 
   const detectedUrl = extractFirstUrl(value);
   const ogUrl = detectedUrl && detectedUrl !== ogDismissed ? detectedUrl : null;
@@ -140,6 +154,7 @@ export function ChatInput({
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
+      if (isEditing) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       for (let i = 0; i < items.length; i++) {
@@ -153,7 +168,7 @@ export function ChatInput({
         }
       }
     },
-    [onPendingFileChange],
+    [onPendingFileChange, isEditing],
   );
 
   const handleKeyDown = useCallback(
@@ -225,6 +240,28 @@ export function ChatInput({
         onChange={handleFileInputChange}
       />
 
+      {isEditing && (
+        <div className="mb-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-primary">Editing message</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {editingMessage.originalText || "(empty message)"}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              onClick={onCancelEdit}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div
         className="flex items-end gap-1.5"
         onMouseDown={(e) => {
@@ -234,7 +271,7 @@ export function ChatInput({
         <ActionButton
           icon={Paperclip}
           label="Attach file"
-          disabled={!canSend}
+          disabled={!canSend || isEditing}
           onClick={() => fileInputRef.current?.click()}
         />
 
@@ -271,6 +308,8 @@ export function ChatInput({
                 ? "Paste or type your code…"
                 : pendingFile
                   ? "Add a message… (optional)"
+                  : isEditing
+                    ? "Edit message…"
                   : sharedSecret
                     ? "Message…"
                     : "Establishing secure channel…"
@@ -307,7 +346,7 @@ export function ChatInput({
               type="button"
               variant="ghost"
               size="icon"
-              disabled={!canSend}
+              disabled={!canSend || isEditing}
               onClick={() => {
                 setCodeMode((v) => !v);
                 setTimeout(() => textareaRef.current?.focus(), 0);
@@ -335,7 +374,7 @@ export function ChatInput({
         /> */}
 
         <EmotePickerButton
-          disabled={!canSend}
+          disabled={!canSend || isEditing}
           open={pickerOpen}
           sevenTvEnabled={sevenTvEnabled}
           sevenTvEmotesSet={sevenTvEmotesSet}

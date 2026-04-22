@@ -253,6 +253,7 @@ interface MessageBubbleProps {
   emoteMap: ReadonlyMap<string, string>;
   emoteDataMap: EmoteDataMap;
   onLoad: () => void;
+  onEditMessage: (messageId: number, rawText: string) => void;
 }
 
 export const MessageBubble = React.memo(
@@ -265,6 +266,7 @@ export const MessageBubble = React.memo(
     emoteMap,
     emoteDataMap,
     onLoad,
+    onEditMessage,
   }: MessageBubbleProps) {
     const status = getStatus(msg);
     const [isOpenMenuContext, setIsOpenMenuContext] = useState(false);
@@ -478,7 +480,15 @@ export const MessageBubble = React.memo(
             </ContextMenuItem>
             {msg.isOwn && (
               <>
-                <ContextMenuItem>Edit</ContextMenuItem>
+                <ContextMenuItem
+                  disabled={msg.id == null || msg.pending}
+                  onClick={() => {
+                    if (msg.id == null || msg.pending) return;
+                    onEditMessage(msg.id, rawText === "\u200b" ? "" : rawText);
+                  }}
+                >
+                  Edit
+                </ContextMenuItem>
                 <ContextMenuItem
                   className="text-destructive"
                   onClick={() => {
@@ -513,5 +523,6 @@ export const MessageBubble = React.memo(
     prev.attachmentMeta === next.attachmentMeta &&
     prev.emoteMap === next.emoteMap &&
     prev.emoteDataMap === next.emoteDataMap &&
-    prev.onLoad === next.onLoad,
+    prev.onLoad === next.onLoad &&
+    prev.onEditMessage === next.onEditMessage,
 );

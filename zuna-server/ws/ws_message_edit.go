@@ -6,6 +6,7 @@ import (
 	"zuna-server/config"
 	"zuna-server/data"
 	"zuna-server/db"
+	"zuna-server/ent/chat"
 	"zuna-server/ent/message"
 
 	"github.com/rs/zerolog/log"
@@ -54,7 +55,12 @@ func (r *MessageRouter) handleModifyMessage(c HubClient, msg IncomingMessage, us
 		return
 	}
 
-	ch := m.Edges.Chat
+	ch, err := db.EntClient.Chat.Query().WithUsers().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
+  if err != nil {
+    log.Error().Err(err).Msg("failed to query chat")
+    sendInternalServerError(c)
+    return
+  }
 
 	_, err = m.Update().SetCipherText(req.CipherText).SetIv(req.Iv).SetAuthTag(req.AuthTag).SetModified(true).Save(ctx)
 	if err != nil {
@@ -67,7 +73,7 @@ func (r *MessageRouter) handleModifyMessage(c HubClient, msg IncomingMessage, us
 		if uu.ID == userData.UserID {
 			continue
 		}
-
+		
 		ud, err := data.GetUserDataByUsername(uu.Username)
 		if err != nil || ud.ConnectionID == "" {
 			continue

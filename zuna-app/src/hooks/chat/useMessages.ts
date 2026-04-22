@@ -8,6 +8,7 @@ import {
   MessageReceivePayload,
   MessageReadInfoPayload,
   MessageDeleteReceivePayload,
+  MessageEditReceivePayload,
 } from "@/hooks/ws/wsTypes";
 import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
 import { jotaiStore, serverTokensAtom } from "@/hooks/auth/useAuthorizer";
@@ -193,6 +194,25 @@ export function useMessages(
     WS_MSG.MESSAGE_DELETE_RECEIVE,
     (payload) => {
       setMessages((prev) => prev.filter((m) => m.id !== payload.id));
+    },
+  );
+
+  useWsHandler<MessageEditReceivePayload>(
+    server,
+    WS_MSG.MESSAGE_EDIT_RECEIVE,
+    (payload) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === payload.id
+            ? {
+                ...m,
+                cipherText: payload.cipher_text,
+                iv: payload.iv,
+                authTag: payload.auth_tag,
+              }
+            : m,
+        ),
+      );
     },
   );
 
@@ -485,6 +505,38 @@ export function useMessages(
     [chatId, wsSend, updateLastMessage],
   );
 
+  const editChatMessage = useCallback(
+    async (
+      messageId: number,
+      cipherText: string,
+      iv: string,
+      authTag: string,
+      plaintext: string,
+    ) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                cipherText,
+                iv,
+                authTag,
+                plaintext,
+              }
+            : m,
+        ),
+      );
+
+      wsSend(WS_MSG.MESSAGE_EDIT, {
+        id: messageId,
+        cipher_text: cipherText,
+        iv,
+        auth_tag: authTag,
+      });
+    },
+    [wsSend],
+  );
+
   const fetchMore = useCallback(() => {
     const oldest = messagesRef.current.find((m) => m.id !== null);
     if (oldest?.id != null && !isFetchingRef.current && hasMoreRef.current) {
@@ -617,6 +669,7 @@ export function useMessages(
     loading,
     hasMore,
     sendMessage: sendChatMessage,
+    editMessage: editChatMessage,
     uploadAndSend,
     fetchMore,
     readyState,

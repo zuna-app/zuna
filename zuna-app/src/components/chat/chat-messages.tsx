@@ -19,6 +19,7 @@ interface ChatMessagesProps {
   sharedSecret: string | null;
   sevenTvEnabled?: boolean;
   sevenTvEmotesSet?: string | null;
+  onEditMessage: (messageId: number, rawText: string) => void;
 }
 
 export function ChatMessages({
@@ -31,6 +32,7 @@ export function ChatMessages({
   sharedSecret,
   sevenTvEnabled,
   sevenTvEmotesSet,
+  onEditMessage,
 }: ChatMessagesProps) {
   const { getRawText, getAttachmentMeta } = useMessageDecryption(
     messages,
@@ -85,6 +87,7 @@ export function ChatMessages({
               emoteMap={emoteMap}
               emoteDataMap={emoteDataMap}
               onLoad={scrollToBottomIfPinned}
+              onEditMessage={onEditMessage}
             />
           </div>
         ))}
