@@ -15,9 +15,16 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
-    new MakerZIP({}, ["darwin"]),
+    new MakerSquirrel({
+      setupIcon: "./src/assets/zuna.ico",
+    }),
+    new MakerZIP({}, ["linux"]),
     new MakerDeb({
+      options: {
+        icon: "./src/assets/zuna.png",
+      },
+    }),
+    new MakerRpm({
       options: {
         icon: "./src/assets/zuna.png",
       },
