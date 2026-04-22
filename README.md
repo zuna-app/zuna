@@ -87,3 +87,7 @@ Zuna is released under the **GNU Affero General Public License v3.0** (AGPL-3.0)
 This means you are free to use, modify, and distribute Zuna, but any modified version that is made available over a network must also be distributed under the same license with its source code made available. See the [LICENSE](LICENSE) file for the full text.
 
 > TL;DR — run it, fork it, improve it. Just keep it open.
+
+<br/>
+
+<a href="https://www.buymeacoffee.com/socketbyte" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" style="height: 60px !important;width: 217px !important;" ></a>
