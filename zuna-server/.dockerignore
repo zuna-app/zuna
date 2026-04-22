@@ -1,0 +1,26 @@
+# Git
+
+.git
+.gitignore
+
+# Runtime-generated files (will be in the /data volume)
+
+config.toml
+zuna.db
+zuna.db-shm
+zuna.db-wal
+server_public.key
+server_private.key
+server_tls_cert.pem
+server_tls_key.pem
+storage_data/
+storage/
+
+# Go build artifacts
+
+zuna-server
+
+# Docs / local dev files
+
+docs/
+\*.DS_Store

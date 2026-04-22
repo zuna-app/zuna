@@ -23,6 +23,7 @@
 - [Motivation](#motivation)
 - [Core Philosophy](#core-philosophy)
 - [Architecture](#architecture)
+- [Self-Hosting with Docker](#self-hosting-with-docker)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -73,6 +74,149 @@ For those who prefer a fully independent setup, it is possible to replace our ga
 
 > [!TIP]
 > Zuna is currently in **early alpha**. This means the iOS app or the iOS push notifications are not complete just yet. In the meantime, for just desktop notifications you can easily run your own gateway relay without an Apple developer account.
+
+## Self-Hosting with Docker
+
+The easiest way to run a Zuna server is with Docker Compose. The provided setup bundles **zuna-server**, **MariaDB 11**, and **LiveKit** (for voice calls and screen sharing) into a single stack.
+
+### Prerequisites
+
+- Docker 24+ and Docker Compose v2
+- Ports `8080`, `7880`, `7881`, and UDP `50000–60000` open in your firewall (by default)
+
+### Quick Start
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/zuna-app/zuna.git
+cd zuna
+
+# 2. (Recommended) Create a .env file with your own secrets
+cp .env.example .env   # then edit .env
+
+# 3. Build and start all services
+docker compose up -d --build
+```
+
+On first boot, `zuna-server` will automatically:
+
+- Generate a `config.toml` inside the `zuna-data` volume
+- Generate an Ed25519 server keypair
+- Generate a self-signed TLS certificate
+
+The server is ready when you see `zuna-server` log `starting server`.
+
+---
+
+### Configuration Parameters
+
+All values below can be set in a `.env` file in the repository root or passed directly as environment variables. The defaults shown are the built-in fallbacks — **change at minimum the passwords before exposing the server publicly**.
+
+#### MariaDB
+
+| Variable              | Default    | Description                        |
+| --------------------- | ---------- | ---------------------------------- |
+| `MYSQL_ROOT_PASSWORD` | `changeme` | MariaDB root password              |
+| `MYSQL_DATABASE`      | `zuna`     | Database name                      |
+| `MYSQL_USER`          | `zuna`     | Application database user          |
+| `MYSQL_PASSWORD`      | `zunapass` | Application database user password |
+
+#### LiveKit (voice / screen sharing)
+
+| Variable             | Default                 | Description                                                           |
+| -------------------- | ----------------------- | --------------------------------------------------------------------- |
+| `LIVEKIT_API_KEY`    | `zunakey`               | LiveKit API key — must match between `livekit-init` and `zuna-server` |
+| `LIVEKIT_API_SECRET` | `zunaS3cr3tChangeme123` | LiveKit API secret — keep this private                                |
+
+#### Example `.env` file
+
+```dotenv
+# MariaDB
+MYSQL_ROOT_PASSWORD=supersecretrootpw
+MYSQL_DATABASE=zuna
+MYSQL_USER=zuna
+MYSQL_PASSWORD=supersecretpw
+
+# LiveKit
+LIVEKIT_API_KEY=myrandomkey
+LIVEKIT_API_SECRET=myrandomlongsecret
+```
+
+---
+
+### Post-Boot Server Config
+
+After the first start, a full `config.toml` is written to the `zuna-data` Docker volume. You can inspect or edit it with:
+
+```bash
+docker run --rm -v zuna_zuna-data:/data alpine cat /data/config.toml
+```
+
+The most commonly changed settings inside `config.toml` are:
+
+| Key                    | Description                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `[server].name`        | Public display name of your server                                                                         |
+| `[server].password`    | Optional join password — set it to restrict who can register                                               |
+| `[server].logo`        | Path to a PNG/GIF logo file (mount a custom one into `zuna-data`)                                          |
+| `[tls].auto_generate`  | `true` generates a self-signed cert; set `false` and provide `cert_file`/`key_file` for a real certificate |
+| `[tls].public_address` | Your server's public IP or hostname — used in the self-signed cert's SAN                                   |
+| `[gateway].address`    | Address of the push-notification gateway (defaults to `gateway.zuna.chat`)                                 |
+| `[sevenTv].enabled`    | Enable/disable 7TV animated emotes                                                                         |
+| `[livekit].enabled`    | Toggled automatically based on whether `LIVEKIT_API_KEY` is set                                            |
+
+> [!NOTE]
+> `config.toml` is only written once — on first boot when none exists. To regenerate it, remove it from the volume and restart the container.
+
+---
+
+### Changing Ports
+
+All exposed ports are configured in `docker-compose.yml` using the `HOST:CONTAINER` format. The container-side port must match what the service is actually listening on; only the host-side number needs to change.
+
+| Service       | Variable | Default host port | What it does                 |
+| ------------- | -------- | ----------------- | ---------------------------- |
+| `zuna-server` | —        | `8080`            | Zuna REST + WebSocket API    |
+| `livekit`     | —        | `7880`            | LiveKit HTTP / WebSocket API |
+| `livekit`     | —        | `7881`            | LiveKit RTC TCP              |
+| `livekit`     | —        | `50000–60000/udp` | WebRTC media (UDP range)     |
+
+**Example — run zuna-server on port 9090 instead of 8080:**
+
+```yaml
+# docker-compose.yml
+zuna-server:
+  ports:
+    - "9090:8080" # host:container
+```
+
+**Example — run LiveKit API on port 8888:**
+
+```yaml
+# docker-compose.yml
+livekit:
+  ports:
+    - "8888:7880" # host:container
+    - "7881:7881"
+    - "50000-60000:50000-60000/udp"
+```
+
+> [!IMPORTANT]
+> If you change the LiveKit API port on the host side you do **not** need to update `[livekit].port` in `config.toml` — that value refers to the port **inside** the Docker network, which is always `7880`. Only change it if you also change the container-side port mapping (i.e. `"XXXX:XXXX"` where both numbers differ).
+
+---
+
+### Deploying to a Public Server
+
+For a production deployment you should:
+
+1. Set a strong `[server].password` in `config.toml` to prevent open registration
+2. Set `[tls].auto_generate = false` and provide real certificates (e.g. via Let's Encrypt)
+3. Set `[tls].public_address` to your domain or public IP
+4. In `docker-compose.yml`, update the `livekit.yaml` block inside `livekit-init` to set `use_external_ip: true` if LiveKit is behind NAT
+5. Make sure your firewall exposes UDP `50000–60000` for WebRTC media
+
+---
 
 ## Contributing
 

@@ -2,7 +2,6 @@ config.toml
 *.db
 *.db-shm
 *.db-wal
-*.png
 *.gif
 *.key
 storage_data/

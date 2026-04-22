@@ -1,0 +1,103 @@
+services:
+  # ── LiveKit config generator ─────────────────────────────────────────────
+  # One-shot alpine container that writes livekit.yaml into the shared volume
+  # using the API key/secret defined below (or overridden in a .env file).
+  livekit-init:
+    image: alpine:3.21
+    restart: "no"
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-zunakey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-zunaS3cr3tChangeme123}
+    volumes:
+      - livekit-config:/config
+    command:
+      - sh
+      - -c
+      - |
+        cat > /config/livekit.yaml << CONF
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: false
+        keys:
+          $${LIVEKIT_API_KEY}: $${LIVEKIT_API_SECRET}
+        logging:
+          level: info
+        CONF
+        echo "[livekit-init] livekit.yaml written."
+
+  # ── LiveKit media server ─────────────────────────────────────────────────
+  # Required for voice calls and screen sharing in the Zuna client.
+  # UDP port range 50000-60000 is used for WebRTC media; map these in your
+  # firewall/NAT and set use_external_ip: true in livekit.yaml when deploying
+  # to a public server.
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--config", "/config/livekit.yaml"]
+    restart: unless-stopped
+    depends_on:
+      livekit-init:
+        condition: service_completed_successfully
+    volumes:
+      - livekit-config:/config:ro
+    ports:
+      - "7880:7880" # HTTP / WebSocket API
+      - "7881:7881" # RTC TCP
+      - "50000-60000:50000-60000/udp" # WebRTC media (UDP)
+
+  # ── Zuna server ──────────────────────────────────────────────────────────
+  zuna-server:
+    build:
+      context: ./zuna-server
+      dockerfile: Dockerfile
+    container_name: zuna-server
+    restart: unless-stopped
+    depends_on:
+      livekit:
+        condition: service_started
+      zuna-mysql:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # Passed into config.toml on first boot by docker-entrypoint.sh.
+      # Change these values (or put them in a .env file next to docker-compose.yml).
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-zunakey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-zunaS3cr3tChangeme123}
+      # 'livekit' is the service name: resolvable inside the Docker network.
+      LIVEKIT_HOST: livekit
+      LIVEKIT_PORT: "7880"
+      # MariaDB connection: mirrors the zuna-mysql service credentials.
+      MYSQL_HOST: zuna-mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USER: ${MYSQL_USER:-zuna}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-zunapass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zuna}
+    volumes:
+      # All persistent state: config, database, keypair, TLS certs, attachments
+      - zuna-data:/data
+
+  # ── MariaDB ───────────────────────────────────────────────────────────────
+  zuna-mysql:
+    image: mariadb:11
+    container_name: zuna-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-changeme}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-zuna}
+      MYSQL_USER: ${MYSQL_USER:-zuna}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-zunapass}
+    volumes:
+      - zuna-mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  zuna-data:
+  livekit-config:
+  zuna-mysql-data:
