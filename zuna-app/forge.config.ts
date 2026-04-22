@@ -10,13 +10,13 @@ import { FuseV1Options, FuseVersion } from "@electron/fuses";
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    icon: "./src/assets/zuna",
+    icon: "./src/assets/icon",
     extraResource: ["./src/assets/zuna.png"],
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
-      setupIcon: "./src/assets/zuna.ico",
+      setupIcon: "./src/assets/icon.ico",
     }),
     new MakerZIP({}, ["linux"]),
     new MakerDeb({
