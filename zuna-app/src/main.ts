@@ -108,6 +108,14 @@ const createWindow = () => {
   });
 };
 
+app.on(
+  "certificate-error",
+  (event, webContents, url, error, certificate, callback) => {
+    event.preventDefault();
+    callback(true);
+  },
+);
+
 app.on("ready", createWindow);
 
 app.on("before-quit", () => {
