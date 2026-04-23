@@ -15,6 +15,7 @@ import (
 	"zuna-server/crypto"
 	"zuna-server/data"
 	"zuna-server/db"
+	"zuna-server/lk"
 	"zuna-server/rest"
 	"zuna-server/utils"
 	"zuna-server/ws"
@@ -55,6 +56,7 @@ func main() {
 	}
 
 	utils.ValidateGatewayConnection()
+	go lk.CleanupRooms()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -60,8 +60,7 @@ type LiveKitConfig struct {
 	Enabled   bool   `toml:"enabled" comment:"Enable LiveKit (self-hosted) - required for calls and screen sharing"`
 	ApiKey    string `toml:"api_key" comment:"LiveKit API key - same as in LiveKit configuration"`
 	ApiSecret string `toml:"api_secret" comment:"LiveKit API secret - same as in LiveKit configuration"`
-	Address   string `toml:"url" comment:"LiveKit server address - in most cases your public server public IP"`
-	Port      int    `toml:"port" comment:"LiveKit server port - same as in LiveKit configuration"`
+	Url       string `toml:"url" comment:"LiveKit server address with port - in most cases your public server public IP"`
 }
 
 type TLSConfig struct {
@@ -128,8 +127,7 @@ var Config = Configuration{
 		Enabled:   false,
 		ApiKey:    "",
 		ApiSecret: "",
-		Address:   "",
-		Port:      7880,
+		Url:       "https://1.2.3.4:7880",
 	},
 	TLS: TLSConfig{
 		AutoGenerate:  true,

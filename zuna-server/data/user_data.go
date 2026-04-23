@@ -46,6 +46,19 @@ func InitializeUserManager() {
 	}
 }
 
+func GetUserDataByID(id string) (UserData, error) {
+	userDataMutex.RLock()
+	defer userDataMutex.RUnlock()
+
+	for _, ud := range UserDataMap {
+		if ud.UserID == id {
+			return ud, nil
+		}
+	}
+
+	return UserData{}, errors.New("user is not logged in (id)")
+}
+
 func GetUserDataByToken(token string) (UserData, error) {
 	userDataMutex.RLock()
 	defer userDataMutex.RUnlock()

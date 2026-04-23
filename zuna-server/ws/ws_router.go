@@ -99,6 +99,8 @@ func (r *MessageRouter) registerBuiltins() {
 	r.Register("message_modify", r.handleModifyMessage)
 	r.Register("message_delete", r.handleDeleteMessage)
 	r.Register("message_pin", r.handlePinMessage)
+	r.Register("call_start", r.handleCallStart)
+	r.Register("call_end", r.handleCallEnd)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
