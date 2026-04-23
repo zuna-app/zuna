@@ -19,7 +19,8 @@
 
 ## Table of Contents
 
-- [Features](#packages)
+- [Features](#features)
+- [Screenshots](#screenshots)
 - [Motivation](#motivation)
 - [Core Philosophy](#core-philosophy)
 - [Architecture](#architecture)
@@ -39,6 +40,18 @@
 - Push notifications
 - Encrypted file and photo sharing
 - Completely self-hosted
+- Editing/deleting messages
+- Pinning messages
+
+---
+
+## Screenshots
+
+<p align="center">
+  <img src=".github/resources/screenshot_1.png" alt="Zuna screenshot 1" width="31%" />
+  <img src=".github/resources/screenshot_2.png" alt="Zuna screenshot 2" width="31%" />
+  <img src=".github/resources/screenshot_3.png" alt="Zuna screenshot 3" width="31%" />
+</p>
 
 ---
 
