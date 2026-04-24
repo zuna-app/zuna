@@ -7,7 +7,7 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: "public/zuna.png",
+          src: "zuna.png",
           dest: ".",
         },
       ],

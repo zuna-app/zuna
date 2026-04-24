@@ -84,7 +84,6 @@ function connectToGateway(address: string, servers: Server[]): void {
     try {
       const msg = JSON.parse(data.toString()) as WsMessage;
       if (msg.type === "notification_info") {
-        console.log(`Received notification from gateway ${address}`);
         handleNotification(msg.payload as NotificationInfoPayload);
       }
     } catch {
@@ -166,7 +165,6 @@ function handleNotification(payload: NotificationInfoPayload): void {
       // focus the app window
       const win = BrowserWindow.getAllWindows()[0];
       if (win) {
-        console.log("here");
         if (win.isMinimized()) win.restore();
         win.setAlwaysOnTop(true);
         win.show();

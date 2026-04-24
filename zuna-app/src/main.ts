@@ -12,6 +12,7 @@ import fs from "node:fs";
 import started from "electron-squirrel-startup";
 import { registerIPC } from "./ipc";
 import { lockVault } from "./storage/safeVault";
+import { createWindowsBadgeIcon } from "./utils/badgeIcon";
 
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
@@ -22,8 +23,8 @@ if (started) {
 
 registerIPC();
 
+app.setAppUserModelId("chat.zuna.app");
 app.dock?.setIcon(path.join(__dirname, "public/zuna.png"));
-console.log(path.join(__dirname, "public/zuna.png"));
 
 let tray: Tray | null = null;
 let forceQuit = false;
@@ -67,11 +68,16 @@ const createWindow = () => {
     }
   });
 
+  mainWindow.once("ready-to-show", async () => {
+    const badgeIcon = await createWindowsBadgeIcon(5);
+    mainWindow.setOverlayIcon(badgeIcon, "5 unread messages");
+  });
+
   mainWindow.webContents.openDevTools();
 
   const iconPath = app.isPackaged
-    ? path.join(process.resourcesPath, "public/zuna.png")
-    : path.join(app.getAppPath(), "public/zuna.png");
+    ? path.join(process.resourcesPath, "/public/zuna.png")
+    : path.join(app.getAppPath(), "/public/zuna.png");
   const trayIcon = nativeImage
     .createFromPath(iconPath)
     .resize({ width: 16, height: 16 });
