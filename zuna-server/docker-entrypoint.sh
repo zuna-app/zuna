@@ -25,9 +25,6 @@ _server_id=""
 if [ -z "$_server_id" ] && [ -r /proc/sys/kernel/random/uuid ]; then
   _server_id="$(tr -d '-' < /proc/sys/kernel/random/uuid)"
 fi
-if [ -z "$_server_id" ]; then
-  _server_id="$(date +%s)-$$"
-fi
 
 mkdir -p "$DATA_DIR/storage_data"
 
