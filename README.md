@@ -95,7 +95,7 @@ The easiest way to run a Zuna server is with Docker Compose. The provided setup 
 ### Prerequisites
 
 - Docker 24+ and Docker Compose v2
-- Ports `25510`, `7880`, `7881`, and UDP `50000` open in your firewall (default compose setup)
+- Ports `25510`, `7880`, `7881`, and UDP `50000-50100` range open in your firewall (default compose setup)
 
 ### Quick Start
 
@@ -208,7 +208,7 @@ All exposed ports are configured in `docker-compose.yml` using the `HOST:CONTAIN
 | `zuna-server` | —        | `25510`           | Zuna REST + WebSocket API    |
 | `livekit`     | —        | `7880`            | LiveKit HTTP / WebSocket API |
 | `livekit`     | —        | `7881`            | LiveKit RTC TCP              |
-| `livekit`     | —        | `50000/udp`       | WebRTC media (single UDP)    |
+| `livekit`     | —        | `50000-50100/udp` | WebRTC media (range UDP)     |
 
 **Example — run zuna-server on port 9090 instead of 25510:**
 
@@ -227,14 +227,11 @@ livekit:
   ports:
     - "8888:7880" # host:container
     - "7881:7881"
-    - "50000:50000/udp"
+    - "50000-50100:50000-50100/udp"
 ```
 
 > [!IMPORTANT]
 > If you change the LiveKit API port on the host side you do **not** need to update `[livekit].port` in `config.toml` — that value refers to the port **inside** the Docker network, which is always `7880`. Only change it if you also change the container-side port mapping (i.e. `"XXXX:XXXX"` where both numbers differ).
-
-> [!TIP]
-> A single UDP media port is convenient for local/dev and very simple firewall rules, but it limits concurrent WebRTC throughput. For larger deployments, widen the UDP range in both LiveKit config and Compose port mapping.
 
 ---
 
