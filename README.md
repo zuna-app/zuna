@@ -95,7 +95,7 @@ The easiest way to run a Zuna server is with Docker Compose. The provided setup 
 ### Prerequisites
 
 - Docker 24+ and Docker Compose v2
-- Ports `8080`, `7880`, `7881`, and UDP `50000–60000` open in your firewall (by default)
+- Ports `25510`, `7880`, `7881`, and UDP `50000` open in your firewall (default compose setup)
 
 ### Quick Start
 
@@ -105,17 +105,18 @@ git clone https://github.com/zuna-app/zuna.git
 cd zuna
 
 # 2. (Recommended) Create a .env file with your own secrets
-cp .env.example .env   # then edit .env
+cp .env.example .env   # then edit .env!
 
 # 3. Build and start all services
 docker compose up -d --build
 ```
 
-On first boot, `zuna-server` will automatically:
+On first boot, `zuna-server` automatically:
 
-- Generate a `config.toml` inside the `zuna-data` volume
-- Generate an Ed25519 server keypair
-- Generate a self-signed TLS certificate
+- Writes `/data/config.toml` into the `zuna-data` volume
+- Generates and persists `server_id` in `[server]`
+- Generates an Ed25519 server keypair
+- Generates self-signed TLS files (when `TLS_AUTO_GENERATE=true`)
 
 The server is ready when you see `zuna-server` log `starting server`.
 
@@ -123,7 +124,9 @@ The server is ready when you see `zuna-server` log `starting server`.
 
 ### Configuration Parameters
 
-All values below can be set in a `.env` file in the repository root or passed directly as environment variables. The defaults shown are the built-in fallbacks — **change at minimum the passwords before exposing the server publicly**.
+All values below can be set in `.env` at repository root. Compose reads `.env` and injects values into container environment according to `docker-compose.yml`.
+
+The defaults are for local development. Change secrets before any public deployment.
 
 #### MariaDB
 
@@ -136,10 +139,17 @@ All values below can be set in a `.env` file in the repository root or passed di
 
 #### LiveKit (voice / screen sharing)
 
-| Variable             | Default                 | Description                                                           |
-| -------------------- | ----------------------- | --------------------------------------------------------------------- |
-| `LIVEKIT_API_KEY`    | `zunakey`               | LiveKit API key — must match between `livekit-init` and `zuna-server` |
-| `LIVEKIT_API_SECRET` | `zunaS3cr3tChangeme123` | LiveKit API secret — keep this private                                |
+| Variable             | Default                 | Description                                         |
+| -------------------- | ----------------------- | --------------------------------------------------- |
+| `LIVEKIT_API_KEY`    | `zunakey`               | Must match between `livekit-init` and `zuna-server` |
+| `LIVEKIT_API_SECRET` | `zunaS3cr3tChangeme123` | Keep private                                        |
+
+#### TLS
+
+| Variable             | Default     | Description                                                   |
+| -------------------- | ----------- | ------------------------------------------------------------- |
+| `TLS_PUBLIC_ADDRESS` | `127.0.0.1` | Address written to `[tls].public_address` in generated config |
+| `TLS_AUTO_GENERATE`  | `true`      | Whether the server auto-generates self-signed TLS cert/key    |
 
 #### Example `.env` file
 
@@ -153,33 +163,39 @@ MYSQL_PASSWORD=supersecretpw
 # LiveKit
 LIVEKIT_API_KEY=myrandomkey
 LIVEKIT_API_SECRET=myrandomlongsecret
+
+# TLS
+TLS_PUBLIC_ADDRESS=chat.example.com
+TLS_AUTO_GENERATE=true
 ```
 
 ---
 
 ### Post-Boot Server Config
 
-After the first start, a full `config.toml` is written to the `zuna-data` Docker volume. You can inspect or edit it with:
+After first start, config lives in the named volume `zuna-data` at `/data/config.toml`.
+
+Inspect it with:
 
 ```bash
 docker run --rm -v zuna_zuna-data:/data alpine cat /data/config.toml
 ```
 
-The most commonly changed settings inside `config.toml` are:
+Common keys to change:
 
-| Key                    | Description                                                                                                |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `[server].name`        | Public display name of your server                                                                         |
-| `[server].password`    | Optional join password — set it to restrict who can register                                               |
-| `[server].logo`        | Path to a PNG/GIF logo file (mount a custom one into `zuna-data`)                                          |
-| `[tls].auto_generate`  | `true` generates a self-signed cert; set `false` and provide `cert_file`/`key_file` for a real certificate |
-| `[tls].public_address` | Your server's public IP or hostname — used in the self-signed cert's SAN                                   |
-| `[gateway].address`    | Address of the push-notification gateway (defaults to `gateway.zuna.chat`)                                 |
-| `[sevenTv].enabled`    | Enable/disable 7TV animated emotes                                                                         |
-| `[livekit].enabled`    | Toggled automatically based on whether `LIVEKIT_API_KEY` is set                                            |
+| Key                    | Description                                                                   |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `[server].name`        | Public display name of your server                                            |
+| `[server].password`    | Optional join password — set it to restrict who can register                  |
+| `[server].logo`        | Path to a PNG/GIF logo file (mount a custom one into `zuna-data`)             |
+| `[tls].auto_generate`  | `true` generates self-signed certs; set `false` and provide your own cert/key |
+| `[tls].public_address` | Public IP or hostname used by TLS generation and clients                      |
+| `[gateway].address`    | Address of the push-notification gateway (defaults to `gateway.zuna.chat`)    |
+| `[sevenTv].enabled`    | Enable/disable 7TV animated emotes                                            |
+| `[livekit].enabled`    | Toggled automatically based on whether `LIVEKIT_API_KEY` is set               |
 
 > [!NOTE]
-> `config.toml` is only written once — on first boot when none exists. To regenerate it, remove it from the volume and restart the container.
+> `config.toml` is created once. Changing `.env` later does not fully regenerate server config. Edit `/data/config.toml` directly (or recreate the volume).
 
 ---
 
@@ -189,18 +205,18 @@ All exposed ports are configured in `docker-compose.yml` using the `HOST:CONTAIN
 
 | Service       | Variable | Default host port | What it does                 |
 | ------------- | -------- | ----------------- | ---------------------------- |
-| `zuna-server` | —        | `8080`            | Zuna REST + WebSocket API    |
+| `zuna-server` | —        | `25510`           | Zuna REST + WebSocket API    |
 | `livekit`     | —        | `7880`            | LiveKit HTTP / WebSocket API |
 | `livekit`     | —        | `7881`            | LiveKit RTC TCP              |
-| `livekit`     | —        | `50000–60000/udp` | WebRTC media (UDP range)     |
+| `livekit`     | —        | `50000/udp`       | WebRTC media (single UDP)    |
 
-**Example — run zuna-server on port 9090 instead of 8080:**
+**Example — run zuna-server on port 9090 instead of 25510:**
 
 ```yaml
 # docker-compose.yml
 zuna-server:
   ports:
-    - "9090:8080" # host:container
+    - "9090:25510" # host:container
 ```
 
 **Example — run LiveKit API on port 8888:**
@@ -211,11 +227,14 @@ livekit:
   ports:
     - "8888:7880" # host:container
     - "7881:7881"
-    - "50000-60000:50000-60000/udp"
+    - "50000:50000/udp"
 ```
 
 > [!IMPORTANT]
 > If you change the LiveKit API port on the host side you do **not** need to update `[livekit].port` in `config.toml` — that value refers to the port **inside** the Docker network, which is always `7880`. Only change it if you also change the container-side port mapping (i.e. `"XXXX:XXXX"` where both numbers differ).
+
+> [!TIP]
+> A single UDP media port is convenient for local/dev and very simple firewall rules, but it limits concurrent WebRTC throughput. For larger deployments, widen the UDP range in both LiveKit config and Compose port mapping.
 
 ---
 
@@ -227,7 +246,15 @@ For a production deployment you should:
 2. Set `[tls].auto_generate = false` and provide real certificates (e.g. via Let's Encrypt)
 3. Set `[tls].public_address` to your domain or public IP
 4. In `docker-compose.yml`, update the `livekit.yaml` block inside `livekit-init` to set `use_external_ip: true` if LiveKit is behind NAT
-5. Make sure your firewall exposes UDP `50000–60000` for WebRTC media
+5. Ensure your firewall exposes UDP media ports configured for LiveKit (default here: `50000/udp`)
+
+### Troubleshooting Docker Startup
+
+- `x509: cannot parse IP address of length 0`
+  Set `TLS_PUBLIC_ADDRESS` in `.env` to a valid IP/domain and restart.
+
+- `exec /docker-entrypoint.sh: no such file or directory`
+  This usually indicates line ending problems (`CRLF`). Rebuild image after ensuring `docker-entrypoint.sh` is Unix (`LF`).
 
 ---
 
