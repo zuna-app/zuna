@@ -1,8 +1,8 @@
 {
   "name": "zuna-app",
   "productName": "zuna-app",
-  "version": "1.0.0",
-  "description": "My Electron application description",
+  "version": "0.1.1",
+  "description": "Zuna is a fully self-hosted, end-to-end encrypted chat and voice service.",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
@@ -15,7 +15,7 @@
   "keywords": [],
   "author": {
     "name": "SocketByte",
-    "email": "poczta.xvacuum@gmail.com"
+    "email": "contact@zuna.chat"
   },
   "license": "MIT",
   "devDependencies": {
