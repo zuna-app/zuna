@@ -104,7 +104,7 @@ The easiest way to run a Zuna server is with Docker Compose. The provided setup 
 git clone https://github.com/zuna-app/zuna.git
 cd zuna
 
-# 2. (Recommended) Create a .env file with your own secrets
+# 2. Create a .env file with your own secrets
 cp .env.example .env   # then edit .env!
 
 # 3. Build and start all services
@@ -143,29 +143,42 @@ The defaults are for local development. Change secrets before any public deploym
 | -------------------- | ----------------------- | --------------------------------------------------- |
 | `LIVEKIT_API_KEY`    | `zunakey`               | Must match between `livekit-init` and `zuna-server` |
 | `LIVEKIT_API_SECRET` | `zunaS3cr3tChangeme123` | Keep private                                        |
+| `LIVEKIT_HOST`       | `1.2.3.4`               | LiveKit Host                                        |
+| `LIVEKIT_PORT`       | `7880`                  | LiveKit Port                                        |
 
 #### TLS
 
-| Variable             | Default     | Description                                                   |
-| -------------------- | ----------- | ------------------------------------------------------------- |
-| `TLS_PUBLIC_ADDRESS` | `127.0.0.1` | Address written to `[tls].public_address` in generated config |
-| `TLS_AUTO_GENERATE`  | `true`      | Whether the server auto-generates self-signed TLS cert/key    |
+| Variable             | Default | Description                                                   |
+| -------------------- | ------- | ------------------------------------------------------------- |
+| `TLS_PUBLIC_ADDRESS` | ``      | Address written to `[tls].public_address` in generated config |
+| `TLS_AUTO_GENERATE`  | `true`  | Whether the server auto-generates self-signed TLS cert/key    |
 
 #### Example `.env` file
 
 ```dotenv
 # MariaDB
-MYSQL_ROOT_PASSWORD=supersecretrootpw
+# Root password for the zuna-mysql container (not used by the app directly).
+MYSQL_ROOT_PASSWORD=changeme
+
+# Database name, app user and password — must match across all services.
 MYSQL_DATABASE=zuna
 MYSQL_USER=zuna
-MYSQL_PASSWORD=supersecretpw
+MYSQL_PASSWORD=zunapass
 
 # LiveKit
-LIVEKIT_API_KEY=myrandomkey
-LIVEKIT_API_SECRET=myrandomlongsecret
+# API key and secret shared between the LiveKit server and zuna-server.
+# Use a long random string for the secret in production. (at least 32 characters)
+LIVEKIT_API_KEY=lk_api_key
+LIVEKIT_API_SECRET=zunaS3cr3tChangeme123
+# LIVEKIT_HOST and LIVEKIT_PORT specify the public address where the LiveKit server is reachable by Zuna and clients.
+LIVEKIT_HOST=1.2.3.4
+LIVEKIT_PORT=7880
 
-# TLS
-TLS_PUBLIC_ADDRESS=chat.example.com
+# TLS Configuration
+# Important: Change TLS_PUBLIC_ADDRESS to your server's public IP or domain name
+# even if auto-generating TLS certificates, otherwise the generated certificates will not be valid for your server's address.
+TLS_PUBLIC_ADDRESS=
+# For production, set TLS_AUTO_GENERATE to false and provide your own TLS certificates.
 TLS_AUTO_GENERATE=true
 ```
 
