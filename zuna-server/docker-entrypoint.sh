@@ -23,7 +23,7 @@ _tls_auto_generate="${TLS_AUTO_GENERATE:-true}"
 
 _server_id=""
 if [ -z "$_server_id" ] && [ -r /proc/sys/kernel/random/uuid ]; then
-  _server_id="$(tr -d '-' < /proc/sys/kernel/random/uuid)"
+  _server_id="$(tr -d '-' < /proc/sys/kernel/random/uuid | cut -c1-24)"
 fi
 
 mkdir -p "$DATA_DIR/storage_data"
