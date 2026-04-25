@@ -250,9 +250,6 @@ For a production deployment you should:
 - `x509: cannot parse IP address of length 0`
   Set `TLS_PUBLIC_ADDRESS` in `.env` to a valid IP/domain and restart.
 
-- `exec /docker-entrypoint.sh: no such file or directory`
-  This usually indicates line ending problems (`CRLF`). Rebuild image after ensuring `docker-entrypoint.sh` is Unix (`LF`).
-
 ---
 
 ## Contributing
