@@ -3,7 +3,7 @@
 package attachment
 
 import (
-	"zuna-server/ent/predicate"
+	"zuna.chat/zuna-server/ent/predicate"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"

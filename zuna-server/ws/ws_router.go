@@ -5,7 +5,8 @@ package ws
 import (
 	"encoding/json"
 	"log"
-	"zuna-server/data"
+
+	"zuna.chat/zuna-server/data"
 )
 
 // IncomingMessage is the envelope every client must send.

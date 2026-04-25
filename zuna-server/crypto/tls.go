@@ -10,7 +10,8 @@ import (
 	"net"
 	"os"
 	"time"
-	"zuna-server/config"
+
+	"zuna.chat/zuna-server/config"
 
 	"github.com/rs/zerolog/log"
 )

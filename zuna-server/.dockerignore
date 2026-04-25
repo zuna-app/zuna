@@ -14,7 +14,6 @@ server_private.key
 server_tls_cert.pem
 server_tls_key.pem
 storage_data/
-storage/
 
 # Go build artifacts
 

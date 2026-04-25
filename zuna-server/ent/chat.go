@@ -5,7 +5,8 @@ package ent
 import (
 	"fmt"
 	"strings"
-	"zuna-server/ent/chat"
+
+	"zuna.chat/zuna-server/ent/chat"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"

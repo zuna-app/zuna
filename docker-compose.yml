@@ -19,6 +19,8 @@ services:
         rtc:
           tcp_port: 7881
           udp_port: 7882
+          port_range_start: 50000
+          port_range_end: 50000
           use_external_ip: false
         keys:
           $${LIVEKIT_API_KEY}: $${LIVEKIT_API_SECRET}
@@ -44,7 +46,7 @@ services:
     ports:
       - "7880:7880" # HTTP / WebSocket API
       - "7881:7881" # RTC TCP
-      - "50000-60000:50000-60000/udp" # WebRTC media (UDP)
+      - "50000:50000/udp" # WebRTC media (UDP)
 
   # ── Zuna server ──────────────────────────────────────────────────────────
   zuna-server:
@@ -59,12 +61,14 @@ services:
       zuna-mysql:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "25510:25510"
     environment:
       # Passed into config.toml on first boot by docker-entrypoint.sh.
       # Change these values (or put them in a .env file next to docker-compose.yml).
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-zunakey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-zunaS3cr3tChangeme123}
+      TLS_PUBLIC_ADDRESS: ${TLS_PUBLIC_ADDRESS:-127.0.0.1}
+      TLS_AUTO_GENERATE: ${TLS_AUTO_GENERATE:-true}
       # 'livekit' is the service name: resolvable inside the Docker network.
       LIVEKIT_HOST: livekit
       LIVEKIT_PORT: "7880"

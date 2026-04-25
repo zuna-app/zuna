@@ -4,7 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
-	"zuna-server/config"
+
+	"zuna.chat/zuna-server/config"
 
 	"github.com/livekit/protocol/auth"
 	"github.com/livekit/protocol/livekit"

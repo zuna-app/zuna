@@ -3,12 +3,13 @@ package rest
 import (
 	"net/http"
 	"strconv"
-	"zuna-server/data"
-	"zuna-server/db"
-	"zuna-server/ent"
-	"zuna-server/ent/chat"
-	"zuna-server/ent/message"
-	"zuna-server/utils"
+
+	"zuna.chat/zuna-server/data"
+	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent"
+	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"

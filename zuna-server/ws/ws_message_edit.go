@@ -3,11 +3,12 @@ package ws
 import (
 	"context"
 	"encoding/json"
-	"zuna-server/config"
-	"zuna-server/data"
-	"zuna-server/db"
-	"zuna-server/ent/chat"
-	"zuna-server/ent/message"
+
+	"zuna.chat/zuna-server/config"
+	"zuna.chat/zuna-server/data"
+	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/message"
 
 	"github.com/rs/zerolog/log"
 )

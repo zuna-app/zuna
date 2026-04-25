@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"time"
-	"zuna-server/data"
-	"zuna-server/db"
+
+	"zuna.chat/zuna-server/data"
+	"zuna.chat/zuna-server/db"
 
 	"github.com/rs/zerolog/log"
 )

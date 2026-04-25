@@ -1,7 +1,7 @@
 package ws
 
 import (
-	"zuna-server/data"
+	"zuna.chat/zuna-server/data"
 )
 
 // Receive over: presence_request

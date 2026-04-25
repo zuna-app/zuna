@@ -3,9 +3,10 @@ package rest
 import (
 	"encoding/base64"
 	"net/http"
-	"zuna-server/data"
-	"zuna-server/db"
-	"zuna-server/storage"
+
+	"zuna.chat/zuna-server/data"
+	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/storage"
 
 	"github.com/labstack/echo/v5"
 )

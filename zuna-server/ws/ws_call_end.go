@@ -2,8 +2,9 @@ package ws
 
 import (
 	"encoding/json"
-	"zuna-server/data"
-	"zuna-server/lk"
+
+	"zuna.chat/zuna-server/data"
+	"zuna.chat/zuna-server/lk"
 )
 
 type CallEndRequest struct {

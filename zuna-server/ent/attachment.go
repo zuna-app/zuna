@@ -5,9 +5,10 @@ package ent
 import (
 	"fmt"
 	"strings"
-	"zuna-server/ent/attachment"
-	"zuna-server/ent/message"
-	"zuna-server/ent/user"
+
+	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/ent/user"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"

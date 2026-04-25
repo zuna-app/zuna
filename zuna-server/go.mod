@@ -1,4 +1,4 @@
-module zuna-server
+module zuna.chat/zuna-server
 
 go 1.26
 

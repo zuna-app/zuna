@@ -2,7 +2,8 @@ package ws
 
 import (
 	"encoding/json"
-	"zuna-server/data"
+
+	"zuna.chat/zuna-server/data"
 )
 
 type PingRequest struct {

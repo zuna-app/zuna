@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-	"zuna-server/config"
-	"zuna-server/crypto"
-	"zuna-server/ent"
+
+	"zuna.chat/zuna-server/config"
+	"zuna.chat/zuna-server/crypto"
+	"zuna.chat/zuna-server/ent"
 
 	"github.com/rs/zerolog/log"
 )

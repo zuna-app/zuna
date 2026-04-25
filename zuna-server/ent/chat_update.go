@@ -6,10 +6,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"zuna-server/ent/chat"
-	"zuna-server/ent/message"
-	"zuna-server/ent/predicate"
-	"zuna-server/ent/user"
+
+	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/ent/predicate"
+	"zuna.chat/zuna-server/ent/user"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"

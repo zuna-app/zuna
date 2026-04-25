@@ -3,8 +3,9 @@ package db
 import (
 	"context"
 	"database/sql"
-	"zuna-server/config"
-	"zuna-server/ent"
+
+	"zuna.chat/zuna-server/config"
+	"zuna.chat/zuna-server/ent"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"

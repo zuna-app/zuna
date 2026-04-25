@@ -5,11 +5,11 @@ package enttest
 import (
 	"context"
 
-	"zuna-server/ent"
+	"zuna.chat/zuna-server/ent"
 	// required by schema hooks.
-	_ "zuna-server/ent/runtime"
+	_ "zuna.chat/zuna-server/ent/runtime"
 
-	"zuna-server/ent/migrate"
+	"zuna.chat/zuna-server/ent/migrate"
 
 	"entgo.io/ent/dialect/sql/schema"
 )

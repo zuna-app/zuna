@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"zuna-server/ent/user"
+
+	"zuna.chat/zuna-server/ent/user"
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"

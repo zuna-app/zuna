@@ -10,7 +10,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-s -w" -o zuna-server .
+RUN GOOS=linux go build -o zuna-server .
 
 # ---- Runtime Stage ----
 FROM alpine:3.21
@@ -32,6 +32,6 @@ VOLUME ["/data"]
 EXPOSE 8080
 
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+RUN sed -i 's/\r//' /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

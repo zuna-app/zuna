@@ -4,8 +4,9 @@ package ent
 
 import (
 	"context"
-	"zuna-server/ent/message"
-	"zuna-server/ent/predicate"
+
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/ent/predicate"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"

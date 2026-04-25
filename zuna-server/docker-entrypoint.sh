@@ -18,6 +18,17 @@ _db_user="${MYSQL_USER:-zuna}"
 _db_password="${MYSQL_PASSWORD:-zunapass}"
 _db_name="${MYSQL_DATABASE:-zuna}"
 
+_tls_public_address="${TLS_PUBLIC_ADDRESS:-127.0.0.1}"
+_tls_auto_generate="${TLS_AUTO_GENERATE:-true}"
+
+_server_id=""
+if [ -z "$_server_id" ] && [ -r /proc/sys/kernel/random/uuid ]; then
+  _server_id="$(tr -d '-' < /proc/sys/kernel/random/uuid)"
+fi
+if [ -z "$_server_id" ]; then
+  _server_id="$(date +%s)-$$"
+fi
+
 mkdir -p "$DATA_DIR/storage_data"
 
 if [ ! -f "$DATA_DIR/logo.png" ]; then
@@ -44,14 +55,14 @@ parameters = ['parseTime=true']
 # ── Server ───────────────────────────────────────────────────────────────────
 [server]
 bind_address = '0.0.0.0'
-port = 8080
+port = 25510
 # Set a non-empty password to require it on /api/auth/join
 password = ''
 name = 'Zuna Server'
 logo = '/data/logo.png'
 storage_directory = '/data/storage_data'
-# server_id is auto-generated on first start — do not change afterwards
-server_id = ''
+# do not change this!
+server_id = '${_server_id}'
 
 # ── Limits ───────────────────────────────────────────────────────────────────
 [limits]
@@ -65,8 +76,8 @@ max_attachment_size = 536870912
 [tls]
 # auto_generate = true produces a self-signed certificate on first boot.
 # For production set auto_generate = false and supply cert_file / key_file.
-auto_generate = true
-public_address = 'localhost'
+auto_generate = ${_tls_auto_generate}
+public_address = '${_tls_public_address}'
 cert_file = '/data/server_tls_cert.pem'
 key_file  = '/data/server_tls_key.pem'
 

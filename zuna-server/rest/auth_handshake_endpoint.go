@@ -2,11 +2,12 @@ package rest
 
 import (
 	"net/http"
-	"zuna-server/config"
-	"zuna-server/crypto"
-	"zuna-server/data"
-	"zuna-server/db"
-	"zuna-server/ent/user"
+
+	"zuna.chat/zuna-server/config"
+	"zuna.chat/zuna-server/crypto"
+	"zuna.chat/zuna-server/data"
+	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent/user"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"

@@ -4,10 +4,11 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"zuna-server/config"
-	"zuna-server/db"
-	"zuna-server/ent/user"
-	"zuna-server/storage"
+
+	"zuna.chat/zuna-server/config"
+	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent/user"
+	"zuna.chat/zuna-server/storage"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"

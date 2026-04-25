@@ -5,7 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"zuna-server/config"
+
+	"zuna.chat/zuna-server/config"
 
 	"github.com/labstack/echo/v5"
 )

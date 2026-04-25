@@ -5,7 +5,8 @@ package hook
 import (
 	"context"
 	"fmt"
-	"zuna-server/ent"
+
+	"zuna.chat/zuna-server/ent"
 )
 
 // The AttachmentFunc type is an adapter to allow the use of ordinary

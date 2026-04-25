@@ -3,12 +3,13 @@ package rest
 import (
 	"encoding/base64"
 	"net/http"
-	"zuna-server/data"
-	"zuna-server/db"
-	"zuna-server/ent"
-	"zuna-server/ent/message"
-	"zuna-server/ent/user"
-	"zuna-server/storage"
+
+	"zuna.chat/zuna-server/data"
+	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent"
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/ent/user"
+	"zuna.chat/zuna-server/storage"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"

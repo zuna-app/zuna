@@ -2,7 +2,8 @@ package storage
 
 import (
 	"os"
-	"zuna-server/config"
+
+	"zuna.chat/zuna-server/config"
 
 	securejoin "github.com/cyphar/filepath-securejoin"
 )

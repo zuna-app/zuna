@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"zuna-server/db"
+
+	"zuna.chat/zuna-server/db"
 
 	"github.com/rs/zerolog/log"
 )
