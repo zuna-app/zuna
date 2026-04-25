@@ -248,7 +248,7 @@ For a production deployment you should:
 ### Troubleshooting Docker Startup
 
 - `x509: cannot parse IP address of length 0`
-  Set `TLS_PUBLIC_ADDRESS` in `.env` to a valid IP/domain and restart.
+  Set `public_address` in `config.toml` to a valid IP/domain and restart.
 
 ---
 
