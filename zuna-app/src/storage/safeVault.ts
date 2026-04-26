@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, safeStorage } from "electron";
 import fs from "fs";
 import path from "path";
 import { decryptWithPassword, encryptWithPassword } from "@/crypto/scrypt";
@@ -11,6 +11,7 @@ let vault: Map<string, any> | null = null;
 let currentPassword: string | null = null;
 
 const vaultPath = path.join(app.getPath("userData"), "vault.bin");
+const vaultSessionPath = path.join(app.getPath("userData"), "vault.session");
 
 let dirty = false;
 let saveTimer: NodeJS.Timeout | null = null;
@@ -50,21 +51,37 @@ function flushSave() {
   dirty = false;
 }
 
-export function loadAndUnlockVault(password: string) {
-  currentPassword = password;
+function persistSessionPassword(password: string) {
+  if (!safeStorage.isEncryptionAvailable()) return;
 
+  const encrypted = safeStorage.encryptString(password);
+  fs.writeFileSync(vaultSessionPath, encrypted, { mode: 0o600 });
+}
+
+function clearSessionPassword() {
+  if (fs.existsSync(vaultSessionPath)) {
+    fs.unlinkSync(vaultSessionPath);
+  }
+}
+
+function readSessionPassword(): string | null {
+  if (!fs.existsSync(vaultSessionPath)) return null;
+  if (!safeStorage.isEncryptionAvailable()) return null;
+
+  const encrypted = fs.readFileSync(vaultSessionPath);
+  return safeStorage.decryptString(encrypted);
+}
+
+function buildVaultFromEncryptedBlob(password: string): Map<string, any> {
   if (!fs.existsSync(vaultPath)) {
-    vault = new Map();
-    return;
+    return new Map();
   }
 
   const encryptedBlob = fs.readFileSync(vaultPath);
   const decrypted = decryptWithPassword(encryptedBlob, password);
   const parsed = JSON.parse(decrypted);
 
-  console.log(parsed);
-
-  vault = new Map(
+  return new Map(
     Object.entries(parsed).map(([k, v]) => {
       const entry = JSON.parse(v as string);
       if (entry.__type === "Buffer") {
@@ -73,12 +90,37 @@ export function loadAndUnlockVault(password: string) {
       return [k, entry.data];
     }),
   );
+}
+
+function tryRestoreVaultFromSession(): boolean {
+  try {
+    const password = readSessionPassword();
+    if (!password) return false;
+
+    const restoredVault = buildVaultFromEncryptedBlob(password);
+    vault = restoredVault;
+    currentPassword = password;
+    startGatewayListeners();
+    return true;
+  } catch {
+    clearSessionPassword();
+    return false;
+  }
+}
+
+export function loadAndUnlockVault(password: string) {
+  const unlockedVault = buildVaultFromEncryptedBlob(password);
+  vault = unlockedVault;
+  currentPassword = password;
+  persistSessionPassword(password);
 
   startGatewayListeners();
 }
 
 export function lockVault() {
   flushSave();
+
+  clearSessionPassword();
 
   if (!vault) return;
 
@@ -99,9 +141,14 @@ export function lockVault() {
 }
 
 export function vaultGet(key: string): any {
-  if (!vault) throw new Error("Vault locked");
+  if (!vault && !tryRestoreVaultFromSession()) {
+    throw new Error("Vault locked");
+  }
 
-  const val = vault.get(key);
+  const activeVault = vault;
+  if (!activeVault) throw new Error("Vault locked");
+
+  const val = activeVault.get(key);
   if (val === undefined) return null;
 
   if (Buffer.isBuffer(val)) return Buffer.from(val);
@@ -109,19 +156,29 @@ export function vaultGet(key: string): any {
 }
 
 export function vaultSet(key: string, value: any) {
-  if (!vault) throw new Error("Vault locked");
+  if (!vault && !tryRestoreVaultFromSession()) {
+    throw new Error("Vault locked");
+  }
 
-  vault.set(key, Buffer.isBuffer(value) ? Buffer.from(value) : value);
+  const activeVault = vault;
+  if (!activeVault) throw new Error("Vault locked");
+
+  activeVault.set(key, Buffer.isBuffer(value) ? Buffer.from(value) : value);
   scheduleSave();
 }
 
 export function vaultDelete(key: string) {
-  if (!vault) throw new Error("Vault locked");
+  if (!vault && !tryRestoreVaultFromSession()) {
+    throw new Error("Vault locked");
+  }
 
-  const val = vault.get(key);
+  const activeVault = vault;
+  if (!activeVault) throw new Error("Vault locked");
+
+  const val = activeVault.get(key);
   if (val) val.fill(0);
 
-  vault.delete(key);
+  activeVault.delete(key);
   scheduleSave();
 }
 
