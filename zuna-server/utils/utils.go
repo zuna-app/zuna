@@ -15,6 +15,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+var GatewayWorking = false
+
 func ValidateServerPassword(password string) bool {
 	if config.Config.Server.Password == "" {
 		return true
@@ -46,6 +48,10 @@ type NotificationRequest struct {
 }
 
 func SendNotificationToGateway(userId string, senderId string, senderIdentityKey string, cipherText string, iv string, authTag string) {
+	if !GatewayWorking {
+		return
+	}
+
 	body := NotificationRequest{
 		UserID:            userId,
 		SenderID:          senderId,
@@ -122,4 +128,5 @@ func ValidateGatewayConnection() {
 	}
 
 	log.Info().Msg("successfully validated connection to gateway")
+	GatewayWorking = true
 }

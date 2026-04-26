@@ -90,7 +90,7 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/hcl/v2 v2.18.1 // indirect
-	github.com/livekit/protocol v1.45.4
+	github.com/livekit/protocol v1.45.6
 	github.com/livekit/server-sdk-go/v2 v2.16.2
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.21 // indirect
