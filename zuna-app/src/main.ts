@@ -13,6 +13,7 @@ import started from "electron-squirrel-startup";
 import { registerIPC } from "./ipc";
 import { lockVault } from "./storage/safeVault";
 import { createWindowsBadgeIcon } from "./utils/badgeIcon";
+import { setBadgeCountLinux } from "./utils/badgeLinux";
 
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
@@ -128,6 +129,9 @@ if (gotTheLock) {
           console.warn("Failed to set Windows overlay icon:", error);
         }
       }
+      if (isLinux) {
+        setBadgeCountLinux(5);
+      }
     });
 
     const trayIcon = nativeImage
@@ -195,6 +199,10 @@ if (gotTheLock) {
   app.on("ready", createWindow);
 
   app.on("before-quit", () => {
+    if (isLinux) {
+      setBadgeCountLinux(0);
+    }
+
     forceQuit = true;
     lockVault();
   });
