@@ -17,6 +17,20 @@ import { createWindowsBadgeIcon } from "./utils/badgeIcon";
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
 
+const resolveIconPath = (...pathSegments: string[]) => {
+  const candidates = app.isPackaged
+    ? [
+      path.join(process.resourcesPath, ...pathSegments),
+      path.join(process.resourcesPath, "public", ...pathSegments),
+    ]
+    : [
+      path.join(app.getAppPath(), ...pathSegments),
+      path.join(app.getAppPath(), "public", ...pathSegments),
+    ];
+
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+};
+
 if (started) {
   app.quit();
 }
@@ -31,7 +45,7 @@ if (gotTheLock) {
   registerIPC();
 
   app.setAppUserModelId("chat.zuna.app");
-  app.dock?.setIcon(path.join(__dirname, "public/zuna.png"));
+  app.dock?.setIcon(resolveIconPath("zuna.png"));
 
   let tray: Tray | null = null;
   let forceQuit = false;
@@ -63,8 +77,9 @@ if (gotTheLock) {
 
   const createWindow = () => {
     const { width, height } = loadWindowState();
+    const appIconPath = resolveIconPath("zuna.png");
     const mainWindow = new BrowserWindow({
-      icon: path.join(__dirname, "public/zuna.png"),
+      icon: appIconPath,
       width,
       height,
       frame: false,
@@ -115,11 +130,8 @@ if (gotTheLock) {
       }
     });
 
-    const iconPath = app.isPackaged
-      ? path.join(process.resourcesPath, "/public/zuna.png")
-      : path.join(app.getAppPath(), "/public/zuna.png");
     const trayIcon = nativeImage
-      .createFromPath(iconPath)
+      .createFromPath(appIconPath)
       .resize({ width: 16, height: 16 });
     tray = new Tray(trayIcon);
     tray.setToolTip("Zuna");
