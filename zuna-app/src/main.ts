@@ -69,11 +69,15 @@ const createWindow = () => {
   });
 
   mainWindow.once("ready-to-show", async () => {
-    const badgeIcon = await createWindowsBadgeIcon(5);
-    mainWindow.setOverlayIcon(badgeIcon, "5 unread messages");
+    if (process.platform === "win32") {
+      try {
+        const badgeIcon = await createWindowsBadgeIcon(5);
+        mainWindow.setOverlayIcon(badgeIcon, "5 unread messages");
+      } catch (error) {
+        console.warn("Failed to set Windows overlay icon:", error);
+      }
+    }
   });
-
-  mainWindow.webContents.openDevTools();
 
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, "/public/zuna.png")
@@ -129,7 +133,7 @@ app.on("before-quit", () => {
   lockVault();
 });
 
-app.on("window-all-closed", () => {});
+app.on("window-all-closed", () => { });
 
 app.on("activate", () => {
   const mainWindow = BrowserWindow.getAllWindows()[0];

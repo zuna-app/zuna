@@ -1,4 +1,3 @@
-import sharp from "sharp";
 import { nativeImage } from "electron";
 
 export function createBadgeSVG(count: number) {
@@ -23,11 +22,9 @@ export function createBadgeSVG(count: number) {
 
 export async function createWindowsBadgeIcon(count: number) {
   const svg = createBadgeSVG(count);
+  const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 
-  const png = await sharp(Buffer.from(svg))
-    .resize(32, 32) // render high-res first
-    .png()
-    .toBuffer();
-
-  return nativeImage.createFromBuffer(png).resize({ width: 16, height: 16 });
+  return nativeImage
+    .createFromDataURL(dataUrl)
+    .resize({ width: 16, height: 16 });
 }
