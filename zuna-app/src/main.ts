@@ -12,8 +12,7 @@ import fs from "node:fs";
 import started from "electron-squirrel-startup";
 import { registerIPC } from "./ipc";
 import { lockVault } from "./storage/safeVault";
-import { createWindowsBadgeIcon } from "./utils/badgeIcon";
-import { setBadgeCountLinux } from "./utils/badgeLinux";
+import { setBadgeCount } from "./utils/badge";
 
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
@@ -121,17 +120,7 @@ if (gotTheLock) {
     });
 
     mainWindow.once("ready-to-show", async () => {
-      if (process.platform === "win32") {
-        try {
-          const badgeIcon = await createWindowsBadgeIcon(5);
-          mainWindow.setOverlayIcon(badgeIcon, "5 unread messages");
-        } catch (error) {
-          console.warn("Failed to set Windows overlay icon:", error);
-        }
-      }
-      if (isLinux) {
-        setBadgeCountLinux(5);
-      }
+      setBadgeCount(5);
     });
 
     const trayIcon = nativeImage
@@ -200,7 +189,7 @@ if (gotTheLock) {
 
   app.on("before-quit", () => {
     if (isLinux) {
-      setBadgeCountLinux(0);
+      setBadgeCount(0);
     }
 
     forceQuit = true;
