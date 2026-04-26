@@ -36,11 +36,37 @@ if (gotTheLock) {
   let tray: Tray | null = null;
   let forceQuit = false;
 
+  const windowStatePath = path.join(app.getPath("userData"), "window-state.json");
+
+  const loadWindowState = (): { width: number; height: number } => {
+    try {
+      const data = fs.readFileSync(windowStatePath, "utf-8");
+      const state = JSON.parse(data);
+      if (typeof state.width === "number" && typeof state.height === "number") {
+        return state;
+      }
+    } catch {
+      // ignore — file missing or corrupt
+    }
+    return { width: 1450, height: 1000 };
+  };
+
+  const saveWindowState = (win: BrowserWindow) => {
+    if (win.isMaximized() || win.isMinimized() || win.isFullScreen()) return;
+    const { width, height } = win.getBounds();
+    try {
+      fs.writeFileSync(windowStatePath, JSON.stringify({ width, height }), "utf-8");
+    } catch {
+      // ignore write errors
+    }
+  };
+
   const createWindow = () => {
+    const { width, height } = loadWindowState();
     const mainWindow = new BrowserWindow({
       icon: path.join(__dirname, "public/zuna.png"),
-      width: 1450,
-      height: 1000,
+      width,
+      height,
       frame: false,
       ...(!isMac ? { titleBarStyle: "hiddenInset", titleBarOverlay: false } : {}),
       transparent: isLinux,
@@ -68,7 +94,10 @@ if (gotTheLock) {
       }
     });
 
+    mainWindow.on("resize", () => saveWindowState(mainWindow));
+
     mainWindow.on("close", (e) => {
+      saveWindowState(mainWindow);
       if (!forceQuit) {
         e.preventDefault();
         mainWindow.hide();
