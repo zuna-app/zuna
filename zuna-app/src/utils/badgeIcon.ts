@@ -21,10 +21,17 @@ export function createBadgeSVG(count: number) {
 }
 
 export async function createWindowsBadgeIcon(count: number) {
-  const svg = createBadgeSVG(count);
-  const dataUrl = `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+  if (process.platform !== "win32") {
+    return null;
+  }
 
-  return nativeImage
-    .createFromDataURL(dataUrl)
-    .resize({ width: 16, height: 16 });
+  const svg = createBadgeSVG(count);
+
+  const { default: sharp } = await import("sharp");
+  const png = await sharp(Buffer.from(svg))
+    .resize(32, 32) // render high-res first
+    .png()
+    .toBuffer();
+
+  return nativeImage.createFromBuffer(png).resize({ width: 16, height: 16 });
 }
