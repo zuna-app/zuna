@@ -1,7 +1,7 @@
 {
   "name": "zuna-app",
   "productName": "zuna-app",
-  "desktopName": "zuna",
+  "desktopName": "zuna-app",
   "version": "0.1.1",
   "description": "Zuna is a fully self-hosted, end-to-end encrypted chat and voice service.",
   "main": ".vite/build/main.js",

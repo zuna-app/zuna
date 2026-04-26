@@ -14,7 +14,7 @@ export async function setBadgeCountLinux(count: number) {
         "/com/canonical/unity/launcherentry/0",
         "--signal",
         "com.canonical.Unity.LauncherEntry.Update",
-        "application://zuna.desktop",
+        "application://zuna-app.desktop",
         launcherEntry,
     ];
 
