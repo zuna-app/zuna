@@ -102,7 +102,11 @@ export function registerIPC() {
     const win = BrowserWindow.fromWebContents(event.sender);
 
     if (win) {
-      win.minimize();
+      if (process.platform === "linux") {
+        win.hide();
+      } else {
+        win.minimize();
+      }
     }
   });
 
