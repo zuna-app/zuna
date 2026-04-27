@@ -29,6 +29,25 @@ const config: ForgeConfig = {
         icon: "./public/zuna.png",
       },
     }),
+    {
+      name: "@electron-forge/maker-dmg",
+      config: {
+        format: "ULFO",
+      },
+    },
+    {
+      name: "@forkprince/electron-forge-maker-appimage",
+      platforms: ["linux"],
+      config: {
+        productName: "Zuna",
+        icons: [
+          {
+            file: "./public/zuna.png",
+            size: 256,
+          },
+        ],
+      },
+    },
   ],
   plugins: [
     new VitePlugin({
