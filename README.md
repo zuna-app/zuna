@@ -4,13 +4,25 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License: AGPL-3.0" /></a>
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android-lightgrey?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android-black?style=flat-square" alt="Platform" />
   <a href="https://github.com/zuna-app/zuna/actions/workflows/release.yml"><img src="https://github.com/zuna-app/zuna/actions/workflows/release.yml/badge.svg"/></a>
 </p>
 
 <br/>
 
 **Zuna** is a fully self-hosted, end-to-end encrypted chat and voice service. Run your own server, own your data, and communicate safely with others using a modern and powerful desktop and mobile client apps.
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <strong>Join the Zuna community on Discord</strong><br/>
+      Get updates, ask questions, share feedback, and help shape the project.<br/><br/>
+      <a href="https://discord.gg/WSk3MnpYNK">
+        <img src="https://img.shields.io/badge/Join%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join the Zuna Discord server" />
+      </a>
+    </td>
+  </tr>
+</table>
 
 > [!WARNING]
 > Zuna is currently in **early alpha**. Core functionality is constantly improving and breaking changes (including full database wipes!) are all but guaranteed. We expect we'll be able to move to a little bit more stable beta releases in a few months. Thank you for your patience and in the meantime - we're happy to accept any contributions that would help speed things up!
