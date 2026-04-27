@@ -12,7 +12,7 @@ import fs from "node:fs";
 import started from "electron-squirrel-startup";
 import { registerIPC } from "./ipc";
 import { lockVault } from "./storage/safeVault";
-import { setBadgeCount } from "./utils/badge";
+import { setUnreadMessagesBadge } from "./gateway/gatewayListener";
 
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
@@ -25,13 +25,13 @@ if (!isLinux) {
 const resolveIconPath = (...pathSegments: string[]) => {
   const candidates = app.isPackaged
     ? [
-        path.join(process.resourcesPath, ...pathSegments),
-        path.join(process.resourcesPath, "public", ...pathSegments),
-      ]
+      path.join(process.resourcesPath, ...pathSegments),
+      path.join(process.resourcesPath, "public", ...pathSegments),
+    ]
     : [
-        path.join(app.getAppPath(), ...pathSegments),
-        path.join(app.getAppPath(), "public", ...pathSegments),
-      ];
+      path.join(app.getAppPath(), ...pathSegments),
+      path.join(app.getAppPath(), "public", ...pathSegments),
+    ];
 
   return (
     candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
@@ -135,10 +135,6 @@ if (gotTheLock) {
       }
     });
 
-    mainWindow.once("ready-to-show", async () => {
-      setBadgeCount(5);
-    });
-
     const trayIcon = nativeImage
       .createFromPath(appIconPath)
       .resize({ width: 16, height: 16 });
@@ -205,14 +201,14 @@ if (gotTheLock) {
 
   app.on("before-quit", () => {
     if (isLinux) {
-      setBadgeCount(0);
+      setUnreadMessagesBadge(0);
     }
 
     forceQuit = true;
     lockVault();
   });
 
-  app.on("window-all-closed", () => {});
+  app.on("window-all-closed", () => { });
 
   app.on("activate", () => {
     const mainWindow = BrowserWindow.getAllWindows()[0];
@@ -226,5 +222,9 @@ if (gotTheLock) {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
+  });
+
+  app.on("browser-window-focus", () => {
+    setUnreadMessagesBadge(0);
   });
 }

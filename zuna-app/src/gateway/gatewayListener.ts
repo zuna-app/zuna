@@ -4,6 +4,7 @@ import { vaultGet } from "../storage/safeVault";
 import { computeSharedSecret, decrypt } from "../crypto/x25519";
 import type { Server } from "../types/serverTypes";
 import { verifySignature } from "@/crypto/ed25519";
+import { setBadgeCount } from "@/utils/badge";
 
 interface NotificationInfoPayload {
   server_id: string;
@@ -21,6 +22,12 @@ interface WsMessage {
 }
 
 const activeConnections = new Map<string, WebSocket>();
+export let unreadMessagesBadge = 0;
+
+export function setUnreadMessagesBadge(count: number): void {
+  unreadMessagesBadge = count;
+  setBadgeCount(unreadMessagesBadge);
+}
 
 export function startGatewayListeners(): void {
   stopGatewayListeners();
@@ -173,6 +180,7 @@ function handleNotification(payload: NotificationInfoPayload): void {
       }
     });
     n.show();
+    setUnreadMessagesBadge(unreadMessagesBadge + 1);
   } catch (e) {
     // ignore decrypt errors (e.g. wrong key, tampered message)
     console.error("Failed to handle notification:", e);
