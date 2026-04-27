@@ -17,6 +17,11 @@ import { setBadgeCount } from "./utils/badge";
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
 
+if (!isLinux) {
+  const { updateElectronApp } = require("update-electron-app");
+  updateElectronApp();
+}
+
 const resolveIconPath = (...pathSegments: string[]) => {
   const candidates = app.isPackaged
     ? [
