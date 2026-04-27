@@ -3,12 +3,10 @@ import { execFile } from "child_process";
 
 export async function setBadgeCount(count: number) {
   if (process.platform === "win32") {
-    const mainWindow = BrowserWindow.getAllWindows()[0]
+    const mainWindow = BrowserWindow.getAllWindows()[0];
     const badgeIcon = await createWindowsBadgeIcon(count);
     mainWindow.setOverlayIcon(badgeIcon, `${count} unread messages`);
-  }
-
-  else if (process.platform === "linux") {
+  } else if (process.platform === "linux") {
     const launcherEntry = `{'count-visible': <${count > 0}>, 'count': <${count}>}`;
     const args = [
       "emit",
@@ -21,14 +19,12 @@ export async function setBadgeCount(count: number) {
       launcherEntry,
     ];
 
-    execFile("gdbus", args, error => {
+    execFile("gdbus", args, (error) => {
       if (error) {
         console.warn("Failed to set Linux badge count:", error);
       }
     });
-  }
-
-  else if (process.platform === "darwin") {
+  } else if (process.platform === "darwin") {
     app.dock?.setBadge(count > 0 ? String(count) : "");
   }
 }
@@ -55,6 +51,10 @@ function createBadgeSVG(count: number) {
 
 async function createWindowsBadgeIcon(count: number) {
   if (process.platform !== "win32") {
+    return null;
+  }
+
+  if (!count) {
     return null;
   }
 
