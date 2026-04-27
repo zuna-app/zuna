@@ -10,6 +10,7 @@ import (
 	"zuna.chat/zuna-server/ent"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
 	"zuna.chat/zuna-server/utils"
 
@@ -26,33 +27,38 @@ type MessageRequest struct {
 	ShortAuthTag    string `json:"short_auth_tag"`
 	LocalId         int    `json:"local_id"`
 	AttachmentID    string `json:"attachment_id"`
+	ReplyTo         int64  `json:"reply_to"`
 }
 
 type MessageAckResponse struct {
-	LocalId                   int    `json:"local_id"`
-	Id                        int64  `json:"id"`
-	ChatId                    string `json:"chat_id"`
-	CreatedAt                 int64  `json:"created_at"`
-	AttachmentID              string `json:"attachment_id"`
-	AttachmentMetadata        string `json:"attachment_metadata"`
-	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
-	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
+	LocalId                   int                      `json:"local_id"`
+	Id                        int64                    `json:"id"`
+	ChatId                    string                   `json:"chat_id"`
+	CreatedAt                 int64                    `json:"created_at"`
+	AttachmentID              string                   `json:"attachment_id"`
+	AttachmentMetadata        string                   `json:"attachment_metadata"`
+	AttachmentMetadataIv      string                   `json:"attachment_metadata_iv"`
+	AttachmentMetadataAuthTag string                   `json:"attachment_metadata_auth_tag"`
+	IsReply                   bool                     `json:"is_reply"`
+	ReplyInfo                 data.MessageReplyInfoDTO `json:"reply_info"`
 }
 
 type MessageReceiveResponseMulticast struct {
-	Id                        int64  `json:"id"`
-	ChatId                    string `json:"chat_id"`
-	CreatedAt                 int64  `json:"created_at"`
-	SenderId                  string `json:"sender_id"`
-	CipherText                string `json:"cipher_text"`
-	Iv                        string `json:"iv"`
-	AuthTag                   string `json:"auth_tag"`
-	AttachmentID              string `json:"attachment_id"`
-	AttachmentMetadata        string `json:"attachment_metadata"`
-	AttachmentMetadataIv      string `json:"attachment_metadata_iv"`
-	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag"`
-	Modified                  bool   `json:"modified"`
-	Pinned                    bool   `json:"pinned"`
+	Id                        int64                    `json:"id"`
+	ChatId                    string                   `json:"chat_id"`
+	CreatedAt                 int64                    `json:"created_at"`
+	SenderId                  string                   `json:"sender_id"`
+	CipherText                string                   `json:"cipher_text"`
+	Iv                        string                   `json:"iv"`
+	AuthTag                   string                   `json:"auth_tag"`
+	AttachmentID              string                   `json:"attachment_id"`
+	AttachmentMetadata        string                   `json:"attachment_metadata"`
+	AttachmentMetadataIv      string                   `json:"attachment_metadata_iv"`
+	AttachmentMetadataAuthTag string                   `json:"attachment_metadata_auth_tag"`
+	Modified                  bool                     `json:"modified"`
+	Pinned                    bool                     `json:"pinned"`
+	IsReply                   bool                     `json:"is_reply"`
+	ReplyInfo                 data.MessageReplyInfoDTO `json:"reply_info"`
 }
 
 // Receive over: message
@@ -100,6 +106,37 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		return
 	}
 
+	replyInfo := data.MessageReplyInfoDTO{}
+	var replyToID *int64
+	isReply := req.ReplyTo != 0
+
+	if isReply {
+		replyMsg, err := db.EntClient.Message.Query().
+			WithAttachment().
+			Where(message.IDEQ(req.ReplyTo), message.HasChatWith(chat.IDEQ(req.ChatId))).
+			First(ctx)
+
+		if ent.IsNotFound(err) {
+			sendError(c, "bad_request", "reply message does not exist")
+			return
+		}
+
+		if err != nil {
+			log.Error().Err(err).Int64("replyTo", req.ReplyTo).Msg("failed to query reply message")
+			sendInternalServerError(c)
+			return
+		}
+
+		replyInfo = data.MessageReplyInfoDTO{
+			ID:            replyMsg.ID,
+			CipherText:    replyMsg.CipherText,
+			Iv:            replyMsg.Iv,
+			AuthTag:       replyMsg.AuthTag,
+			HasAttachment: replyMsg.Edges.Attachment != nil,
+		}
+		replyToID = &req.ReplyTo
+	}
+
 	m, err := db.EntClient.Message.
 		Create().
 		SetCipherText(req.CipherText).
@@ -107,6 +144,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		SetAuthTag(req.AuthTag).
 		SetUserID(userData.UserID).
 		SetChatID(req.ChatId).
+		SetNillableReplyToID(replyToID).
 		Save(ctx)
 
 	if err != nil {
@@ -160,6 +198,8 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		AttachmentMetadata:        attachmentMetadata,
 		AttachmentMetadataIv:      attachmentMetadataIv,
 		AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
+		IsReply:                   isReply,
+		ReplyInfo:                 replyInfo,
 	}})
 
 	for _, uu := range ch.Edges.Users {
@@ -195,6 +235,8 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 			AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
 			Modified:                  false,
 			Pinned:                    false,
+			IsReply:                   isReply,
+			ReplyInfo:                 replyInfo,
 		}})
 	}
 }
