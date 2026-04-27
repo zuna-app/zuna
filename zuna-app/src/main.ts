@@ -20,15 +20,17 @@ const isMac = process.platform === "darwin";
 const resolveIconPath = (...pathSegments: string[]) => {
   const candidates = app.isPackaged
     ? [
-      path.join(process.resourcesPath, ...pathSegments),
-      path.join(process.resourcesPath, "public", ...pathSegments),
-    ]
+        path.join(process.resourcesPath, ...pathSegments),
+        path.join(process.resourcesPath, "public", ...pathSegments),
+      ]
     : [
-      path.join(app.getAppPath(), ...pathSegments),
-      path.join(app.getAppPath(), "public", ...pathSegments),
-    ];
+        path.join(app.getAppPath(), ...pathSegments),
+        path.join(app.getAppPath(), "public", ...pathSegments),
+      ];
 
-  return candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0];
+  return (
+    candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
+  );
 };
 
 if (started) {
@@ -50,7 +52,10 @@ if (gotTheLock) {
   let tray: Tray | null = null;
   let forceQuit = false;
 
-  const windowStatePath = path.join(app.getPath("userData"), "window-state.json");
+  const windowStatePath = path.join(
+    app.getPath("userData"),
+    "window-state.json",
+  );
 
   const loadWindowState = (): { width: number; height: number } => {
     try {
@@ -69,7 +74,11 @@ if (gotTheLock) {
     if (win.isMaximized() || win.isMinimized() || win.isFullScreen()) return;
     const { width, height } = win.getBounds();
     try {
-      fs.writeFileSync(windowStatePath, JSON.stringify({ width, height }), "utf-8");
+      fs.writeFileSync(
+        windowStatePath,
+        JSON.stringify({ width, height }),
+        "utf-8",
+      );
     } catch {
       // ignore write errors
     }
@@ -83,7 +92,9 @@ if (gotTheLock) {
       width,
       height,
       frame: false,
-      ...(!isMac ? { titleBarStyle: "hiddenInset", titleBarOverlay: false } : {}),
+      ...(!isMac
+        ? { titleBarStyle: "hiddenInset", titleBarOverlay: false }
+        : {}),
       transparent: isLinux,
       hasShadow: !isLinux,
       webPreferences: {
@@ -196,7 +207,7 @@ if (gotTheLock) {
     lockVault();
   });
 
-  app.on("window-all-closed", () => { });
+  app.on("window-all-closed", () => {});
 
   app.on("activate", () => {
     const mainWindow = BrowserWindow.getAllWindows()[0];
