@@ -1,4 +1,4 @@
-name: Build and Release
+name: build
 
 on:
   push:
@@ -54,6 +54,7 @@ jobs:
             zuna-app/out/make/**/*.deb
             zuna-app/out/make/**/*.rpm
             zuna-app/out/make/**/*.zip
+            zuna-app/out/make/**/*.AppImage
 
   build-windows:
     name: Build (Windows)
@@ -113,3 +114,4 @@ jobs:
         with:
           files: |
             zuna-app/out/make/**/*.zip
+            zuna-app/out/make/**/*.dmg
