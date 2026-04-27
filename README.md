@@ -24,6 +24,7 @@
 - [Motivation](#motivation)
 - [Core Philosophy](#core-philosophy)
 - [Architecture](#architecture)
+- [Self-Hosting with Zuna Install](#self-hosting-with-zuna-install)
 - [Self-Hosting with Docker](#self-hosting-with-docker)
 - [Contributing](#contributing)
 - [License](#license)
@@ -87,6 +88,12 @@ For those who prefer a fully independent setup, it is possible to replace our ga
 
 > [!TIP]
 > Zuna is currently in **early alpha**. This means the iOS app or the iOS push notifications are not complete just yet. In the meantime, for just desktop notifications you can easily run your own gateway relay without an Apple developer account.
+
+## Self-Hosting with Zuna Install
+
+TBD.
+
+Zuna Install will be a 1-click solution to setup, configure and install Zuna server with all required dependencies on a fresh Linux server installation. For now, Docker is your next best option.
 
 ## Self-Hosting with Docker
 
