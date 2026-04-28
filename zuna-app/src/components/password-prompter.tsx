@@ -22,6 +22,14 @@ export function PasswordPrompter({
   const [pin, setPin] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const otpContainerRef = React.useRef<HTMLDivElement>(null);
+
+  const focusOtpInput = React.useCallback(() => {
+    const input = otpContainerRef.current?.querySelector("input");
+    if (input instanceof HTMLInputElement) {
+      input.focus();
+    }
+  }, []);
 
   async function attempt(value: string) {
     if (value.length < 4) return;
@@ -33,6 +41,7 @@ export function PasswordPrompter({
     } catch {
       setError("Incorrect PIN. Please try again.");
       setPin("");
+      requestAnimationFrame(focusOtpInput);
     } finally {
       setLoading(false);
     }
@@ -53,25 +62,27 @@ export function PasswordPrompter({
             <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           </div>
 
-          <InputOTP
-            maxLength={4}
-            pattern={REGEXP_ONLY_DIGITS}
-            value={pin}
-            onChange={(v) => {
-              setError(null);
-              setPin(v);
-            }}
-            onComplete={(v) => attempt(v)}
-            autoFocus
-            disabled={loading}
-          >
-            <InputOTPGroup>
-              <InputOTPSlot index={0} aria-invalid={!!error || undefined} />
-              <InputOTPSlot index={1} aria-invalid={!!error || undefined} />
-              <InputOTPSlot index={2} aria-invalid={!!error || undefined} />
-              <InputOTPSlot index={3} aria-invalid={!!error || undefined} />
-            </InputOTPGroup>
-          </InputOTP>
+          <div ref={otpContainerRef}>
+            <InputOTP
+              maxLength={4}
+              pattern={REGEXP_ONLY_DIGITS}
+              value={pin}
+              onChange={(v) => {
+                setError(null);
+                setPin(v);
+              }}
+              onComplete={(v) => attempt(v)}
+              autoFocus
+              disabled={loading}
+            >
+              <InputOTPGroup>
+                <InputOTPSlot index={0} aria-invalid={!!error || undefined} />
+                <InputOTPSlot index={1} aria-invalid={!!error || undefined} />
+                <InputOTPSlot index={2} aria-invalid={!!error || undefined} />
+                <InputOTPSlot index={3} aria-invalid={!!error || undefined} />
+              </InputOTPGroup>
+            </InputOTP>
+          </div>
 
           <div className="h-4">
             {error && <p className="text-xs text-destructive">{error}</p>}
