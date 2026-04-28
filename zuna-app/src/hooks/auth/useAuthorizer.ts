@@ -216,20 +216,14 @@ export function useAuthorizer(server: Server) {
         throw new Error("Invalid user list received from server");
       }
 
-      window.vault.get("users").then((data) => {
-        let usersMap: Record<string, { username: any; avatar: any }> = {};
-        if (data) {
-          try {
-            usersMap = JSON.parse(data);
-          } catch {
-            console.warn("Failed to parse users from vault, starting fresh");
-          }
-        }
+      window.cache.get("user-cache", "users").then((data) => {
+        let usersMap: Record<string, { username: any; avatar: any }> =
+          (data as Record<string, { username: any; avatar: any }>) ?? {};
         for (const user of users) {
           usersMap[user.id] = { username: user.username, avatar: user.avatar };
         }
-        window.vault.set("users", JSON.stringify(usersMap)).catch((err) => {
-          console.error("Failed to save users to vault", err);
+        window.cache.set("user-cache", "users", usersMap).catch((err) => {
+          console.error("Failed to save users to cache", err);
         });
       });
 

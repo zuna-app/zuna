@@ -12,6 +12,7 @@ import fs from "node:fs";
 import started from "electron-squirrel-startup";
 import { registerIPC } from "./ipc";
 import { lockVault } from "./storage/safeVault";
+import { windowStateCache } from "./storage/appCache";
 import { setUnreadMessagesBadge } from "./gateway/gatewayListener";
 import { showNotificationWindowHost } from "./notification/host";
 import { registerNotificationIPC } from "./notification/ipc";
@@ -60,40 +61,15 @@ if (gotTheLock) {
   let tray: Tray | null = null;
   let forceQuit = false;
 
-  const windowStatePath = path.join(
-    app.getPath("userData"),
-    "window-state.json",
-  );
-
-  const loadWindowState = (): { width: number; height: number } => {
-    try {
-      const data = fs.readFileSync(windowStatePath, "utf-8");
-      const state = JSON.parse(data);
-      if (typeof state.width === "number" && typeof state.height === "number") {
-        return state;
-      }
-    } catch {
-      // ignore — file missing or corrupt
-    }
-    return { width: 1450, height: 1000 };
-  };
-
   const saveWindowState = (win: BrowserWindow) => {
     if (win.isMaximized() || win.isMinimized() || win.isFullScreen()) return;
     const { width, height } = win.getBounds();
-    try {
-      fs.writeFileSync(
-        windowStatePath,
-        JSON.stringify({ width, height }),
-        "utf-8",
-      );
-    } catch {
-      // ignore write errors
-    }
+    windowStateCache.set("width", width);
+    windowStateCache.set("height", height);
   };
 
   const createWindow = () => {
-    const { width, height } = loadWindowState();
+    const { width, height } = windowStateCache.getAll();
     const appIconPath = resolveIconPath("zuna.png");
     const mainWindow = new BrowserWindow({
       icon: appIconPath,

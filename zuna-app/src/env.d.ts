@@ -92,4 +92,8 @@ interface Window {
   shell: {
     openExternal: (url: string) => Promise<void>;
   };
+  cache: {
+    get: (name: string, key: string) => Promise<unknown>;
+    set: (name: string, key: string, value: unknown) => Promise<void>;
+  };
 }

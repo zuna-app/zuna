@@ -24,6 +24,7 @@ import {
   vaultSet,
 } from "./storage/safeVault";
 import { decryptFile, encryptFile } from "./crypto/file";
+import { getCacheByName } from "./storage/appCache";
 import {
   startGatewayListeners,
   stopGatewayListeners,
@@ -166,4 +167,17 @@ export function registerIPC() {
     importVault(Buffer.from(base64Data, "base64"));
     return true;
   });
+
+  ipcMain.handle("cache:get", (_, name: string, key: string) => {
+    const cache = getCacheByName(name);
+    return cache ? cache.get(key) : null;
+  });
+
+  ipcMain.handle(
+    "cache:set",
+    (_, name: string, key: string, value: unknown) => {
+      const cache = getCacheByName(name);
+      if (cache) cache.set(key, value);
+    },
+  );
 }

@@ -76,6 +76,13 @@ contextBridge.exposeInMainWorld("vault", {
     ipcRenderer.invoke("vault:import", base64Data),
 });
 
+contextBridge.exposeInMainWorld("cache", {
+  get: (name: string, key: string) =>
+    ipcRenderer.invoke("cache:get", name, key),
+  set: (name: string, key: string, value: unknown) =>
+    ipcRenderer.invoke("cache:set", name, key, value),
+});
+
 contextBridge.exposeInMainWorld("notification", {
   resize: (height: number) => ipcRenderer.invoke("notification:resize", height),
   restore: () => ipcRenderer.invoke("notification:restore"),

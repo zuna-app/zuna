@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import { BrowserWindow, nativeImage, Notification } from "electron";
 import { vaultGet } from "../storage/safeVault";
+import { userCache } from "../storage/appCache";
 import { computeSharedSecret, decrypt } from "../crypto/x25519";
 import type { Server } from "../types/serverTypes";
 import { verifySignature } from "@/crypto/ed25519";
@@ -147,20 +148,7 @@ function handleNotification(payload: NotificationInfoPayload): void {
       return;
     }
 
-    const usersRaw = vaultGet("users") as
-      | string
-      | Record<string, { username: string; avatar: string }>
-      | null;
-    let usersList: Record<string, { username: string; avatar: string }> = {};
-    if (usersRaw) {
-      try {
-        usersList =
-          typeof usersRaw === "string" ? JSON.parse(usersRaw) : usersRaw;
-      } catch {
-        // ignore malformed users cache
-      }
-    }
-    const senderInfo = usersList[payload.sender_id];
+    const senderInfo = userCache.get("users")[payload.sender_id];
 
     if (process.platform === "win32") {
       sendNotification({
