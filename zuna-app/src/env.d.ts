@@ -2,6 +2,8 @@
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string;
 declare const MAIN_WINDOW_VITE_NAME: string;
+declare const NOTIFICATION_HOST_WINDOW_VITE_DEV_SERVER_URL: string;
+declare const NOTIFICATION_HOST_WINDOW_VITE_NAME: string;
 
 interface EncryptedMessage {
   ciphertext: string;
@@ -18,6 +20,17 @@ interface OgData {
 }
 
 interface Window {
+  notification: {
+    resize: (height: number) => Promise<void>;
+    restore: () => Promise<void>;
+    onShow: (
+      callback: (payload: {
+        senderName: string;
+        content: string;
+        avatarUrl?: string;
+      }) => void,
+    ) => () => void;
+  };
   security: {
     encryptFile: (
       data: Uint8Array,

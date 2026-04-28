@@ -13,9 +13,12 @@ import started from "electron-squirrel-startup";
 import { registerIPC } from "./ipc";
 import { lockVault } from "./storage/safeVault";
 import { setUnreadMessagesBadge } from "./gateway/gatewayListener";
+import { showNotificationWindowHost } from "./notification/host";
+import { registerNotificationIPC } from "./notification/ipc";
 
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
+const isWindows = process.platform === "win32";
 
 if (!isLinux) {
   const { updateElectronApp } = require("update-electron-app");
@@ -117,6 +120,17 @@ if (gotTheLock) {
       );
     }
 
+    // Vite's dep-optimizer can invalidate the cache mid-load in dev; reload automatically.
+    mainWindow.webContents.on("did-fail-load", (_, errorCode) => {
+      if (MAIN_WINDOW_VITE_DEV_SERVER_URL && errorCode === -3) {
+        // ERR_ABORTED (-3) is the code for 504 Outdated Optimize Dep redirects
+        mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+      }
+    });
+
+    // open dev tools
+    mainWindow.webContents.openDevTools({ mode: "detach" });
+
     mainWindow.webContents.on("did-finish-load", () => {
       if (isLinux) {
         mainWindow.webContents.insertCSS(`
@@ -173,6 +187,11 @@ if (gotTheLock) {
         mainWindow.focus();
       }
     });
+
+    if (isWindows) {
+      registerNotificationIPC();
+      showNotificationWindowHost({ mainWindow });
+    }
   };
 
   app.on(

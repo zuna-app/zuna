@@ -5,6 +5,8 @@ import { computeSharedSecret, decrypt } from "../crypto/x25519";
 import type { Server } from "../types/serverTypes";
 import { verifySignature } from "@/crypto/ed25519";
 import { setBadgeCount } from "@/utils/badge";
+import { sendNotification } from "../notification/notification";
+import { getNotificationWindowHost } from "../notification/host";
 
 interface NotificationInfoPayload {
   server_id: string;
@@ -160,26 +162,36 @@ function handleNotification(payload: NotificationInfoPayload): void {
     }
     const senderInfo = usersList[payload.sender_id];
 
-    const n = new Notification({
-      title: senderInfo?.username || "New Message",
-      body: plaintext,
-      icon: senderInfo?.avatar
-        ? nativeImage.createFromDataURL(senderInfo.avatar)
-        : undefined,
-    });
+    if (process.platform === "win32") {
+      sendNotification({
+        senderName: senderInfo?.username || "New Message",
+        content: plaintext,
+        avatarUrl: senderInfo?.avatar || undefined,
+      });
+    } else {
+      const n = new Notification({
+        title: senderInfo?.username || "New Message",
+        body: plaintext,
+        icon: senderInfo?.avatar
+          ? nativeImage.createFromDataURL(senderInfo.avatar)
+          : undefined,
+      });
 
-    n.on("click", () => {
-      // focus the app window
-      const win = BrowserWindow.getAllWindows()[0];
-      if (win) {
-        if (win.isMinimized()) win.restore();
-        win.setAlwaysOnTop(true);
-        win.show();
-        win.focus();
-        win.setAlwaysOnTop(false);
-      }
-    });
-    n.show();
+      n.on("click", () => {
+        const notifWin = getNotificationWindowHost();
+        const win = BrowserWindow.getAllWindows().find(
+          (w) => w !== notifWin && !w.isDestroyed(),
+        );
+        if (win) {
+          if (win.isMinimized()) win.restore();
+          win.setAlwaysOnTop(true);
+          win.show();
+          win.focus();
+          win.setAlwaysOnTop(false);
+        }
+      });
+      n.show();
+    }
     setUnreadMessagesBadge(unreadMessagesBadge + 1);
   } catch (e) {
     // ignore decrypt errors (e.g. wrong key, tampered message)

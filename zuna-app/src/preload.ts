@@ -75,3 +75,22 @@ contextBridge.exposeInMainWorld("vault", {
   import: (base64Data: string) =>
     ipcRenderer.invoke("vault:import", base64Data),
 });
+
+contextBridge.exposeInMainWorld("notification", {
+  resize: (height: number) => ipcRenderer.invoke("notification:resize", height),
+  restore: () => ipcRenderer.invoke("notification:restore"),
+  onShow: (
+    callback: (payload: {
+      senderName: string;
+      content: string;
+      avatarUrl?: string;
+    }) => void,
+  ) => {
+    const handler = (_: Electron.IpcRendererEvent, payload: unknown) =>
+      callback(
+        payload as { senderName: string; content: string; avatarUrl?: string },
+      );
+    ipcRenderer.on("notification:show", handler);
+    return () => ipcRenderer.off("notification:show", handler);
+  },
+});
