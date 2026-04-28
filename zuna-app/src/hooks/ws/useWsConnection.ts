@@ -74,7 +74,6 @@ export function useWsConnection(server: Server) {
     }
 
     const { type, payload } = envelope;
-
     // System messages are handled inline so they always fire exactly once
     // (guaranteed by the WeakSet above) regardless of how many hook instances
     // are mounted for the same server.

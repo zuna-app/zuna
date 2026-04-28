@@ -153,7 +153,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 	}
 
 	for _, ud := range data.GetUserDataSnapshot() {
-		if ud.ConnectionID != "" {
+		if ud.ConnectionID == "" {
 			continue
 		}
 

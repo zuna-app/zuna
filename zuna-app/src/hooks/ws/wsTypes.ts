@@ -23,6 +23,7 @@ export const WS_MSG = {
   WRITE: "write",
   WRITE_RECEIVE: "write_receive",
   ERROR: "error",
+  USER_JOINED: "user_joined",
 } as const;
 
 export type WsMsgType = (typeof WS_MSG)[keyof typeof WS_MSG];

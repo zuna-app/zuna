@@ -1,9 +1,16 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthorizedServerFetch } from "@/hooks/server/useServerFetch";
+import { useWsHandler } from "@/hooks/ws/useWsHandler";
+import { WS_MSG } from "@/hooks/ws/wsTypes";
 import { ChatMember, Server } from "@/types/serverTypes";
 
 export function useChatList(server: Server) {
   const { authorizedFetch } = useAuthorizedServerFetch(server);
+  const queryClient = useQueryClient();
+
+  useWsHandler(server, WS_MSG.USER_JOINED, () => {
+    queryClient.invalidateQueries({ queryKey: ["chats", server.id] });
+  });
 
   return useQuery<ChatMember[]>({
     queryKey: ["chats", server.id],
