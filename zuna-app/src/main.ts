@@ -208,7 +208,7 @@ if (gotTheLock) {
     lockVault();
   });
 
-  app.on("window-all-closed", () => {});
+  app.on("window-all-closed", () => { });
 
   app.on("activate", () => {
     const mainWindow = BrowserWindow.getAllWindows()[0];

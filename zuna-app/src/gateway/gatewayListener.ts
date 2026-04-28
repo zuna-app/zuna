@@ -166,10 +166,7 @@ function handleNotification(payload: NotificationInfoPayload): void {
       });
 
       n.on("click", () => {
-        const notifWin = getNotificationWindowHost();
-        const win = BrowserWindow.getAllWindows().find(
-          (w) => w !== notifWin && !w.isDestroyed(),
-        );
+        const win = BrowserWindow.getAllWindows()[0];
         if (win) {
           if (win.isMinimized()) win.restore();
           win.setAlwaysOnTop(true);
