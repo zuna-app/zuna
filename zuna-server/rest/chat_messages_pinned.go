@@ -75,9 +75,19 @@ func ChatPinMessagesEndpoint(c *echo.Context) error {
 		}
 
 		isReply := m.Edges.ReplyTo != nil
-		messageReplyTo := m.Edges.ReplyTo
-		attachmentExists, err := messageReplyTo.QueryAttachment().Exist(ctx)
-		replyHasAttachment := err == nil && attachmentExists
+		replyInfo := data.MessageReplyInfoDTO{}
+		if isReply {
+			messageReplyTo := m.Edges.ReplyTo
+			attachmentExists, err := messageReplyTo.QueryAttachment().Exist(ctx)
+			replyHasAttachment := err == nil && attachmentExists
+			replyInfo = data.MessageReplyInfoDTO{
+				ID:            messageReplyTo.ID,
+				CipherText:    messageReplyTo.CipherText,
+				Iv:            messageReplyTo.Iv,
+				AuthTag:       messageReplyTo.AuthTag,
+				HasAttachment: replyHasAttachment,
+			}
+		}
 
 		dtos = append(dtos, data.MessageDTO{
 			ID:                        m.ID,
@@ -94,13 +104,7 @@ func ChatPinMessagesEndpoint(c *echo.Context) error {
 			Modified:                  m.Modified,
 			Pinned:                    m.Pinned,
 			IsReply:                   isReply,
-			ReplyInfo: data.MessageReplyInfoDTO{
-				ID:            messageReplyTo.ID,
-				CipherText:    messageReplyTo.CipherText,
-				Iv:            messageReplyTo.Iv,
-				AuthTag:       messageReplyTo.AuthTag,
-				HasAttachment: replyHasAttachment,
-			},
+			ReplyInfo:                 replyInfo,
 		})
 	}
 
