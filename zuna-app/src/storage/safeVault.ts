@@ -191,3 +191,17 @@ export function importVault(data: Buffer): void {
 export function isFirstTimeSetup(): boolean {
   return !fs.existsSync(vaultPath);
 }
+
+export function verifyPin(password: string): boolean {
+  try {
+    buildVaultFromEncryptedBlob(password);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getVaultBytes(): Buffer | null {
+  if (!fs.existsSync(vaultPath)) return null;
+  return fs.readFileSync(vaultPath);
+}

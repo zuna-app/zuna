@@ -6,6 +6,7 @@ import { FirstTimeSetup } from "@/components/setup/first-time-setup";
 import { PasswordPrompter } from "@/components/password-prompter";
 import { ServerSidebar } from "@/components/server-sidebar";
 import { JoinServerDialog } from "@/components/join-server-dialog";
+import { ExportVaultDialog } from "@/components/export-vault-dialog";
 import { useServerConnector } from "@/hooks/server/useServerConnector";
 import { usePing } from "@/hooks/server/usePing";
 import { Server } from "@/types/serverTypes";
@@ -25,9 +26,11 @@ import { AppServer } from "./AppServer";
 function TitleBarWithServer({
   server,
   onSettings,
+  onExportVault,
 }: {
   server: Server;
   onSettings?: () => void;
+  onExportVault?: () => void;
 }) {
   const { latency } = usePing(server);
   return (
@@ -35,12 +38,14 @@ function TitleBarWithServer({
       serverAddress={server.address}
       ping={latency}
       onSettings={onSettings}
+      onExportVault={onExportVault}
     />
   );
 }
 
 function MainApp() {
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const { selectedServer, serverList } = useServerConnector();
 
   useEffect(() => {
@@ -55,9 +60,13 @@ function MainApp() {
         <TitleBarWithServer
           server={selectedServer}
           onSettings={() => console.log("settings")}
+          onExportVault={() => setExportDialogOpen(true)}
         />
       ) : (
-        <TitleBar onSettings={() => console.log("settings")} />
+        <TitleBar
+          onSettings={() => console.log("settings")}
+          onExportVault={() => setExportDialogOpen(true)}
+        />
       )}
       <div className="flex flex-1 min-h-0">
         <ServerSidebar onAddServer={() => setJoinDialogOpen(true)} />
@@ -91,6 +100,10 @@ function MainApp() {
       <JoinServerDialog
         open={joinDialogOpen}
         onOpenChange={setJoinDialogOpen}
+      />
+      <ExportVaultDialog
+        open={exportDialogOpen}
+        onOpenChange={setExportDialogOpen}
       />
     </div>
   );

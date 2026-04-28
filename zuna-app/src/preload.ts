@@ -74,6 +74,9 @@ contextBridge.exposeInMainWorld("vault", {
   isFirstTimeSetup: () => ipcRenderer.invoke("vault:isFirstTimeSetup"),
   import: (base64Data: string) =>
     ipcRenderer.invoke("vault:import", base64Data),
+  startExportServer: (pin: string) =>
+    ipcRenderer.invoke("vault:startExportServer", pin),
+  stopExportServer: () => ipcRenderer.invoke("vault:stopExportServer"),
 });
 
 contextBridge.exposeInMainWorld("cache", {

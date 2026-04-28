@@ -85,6 +85,8 @@ interface Window {
     unlock: (password: string) => Promise<void>;
     isFirstTimeSetup: () => Promise<boolean>;
     import: (base64Data: string) => Promise<boolean>;
+    startExportServer: (pin: string) => Promise<{ url: string } | null>;
+    stopExportServer: () => Promise<void>;
   };
   og: {
     fetch: (url: string) => Promise<OgData | null>;

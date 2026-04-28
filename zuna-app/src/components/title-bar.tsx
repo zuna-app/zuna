@@ -1,9 +1,10 @@
-import { Minus, Settings, Square, Wifi, WifiOff, X } from "lucide-react";
+import { Download, Minus, Settings, Square, Wifi, WifiOff, X } from "lucide-react";
 
 interface TitleBarProps {
   serverAddress?: string;
   ping?: number | null;
   onSettings?: () => void;
+  onExportVault?: () => void;
 }
 
 function pingColor(ping: number | null | undefined) {
@@ -18,11 +19,18 @@ function pingLabel(ping: number | null | undefined) {
   return `${ping} ms`;
 }
 
-export function TitleBar({ serverAddress, ping, onSettings }: TitleBarProps) {
+export function TitleBar({ serverAddress, ping, onSettings, onExportVault }: TitleBarProps) {
   const isConnected = ping != null;
 
   const windowControls = (
     <div className="app-no-drag flex items-center gap-1 px-2">
+      <button
+        onClick={onExportVault}
+        aria-label="Export vault"
+        className="flex size-7 items-center justify-center rounded-md text-foreground/40 transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Download className="size-3" />
+      </button>
       <button
         onClick={() => window.system.minimize()}
         aria-label="Minimize"

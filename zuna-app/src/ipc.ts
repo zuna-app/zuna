@@ -1,4 +1,7 @@
 import { BrowserWindow, ipcMain } from "electron";
+import http from "http";
+import os from "os";
+import crypto from "crypto";
 import { toBase64, fromBase64 } from "./crypto/base64";
 import { registerOgIPC } from "./og-ipc";
 import { registerShellIPC } from "./shell-ipc";
@@ -15,6 +18,7 @@ import {
 } from "./crypto/ed25519";
 import { decryptWithPassword, encryptWithPassword } from "./crypto/scrypt";
 import {
+  getVaultBytes,
   importVault,
   isFirstTimeSetup,
   loadAndUnlockVault,
@@ -22,6 +26,7 @@ import {
   vaultDelete,
   vaultGet,
   vaultSet,
+  verifyPin,
 } from "./storage/safeVault";
 import { decryptFile, encryptFile } from "./crypto/file";
 import { getCacheByName } from "./storage/appCache";
@@ -29,6 +34,20 @@ import {
   startGatewayListeners,
   stopGatewayListeners,
 } from "./gateway/gatewayListener";
+
+let exportServer: http.Server | null = null;
+
+function getLocalIp(): string {
+  const nets = os.networkInterfaces();
+  for (const name of Object.keys(nets)) {
+    for (const net of (nets[name] ?? [])) {
+      if (net.family === "IPv4" && !net.internal) {
+        return net.address;
+      }
+    }
+  }
+  return "127.0.0.1";
+}
 
 export function registerIPC() {
   registerOgIPC();
@@ -180,4 +199,61 @@ export function registerIPC() {
       if (cache) cache.set(key, value);
     },
   );
+
+  ipcMain.handle("vault:startExportServer", (_, pin: string) => {
+    if (!verifyPin(pin)) return null;
+
+    const vaultBytes = getVaultBytes();
+    if (!vaultBytes) return null;
+
+    if (exportServer) {
+      exportServer.close();
+      exportServer = null;
+    }
+
+    const token = String(crypto.randomInt(100000, 999999));
+    const localIp = getLocalIp();
+
+    return new Promise<{ url: string } | null>((resolve) => {
+      const server = http.createServer((req, res) => {
+        const url = new URL(req.url!, `http://${req.headers.host}`);
+        if (
+          url.pathname === "/download" &&
+          url.searchParams.get("token") === token
+        ) {
+          res.setHeader("Content-Type", "application/octet-stream");
+          res.setHeader(
+            "Content-Disposition",
+            'attachment; filename="vault.bin"',
+          );
+          res.end(vaultBytes);
+        } else {
+          res.writeHead(404);
+          res.end();
+        }
+      });
+
+      exportServer = server;
+
+      server.listen(25512, "0.0.0.0", () => {
+        const addr = server.address();
+        if (!addr || typeof addr === "string") {
+          resolve(null);
+          return;
+        }
+        const url = `http://${localIp}:${addr.port}/download?token=${token}`;
+        resolve({ url });
+      });
+
+      server.on("error", () => resolve(null));
+    });
+  });
+
+  ipcMain.handle("vault:stopExportServer", () => {
+    if (exportServer) {
+      exportServer.close();
+      exportServer = null;
+    }
+    return true;
+  });
 }
