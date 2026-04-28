@@ -87,16 +87,12 @@ func main() {
 		return c.String(http.StatusOK, "Hello, World!")
 	})
 
-	// Auth endpoints: 10 requests/minute per IP, burst of 5.
-	// These trigger expensive crypto (ed25519) or write new DB rows, so they
-	// are kept deliberately tight.
 	authLimiter := rest.NewRateLimiter(
-		rate.Every(6*time.Second), // 10 req/min
-		5,
+		rate.Every(2*time.Second), // 30 req/min
+		15,
 		10*time.Minute,
 	)
 
-	// General API endpoints: 120 requests/minute per IP, burst of 30.
 	apiLimiter := rest.NewRateLimiter(
 		rate.Every(500*time.Millisecond), // 120 req/min
 		30,
@@ -106,6 +102,7 @@ func main() {
 	api := e.Group("/api")
 
 	auth := api.Group("/auth", authLimiter.Middleware())
+	auth.GET("/info", rest.AuthInfoEndpoint)
 	auth.POST("/handshake", rest.AuthHandshakeEndpoint)
 	auth.POST("/login", rest.AuthLoginEndpoint)
 	auth.POST("/join", rest.AuthJoinEndpoint)
