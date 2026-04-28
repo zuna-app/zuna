@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -80,7 +78,7 @@ func main() {
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete},
 	}))
-	e.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
+	//e.Logger = slog.New(slog.NewJSONHandler(io.Discard, nil))
 	e.Binder = &rest.StrictBinder{}
 
 	e.GET("/", func(c *echo.Context) error {
