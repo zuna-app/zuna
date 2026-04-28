@@ -1,7 +1,8 @@
 import { BrowserWindow, ipcMain } from "electron";
-import http from "http";
+import https from "https";
 import os from "os";
 import crypto from "crypto";
+import forge from "node-forge";
 import { toBase64, fromBase64 } from "./crypto/base64";
 import { registerOgIPC } from "./og-ipc";
 import { registerShellIPC } from "./shell-ipc";
@@ -35,7 +36,58 @@ import {
   stopGatewayListeners,
 } from "./gateway/gatewayListener";
 
-let exportServer: http.Server | null = null;
+let exportServer: https.Server | null = null;
+
+function isIPv4(value: string): boolean {
+  return /^\d{1,3}(?:\.\d{1,3}){3}$/.test(value);
+}
+
+function generateEphemeralTlsCert(pcIp: string): { key: string; cert: string } {
+  const keys = forge.pki.rsa.generateKeyPair(2048);
+  const cert = forge.pki.createCertificate();
+
+  cert.publicKey = keys.publicKey;
+  cert.serialNumber = crypto.randomBytes(16).toString("hex");
+
+  const now = Date.now();
+  cert.validity.notBefore = new Date(now - 60_000);
+  cert.validity.notAfter = new Date(now + 24 * 60 * 60 * 1000);
+
+  const subject = [
+    { name: "commonName", value: "zuna-local-export" },
+    { name: "organizationName", value: "Zuna" },
+  ];
+
+  cert.setSubject(subject);
+  cert.setIssuer(subject);
+
+  const altNames: Array<{ type: number; value?: string; ip?: string }> = [
+    { type: 2, value: "localhost" },
+    { type: 7, ip: "127.0.0.1" },
+  ];
+
+  if (
+    pcIp &&
+    isIPv4(pcIp) &&
+    !altNames.some((name) => name.type === 7 && name.ip === pcIp)
+  ) {
+    altNames.push({ type: 7, ip: pcIp });
+  }
+
+  cert.setExtensions([
+    { name: "basicConstraints", cA: false },
+    { name: "keyUsage", digitalSignature: true, keyEncipherment: true },
+    { name: "extKeyUsage", serverAuth: true },
+    { name: "subjectAltName", altNames },
+  ]);
+
+  cert.sign(keys.privateKey, forge.md.sha256.create());
+
+  return {
+    key: forge.pki.privateKeyToPem(keys.privateKey),
+    cert: forge.pki.certificateToPem(cert),
+  };
+}
 
 function getLocalIp(): string {
   const nets = os.networkInterfaces();
@@ -213,10 +265,17 @@ export function registerIPC() {
 
     const token = String(crypto.randomInt(100000, 999999));
     const localIp = getLocalIp();
+    const tlsCredentials = generateEphemeralTlsCert(localIp);
 
     return new Promise<{ url: string } | null>((resolve) => {
-      const server = http.createServer((req, res) => {
-        const url = new URL(req.url!, `http://${req.headers.host}`);
+      const server = https.createServer(tlsCredentials, (req, res) => {
+        if (!(req.socket as import("tls").TLSSocket).encrypted) {
+          res.writeHead(400);
+          res.end("TLS required");
+          return;
+        }
+
+        const url = new URL(req.url ?? "/", "https://localhost");
         if (
           url.pathname === "/download" &&
           url.searchParams.get("token") === token
@@ -241,7 +300,7 @@ export function registerIPC() {
           resolve(null);
           return;
         }
-        const url = `http://${localIp}:${addr.port}/download?token=${token}`;
+        const url = `https://${localIp}:${addr.port}/download?token=${token}`;
         resolve({ url });
       });
 
