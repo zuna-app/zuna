@@ -101,8 +101,8 @@ var Config = Configuration{
 	Server: ServerConfig{
 		BindAddress:      "0.0.0.0",
 		Port:             25510,
-		Password:         "test1234",
-		Name:             "Example Zuna server",
+		Password:         "",
+		Name:             "Zuna server",
 		Logo:             "logo.png",
 		StorageDirectory: "storage_data",
 		ServerID:         cuid2.Generate(),
@@ -119,8 +119,8 @@ var Config = Configuration{
 		EmotesSet: "global",
 	},
 	Gateway: GatewayConfig{
-		Address:         "gateway.zuna.chat:25511",
-		Password:        "",
+		Address:         "gateway.zuna.chat",
+		Password:        "0cTriEzbSi34XYc62zXMVCPEd9qkDSXJ",
 		AllowSelfSigned: false,
 	},
 	LiveKit: LiveKitConfig{
