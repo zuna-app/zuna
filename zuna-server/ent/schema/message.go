@@ -42,8 +42,7 @@ func (Message) Edges() []ent.Edge {
 			Required(),
 
 		edge.From("reply", Message.Type).
-			Ref("reply_to").
-			Unique(),
+			Ref("reply_to"),
 
 		edge.To("reply_to", Message.Type).Unique(),
 		edge.To("attachment", Attachment.Type).Unique(),

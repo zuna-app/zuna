@@ -7,14 +7,13 @@ import (
 	"errors"
 	"fmt"
 
+	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent/dialect/sql"
-	"entgo.io/ent/dialect/sql/sqlgraph"
-	"entgo.io/ent/schema/field"
 )
 
 // ChatUpdate is the builder for updating Chat entities.

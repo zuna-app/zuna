@@ -9,9 +9,8 @@ import (
 	// required by schema hooks.
 	_ "zuna.chat/zuna-server/ent/runtime"
 
-	"zuna.chat/zuna-server/ent/migrate"
-
 	"entgo.io/ent/dialect/sql/schema"
+	"zuna.chat/zuna-server/ent/migrate"
 )
 
 type (

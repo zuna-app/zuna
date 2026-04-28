@@ -5,12 +5,11 @@ package ent
 import (
 	"context"
 
-	"zuna.chat/zuna-server/ent/attachment"
-	"zuna.chat/zuna-server/ent/predicate"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/predicate"
 )
 
 // AttachmentDelete is the builder for deleting a Attachment entity.

@@ -7,10 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"zuna.chat/zuna-server/ent/user"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"zuna.chat/zuna-server/ent/user"
 )
 
 // User is the model entity for the User schema.

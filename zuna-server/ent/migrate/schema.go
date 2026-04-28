@@ -58,7 +58,7 @@ var (
 		{Name: "pinned", Type: field.TypeBool, Default: false},
 		{Name: "modified", Type: field.TypeBool, Default: false},
 		{Name: "chat_messages", Type: field.TypeString},
-		{Name: "message_reply_to", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "message_reply_to", Type: field.TypeInt64, Nullable: true},
 		{Name: "user_messages", Type: field.TypeString},
 	}
 	// MessagesTable holds the schema information for the "messages" table.

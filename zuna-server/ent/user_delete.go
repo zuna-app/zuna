@@ -5,12 +5,11 @@ package ent
 import (
 	"context"
 
-	"zuna.chat/zuna-server/ent/predicate"
-	"zuna.chat/zuna-server/ent/user"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"zuna.chat/zuna-server/ent/predicate"
+	"zuna.chat/zuna-server/ent/user"
 )
 
 // UserDelete is the builder for deleting a User entity.

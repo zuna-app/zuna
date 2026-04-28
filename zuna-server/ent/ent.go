@@ -9,14 +9,13 @@ import (
 	"reflect"
 	"sync"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
-	"entgo.io/ent/dialect/sql/sqlgraph"
 )
 
 // ent aliases to avoid import conflicts in user's code.

@@ -59,7 +59,9 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
-	messages, err := db.EntClient.Message.Query().WithAttachment().WithReplyTo().
+	messages, err := db.EntClient.Message.Query().WithAttachment().WithReplyTo(func(q *ent.MessageQuery) {
+		q.WithAttachment()
+	}).
 		Where(message.HasChatWith(chat.IDEQ(chatId)), message.IDLT(cursorInt)).
 		Order(ent.Desc(message.FieldID)).
 		WithUser().
@@ -99,8 +101,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 		replyInfo := data.MessageReplyInfoDTO{}
 		if isReply {
 			messageReplyTo := m.Edges.ReplyTo
-			attachmentExists, err := messageReplyTo.QueryAttachment().Exist(ctx)
-			replyHasAttachment := err == nil && attachmentExists
+			replyHasAttachment := messageReplyTo.Edges.Attachment != nil
 			replyInfo = data.MessageReplyInfoDTO{
 				ID:            messageReplyTo.ID,
 				CipherText:    messageReplyTo.CipherText,

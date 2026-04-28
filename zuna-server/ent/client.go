@@ -11,15 +11,14 @@ import (
 
 	"zuna.chat/zuna-server/ent/migrate"
 
-	"zuna.chat/zuna-server/ent/attachment"
-	"zuna.chat/zuna-server/ent/chat"
-	"zuna.chat/zuna-server/ent/message"
-	"zuna.chat/zuna-server/ent/user"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/ent/user"
 )
 
 // Client is the client that holds all ent builders.
@@ -706,7 +705,7 @@ func (c *MessageClient) QueryReply(_m *Message) *MessageQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(message.Table, message.FieldID, id),
 			sqlgraph.To(message.Table, message.FieldID),
-			sqlgraph.Edge(sqlgraph.O2O, true, message.ReplyTable, message.ReplyColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, message.ReplyTable, message.ReplyColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -722,7 +721,7 @@ func (c *MessageClient) QueryReplyTo(_m *Message) *MessageQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(message.Table, message.FieldID, id),
 			sqlgraph.To(message.Table, message.FieldID),
-			sqlgraph.Edge(sqlgraph.O2O, false, message.ReplyToTable, message.ReplyToColumn),
+			sqlgraph.Edge(sqlgraph.M2O, false, message.ReplyToTable, message.ReplyToColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil

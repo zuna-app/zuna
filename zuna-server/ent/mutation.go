@@ -9,14 +9,13 @@ import (
 	"sync"
 	"time"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
 )
 
 const (
@@ -1064,7 +1063,8 @@ type MessageMutation struct {
 	cleareduser       bool
 	chat              *string
 	clearedchat       bool
-	reply             *int64
+	reply             map[int64]struct{}
+	removedreply      map[int64]struct{}
 	clearedreply      bool
 	reply_to          *int64
 	clearedreply_to   bool
@@ -1522,9 +1522,14 @@ func (m *MessageMutation) ResetChat() {
 	m.clearedchat = false
 }
 
-// SetReplyID sets the "reply" edge to the Message entity by id.
-func (m *MessageMutation) SetReplyID(id int64) {
-	m.reply = &id
+// AddReplyIDs adds the "reply" edge to the Message entity by ids.
+func (m *MessageMutation) AddReplyIDs(ids ...int64) {
+	if m.reply == nil {
+		m.reply = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.reply[ids[i]] = struct{}{}
+	}
 }
 
 // ClearReply clears the "reply" edge to the Message entity.
@@ -1537,20 +1542,29 @@ func (m *MessageMutation) ReplyCleared() bool {
 	return m.clearedreply
 }
 
-// ReplyID returns the "reply" edge ID in the mutation.
-func (m *MessageMutation) ReplyID() (id int64, exists bool) {
-	if m.reply != nil {
-		return *m.reply, true
+// RemoveReplyIDs removes the "reply" edge to the Message entity by IDs.
+func (m *MessageMutation) RemoveReplyIDs(ids ...int64) {
+	if m.removedreply == nil {
+		m.removedreply = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.reply, ids[i])
+		m.removedreply[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedReply returns the removed IDs of the "reply" edge to the Message entity.
+func (m *MessageMutation) RemovedReplyIDs() (ids []int64) {
+	for id := range m.removedreply {
+		ids = append(ids, id)
 	}
 	return
 }
 
 // ReplyIDs returns the "reply" edge IDs in the mutation.
-// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
-// ReplyID instead. It exists only for internal usage by the builders.
 func (m *MessageMutation) ReplyIDs() (ids []int64) {
-	if id := m.reply; id != nil {
-		ids = append(ids, *id)
+	for id := range m.reply {
+		ids = append(ids, id)
 	}
 	return
 }
@@ -1559,6 +1573,7 @@ func (m *MessageMutation) ReplyIDs() (ids []int64) {
 func (m *MessageMutation) ResetReply() {
 	m.reply = nil
 	m.clearedreply = false
+	m.removedreply = nil
 }
 
 // SetReplyToID sets the "reply_to" edge to the Message entity by id.
@@ -1915,9 +1930,11 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 			return []ent.Value{*id}
 		}
 	case message.EdgeReply:
-		if id := m.reply; id != nil {
-			return []ent.Value{*id}
+		ids := make([]ent.Value, 0, len(m.reply))
+		for id := range m.reply {
+			ids = append(ids, id)
 		}
+		return ids
 	case message.EdgeReplyTo:
 		if id := m.reply_to; id != nil {
 			return []ent.Value{*id}
@@ -1933,12 +1950,23 @@ func (m *MessageMutation) AddedIDs(name string) []ent.Value {
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *MessageMutation) RemovedEdges() []string {
 	edges := make([]string, 0, 5)
+	if m.removedreply != nil {
+		edges = append(edges, message.EdgeReply)
+	}
 	return edges
 }
 
 // RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
 // the given name in this mutation.
 func (m *MessageMutation) RemovedIDs(name string) []ent.Value {
+	switch name {
+	case message.EdgeReply:
+		ids := make([]ent.Value, 0, len(m.removedreply))
+		for id := range m.removedreply {
+			ids = append(ids, id)
+		}
+		return ids
+	}
 	return nil
 }
 
@@ -1990,9 +2018,6 @@ func (m *MessageMutation) ClearEdge(name string) error {
 		return nil
 	case message.EdgeChat:
 		m.ClearChat()
-		return nil
-	case message.EdgeReply:
-		m.ClearReply()
 		return nil
 	case message.EdgeReplyTo:
 		m.ClearReplyTo()

@@ -6,12 +6,11 @@ import (
 	"context"
 	"fmt"
 
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent/dialect/sql/sqlgraph"
-	"entgo.io/ent/schema/field"
 )
 
 // ChatCreate is the builder for creating a Chat entity.

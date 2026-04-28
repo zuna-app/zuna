@@ -5,10 +5,9 @@ package message
 import (
 	"time"
 
-	"zuna.chat/zuna-server/ent/predicate"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"zuna.chat/zuna-server/ent/predicate"
 )
 
 // ID filters vertices based on their ID field.
@@ -447,7 +446,7 @@ func HasReply() predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2O, true, ReplyTable, ReplyColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, ReplyTable, ReplyColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})
@@ -470,7 +469,7 @@ func HasReplyTo() predicate.Message {
 	return predicate.Message(func(s *sql.Selector) {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(Table, FieldID),
-			sqlgraph.Edge(sqlgraph.O2O, false, ReplyToTable, ReplyToColumn),
+			sqlgraph.Edge(sqlgraph.M2O, false, ReplyToTable, ReplyToColumn),
 		)
 		sqlgraph.HasNeighbors(s, step)
 	})

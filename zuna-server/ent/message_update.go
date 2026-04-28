@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent/dialect/sql"
-	"entgo.io/ent/dialect/sql/sqlgraph"
-	"entgo.io/ent/schema/field"
 )
 
 // MessageUpdate is the builder for updating Message entities.
@@ -158,23 +157,19 @@ func (_u *MessageUpdate) SetChat(v *Chat) *MessageUpdate {
 	return _u.SetChatID(v.ID)
 }
 
-// SetReplyID sets the "reply" edge to the Message entity by ID.
-func (_u *MessageUpdate) SetReplyID(id int64) *MessageUpdate {
-	_u.mutation.SetReplyID(id)
+// AddReplyIDs adds the "reply" edge to the Message entity by IDs.
+func (_u *MessageUpdate) AddReplyIDs(ids ...int64) *MessageUpdate {
+	_u.mutation.AddReplyIDs(ids...)
 	return _u
 }
 
-// SetNillableReplyID sets the "reply" edge to the Message entity by ID if the given value is not nil.
-func (_u *MessageUpdate) SetNillableReplyID(id *int64) *MessageUpdate {
-	if id != nil {
-		_u = _u.SetReplyID(*id)
+// AddReply adds the "reply" edges to the Message entity.
+func (_u *MessageUpdate) AddReply(v ...*Message) *MessageUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
 	}
-	return _u
-}
-
-// SetReply sets the "reply" edge to the Message entity.
-func (_u *MessageUpdate) SetReply(v *Message) *MessageUpdate {
-	return _u.SetReplyID(v.ID)
+	return _u.AddReplyIDs(ids...)
 }
 
 // SetReplyToID sets the "reply_to" edge to the Message entity by ID.
@@ -232,10 +227,25 @@ func (_u *MessageUpdate) ClearChat() *MessageUpdate {
 	return _u
 }
 
-// ClearReply clears the "reply" edge to the Message entity.
+// ClearReply clears all "reply" edges to the Message entity.
 func (_u *MessageUpdate) ClearReply() *MessageUpdate {
 	_u.mutation.ClearReply()
 	return _u
+}
+
+// RemoveReplyIDs removes the "reply" edge to Message entities by IDs.
+func (_u *MessageUpdate) RemoveReplyIDs(ids ...int64) *MessageUpdate {
+	_u.mutation.RemoveReplyIDs(ids...)
+	return _u
+}
+
+// RemoveReply removes "reply" edges to Message entities.
+func (_u *MessageUpdate) RemoveReply(v ...*Message) *MessageUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveReplyIDs(ids...)
 }
 
 // ClearReplyTo clears the "reply_to" edge to the Message entity.
@@ -384,7 +394,7 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.ReplyCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: true,
 			Table:   message.ReplyTable,
 			Columns: []string{message.ReplyColumn},
@@ -395,9 +405,25 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
+	if nodes := _u.mutation.RemovedReplyIDs(); len(nodes) > 0 && !_u.mutation.ReplyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   message.ReplyTable,
+			Columns: []string{message.ReplyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
 	if nodes := _u.mutation.ReplyIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: true,
 			Table:   message.ReplyTable,
 			Columns: []string{message.ReplyColumn},
@@ -413,7 +439,7 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.ReplyToCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.M2O,
 			Inverse: false,
 			Table:   message.ReplyToTable,
 			Columns: []string{message.ReplyToColumn},
@@ -426,7 +452,7 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if nodes := _u.mutation.ReplyToIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.M2O,
 			Inverse: false,
 			Table:   message.ReplyToTable,
 			Columns: []string{message.ReplyToColumn},
@@ -615,23 +641,19 @@ func (_u *MessageUpdateOne) SetChat(v *Chat) *MessageUpdateOne {
 	return _u.SetChatID(v.ID)
 }
 
-// SetReplyID sets the "reply" edge to the Message entity by ID.
-func (_u *MessageUpdateOne) SetReplyID(id int64) *MessageUpdateOne {
-	_u.mutation.SetReplyID(id)
+// AddReplyIDs adds the "reply" edge to the Message entity by IDs.
+func (_u *MessageUpdateOne) AddReplyIDs(ids ...int64) *MessageUpdateOne {
+	_u.mutation.AddReplyIDs(ids...)
 	return _u
 }
 
-// SetNillableReplyID sets the "reply" edge to the Message entity by ID if the given value is not nil.
-func (_u *MessageUpdateOne) SetNillableReplyID(id *int64) *MessageUpdateOne {
-	if id != nil {
-		_u = _u.SetReplyID(*id)
+// AddReply adds the "reply" edges to the Message entity.
+func (_u *MessageUpdateOne) AddReply(v ...*Message) *MessageUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
 	}
-	return _u
-}
-
-// SetReply sets the "reply" edge to the Message entity.
-func (_u *MessageUpdateOne) SetReply(v *Message) *MessageUpdateOne {
-	return _u.SetReplyID(v.ID)
+	return _u.AddReplyIDs(ids...)
 }
 
 // SetReplyToID sets the "reply_to" edge to the Message entity by ID.
@@ -689,10 +711,25 @@ func (_u *MessageUpdateOne) ClearChat() *MessageUpdateOne {
 	return _u
 }
 
-// ClearReply clears the "reply" edge to the Message entity.
+// ClearReply clears all "reply" edges to the Message entity.
 func (_u *MessageUpdateOne) ClearReply() *MessageUpdateOne {
 	_u.mutation.ClearReply()
 	return _u
+}
+
+// RemoveReplyIDs removes the "reply" edge to Message entities by IDs.
+func (_u *MessageUpdateOne) RemoveReplyIDs(ids ...int64) *MessageUpdateOne {
+	_u.mutation.RemoveReplyIDs(ids...)
+	return _u
+}
+
+// RemoveReply removes "reply" edges to Message entities.
+func (_u *MessageUpdateOne) RemoveReply(v ...*Message) *MessageUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveReplyIDs(ids...)
 }
 
 // ClearReplyTo clears the "reply_to" edge to the Message entity.
@@ -871,7 +908,7 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 	}
 	if _u.mutation.ReplyCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: true,
 			Table:   message.ReplyTable,
 			Columns: []string{message.ReplyColumn},
@@ -882,9 +919,25 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 		}
 		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
 	}
+	if nodes := _u.mutation.RemovedReplyIDs(); len(nodes) > 0 && !_u.mutation.ReplyCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: true,
+			Table:   message.ReplyTable,
+			Columns: []string{message.ReplyColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
 	if nodes := _u.mutation.ReplyIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: true,
 			Table:   message.ReplyTable,
 			Columns: []string{message.ReplyColumn},
@@ -900,7 +953,7 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 	}
 	if _u.mutation.ReplyToCleared() {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.M2O,
 			Inverse: false,
 			Table:   message.ReplyToTable,
 			Columns: []string{message.ReplyToColumn},
@@ -913,7 +966,7 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 	}
 	if nodes := _u.mutation.ReplyToIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.M2O,
 			Inverse: false,
 			Table:   message.ReplyToTable,
 			Columns: []string{message.ReplyToColumn},

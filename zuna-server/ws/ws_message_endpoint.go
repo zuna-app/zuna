@@ -148,6 +148,10 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		Save(ctx)
 
 	if err != nil {
+		if ent.IsConstraintError(err) && isReply {
+			sendError(c, "bad_request", "reply constraint violation")
+			return
+		}
 		log.Error().Err(err).Str("id", req.ChatId).Msg("failed to insert message")
 		sendInternalServerError(c)
 		return

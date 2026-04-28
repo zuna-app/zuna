@@ -5,12 +5,11 @@ package ent
 import (
 	"context"
 
-	"zuna.chat/zuna-server/ent/message"
-	"zuna.chat/zuna-server/ent/predicate"
-
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/ent/predicate"
 )
 
 // MessageDelete is the builder for deleting a Message entity.

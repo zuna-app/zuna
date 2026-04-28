@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent/dialect/sql/sqlgraph"
-	"entgo.io/ent/schema/field"
 )
 
 // MessageCreate is the builder for creating a Message entity.
@@ -126,23 +125,19 @@ func (_c *MessageCreate) SetChat(v *Chat) *MessageCreate {
 	return _c.SetChatID(v.ID)
 }
 
-// SetReplyID sets the "reply" edge to the Message entity by ID.
-func (_c *MessageCreate) SetReplyID(id int64) *MessageCreate {
-	_c.mutation.SetReplyID(id)
+// AddReplyIDs adds the "reply" edge to the Message entity by IDs.
+func (_c *MessageCreate) AddReplyIDs(ids ...int64) *MessageCreate {
+	_c.mutation.AddReplyIDs(ids...)
 	return _c
 }
 
-// SetNillableReplyID sets the "reply" edge to the Message entity by ID if the given value is not nil.
-func (_c *MessageCreate) SetNillableReplyID(id *int64) *MessageCreate {
-	if id != nil {
-		_c = _c.SetReplyID(*id)
+// AddReply adds the "reply" edges to the Message entity.
+func (_c *MessageCreate) AddReply(v ...*Message) *MessageCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
 	}
-	return _c
-}
-
-// SetReply sets the "reply" edge to the Message entity.
-func (_c *MessageCreate) SetReply(v *Message) *MessageCreate {
-	return _c.SetReplyID(v.ID)
+	return _c.AddReplyIDs(ids...)
 }
 
 // SetReplyToID sets the "reply_to" edge to the Message entity by ID.
@@ -354,7 +349,7 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 	}
 	if nodes := _c.mutation.ReplyIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.O2M,
 			Inverse: true,
 			Table:   message.ReplyTable,
 			Columns: []string{message.ReplyColumn},
@@ -366,12 +361,11 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.message_reply_to = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.ReplyToIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2O,
+			Rel:     sqlgraph.M2O,
 			Inverse: false,
 			Table:   message.ReplyToTable,
 			Columns: []string{message.ReplyToColumn},
@@ -383,6 +377,7 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
+		_node.message_reply_to = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.AttachmentIDs(); len(nodes) > 0 {

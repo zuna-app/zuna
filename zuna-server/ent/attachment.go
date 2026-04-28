@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"strings"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
 )
 
 // Attachment is the model entity for the Attachment schema.

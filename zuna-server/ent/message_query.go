@@ -8,16 +8,15 @@ import (
 	"fmt"
 	"math"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
-	"entgo.io/ent/dialect/sql/sqlgraph"
-	"entgo.io/ent/schema/field"
 )
 
 // MessageQuery is the builder for querying Message entities.
@@ -127,7 +126,7 @@ func (_q *MessageQuery) QueryReply() *MessageQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(message.Table, message.FieldID, selector),
 			sqlgraph.To(message.Table, message.FieldID),
-			sqlgraph.Edge(sqlgraph.O2O, true, message.ReplyTable, message.ReplyColumn),
+			sqlgraph.Edge(sqlgraph.O2M, true, message.ReplyTable, message.ReplyColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -149,7 +148,7 @@ func (_q *MessageQuery) QueryReplyTo() *MessageQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(message.Table, message.FieldID, selector),
 			sqlgraph.To(message.Table, message.FieldID),
-			sqlgraph.Edge(sqlgraph.O2O, false, message.ReplyToTable, message.ReplyToColumn),
+			sqlgraph.Edge(sqlgraph.M2O, false, message.ReplyToTable, message.ReplyToColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -524,7 +523,7 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 			_q.withAttachment != nil,
 		}
 	)
-	if _q.withUser != nil || _q.withChat != nil || _q.withReply != nil {
+	if _q.withUser != nil || _q.withChat != nil || _q.withReplyTo != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -561,8 +560,9 @@ func (_q *MessageQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Mess
 		}
 	}
 	if query := _q.withReply; query != nil {
-		if err := _q.loadReply(ctx, query, nodes, nil,
-			func(n *Message, e *Message) { n.Edges.Reply = e }); err != nil {
+		if err := _q.loadReply(ctx, query, nodes,
+			func(n *Message) { n.Edges.Reply = []*Message{} },
+			func(n *Message, e *Message) { n.Edges.Reply = append(n.Edges.Reply, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -646,6 +646,37 @@ func (_q *MessageQuery) loadChat(ctx context.Context, query *ChatQuery, nodes []
 	return nil
 }
 func (_q *MessageQuery) loadReply(ctx context.Context, query *MessageQuery, nodes []*Message, init func(*Message), assign func(*Message, *Message)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int64]*Message)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Message(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(message.ReplyColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.message_reply_to
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "message_reply_to" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "message_reply_to" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *MessageQuery) loadReplyTo(ctx context.Context, query *MessageQuery, nodes []*Message, init func(*Message), assign func(*Message, *Message)) error {
 	ids := make([]int64, 0, len(nodes))
 	nodeids := make(map[int64][]*Message)
 	for i := range nodes {
@@ -674,34 +705,6 @@ func (_q *MessageQuery) loadReply(ctx context.Context, query *MessageQuery, node
 		for i := range nodes {
 			assign(nodes[i], n)
 		}
-	}
-	return nil
-}
-func (_q *MessageQuery) loadReplyTo(ctx context.Context, query *MessageQuery, nodes []*Message, init func(*Message), assign func(*Message, *Message)) error {
-	fks := make([]driver.Value, 0, len(nodes))
-	nodeids := make(map[int64]*Message)
-	for i := range nodes {
-		fks = append(fks, nodes[i].ID)
-		nodeids[nodes[i].ID] = nodes[i]
-	}
-	query.withFKs = true
-	query.Where(predicate.Message(func(s *sql.Selector) {
-		s.Where(sql.InValues(s.C(message.ReplyToColumn), fks...))
-	}))
-	neighbors, err := query.All(ctx)
-	if err != nil {
-		return err
-	}
-	for _, n := range neighbors {
-		fk := n.message_reply_to
-		if fk == nil {
-			return fmt.Errorf(`foreign-key "message_reply_to" is nil for node %v`, n.ID)
-		}
-		node, ok := nodeids[*fk]
-		if !ok {
-			return fmt.Errorf(`unexpected referenced foreign-key "message_reply_to" returned %v for node %v`, *fk, n.ID)
-		}
-		assign(node, n)
 	}
 	return nil
 }

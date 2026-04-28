@@ -172,10 +172,17 @@ func ByChatField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
-// ByReplyField orders the results by reply field.
-func ByReplyField(field string, opts ...sql.OrderTermOption) OrderOption {
+// ByReplyCount orders the results by reply count.
+func ByReplyCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
-		sqlgraph.OrderByNeighborTerms(s, newReplyStep(), sql.OrderByField(field, opts...))
+		sqlgraph.OrderByNeighborsCount(s, newReplyStep(), opts...)
+	}
+}
+
+// ByReply orders the results by reply terms.
+func ByReply(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newReplyStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
 
@@ -210,14 +217,14 @@ func newReplyStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(Table, FieldID),
-		sqlgraph.Edge(sqlgraph.O2O, true, ReplyTable, ReplyColumn),
+		sqlgraph.Edge(sqlgraph.O2M, true, ReplyTable, ReplyColumn),
 	)
 }
 func newReplyToStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(Table, FieldID),
-		sqlgraph.Edge(sqlgraph.O2O, false, ReplyToTable, ReplyToColumn),
+		sqlgraph.Edge(sqlgraph.M2O, false, ReplyToTable, ReplyToColumn),
 	)
 }
 func newAttachmentStep() *sqlgraph.Step {

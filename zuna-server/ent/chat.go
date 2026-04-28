@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"zuna.chat/zuna-server/ent/chat"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"zuna.chat/zuna-server/ent/chat"
 )
 
 // Chat is the model entity for the Chat schema.

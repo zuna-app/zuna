@@ -7,13 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"entgo.io/ent"
+	"entgo.io/ent/dialect/sql"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
-
-	"entgo.io/ent"
-	"entgo.io/ent/dialect/sql"
 )
 
 // Message is the model entity for the Message schema.
@@ -51,7 +50,7 @@ type MessageEdges struct {
 	// Chat holds the value of the chat edge.
 	Chat *Chat `json:"chat,omitempty"`
 	// Reply holds the value of the reply edge.
-	Reply *Message `json:"reply,omitempty"`
+	Reply []*Message `json:"reply,omitempty"`
 	// ReplyTo holds the value of the reply_to edge.
 	ReplyTo *Message `json:"reply_to,omitempty"`
 	// Attachment holds the value of the attachment edge.
@@ -84,12 +83,10 @@ func (e MessageEdges) ChatOrErr() (*Chat, error) {
 }
 
 // ReplyOrErr returns the Reply value or an error if the edge
-// was not loaded in eager-loading, or loaded but was not found.
-func (e MessageEdges) ReplyOrErr() (*Message, error) {
-	if e.Reply != nil {
+// was not loaded in eager-loading.
+func (e MessageEdges) ReplyOrErr() ([]*Message, error) {
+	if e.loadedTypes[2] {
 		return e.Reply, nil
-	} else if e.loadedTypes[2] {
-		return nil, &NotFoundError{label: message.Label}
 	}
 	return nil, &NotLoadedError{edge: "reply"}
 }

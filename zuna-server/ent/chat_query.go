@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"math"
 
-	"zuna.chat/zuna-server/ent/chat"
-	"zuna.chat/zuna-server/ent/message"
-	"zuna.chat/zuna-server/ent/predicate"
-	"zuna.chat/zuna-server/ent/user"
-
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/message"
+	"zuna.chat/zuna-server/ent/predicate"
+	"zuna.chat/zuna-server/ent/user"
 )
 
 // ChatQuery is the builder for querying Chat entities.
