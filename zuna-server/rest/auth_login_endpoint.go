@@ -28,7 +28,6 @@ type LoginResponse struct {
 }
 
 func AuthLoginEndpoint(c *echo.Context) error {
-	log.Debug().Msg("login endpoint hit")
 	req := new(LoginRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
