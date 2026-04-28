@@ -128,8 +128,9 @@ if (gotTheLock) {
       }
     });
 
-    // open dev tools
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
+      mainWindow.webContents.openDevTools({ mode: "detach" });
+    }
 
     mainWindow.webContents.on("did-finish-load", () => {
       if (isLinux) {
