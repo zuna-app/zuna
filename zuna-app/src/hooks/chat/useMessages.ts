@@ -150,6 +150,8 @@ export function useMessages(
             attachmentMetadataAuthTag: payload.attachment_metadata_auth_tag,
             modified: payload.modified ?? false,
             pinned: payload.pinned ?? false,
+            isReply: payload.is_reply,
+            replyInfo: payload.reply_info,
           },
         ];
       });
@@ -409,6 +411,8 @@ export function useMessages(
           attachmentMetadataAuthTag: m.attachment_metadata_auth_tag,
           modified: m.modified,
           pinned: m.pinned ?? m.pin ?? false,
+          isReply: m.is_reply,
+          replyInfo: m.reply_info,
         }));
 
         if (cursor === MAX_CURSOR) {
@@ -494,6 +498,7 @@ export function useMessages(
         plaintext,
         modified: false,
         pinned: false,
+        isReply: false,
       };
       setMessages((prev) => [...prev, optimistic]);
 
@@ -513,6 +518,77 @@ export function useMessages(
         short_cipher_text: encryptedPreviewContent.ciphertext,
         short_iv: encryptedPreviewContent.iv,
         short_auth_tag: encryptedPreviewContent.authTag,
+        reply_to: 0,
+      });
+
+      updateLastMessage({
+        chatId,
+        senderId: server.id,
+        content: plaintext,
+        unreadMessages: 0,
+        lastActivityAt: optimistic.sentAt,
+      });
+    },
+    [chatId, wsSend, updateLastMessage],
+  );
+
+  const sendReplyChatMessage = useCallback(
+    async (
+      cipherText: string,
+      iv: string,
+      authTag: string,
+      plaintext: string,
+      replyTo: number,
+    ) => {
+      const replyMessage = messagesRef.current.find((m) => m.id === replyTo);
+      if (!replyMessage) {
+        console.error("Reply message not found for id:", replyTo);
+        return;
+      }
+
+      const localId = ++localIdCounter.current;
+      const optimistic: Message = {
+        id: null,
+        localId,
+        chatId,
+        cipherText,
+        iv,
+        authTag,
+        sentAt: Date.now(),
+        senderId: server.id,
+        isOwn: true,
+        pending: true,
+        plaintext,
+        modified: false,
+        pinned: false,
+        isReply: true,
+        replyInfo: {
+          id: replyTo,
+          cipher_text: replyMessage.cipherText,
+          iv: replyMessage.iv,
+          auth_tag: replyMessage.authTag,
+          has_attachment: !!replyMessage.attachmentId,
+        },
+      };
+      setMessages((prev) => [...prev, optimistic]);
+
+      const previewContent =
+        plaintext.length <= 100 ? plaintext : plaintext.slice(0, 100) + "...";
+      const encryptedPreviewContent = await window.security.encrypt(
+        sharedSecretRef.current!,
+        previewContent,
+      );
+
+      wsSend(WS_MSG.MESSAGE, {
+        chat_id: chatId,
+        cipher_text: cipherText,
+        iv,
+        auth_tag: authTag,
+        local_id: localId,
+        short_cipher_text: encryptedPreviewContent.ciphertext,
+        short_iv: encryptedPreviewContent.iv,
+        short_auth_tag: encryptedPreviewContent.authTag,
+        reply_to: replyTo,
       });
 
       updateLastMessage({
@@ -600,6 +676,8 @@ export function useMessages(
           attachmentFilename: file.name,
           modified: false,
           pinned: false,
+          isReply: false,
+          replyInfo: undefined,
         },
       ]);
 
@@ -705,6 +783,7 @@ export function useMessages(
     loading,
     hasMore,
     sendMessage: sendChatMessage,
+    sendReplyMessage: sendReplyChatMessage,
     editMessage: editChatMessage,
     togglePinMessage,
     uploadAndSend,

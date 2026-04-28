@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
-import { Paperclip, ImagePlus, Code2, X } from "lucide-react";
+import { Paperclip, ImagePlus, Code2, X, Reply } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEmotes } from "@/hooks/ui/useEmotes";
 import { ActionButton } from "./action-button";
@@ -44,6 +44,11 @@ export interface ChatInputProps {
   } | null;
   onCancelEdit?: () => void;
   onEditLastMessage?: () => void;
+  replyingTo?: {
+    id: number;
+    rawText: string;
+  } | null;
+  onCancelReply?: () => void;
 }
 
 export function ChatInput({
@@ -58,6 +63,8 @@ export function ChatInput({
   editingMessage = null,
   onCancelEdit,
   onEditLastMessage,
+  replyingTo = null,
+  onCancelReply,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -266,6 +273,33 @@ export function ChatInput({
         className="hidden"
         onChange={handleFileInputChange}
       />
+
+      {replyingTo && (
+        <div className="mb-2 rounded-md border border-muted-foreground/20 bg-muted/30 px-3 py-2">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex items-center gap-2">
+              <Reply className="size-3.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Replying to message
+                </p>
+                <p className="text-xs text-muted-foreground/70 truncate">
+                  {replyingTo.rawText || "(attachment)"}
+                </p>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6"
+              onClick={onCancelReply}
+            >
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {isEditing && (
         <div className="mb-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2">
