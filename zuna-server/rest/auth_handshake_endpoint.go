@@ -19,8 +19,6 @@ type HandshakeRequest struct {
 
 type HandshakeResponse struct {
 	Nonce            string `json:"nonce"`
-	ServerName       string `json:"server_name"`
-	ServerLogo       string `json:"server_logo"`
 	SevenTvEnabled   bool   `json:"seven_tv_enabled"`
 	SevenTvEmotesSet string `json:"seven_tv_emotes_set"`
 	GatewayAddress   string `json:"gateway_address"`
@@ -61,8 +59,6 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 
 	return c.JSON(http.StatusOK, HandshakeResponse{
 		Nonce:            userData.Ed25519Nonce,
-		ServerName:       config.Config.Server.Name,
-		ServerLogo:       config.ServerLogoData,
 		SevenTvEnabled:   config.Config.SevenTv.Enabled,
 		SevenTvEmotesSet: config.Config.SevenTv.EmotesSet,
 		GatewayAddress:   config.Config.Gateway.Address,

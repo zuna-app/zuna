@@ -35,7 +35,7 @@ type JoinResponse struct {
 	ServerPublicKey string `json:"server_public_key"`
 }
 
-var usernameAllowedChars = regexp.MustCompile(`^[A-Za-z0-9]+$`)
+var usernameAllowedChars = regexp.MustCompile(`^[A-Za-z0-9 ]+$`)
 
 func AuthJoinEndpoint(c *echo.Context) error {
 	req := new(JoinRequest)
