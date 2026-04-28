@@ -50,6 +50,37 @@ export function getGatewayFromVault(serverId: string): Promise<string | null> {
     });
 }
 
+export async function fetchAndUpdateServerInfos(
+  servers: Server[],
+): Promise<void> {
+  await Promise.allSettled(
+    servers.map(async (server) => {
+      try {
+        const res = await fetch(`https://${server.address}/api/auth/info`);
+        if (!res.ok) return;
+        const { server_name, server_logo } = await res.json();
+        jotaiStore.set(serverMetaAtom, (prev) => {
+          const next = new Map(prev);
+          const existing = prev.get(server.id);
+          next.set(server.id, {
+            name: server_name ?? null,
+            logo: server_logo ?? null,
+            gatewayAddress: existing?.gatewayAddress ?? null,
+            sevenTvEmotesSet: existing?.sevenTvEmotesSet ?? null,
+            sevenTvEnabled: existing?.sevenTvEnabled ?? null,
+          });
+          return next;
+        });
+      } catch (err) {
+        console.error(
+          `Failed to fetch server info for ${server.address}:`,
+          err,
+        );
+      }
+    }),
+  );
+}
+
 export async function reauthorize(server: Server): Promise<void> {
   const sigPrivateKey = await window.vault.get("sigPrivateKey");
   if (!sigPrivateKey) throw new Error("Signing key not found in vault");
@@ -66,19 +97,14 @@ export async function reauthorize(server: Server): Promise<void> {
     const text = await handshakeRes.text().catch(() => handshakeRes.statusText);
     throw new Error(`Handshake failed (${handshakeRes.status}): ${text}`);
   }
-  const {
-    nonce,
-    server_name,
-    server_logo,
-    gateway_address,
-    seven_tv_emotes_set,
-    seven_tv_enabled,
-  } = await handshakeRes.json();
+  const { nonce, gateway_address, seven_tv_emotes_set, seven_tv_enabled } =
+    await handshakeRes.json();
   jotaiStore.set(serverMetaAtom, (prev) => {
     const next = new Map(prev);
+    const existing = prev.get(server.id);
     next.set(server.id, {
-      name: server_name ?? null,
-      logo: server_logo ?? null,
+      name: existing?.name ?? null,
+      logo: existing?.logo ?? null,
       gatewayAddress: gateway_address ?? null,
       sevenTvEmotesSet: seven_tv_emotes_set ?? null,
       sevenTvEnabled: seven_tv_enabled ?? null,
@@ -123,8 +149,6 @@ export function useAuthorizer(server: Server) {
       username: string,
     ): Promise<{
       token: string;
-      name: string | null;
-      logo: string | null;
       gatewayAddress: string | null;
       sevenTvEmotesSet: string | null;
       sevenTvEnabled: boolean | null;
@@ -150,14 +174,8 @@ export function useAuthorizer(server: Server) {
         throw new Error(`Handshake failed (${handshakeRes.status}): ${text}`);
       }
 
-      const {
-        nonce,
-        server_name,
-        server_logo,
-        gateway_address,
-        seven_tv_emotes_set,
-        seven_tv_enabled,
-      } = await handshakeRes.json();
+      const { nonce, gateway_address, seven_tv_emotes_set, seven_tv_enabled } =
+        await handshakeRes.json();
 
       const signature = await window.security.signMessage(sigPrivateKey, nonce);
 
@@ -229,8 +247,6 @@ export function useAuthorizer(server: Server) {
 
       return {
         token: newToken,
-        name: server_name ?? null,
-        logo: server_logo ?? null,
         gatewayAddress: gateway_address ?? null,
         sevenTvEmotesSet: seven_tv_emotes_set ?? null,
         sevenTvEnabled: seven_tv_enabled ?? null,
@@ -245,8 +261,6 @@ export function useAuthorizer(server: Server) {
     },
     onSuccess: ({
       token: newToken,
-      name,
-      logo,
       gatewayAddress,
       sevenTvEmotesSet,
       sevenTvEnabled,
@@ -258,9 +272,10 @@ export function useAuthorizer(server: Server) {
       });
       jotaiStore.set(serverMetaAtom, (prev) => {
         const next = new Map(prev);
+        const existing = prev.get(server.id);
         next.set(server.id, {
-          name,
-          logo,
+          name: existing?.name ?? null,
+          logo: existing?.logo ?? null,
           gatewayAddress,
           sevenTvEmotesSet,
           sevenTvEnabled,

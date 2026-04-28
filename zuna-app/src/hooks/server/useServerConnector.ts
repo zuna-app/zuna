@@ -85,7 +85,7 @@ export const useServerConnector = () => {
       const newServer: Server = {
         id: data.id,
         address,
-        name: data.server_name ?? address,
+        name: address,
         username,
         publicKey: data.server_public_key ?? null,
         serverId: data.server_id ?? null,

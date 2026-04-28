@@ -9,6 +9,7 @@ import { JoinServerDialog } from "@/components/join-server-dialog";
 import { useServerConnector } from "@/hooks/server/useServerConnector";
 import { usePing } from "@/hooks/server/usePing";
 import { Server } from "@/types/serverTypes";
+import { fetchAndUpdateServerInfos } from "@/hooks/auth/useAuthorizer";
 import {
   Empty,
   EmptyContent,
@@ -40,7 +41,13 @@ function TitleBarWithServer({
 
 function MainApp() {
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
-  const { selectedServer } = useServerConnector();
+  const { selectedServer, serverList } = useServerConnector();
+
+  useEffect(() => {
+    if (serverList.length > 0) {
+      fetchAndUpdateServerInfos(serverList);
+    }
+  }, [serverList]);
 
   return (
     <div className="flex h-svh flex-col bg-background rounded-md overflow-hidden border border-neutral-600 dark:border-neutral-800">
