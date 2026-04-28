@@ -1,3 +1,5 @@
+import { ReplyInfo } from "@/types/serverTypes";
+
 export const WS_MSG = {
   AUTH: "auth",
   AUTH_CONFIRMATION: "auth_confirmation",
@@ -61,6 +63,8 @@ export interface MessageAckPayload {
   attachment_metadata?: string;
   attachment_metadata_iv?: string;
   attachment_metadata_auth_tag?: string;
+  is_reply: boolean;
+  reply_info?: ReplyInfo;
 }
 
 export interface MessageReceivePayload {
@@ -77,6 +81,8 @@ export interface MessageReceivePayload {
   attachment_metadata_auth_tag?: string;
   modified: boolean;
   pinned: boolean;
+  is_reply: boolean;
+  reply_info?: ReplyInfo;
 }
 
 export interface MessageReadInfoPayload {

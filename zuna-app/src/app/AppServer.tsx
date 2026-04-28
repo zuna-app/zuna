@@ -28,6 +28,7 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
     loading,
     hasMore,
     sendMessage,
+    sendReplyMessage,
     editMessage,
     togglePinMessage,
     uploadAndSend,
@@ -49,10 +50,15 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
     id: number;
     originalText: string;
   } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<{
+    id: number;
+    rawText: string;
+  } | null>(null);
 
   useEffect(() => {
     setEditingMessage(null);
     setPendingFile(null);
+    setReplyingTo(null);
   }, [member.chatId]);
 
   const handleWrite = useCallback(
@@ -77,9 +83,15 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         return;
       }
 
+      if (replyingTo) {
+        sendReplyMessage(cipherText, iv, authTag, plaintext, replyingTo.id);
+        setReplyingTo(null);
+        return;
+      }
+
       sendMessage(cipherText, iv, authTag, plaintext);
     },
-    [editingMessage, editMessage, sendMessage],
+    [editingMessage, replyingTo, editMessage, sendReplyMessage, sendMessage],
   );
 
   const lastEditableMessage = useMemo(() => {
@@ -138,10 +150,18 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         getAttachmentMeta={getAttachmentMeta}
         sevenTvEnabled={sevenTvEnabled}
         sevenTvEmotesSet={sevenTvEmotesSet}
+        sharedSecret={sharedSecret}
         onTogglePinMessage={togglePinMessage}
         onEditMessage={(messageId, rawText) => {
           setPendingFile(null);
           setEditingMessage({ id: messageId, originalText: rawText });
+        }}
+        onReplyMessage={(messageId, rawText) => {
+          setEditingMessage(null);
+          setReplyingTo({ id: messageId, rawText });
+        }}
+        onJumpToReply={() => {
+          // scrollToMessageById is handled inside chat-messages
         }}
       />
       <ChatInput
@@ -157,6 +177,8 @@ function ChatView({ server, member }: { server: Server; member: ChatMember }) {
         editingMessage={editingMessage}
         onCancelEdit={() => setEditingMessage(null)}
         onEditLastMessage={handleStartEditLastMessage}
+        replyingTo={replyingTo}
+        onCancelReply={() => setReplyingTo(null)}
       />
     </div>
   );

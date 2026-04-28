@@ -61,6 +61,8 @@ export type Message = {
   uploadProgress?: number;
   modified: boolean;
   pinned: boolean;
+  isReply: boolean;
+  replyInfo?: ReplyInfo;
 };
 
 export type RawMessageDTO = {
@@ -78,4 +80,14 @@ export type RawMessageDTO = {
   modified: boolean;
   pinned?: boolean;
   pin?: boolean;
+  is_reply: boolean;
+  reply_info?: ReplyInfo;
+};
+
+export type ReplyInfo = {
+  id: number;
+  cipher_text: string;
+  iv: string;
+  auth_tag: string;
+  has_attachment: boolean;
 };

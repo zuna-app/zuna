@@ -25,6 +25,9 @@ interface ChatMessagesProps {
   sevenTvEmotesSet?: string | null;
   onEditMessage: (messageId: number, rawText: string) => void;
   onTogglePinMessage: (messageId: number) => void;
+  onReplyMessage: (messageId: number, rawText: string) => void;
+  onJumpToReply: (messageId: number) => void;
+  sharedSecret: string | null;
 }
 
 export function ChatMessages({
@@ -40,9 +43,17 @@ export function ChatMessages({
   sevenTvEmotesSet,
   onEditMessage,
   onTogglePinMessage,
+  onReplyMessage,
+  onJumpToReply,
+  sharedSecret,
 }: ChatMessagesProps) {
-  const { scrollRef, contentRef, topSentinelRef, scrollToBottomIfPinned } =
-    useScrollBehavior(messages, member.id, hasMore, loading, fetchMore);
+  const {
+    scrollRef,
+    contentRef,
+    topSentinelRef,
+    scrollToBottomIfPinned,
+    scrollToMessageById,
+  } = useScrollBehavior(messages, member.id, hasMore, loading, fetchMore);
   const { emoteMap, emoteDataMap } = useEmotes(
     sevenTvEmotesSet,
     sevenTvEnabled,
@@ -78,7 +89,7 @@ export function ChatMessages({
         )}
 
         {grouped.map((msg) => (
-          <div key={messageKey(msg)}>
+          <div key={messageKey(msg)} data-message-id={msg.id ?? undefined}>
             {msg.showDivider && <MessageDivider sentAt={msg.sentAt} />}
             <MessageBubble
               msg={msg}
@@ -91,6 +102,12 @@ export function ChatMessages({
               onLoad={scrollToBottomIfPinned}
               onEditMessage={onEditMessage}
               onTogglePinMessage={onTogglePinMessage}
+              sharedSecret={sharedSecret}
+              onReplyMessage={onReplyMessage}
+              onJumpToReply={(id) => {
+                scrollToMessageById(id);
+                onJumpToReply(id);
+              }}
             />
           </div>
         ))}

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "motion/react";
 import {
   Check,
@@ -267,6 +267,9 @@ interface MessageBubbleProps {
   onLoad: () => void;
   onEditMessage: (messageId: number, rawText: string) => void;
   onTogglePinMessage: (messageId: number) => void;
+  onReplyMessage: (messageId: number, rawText: string) => void;
+  onJumpToReply: (messageId: number) => void;
+  sharedSecret: string | null;
 }
 
 export const MessageBubble = React.memo(
@@ -281,11 +284,42 @@ export const MessageBubble = React.memo(
     onLoad,
     onEditMessage,
     onTogglePinMessage,
+    onReplyMessage,
+    onJumpToReply,
+    sharedSecret,
   }: MessageBubbleProps) {
     const status = getStatus(msg);
     const [isOpenMenuContext, setIsOpenMenuContext] = useState(false);
+    const [replyPlaintext, setReplyPlaintext] = useState<string | null>(null);
     const messageRef = useRef<HTMLDivElement | null>(null);
     const { sendMessage: wsSend } = useWsConnection(server);
+
+    useEffect(() => {
+      if (!msg.isReply || !msg.replyInfo || !sharedSecret) {
+        setReplyPlaintext(null);
+        return;
+      }
+      if (msg.replyInfo.has_attachment) {
+        setReplyPlaintext(null);
+        return;
+      }
+      let cancelled = false;
+      window.security
+        .decrypt(sharedSecret, {
+          ciphertext: msg.replyInfo.cipher_text,
+          iv: msg.replyInfo.iv,
+          authTag: msg.replyInfo.auth_tag,
+        })
+        .then((text) => {
+          if (!cancelled) setReplyPlaintext(text === "\u200b" ? "" : text);
+        })
+        .catch(() => {
+          if (!cancelled) setReplyPlaintext(null);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }, [msg.isReply, msg.replyInfo, sharedSecret]);
 
     const getSelectedMessageText = () => {
       const selection = window.getSelection();
@@ -319,6 +353,11 @@ export const MessageBubble = React.memo(
         ? extractFirstUrl(rawText)
         : null;
 
+    const handleDoubleClick = () => {
+      if (msg.id == null || msg.pending) return;
+      onReplyMessage(msg.id, rawText === "\u200b" ? "" : rawText);
+    };
+
     return (
       <motion.div
         initial={{ opacity: 1, y: 8, x: 0, scale: 1 }}
@@ -338,6 +377,7 @@ export const MessageBubble = React.memo(
           <ContextMenuTrigger asChild className="select-text">
             <div
               ref={messageRef}
+              onDoubleClick={handleDoubleClick}
               className={cn(
                 "relative text-sm leading-relaxed wrap-break-word",
                 codeBlock
@@ -379,6 +419,58 @@ export const MessageBubble = React.memo(
                     ),
               )}
             >
+              {msg.isReply && msg.replyInfo && (
+                <button
+                  type="button"
+                  onClick={() => onJumpToReply(msg.replyInfo!.id)}
+                  className={cn(
+                    "text-left flex items-stretch gap-0 rounded-sm overflow-hidden transition-colors w-full",
+                    msg.isOwn
+                      ? "bg-black/10 hover:bg-black/15"
+                      : "bg-black/5 dark:bg-white/5 hover:bg-black/8 dark:hover:bg-white/8",
+                  )}
+                >
+                  {/* accent bar */}
+                  <span
+                    className={cn(
+                      "w-0.75 shrink-0 rounded-tl-sm",
+                      msg.isOwn
+                        ? "bg-primary-foreground/50"
+                        : "bg-foreground/30",
+                    )}
+                  />
+                  <span className="flex flex-col min-w-0 px-2.5 py-1.5">
+                    <span
+                      className={cn(
+                        "text-[11px] font-bold leading-none mb-0.5",
+                        msg.isOwn
+                          ? "text-primary-foreground/70"
+                          : "text-foreground/55",
+                      )}
+                    >
+                      {msg.replyInfo.has_attachment
+                        ? "📎 Attachment"
+                        : "Replied to"}
+                    </span>
+                    <span
+                      className={cn(
+                        "text-xs",
+                        msg.isOwn
+                          ? "text-primary-foreground/80"
+                          : "text-foreground/70",
+                      )}
+                    >
+                      {msg.replyInfo.has_attachment
+                        ? "View attachment"
+                        : replyPlaintext
+                          ? replyPlaintext.length > 20
+                            ? replyPlaintext.slice(0, 20) + "…"
+                            : replyPlaintext
+                          : "Loading preview..."}
+                    </span>
+                  </span>
+                </button>
+              )}
               {msg.uploadProgress !== undefined ? (
                 <div className="min-w-45">
                   <div className="flex items-center gap-2 mb-2">
@@ -512,7 +604,12 @@ export const MessageBubble = React.memo(
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem>
+            <ContextMenuItem
+              onClick={() => {
+                if (msg.id == null || msg.pending) return;
+                onReplyMessage(msg.id, rawText === "\u200b" ? "" : rawText);
+              }}
+            >
               <Reply className="size-4" />
               Reply
             </ContextMenuItem>
@@ -594,5 +691,9 @@ export const MessageBubble = React.memo(
     prev.onLoad === next.onLoad &&
     prev.onEditMessage === next.onEditMessage &&
     prev.onTogglePinMessage === next.onTogglePinMessage &&
-    prev.msg.pinned === next.msg.pinned,
+    prev.onReplyMessage === next.onReplyMessage &&
+    prev.onJumpToReply === next.onJumpToReply &&
+    prev.sharedSecret === next.sharedSecret &&
+    prev.msg.pinned === next.msg.pinned &&
+    prev.msg.isReply === next.msg.isReply,
 );
