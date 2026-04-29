@@ -1,4 +1,5 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, dialog, ipcMain } from "electron";
+import { writeFile } from "fs/promises";
 import https from "https";
 import os from "os";
 import crypto from "crypto";
@@ -314,5 +315,36 @@ export function registerIPC() {
       exportServer = null;
     }
     return true;
+  });
+
+  ipcMain.handle("vault:saveExportFile", async (event, pin: string) => {
+    if (!verifyPin(pin)) {
+      return { ok: false as const, reason: "invalid_pin" as const };
+    }
+
+    const vaultBytes = getVaultBytes();
+    if (!vaultBytes) {
+      return { ok: false as const, reason: "no_vault" as const };
+    }
+
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const dialogOptions = {
+      title: "Save Vault Export",
+      defaultPath: "vault.bin",
+      filters: [
+        { name: "Vault file", extensions: ["bin"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    };
+    const { canceled, filePath } = win
+      ? await dialog.showSaveDialog(win, dialogOptions)
+      : await dialog.showSaveDialog(dialogOptions);
+
+    if (canceled || !filePath) {
+      return { ok: false as const, reason: "cancelled" as const };
+    }
+
+    await writeFile(filePath, vaultBytes);
+    return { ok: true as const, path: filePath };
   });
 }

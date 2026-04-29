@@ -19,6 +19,10 @@ interface OgData {
   siteName?: string;
 }
 
+type VaultSaveExportResult =
+  | { ok: true; path: string }
+  | { ok: false; reason: "invalid_pin" | "no_vault" | "cancelled" };
+
 interface Window {
   notification: {
     resize: (height: number) => Promise<void>;
@@ -87,6 +91,7 @@ interface Window {
     import: (base64Data: string) => Promise<boolean>;
     startExportServer: (pin: string) => Promise<{ url: string } | null>;
     stopExportServer: () => Promise<void>;
+    saveExportFile: (pin: string) => Promise<VaultSaveExportResult>;
   };
   og: {
     fetch: (url: string) => Promise<OgData | null>;

@@ -14,6 +14,7 @@ import {
   InputOTPGroup,
   InputOTPSlot,
 } from "@/components/ui/input-otp";
+import { Button } from "@/components/ui/button";
 
 type Step = "pin" | "qr";
 
@@ -29,7 +30,9 @@ export function ExportVaultDialog({
   const [step, setStep] = React.useState<Step>("pin");
   const [pin, setPin] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = React.useState<string | null>(null);
   const [exportUrl, setExportUrl] = React.useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = React.useState<string | null>(null);
   const otpRef = React.useRef<HTMLDivElement>(null);
@@ -44,11 +47,49 @@ export function ExportVaultDialog({
       setStep("pin");
       setPin("");
       setError(null);
+      setSaveStatus(null);
       setExportUrl(null);
       setQrDataUrl(null);
       window.vault.stopExportServer();
     }
   }, [open]);
+
+  async function handleSaveToDisk() {
+    if (pin.length < 4) {
+      setSaveStatus("Enter your PIN first.");
+      return;
+    }
+
+    setSaving(true);
+    setSaveStatus(null);
+    setError(null);
+
+    try {
+      const result = await window.vault.saveExportFile(pin);
+      if (!result.ok) {
+        if (result.reason === "invalid_pin") {
+          setError("Incorrect PIN. Please try again.");
+          setPin("");
+          requestAnimationFrame(focusOtp);
+          return;
+        }
+
+        if (result.reason === "no_vault") {
+          setSaveStatus("No vault data is available to export.");
+          return;
+        }
+
+        setSaveStatus("Save cancelled.");
+        return;
+      }
+
+      setSaveStatus("Vault file saved successfully.");
+    } catch {
+      setSaveStatus("Failed to save vault file.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function handlePinComplete(value: string) {
     if (value.length < 4) return;
@@ -162,6 +203,22 @@ export function ExportVaultDialog({
                   </p>
                 </div>
               )}
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleSaveToDisk}
+                disabled={saving || loading}
+              >
+                {saving ? "Saving..." : "Save Vault File to Disk"}
+              </Button>
+
+              <div className="h-4 w-full text-center">
+                {saveStatus && (
+                  <p className="text-xs text-muted-foreground">{saveStatus}</p>
+                )}
+              </div>
             </div>
           </>
         )}
