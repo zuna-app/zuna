@@ -1,6 +1,5 @@
 import { View, Text, Pressable, StyleSheet, ActionSheetIOS, Platform, Alert } from 'react-native';
 import { CheckIcon, CheckCheckIcon, ClockIcon } from 'lucide-react-native';
-import { Avatar } from '@/components/ui/avatar';
 import { AttachmentCard } from './AttachmentCard';
 import { ReplyBubble } from './ReplyBubble';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
@@ -10,8 +9,6 @@ interface Props {
   plaintext: string | undefined;
   attachmentMeta: AttachmentMeta | undefined;
   sharedSecret: string | null;
-  senderName: string;
-  senderAvatar?: string | null;
   senderIdentityKey: string;
   server: Server;
   onReply: (msg: Message) => void;
@@ -20,7 +17,6 @@ interface Props {
   onPin: (id: number) => void;
   onScrollToMessage: (id: number) => void;
   onImagePress: (uri: string) => void;
-  showAvatar: boolean;
 }
 
 type Status = 'pending' | 'sent' | 'read';
@@ -40,8 +36,6 @@ export function MessageBubble({
   plaintext,
   attachmentMeta,
   sharedSecret,
-  senderName,
-  senderAvatar,
   senderIdentityKey,
   server,
   onReply,
@@ -50,7 +44,6 @@ export function MessageBubble({
   onPin,
   onScrollToMessage,
   onImagePress,
-  showAvatar,
 }: Props) {
   const isOwn = message.isOwn;
   const status = getStatus(message);
@@ -101,17 +94,9 @@ export function MessageBubble({
 
   return (
     <View style={[styles.row, isOwn && styles.rowOwn]}>
-      {!isOwn && (
-        <View style={styles.avatarSlot}>
-          {showAvatar ? <Avatar name={senderName} size={30} uri={senderAvatar ?? null} /> : null}
-        </View>
-      )}
-
       <Pressable
         style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}
         onLongPress={showActions}>
-        {!isOwn && showAvatar && <Text style={styles.senderName}>{senderName}</Text>}
-
         {message.isReply && message.replyInfo && (
           <ReplyBubble
             replyInfo={message.replyInfo}
@@ -132,27 +117,41 @@ export function MessageBubble({
 
         {hasPendingUpload && (
           <View style={styles.uploadProgress}>
-            <View style={[styles.progressBar, { width: `${message.uploadProgress}%` }]} />
+            <View style={[styles.progressBar, { width: `${message.uploadProgress ?? 0}%` }]} />
             <Text style={styles.uploadText}>{message.uploadProgress}%</Text>
           </View>
         )}
 
         {text || !message.attachmentId ? (
-          <Text style={[styles.text, isOwn && styles.textOwn]}>{text || ''}</Text>
-        ) : null}
-
-        <View style={styles.footer}>
-          {message.modified && <Text style={styles.edited}>(edited)</Text>}
-          {message.pinned && <Text style={styles.pinned}>📌</Text>}
-          <Text style={styles.time}>{formatTime(message.sentAt)}</Text>
-          {isOwn && (
-            <View style={styles.statusIcon}>
-              {status === 'pending' && <ClockIcon size={12} color="#71717a" />}
-              {status === 'sent' && <CheckIcon size={12} color="#71717a" />}
-              {status === 'read' && <CheckCheckIcon size={12} color="#60a5fa" />}
+          <View style={styles.textRow}>
+            <Text style={[styles.text, isOwn && styles.textOwn]}>{text || ''}</Text>
+            <View style={styles.footer}>
+              {message.modified && <Text style={styles.edited}>(edited)</Text>}
+              {message.pinned && <Text style={styles.pinned}>📌</Text>}
+              <Text style={styles.time}>{formatTime(message.sentAt)}</Text>
+              {isOwn && (
+                <View style={styles.statusIcon}>
+                  {status === 'pending' && <ClockIcon size={12} color="#71717a" />}
+                  {status === 'sent' && <CheckIcon size={12} color="#71717a" />}
+                  {status === 'read' && <CheckCheckIcon size={12} color="#60a5fa" />}
+                </View>
+              )}
             </View>
-          )}
-        </View>
+          </View>
+        ) : (
+          <View style={styles.footer}>
+            {message.modified && <Text style={styles.edited}>(edited)</Text>}
+            {message.pinned && <Text style={styles.pinned}>📌</Text>}
+            <Text style={styles.time}>{formatTime(message.sentAt)}</Text>
+            {isOwn && (
+              <View style={styles.statusIcon}>
+                {status === 'pending' && <ClockIcon size={12} color="#71717a" />}
+                {status === 'sent' && <CheckIcon size={12} color="#71717a" />}
+                {status === 'read' && <CheckCheckIcon size={12} color="#60a5fa" />}
+              </View>
+            )}
+          </View>
+        )}
       </Pressable>
     </View>
   );
@@ -167,7 +166,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   rowOwn: { flexDirection: 'row-reverse' },
-  avatarSlot: { width: 30 },
   bubble: {
     maxWidth: '78%',
     borderRadius: 18,
@@ -177,15 +175,20 @@ const styles = StyleSheet.create({
   },
   bubbleOwn: { backgroundColor: '#27272a', borderBottomRightRadius: 4 },
   bubbleOther: { backgroundColor: '#18181b', borderBottomLeftRadius: 4 },
-  senderName: { color: '#a1a1aa', fontSize: 12, fontWeight: '600', marginBottom: 2 },
-  text: { color: '#fff', fontSize: 15, lineHeight: 21 },
+  text: { color: '#fff', fontSize: 15, lineHeight: 21, flexShrink: 1 },
   textOwn: { color: '#f4f4f5' },
+  textRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     alignSelf: 'flex-end',
-    marginTop: 2,
+    marginBottom: 1,
   },
   time: { color: '#71717a', fontSize: 11 },
   edited: { color: '#52525b', fontSize: 11 },

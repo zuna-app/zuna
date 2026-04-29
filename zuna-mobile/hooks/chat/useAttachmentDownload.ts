@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -20,7 +21,8 @@ export function useAttachmentDownload(
   attachmentId: string | undefined,
   senderIdentityKey: string,
   mimeType: string,
-  autoFetch = false
+  autoFetch = false,
+  fileName?: string
 ) {
   const [uri, setUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -42,9 +44,11 @@ export function useAttachmentDownload(
     setError(null);
 
     try {
-      // Check cache first
-      const cacheKey = attachmentId.replace(/[^a-z0-9]/gi, '_');
-      const cacheFile = `${CACHE_DIR}${cacheKey}`;
+      // Use original filename so the OS can identify the file type when sharing
+      const safeName = fileName
+        ? fileName.replace(/[^a-z0-9._-]/gi, '_')
+        : attachmentId.replace(/[^a-z0-9]/gi, '_');
+      const cacheFile = `${CACHE_DIR}${safeName}`;
       const cacheInfo = await FileSystem.getInfoAsync(cacheFile);
 
       if (cacheInfo.exists) {
@@ -77,12 +81,19 @@ export function useAttachmentDownload(
       });
 
       setUri(cacheFile);
+
+      // For non-image/video files: save directly to user-chosen folder on Android,
+      // or open share sheet with "Save to Files" on iOS.
+      const isMedia = mimeType.startsWith('image/') || mimeType.startsWith('video/');
+      if (!isMedia) {
+        await saveToFiles(cacheFile, fileName ?? 'file', mimeType);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed');
     } finally {
       setLoading(false);
     }
-  }, [attachmentId, server, senderIdentityKey, vault, tokens]);
+  }, [attachmentId, fileName, mimeType, server, senderIdentityKey, vault, tokens]);
 
   // Auto-fetch images on mount
   if (autoFetch && !didAutoFetch.current && attachmentId) {
@@ -100,12 +111,35 @@ export function useAttachmentDownload(
       if (status !== 'granted') return;
       await MediaLibrary.saveToLibraryAsync(uri);
     } else {
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType, dialogTitle: 'Save file' });
-      }
+      await saveToFiles(uri, fileName ?? 'file', mimeType);
     }
-  }, [uri, mimeType]);
+  }, [uri, mimeType, fileName]);
 
   return { uri, loading, error, download, saveFile };
+}
+
+async function saveToFiles(cacheUri: string, name: string, mimeType: string): Promise<void> {
+  if (Platform.OS === 'android') {
+    // StorageAccessFramework opens a folder picker and writes the file directly —
+    // no share sheet, file lands in the chosen directory (e.g. Downloads).
+    const { StorageAccessFramework } = FileSystem;
+    const result = await StorageAccessFramework.requestDirectoryPermissionsAsync();
+    if (!result.granted) return;
+    const directoryUri = result.directoryUri;
+
+    const safeName = name.replace(/[^a-z0-9._-]/gi, '_');
+    const destUri = await StorageAccessFramework.createFileAsync(directoryUri, safeName, mimeType);
+    const b64 = await FileSystem.readAsStringAsync(cacheUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    await FileSystem.writeAsStringAsync(destUri, b64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+  } else {
+    // iOS: share sheet with "Save to Files" as the primary option
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(cacheUri, { mimeType, UTI: mimeType, dialogTitle: 'Save file' });
+    }
+  }
 }

@@ -10,16 +10,12 @@ import {
 import { MessageBubble } from './MessageBubble';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
 
-const FIVE_MIN = 5 * 60 * 1000;
-
 interface Props {
   messages: Message[];
   loading: boolean;
   hasMore: boolean;
   sharedSecret: string | null;
   server: Server;
-  senderName: string;
-  senderAvatar?: string | null;
   senderIdentityKey: string;
   getPlaintext: (msg: Message) => string | undefined;
   getAttachmentMeta: (msg: Message) => AttachmentMeta | undefined;
@@ -38,8 +34,6 @@ export function MessageList({
   hasMore,
   sharedSecret,
   server,
-  senderName,
-  senderAvatar,
   senderIdentityKey,
   getPlaintext,
   getAttachmentMeta,
@@ -54,56 +48,58 @@ export function MessageList({
   const listRef = useRef<FlashList<Message>>(null);
   const isAtBottomRef = useRef(true);
   const prevLengthRef = useRef(messages.length);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scrollToNewest = useCallback((animated: boolean) => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: 0, animated });
+      scrollTimerRef.current = null;
+    }, 100);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    };
+  }, []);
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
+    if (messages.length === 0) return;
+
     const prevLen = prevLengthRef.current;
     prevLengthRef.current = messages.length;
 
-    if (messages.length <= prevLen) return; // no new messages (e.g. pagination prepend)
+    if (messages.length <= prevLen) return; // pagination, don't scroll
 
     const lastMsg = messages[messages.length - 1];
     if (lastMsg?.isOwn || isAtBottomRef.current) {
-      // Small delay so FlashList has laid out the new item
-      requestAnimationFrame(() => {
-        listRef.current?.scrollToEnd({ animated: true });
-      });
+      scrollToNewest(true);
     }
-  }, [messages.length]);
+  }, [messages.length, scrollToNewest]);
 
+  // With inverted list, offset 0 = newest messages (visual bottom)
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    isAtBottomRef.current = distanceFromBottom < 80;
+    isAtBottomRef.current = e.nativeEvent.contentOffset.y < 80;
   }, []);
 
   useEffect(() => {
     if (scrollToId == null) return;
     const idx = messages.findIndex((m) => m.id === scrollToId);
     if (idx !== -1) {
-      listRef.current?.scrollToIndex({ index: idx, animated: true });
+      // inverted list: index in reversed array
+      listRef.current?.scrollToIndex({ index: messages.length - 1 - idx, animated: true });
     }
   }, [scrollToId]);
 
-  function shouldShowAvatar(index: number): boolean {
-    const msg = messages[index];
-    if (msg.isOwn) return false;
-    const next = messages[index + 1];
-    if (!next) return true;
-    if (next.senderId !== msg.senderId) return true;
-    if (msg.sentAt - next.sentAt > FIVE_MIN) return true;
-    return false;
-  }
-
   const renderItem = useCallback(
-    ({ item, index }: ListRenderItemInfo<Message>) => (
+    ({ item }: ListRenderItemInfo<Message>) => (
       <MessageBubble
         message={item}
         plaintext={getPlaintext(item)}
         attachmentMeta={getAttachmentMeta(item)}
         sharedSecret={sharedSecret}
-        senderName={senderName}
-        senderAvatar={senderAvatar}
         senderIdentityKey={senderIdentityKey}
         server={server}
         onReply={onReply}
@@ -112,19 +108,20 @@ export function MessageList({
         onPin={onPin}
         onScrollToMessage={(id) => {
           const idx = messages.findIndex((m) => m.id === id);
-          if (idx !== -1) listRef.current?.scrollToIndex({ index: idx, animated: true });
+          if (idx !== -1)
+            listRef.current?.scrollToIndex({ index: messages.length - 1 - idx, animated: true });
         }}
         onImagePress={onImagePress}
-        showAvatar={shouldShowAvatar(index)}
       />
     ),
-    [messages, getPlaintext, getAttachmentMeta, sharedSecret, senderName, server]
+    [messages, getPlaintext, getAttachmentMeta, sharedSecret, server]
   );
 
   return (
     <FlashList
       ref={listRef}
-      data={messages}
+      data={[...messages].reverse()}
+      inverted
       estimatedItemSize={72}
       keyExtractor={(m, i) => (m.id != null ? String(m.id) : `local-${m.localId}-${i}`)}
       renderItem={renderItem}
@@ -133,7 +130,7 @@ export function MessageList({
       scrollEventThrottle={100}
       onEndReached={hasMore ? onFetchMore : undefined}
       onEndReachedThreshold={0.3}
-      ListFooterComponent={
+      ListHeaderComponent={
         loading ? (
           <View style={styles.loader}>
             <ActivityIndicator color="#71717a" />

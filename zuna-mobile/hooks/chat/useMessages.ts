@@ -669,7 +669,7 @@ export function useMessages(
         });
 
         // Cleanup temp file
-        (await import('expo-file-system'))
+        (await import('expo-file-system/legacy'))
           .deleteAsync(tempUri, { idempotent: true })
           .catch(() => {});
       } catch (err) {
