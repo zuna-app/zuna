@@ -1,6 +1,6 @@
 import * as React from "react";
 import { REGEXP_ONLY_DIGITS } from "input-otp";
-import { DownloadIcon, LockIcon, ServerIcon } from "lucide-react";
+import { AlertTriangleIcon, DownloadIcon, LockIcon, ServerIcon } from "lucide-react";
 import QRCode from "qrcode";
 import {
   Dialog,
@@ -15,6 +15,11 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 import { Button } from "@/components/ui/button";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 
 type Step = "pin" | "qr";
 
@@ -120,6 +125,17 @@ export function ExportVaultDialog({
     }
   }
 
+  const securityWarning = (
+    <Alert variant="destructive" className="w-full">
+      <AlertTriangleIcon aria-hidden="true" />
+      <AlertTitle>Security Warning</AlertTitle>
+      <AlertDescription>
+        Keep your vault private and never share it with anyone. It is your
+        identity on connected servers.
+      </AlertDescription>
+    </Alert>
+  );
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-sm">
@@ -170,6 +186,8 @@ export function ExportVaultDialog({
                   <p className="text-xs text-muted-foreground">Verifying…</p>
                 )}
               </div>
+
+              <div className="-mt-8 w-full">{securityWarning}</div>
             </div>
           </>
         ) : (
@@ -177,11 +195,11 @@ export function ExportVaultDialog({
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <ServerIcon className="size-4" />
-                Download Vault
+                Export Vault
               </DialogTitle>
               <DialogDescription>
                 Scan the QR code with your phone or open the URL on another
-                device. Do not close this until export is complete.
+                device. Do not close this window until export is complete.
               </DialogDescription>
             </DialogHeader>
 
@@ -219,6 +237,8 @@ export function ExportVaultDialog({
                   <p className="text-xs text-muted-foreground">{saveStatus}</p>
                 )}
               </div>
+
+              <div className="-mt-8 w-full">{securityWarning}</div>
             </div>
           </>
         )}
