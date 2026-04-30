@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "minimal",
-    "slug": "minimal",
+    "name": "Zuna",
+    "slug": "zuna",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -16,14 +16,22 @@
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "chat.zuna.mobile",
+      "entitlements": {
+        "keychain-access-groups": [
+          "$(AppIdentifierPrefix)$(CFBundleIdentifier)",
+          "group.chat.zuna",
+          "$(AppIdentifierPrefix)group.chat.zuna"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.anonymous.minimal"
+      "package": "chat.zuna.mobile"
     },
     "web": {
       "bundler": "metro",

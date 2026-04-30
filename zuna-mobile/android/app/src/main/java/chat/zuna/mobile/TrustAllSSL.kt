@@ -1,4 +1,4 @@
-package com.anonymous.minimal
+package chat.zuna.mobile
 
 import android.annotation.SuppressLint
 import java.security.SecureRandom

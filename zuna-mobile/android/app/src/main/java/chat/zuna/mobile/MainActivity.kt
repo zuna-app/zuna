@@ -1,4 +1,4 @@
-package com.anonymous.minimal
+package chat.zuna.mobile
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

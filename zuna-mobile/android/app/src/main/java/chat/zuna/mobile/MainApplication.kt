@@ -1,4 +1,4 @@
-package com.anonymous.minimal
+package chat.zuna.mobile
 
 import com.facebook.react.modules.network.OkHttpClientProvider
 import android.app.Application
