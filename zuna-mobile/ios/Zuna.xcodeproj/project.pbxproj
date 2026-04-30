@@ -14,6 +14,7 @@
 		D90D485927AB100D5C01E9C8 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 156CDAC5B6907BD7891EAEBE /* ExpoModulesProvider.swift */; };
 		EEAB74DF7B120C2A1DFE4491 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1EC3E298636ECBAC88828FA3 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		D715D11DA8924991889C5B8C /* TrustAllCerts.m in Sources */ = {isa = PBXBuildFile; fileRef = 6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Zuna/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Zuna-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Zuna-Bridging-Header.h"; path = "Zuna/Zuna-Bridging-Header.h"; sourceTree = "<group>"; };
 		F676415F29704D4415CEB776 /* Pods-Zuna.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Zuna.debug.xcconfig"; path = "Target Support Files/Pods-Zuna/Pods-Zuna.debug.xcconfig"; sourceTree = "<group>"; };
+		6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */ = {isa = PBXFileReference; name = "TrustAllCerts.m"; path = "Zuna/TrustAllCerts.m"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +56,7 @@
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				1EC3E298636ECBAC88828FA3 /* PrivacyInfo.xcprivacy */,
+				6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */,
 			);
 			name = Zuna;
 			sourceTree = "<group>";
@@ -335,6 +338,7 @@
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				D90D485927AB100D5C01E9C8 /* ExpoModulesProvider.swift in Sources */,
+				D715D11DA8924991889C5B8C /* TrustAllCerts.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,7 +372,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = chat.zuna.mobile;
-				PRODUCT_NAME = Zuna;
+				PRODUCT_NAME = "Zuna";
 				SWIFT_OBJC_BRIDGING_HEADER = "Zuna/Zuna-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -399,7 +403,7 @@
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = chat.zuna.mobile;
-				PRODUCT_NAME = Zuna;
+				PRODUCT_NAME = "Zuna";
 				SWIFT_OBJC_BRIDGING_HEADER = "Zuna/Zuna-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
