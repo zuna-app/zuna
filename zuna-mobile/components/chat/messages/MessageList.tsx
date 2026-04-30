@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useMemo } from 'react';
 import { FlashList, ListRenderItemInfo } from '@shopify/flash-list';
 import {
   View,
@@ -49,6 +49,7 @@ export function MessageList({
   const isAtBottomRef = useRef(true);
   const prevLengthRef = useRef(messages.length);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
   const scrollToNewest = useCallback((animated: boolean) => {
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
@@ -120,10 +121,14 @@ export function MessageList({
   return (
     <FlashList
       ref={listRef}
-      data={[...messages].reverse()}
+      data={reversedMessages}
       inverted
       estimatedItemSize={72}
-      keyExtractor={(m, i) => (m.id != null ? String(m.id) : `local-${m.localId}-${i}`)}
+      keyExtractor={(m) => {
+        if (m.localId != null) return `local-${m.localId}`;
+        if (m.id != null) return `id-${m.id}`;
+        return `fallback-${m.senderId}-${m.sentAt}`;
+      }}
       renderItem={renderItem}
       extraData={getPlaintext}
       onScroll={handleScroll}

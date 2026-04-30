@@ -109,7 +109,6 @@ export function useMessages(
                 id: payload.id,
                 sentAt: payload.created_at,
                 pending: false,
-                localId: null,
                 uploadProgress: undefined,
                 attachmentId: payload.attachment_id ?? m.attachmentId,
                 attachmentMetadata: payload.attachment_metadata ?? m.attachmentMetadata,
@@ -132,6 +131,39 @@ export function useMessages(
 
         setMessages((prev) => {
           if (prev.some((m) => m.id === payload.id)) return prev;
+
+          // The sender can receive its own MESSAGE_RECEIVE before/after MESSAGE_ACK.
+          // Reconcile against the optimistic row instead of appending a duplicate.
+          const optimisticOwnIdx = prev.findIndex(
+            (m) =>
+              m.isOwn &&
+              m.pending &&
+              m.cipherText === payload.cipher_text &&
+              m.iv === payload.iv &&
+              m.authTag === payload.auth_tag
+          );
+
+          if (optimisticOwnIdx !== -1) {
+            return prev.map((m, idx) =>
+              idx === optimisticOwnIdx
+                ? {
+                    ...m,
+                    id: payload.id,
+                    sentAt: payload.created_at,
+                    pending: false,
+                    attachmentId: payload.attachment_id,
+                    attachmentMetadata: payload.attachment_metadata,
+                    attachmentMetadataIv: payload.attachment_metadata_iv,
+                    attachmentMetadataAuthTag: payload.attachment_metadata_auth_tag,
+                    modified: payload.modified ?? m.modified,
+                    pinned: payload.pinned ?? m.pinned,
+                    isReply: payload.is_reply,
+                    replyInfo: payload.reply_info,
+                  }
+                : m
+            );
+          }
+
           return [
             ...prev,
             {
