@@ -16,6 +16,8 @@ import { canUseBiometrics, authenticateWithBiometrics } from '@/lib/biometrics';
 import 'react-native-get-random-values';
 import { fetchAndUpdateServerInfos } from '@/hooks/auth/useAuthorizer';
 
+import * as LocalAuthentication from 'expo-local-authentication';
+
 export default function Index() {
   const router = useRouter();
   const setVault = useSetAtom(vaultAtom, { store: jotaiStore });
@@ -24,6 +26,26 @@ export default function Index() {
   const setSelectedServer = useSetAtom(selectedServerAtom, { store: jotaiStore });
 
   useEffect(() => {
+    async function auth(sessionPin: string) {
+      try {
+        const vault = await unlockVault(sessionPin);
+        setVault(vault);
+        setVaultPin(sessionPin);
+        const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
+        setServerList(servers);
+        if (servers.length > 0) {
+          setSelectedServer(servers[0]);
+          await fetchAndUpdateServerInfos(servers);
+          router.replace(`/(app)/${servers[0].id}` as any);
+        } else {
+          router.replace('/(app)/join' as any);
+        }
+        return;
+      } catch {
+        await clearSession();
+      }
+    }
+
     async function init() {
       const imported = await isVaultImported();
       if (!imported) {
@@ -33,31 +55,25 @@ export default function Index() {
 
       const sessionPin = await getSessionPin();
       if (sessionPin) {
+        const isWeakAuth = await LocalAuthentication.getEnrolledLevelAsync().then(
+          (level) => level === LocalAuthentication.SecurityLevel.NONE
+        );
+        if (isWeakAuth) {
+          await clearSession();
+          router.replace('/setup/pin' as any);
+          return;
+        }
         //const hasBio = await canUseBiometrics();
         //if (hasBio) {
         //  const bioSuccess = await authenticateWithBiometrics('Unlock Zuna');
         //  if (bioSuccess) {
-        try {
-          const vault = await unlockVault(sessionPin);
-          setVault(vault);
-          setVaultPin(sessionPin);
-          const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
-          setServerList(servers);
-          if (servers.length > 0) {
-            setSelectedServer(servers[0]);
-            await fetchAndUpdateServerInfos(servers);
-            router.replace(`/(app)/${servers[0].id}` as any);
-          } else {
-            router.replace('/(app)/join' as any);
-          }
-          return;
-        } catch {
-          await clearSession();
-        }
+        auth(sessionPin);
+        return;
         //  }
         //}
       }
 
+      // if not unlocked with session, go to PIN entry
       router.replace('/setup/pin' as any);
     }
 
