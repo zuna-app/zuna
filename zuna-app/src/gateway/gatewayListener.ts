@@ -7,7 +7,6 @@ import type { Server } from "../types/serverTypes";
 import { verifySignature } from "@/crypto/ed25519";
 import { setBadgeCount } from "@/utils/badge";
 import { sendNotification } from "../notification/notification";
-import { getNotificationWindowHost } from "../notification/host";
 
 interface NotificationInfoPayload {
   server_id: string;
@@ -24,6 +23,7 @@ interface WsMessage {
   payload: unknown;
 }
 
+// keyed by server.id
 const activeConnections = new Map<string, WebSocket>();
 export let unreadMessagesBadge = 0;
 
@@ -36,31 +36,17 @@ export function startGatewayListeners(): void {
   stopGatewayListeners();
 
   let serverList: Server[];
-  let gatewayRecord: Record<string, string>;
-
   try {
     serverList = (vaultGet("serverList") as Server[] | null) ?? [];
-    const raw = vaultGet("gatewayList") as string | null;
-    gatewayRecord = raw ? (JSON.parse(raw) as Record<string, string>) : {};
   } catch {
     console.error(
-      "Failed to load server or gateway list from vault, skipping gateway listener setup",
+      "Failed to load server list from vault, skipping notification listener setup",
     );
     return;
   }
 
-  // Group servers by unique gateway address to avoid duplicate connections
-  const gatewayToServers = new Map<string, Server[]>();
   for (const server of serverList) {
-    const gwAddr = gatewayRecord[server.id];
-    if (!gwAddr) continue;
-    const list = gatewayToServers.get(gwAddr) ?? [];
-    list.push(server);
-    gatewayToServers.set(gwAddr, list);
-  }
-
-  for (const [address, servers] of gatewayToServers) {
-    connectToGateway(address, servers);
+    connectToServer(server);
   }
 }
 
@@ -71,30 +57,28 @@ export function stopGatewayListeners(): void {
   activeConnections.clear();
 }
 
-function connectToGateway(address: string, servers: Server[]): void {
-  const ws = new WebSocket(`wss://${address}/ws`);
-  activeConnections.set(address, ws);
+function connectToServer(server: Server): void {
+  const ws = new WebSocket(`wss://${server.address}/ws/notify`, {
+    rejectUnauthorized: false,
+  });
+  activeConnections.set(server.id, ws);
 
   ws.on("open", () => {
-    for (const server of servers) {
-      ws.send(
-        JSON.stringify({
-          type: "register_request",
-          payload: {
-            user_id: server.id,
-            server_id: server.serverId ? [server.serverId] : [],
-            mobile: false,
-          },
-        }),
-      );
-    }
+    ws.send(
+      JSON.stringify({
+        type: "register_request",
+        payload: {
+          user_id: server.id,
+        },
+      }),
+    );
   });
 
   ws.on("message", (data) => {
     try {
       const msg = JSON.parse(data.toString()) as WsMessage;
       if (msg.type === "notification_info") {
-        handleNotification(msg.payload as NotificationInfoPayload);
+        handleNotification(msg.payload as NotificationInfoPayload, server);
       }
     } catch {
       // ignore malformed frames
@@ -102,11 +86,11 @@ function connectToGateway(address: string, servers: Server[]): void {
   });
 
   ws.on("close", () => {
-    activeConnections.delete(address);
+    activeConnections.delete(server.id);
     // Reconnect after 5s unless listeners were stopped
     setTimeout(() => {
-      if (!activeConnections.has(address)) {
-        connectToGateway(address, servers);
+      if (!activeConnections.has(server.id)) {
+        connectToServer(server);
       }
     }, 5000);
   });
@@ -116,7 +100,10 @@ function connectToGateway(address: string, servers: Server[]): void {
   });
 }
 
-function handleNotification(payload: NotificationInfoPayload): void {
+function handleNotification(
+  payload: NotificationInfoPayload,
+  server: Server,
+): void {
   try {
     const encPrivateKey = vaultGet("encPrivateKey") as string | null;
     if (!encPrivateKey) return;
@@ -130,10 +117,6 @@ function handleNotification(payload: NotificationInfoPayload): void {
       iv: payload.iv,
       authTag: payload.auth_tag,
     });
-
-    const serverList = (vaultGet("serverList") as Server[] | null) ?? [];
-    const server = serverList.find((s) => s.serverId === payload.server_id);
-    if (!server) return;
 
     const serverPublicKey = server.publicKey;
     if (!serverPublicKey) return;

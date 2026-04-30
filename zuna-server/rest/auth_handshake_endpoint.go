@@ -21,7 +21,6 @@ type HandshakeResponse struct {
 	Nonce            string `json:"nonce"`
 	SevenTvEnabled   bool   `json:"seven_tv_enabled"`
 	SevenTvEmotesSet string `json:"seven_tv_emotes_set"`
-	GatewayAddress   string `json:"gateway_address"`
 }
 
 func AuthHandshakeEndpoint(c *echo.Context) error {
@@ -61,6 +60,5 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 		Nonce:            userData.Ed25519Nonce,
 		SevenTvEnabled:   config.Config.SevenTv.Enabled,
 		SevenTvEmotesSet: config.Config.SevenTv.EmotesSet,
-		GatewayAddress:   config.Config.Gateway.Address,
 	})
 }

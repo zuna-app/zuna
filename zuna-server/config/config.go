@@ -50,12 +50,6 @@ type SevenTvConfig struct {
 	EmotesSet string `toml:"emotes_set" comment:"7TV emotes set URL"`
 }
 
-type GatewayConfig struct {
-	Address         string `toml:"address"`
-	Password        string `toml:"password" comment:"Gateway password, may be empty for public gateway"`
-	AllowSelfSigned bool   `toml:"allow_self_signed" comment:"Allow self-signed TLS certificate for gateway connection"`
-}
-
 type LiveKitConfig struct {
 	Enabled   bool   `toml:"enabled" comment:"Enable LiveKit (self-hosted) - required for calls and screen sharing"`
 	ApiKey    string `toml:"api_key" comment:"LiveKit API key - same as in LiveKit configuration"`
@@ -79,7 +73,6 @@ type Configuration struct {
 	Server       ServerConfig  `toml:"server" comment:"Zuna server settings"`
 	LiveKit      LiveKitConfig `toml:"livekit" comment:"LiveKit settings, required for calls and screen sharing"`
 	Limits       LimitsConfig  `toml:"limits" comment:"Limits for various server parameters"`
-	Gateway      GatewayConfig `toml:"gateway" comment:"Gateway server configuration, required for sending push notification to clients"`
 	TLS          TLSConfig     `toml:"tls" comment:"TLS configuration"`
 }
 
@@ -117,11 +110,6 @@ var Config = Configuration{
 	SevenTv: SevenTvConfig{
 		Enabled:   true,
 		EmotesSet: "global",
-	},
-	Gateway: GatewayConfig{
-		Address:         "gateway.zuna.chat",
-		Password:        "0cTriEzbSi34XYc62zXMVCPEd9qkDSXJ",
-		AllowSelfSigned: false,
 	},
 	LiveKit: LiveKitConfig{
 		Enabled:   false,

@@ -77,7 +77,8 @@ contextBridge.exposeInMainWorld("vault", {
   startExportServer: (pin: string) =>
     ipcRenderer.invoke("vault:startExportServer", pin),
   stopExportServer: () => ipcRenderer.invoke("vault:stopExportServer"),
-  saveExportFile: (pin: string) => ipcRenderer.invoke("vault:saveExportFile", pin),
+  saveExportFile: (pin: string) =>
+    ipcRenderer.invoke("vault:saveExportFile", pin),
 });
 
 contextBridge.exposeInMainWorld("cache", {

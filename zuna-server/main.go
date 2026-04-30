@@ -18,7 +18,6 @@ import (
 	"zuna.chat/zuna-server/db"
 	"zuna.chat/zuna-server/lk"
 	"zuna.chat/zuna-server/rest"
-	"zuna.chat/zuna-server/utils"
 	"zuna.chat/zuna-server/ws"
 
 	"github.com/rs/zerolog"
@@ -56,7 +55,6 @@ func main() {
 		return
 	}
 
-	utils.ValidateGatewayConnection()
 	go lk.CleanupRooms()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -120,8 +118,11 @@ func main() {
 	ws.HubInstance = ws.NewHub()
 	go ws.HubInstance.Run()
 
+	ws.NotifyHubInstance = ws.NewNotifyHub()
+
 	msgRouter := ws.NewMessageRouter(ws.HubInstance)
 	e.GET("/ws", ws.HandleWebSocket(ws.HubInstance, msgRouter))
+	e.GET("/ws/notify", ws.HandleNotifyWebSocket(ws.NotifyHubInstance))
 
 	log.Info().Str("bind-addr", config.Config.Server.BindAddress).Int("port", config.Config.Server.Port).Msg("starting server")
 
