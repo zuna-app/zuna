@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react';
-import { FlashList, ListRenderItemInfo } from '@shopify/flash-list';
 import {
+  FlatList,
+  ListRenderItemInfo,
   View,
   StyleSheet,
   ActivityIndicator,
@@ -9,6 +10,7 @@ import {
 } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
+import { FlashList } from '@shopify/flash-list';
 
 interface Props {
   messages: Message[];
@@ -45,9 +47,10 @@ export function MessageList({
   onImagePress,
   scrollToId,
 }: Props) {
-  const listRef = useRef<FlashList<Message>>(null);
+  const listRef = useRef<FlatList<Message>>(null);
   const isAtBottomRef = useRef(true);
-  const prevLengthRef = useRef(messages.length);
+  // Track the newest message key to distinguish new messages from pagination
+  const prevNewestKeyRef = useRef<string | null>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
@@ -65,20 +68,27 @@ export function MessageList({
     };
   }, []);
 
-  // Auto-scroll when new messages arrive
+  // Auto-scroll only when the newest message actually changes, not on pagination
   useEffect(() => {
     if (messages.length === 0) return;
 
-    const prevLen = prevLengthRef.current;
-    prevLengthRef.current = messages.length;
+    // messages is oldest-first; last element is the newest
+    const newest = messages[messages.length - 1];
+    // Use same key priority as keyExtractor: localId first, then id
+    const newestKey =
+      newest?.localId != null
+        ? `local-${newest.localId}`
+        : newest?.id != null
+          ? `id-${newest.id}`
+          : null;
 
-    if (messages.length <= prevLen) return; // pagination, don't scroll
+    if (newestKey === prevNewestKeyRef.current) return;
+    prevNewestKeyRef.current = newestKey;
 
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg?.isOwn || isAtBottomRef.current) {
+    if (newest?.isOwn || isAtBottomRef.current) {
       scrollToNewest(true);
     }
-  }, [messages.length, scrollToNewest]);
+  }, [messages, scrollToNewest]);
 
   // With inverted list, offset 0 = newest messages (visual bottom)
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -92,7 +102,7 @@ export function MessageList({
       // inverted list: index in reversed array
       listRef.current?.scrollToIndex({ index: messages.length - 1 - idx, animated: true });
     }
-  }, [scrollToId]);
+  }, [scrollToId, messages]);
 
   const renderItem = useCallback(
     ({ item }: ListRenderItemInfo<Message>) => (
@@ -119,11 +129,10 @@ export function MessageList({
   );
 
   return (
-    <FlashList
+    <FlatList
       ref={listRef}
       data={reversedMessages}
       inverted
-      estimatedItemSize={72}
       keyExtractor={(m) => {
         if (m.localId != null) return `local-${m.localId}`;
         if (m.id != null) return `id-${m.id}`;
@@ -135,7 +144,13 @@ export function MessageList({
       scrollEventThrottle={100}
       onEndReached={hasMore ? onFetchMore : undefined}
       onEndReachedThreshold={0.3}
-      ListHeaderComponent={
+      // Prevents scroll-position jump when older messages are prepended during pagination
+      maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+      onScrollToIndexFailed={() => {
+        listRef.current?.scrollToEnd({ animated: false });
+      }}
+      // ListFooterComponent = visual top (history loading indicator when scrolled up)
+      ListFooterComponent={
         loading ? (
           <View style={styles.loader}>
             <ActivityIndicator color="#71717a" />

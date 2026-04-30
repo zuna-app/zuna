@@ -4,15 +4,6 @@ type ServerRegistry = Map<string, HandlerSet>;
 
 const registries = new Map<string, ServerRegistry>();
 
-function wsRegistryDebug(serverId: string, event: string, details?: Record<string, unknown>) {
-  if (!__DEV__) return;
-  if (details) {
-    console.debug(`[ws-registry:${serverId}] ${event}`, details);
-    return;
-  }
-  console.debug(`[ws-registry:${serverId}] ${event}`);
-}
-
 function getRegistry(serverId: string): ServerRegistry {
   let reg = registries.get(serverId);
   if (!reg) {
@@ -34,16 +25,12 @@ export function registerHandler<P = unknown>(
     reg.set(type, set);
   }
   set.add(handler as Handler);
-  wsRegistryDebug(serverId, 'handler registered', { type, total: set.size });
   return () => {
     set!.delete(handler as Handler);
-    wsRegistryDebug(serverId, 'handler unregistered', { type, total: set!.size });
   };
 }
 
 export function dispatch(serverId: string, type: string, payload: unknown): void {
   const reg = getRegistry(serverId);
-  const handlers = reg.get(type);
-  wsRegistryDebug(serverId, 'dispatch', { type, handlers: handlers?.size ?? 0 });
-  handlers?.forEach((h) => h(payload));
+  reg.get(type)?.forEach((h) => h(payload));
 }

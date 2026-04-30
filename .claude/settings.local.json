@@ -3,7 +3,9 @@
     "allow": [
       "Bash(xargs grep *)",
       "Bash(xargs cat *)",
-      "Bash(grep -r \"fetch\\\\|axios\\\\|http\" /Users/mikigal/Desktop/zuna/zuna-mobile --include=\"*.ts\" --include=\"*.tsx\" ! -path \"*/node_modules/*\")"
+      "Bash(grep -r \"fetch\\\\|axios\\\\|http\" /Users/mikigal/Desktop/zuna/zuna-mobile --include=\"*.ts\" --include=\"*.tsx\" ! -path \"*/node_modules/*\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('expo:', d.get\\('dependencies',{}\\).get\\('expo'\\)\\); print\\('newArch:', d.get\\('expo',{}\\).get\\('newArchEnabled'\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('expo',{}\\).get\\('ios',{}\\), indent=2\\)\\)\")"
     ]
   }
 }
