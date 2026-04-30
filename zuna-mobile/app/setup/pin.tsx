@@ -14,6 +14,7 @@ import { canUseBiometrics, authenticateWithBiometrics } from '@/lib/biometrics';
 import { getSessionPin } from '@/lib/keychain';
 import { unlockVaultWithSession } from '@/lib/vault';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { fetchAndUpdateServerInfos } from '@/hooks/auth/useAuthorizer';
 
 const PIN_LENGTH = 4;
 
@@ -23,6 +24,7 @@ export default function PinScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const shakeAnim = useRef(new Animated.Value(0)).current;
 
@@ -32,7 +34,12 @@ export default function PinScreen() {
   const setSelectedServer = useSetAtom(selectedServerAtom, { store: jotaiStore });
 
   useEffect(() => {
-    canUseBiometrics().then(setHasBiometrics);
+    Promise.all([canUseBiometrics(), getSessionPin().then((pin) => !!pin)]).then(
+      ([bio, session]) => {
+        setHasBiometrics(bio);
+        setHasSession(session);
+      }
+    );
     // Auto-focus PIN input
     setTimeout(() => inputRef.current?.focus(), 400);
   }, []);
@@ -59,13 +66,14 @@ export default function PinScreen() {
       setServerList(servers);
       if (servers.length > 0) {
         setSelectedServer(servers[0]);
+        await fetchAndUpdateServerInfos(servers);
         router.replace(`/(app)/${servers[0].id}` as any);
       } else {
         router.replace('/(app)/join' as any);
       }
-    } catch {
+    } catch (e) {
       shake();
-      setError('Wrong PIN. Try again.');
+      setError('Wrong PIN. Try again.' + (e instanceof Error ? e.message : ''));
       setPin('');
     } finally {
       setLoading(false);
@@ -131,7 +139,7 @@ export default function PinScreen() {
           secureTextEntry
         />
 
-        {hasBiometrics && (
+        {hasBiometrics && hasSession && (
           <Pressable style={styles.biometricsBtn} onPress={handleBiometrics}>
             <Text style={styles.biometricsText}>Use Face ID / Biometrics</Text>
           </Pressable>
