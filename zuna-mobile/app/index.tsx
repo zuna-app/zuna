@@ -31,37 +31,33 @@ export default function Index() {
         return;
       }
 
-      // Try biometric unlock first; fall back to PIN screen on any failure
       const sessionPin = await getSessionPin();
       if (sessionPin) {
-        const hasBio = await canUseBiometrics();
-        if (hasBio) {
-          const bioSuccess = await authenticateWithBiometrics('Unlock Zuna');
-          if (bioSuccess) {
-            try {
-              const vault = await unlockVault(sessionPin);
-              setVault(vault);
-              setVaultPin(sessionPin);
-              const servers = Array.isArray(vault['serverList'])
-                ? (vault['serverList'] as any[])
-                : [];
-              setServerList(servers);
-              if (servers.length > 0) {
-                setSelectedServer(servers[0]);
-                await fetchAndUpdateServerInfos(servers);
-                router.replace(`/(app)/${servers[0].id}` as any);
-              } else {
-                router.replace('/(app)/join' as any);
-              }
-              return;
-            } catch {
-              await clearSession();
-            }
+        //const hasBio = await canUseBiometrics();
+        //if (hasBio) {
+        //  const bioSuccess = await authenticateWithBiometrics('Unlock Zuna');
+        //  if (bioSuccess) {
+        try {
+          const vault = await unlockVault(sessionPin);
+          setVault(vault);
+          setVaultPin(sessionPin);
+          const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
+          setServerList(servers);
+          if (servers.length > 0) {
+            setSelectedServer(servers[0]);
+            await fetchAndUpdateServerInfos(servers);
+            router.replace(`/(app)/${servers[0].id}` as any);
+          } else {
+            router.replace('/(app)/join' as any);
           }
+          return;
+        } catch {
+          await clearSession();
         }
+        //  }
+        //}
       }
 
-      // Biometrics unavailable, canceled, failed, or no session → ask for PIN
       router.replace('/setup/pin' as any);
     }
 
