@@ -13,6 +13,7 @@ export default defineConfig({
       srcDir: "src",
       filename: "sw.ts",
       registerType: "autoUpdate",
+      injectRegister: "inline",
       includeAssets: [
         "favicon.ico",
         "apple-touch-icon-180x180.png",
