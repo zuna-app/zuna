@@ -1,7 +1,10 @@
 import { app, safeStorage } from "electron";
 import fs from "fs";
 import path from "path";
-import { decryptWithPassword, encryptWithPassword } from "@/crypto/scrypt";
+import {
+  decryptWithPassword,
+  encryptWithPassword,
+} from "@zuna/shared/src/crypto";
 import {
   startGatewayListeners,
   stopGatewayListeners,

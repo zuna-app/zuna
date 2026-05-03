@@ -4,21 +4,8 @@ import https from "https";
 import os from "os";
 import crypto from "crypto";
 import forge from "node-forge";
-import { toBase64, fromBase64 } from "./crypto/base64";
 import { registerOgIPC } from "./og-ipc";
 import { registerShellIPC } from "./shell-ipc";
-import {
-  computeSharedSecret,
-  decrypt,
-  encrypt,
-  generateEncryptionKeyPair,
-} from "./crypto/x25519";
-import {
-  generateSigningKeyPair,
-  signMessage,
-  verifySignature,
-} from "./crypto/ed25519";
-import { decryptWithPassword, encryptWithPassword } from "./crypto/scrypt";
 import {
   getVaultBytes,
   importVault,
@@ -30,12 +17,7 @@ import {
   vaultSet,
   verifyPin,
 } from "./storage/safeVault";
-import { decryptFile, encryptFile } from "./crypto/file";
 import { getCacheByName } from "./storage/appCache";
-import {
-  startGatewayListeners,
-  stopGatewayListeners,
-} from "./gateway/gatewayListener";
 
 let exportServer: https.Server | null = null;
 
@@ -93,7 +75,7 @@ function generateEphemeralTlsCert(pcIp: string): { key: string; cert: string } {
 function getLocalIp(): string {
   const nets = os.networkInterfaces();
   for (const name of Object.keys(nets)) {
-    for (const net of (nets[name] ?? [])) {
+    for (const net of nets[name] ?? []) {
       if (net.family === "IPv4" && !net.internal) {
         return net.address;
       }
@@ -105,71 +87,6 @@ function getLocalIp(): string {
 export function registerIPC() {
   registerOgIPC();
   registerShellIPC();
-
-  ipcMain.handle(
-    "file:encryptFile",
-    (_, data: Uint8Array, receiverPublicKey: string) => {
-      return new Uint8Array(encryptFile(Buffer.from(data), receiverPublicKey));
-    },
-  );
-
-  ipcMain.handle(
-    "file:decryptFile",
-    (_, data: Uint8Array, senderPublicKey: string) => {
-      return new Uint8Array(decryptFile(Buffer.from(data), senderPublicKey));
-    },
-  );
-
-  ipcMain.handle("base64:encode", (_, str) => {
-    return toBase64(str);
-  });
-
-  ipcMain.handle("base64:decode", (_, base64) => {
-    return fromBase64(base64);
-  });
-
-  ipcMain.handle("x25519:generateEncryptionKeyPair", () => {
-    return generateEncryptionKeyPair();
-  });
-
-  ipcMain.handle(
-    "x25519:computeSharedSecret",
-    (_, privateKey: string, publicKey: string) => {
-      return computeSharedSecret(privateKey, publicKey);
-    },
-  );
-
-  ipcMain.handle(
-    "x25519:encrypt",
-    (_, sharedSecret: string, plaintext: string) => {
-      return encrypt(sharedSecret, plaintext);
-    },
-  );
-
-  ipcMain.handle(
-    "x25519:decrypt",
-    (_, sharedSecret: string, encryptedMessage) => {
-      return decrypt(sharedSecret, encryptedMessage);
-    },
-  );
-
-  ipcMain.handle("ed25519:generateSigningKeyPair", () => {
-    return generateSigningKeyPair();
-  });
-
-  ipcMain.handle(
-    "ed25519:signMessage",
-    (_, privateKey: string, message: string) => {
-      return signMessage(privateKey, message);
-    },
-  );
-
-  ipcMain.handle(
-    "ed25519:verifySignature",
-    (_, publicKey: string, serverId: string, signature: string) => {
-      return verifySignature(publicKey, serverId, signature);
-    },
-  );
 
   ipcMain.handle("window:minimize", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);

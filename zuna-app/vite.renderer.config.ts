@@ -3,16 +3,20 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const sharedSrcPath = path.resolve(__dirname, "../zuna-shared/src");
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": sharedSrcPath,
+      "@zuna/shared": path.resolve(sharedSrcPath, "index.ts"),
     },
   },
   optimizeDeps: {
     force: true,
+    exclude: ["@zuna/shared"],
     include: [
       "react",
       "react-dom",
@@ -25,12 +29,10 @@ export default defineConfig({
       "clsx",
       "tailwind-merge",
       "class-variance-authority",
-      "tweetnacl",
       "react-virtualized",
       "radix-ui",
       "next-themes",
       "sonner",
-      "react-hot-toast",
       "react-spinners",
       "react-dropzone",
       "react-icons",

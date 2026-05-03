@@ -1,5 +1,24 @@
 {
-  "dependencies": {
-    "react-hot-toast": "^2.6.0"
-  }
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "zuna-app",
+      "zuna-pwa",
+      "zuna-shared"
+    ],
+    "nohoist": [
+      "**/electron",
+      "**/electron/**"
+    ]
+  },
+  "devDependencies": {
+    "electron": "^41.2.0",
+    "turbo": "^2.5.4"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint"
+  },
+  "packageManager": "yarn@1.22.22"
 }

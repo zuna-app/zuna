@@ -2,10 +2,13 @@ import WebSocket from "ws";
 import { BrowserWindow, nativeImage, Notification } from "electron";
 import { vaultGet } from "../storage/safeVault";
 import { userCache } from "../storage/appCache";
-import { computeSharedSecret, decrypt } from "../crypto/x25519";
-import type { Server } from "../types/serverTypes";
-import { verifySignature } from "@/crypto/ed25519";
-import { setBadgeCount } from "@/utils/badge";
+import {
+  computeSharedSecret,
+  decrypt,
+  verifySignature,
+} from "@zuna/shared/src/crypto";
+import type { Server } from "@zuna/shared/src/types/serverTypes";
+import { setBadgeCount } from "../utils/badge";
 import { sendNotification } from "../notification/notification";
 
 interface NotificationInfoPayload {
