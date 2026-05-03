@@ -27,9 +27,9 @@ export function ActionButton({
           size="icon"
           onClick={onClick}
           disabled={disabled}
-          className="size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
+          className="size-8 md:size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
         >
-          <Icon className="size-4.25" />
+          <Icon className="size-4 md:size-4.25" />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top" className="text-xs">

@@ -22,9 +22,9 @@ export function SendButton({ canSend, canSendNow, onClick }: SendButtonProps) {
           size="icon"
           disabled={!canSend}
           onClick={onClick}
-          className="size-9 shrink-0 rounded-xl"
+          className="size-8 md:size-9 shrink-0 rounded-xl"
         >
-          <Send className="size-4" />
+          <Send className="size-3.75 md:size-4" />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top" className="text-xs">

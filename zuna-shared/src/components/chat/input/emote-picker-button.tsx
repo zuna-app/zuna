@@ -39,9 +39,9 @@ export function EmotePickerButton({
               variant="ghost"
               size="icon"
               disabled={disabled}
-              className="size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
+              className="size-8 md:size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors"
             >
-              <Smile className="size-4.25" />
+              <Smile className="size-4 md:size-4.25" />
             </Button>
           </PopoverTrigger>
         </TooltipTrigger>

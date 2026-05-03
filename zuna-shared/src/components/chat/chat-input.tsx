@@ -258,7 +258,7 @@ export function ChatInput({
   );
 
   return (
-    <div className="shrink-0 bg-background px-4 py-3">
+    <div className="shrink-0 bg-background px-2 md:px-4 py-3">
       {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
@@ -326,7 +326,7 @@ export function ChatInput({
       )}
 
       <div
-        className="flex items-end gap-1.5"
+        className="flex w-full min-w-0 items-end gap-1 md:gap-1.5"
         onMouseDown={(e) => {
           if (e.target !== textareaRef.current) e.preventDefault();
         }}
@@ -340,7 +340,7 @@ export function ChatInput({
 
         <div
           className={cn(
-            "relative flex-1 rounded-2xl bg-muted/40 dark:bg-muted/20 border border-transparent",
+            "relative min-w-0 flex-1 rounded-2xl bg-muted/40 dark:bg-muted/20 border border-transparent",
             "transition-[background-color,border-color,box-shadow] duration-150",
             "focus-within:bg-background focus-within:border-border focus-within:shadow-sm",
           )}
@@ -415,13 +415,13 @@ export function ChatInput({
                 setTimeout(() => textareaRef.current?.focus(), 0);
               }}
               className={cn(
-                "size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors",
+                "size-8 md:size-9 shrink-0 rounded-xl text-muted-foreground/70 hover:text-foreground hover:bg-muted/60 transition-colors",
                 codeMode
                   ? "bg-primary/15 text-primary hover:bg-primary/20"
                   : "",
               )}
             >
-              <Code2 className="size-3.5" />
+              <Code2 className="size-3.25 md:size-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
