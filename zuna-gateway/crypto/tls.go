@@ -82,7 +82,6 @@ func GenerateServerTLSCertificate() error {
 		IPAddresses: []net.IP{
 			net.ParseIP("127.0.0.1"),
 			net.ParseIP("::1"),
-			net.ParseIP(config.Config.TLS.PublicAddress),
 		},
 	}
 

@@ -24,8 +24,7 @@ type GatewayConfig struct {
 }
 
 type TLSConfig struct {
-	AutoGenerate  bool   `toml:"auto_generate" comment:"Automatically generate self-signed TLS certificate. If used in production better use domain and free LetsEncrypt certificates and provide your own certificate and key files."`
-	PublicAddress string `toml:"public_address" comment:"Public address of server, required if using auto generated certificate"`
+	AutoGenerate bool `toml:"auto_generate" comment:"Automatically generate self-signed TLS certificate. Enable only if you use reverse proxy with valid TLS certificate"`
 
 	CertFile string `toml:"cert_file" comment:"Path to TLS certificate file"`
 	KeyFile  string `toml:"key_file" comment:"Path to TLS key file"`
@@ -51,10 +50,9 @@ var Config = Configuration{
 		Password:    "",
 	},
 	TLS: TLSConfig{
-		AutoGenerate:  true,
-		PublicAddress: "1.2.3.4",
-		CertFile:      "server_tls_cert.pem",
-		KeyFile:       "server_tls_key.pem",
+		AutoGenerate: true,
+		CertFile:     "server_tls_cert.pem",
+		KeyFile:      "server_tls_key.pem",
 	},
 }
 
