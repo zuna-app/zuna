@@ -5,9 +5,11 @@ import (
 	"time"
 	"zuna-gateway/config"
 	"zuna-gateway/data"
+	"zuna-gateway/push"
 	"zuna-gateway/ws"
 
 	"github.com/labstack/echo/v5"
+	"github.com/rs/zerolog/log"
 )
 
 type NotificationRequest struct {
@@ -82,6 +84,36 @@ func NotificationEndpoint(c *echo.Context) error {
 			AuthTag:           req.AuthTag,
 			Signature:         req.Signature,
 		}})
+	}
+
+	if !connectedFromDesktop {
+		removedAny := false
+		for _, sub := range user.WebPushSubs {
+			expired, err := push.SendNotification(sub, push.NotificationPayload{
+				Type:              "notification_info",
+				ServerID:          req.ServerID,
+				SenderID:          req.SenderID,
+				SenderIdentityKey: req.SenderIdentityKey,
+				CipherText:        req.CipherText,
+				Iv:                req.Iv,
+				AuthTag:           req.AuthTag,
+				Signature:         req.Signature,
+			})
+			if err != nil {
+				if expired {
+					if user.RemoveWebPushSubscription(sub.Endpoint) {
+						removedAny = true
+					}
+					continue
+				}
+
+				log.Warn().Err(err).Str("user_id", req.UserID).Msg("failed to send web push notification")
+			}
+		}
+
+		if removedAny {
+			data.UpdateUser(user)
+		}
 	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})

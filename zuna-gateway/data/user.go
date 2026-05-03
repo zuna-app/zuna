@@ -14,6 +14,7 @@ type User struct {
 	UserID      string
 	ServerIDs   []string
 	Connections []ConnectionInfo
+	WebPushSubs []WebPushSubscription
 }
 
 type ConnectionInfo struct {
@@ -21,8 +22,24 @@ type ConnectionInfo struct {
 	Mobile       bool
 }
 
+type WebPushSubscription struct {
+	Endpoint string
+	P256DH   string
+	Auth     string
+}
+
 func (u *User) IsInServer(serverId string) bool {
 	return slices.Contains(u.ServerIDs, serverId)
+}
+
+func (u *User) AddServerID(serverID string) {
+	if serverID == "" {
+		return
+	}
+
+	if !slices.Contains(u.ServerIDs, serverID) {
+		u.ServerIDs = append(u.ServerIDs, serverID)
+	}
 }
 
 func (u *User) AddConnection(connectionId string, mobile bool) {
@@ -39,6 +56,33 @@ func (u *User) IsConnectedFromDesktop() bool {
 		}
 	}
 	return false
+}
+
+func (u *User) AddOrUpdateWebPushSubscription(sub WebPushSubscription) {
+	for i := range u.WebPushSubs {
+		if u.WebPushSubs[i].Endpoint == sub.Endpoint {
+			u.WebPushSubs[i] = sub
+			return
+		}
+	}
+
+	u.WebPushSubs = append(u.WebPushSubs, sub)
+}
+
+func (u *User) RemoveWebPushSubscription(endpoint string) bool {
+	removed := false
+	newSubs := make([]WebPushSubscription, 0, len(u.WebPushSubs))
+	for _, sub := range u.WebPushSubs {
+		if sub.Endpoint == endpoint {
+			removed = true
+			continue
+		}
+
+		newSubs = append(newSubs, sub)
+	}
+
+	u.WebPushSubs = newSubs
+	return removed
 }
 
 func (u *User) RemoveConnection(connectionId string) {
