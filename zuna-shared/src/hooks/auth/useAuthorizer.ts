@@ -260,9 +260,12 @@ export function useAuthorizer(server: Server) {
               >),
             };
           for (const user of users) {
+            const avatarUrl = `https://${server.address}/api/chat/avatar?user_id=${encodeURIComponent(
+              user.id,
+            )}`;
             usersMap[user.id] = {
               username: user.username,
-              avatar: user.avatar,
+              avatar: avatarUrl,
             };
           }
           await platform.cache
