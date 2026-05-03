@@ -2,14 +2,12 @@ import WebSocket from "ws";
 import { BrowserWindow, nativeImage, Notification } from "electron";
 import { vaultGet } from "../storage/safeVault";
 import { userCache } from "../storage/appCache";
-import {
-  computeSharedSecret,
-  decrypt,
-  verifySignature,
-} from "@zuna/shared/src/crypto";
-import type { Server } from "@zuna/shared/src/types/serverTypes";
-import { setBadgeCount } from "../utils/badge";
+import { verifySignature } from "@/crypto/ed25519";
+import { setBadgeCount } from "@/utils/badge";
 import { sendNotification } from "../notification/notification";
+import { getNotificationWindowHost } from "../notification/host";
+import { Server } from "@/types";
+import { computeSharedSecret, decrypt } from "@/crypto";
 
 interface NotificationInfoPayload {
   server_id: string;
@@ -26,7 +24,6 @@ interface WsMessage {
   payload: unknown;
 }
 
-// keyed by server.id
 const activeConnections = new Map<string, WebSocket>();
 export let unreadMessagesBadge = 0;
 
@@ -39,17 +36,35 @@ export function startGatewayListeners(): void {
   stopGatewayListeners();
 
   let serverList: Server[];
+  let gatewayRecord: Record<string, string>;
+
   try {
     serverList = (vaultGet("serverList") as Server[] | null) ?? [];
+    const raw = vaultGet("gatewayList") as string | null;
+    gatewayRecord = raw ? (JSON.parse(raw) as Record<string, string>) : {};
   } catch {
     console.error(
-      "Failed to load server list from vault, skipping notification listener setup",
+      "Failed to load server or gateway list from vault, skipping gateway listener setup",
     );
     return;
   }
 
+  // Group servers by unique gateway address to avoid duplicate connections
+  const gatewayToServers = new Map<string, Server[]>();
   for (const server of serverList) {
-    connectToServer(server);
+    const gwAddr = gatewayRecord[server.id];
+    if (!gwAddr) continue;
+    const list = gatewayToServers.get(gwAddr) ?? [];
+    list.push(server);
+    gatewayToServers.set(gwAddr, list);
+  }
+
+  console.log(
+    `Setting up gateway listeners for ${gatewayToServers.size} gateways and ${serverList.length} servers`,
+  );
+
+  for (const [address, servers] of gatewayToServers) {
+    connectToGateway(address, servers);
   }
 }
 
@@ -60,28 +75,30 @@ export function stopGatewayListeners(): void {
   activeConnections.clear();
 }
 
-function connectToServer(server: Server): void {
-  const ws = new WebSocket(`wss://${server.address}/ws/notify`, {
-    rejectUnauthorized: false,
-  });
-  activeConnections.set(server.id, ws);
+function connectToGateway(address: string, servers: Server[]): void {
+  const ws = new WebSocket(`wss://${address}/ws`);
+  activeConnections.set(address, ws);
 
   ws.on("open", () => {
-    ws.send(
-      JSON.stringify({
-        type: "register_request",
-        payload: {
-          user_id: server.id,
-        },
-      }),
-    );
+    for (const server of servers) {
+      ws.send(
+        JSON.stringify({
+          type: "register_request",
+          payload: {
+            user_id: server.id,
+            server_id: server.serverId ? [server.serverId] : [],
+            mobile: false,
+          },
+        }),
+      );
+    }
   });
 
   ws.on("message", (data) => {
     try {
       const msg = JSON.parse(data.toString()) as WsMessage;
       if (msg.type === "notification_info") {
-        handleNotification(msg.payload as NotificationInfoPayload, server);
+        handleNotification(msg.payload as NotificationInfoPayload);
       }
     } catch {
       // ignore malformed frames
@@ -89,11 +106,11 @@ function connectToServer(server: Server): void {
   });
 
   ws.on("close", () => {
-    activeConnections.delete(server.id);
+    activeConnections.delete(address);
     // Reconnect after 5s unless listeners were stopped
     setTimeout(() => {
-      if (!activeConnections.has(server.id)) {
-        connectToServer(server);
+      if (!activeConnections.has(address)) {
+        connectToGateway(address, servers);
       }
     }, 5000);
   });
@@ -103,10 +120,7 @@ function connectToServer(server: Server): void {
   });
 }
 
-function handleNotification(
-  payload: NotificationInfoPayload,
-  server: Server,
-): void {
+function handleNotification(payload: NotificationInfoPayload): void {
   try {
     const encPrivateKey = vaultGet("encPrivateKey") as string | null;
     if (!encPrivateKey) return;
@@ -120,6 +134,10 @@ function handleNotification(
       iv: payload.iv,
       authTag: payload.auth_tag,
     });
+
+    const serverList = (vaultGet("serverList") as Server[] | null) ?? [];
+    const server = serverList.find((s) => s.serverId === payload.server_id);
+    if (!server) return;
 
     const serverPublicKey = server.publicKey;
     if (!serverPublicKey) return;
