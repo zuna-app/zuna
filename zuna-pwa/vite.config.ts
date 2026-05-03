@@ -57,4 +57,7 @@ export default defineConfig({
   preview: {
     allowedHosts: ["web.zuna.chat", "localhost"],
   },
+  server: {
+    allowedHosts: ["web.zuna.chat", "localhost"],
+  },
 });
