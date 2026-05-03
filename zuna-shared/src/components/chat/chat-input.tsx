@@ -341,7 +341,7 @@ export function ChatInput({
         <div
           className={cn(
             "relative flex-1 rounded-2xl bg-muted/40 dark:bg-muted/20 border border-transparent",
-            "transition-all duration-150",
+            "transition-[background-color,border-color,box-shadow] duration-150",
             "focus-within:bg-background focus-within:border-border focus-within:shadow-sm",
           )}
         >
@@ -378,13 +378,13 @@ export function ChatInput({
                       : "Establishing secure channel…"
             }
             rows={1}
-                  "transition-[background-color,border-color,box-shadow] duration-150",
+            className={cn(
               "w-full bg-transparent border-none shadow-none resize-none",
-              "px-4 py-2 text-sm",
+              "px-4 py-2 text-base md:text-sm",
               "placeholder:text-muted-foreground/40",
               "focus-visible:ring-0 focus-visible:border-none",
               "min-h-0 max-h-40 field-sizing-content",
-              codeMode && "font-mono text-xs",
+              codeMode && "font-mono text-[16px] md:text-xs",
             )}
           />
           {(ogUrl || ogLoading) && (
