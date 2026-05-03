@@ -106,11 +106,11 @@ func main() {
 	auth.POST("/handshake", rest.AuthHandshakeEndpoint)
 	auth.POST("/login", rest.AuthLoginEndpoint)
 	auth.POST("/join", rest.AuthJoinEndpoint)
+	auth.GET("/avatar", rest.AvatarGetEndpoint)
 
 	chat := api.Group("/chat", rest.AuthMiddleware, apiLimiter.Middleware())
 	chat.GET("/list", rest.ChatListEndpoint)
 	chat.GET("/messages", rest.ChatMessagesEndpoint)
-	chat.GET("/avatar", rest.AvatarGetEndpoint)
 	chat.GET("/users", rest.UsersEndpoint)
 	chat.GET("/pinned", rest.ChatPinMessagesEndpoint)
 
