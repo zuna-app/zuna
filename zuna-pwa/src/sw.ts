@@ -278,7 +278,7 @@ async function handlePush(rawText: string): Promise<void> {
   }
 
   await self.registration.showNotification(notificationTitle, {
-    body,
+    body: sender?.avatar || "/pwa-192x192.png",
     icon: sender?.avatar || "/pwa-192x192.png",
     badge: "/pwa-64x64.png",
     data: {

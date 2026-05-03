@@ -118,6 +118,14 @@ export function loadAndUnlockVault(password: string) {
   persistSessionPassword(password);
 
   startGatewayListeners();
+
+  console.log(
+    "Vault contents after unlock:",
+    Array.from(vault.entries()).map(([k, v]) => [
+      k,
+      Buffer.isBuffer(v) ? "<Buffer>" : v,
+    ]),
+  );
 }
 
 export function lockVault() {

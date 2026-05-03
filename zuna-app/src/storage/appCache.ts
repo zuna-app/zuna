@@ -77,3 +77,5 @@ export const windowStateCache = createCache("window-state", {
 export const userCache = createCache("user-cache", {
   users: {} as Record<string, { username: string; avatar: string }>,
 });
+
+console.log("User cache contents: ", userCache.getAll());
