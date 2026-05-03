@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 
 	"zuna.chat/zuna-server/config"
-	"zuna.chat/zuna-server/crypto"
 	"zuna.chat/zuna-server/data"
 	"zuna.chat/zuna-server/db"
 	"zuna.chat/zuna-server/ent"
@@ -219,17 +218,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 
 		connectionId := ud.ConnectionID
 		if connectionId == "" || !ud.Active {
-			if NotifyHubInstance != nil {
-				NotifyHubInstance.SendNotification(ud.UserID, NotificationInfoPayload{
-					ServerID:          config.Config.Server.ServerID,
-					SenderID:          userData.UserID,
-					SenderIdentityKey: user.IdentityKey,
-					CipherText:        req.ShortCipherText,
-					Iv:                req.ShortIv,
-					AuthTag:           req.ShortAuthTag,
-					Signature:         crypto.SignEd25519(config.Config.Server.ServerID),
-				})
-			}
+			utils.SendNotificationToGateway(ud.UserID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag)
 		}
 
 		if connectionId == "" {
