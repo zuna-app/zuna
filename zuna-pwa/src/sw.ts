@@ -74,7 +74,8 @@ function openVaultDb(): Promise<IDBDatabase> {
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("failed to open indexeddb"));
+    req.onerror = () =>
+      reject(req.error ?? new Error("failed to open indexeddb"));
   });
 }
 
@@ -114,7 +115,8 @@ async function loadPersistedVaultKeys(): Promise<VaultKeys | null> {
     return await new Promise<VaultKeys | null>((resolve, reject) => {
       const tx = db.transaction(VAULT_STORE_NAME, "readonly");
       const req = tx.objectStore(VAULT_STORE_NAME).get(VAULT_KEYS_RECORD_ID);
-      req.onsuccess = () => resolve((req.result as VaultKeys | undefined) ?? null);
+      req.onsuccess = () =>
+        resolve((req.result as VaultKeys | undefined) ?? null);
       req.onerror = () =>
         reject(req.error ?? new Error("failed to read vault keys"));
     });
