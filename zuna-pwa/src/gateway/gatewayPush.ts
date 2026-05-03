@@ -2,8 +2,7 @@ import type { Server } from "@zuna/shared";
 
 const GATEWAY_HOST = "gateway.zuna.chat";
 
-const VAPID_PUBLIC_KEY =
-  "BIGetD2x3diIxvF2tJ_aqkHHQBLz3yZ7Wmaa_OvMGpquJF9KjnJ4viyBgH2zCwxq9nWSjCCcQucQ7DhNOYHWNu0";
+let cachedVapidPublicKey: string | null = null;
 
 function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -15,15 +14,71 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   return buffer;
 }
 
+function arrayBuffersEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  const left = new Uint8Array(a);
+  const right = new Uint8Array(b);
+  for (let i = 0; i < left.length; i++) {
+    if (left[i] !== right[i]) return false;
+  }
+  return true;
+}
+
+async function getGatewayVapidPublicKey(): Promise<string | null> {
+  if (cachedVapidPublicKey) return cachedVapidPublicKey;
+
+  try {
+    const res = await fetch(`https://${GATEWAY_HOST}/api/vapid/public-key`, {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      throw new Error(`Unexpected status: ${res.status}`);
+    }
+
+    const data = (await res.json()) as { public_key?: unknown };
+    if (typeof data.public_key !== "string" || !data.public_key.trim()) {
+      throw new Error("Missing public_key in response");
+    }
+
+    cachedVapidPublicKey = data.public_key;
+    return cachedVapidPublicKey;
+  } catch (err) {
+    console.error("[GatewayPush] Failed to load VAPID public key:", err);
+    return null;
+  }
+}
+
 async function getOrSubscribe(
   reg: ServiceWorkerRegistration,
 ): Promise<PushSubscription | null> {
+  const vapidPublicKey = await getGatewayVapidPublicKey();
+  if (!vapidPublicKey) return null;
+
+  const desiredServerKey = urlBase64ToArrayBuffer(vapidPublicKey);
   let sub = await reg.pushManager.getSubscription();
+
+  if (sub?.options.applicationServerKey) {
+    const sameKey = arrayBuffersEqual(
+      sub.options.applicationServerKey,
+      desiredServerKey,
+    );
+    if (!sameKey) {
+      try {
+        await sub.unsubscribe();
+      } catch (err) {
+        console.error("[GatewayPush] Failed to remove stale subscription:", err);
+      }
+      sub = null;
+    }
+  }
+
   if (!sub) {
     try {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToArrayBuffer(VAPID_PUBLIC_KEY),
+        applicationServerKey: desiredServerKey,
       });
     } catch (err) {
       console.error("[GatewayPush] Push subscription failed:", err);
