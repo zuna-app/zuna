@@ -296,6 +296,16 @@ export const MessageBubble = React.memo(
     const messageRef = useRef<HTMLDivElement | null>(null);
     const { sendMessage: wsSend } = useWsConnection(server);
     const { shell } = usePlatform();
+    const [mobilePerfMode, setMobilePerfMode] = useState(false);
+
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      const mq = window.matchMedia("(pointer: coarse), (max-width: 768px)");
+      const update = () => setMobilePerfMode(mq.matches);
+      update();
+      mq.addEventListener("change", update);
+      return () => mq.removeEventListener("change", update);
+    }, []);
 
     useEffect(() => {
       if (!msg.isReply || !msg.replyInfo || !sharedSecret) {
@@ -361,9 +371,13 @@ export const MessageBubble = React.memo(
 
     return (
       <motion.div
-        initial={{ opacity: 1, y: 8, x: 0, scale: 1 }}
+        initial={mobilePerfMode ? false : { opacity: 1, y: 8, x: 0, scale: 1 }}
         animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
-        transition={{ type: "spring", duration: 0.25, bounce: 0.2 }}
+        transition={
+          mobilePerfMode
+            ? { duration: 0 }
+            : { type: "spring", duration: 0.25, bounce: 0.2 }
+        }
         className={cn(
           "flex flex-col",
           msg.isOwn ? "items-end" : "items-start",

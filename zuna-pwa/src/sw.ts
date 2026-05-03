@@ -43,6 +43,13 @@ interface VaultKeys {
   serverList: Server[];
 }
 
+interface CachedUserInfo {
+  username?: string;
+  avatar?: string;
+}
+
+type UserCacheMap = Record<string, CachedUserInfo>;
+
 interface NotificationPayload {
   type: string;
   server_id: string;
@@ -58,11 +65,13 @@ const VAULT_DB_NAME = "zuna-sw";
 const VAULT_DB_VERSION = 1;
 const VAULT_STORE_NAME = "state";
 const VAULT_KEYS_RECORD_ID = "vault-keys";
+const USER_CACHE_RECORD_ID = "user-cache";
 
 // ── In-memory vault key cache ─────────────────────────────────────────────────
 // Cleared when the SW is terminated; repopulated via postMessage on reconnect.
 
 let vaultKeys: VaultKeys | null = null;
+let userCache: UserCacheMap | null = null;
 
 function openVaultDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -125,6 +134,47 @@ async function loadPersistedVaultKeys(): Promise<VaultKeys | null> {
   }
 }
 
+async function persistUserCache(users: UserCacheMap): Promise<void> {
+  const db = await openVaultDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(VAULT_STORE_NAME, "readwrite");
+      tx.objectStore(VAULT_STORE_NAME).put(users, USER_CACHE_RECORD_ID);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error ?? new Error("failed to persist user cache"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function loadPersistedUserCache(): Promise<UserCacheMap | null> {
+  const db = await openVaultDb();
+  try {
+    return await new Promise<UserCacheMap | null>((resolve, reject) => {
+      const tx = db.transaction(VAULT_STORE_NAME, "readonly");
+      const req = tx.objectStore(VAULT_STORE_NAME).get(USER_CACHE_RECORD_ID);
+      req.onsuccess = () =>
+        resolve((req.result as UserCacheMap | undefined) ?? null);
+      req.onerror = () =>
+        reject(req.error ?? new Error("failed to read user cache"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function getUserCache(): Promise<UserCacheMap | null> {
+  if (userCache) return userCache;
+  try {
+    userCache = await loadPersistedUserCache();
+  } catch (err) {
+    console.error("[SW] Failed to load persisted user cache:", err);
+  }
+  return userCache;
+}
+
 async function getVaultKeys(): Promise<VaultKeys | null> {
   if (vaultKeys) return vaultKeys;
   try {
@@ -163,6 +213,18 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
         }
       })(),
     );
+  } else if (data.type === "USER_CACHE") {
+    const users = (data.payload as UserCacheMap | null) ?? {};
+    userCache = users;
+    event.waitUntil(
+      (async () => {
+        try {
+          await persistUserCache(users);
+        } catch (err) {
+          console.error("[SW] Failed to persist user cache:", err);
+        }
+      })(),
+    );
   }
 });
 
@@ -183,6 +245,10 @@ async function handlePush(rawText: string): Promise<void> {
 
   if (payload.type !== "notification_info") return;
 
+  const users = await getUserCache();
+  const sender = users?.[payload.sender_id];
+  const notificationTitle = sender?.username || "New Message";
+
   let body = "You have a new encrypted message";
   const keys = await getVaultKeys();
 
@@ -200,7 +266,7 @@ async function handlePush(rawText: string): Promise<void> {
           payload.signature,
         );
         if (!valid) {
-          console.warn("[SW] Notification signature invalid – discarding");
+          console.warn("[SW] Notification signature invalid, discarding");
           return;
         }
       }
@@ -211,9 +277,9 @@ async function handlePush(rawText: string): Promise<void> {
     }
   }
 
-  await self.registration.showNotification("New Message", {
+  await self.registration.showNotification(notificationTitle, {
     body,
-    icon: "/pwa-192x192.png",
+    icon: sender?.avatar || "/pwa-192x192.png",
     badge: "/pwa-64x64.png",
     data: {
       serverId: payload.server_id,

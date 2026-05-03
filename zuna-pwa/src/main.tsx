@@ -13,7 +13,12 @@ import {
 } from "@zuna/shared";
 import { WebPlatform } from "./platform/WebPlatform";
 import React, { useEffect, useRef } from "react";
-import { initGatewayPush, sendVaultKeysToSW } from "./gateway/gatewayPush";
+import {
+  initGatewayPush,
+  sendUserCacheToSW,
+  sendVaultKeysToSW,
+  type UserCacheMap,
+} from "./gateway/gatewayPush";
 
 /**
  * Subscribes to Web Push for each authenticated server's gateway and keeps
@@ -21,7 +26,7 @@ import { initGatewayPush, sendVaultKeysToSW } from "./gateway/gatewayPush";
  * Renders nothing — purely a side-effect component.
  */
 function GatewayPushManager() {
-  const { vault } = usePlatform();
+  const { vault, cache } = usePlatform();
   const serverList = useAtomValue(serverListAtom, { store: jotaiStore });
   const serverTokens = useAtomValue(serverTokensAtom, { store: jotaiStore });
   const initializedRef = useRef(false);
@@ -36,8 +41,12 @@ function GatewayPushManager() {
       const encPrivateKey = await vault.get("encPrivateKey");
       if (!encPrivateKey) return;
       await initGatewayPush(encPrivateKey as string, serverList);
+
+      const users =
+        (await cache.get<UserCacheMap>("user-cache", "users")) ?? {};
+      await sendUserCacheToSW(users);
     })();
-  }, [serverTokens, serverList, vault]);
+  }, [serverTokens, serverList, vault, cache]);
 
   // Re-send vault keys to the SW whenever its controller changes (SW update)
   useEffect(() => {
@@ -49,6 +58,10 @@ function GatewayPushManager() {
         const encPrivateKey = await vault.get("encPrivateKey");
         if (!encPrivateKey) return;
         await sendVaultKeysToSW(encPrivateKey as string, serverList);
+
+        const users =
+          (await cache.get<UserCacheMap>("user-cache", "users")) ?? {};
+        await sendUserCacheToSW(users);
       })();
     };
 
@@ -62,7 +75,7 @@ function GatewayPushManager() {
         handleControllerChange,
       );
     };
-  }, [serverTokens, serverList, vault]);
+  }, [serverTokens, serverList, vault, cache]);
 
   return null;
 }

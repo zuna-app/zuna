@@ -4,6 +4,11 @@ const GATEWAY_HOST = "gateway.zuna.chat";
 
 let cachedVapidPublicKey: string | null = null;
 
+export type UserCacheMap = Record<
+  string,
+  { username?: string; avatar?: string }
+>;
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -136,6 +141,14 @@ export async function clearVaultKeysFromSW(): Promise<void> {
   if (!("serviceWorker" in navigator)) return;
   const reg = await navigator.serviceWorker.ready;
   reg.active?.postMessage({ type: "VAULT_LOCKED" });
+}
+
+/** Sync cached user profiles so SW notifications can resolve sender name/avatar. */
+export async function sendUserCacheToSW(users: UserCacheMap): Promise<void> {
+  if (!("serviceWorker" in navigator)) return;
+  const reg = await navigator.serviceWorker.ready;
+  if (!reg.active) return;
+  reg.active.postMessage({ type: "USER_CACHE", payload: users });
 }
 
 /**

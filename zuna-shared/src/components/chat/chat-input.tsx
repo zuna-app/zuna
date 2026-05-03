@@ -378,7 +378,7 @@ export function ChatInput({
                       : "Establishing secure channel…"
             }
             rows={1}
-            className={cn(
+                  "transition-[background-color,border-color,box-shadow] duration-150",
               "w-full bg-transparent border-none shadow-none resize-none",
               "px-4 py-2 text-sm",
               "placeholder:text-muted-foreground/40",

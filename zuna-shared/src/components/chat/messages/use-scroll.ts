@@ -1,6 +1,13 @@
 import { useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import type { Message } from "@/types/serverTypes";
 
+function shouldUseSmoothScroll(): boolean {
+  if (typeof window === "undefined") return false;
+  return !window.matchMedia(
+    "(pointer: coarse), (max-width: 768px), (prefers-reduced-motion: reduce)",
+  ).matches;
+}
+
 export function useScrollBehavior(
   messages: Message[],
   memberId: string,
@@ -29,9 +36,10 @@ export function useScrollBehavior(
     const el = scrollRef.current;
     if (!el) return;
     programmaticScrollRef.current = true;
+    const useSmooth = smooth && shouldUseSmoothScroll();
     el.scrollTo({
       top: el.scrollHeight,
-      behavior: smooth ? "smooth" : "instant",
+      behavior: useSmooth ? "smooth" : "instant",
     });
   }, []);
 
@@ -117,7 +125,10 @@ export function useScrollBehavior(
       // Mark as programmatic so the scroll event doesn't flip isPinnedRef.
       programmaticScrollRef.current = true;
       isPinnedRef.current = false;
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.scrollIntoView({
+        behavior: shouldUseSmoothScroll() ? "smooth" : "auto",
+        block: "center",
+      });
       target.classList.add("reply-highlight");
       setTimeout(() => target.classList.remove("reply-highlight"), 1500);
       return;
@@ -184,7 +195,10 @@ export function useScrollBehavior(
     ) as HTMLElement | null;
 
     if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.scrollIntoView({
+        behavior: shouldUseSmoothScroll() ? "smooth" : "auto",
+        block: "center",
+      });
       target.classList.add("reply-highlight");
       setTimeout(() => target.classList.remove("reply-highlight"), 1500);
       return;
