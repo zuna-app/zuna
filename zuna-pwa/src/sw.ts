@@ -54,10 +54,84 @@ interface NotificationPayload {
   signature: string;
 }
 
+const VAULT_DB_NAME = "zuna-sw";
+const VAULT_DB_VERSION = 1;
+const VAULT_STORE_NAME = "state";
+const VAULT_KEYS_RECORD_ID = "vault-keys";
+
 // ── In-memory vault key cache ─────────────────────────────────────────────────
 // Cleared when the SW is terminated; repopulated via postMessage on reconnect.
 
 let vaultKeys: VaultKeys | null = null;
+
+function openVaultDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(VAULT_DB_NAME, VAULT_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(VAULT_STORE_NAME)) {
+        db.createObjectStore(VAULT_STORE_NAME);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error ?? new Error("failed to open indexeddb"));
+  });
+}
+
+async function persistVaultKeys(keys: VaultKeys): Promise<void> {
+  const db = await openVaultDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(VAULT_STORE_NAME, "readwrite");
+      tx.objectStore(VAULT_STORE_NAME).put(keys, VAULT_KEYS_RECORD_ID);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error ?? new Error("failed to persist vault keys"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function clearPersistedVaultKeys(): Promise<void> {
+  const db = await openVaultDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(VAULT_STORE_NAME, "readwrite");
+      tx.objectStore(VAULT_STORE_NAME).delete(VAULT_KEYS_RECORD_ID);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () =>
+        reject(tx.error ?? new Error("failed to clear vault keys"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function loadPersistedVaultKeys(): Promise<VaultKeys | null> {
+  const db = await openVaultDb();
+  try {
+    return await new Promise<VaultKeys | null>((resolve, reject) => {
+      const tx = db.transaction(VAULT_STORE_NAME, "readonly");
+      const req = tx.objectStore(VAULT_STORE_NAME).get(VAULT_KEYS_RECORD_ID);
+      req.onsuccess = () => resolve((req.result as VaultKeys | undefined) ?? null);
+      req.onerror = () =>
+        reject(req.error ?? new Error("failed to read vault keys"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function getVaultKeys(): Promise<VaultKeys | null> {
+  if (vaultKeys) return vaultKeys;
+  try {
+    vaultKeys = await loadPersistedVaultKeys();
+  } catch (err) {
+    console.error("[SW] Failed to load persisted vault keys:", err);
+  }
+  return vaultKeys;
+}
 
 // ── Message handler (vault key exchange with main thread) ─────────────────────
 
@@ -65,9 +139,28 @@ self.addEventListener("message", (event: ExtendableMessageEvent) => {
   const data = event.data as { type: string; payload?: unknown } | null;
   if (!data) return;
   if (data.type === "VAULT_KEYS") {
-    vaultKeys = data.payload as VaultKeys;
+    const keys = data.payload as VaultKeys;
+    vaultKeys = keys;
+    event.waitUntil(
+      (async () => {
+        try {
+          await persistVaultKeys(keys);
+        } catch (err) {
+          console.error("[SW] Failed to persist vault keys:", err);
+        }
+      })(),
+    );
   } else if (data.type === "VAULT_LOCKED") {
     vaultKeys = null;
+    event.waitUntil(
+      (async () => {
+        try {
+          await clearPersistedVaultKeys();
+        } catch (err) {
+          console.error("[SW] Failed to clear persisted vault keys:", err);
+        }
+      })(),
+    );
   }
 });
 
@@ -89,10 +182,11 @@ async function handlePush(rawText: string): Promise<void> {
   if (payload.type !== "notification_info") return;
 
   let body = "You have a new encrypted message";
+  const keys = await getVaultKeys();
 
-  if (vaultKeys) {
+  if (keys) {
     try {
-      const server = vaultKeys.serverList.find(
+      const server = keys.serverList.find(
         (s) => s.serverId === payload.server_id,
       );
 
@@ -109,7 +203,7 @@ async function handlePush(rawText: string): Promise<void> {
         }
       }
 
-      body = await decryptNotification(vaultKeys.encPrivateKey, payload);
+      body = await decryptNotification(keys.encPrivateKey, payload);
     } catch {
       // Decryption failed; fall back to generic body
     }
