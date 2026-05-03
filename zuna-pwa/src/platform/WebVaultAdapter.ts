@@ -59,14 +59,18 @@ export const WebVaultAdapter: IVaultAdapter = {
       // First-time setup: initialize an empty vault
       unlockedVault = {};
       await writeBlob({}, password);
-      return;
+    } else {
+      const data = await decryptVaultBlob(new Uint8Array(bin), password);
+      unlockedVault = data as VaultData;
     }
-    const data = await decryptVaultBlob(new Uint8Array(bin), password);
-    unlockedVault = data as VaultData;
+    // Store PIN in sessionStorage so vault.set/delete can persist changes.
+    // sessionStorage survives F5 within the same tab but is cleared on close.
+    sessionStorage.setItem("zuna_pin", password);
   },
 
   async lock() {
     unlockedVault = null;
+    sessionStorage.removeItem("zuna_pin");
   },
 
   async get(key: string) {
