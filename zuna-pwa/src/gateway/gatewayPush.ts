@@ -68,7 +68,10 @@ async function getOrSubscribe(
       try {
         await sub.unsubscribe();
       } catch (err) {
-        console.error("[GatewayPush] Failed to remove stale subscription:", err);
+        console.error(
+          "[GatewayPush] Failed to remove stale subscription:",
+          err,
+        );
       }
       sub = null;
     }
