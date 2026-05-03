@@ -61,6 +61,8 @@ interface NotificationPayload {
   signature: string;
 }
 
+const MAX_NOTIFICATION_ICON_BYTES = 256 * 1024;
+
 const VAULT_DB_NAME = "zuna-sw";
 const VAULT_DB_VERSION = 1;
 const VAULT_STORE_NAME = "state";
@@ -277,15 +279,63 @@ async function handlePush(rawText: string): Promise<void> {
     }
   }
 
-  await self.registration.showNotification(notificationTitle, {
-    body: sender?.avatar || "/pwa-192x192.png",
-    icon: sender?.avatar || "/pwa-192x192.png",
+  const notificationIcon = await resolveNotificationIcon(sender?.avatar);
+
+  const notificationOptions: NotificationOptions & { image?: string } = {
+    body,
+    icon: notificationIcon,
+    image: notificationIcon,
     badge: "/pwa-64x64.png",
     data: {
       serverId: payload.server_id,
       senderId: payload.sender_id,
     },
-  });
+  };
+
+  await self.registration.showNotification(
+    notificationTitle,
+    notificationOptions as NotificationOptions,
+  );
+}
+
+async function resolveNotificationIcon(avatarUrl?: string): Promise<string> {
+  const fallback = "/pwa-192x192.png";
+  if (!avatarUrl) return fallback;
+
+  if (avatarUrl.startsWith("data:")) return avatarUrl;
+
+  try {
+    const response = await fetch(avatarUrl, {
+      method: "GET",
+      cache: "force-cache",
+      mode: "cors",
+    });
+
+    if (!response.ok) return avatarUrl;
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.startsWith("image/")) return avatarUrl;
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (
+      bytes.byteLength === 0 ||
+      bytes.byteLength > MAX_NOTIFICATION_ICON_BYTES
+    ) {
+      return avatarUrl;
+    }
+
+    return bytesToDataUrl(bytes, contentType);
+  } catch {
+    return avatarUrl;
+  }
+}
+
+function bytesToDataUrl(bytes: Uint8Array<ArrayBuffer>, mime: string): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
 }
 
 // ── Notification click handler ────────────────────────────────────────────────
