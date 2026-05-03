@@ -154,19 +154,23 @@ function handleNotification(payload: NotificationInfoPayload): void {
 
     const senderInfo = userCache.get("users")[payload.sender_id];
 
+    const senderAvatar = senderInfo?.avatar;
+    const senderAvatarNativeImage =
+      senderAvatar && senderAvatar.startsWith("data:")
+        ? nativeImage.createFromDataURL(senderAvatar)
+        : undefined;
+
     if (process.platform === "win32") {
       sendNotification({
         senderName: senderInfo?.username || "New Message",
         content: plaintext,
-        avatarUrl: senderInfo?.avatar || undefined,
+        avatarUrl: senderAvatar || undefined,
       });
     } else {
       const n = new Notification({
         title: senderInfo?.username || "New Message",
         body: plaintext,
-        icon: senderInfo?.avatar
-          ? nativeImage.createFromDataURL(senderInfo.avatar)
-          : undefined,
+        icon: senderAvatarNativeImage,
       });
 
       n.on("click", () => {
