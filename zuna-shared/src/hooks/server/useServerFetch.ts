@@ -11,6 +11,7 @@ import type { Server } from "../../types/serverTypes";
 import { usePlatform } from "../../platform/PlatformContext";
 
 let persistedServerListPromise: Promise<Server[]> | null = null;
+let shouldRetryPersistedServerListRead = false;
 
 function isServer(value: unknown): value is Server {
   if (!value || typeof value !== "object") return false;
@@ -159,7 +160,8 @@ export function useServerConnector() {
         .then((storedServers) => parseStoredServerList(storedServers))
         .catch((error) => {
           if (isVaultLockedError(error)) {
-            return null;
+            shouldRetryPersistedServerListRead = true;
+            return [];
           }
           console.error("Failed to hydrate server list from vault", error);
           return [];
@@ -167,7 +169,8 @@ export function useServerConnector() {
     }
 
     persistedServerListPromise.then((storedServers) => {
-      if (storedServers === null) {
+      if (shouldRetryPersistedServerListRead) {
+        shouldRetryPersistedServerListRead = false;
         persistedServerListPromise = null;
         return;
       }
