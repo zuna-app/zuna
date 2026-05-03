@@ -24,36 +24,11 @@ function arrayBuffersEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
   return true;
 }
 
-async function getGatewayVapidPublicKey(): Promise<string | null> {
-  if (cachedVapidPublicKey) return cachedVapidPublicKey;
-
-  try {
-    const res = await fetch(`https://${GATEWAY_HOST}/api/vapid/public-key`, {
-      method: "GET",
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      throw new Error(`Unexpected status: ${res.status}`);
-    }
-
-    const data = (await res.json()) as { public_key?: unknown };
-    if (typeof data.public_key !== "string" || !data.public_key.trim()) {
-      throw new Error("Missing public_key in response");
-    }
-
-    cachedVapidPublicKey = data.public_key;
-    return cachedVapidPublicKey;
-  } catch (err) {
-    console.error("[GatewayPush] Failed to load VAPID public key:", err);
-    return null;
-  }
-}
-
 async function getOrSubscribe(
   reg: ServiceWorkerRegistration,
 ): Promise<PushSubscription | null> {
-  const vapidPublicKey = await getGatewayVapidPublicKey();
+  const vapidPublicKey =
+    "BIGetD2x3diIxvF2tJ_aqkHHQBLz3yZ7Wmaa_OvMGpquJF9KjnJ4viyBgH2zCwxq9nWSjCCcQucQ7DhNOYHWNu0";
   if (!vapidPublicKey) return null;
 
   const desiredServerKey = urlBase64ToArrayBuffer(vapidPublicKey);
