@@ -4,24 +4,71 @@ const GATEWAY_HOST = "gateway.zuna.chat";
 
 let cachedVapidPublicKey: string | null = null;
 
-function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(base64);
-  const buffer = new ArrayBuffer(raw.length);
-  const view = new Uint8Array(buffer);
+  const view = new Uint8Array(new ArrayBuffer(raw.length));
   for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
-  return buffer;
+  return view;
 }
 
-function arrayBuffersEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
-  if (a.byteLength !== b.byteLength) return false;
-  const left = new Uint8Array(a);
-  const right = new Uint8Array(b);
+function toUint8Array(
+  buf: ArrayBuffer | ArrayBufferView,
+): Uint8Array<ArrayBuffer> {
+  if (ArrayBuffer.isView(buf)) {
+    // Copy into an ArrayBuffer-backed view to satisfy strict BufferSource typing.
+    const view = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+    const copy = new Uint8Array(new ArrayBuffer(view.byteLength));
+    copy.set(view);
+    return copy;
+  }
+  return new Uint8Array(buf);
+}
+
+function arrayBuffersEqual(
+  a: ArrayBuffer | ArrayBufferView,
+  b: ArrayBuffer | ArrayBufferView,
+): boolean {
+  const left = toUint8Array(a);
+  const right = toUint8Array(b);
+  if (left.byteLength !== right.byteLength) return false;
   for (let i = 0; i < left.length; i++) {
     if (left[i] !== right[i]) return false;
   }
   return true;
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++)
+    binary += String.fromCharCode(bytes[i]);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function extractSubscriptionKeys(sub: PushSubscription): {
+  p256dh: string | null;
+  auth: string | null;
+} {
+  const subJson = sub.toJSON();
+  let p256dh = subJson.keys?.p256dh ?? null;
+  let auth = subJson.keys?.auth ?? null;
+
+  // Safari/iOS may omit keys from toJSON(); fallback to getKey.
+  if (!p256dh) {
+    const key = sub.getKey("p256dh");
+    if (key) p256dh = bytesToBase64Url(new Uint8Array(key));
+  }
+
+  if (!auth) {
+    const key = sub.getKey("auth");
+    if (key) auth = bytesToBase64Url(new Uint8Array(key));
+  }
+
+  return { p256dh, auth };
 }
 
 async function getOrSubscribe(
@@ -31,7 +78,7 @@ async function getOrSubscribe(
     "BIGetD2x3diIxvF2tJ_aqkHHQBLz3yZ7Wmaa_OvMGpquJF9KjnJ4viyBgH2zCwxq9nWSjCCcQucQ7DhNOYHWNu0";
   if (!vapidPublicKey) return null;
 
-  const desiredServerKey = urlBase64ToArrayBuffer(vapidPublicKey);
+  const desiredServerKey = urlBase64ToUint8Array(vapidPublicKey);
   let sub = await reg.pushManager.getSubscription();
 
   if (sub?.options.applicationServerKey) {
@@ -116,9 +163,7 @@ export async function initGatewayPush(
   // Forward vault keys so the SW can decrypt push payloads
   await sendVaultKeysToSW(encPrivateKey, servers);
 
-  const subJson = sub.toJSON();
-  const p256dh = subJson.keys?.p256dh;
-  const auth = subJson.keys?.auth;
+  const { p256dh, auth } = extractSubscriptionKeys(sub);
   if (!p256dh || !auth) return;
 
   await Promise.allSettled(

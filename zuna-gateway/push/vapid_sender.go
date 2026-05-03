@@ -38,7 +38,7 @@ func SendNotification(sub data.WebPushSubscription, payload NotificationPayload)
 			},
 		},
 		&webpush.Options{
-			Subscriber:      "mailto:admin@localhost",
+			Subscriber:      "https://web.zuna.chat",
 			VAPIDPublicKey:  crypto.VapidPublicKey,
 			VAPIDPrivateKey: crypto.VapidPrivateKey,
 			TTL:             120,
