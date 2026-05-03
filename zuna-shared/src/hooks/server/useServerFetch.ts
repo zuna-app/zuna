@@ -47,6 +47,12 @@ function isCertError(e: unknown): boolean {
   );
 }
 
+function isVaultLockedError(e: unknown): boolean {
+  return (
+    e instanceof Error && /vault\s+is\s+locked|vault\s+locked/i.test(e.message)
+  );
+}
+
 function certErrorMessage(address: string): string {
   return `Cannot reach ${address} — the server's SSL certificate is not trusted by your browser. Open https://${address} in a new tab, accept the certificate warning, 
   then try again or install the certificate to avoid this issue in the future.`;
@@ -152,12 +158,20 @@ export function useServerConnector() {
         .get("serverList")
         .then((storedServers) => parseStoredServerList(storedServers))
         .catch((error) => {
+          if (isVaultLockedError(error)) {
+            return null;
+          }
           console.error("Failed to hydrate server list from vault", error);
           return [];
         });
     }
 
     persistedServerListPromise.then((storedServers) => {
+      if (storedServers === null) {
+        persistedServerListPromise = null;
+        return;
+      }
+
       if (cancelled || storedServers.length === 0) return;
 
       setServerList((currentServers) =>
@@ -193,10 +207,20 @@ export function useServerConnector() {
     password: string;
     avatar: string;
   }): Promise<Server> {
-    const [encPublicKey, sigPublicKey] = await Promise.all([
-      platform.vault.get("encPublicKey"),
-      platform.vault.get("sigPublicKey"),
-    ]);
+    let encPublicKey: string | null;
+    let sigPublicKey: string | null;
+
+    try {
+      [encPublicKey, sigPublicKey] = await Promise.all([
+        platform.vault.get("encPublicKey"),
+        platform.vault.get("sigPublicKey"),
+      ]);
+    } catch (error) {
+      if (isVaultLockedError(error)) {
+        throw new Error("Vault is locked. Unlock with your PIN and try again.");
+      }
+      throw error;
+    }
 
     if (!encPublicKey || !sigPublicKey) {
       throw new Error("Encryption or signing key not found in vault");

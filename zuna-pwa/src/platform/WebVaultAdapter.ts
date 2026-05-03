@@ -12,11 +12,35 @@ import { decryptVaultBlob, encryptVaultBlob } from "@zuna/shared";
 const DB_NAME = "zuna-vault";
 const STORE_NAME = "vault";
 const VAULT_KEY = "vault.bin";
+const PIN_SESSION_KEY = "zuna_pin";
 
 type VaultData = Record<string, string>;
 
 let db: IDBPDatabase | null = null;
 let unlockedVault: VaultData | null = null;
+
+async function tryRestoreVaultFromSession(): Promise<boolean> {
+  if (unlockedVault) return true;
+
+  const pin = sessionStorage.getItem(PIN_SESSION_KEY);
+  if (!pin) return false;
+
+  const bin = await readBlob();
+  if (bin === null) {
+    sessionStorage.removeItem(PIN_SESSION_KEY);
+    return false;
+  }
+
+  try {
+    const data = await decryptVaultBlob(new Uint8Array(bin), pin);
+    unlockedVault = data as VaultData;
+    return true;
+  } catch {
+    unlockedVault = null;
+    sessionStorage.removeItem(PIN_SESSION_KEY);
+    return false;
+  }
+}
 
 async function getDb(): Promise<IDBPDatabase> {
   if (!db) {
@@ -65,35 +89,39 @@ export const WebVaultAdapter: IVaultAdapter = {
     }
     // Store PIN in sessionStorage so vault.set/delete can persist changes.
     // sessionStorage survives F5 within the same tab but is cleared on close.
-    sessionStorage.setItem("zuna_pin", password);
+    sessionStorage.setItem(PIN_SESSION_KEY, password);
   },
 
   async lock() {
     unlockedVault = null;
-    sessionStorage.removeItem("zuna_pin");
+    sessionStorage.removeItem(PIN_SESSION_KEY);
   },
 
   async get(key: string) {
+    if (!unlockedVault) {
+      await tryRestoreVaultFromSession();
+    }
     if (!unlockedVault) throw new Error("Vault is locked");
     return unlockedVault[key] ?? null;
   },
 
   async set(key: string, value: string) {
+    if (!unlockedVault) {
+      await tryRestoreVaultFromSession();
+    }
     if (!unlockedVault) throw new Error("Vault is locked");
     unlockedVault[key] = value;
-    // Persist — we need the password, but we don't have it here.
-    // We rely on a re-encrypt on the next unlock.
-    // For now, store in memory only and persist lazily.
-    // A proper solution would store the derived key in session.
-    // This simplified adapter uses sessionStorage for the PIN.
-    const pin = sessionStorage.getItem("zuna_pin");
+    const pin = sessionStorage.getItem(PIN_SESSION_KEY);
     if (pin) await writeBlob(unlockedVault, pin);
   },
 
   async delete(key: string) {
+    if (!unlockedVault) {
+      await tryRestoreVaultFromSession();
+    }
     if (!unlockedVault) throw new Error("Vault is locked");
     delete unlockedVault[key];
-    const pin = sessionStorage.getItem("zuna_pin");
+    const pin = sessionStorage.getItem(PIN_SESSION_KEY);
     if (pin) await writeBlob(unlockedVault, pin);
   },
 

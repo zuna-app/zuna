@@ -10,6 +10,30 @@ import {
 } from "../../store/atoms";
 import type { Server } from "../../types/serverTypes";
 
+function isVaultLockedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /vault\s+is\s+locked|vault\s+locked/i.test(error.message)
+  );
+}
+
+async function getSigningKeyOrThrow(
+  vault: ReturnType<typeof usePlatform>["vault"],
+): Promise<string> {
+  try {
+    const sigPrivateKey = await vault.get("sigPrivateKey");
+    if (!sigPrivateKey) {
+      throw new Error("Signing key not found in vault");
+    }
+    return sigPrivateKey;
+  } catch (error) {
+    if (isVaultLockedError(error)) {
+      throw new Error("Vault is locked. Unlock with your PIN and try again.");
+    }
+    throw error;
+  }
+}
+
 function saveGatewayToVault(
   vault: ReturnType<typeof usePlatform>["vault"],
   serverId: string,
@@ -78,8 +102,7 @@ export async function reauthorize(
   server: Server,
   vault: ReturnType<typeof usePlatform>["vault"],
 ): Promise<void> {
-  const sigPrivateKey = await vault.get("sigPrivateKey");
-  if (!sigPrivateKey) throw new Error("Signing key not found in vault");
+  const sigPrivateKey = await getSigningKeyOrThrow(vault);
 
   const handshakeRes = await fetch(
     `https://${server.address}/api/auth/handshake`,
@@ -154,8 +177,7 @@ export function useAuthorizer(server: Server) {
       sevenTvEmotesSet: string | null;
       sevenTvEnabled: boolean | null;
     }> => {
-      const sigPrivateKey = await platform.vault.get("sigPrivateKey");
-      if (!sigPrivateKey) throw new Error("Signing key not found in vault");
+      const sigPrivateKey = await getSigningKeyOrThrow(platform.vault);
 
       const handshakeRes = await fetch(
         `https://${server.address}/api/auth/handshake`,
