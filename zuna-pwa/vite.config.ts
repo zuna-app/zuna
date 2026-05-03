@@ -54,4 +54,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "../zuna-shared/src"),
     },
   },
+  preview: {
+    allowedHosts: ["web.zuna.chat", "localhost"],
+  },
 });
