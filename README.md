@@ -55,6 +55,10 @@
 - Completely self-hosted
 - Editing/deleting messages
 - Pinning messages
+- PWA for web and mobile use
+
+> [NOTE]
+> A native iOS implementation of Zuna already exists in the repository; however, its development is currently on hold due to Apple’s developer requirements. Unfortunately, Apple provides no direct support for developers based in Poland and imposes extensive and often unrealistic verification processes for non-profit organizations, resulting in significant delays and, in some cases, permanent restrictions on our developer accounts without explanation. As for a native Android application, the process is considerably simpler. However, our current priority is to deliver the best possible Progressive Web App (PWA) experience for all smartphone users instead. We sincerely apologize for not being able to provide fully native mobile builds at this time, but these limitations are beyond our control.
 
 ---
 
@@ -92,14 +96,11 @@ _Our objective is not to compromise on security, but to make it more accessible 
 
 ## Architecture
 
-By default, running a Zuna server is intentionally straightforward: a single Linux instance and a supported database - such as SQLite, MariaDB, or PostgreSQL - are sufficient to get started. This simplicity, however, assumes the use of our cloud gateway relay (gateway.zuna.chat). That component handles certain external integrations, most notably enabling push notifications for iOS devices.
+By default, running a Zuna server is intentionally straightforward: a single Linux instance and a supported database - such as SQLite, MariaDB, or PostgreSQL - are sufficient to get started. This simplicity, however, assumes the use of our cloud gateway relay (gateway.zuna.chat). That component handles certain external integrations, most notably enabling push notifications for PWA.
 
-Due to Apple’s platform restrictions, delivering push notifications on iOS requires integration with their proprietary infrastructure. As a result, using Zuna’s iOS application in its standard form depends on our gateway relay. While this introduces a limited external dependency, it allows most users to deploy and operate Zuna with minimal setup complexity.
+Due to Web Push API restrictions, delivering push notifications on PWAs requires integration with our third-party infrastructure. As a result, using Zuna PWA application in its standard form depends on our gateway relay. While this introduces a limited external dependency, it allows most users to deploy and operate Zuna with minimal setup complexity.
 
-For those who prefer a fully independent setup, it is possible to replace our gateway relay with your own. This involves configuring a custom relay service, linking it to your own Apple Developer account, and distributing a properly signed version of the iOS application. This approach offers greater control and removes reliance on our infrastructure, but it is significantly more complex and requires enrollment in Apple’s paid developer program.
-
-> [!TIP]
-> Zuna is currently in **early alpha**. This means the iOS app or the iOS push notifications are not complete just yet. In the meantime, for just desktop notifications you can easily run your own gateway relay without an Apple developer account.
+For those who prefer a fully independent setup, it is possible to replace our gateway relay with your own. This involves configuring a custom relay service and distributing a properly modified version of the PWA web application. This approach offers greater control and removes reliance on our infrastructure, but it is significantly more complex and requires your server users to have a seperate PWA instance for your server specifically. This process is currently undocumented as it may change in the future and we generally don't recommend this approach for UX reasons. Of course, if you choose to only allow desktop applications to connect with your server then this process becomes significantly easier since desktop apps don't have strict platform limitations when it comes to showing notifications.
 
 ## Self-Hosting with Zuna Install
 
@@ -110,6 +111,9 @@ Zuna Install will be a 1-click solution to setup, configure and install Zuna ser
 ## Self-Hosting with Docker
 
 The easiest way to run a Zuna server is with Docker Compose. The provided setup bundles **zuna-server**, **MariaDB 11**, and **LiveKit** (for voice calls and screen sharing) into a single stack.
+
+> [!WARNING]
+> Zuna is currently in **early alpha**. LiveKit isn't implemented just yet, but it's a top priority feature on our roadmap. You can expect early calling/screensharing implementations coming as soon as May of 2026.
 
 ### Prerequisites
 
