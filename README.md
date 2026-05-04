@@ -57,7 +57,7 @@
 - Pinning messages
 - PWA for web and mobile use
 
-> [NOTE]
+> [!NOTE]
 > A native iOS implementation of Zuna already exists in the repository; however, its development is currently on hold due to Apple’s developer requirements. Unfortunately, Apple provides no direct support for developers based in Poland and imposes extensive and often unrealistic verification processes for non-profit organizations, resulting in significant delays and, in some cases, permanent restrictions on our developer accounts without explanation. As for a native Android application, the process is considerably simpler. However, our current priority is to deliver the best possible Progressive Web App (PWA) experience for all smartphone users instead. We sincerely apologize for not being able to provide fully native mobile builds at this time, but these limitations are beyond our control.
 
 ---
