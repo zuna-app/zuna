@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square" alt="License: AGPL-3.0" /></a>
-  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20iOS%20%7C%20Android-black?style=flat-square" alt="Platform" />
+  <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows%20%7C%20PWA-gray?style=flat-square" alt="Platform" />
   <a href="https://github.com/zuna-app/zuna/actions/workflows/release.yml"><img src="https://github.com/zuna-app/zuna/actions/workflows/release.yml/badge.svg"/></a>
 </p>
 
