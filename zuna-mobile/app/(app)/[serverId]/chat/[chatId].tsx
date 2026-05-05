@@ -84,8 +84,8 @@ export default function ChatScreen() {
           hasMore={hasMore}
           sharedSecret={sharedSecret}
           server={server}
-          senderName={member.username}
-          senderAvatar={member.avatar || null}
+          // senderName={member.username}
+          // senderAvatar={member.avatar || null}
           senderIdentityKey={member.identityKey}
           getPlaintext={getPlaintext}
           getAttachmentMeta={getAttachmentMeta}

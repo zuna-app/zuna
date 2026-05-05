@@ -206,10 +206,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#18181b',
+    paddingBottom: 16,
   },
   row: {
     flexDirection: 'row', alignItems: 'flex-end',
-    paddingHorizontal: 8, paddingVertical: 8, gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8, gap: 6,
   },
   attachBtn: {
     width: 36, height: 36, borderRadius: 18,

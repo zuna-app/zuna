@@ -10,7 +10,27 @@ import {
 } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
-import { FlashList } from '@shopify/flash-list';
+
+type GroupedMessage = Message & {
+  isFirst: boolean;
+  isLast: boolean;
+};
+
+function sameGroup(a: Message, b: Message): boolean {
+  return a.senderId === b.senderId && b.sentAt - a.sentAt < 60 * 60 * 1000;
+}
+
+function groupMessages(messages: Message[]): GroupedMessage[] {
+  return messages.map((msg, i) => {
+    const prev = messages[i - 1];
+    const next = messages[i + 1];
+    return {
+      ...msg,
+      isFirst: !prev || !sameGroup(prev, msg),
+      isLast: !next || !sameGroup(msg, next),
+    };
+  });
+}
 
 interface Props {
   messages: Message[];
@@ -47,19 +67,20 @@ export function MessageList({
   onImagePress,
   scrollToId,
 }: Props) {
-  const listRef = useRef<FlatList<Message>>(null);
+  const listRef = useRef<FlatList<GroupedMessage>>(null);
   const isAtBottomRef = useRef(true);
   // Track the newest message key to distinguish new messages from pagination
   const prevNewestKeyRef = useRef<string | null>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reversedMessages = useMemo(() => [...messages].reverse(), [messages]);
+  const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
+  const groupedReversedMessages = useMemo(() => [...groupedMessages].reverse(), [groupedMessages]);
 
   const scrollToNewest = useCallback((animated: boolean) => {
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = setTimeout(() => {
       listRef.current?.scrollToIndex({ index: 0, animated });
       scrollTimerRef.current = null;
-    }, 100);
+    }, 30);
   }, []);
 
   useEffect(() => {
@@ -86,7 +107,8 @@ export function MessageList({
     prevNewestKeyRef.current = newestKey;
 
     if (newest?.isOwn || isAtBottomRef.current) {
-      scrollToNewest(true);
+      // Outgoing messages should appear immediately for snappier send feedback.
+      scrollToNewest(!newest?.isOwn);
     }
   }, [messages, scrollToNewest]);
 
@@ -105,9 +127,11 @@ export function MessageList({
   }, [scrollToId, messages]);
 
   const renderItem = useCallback(
-    ({ item }: ListRenderItemInfo<Message>) => (
+    ({ item }: ListRenderItemInfo<GroupedMessage>) => (
       <MessageBubble
         message={item}
+        isFirst={item.isFirst}
+        isLast={item.isLast}
         plaintext={getPlaintext(item)}
         attachmentMeta={getAttachmentMeta(item)}
         sharedSecret={sharedSecret}
@@ -131,7 +155,7 @@ export function MessageList({
   return (
     <FlatList
       ref={listRef}
-      data={reversedMessages}
+      data={groupedReversedMessages}
       inverted
       keyExtractor={(m) => {
         if (m.localId != null) return `local-${m.localId}`;

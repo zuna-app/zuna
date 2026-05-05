@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   sheet: {
     backgroundColor: '#09090b', borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    maxHeight: '60%', paddingTop: 4,
+    maxHeight: '60%', paddingTop: 4, marginBottom: 18,
   },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

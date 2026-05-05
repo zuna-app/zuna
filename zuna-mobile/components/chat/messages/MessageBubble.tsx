@@ -1,11 +1,31 @@
-import { View, Text, Pressable, StyleSheet, ActionSheetIOS, Platform, Alert } from 'react-native';
-import { CheckIcon, CheckCheckIcon, ClockIcon } from 'lucide-react-native';
+import { useState } from 'react';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  Modal,
+  useWindowDimensions,
+  GestureResponderEvent,
+} from 'react-native';
+import {
+  CheckIcon,
+  CheckCheckIcon,
+  ClockIcon,
+  ReplyIcon,
+  PinIcon,
+  PinOffIcon,
+  PencilIcon,
+  Trash2Icon,
+} from 'lucide-react-native';
 import { AttachmentCard } from './AttachmentCard';
 import { ReplyBubble } from './ReplyBubble';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
 
 interface Props {
   message: Message;
+  isFirst: boolean;
+  isLast: boolean;
   plaintext: string | undefined;
   attachmentMeta: AttachmentMeta | undefined;
   sharedSecret: string | null;
@@ -33,6 +53,8 @@ function formatTime(ts: number): string {
 
 export function MessageBubble({
   message,
+  isFirst,
+  isLast,
   plaintext,
   attachmentMeta,
   sharedSecret,
@@ -45,57 +67,89 @@ export function MessageBubble({
   onScrollToMessage,
   onImagePress,
 }: Props) {
+  const { width, height } = useWindowDimensions();
   const isOwn = message.isOwn;
   const status = getStatus(message);
   const text = plaintext ?? message.plaintext ?? '';
   const hasPendingUpload = message.uploadProgress != null;
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 });
 
-  function showActions() {
-    const options = [
-      'Reply',
-      ...(isOwn ? ['Edit'] : []),
-      message.pinned ? 'Unpin' : 'Pin',
-      ...(isOwn ? ['Delete'] : []),
-      'Cancel',
-    ];
-    const destructiveIndex = isOwn ? options.indexOf('Delete') : -1;
-    const cancelIndex = options.length - 1;
+  const menuItems = [
+    {
+      key: 'reply',
+      label: 'Reply',
+      icon: ReplyIcon,
+      onPress: () => onReply(message),
+      destructive: false,
+    },
+    ...(isOwn
+      ? [
+          {
+            key: 'edit',
+            label: 'Edit',
+            icon: PencilIcon,
+            onPress: () => onEdit(message),
+            destructive: false,
+          },
+        ]
+      : []),
+    {
+      key: 'pin',
+      label: message.pinned ? 'Unpin' : 'Pin',
+      icon: message.pinned ? PinOffIcon : PinIcon,
+      onPress: () => message.id && onPin(message.id),
+      destructive: false,
+    },
+    ...(isOwn && message.id != null
+      ? [
+          {
+            key: 'delete',
+            label: 'Delete',
+            icon: Trash2Icon,
+            onPress: () => onDelete(message.id!),
+            destructive: true,
+          },
+        ]
+      : []),
+  ];
 
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options, cancelButtonIndex: cancelIndex, destructiveButtonIndex: destructiveIndex },
-        (idx) => handleAction(options[idx])
-      );
-    } else {
-      Alert.alert('Message', undefined, [
-        { text: 'Reply', onPress: () => onReply(message) },
-        ...(isOwn ? [{ text: 'Edit', onPress: () => onEdit(message) }] : []),
-        { text: message.pinned ? 'Unpin' : 'Pin', onPress: () => message.id && onPin(message.id) },
-        ...(isOwn && message.id != null
-          ? [
-              {
-                text: 'Delete',
-                style: 'destructive' as const,
-                onPress: () => onDelete(message.id!),
-              },
-            ]
-          : []),
-        { text: 'Cancel', style: 'cancel' as const },
-      ]);
-    }
+  const menuWidth = 188;
+  const menuHeight = menuItems.length * 44 + 12;
+  const menuLeft = Math.min(Math.max(menuAnchor.x - menuWidth / 2, 12), width - menuWidth - 12);
+  const menuTop = Math.min(Math.max(menuAnchor.y - menuHeight - 10, 12), height - menuHeight - 20);
+
+  function showActions(e: GestureResponderEvent) {
+    setMenuAnchor({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY });
+    setMenuVisible(true);
   }
 
-  function handleAction(action: string) {
-    if (action === 'Reply') onReply(message);
-    else if (action === 'Edit') onEdit(message);
-    else if (action === 'Pin' || action === 'Unpin') message.id && onPin(message.id);
-    else if (action === 'Delete') message.id && onDelete(message.id);
+  function handleMenuAction(action: () => void) {
+    setMenuVisible(false);
+    action();
   }
 
   return (
-    <View style={[styles.row, isOwn && styles.rowOwn]}>
+    <View style={[styles.row, isFirst ? styles.rowFirst : styles.rowGrouped, isOwn && styles.rowOwn]}>
       <Pressable
-        style={[styles.bubble, isOwn ? styles.bubbleOwn : styles.bubbleOther]}
+        style={[
+          styles.bubble,
+          isOwn
+            ? isFirst && isLast
+              ? styles.bubbleOwnSingle
+              : isFirst
+                ? styles.bubbleOwnFirst
+                : isLast
+                  ? styles.bubbleOwnLast
+                  : styles.bubbleOwnMiddle
+            : isFirst && isLast
+              ? styles.bubbleOtherSingle
+              : isFirst
+                ? styles.bubbleOtherFirst
+                : isLast
+                  ? styles.bubbleOtherLast
+                  : styles.bubbleOtherMiddle,
+        ]}
         onLongPress={showActions}>
         {message.isReply && message.replyInfo && (
           <ReplyBubble
@@ -153,6 +207,27 @@ export function MessageBubble({
           </View>
         )}
       </Pressable>
+
+      <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
+        <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
+          <View style={[styles.menu, { left: menuLeft, top: menuTop, width: menuWidth }]}>
+            {menuItems.map((item, idx) => {
+              const Icon = item.icon;
+              return (
+                <Pressable
+                  key={item.key}
+                  style={[styles.menuItem, idx !== menuItems.length - 1 && styles.menuItemBorder]}
+                  onPress={() => handleMenuAction(item.onPress)}>
+                  <Icon size={16} color={item.destructive ? '#ef4444' : '#e4e4e7'} />
+                  <Text style={[styles.menuItemText, item.destructive && styles.menuItemTextDestructive]}>
+                    {item.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -161,20 +236,68 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    marginVertical: 2,
     paddingHorizontal: 12,
     gap: 6,
   },
+  rowFirst: { marginTop: 6 },
+  rowGrouped: { marginTop: 1 },
   rowOwn: { flexDirection: 'row-reverse' },
   bubble: {
     maxWidth: '78%',
-    borderRadius: 18,
     paddingVertical: 8,
     paddingHorizontal: 12,
     gap: 4,
   },
-  bubbleOwn: { backgroundColor: '#27272a', borderBottomRightRadius: 4 },
-  bubbleOther: { backgroundColor: '#18181b', borderBottomLeftRadius: 4 },
+  bubbleOwnSingle: {
+    backgroundColor: '#27272a',
+    borderRadius: 18,
+  },
+  bubbleOwnFirst: {
+    backgroundColor: '#27272a',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 4,
+  },
+  bubbleOwnLast: {
+    backgroundColor: '#27272a',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+  },
+  bubbleOwnMiddle: {
+    backgroundColor: '#27272a',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 4,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 4,
+  },
+  bubbleOtherSingle: {
+    backgroundColor: '#18181b',
+    borderRadius: 18,
+  },
+  bubbleOtherFirst: {
+    backgroundColor: '#18181b',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 18,
+  },
+  bubbleOtherLast: {
+    backgroundColor: '#18181b',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+  },
+  bubbleOtherMiddle: {
+    backgroundColor: '#18181b',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 4,
+    borderBottomRightRadius: 18,
+  },
   text: { color: '#fff', fontSize: 15, lineHeight: 21, flexShrink: 1 },
   textOwn: { color: '#f4f4f5' },
   textRow: {
@@ -204,4 +327,35 @@ const styles = StyleSheet.create({
   },
   progressBar: { height: 6, backgroundColor: '#fff', borderRadius: 3 },
   uploadText: { color: '#71717a', fontSize: 11, marginTop: 2 },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.22)',
+  },
+  menu: {
+    position: 'absolute',
+    backgroundColor: '#09090b',
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#27272a',
+    overflow: 'hidden',
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    height: 44,
+  },
+  menuItemBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#27272a',
+  },
+  menuItemText: {
+    color: '#f4f4f5',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  menuItemTextDestructive: {
+    color: '#ef4444',
+  },
 });

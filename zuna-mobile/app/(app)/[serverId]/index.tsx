@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { FlashList } from '@shopify/flash-list';
 import { Drawer } from 'react-native-drawer-layout';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -86,6 +87,12 @@ export default function ChatListScreen() {
     const bTs = lastMessages[b.chatId]?.lastActivityAt ?? b.lastActivityAt ?? 0;
     return bTs - aTs;
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      setSelectedChat(null);
+    }, [setSelectedChat])
+  );
 
   function openChat(member: ChatMember) {
     setSelectedChat(member);
