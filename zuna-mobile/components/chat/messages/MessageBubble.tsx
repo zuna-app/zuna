@@ -5,6 +5,7 @@ import {
   Pressable,
   StyleSheet,
   Modal,
+  Image,
   useWindowDimensions,
   GestureResponderEvent,
 } from 'react-native';
@@ -21,6 +22,9 @@ import {
 import { AttachmentCard } from './AttachmentCard';
 import { ReplyBubble } from './ReplyBubble';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
+import { EmoteV3, getEmoteDisplaySize } from '@/lib/seventv';
+
+const EMOTE_SPLIT_RE = /(\b[a-zA-Z0-9_]+\b)/g;
 
 interface Props {
   message: Message;
@@ -28,6 +32,8 @@ interface Props {
   isLast: boolean;
   plaintext: string | undefined;
   attachmentMeta: AttachmentMeta | undefined;
+  emoteMap: ReadonlyMap<string, string>;
+  emoteDataMap: ReadonlyMap<string, EmoteV3>;
   sharedSecret: string | null;
   senderIdentityKey: string;
   server: Server;
@@ -51,12 +57,42 @@ function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+function renderMessageText(
+  text: string,
+  isOwn: boolean,
+  emoteMap: ReadonlyMap<string, string>,
+  emoteDataMap: ReadonlyMap<string, EmoteV3>,
+) {
+  return text.split(EMOTE_SPLIT_RE).map((part, index) => {
+    const src = emoteMap.get(part);
+    if (!src) {
+      if (!part) return null;
+      return (
+        <Text key={`text-${index}`} style={[styles.text, isOwn && styles.textOwn]}>
+          {part}
+        </Text>
+      );
+    }
+
+    const emote = emoteDataMap.get(part);
+    const dimensions = emote ? getEmoteDisplaySize(emote) : null;
+    const height = 28;
+    const width = dimensions
+      ? Math.max(24, Math.round((dimensions.width / dimensions.height) * height))
+      : height;
+
+    return <Image key={`emote-${index}`} source={{ uri: src }} style={[styles.emote, { width, height }]} />;
+  });
+}
+
 export function MessageBubble({
   message,
   isFirst,
   isLast,
   plaintext,
   attachmentMeta,
+  emoteMap,
+  emoteDataMap,
   sharedSecret,
   senderIdentityKey,
   server,
@@ -178,7 +214,9 @@ export function MessageBubble({
 
         {text || !message.attachmentId ? (
           <View style={styles.textRow}>
-            <Text style={[styles.text, isOwn && styles.textOwn]}>{text || ''}</Text>
+            <View style={styles.textContent}>
+              {renderMessageText(text || '', isOwn, emoteMap, emoteDataMap)}
+            </View>
             <View style={styles.footer}>
               {message.modified && <Text style={styles.edited}>(edited)</Text>}
               {message.pinned && <Text style={styles.pinned}>📌</Text>}
@@ -300,11 +338,21 @@ const styles = StyleSheet.create({
   },
   text: { color: '#fff', fontSize: 15, lineHeight: 21, flexShrink: 1 },
   textOwn: { color: '#f4f4f5' },
+  emote: {
+    marginVertical: 1,
+  },
   textRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     flexWrap: 'wrap',
     gap: 6,
+  },
+  textContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    flexShrink: 1,
+    gap: 0,
   },
   footer: {
     flexDirection: 'row',

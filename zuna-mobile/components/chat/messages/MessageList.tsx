@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
+import { useEmotes } from '@/hooks/chat/useEmotes';
 
 type GroupedMessage = Message & {
   isFirst: boolean;
@@ -38,6 +39,8 @@ interface Props {
   hasMore: boolean;
   sharedSecret: string | null;
   server: Server;
+  sevenTvEnabled: boolean;
+  sevenTvEmotesSet: string | null;
   senderIdentityKey: string;
   getPlaintext: (msg: Message) => string | undefined;
   getAttachmentMeta: (msg: Message) => AttachmentMeta | undefined;
@@ -56,6 +59,8 @@ export function MessageList({
   hasMore,
   sharedSecret,
   server,
+  sevenTvEnabled,
+  sevenTvEmotesSet,
   senderIdentityKey,
   getPlaintext,
   getAttachmentMeta,
@@ -67,6 +72,7 @@ export function MessageList({
   onImagePress,
   scrollToId,
 }: Props) {
+  const { emoteMap, emoteDataMap } = useEmotes(sevenTvEmotesSet, sevenTvEnabled);
   const listRef = useRef<FlatList<GroupedMessage>>(null);
   const isAtBottomRef = useRef(true);
   // Track the newest message key to distinguish new messages from pagination
@@ -134,6 +140,8 @@ export function MessageList({
         isLast={item.isLast}
         plaintext={getPlaintext(item)}
         attachmentMeta={getAttachmentMeta(item)}
+        emoteMap={emoteMap}
+        emoteDataMap={emoteDataMap}
         sharedSecret={sharedSecret}
         senderIdentityKey={senderIdentityKey}
         server={server}
@@ -149,7 +157,21 @@ export function MessageList({
         onImagePress={onImagePress}
       />
     ),
-    [messages, getPlaintext, getAttachmentMeta, sharedSecret, server]
+    [
+      emoteDataMap,
+      emoteMap,
+      messages,
+      getPlaintext,
+      getAttachmentMeta,
+      sharedSecret,
+      senderIdentityKey,
+      server,
+      onReply,
+      onEdit,
+      onDelete,
+      onPin,
+      onImagePress,
+    ]
   );
 
   return (
@@ -163,7 +185,7 @@ export function MessageList({
         return `fallback-${m.senderId}-${m.sentAt}`;
       }}
       renderItem={renderItem}
-      extraData={getPlaintext}
+      extraData={`${messages.length}:${emoteMap.size}`}
       onScroll={handleScroll}
       scrollEventThrottle={100}
       onEndReached={hasMore ? onFetchMore : undefined}

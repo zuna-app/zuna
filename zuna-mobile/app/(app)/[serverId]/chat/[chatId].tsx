@@ -4,7 +4,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useAtomValue } from 'jotai';
-import { jotaiStore, serverListAtom, vaultAtom } from '@/store/atoms';
+import { jotaiStore, serverListAtom, serverMetaAtom, vaultAtom } from '@/store/atoms';
 import { useChatList } from '@/hooks/chat/useChatList';
 import { useMessages } from '@/hooks/chat/useMessages';
 import { useSharedSecret } from '@/hooks/ws/useSharedSecret';
@@ -23,6 +23,10 @@ export default function ChatScreen() {
 
   const serverList = useAtomValue(serverListAtom, { store: jotaiStore });
   const server = serverList.find((s) => s.id === serverId)!;
+  const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
+  const meta = serverMeta.get(server.id);
+  const sevenTvEnabled = meta?.sevenTvEnabled ?? true;
+  const sevenTvEmotesSet = meta?.sevenTvEmotesSet ?? null;
 
   const { data: members = [] } = useChatList(server);
   const member = members.find((m) => m.chatId === chatId);
@@ -84,6 +88,8 @@ export default function ChatScreen() {
           hasMore={hasMore}
           sharedSecret={sharedSecret}
           server={server}
+          sevenTvEnabled={sevenTvEnabled}
+          sevenTvEmotesSet={sevenTvEmotesSet}
           // senderName={member.username}
           // senderAvatar={member.avatar || null}
           senderIdentityKey={member.identityKey}
@@ -102,6 +108,8 @@ export default function ChatScreen() {
           sharedSecret={sharedSecret}
           replyingTo={replyingTo}
           editingMessage={editingMessage}
+          sevenTvEnabled={sevenTvEnabled}
+          sevenTvEmotesSet={sevenTvEmotesSet}
           getPlaintext={getPlaintext}
           onSend={sendMessage}
           onSendReply={sendReplyMessage}

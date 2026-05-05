@@ -52,7 +52,7 @@ export function useAuthorizer(server: Server) {
   const error = serverAuthErrors.get(server.id) ?? null;
 
   const mutation = useMutation({
-    mutationFn: async (username: string): Promise<string> => {
+    mutationFn: async (username: string) => {
       const sigPrivateKey = vault?.['sigPrivateKey'] as string | undefined;
       if (!sigPrivateKey) throw new Error('Signing key not found in vault');
 
@@ -66,7 +66,7 @@ export function useAuthorizer(server: Server) {
         throw new Error(`Handshake failed (${handshakeRes.status}): ${text}`);
       }
 
-      const { nonce, gateway_address, seven_tv_emotes_set, seven_tv_enabled } =
+      const { nonce, seven_tv_emotes_set, seven_tv_enabled } =
         await handshakeRes.json();
 
       const signature = signMessage(sigPrivateKey, nonce);
@@ -88,7 +88,11 @@ export function useAuthorizer(server: Server) {
         if (!isValid) throw new Error('Invalid server signature — possible MITM attack');
       }
 
-      return newToken;
+      return {
+        token: newToken,
+        sevenTvEmotesSet: seven_tv_emotes_set ?? null,
+        sevenTvEnabled: seven_tv_enabled ?? true,
+      };
     },
     onMutate: () => {
       setServerAuthErrors((prev) => {
@@ -97,10 +101,22 @@ export function useAuthorizer(server: Server) {
         return next;
       });
     },
-    onSuccess: (newToken) => {
+    onSuccess: ({ token: newToken, sevenTvEmotesSet, sevenTvEnabled }) => {
       setServerTokens((prev) => {
         const next = new Map(prev);
         next.set(server.id, newToken);
+        return next;
+      });
+
+      jotaiStore.set(serverMetaAtom, (prev) => {
+        const next = new Map(prev);
+        const existing = prev.get(server.id);
+        next.set(server.id, {
+          name: existing?.name ?? null,
+          logo: existing?.logo ?? null,
+          sevenTvEmotesSet,
+          sevenTvEnabled,
+        });
         return next;
       });
     },
@@ -135,9 +151,8 @@ export async function fetchAndUpdateServerInfos(servers: Server[]): Promise<void
           next.set(server.id, {
             name: server_name ?? null,
             logo: server_logo ?? null,
-            // gatewayAddress: existing?.gatewayAddress ?? null,
-            // sevenTvEmotesSet: existing?.sevenTvEmotesSet ?? null,
-            // sevenTvEnabled: existing?.sevenTvEnabled ?? null,
+            sevenTvEmotesSet: existing?.sevenTvEmotesSet ?? null,
+            sevenTvEnabled: existing?.sevenTvEnabled ?? true,
           });
           return next;
         });

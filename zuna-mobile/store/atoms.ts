@@ -8,7 +8,15 @@ export const jotaiStore = createStore();
 export const serverTokensAtom = atom<Map<string, string>>(new Map());
 export const serverAuthErrorsAtom = atom<Map<string, string>>(new Map());
 export const serverMetaAtom = atom<
-  Map<string, { name: string | null; logo: string | null }>
+  Map<
+    string,
+    {
+      name: string | null;
+      logo: string | null;
+      sevenTvEmotesSet: string | null;
+      sevenTvEnabled: boolean;
+    }
+  >
 >(new Map());
 
 // Server management

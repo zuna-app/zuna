@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef } from 'react';
 import {
-  View, TextInput, Pressable, StyleSheet, ActionSheetIOS,
+  View, TextInput, Pressable, StyleSheet, ActionSheetIOS, Text, Image,
   Platform, Alert,
 } from 'react-native';
 import { SendIcon, PaperclipIcon } from 'lucide-react-native';
@@ -11,11 +11,27 @@ import { EditingBanner } from './EditingBanner';
 import { AttachmentPreview, PendingFile } from './AttachmentPreview';
 import { Message } from '@/types/serverTypes';
 import { encrypt } from '@/lib/crypto/x25519';
+import { useEmotes } from '@/hooks/chat/useEmotes';
+
+type EmoteSuggestion = {
+  query: string;
+  start: number;
+  results: Array<[string, string]>;
+};
+
+function detectSuggestion(text: string, cursor: number): { query: string; start: number } | null {
+  const before = text.slice(0, cursor);
+  const match = before.match(/:([a-zA-Z0-9_]+)$/);
+  if (!match) return null;
+  return { query: match[1], start: before.length - match[0].length };
+}
 
 interface Props {
   sharedSecret: string | null;
   replyingTo: Message | null;
   editingMessage: Message | null;
+  sevenTvEnabled?: boolean;
+  sevenTvEmotesSet?: string | null;
   getPlaintext: (msg: Message) => string | undefined;
   onSend: (cipherText: string, iv: string, authTag: string, plaintext: string) => void;
   onSendReply: (cipherText: string, iv: string, authTag: string, plaintext: string, replyToId: number) => void;
@@ -30,6 +46,8 @@ export function ChatInput({
   sharedSecret,
   replyingTo,
   editingMessage,
+  sevenTvEnabled = true,
+  sevenTvEmotesSet = null,
   getPlaintext,
   onSend,
   onSendReply,
@@ -41,8 +59,57 @@ export function ChatInput({
 }: Props) {
   const [text, setText] = useState('');
   const [pendingFile, setPendingFile] = useState<PendingFile | null>(null);
+  const [suggestion, setSuggestion] = useState<EmoteSuggestion | null>(null);
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
   const writingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isWritingRef = useRef(false);
+  const inputRef = useRef<TextInput>(null);
+  const { emoteMap } = useEmotes(sevenTvEmotesSet, sevenTvEnabled);
+
+  function updateSuggestion(nextText: string, cursor: number) {
+    if (emoteMap.size === 0) {
+      setSuggestion(null);
+      return;
+    }
+
+    const detected = detectSuggestion(nextText, cursor);
+    if (!detected) {
+      setSuggestion(null);
+      return;
+    }
+
+    const query = detected.query.toLowerCase();
+    const results = Array.from(emoteMap.entries()).filter(([name]) =>
+      name.toLowerCase().startsWith(query),
+    );
+
+    if (results.length === 0) {
+      setSuggestion(null);
+      return;
+    }
+
+    setSuggestion({
+      query: detected.query,
+      start: detected.start,
+      results: results.slice(0, 24),
+    });
+  }
+
+  function commitSuggestion(name: string, start: number) {
+    const before = text.slice(0, start);
+    const after = text.slice(selection.start);
+    const suffix = after.length > 0 && !after.startsWith(' ') ? ' ' : ' ';
+    const nextText = before + name + suffix + after;
+    const nextCursor = before.length + name.length + suffix.length;
+
+    setText(nextText);
+    setSuggestion(null);
+    setSelection({ start: nextCursor, end: nextCursor });
+
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }
 
   // Pre-fill when entering edit mode
   const prevEditingId = useRef<number | null>(null);
@@ -58,6 +125,7 @@ export function ChatInput({
 
   function handleTextChange(value: string) {
     setText(value);
+    updateSuggestion(value, selection.start > value.length ? value.length : selection.start);
     if (!isWritingRef.current) {
       isWritingRef.current = true;
       onWriting(true);
@@ -77,6 +145,7 @@ export function ChatInput({
       onUpload(pendingFile.uri, pendingFile.name, pendingFile.size, pendingFile.mimeType, trimmed);
       setPendingFile(null);
       setText('');
+      setSuggestion(null);
       return;
     }
 
@@ -95,6 +164,7 @@ export function ChatInput({
     }
 
     setText('');
+    setSuggestion(null);
     if (writingTimerRef.current) clearTimeout(writingTimerRef.current);
     isWritingRef.current = false;
     onWriting(false);
@@ -172,6 +242,19 @@ export function ChatInput({
       )}
       {editingMessage && <EditingBanner onDismiss={onCancelEdit} />}
       {pendingFile && <AttachmentPreview file={pendingFile} onRemove={() => setPendingFile(null)} />}
+      {suggestion && (
+        <View style={styles.suggestionList}>
+          {suggestion.results.map(([name, url]) => (
+            <Pressable
+              key={name}
+              style={styles.suggestionItem}
+              onPress={() => commitSuggestion(name, suggestion.start)}>
+              <Image source={{ uri: url }} style={styles.suggestionImage} />
+              <Text style={styles.suggestionText}>:{name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       <View style={styles.row}>
         <Pressable style={styles.attachBtn} onPress={showAttachmentPicker}>
@@ -179,9 +262,16 @@ export function ChatInput({
         </Pressable>
 
         <TextInput
+          ref={inputRef}
           style={styles.input}
           value={text}
           onChangeText={handleTextChange}
+          onSelectionChange={(event) => {
+            const nextSelection = event.nativeEvent.selection;
+            setSelection(nextSelection);
+            updateSuggestion(text, nextSelection.start);
+          }}
+          selection={selection}
           placeholder="Message…"
           placeholderTextColor="#52525b"
           multiline
@@ -207,6 +297,34 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#18181b',
     paddingBottom: 16,
+  },
+  suggestionList: {
+    marginHorizontal: 14,
+    marginTop: 8,
+    marginBottom: 2,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#27272a',
+    backgroundColor: '#09090b',
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#18181b',
+  },
+  suggestionImage: {
+    width: 28,
+    height: 28,
+  },
+  suggestionText: {
+    color: '#f4f4f5',
+    fontSize: 14,
+    fontWeight: '500',
   },
   row: {
     flexDirection: 'row', alignItems: 'flex-end',
