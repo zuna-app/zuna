@@ -64,9 +64,12 @@ export default function PinScreen() {
       setVaultPin(enteredPin);
       const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
       setServerList(servers);
+
+      // Populate metadata in background so unlock feels instant.
+      void fetchAndUpdateServerInfos(servers);
+
       if (servers.length > 0) {
         setSelectedServer(servers[0]);
-        await fetchAndUpdateServerInfos(servers);
         router.replace(`/(app)/${servers[0].id}` as any);
       } else {
         router.replace('/(app)/join' as any);

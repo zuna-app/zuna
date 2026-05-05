@@ -11,13 +11,22 @@ function getRandomBytes(n: number): Uint8Array {
   return buf;
 }
 
-export function decryptVaultBlob(binary: Uint8Array, password: string): Record<string, unknown> {
-  const salt = binary.slice(0, 16);
-  const iv = binary.slice(16, 28);
-  const tag = binary.slice(28, 44);
-  const encrypted = binary.slice(44);
+function parseVaultHeader(binary: Uint8Array): {
+  salt: Uint8Array;
+  iv: Uint8Array;
+  tag: Uint8Array;
+  encrypted: Uint8Array;
+} {
+  return {
+    salt: binary.slice(0, 16),
+    iv: binary.slice(16, 28),
+    tag: binary.slice(28, 44),
+    encrypted: binary.slice(44),
+  };
+}
 
-  const key = deriveKey(password, salt);
+function decryptWithKey(binary: Uint8Array, key: Uint8Array): Record<string, unknown> {
+  const { iv, tag, encrypted } = parseVaultHeader(binary);
 
   // gcm expects ciphertext+tag concatenated
   const combined = new Uint8Array(encrypted.length + tag.length);
@@ -46,6 +55,16 @@ export function decryptVaultBlob(binary: Uint8Array, password: string): Record<s
     }
   }
   return result;
+}
+
+export function decryptVaultBlob(binary: Uint8Array, password: string): Record<string, unknown> {
+  const { salt } = parseVaultHeader(binary);
+  const key = deriveKey(password, salt);
+  return decryptWithKey(binary, key);
+}
+
+export function decryptVaultBlobWithKey(binary: Uint8Array, key: Uint8Array): Record<string, unknown> {
+  return decryptWithKey(binary, key);
 }
 
 export function encryptVaultBlob(data: Record<string, unknown>, password: string): Uint8Array {

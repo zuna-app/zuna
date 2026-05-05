@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const SESSION_PIN_KEY = 'zuna_vault_pin';
+const SESSION_DERIVED_KEY_KEY = 'zuna_vault_derived_key';
 const ACCESS_GROUP = 'SGKB9R23YT.chat.zuna.mobile';
 
 function secureStoreOptions(): SecureStore.SecureStoreOptions {
@@ -28,9 +29,24 @@ export async function setSessionPin(pin: string): Promise<void> {
   await SecureStore.setItemAsync(SESSION_PIN_KEY, pin, secureStoreOptions());
 }
 
+export async function getSessionDerivedKey(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(SESSION_DERIVED_KEY_KEY, secureStoreOptions());
+  } catch {
+    return null;
+  }
+}
+
+export async function setSessionDerivedKey(derivedKeyBase64: string): Promise<void> {
+  await SecureStore.setItemAsync(SESSION_DERIVED_KEY_KEY, derivedKeyBase64, secureStoreOptions());
+}
+
 export async function clearSession(): Promise<void> {
   try {
-    await SecureStore.deleteItemAsync(SESSION_PIN_KEY, secureStoreOptions());
+    await Promise.all([
+      SecureStore.deleteItemAsync(SESSION_PIN_KEY, secureStoreOptions()),
+      SecureStore.deleteItemAsync(SESSION_DERIVED_KEY_KEY, secureStoreOptions()),
+    ]);
   } catch {
     // ignore if not found
   }

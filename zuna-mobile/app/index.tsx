@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { View, ActivityIndicator } from 'react-native';
-import { isVaultImported, unlockVault } from '@/lib/vault';
+import { isVaultImported, unlockVaultWithSession } from '@/lib/vault';
 import { useSetAtom } from 'jotai';
 import {
   jotaiStore,
@@ -10,8 +10,7 @@ import {
   serverListAtom,
   selectedServerAtom,
 } from '@/store/atoms';
-import { getSessionPin, clearSession } from '@/lib/keychain';
-import { canUseBiometrics, authenticateWithBiometrics } from '@/lib/biometrics';
+import { clearSession, getSessionPin } from '@/lib/keychain';
 
 import 'react-native-get-random-values';
 import { fetchAndUpdateServerInfos } from '@/hooks/auth/useAuthorizer';
@@ -26,23 +25,29 @@ export default function Index() {
   const setSelectedServer = useSetAtom(selectedServerAtom, { store: jotaiStore });
 
   useEffect(() => {
-    async function auth(sessionPin: string) {
+    async function authWithSession() {
       try {
-        const vault = await unlockVault(sessionPin);
+        const vault = await unlockVaultWithSession();
+        if (!vault) return false;
+
         setVault(vault);
-        setVaultPin(sessionPin);
+
         const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
         setServerList(servers);
+
+        // Don't block navigation on metadata fetch.
+        void fetchAndUpdateServerInfos(servers);
+
         if (servers.length > 0) {
           setSelectedServer(servers[0]);
-          await fetchAndUpdateServerInfos(servers);
           router.replace(`/(app)/${servers[0].id}` as any);
         } else {
           router.replace('/(app)/join' as any);
         }
-        return;
+        return true;
       } catch {
         await clearSession();
+        return false;
       }
     }
 
@@ -55,6 +60,7 @@ export default function Index() {
 
       const sessionPin = await getSessionPin();
       if (sessionPin) {
+        setVaultPin(sessionPin);
         const isWeakAuth = await LocalAuthentication.getEnrolledLevelAsync().then(
           (level) => level === LocalAuthentication.SecurityLevel.NONE
         );
@@ -67,7 +73,11 @@ export default function Index() {
         //if (hasBio) {
         //  const bioSuccess = await authenticateWithBiometrics('Unlock Zuna');
         //  if (bioSuccess) {
-        auth(sessionPin);
+        const unlocked = await authWithSession();
+        if (unlocked) return;
+
+        await clearSession();
+        router.replace('/setup/pin' as any);
         return;
         //  }
         //}
