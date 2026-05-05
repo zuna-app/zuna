@@ -77,22 +77,11 @@ export function MessageList({
   const isAtBottomRef = useRef(true);
   // Track the newest message key to distinguish new messages from pagination
   const prevNewestKeyRef = useRef<string | null>(null);
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
   const groupedReversedMessages = useMemo(() => [...groupedMessages].reverse(), [groupedMessages]);
 
   const scrollToNewest = useCallback((animated: boolean) => {
-    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
-    scrollTimerRef.current = setTimeout(() => {
-      listRef.current?.scrollToIndex({ index: 0, animated });
-      scrollTimerRef.current = null;
-    }, 30);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
-    };
+    listRef.current?.scrollToIndex({ index: 0, animated });
   }, []);
 
   // Auto-scroll only when the newest message actually changes, not on pagination
@@ -113,7 +102,7 @@ export function MessageList({
     prevNewestKeyRef.current = newestKey;
 
     if (newest?.isOwn || isAtBottomRef.current) {
-      // Outgoing messages should appear immediately for snappier send feedback.
+      // FlatList animated scroll has fixed duration; keep own-send motion fast.
       scrollToNewest(!newest?.isOwn);
     }
   }, [messages, scrollToNewest]);

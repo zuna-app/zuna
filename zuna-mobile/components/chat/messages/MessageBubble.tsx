@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,8 @@ import {
   Image,
   useWindowDimensions,
   GestureResponderEvent,
+  Animated,
+  Easing,
 } from 'react-native';
 import {
   CheckIcon,
@@ -105,11 +107,40 @@ export function MessageBubble({
 }: Props) {
   const { width, height } = useWindowDimensions();
   const isOwn = message.isOwn;
+  const shouldAnimateEnter = isOwn && message.localId != null;
+  const enterAnim = useRef(new Animated.Value(shouldAnimateEnter ? 0 : 1)).current;
   const status = getStatus(message);
   const text = plaintext ?? message.plaintext ?? '';
   const hasPendingUpload = message.uploadProgress != null;
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!shouldAnimateEnter) {
+      enterAnim.setValue(1);
+      return;
+    }
+
+    enterAnim.setValue(0);
+    Animated.timing(enterAnim, {
+      toValue: 1,
+      duration: 200,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [enterAnim, shouldAnimateEnter]);
+
+  const enterStyle = {
+    opacity: enterAnim,
+    transform: [
+      {
+        translateY: enterAnim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [8, 0],
+        }),
+      },
+    ],
+  };
 
   const menuItems = [
     {
@@ -166,7 +197,7 @@ export function MessageBubble({
   }
 
   return (
-    <View style={[styles.row, isFirst ? styles.rowFirst : styles.rowGrouped, isOwn && styles.rowOwn]}>
+    <Animated.View style={[styles.row, isFirst ? styles.rowFirst : styles.rowGrouped, isOwn && styles.rowOwn, enterStyle]}>
       <Pressable
         style={[
           styles.bubble,
@@ -266,7 +297,7 @@ export function MessageBubble({
           </View>
         </Pressable>
       </Modal>
-    </View>
+    </Animated.View>
   );
 }
 
