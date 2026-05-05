@@ -1,6 +1,6 @@
 import { View, Text, Pressable, StyleSheet, ScrollView, Alert } from 'react-native';
 import { useState } from 'react';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAtomValue } from 'jotai';
 import { jotaiStore, serverListAtom, selectedServerAtom, serverMetaAtom } from '@/store/atoms';
 import { useServerConnector } from '@/hooks/server/useServerConnector';
@@ -78,6 +78,7 @@ interface DrawerProps {
 
 export function ServerDrawer({ onClose }: DrawerProps) {
   const router = useRouter();
+  const { serverId: currentServerId } = useLocalSearchParams<{ serverId?: string }>();
   const serverList = useAtomValue(serverListAtom, { store: jotaiStore });
   const selectedServer = useAtomValue(selectedServerAtom, { store: jotaiStore });
   const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
@@ -95,6 +96,10 @@ export function ServerDrawer({ onClose }: DrawerProps) {
             key={server.id}
             style={[styles.serverItem, selectedServer?.id === server.id && styles.serverItemActive]}
             onPress={() => {
+              if (server.id === currentServerId) {
+                onClose();
+                return;
+              }
               selectServer(server);
               router.replace(`/(app)/${server.id}` as any);
               onClose();
