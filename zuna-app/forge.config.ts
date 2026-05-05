@@ -6,12 +6,32 @@ import { MakerRpm } from "@electron-forge/maker-rpm";
 import { VitePlugin } from "@electron-forge/plugin-vite";
 import { FusesPlugin } from "@electron-forge/plugin-fuses";
 import { FuseV1Options, FuseVersion } from "@electron/fuses";
+import 'dotenv/config';
+import path from 'path';
+import os from 'os';
+import fs from 'fs';
+
+const keyPath = path.join(os.tmpdir(), 'AuthKey.p8');
+if (process.env.APPLE_API_KEY_BASE64) {
+  fs.writeFileSync(
+    keyPath,
+    Buffer.from(process.env.APPLE_API_KEY_BASE64, 'base64')
+  );
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     icon: "./public/icon",
     extraResource: ["./public/zuna.png"],
+    osxSign: {
+      identity: "Developer ID Application: Mikolaj Galazka (SGKB9R23YT)",
+    },
+    osxNotarize: {
+      appleApiIssuer: process.env.APPLE_API_ISSUER_ID as string,
+      appleApiKey: keyPath,
+      appleApiKeyId: process.env.APPLE_API_KEY_ID as string,
+    }
   },
   rebuildConfig: {},
   makers: [

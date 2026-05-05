@@ -5164,9 +5164,9 @@ dotenv@^16.4.5:
   resolved "https://registry.npmjs.org/dotenv/-/dotenv-16.6.1.tgz"
   integrity sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==
 
-dotenv@^17.2.1:
+dotenv@^17.2.1, dotenv@^17.4.2:
   version "17.4.2"
-  resolved "https://registry.npmjs.org/dotenv/-/dotenv-17.4.2.tgz"
+  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.4.2.tgz#c07e54a746e11eba021dd9e1047ced5afdc1c034"
   integrity sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==
 
 ds-store@^0.1.5:
@@ -7617,7 +7617,7 @@ lucide-react@^1.8.0:
   resolved "https://registry.npmjs.org/lucide-react/-/lucide-react-1.14.0.tgz"
   integrity sha512-+1mdWcfSJVUsaTIjN9zoezmUhfXo5l0vP7ekBMPo3jcS/aIkxHnXqAPsByszMZx/Y8oQBRJxJx5xg+RH3urzxA==
 
-macos-alias@~0.2.5:
+macos-alias@^0.2.12, macos-alias@~0.2.5:
   version "0.2.12"
   resolved "https://registry.yarnpkg.com/macos-alias/-/macos-alias-0.2.12.tgz#c984db71b7c2372924548291a0790b43c080606b"
   integrity sha512-yiLHa7cfJcGRFq4FrR4tMlpNHb4Vy4mWnpajlSSIFM5k4Lv8/7BbbDLzCAVogWNl0LlLhizRp1drXv0hK9h0Yw==
