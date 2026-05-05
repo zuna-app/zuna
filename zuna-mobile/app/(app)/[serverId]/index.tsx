@@ -24,6 +24,9 @@ import { ServerDrawer } from '@/components/chat/ServerDrawer';
 import { Server, ChatMember } from '@/types/serverTypes';
 import { MenuIcon } from 'lucide-react-native';
 
+const ATTACHMENT_PREVIEW = '📎 Attachment';
+const ZERO_WIDTH_SPACE = '\u200b';
+
 export default function ChatListScreen() {
   const { serverId } = useLocalSearchParams<{ serverId: string }>();
   const router = useRouter();
@@ -59,6 +62,7 @@ export default function ChatListScreen() {
           iv: member.iv,
           authTag: member.authTag,
         });
+        const content = plaintext === ZERO_WIDTH_SPACE ? ATTACHMENT_PREVIEW : plaintext;
         setLastMessages((prev) => {
           if (prev[member.chatId]) return prev;
           return {
@@ -66,7 +70,7 @@ export default function ChatListScreen() {
             [member.chatId]: {
               chatId: member.chatId,
               senderId: member.senderId,
-              content: plaintext,
+              content,
               unreadMessages: member.unreadMessages ?? 0,
               lastActivityAt: member.lastActivityAt ?? 0,
             },

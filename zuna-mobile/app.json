@@ -16,6 +16,7 @@
       "**/*"
     ],
     "ios": {
+      "buildNumber": "3",
       "supportsTablet": true,
       "bundleIdentifier": "chat.zuna.mobile",
       "entitlements": {
