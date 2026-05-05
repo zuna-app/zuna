@@ -21,8 +21,8 @@
       "entitlements": {
         "keychain-access-groups": [
           "$(AppIdentifierPrefix)$(CFBundleIdentifier)",
-          "group.chat.zuna",
-          "$(AppIdentifierPrefix)group.chat.zuna"
+          "SGKB9R23YT.chat.zuna.mobile",
+          "$(AppIdentifierPrefix)SGKB9R23YT.chat.zuna.mobile"
         ]
       }
     },

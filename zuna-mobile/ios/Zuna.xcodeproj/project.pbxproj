@@ -11,10 +11,10 @@
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
 		A75F09A5512FAEBAFC02FAD3 /* libPods-Zuna.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A847D60DA66BE4AA7514CD70 /* libPods-Zuna.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		D715D11DA8924991889C5B8C /* TrustAllCerts.m in Sources */ = {isa = PBXBuildFile; fileRef = 6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */; };
 		D90D485927AB100D5C01E9C8 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 156CDAC5B6907BD7891EAEBE /* ExpoModulesProvider.swift */; };
 		EEAB74DF7B120C2A1DFE4491 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1EC3E298636ECBAC88828FA3 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
-		D715D11DA8924991889C5B8C /* TrustAllCerts.m in Sources */ = {isa = PBXBuildFile; fileRef = 6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,7 +22,8 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Zuna/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Zuna/Info.plist; sourceTree = "<group>"; };
 		156CDAC5B6907BD7891EAEBE /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Zuna/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		1EC3E298636ECBAC88828FA3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Zuna/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		1EC3E298636ECBAC88828FA3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Zuna/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.c.objc; name = TrustAllCerts.m; path = Zuna/TrustAllCerts.m; sourceTree = "<group>"; };
 		A847D60DA66BE4AA7514CD70 /* libPods-Zuna.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Zuna.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Zuna/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
@@ -31,7 +32,6 @@
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Zuna/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Zuna-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Zuna-Bridging-Header.h"; path = "Zuna/Zuna-Bridging-Header.h"; sourceTree = "<group>"; };
 		F676415F29704D4415CEB776 /* Pods-Zuna.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Zuna.debug.xcconfig"; path = "Target Support Files/Pods-Zuna/Pods-Zuna.debug.xcconfig"; sourceTree = "<group>"; };
-		6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */ = {isa = PBXFileReference; name = "TrustAllCerts.m"; path = "Zuna/TrustAllCerts.m"; sourceTree = "<group>"; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -76,7 +76,6 @@
 				F676415F29704D4415CEB776 /* Pods-Zuna.debug.xcconfig */,
 				D10A348395166665BEAF5516 /* Pods-Zuna.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -353,6 +352,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Zuna/Zuna.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SGKB9R23YT;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -389,6 +389,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Zuna/Zuna.entitlements;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SGKB9R23YT;
 				INFOPLIST_FILE = Zuna/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (

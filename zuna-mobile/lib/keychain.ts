@@ -3,7 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 const SESSION_PIN_KEY = 'zuna_vault_pin';
-const ACCESS_GROUP = 'group.chat.zuna';
+const ACCESS_GROUP = 'SGKB9R23YT.chat.zuna.mobile';
 
 function secureStoreOptions(): SecureStore.SecureStoreOptions {
   const isExpoGo = Constants.appOwnership === 'expo';
