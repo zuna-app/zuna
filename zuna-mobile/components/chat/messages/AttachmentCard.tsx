@@ -10,6 +10,7 @@ interface Props {
   senderIdentityKey: string;
   meta: AttachmentMeta | undefined;
   onImagePress?: (uri: string) => void;
+  onLongPress?: (e: import('react-native').GestureResponderEvent) => void;
 }
 
 export function AttachmentCard({
@@ -18,6 +19,7 @@ export function AttachmentCard({
   senderIdentityKey,
   meta,
   onImagePress,
+  onLongPress,
 }: Props) {
   const mimeType = meta?.mimeType ?? 'application/octet-stream';
   const isImage = mimeType.startsWith('image/');
@@ -40,7 +42,7 @@ export function AttachmentCard({
     }
     if (uri) {
       return (
-        <Pressable onPress={() => onImagePress?.(uri)}>
+        <Pressable onPress={() => onImagePress?.(uri)} onLongPress={onLongPress}>
           <Image source={{ uri }} style={styles.image} contentFit="cover" transition={200} />
         </Pressable>
       );

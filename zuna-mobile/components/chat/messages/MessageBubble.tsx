@@ -184,7 +184,8 @@ export function MessageBubble({
   const menuWidth = 188;
   const menuHeight = menuItems.length * 44 + 12;
   const menuLeft = Math.min(Math.max(menuAnchor.x - menuWidth / 2, 12), width - menuWidth - 12);
-  const menuTop = Math.min(Math.max(menuAnchor.y - menuHeight - 10, 12), height - menuHeight - 20);
+  const spaceAbove = menuAnchor.y - menuHeight - 10;
+  const menuTop = spaceAbove >= 12 ? spaceAbove : Math.min(menuAnchor.y + 10, height - menuHeight - 12);
 
   function showActions(e: GestureResponderEvent) {
     setMenuAnchor({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY });
@@ -233,6 +234,7 @@ export function MessageBubble({
             senderIdentityKey={senderIdentityKey}
             meta={attachmentMeta}
             onImagePress={onImagePress}
+            onLongPress={showActions}
           />
         )}
 
