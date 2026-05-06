@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/golang-jwt/jwt/v4 v4.4.1 // indirect
 	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
@@ -21,6 +22,7 @@ require (
 	github.com/labstack/echo/v5 v5.1.0
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.21 // indirect
+	github.com/sideshow/apns2 v0.25.0
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/time v0.15.0
 )

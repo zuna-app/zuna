@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 	"zuna-gateway/config"
+	"zuna-gateway/push"
 
 	"github.com/labstack/echo/v5"
 )
@@ -50,6 +51,16 @@ func NotificationEndpoint(c *echo.Context) error {
 	if req.Timestamp < currentMillis-5*1000 || req.Timestamp > currentMillis+100 {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
+
+	push.SendApnNotification(req.DeviceTokens, push.NotificationPayload{
+		ServerID:          req.ServerID,
+		SenderID:          req.SenderID,
+		SenderIdentityKey: req.SenderIdentityKey,
+		CipherText:        req.CipherText,
+		Iv:                req.Iv,
+		AuthTag:           req.AuthTag,
+		Signature:         req.Signature,
+	})
 
 	// VAPID stuff
 	// user, err := data.GetUserByUserId(req.UserID)

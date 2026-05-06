@@ -11,18 +11,7 @@ import (
 	webpush "github.com/SherClockHolmes/webpush-go"
 )
 
-type NotificationPayload struct {
-	Type              string `json:"type"`
-	ServerID          string `json:"server_id"`
-	SenderID          string `json:"sender_id"`
-	SenderIdentityKey string `json:"sender_identity_key"`
-	CipherText        string `json:"cipher_text"`
-	Iv                string `json:"iv"`
-	AuthTag           string `json:"auth_tag"`
-	Signature         string `json:"signature"`
-}
-
-func SendNotification(sub data.WebPushSubscription, payload NotificationPayload) (bool, error) {
+func SendVapidNotification(sub data.WebPushSubscription, payload NotificationPayload) (bool, error) {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return false, err

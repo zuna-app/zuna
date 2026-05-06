@@ -7,6 +7,8 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+var ApnKey []byte
+
 const ConfigFilePath = "config.toml"
 
 type LimitsConfig struct {
@@ -34,6 +36,13 @@ type Configuration struct {
 	Limits  LimitsConfig  `toml:"limits" comment:"Limits for various server parameters"`
 	Gateway GatewayConfig `toml:"gateway" comment:"Gateway server configuration"`
 	TLS     TLSConfig     `toml:"tls" comment:"TLS configuration"`
+	APN     APN           `toml:"apn" comment:"Apple Push Notification configuration"`
+}
+
+type APN struct {
+	KeyPath string `toml:"apn_key_path" comment:"Path to the APNs Auth Key P8 file"`
+	KeyId   string `toml:"apn_key_id" comment:"APNs Key ID from Apple Developer account"`
+	TeamId  string `toml:"apn_team_id" comment:"APNs Team ID from Apple Developer account"`
 }
 
 var Config = Configuration{
@@ -53,6 +62,11 @@ var Config = Configuration{
 		AutoGenerate: true,
 		CertFile:     "server_tls_cert.pem",
 		KeyFile:      "server_tls_key.pem",
+	},
+	APN: APN{
+		KeyPath: "AuthKey.p8",
+		KeyId:   "ABC123XYZ",
+		TeamId:  "TEAMID123",
 	},
 }
 
@@ -74,6 +88,12 @@ func LoadConfig() error {
 		return err
 	}
 
+	apnKeyData, err := os.ReadFile(Config.APN.KeyPath)
+	if err != nil {
+		return err
+	}
+
+	ApnKey = apnKeyData
 	return nil
 }
 

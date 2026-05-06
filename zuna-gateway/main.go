@@ -11,6 +11,7 @@ import (
 	"time"
 	"zuna-gateway/config"
 	"zuna-gateway/crypto"
+	"zuna-gateway/push"
 	"zuna-gateway/rest"
 	"zuna-gateway/ws"
 
@@ -43,6 +44,8 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to load vapid keypair")
 		return
 	}
+
+	push.InitializeApnClient()
 
 	ctx := context.Background()
 
