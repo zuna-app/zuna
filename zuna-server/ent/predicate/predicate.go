@@ -12,6 +12,9 @@ type Attachment func(*sql.Selector)
 // Chat is the predicate function for chat builders.
 type Chat func(*sql.Selector)
 
+// Device is the predicate function for device builders.
+type Device func(*sql.Selector)
+
 // Message is the predicate function for message builders.
 type Message func(*sql.Selector)
 

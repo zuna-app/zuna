@@ -64,9 +64,11 @@ func main() {
 	api := e.Group("/api", apiLimiter.Middleware())
 	api.POST("/notification", rest.NotificationEndpoint)
 	api.GET("/validate", rest.ValidateEndpoint)
-	api.GET("/vapid/public-key", rest.VapidPublicKeyEndpoint)
-	api.POST("/push/subscribe", rest.PushSubscribeEndpoint)
-	api.POST("/push/unsubscribe", rest.PushUnsubscribeEndpoint)
+
+	vapid := api.Group("/vapid", apiLimiter.Middleware())
+	vapid.GET("/public-key", rest.VapidPublicKeyEndpoint)
+	vapid.POST("/subscribe", rest.VapidSubscribeEndpoint)
+	vapid.POST("/unsubscribe", rest.VapidUnsubscribeEndpoint)
 
 	ws.HubInstance = ws.NewHub()
 	go ws.HubInstance.Run()

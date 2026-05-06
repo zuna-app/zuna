@@ -35,19 +35,20 @@ func IsMember(userID string, members []*ent.User) bool {
 }
 
 type NotificationRequest struct {
-	UserID            string `json:"user_id"`
-	SenderID          string `json:"sender_id"`
-	ServerID          string `json:"server_id"`
-	SenderIdentityKey string `json:"sender_identity_key"`
-	CipherText        string `json:"cipher_text"`
-	Iv                string `json:"iv"`
-	AuthTag           string `json:"auth_tag"`
-	Timestamp         int64  `json:"timestamp"`
-	Password          string `json:"password"`
-	Signature         string `json:"signature"`
+	UserID            string   `json:"user_id"`
+	SenderID          string   `json:"sender_id"`
+	ServerID          string   `json:"server_id"`
+	SenderIdentityKey string   `json:"sender_identity_key"`
+	CipherText        string   `json:"cipher_text"`
+	Iv                string   `json:"iv"`
+	AuthTag           string   `json:"auth_tag"`
+	Timestamp         int64    `json:"timestamp"`
+	Password          string   `json:"password"`
+	Signature         string   `json:"signature"`
+	DeviceTokens      []string `json:"device_tokens"`
 }
 
-func SendNotificationToGateway(userId string, senderId string, senderIdentityKey string, cipherText string, iv string, authTag string) {
+func SendNotificationToGateway(userId string, senderId string, senderIdentityKey string, cipherText string, iv string, authTag string, deviceTokens []string) {
 	if !GatewayWorking {
 		return
 	}
@@ -60,6 +61,7 @@ func SendNotificationToGateway(userId string, senderId string, senderIdentityKey
 		CipherText:        cipherText,
 		Iv:                iv,
 		AuthTag:           authTag,
+		DeviceTokens:      deviceTokens,
 		Timestamp:         time.Now().UnixMilli(),
 		Password:          config.Config.Gateway.Password,
 		Signature:         crypto.SignEd25519(config.Config.Server.ServerID),

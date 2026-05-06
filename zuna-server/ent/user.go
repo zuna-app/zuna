@@ -45,9 +45,11 @@ type UserEdges struct {
 	Messages []*Message `json:"messages,omitempty"`
 	// Attachments holds the value of the attachments edge.
 	Attachments []*Attachment `json:"attachments,omitempty"`
+	// Devices holds the value of the devices edge.
+	Devices []*Device `json:"devices,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // ChatsOrErr returns the Chats value or an error if the edge
@@ -75,6 +77,15 @@ func (e UserEdges) AttachmentsOrErr() ([]*Attachment, error) {
 		return e.Attachments, nil
 	}
 	return nil, &NotLoadedError{edge: "attachments"}
+}
+
+// DevicesOrErr returns the Devices value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) DevicesOrErr() ([]*Device, error) {
+	if e.loadedTypes[3] {
+		return e.Devices, nil
+	}
+	return nil, &NotLoadedError{edge: "devices"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -177,6 +188,11 @@ func (_m *User) QueryMessages() *MessageQuery {
 // QueryAttachments queries the "attachments" edge of the User entity.
 func (_m *User) QueryAttachments() *AttachmentQuery {
 	return NewUserClient(_m.config).QueryAttachments(_m)
+}
+
+// QueryDevices queries the "devices" edge of the User entity.
+func (_m *User) QueryDevices() *DeviceQuery {
+	return NewUserClient(_m.config).QueryDevices(_m)
 }
 
 // Update returns a builder for updating this User.

@@ -33,6 +33,18 @@ func (f ChatFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error)
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChatMutation", m)
 }
 
+// The DeviceFunc type is an adapter to allow the use of ordinary
+// function as Device mutator.
+type DeviceFunc func(context.Context, *ent.DeviceMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f DeviceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.DeviceMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DeviceMutation", m)
+}
+
 // The MessageFunc type is an adapter to allow the use of ordinary
 // function as Message mutator.
 type MessageFunc func(context.Context, *ent.MessageMutation) (ent.Value, error)

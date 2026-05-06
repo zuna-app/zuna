@@ -4,25 +4,22 @@ import (
 	"net/http"
 	"time"
 	"zuna-gateway/config"
-	"zuna-gateway/data"
-	"zuna-gateway/push"
-	"zuna-gateway/ws"
 
 	"github.com/labstack/echo/v5"
-	"github.com/rs/zerolog/log"
 )
 
 type NotificationRequest struct {
-	UserID            string `json:"user_id"`
-	SenderID          string `json:"sender_id"`
-	ServerID          string `json:"server_id"`
-	CipherText        string `json:"cipher_text"`
-	Iv                string `json:"iv"`
-	AuthTag           string `json:"auth_tag"`
-	Timestamp         int64  `json:"timestamp"`
-	Password          string `json:"password"`
-	Signature         string `json:"signature"`
-	SenderIdentityKey string `json:"sender_identity_key"`
+	UserID            string   `json:"user_id"`
+	SenderID          string   `json:"sender_id"`
+	ServerID          string   `json:"server_id"`
+	SenderIdentityKey string   `json:"sender_identity_key"`
+	CipherText        string   `json:"cipher_text"`
+	Iv                string   `json:"iv"`
+	AuthTag           string   `json:"auth_tag"`
+	Timestamp         int64    `json:"timestamp"`
+	Password          string   `json:"password"`
+	Signature         string   `json:"signature"`
+	DeviceTokens      []string `json:"device_tokens"`
 }
 
 type WsNotificationInfoResponse struct {
@@ -46,12 +43,6 @@ func NotificationEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
 
-	// Required for APN
-	totalLen := len(req.UserID) + len(req.CipherText) + len(req.Iv) + len(req.AuthTag)
-	if totalLen > 3*1024 {
-		return c.JSON(http.StatusBadRequest, InvalidRequest)
-	}
-
 	if config.Config.Gateway.Password != "" && req.Password != config.Config.Gateway.Password {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
@@ -60,61 +51,62 @@ func NotificationEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
-	user, err := data.GetUserByUserId(req.UserID)
-	if err != nil {
-		return c.JSON(http.StatusForbidden, Forbidden)
-	}
+	// VAPID stuff
+	// user, err := data.GetUserByUserId(req.UserID)
+	// if err != nil {
+	// 	return c.JSON(http.StatusForbidden, Forbidden)
+	// }
 
-	if !user.IsInServer(req.ServerID) {
-		return c.JSON(http.StatusForbidden, Forbidden)
-	}
+	// if !user.IsInServer(req.ServerID) {
+	// 	return c.JSON(http.StatusForbidden, Forbidden)
+	// }
 
-	connectedFromDesktop := user.IsConnectedFromDesktop()
-	for _, conn := range user.Connections {
-		if connectedFromDesktop && conn.Mobile {
-			continue
-		}
+	// connectedFromDesktop := user.IsConnectedFromDesktop()
+	// for _, conn := range user.Connections {
+	// 	if connectedFromDesktop && conn.Mobile {
+	// 		continue
+	// 	}
 
-		ws.HubInstance.SendTo(conn.ConnectionID, ws.OutgoingMessage{Type: "notification_info", Payload: WsNotificationInfoResponse{
-			ServerID:          req.ServerID,
-			SenderID:          req.SenderID,
-			SenderIdentityKey: req.SenderIdentityKey,
-			CipherText:        req.CipherText,
-			Iv:                req.Iv,
-			AuthTag:           req.AuthTag,
-			Signature:         req.Signature,
-		}})
-	}
+	// 	ws.HubInstance.SendTo(conn.ConnectionID, ws.OutgoingMessage{Type: "notification_info", Payload: WsNotificationInfoResponse{
+	// 		ServerID:          req.ServerID,
+	// 		SenderID:          req.SenderID,
+	// 		SenderIdentityKey: req.SenderIdentityKey,
+	// 		CipherText:        req.CipherText,
+	// 		Iv:                req.Iv,
+	// 		AuthTag:           req.AuthTag,
+	// 		Signature:         req.Signature,
+	// 	}})
+	// }
 
-	if !connectedFromDesktop {
-		removedAny := false
-		for _, sub := range user.WebPushSubs {
-			expired, err := push.SendNotification(sub, push.NotificationPayload{
-				Type:              "notification_info",
-				ServerID:          req.ServerID,
-				SenderID:          req.SenderID,
-				SenderIdentityKey: req.SenderIdentityKey,
-				CipherText:        req.CipherText,
-				Iv:                req.Iv,
-				AuthTag:           req.AuthTag,
-				Signature:         req.Signature,
-			})
-			if err != nil {
-				if expired {
-					if user.RemoveWebPushSubscription(sub.Endpoint) {
-						removedAny = true
-					}
-					continue
-				}
+	// if !connectedFromDesktop {
+	// 	removedAny := false
+	// 	for _, sub := range user.WebPushSubs {
+	// 		expired, err := push.SendNotification(sub, push.NotificationPayload{
+	// 			Type:              "notification_info",
+	// 			ServerID:          req.ServerID,
+	// 			SenderID:          req.SenderID,
+	// 			SenderIdentityKey: req.SenderIdentityKey,
+	// 			CipherText:        req.CipherText,
+	// 			Iv:                req.Iv,
+	// 			AuthTag:           req.AuthTag,
+	// 			Signature:         req.Signature,
+	// 		})
+	// 		if err != nil {
+	// 			if expired {
+	// 				if user.RemoveWebPushSubscription(sub.Endpoint) {
+	// 					removedAny = true
+	// 				}
+	// 				continue
+	// 			}
 
-				log.Warn().Err(err).Str("user_id", req.UserID).Msg("failed to send web push notification")
-			}
-		}
+	// 			log.Warn().Err(err).Str("user_id", req.UserID).Msg("failed to send web push notification")
+	// 		}
+	// 	}
 
-		if removedAny {
-			data.UpdateUser(user)
-		}
-	}
+	// 	if removedAny {
+	// 		data.UpdateUser(user)
+	// 	}
+	// }
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }

@@ -47,6 +47,28 @@ var (
 		Columns:    ChatsColumns,
 		PrimaryKey: []*schema.Column{ChatsColumns[0]},
 	}
+	// DevicesColumns holds the columns for the "devices" table.
+	DevicesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "device_id", Type: field.TypeString, Unique: true},
+		{Name: "device_token", Type: field.TypeString, Unique: true},
+		{Name: "platform", Type: field.TypeString},
+		{Name: "user_devices", Type: field.TypeString},
+	}
+	// DevicesTable holds the schema information for the "devices" table.
+	DevicesTable = &schema.Table{
+		Name:       "devices",
+		Columns:    DevicesColumns,
+		PrimaryKey: []*schema.Column{DevicesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "devices_users_devices",
+				Columns:    []*schema.Column{DevicesColumns[4]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
 	// MessagesColumns holds the columns for the "messages" table.
 	MessagesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -133,6 +155,7 @@ var (
 	Tables = []*schema.Table{
 		AttachmentsTable,
 		ChatsTable,
+		DevicesTable,
 		MessagesTable,
 		UsersTable,
 		UserChatsTable,
@@ -142,6 +165,7 @@ var (
 func init() {
 	AttachmentsTable.ForeignKeys[0].RefTable = MessagesTable
 	AttachmentsTable.ForeignKeys[1].RefTable = UsersTable
+	DevicesTable.ForeignKeys[0].RefTable = UsersTable
 	MessagesTable.ForeignKeys[0].RefTable = ChatsTable
 	MessagesTable.ForeignKeys[1].RefTable = MessagesTable
 	MessagesTable.ForeignKeys[2].RefTable = UsersTable

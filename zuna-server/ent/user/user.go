@@ -34,6 +34,8 @@ const (
 	EdgeMessages = "messages"
 	// EdgeAttachments holds the string denoting the attachments edge name in mutations.
 	EdgeAttachments = "attachments"
+	// EdgeDevices holds the string denoting the devices edge name in mutations.
+	EdgeDevices = "devices"
 	// Table holds the table name of the user in the database.
 	Table = "users"
 	// ChatsTable is the table that holds the chats relation/edge. The primary key declared below.
@@ -55,6 +57,13 @@ const (
 	AttachmentsInverseTable = "attachments"
 	// AttachmentsColumn is the table column denoting the attachments relation/edge.
 	AttachmentsColumn = "user_attachments"
+	// DevicesTable is the table that holds the devices relation/edge.
+	DevicesTable = "devices"
+	// DevicesInverseTable is the table name for the Device entity.
+	// It exists in this package in order to avoid circular dependency with the "device" package.
+	DevicesInverseTable = "devices"
+	// DevicesColumn is the table column denoting the devices relation/edge.
+	DevicesColumn = "user_devices"
 )
 
 // Columns holds all SQL columns for user fields.
@@ -182,6 +191,20 @@ func ByAttachments(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newAttachmentsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByDevicesCount orders the results by devices count.
+func ByDevicesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newDevicesStep(), opts...)
+	}
+}
+
+// ByDevices orders the results by devices terms.
+func ByDevices(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newDevicesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newChatsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -201,5 +224,12 @@ func newAttachmentsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(AttachmentsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, AttachmentsTable, AttachmentsColumn),
+	)
+}
+func newDevicesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(DevicesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, DevicesTable, DevicesColumn),
 	)
 }

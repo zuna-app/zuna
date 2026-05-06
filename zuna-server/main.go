@@ -114,6 +114,9 @@ func main() {
 	chat.GET("/users", rest.UsersEndpoint)
 	chat.GET("/pinned", rest.ChatPinMessagesEndpoint)
 
+	notifications := api.Group("/notifications", rest.AuthMiddleware, apiLimiter.Middleware())
+	notifications.POST("/register", rest.NotificationsRegisterEndpoint)
+
 	attachment := api.Group("/attachment", rest.AuthMiddleware, apiLimiter.Middleware())
 	attachment.POST("/upload", rest.AttachmentUploadEndpoint)
 	attachment.GET("/download", rest.AttachmentDownloadEndpoint)

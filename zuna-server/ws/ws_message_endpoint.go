@@ -79,7 +79,9 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 	ctx := context.Background()
 
 	ch, err := db.EntClient.Chat.Query().
-		WithUsers().
+		WithUsers(func(uq *ent.UserQuery) {
+			uq.WithDevices()
+		}).
 		Where(chat.IDEQ(req.ChatId)).
 		First(ctx)
 
@@ -216,12 +218,16 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 			continue
 		}
 
-		connectionId := ud.ConnectionID
-		if connectionId == "" || !ud.Active {
-			utils.SendNotificationToGateway(ud.UserID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag)
+		if !ud.Active {
+			deviceTokens := make([]string, len(uu.Edges.Devices))
+			for i, d := range uu.Edges.Devices {
+				deviceTokens[i] = d.DeviceToken
+			}
+
+			go utils.SendNotificationToGateway(ud.UserID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag, deviceTokens)
 		}
 
-		if connectionId == "" {
+		if ud.ConnectionID == "" {
 			continue
 		}
 

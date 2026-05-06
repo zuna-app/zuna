@@ -17,6 +17,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/device"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
 )
@@ -30,6 +31,8 @@ type Client struct {
 	Attachment *AttachmentClient
 	// Chat is the client for interacting with the Chat builders.
 	Chat *ChatClient
+	// Device is the client for interacting with the Device builders.
+	Device *DeviceClient
 	// Message is the client for interacting with the Message builders.
 	Message *MessageClient
 	// User is the client for interacting with the User builders.
@@ -47,6 +50,7 @@ func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.Attachment = NewAttachmentClient(c.config)
 	c.Chat = NewChatClient(c.config)
+	c.Device = NewDeviceClient(c.config)
 	c.Message = NewMessageClient(c.config)
 	c.User = NewUserClient(c.config)
 }
@@ -143,6 +147,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		config:     cfg,
 		Attachment: NewAttachmentClient(cfg),
 		Chat:       NewChatClient(cfg),
+		Device:     NewDeviceClient(cfg),
 		Message:    NewMessageClient(cfg),
 		User:       NewUserClient(cfg),
 	}, nil
@@ -166,6 +171,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		config:     cfg,
 		Attachment: NewAttachmentClient(cfg),
 		Chat:       NewChatClient(cfg),
+		Device:     NewDeviceClient(cfg),
 		Message:    NewMessageClient(cfg),
 		User:       NewUserClient(cfg),
 	}, nil
@@ -198,6 +204,7 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	c.Attachment.Use(hooks...)
 	c.Chat.Use(hooks...)
+	c.Device.Use(hooks...)
 	c.Message.Use(hooks...)
 	c.User.Use(hooks...)
 }
@@ -207,6 +214,7 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	c.Attachment.Intercept(interceptors...)
 	c.Chat.Intercept(interceptors...)
+	c.Device.Intercept(interceptors...)
 	c.Message.Intercept(interceptors...)
 	c.User.Intercept(interceptors...)
 }
@@ -218,6 +226,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.Attachment.mutate(ctx, m)
 	case *ChatMutation:
 		return c.Chat.mutate(ctx, m)
+	case *DeviceMutation:
+		return c.Device.mutate(ctx, m)
 	case *MessageMutation:
 		return c.Message.mutate(ctx, m)
 	case *UserMutation:
@@ -554,6 +564,155 @@ func (c *ChatClient) mutate(ctx context.Context, m *ChatMutation) (Value, error)
 		return (&ChatDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown Chat mutation op: %q", m.Op())
+	}
+}
+
+// DeviceClient is a client for the Device schema.
+type DeviceClient struct {
+	config
+}
+
+// NewDeviceClient returns a client for the Device from the given config.
+func NewDeviceClient(c config) *DeviceClient {
+	return &DeviceClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `device.Hooks(f(g(h())))`.
+func (c *DeviceClient) Use(hooks ...Hook) {
+	c.hooks.Device = append(c.hooks.Device, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `device.Intercept(f(g(h())))`.
+func (c *DeviceClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Device = append(c.inters.Device, interceptors...)
+}
+
+// Create returns a builder for creating a Device entity.
+func (c *DeviceClient) Create() *DeviceCreate {
+	mutation := newDeviceMutation(c.config, OpCreate)
+	return &DeviceCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Device entities.
+func (c *DeviceClient) CreateBulk(builders ...*DeviceCreate) *DeviceCreateBulk {
+	return &DeviceCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *DeviceClient) MapCreateBulk(slice any, setFunc func(*DeviceCreate, int)) *DeviceCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &DeviceCreateBulk{err: fmt.Errorf("calling to DeviceClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*DeviceCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &DeviceCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Device.
+func (c *DeviceClient) Update() *DeviceUpdate {
+	mutation := newDeviceMutation(c.config, OpUpdate)
+	return &DeviceUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *DeviceClient) UpdateOne(_m *Device) *DeviceUpdateOne {
+	mutation := newDeviceMutation(c.config, OpUpdateOne, withDevice(_m))
+	return &DeviceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *DeviceClient) UpdateOneID(id int64) *DeviceUpdateOne {
+	mutation := newDeviceMutation(c.config, OpUpdateOne, withDeviceID(id))
+	return &DeviceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Device.
+func (c *DeviceClient) Delete() *DeviceDelete {
+	mutation := newDeviceMutation(c.config, OpDelete)
+	return &DeviceDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *DeviceClient) DeleteOne(_m *Device) *DeviceDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *DeviceClient) DeleteOneID(id int64) *DeviceDeleteOne {
+	builder := c.Delete().Where(device.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &DeviceDeleteOne{builder}
+}
+
+// Query returns a query builder for Device.
+func (c *DeviceClient) Query() *DeviceQuery {
+	return &DeviceQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeDevice},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Device entity by its id.
+func (c *DeviceClient) Get(ctx context.Context, id int64) (*Device, error) {
+	return c.Query().Where(device.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *DeviceClient) GetX(ctx context.Context, id int64) *Device {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryUser queries the user edge of a Device.
+func (c *DeviceClient) QueryUser(_m *Device) *UserQuery {
+	query := (&UserClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(device.Table, device.FieldID, id),
+			sqlgraph.To(user.Table, user.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, device.UserTable, device.UserColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *DeviceClient) Hooks() []Hook {
+	return c.hooks.Device
+}
+
+// Interceptors returns the client interceptors.
+func (c *DeviceClient) Interceptors() []Interceptor {
+	return c.inters.Device
+}
+
+func (c *DeviceClient) mutate(ctx context.Context, m *DeviceMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&DeviceCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&DeviceUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&DeviceUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&DeviceDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Device mutation op: %q", m.Op())
 	}
 }
 
@@ -926,6 +1085,22 @@ func (c *UserClient) QueryAttachments(_m *User) *AttachmentQuery {
 	return query
 }
 
+// QueryDevices queries the devices edge of a User.
+func (c *UserClient) QueryDevices(_m *User) *DeviceQuery {
+	query := (&DeviceClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, id),
+			sqlgraph.To(device.Table, device.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.DevicesTable, user.DevicesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *UserClient) Hooks() []Hook {
 	return c.hooks.User
@@ -954,9 +1129,9 @@ func (c *UserClient) mutate(ctx context.Context, m *UserMutation) (Value, error)
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		Attachment, Chat, Message, User []ent.Hook
+		Attachment, Chat, Device, Message, User []ent.Hook
 	}
 	inters struct {
-		Attachment, Chat, Message, User []ent.Interceptor
+		Attachment, Chat, Device, Message, User []ent.Interceptor
 	}
 )

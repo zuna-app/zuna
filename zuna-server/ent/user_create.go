@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/device"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
 )
@@ -154,6 +155,21 @@ func (_c *UserCreate) AddAttachments(v ...*Attachment) *UserCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddAttachmentIDs(ids...)
+}
+
+// AddDeviceIDs adds the "devices" edge to the Device entity by IDs.
+func (_c *UserCreate) AddDeviceIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddDeviceIDs(ids...)
+	return _c
+}
+
+// AddDevices adds the "devices" edges to the Device entity.
+func (_c *UserCreate) AddDevices(v ...*Device) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddDeviceIDs(ids...)
 }
 
 // Mutation returns the UserMutation object of the builder.
@@ -340,6 +356,22 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.DevicesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.DevicesTable,
+			Columns: []string{user.DevicesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

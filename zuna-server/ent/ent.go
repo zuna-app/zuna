@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/device"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
 )
@@ -78,6 +79,7 @@ func checkColumn(t, c string) error {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
 			attachment.Table: attachment.ValidColumn,
 			chat.Table:       chat.ValidColumn,
+			device.Table:     device.ValidColumn,
 			message.Table:    message.ValidColumn,
 			user.Table:       user.ValidColumn,
 		})

@@ -16,6 +16,8 @@ type Tx struct {
 	Attachment *AttachmentClient
 	// Chat is the client for interacting with the Chat builders.
 	Chat *ChatClient
+	// Device is the client for interacting with the Device builders.
+	Device *DeviceClient
 	// Message is the client for interacting with the Message builders.
 	Message *MessageClient
 	// User is the client for interacting with the User builders.
@@ -153,6 +155,7 @@ func (tx *Tx) Client() *Client {
 func (tx *Tx) init() {
 	tx.Attachment = NewAttachmentClient(tx.config)
 	tx.Chat = NewChatClient(tx.config)
+	tx.Device = NewDeviceClient(tx.config)
 	tx.Message = NewMessageClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }
