@@ -16,7 +16,7 @@
       "**/*"
     ],
     "ios": {
-      "buildNumber": "3",
+      "buildNumber": "4",
       "supportsTablet": true,
       "bundleIdentifier": "chat.zuna.mobile",
       "appleTeamId": "SGKB9R23YT",
@@ -25,6 +25,14 @@
           "$(AppIdentifierPrefix)$(CFBundleIdentifier)",
           "SGKB9R23YT.chat.zuna.mobile",
           "$(AppIdentifierPrefix)SGKB9R23YT.chat.zuna.mobile"
+        ]
+      },
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Zuna requires access to the local network to download and import your vault from other devices",
+        "NSCameraUsageDescription": "Zuna requires access to the camera to scan QR codes for vault import and sending photos in chats",
+        "NSPhotoLibraryUsageDescription": "Zuna requires access to the photo library to select and send photos in chat",
+        "NSBonjourServices": [
+          "_http._tcp"
         ]
       }
     },

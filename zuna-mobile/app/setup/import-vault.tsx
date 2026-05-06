@@ -1,11 +1,43 @@
-import { useState, useRef } from 'react';
-import { View, Text, Pressable, Alert, StyleSheet } from 'react-native';
+import { useRef, useState } from 'react';
+import { View, Text, Pressable, Alert, StyleSheet, Platform, AppState } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { importVaultFromBase64 } from '@/lib/vault';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+function isLikelyIosLocalNetworkPermissionError(err: unknown) {
+  if (!(err instanceof Error)) return false;
+  return err.message.toLowerCase().includes('network request failed');
+}
+
+function waitUntilAppIsActive() {
+  if (AppState.currentState === 'active') return Promise.resolve();
+
+  return new Promise<void>((resolve) => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        sub.remove();
+        resolve();
+      }
+    });
+  });
+}
+
+async function fetchWithInitialIosRetry(url: string) {
+  try {
+    return await fetch(url);
+  } catch (err) {
+    // On iOS, first access to local network may fail while permission UI is shown.
+    if (Platform.OS !== 'ios' || !isLikelyIosLocalNetworkPermissionError(err)) {
+      throw err;
+    }
+
+    await waitUntilAppIsActive();
+    return fetch(url);
+  }
+}
 
 export default function ImportVaultScreen() {
   const router = useRouter();
@@ -24,7 +56,7 @@ export default function ImportVaultScreen() {
     try {
       const url = result.data;
       // Fetch vault.bin from the Electron export server (self-signed TLS — RN accepts it)
-      const res = await fetch(url);
+      const res = await fetchWithInitialIosRetry(url);
       if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
       // Response body is raw binary; convert it to base64 once via blob.
       const blob = await res.blob();
