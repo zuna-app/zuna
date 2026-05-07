@@ -26,7 +26,6 @@ function ServerIconButton({
   displayName,
   logo,
 }: ServerIconButtonProps) {
-  const rounded = isActive ? "xl" : "full";
   const borderRadius = isActive ? "0.75rem" : "50%";
   return (
     <Tooltip>
@@ -67,8 +66,10 @@ function ServerIconButton({
             ) : (
               <div
                 className={cn(
-                  "size-10 flex items-center justify-center bg-muted text-muted-foreground",
-                  rounded,
+                  "size-10 flex items-center justify-center bg-muted text-muted-foreground rounded-xl",
+                  isActive
+                    ? "rounded-xl"
+                    : "rounded-full group-hover:rounded-xl",
                 )}
               >
                 {displayName[0].toUpperCase()}

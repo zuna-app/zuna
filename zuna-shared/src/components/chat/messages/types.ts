@@ -43,7 +43,7 @@ export function formatFileSize(bytes: number): string {
 }
 
 export function messageKey(msg: Message): string {
-  return msg.id != null ? String(msg.id) : `local-${msg.localId}`;
+  return msg.id != null ? String(msg.id) : `local-${msg.clientMessageId}`;
 }
 
 export function sameGroup(a: Message, b: Message): boolean {

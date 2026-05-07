@@ -376,7 +376,7 @@ export const MessageBubble = React.memo(
         transition={
           mobilePerfMode
             ? { duration: 0 }
-            : { type: "spring", duration: 0.25, bounce: 0.2 }
+            : { type: "spring", duration: 0.25, bounce: 0 }
         }
         className={cn(
           "flex flex-col",
@@ -693,7 +693,7 @@ export const MessageBubble = React.memo(
   (prev, next) =>
     prev.rawText === next.rawText &&
     prev.msg.id === next.msg.id &&
-    prev.msg.localId === next.msg.localId &&
+    prev.msg.clientMessageId === next.msg.clientMessageId &&
     prev.msg.isFirst === next.msg.isFirst &&
     prev.msg.isLast === next.msg.isLast &&
     prev.msg.showDivider === next.msg.showDivider &&

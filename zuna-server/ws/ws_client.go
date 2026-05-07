@@ -212,20 +212,20 @@ func (c *Client) writePump() {
 			}
 
 			// Flush any additional queued messages in the same frame batch.
-		drain:
-			for {
-				select {
-				case extra := <-c.send:
-					if _, err = w.Write([]byte("\n")); err != nil {
-						break drain
-					}
-					if _, err = w.Write(extra); err != nil {
-						break drain
-					}
-				default:
-					break drain
-				}
-			}
+		// drain:
+		// 	for {
+		// 		select {
+		// 		case extra := <-c.send:
+		// 			if _, err = w.Write([]byte("\n")); err != nil {
+		// 				break drain
+		// 			}
+		// 			if _, err = w.Write(extra); err != nil {
+		// 				break drain
+		// 			}
+		// 		default:
+		// 			break drain
+		// 		}
+		// 	}
 
 			if err = w.Close(); err != nil {
 				log.Printf("[ws] writer-close error client=%s: %v", c.id, err)
