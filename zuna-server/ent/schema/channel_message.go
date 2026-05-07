@@ -4,9 +4,9 @@ import (
 	"time"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
-	"entgo.io/ent/dialect"
 )
 
 type ChannelMessage struct {
@@ -34,5 +34,6 @@ func (ChannelMessage) Edges() []ent.Edge {
 			Ref("channel_messages").
 			Unique().
 			Required(),
+		edge.To("attachment", Attachment.Type).Unique(),
 	}
 }

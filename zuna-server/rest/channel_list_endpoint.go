@@ -181,6 +181,7 @@ func ChannelMessagesEndpoint(c *echo.Context) error {
 
 	msgs, err := db.EntClient.ChannelMessage.Query().
 		WithSender().
+		WithAttachment().
 		Where(
 			channelmessage.HasChannelWith(gochannel.IDEQ(channelID)),
 			channelmessage.IDLT(cursorInt),
@@ -205,16 +206,31 @@ func ChannelMessagesEndpoint(c *echo.Context) error {
 				senderAvatar = "data:" + s.AvatarMime + ";base64," + base64.StdEncoding.EncodeToString(avatarBytes)
 			}
 		}
+		attachmentID := ""
+		attachmentMetadata := ""
+		attachmentMetadataIv := ""
+		attachmentMetadataAuthTag := ""
+		if m.Edges.Attachment != nil {
+			a := m.Edges.Attachment
+			attachmentID = a.ID
+			attachmentMetadata = a.Metadata
+			attachmentMetadataIv = a.MetadataIv
+			attachmentMetadataAuthTag = a.MetadataAuthTag
+		}
 		dtos = append(dtos, data.ChannelMessageDTO{
-			ID:              m.ID,
-			ClientMessageID: m.ClientMessageID,
-			SenderID:        senderID,
-			SenderUsername:  senderUsername,
-			SenderAvatar:    senderAvatar,
-			CipherText:      m.CipherText,
-			Iv:              m.Iv,
-			AuthTag:         m.AuthTag,
-			SentAt:          m.SentAt.UnixMilli(),
+			ID:                        m.ID,
+			ClientMessageID:           m.ClientMessageID,
+			SenderID:                  senderID,
+			SenderUsername:            senderUsername,
+			SenderAvatar:              senderAvatar,
+			CipherText:                m.CipherText,
+			Iv:                        m.Iv,
+			AuthTag:                   m.AuthTag,
+			SentAt:                    m.SentAt.UnixMilli(),
+			AttachmentID:              attachmentID,
+			AttachmentMetadata:        attachmentMetadata,
+			AttachmentMetadataIv:      attachmentMetadataIv,
+			AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
 		})
 	}
 

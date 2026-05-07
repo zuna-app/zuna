@@ -28,6 +28,8 @@ const (
 	EdgeSender = "sender"
 	// EdgeChannel holds the string denoting the channel edge name in mutations.
 	EdgeChannel = "channel"
+	// EdgeAttachment holds the string denoting the attachment edge name in mutations.
+	EdgeAttachment = "attachment"
 	// Table holds the table name of the channelmessage in the database.
 	Table = "channel_messages"
 	// SenderTable is the table that holds the sender relation/edge.
@@ -44,6 +46,13 @@ const (
 	ChannelInverseTable = "channels"
 	// ChannelColumn is the table column denoting the channel relation/edge.
 	ChannelColumn = "channel_channel_messages"
+	// AttachmentTable is the table that holds the attachment relation/edge.
+	AttachmentTable = "attachments"
+	// AttachmentInverseTable is the table name for the Attachment entity.
+	// It exists in this package in order to avoid circular dependency with the "attachment" package.
+	AttachmentInverseTable = "attachments"
+	// AttachmentColumn is the table column denoting the attachment relation/edge.
+	AttachmentColumn = "channel_message_attachment"
 )
 
 // Columns holds all SQL columns for channelmessage fields.
@@ -129,6 +138,13 @@ func ByChannelField(field string, opts ...sql.OrderTermOption) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newChannelStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByAttachmentField orders the results by attachment field.
+func ByAttachmentField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newAttachmentStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newSenderStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -141,5 +157,12 @@ func newChannelStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(ChannelInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, true, ChannelTable, ChannelColumn),
+	)
+}
+func newAttachmentStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(AttachmentInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, false, AttachmentTable, AttachmentColumn),
 	)
 }

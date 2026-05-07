@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
@@ -90,6 +91,25 @@ func (_u *AttachmentUpdate) SetMessage(v *Message) *AttachmentUpdate {
 	return _u.SetMessageID(v.ID)
 }
 
+// SetChannelMessageID sets the "channel_message" edge to the ChannelMessage entity by ID.
+func (_u *AttachmentUpdate) SetChannelMessageID(id int64) *AttachmentUpdate {
+	_u.mutation.SetChannelMessageID(id)
+	return _u
+}
+
+// SetNillableChannelMessageID sets the "channel_message" edge to the ChannelMessage entity by ID if the given value is not nil.
+func (_u *AttachmentUpdate) SetNillableChannelMessageID(id *int64) *AttachmentUpdate {
+	if id != nil {
+		_u = _u.SetChannelMessageID(*id)
+	}
+	return _u
+}
+
+// SetChannelMessage sets the "channel_message" edge to the ChannelMessage entity.
+func (_u *AttachmentUpdate) SetChannelMessage(v *ChannelMessage) *AttachmentUpdate {
+	return _u.SetChannelMessageID(v.ID)
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *AttachmentUpdate) SetUserID(id string) *AttachmentUpdate {
 	_u.mutation.SetUserID(id)
@@ -109,6 +129,12 @@ func (_u *AttachmentUpdate) Mutation() *AttachmentMutation {
 // ClearMessage clears the "message" edge to the Message entity.
 func (_u *AttachmentUpdate) ClearMessage() *AttachmentUpdate {
 	_u.mutation.ClearMessage()
+	return _u
+}
+
+// ClearChannelMessage clears the "channel_message" edge to the ChannelMessage entity.
+func (_u *AttachmentUpdate) ClearChannelMessage() *AttachmentUpdate {
+	_u.mutation.ClearChannelMessage()
 	return _u
 }
 
@@ -196,6 +222,35 @@ func (_u *AttachmentUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMessageCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   attachment.ChannelMessageTable,
+			Columns: []string{attachment.ChannelMessageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMessageIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   attachment.ChannelMessageTable,
+			Columns: []string{attachment.ChannelMessageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -313,6 +368,25 @@ func (_u *AttachmentUpdateOne) SetMessage(v *Message) *AttachmentUpdateOne {
 	return _u.SetMessageID(v.ID)
 }
 
+// SetChannelMessageID sets the "channel_message" edge to the ChannelMessage entity by ID.
+func (_u *AttachmentUpdateOne) SetChannelMessageID(id int64) *AttachmentUpdateOne {
+	_u.mutation.SetChannelMessageID(id)
+	return _u
+}
+
+// SetNillableChannelMessageID sets the "channel_message" edge to the ChannelMessage entity by ID if the given value is not nil.
+func (_u *AttachmentUpdateOne) SetNillableChannelMessageID(id *int64) *AttachmentUpdateOne {
+	if id != nil {
+		_u = _u.SetChannelMessageID(*id)
+	}
+	return _u
+}
+
+// SetChannelMessage sets the "channel_message" edge to the ChannelMessage entity.
+func (_u *AttachmentUpdateOne) SetChannelMessage(v *ChannelMessage) *AttachmentUpdateOne {
+	return _u.SetChannelMessageID(v.ID)
+}
+
 // SetUserID sets the "user" edge to the User entity by ID.
 func (_u *AttachmentUpdateOne) SetUserID(id string) *AttachmentUpdateOne {
 	_u.mutation.SetUserID(id)
@@ -332,6 +406,12 @@ func (_u *AttachmentUpdateOne) Mutation() *AttachmentMutation {
 // ClearMessage clears the "message" edge to the Message entity.
 func (_u *AttachmentUpdateOne) ClearMessage() *AttachmentUpdateOne {
 	_u.mutation.ClearMessage()
+	return _u
+}
+
+// ClearChannelMessage clears the "channel_message" edge to the ChannelMessage entity.
+func (_u *AttachmentUpdateOne) ClearChannelMessage() *AttachmentUpdateOne {
+	_u.mutation.ClearChannelMessage()
 	return _u
 }
 
@@ -449,6 +529,35 @@ func (_u *AttachmentUpdateOne) sqlSave(ctx context.Context) (_node *Attachment, 
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(message.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMessageCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   attachment.ChannelMessageTable,
+			Columns: []string{attachment.ChannelMessageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMessageIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   attachment.ChannelMessageTable,
+			Columns: []string{attachment.ChannelMessageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

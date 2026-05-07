@@ -14,6 +14,7 @@ var (
 		{Name: "metadata", Type: field.TypeString},
 		{Name: "metadata_iv", Type: field.TypeString},
 		{Name: "metadata_auth_tag", Type: field.TypeString},
+		{Name: "channel_message_attachment", Type: field.TypeInt64, Unique: true, Nullable: true},
 		{Name: "message_attachment", Type: field.TypeInt64, Unique: true, Nullable: true},
 		{Name: "user_attachments", Type: field.TypeString},
 	}
@@ -24,14 +25,20 @@ var (
 		PrimaryKey: []*schema.Column{AttachmentsColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "attachments_messages_attachment",
+				Symbol:     "attachments_channel_messages_attachment",
 				Columns:    []*schema.Column{AttachmentsColumns[4]},
+				RefColumns: []*schema.Column{ChannelMessagesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+			{
+				Symbol:     "attachments_messages_attachment",
+				Columns:    []*schema.Column{AttachmentsColumns[5]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "attachments_users_attachments",
-				Columns:    []*schema.Column{AttachmentsColumns[5]},
+				Columns:    []*schema.Column{AttachmentsColumns[6]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -299,8 +306,9 @@ var (
 )
 
 func init() {
-	AttachmentsTable.ForeignKeys[0].RefTable = MessagesTable
-	AttachmentsTable.ForeignKeys[1].RefTable = UsersTable
+	AttachmentsTable.ForeignKeys[0].RefTable = ChannelMessagesTable
+	AttachmentsTable.ForeignKeys[1].RefTable = MessagesTable
+	AttachmentsTable.ForeignKeys[2].RefTable = UsersTable
 	ChannelsTable.ForeignKeys[0].RefTable = UsersTable
 	ChannelMembersTable.ForeignKeys[0].RefTable = ChannelsTable
 	ChannelMembersTable.ForeignKeys[1].RefTable = UsersTable

@@ -148,6 +148,10 @@ export interface ChannelMessageAckPayload {
   id: number;
   channel_id: string;
   sent_at: number;
+  attachment_id?: string;
+  attachment_metadata?: string;
+  attachment_metadata_iv?: string;
+  attachment_metadata_auth_tag?: string;
 }
 
 export interface ChannelMessageReceivePayload {
@@ -161,6 +165,10 @@ export interface ChannelMessageReceivePayload {
   iv: string;
   auth_tag: string;
   sent_at: number;
+  attachment_id?: string;
+  attachment_metadata?: string;
+  attachment_metadata_iv?: string;
+  attachment_metadata_auth_tag?: string;
 }
 
 export interface ChannelWriteReceivePayload {

@@ -84,3 +84,49 @@ export function unwrapChannelKey(
   );
   return decrypt(sharedSecret, wrapped);
 }
+
+// Wire format (same as DM file attachments):
+// [12 bytes IV][16 bytes auth tag][variable encrypted data]
+
+/**
+ * Encrypt raw file bytes using the symmetric channel key (AES-256-GCM).
+ * Returns a Uint8Array in the standard Zuna wire format: [IV][auth_tag][ciphertext].
+ */
+export function encryptFileWithChannelKey(
+  data: Uint8Array,
+  channelKeyB64: string,
+): Uint8Array {
+  const key = base64ToBytes(channelKeyB64);
+  const iv = getRandomBytes(12);
+  const cipher = gcm(key, iv);
+  const encrypted = cipher.encrypt(data);
+  const ciphertext = encrypted.slice(0, encrypted.length - 16);
+  const tag = encrypted.slice(encrypted.length - 16);
+
+  const result = new Uint8Array(12 + 16 + ciphertext.length);
+  result.set(iv, 0);
+  result.set(tag, 12);
+  result.set(ciphertext, 28);
+  return result;
+}
+
+/**
+ * Decrypt file bytes that were encrypted with `encryptFileWithChannelKey`.
+ * Expects data in [IV][auth_tag][ciphertext] wire format.
+ */
+export function decryptFileWithChannelKey(
+  data: Uint8Array,
+  channelKeyB64: string,
+): Uint8Array {
+  const key = base64ToBytes(channelKeyB64);
+  const iv = data.slice(0, 12);
+  const tag = data.slice(12, 28);
+  const ciphertext = data.slice(28);
+
+  const combined = new Uint8Array(ciphertext.length + tag.length);
+  combined.set(ciphertext);
+  combined.set(tag, ciphertext.length);
+
+  const cipher = gcm(key, iv);
+  return cipher.decrypt(combined);
+}

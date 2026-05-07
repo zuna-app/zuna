@@ -12,10 +12,12 @@ import { WS_MSG } from "../ws/wsTypes";
 import {
   decryptWithChannelKey,
   encryptWithChannelKey,
+  encryptFileWithChannelKey,
 } from "../../crypto/channel";
 import { usePlatform } from "../../platform/PlatformContext";
 import { useCurrentUser } from "../auth/useCurrentUser";
 import { useSelfInfo } from "../server/useSelfInfo";
+import { xhrUpload } from "../chat/xhrUpload";
 import type {
   Channel,
   ChannelMessage,
@@ -42,7 +44,6 @@ async function getChannelKey(
 function rawToChannelMessage(
   m: Record<string, unknown>,
   channelId: string,
-  myUserId?: string,
 ): ChannelMessage {
   return {
     id: m.id as number,
@@ -56,6 +57,11 @@ function rawToChannelMessage(
     authTag: (m.auth_tag as string) ?? "",
     sentAt: (m.sent_at as number) ?? 0,
     pending: false,
+    attachmentId: (m.attachment_id as string) || undefined,
+    attachmentMetadata: (m.attachment_metadata as string) || undefined,
+    attachmentMetadataIv: (m.attachment_metadata_iv as string) || undefined,
+    attachmentMetadataAuthTag:
+      (m.attachment_metadata_auth_tag as string) || undefined,
   };
 }
 
@@ -80,11 +86,25 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [cursor, setCursor] = useState(MAX_INT64);
+  const [channelKey, setChannelKey] = useState<string | null>(null);
+  const [decryptedMeta, setDecryptedMeta] = useState<
+    Map<string, { name: string; size: number; mimeType: string }>
+  >(new Map());
+  const metaInFlightRef = useRef<Set<string>>(new Set());
 
   const channelId = channel?.id ?? null;
   const serverToken =
     useAtomValue(serverTokensAtom, { store: jotaiStore }).get(server.id) ??
     null;
+
+  // Load channel key when channelId changes
+  useEffect(() => {
+    if (!channelId) {
+      setChannelKey(null);
+      return;
+    }
+    getChannelKey(platform.vault, channelId).then(setChannelKey);
+  }, [channelId, platform.vault]);
 
   const messages = useAtomValue(channelMessagesAtom, { store: jotaiStore });
   const currentMessages = channelId ? (messages.get(channelId) ?? []) : [];
@@ -119,6 +139,80 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
       });
     },
     [channelId, decryptMessage, setAllMessages],
+  );
+
+  // Decrypt attachment metadata for all messages that have it
+  useEffect(() => {
+    if (!channelId) return;
+
+    const toDecryptMeta = currentMessages.filter((m) => {
+      if (
+        !m.attachmentMetadata ||
+        !m.attachmentMetadataIv ||
+        !m.attachmentMetadataAuthTag
+      )
+        return false;
+      if (m.attachmentFilename) return false;
+      const key = m.clientMessageId;
+      if (metaInFlightRef.current.has(key)) return false;
+      if (decryptedMeta.has(key)) return false;
+      return true;
+    });
+
+    if (!toDecryptMeta.length) return;
+
+    toDecryptMeta.forEach((m) =>
+      metaInFlightRef.current.add(m.clientMessageId),
+    );
+
+    getChannelKey(platform.vault, channelId).then((key) => {
+      if (!key) {
+        toDecryptMeta.forEach((m) =>
+          metaInFlightRef.current.delete(m.clientMessageId),
+        );
+        return;
+      }
+
+      Promise.all(
+        toDecryptMeta.map(async (m) => {
+          const msgKey = m.clientMessageId;
+          try {
+            const json = decryptWithChannelKey(key, {
+              ciphertext: m.attachmentMetadata!,
+              iv: m.attachmentMetadataIv!,
+              authTag: m.attachmentMetadataAuthTag!,
+            });
+            const meta = JSON.parse(json) as {
+              name: string;
+              size: number;
+              mimeType: string;
+            };
+            return [msgKey, meta] as const;
+          } catch {
+            return [msgKey, null] as const;
+          }
+        }),
+      ).then((results) => {
+        results.forEach(([k]) => metaInFlightRef.current.delete(k));
+        setDecryptedMeta((prev) => {
+          const next = new Map(prev);
+          for (const [k, meta] of results) {
+            if (meta) next.set(k, meta);
+          }
+          return next;
+        });
+      });
+    });
+  }, [currentMessages, channelId, platform.vault]);
+
+  const getChannelAttachmentMeta = useCallback(
+    (msg: ChannelMessage) => {
+      if (msg.attachmentFilename) {
+        return { name: msg.attachmentFilename, size: 0, mimeType: "" };
+      }
+      return decryptedMeta.get(msg.clientMessageId) ?? null;
+    },
+    [decryptedMeta],
   );
 
   // Initial load + members
@@ -220,6 +314,11 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
           authTag: payload.auth_tag,
           sentAt: payload.sent_at,
           pending: false,
+          attachmentId: payload.attachment_id || undefined,
+          attachmentMetadata: payload.attachment_metadata || undefined,
+          attachmentMetadataIv: payload.attachment_metadata_iv || undefined,
+          attachmentMetadataAuthTag:
+            payload.attachment_metadata_auth_tag || undefined,
         };
         msg = await decryptMessage(msg);
         setAllMessages((prev) => {
@@ -254,6 +353,16 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
                     id: payload.id,
                     sentAt: payload.sent_at,
                     pending: false,
+                    attachmentId: payload.attachment_id || m.attachmentId,
+                    attachmentMetadata:
+                      payload.attachment_metadata || m.attachmentMetadata,
+                    attachmentMetadataIv:
+                      payload.attachment_metadata_iv || m.attachmentMetadataIv,
+                    attachmentMetadataAuthTag:
+                      payload.attachment_metadata_auth_tag ||
+                      m.attachmentMetadataAuthTag,
+                    uploadProgress: undefined,
+                    attachmentFilename: undefined,
                   }
                 : m,
             ),
@@ -358,12 +467,171 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
     [channelId, sendMessage],
   );
 
+  const sendChannelMessageWithAttachment = useCallback(
+    async (file: File, plaintext: string) => {
+      if (!channelId || !channel) return;
+      const key = await getChannelKey(platform.vault, channelId);
+      if (!key) {
+        console.error("[channel] no channel key, cannot send attachment");
+        return;
+      }
+
+      const clientMessageId = crypto.randomUUID();
+      const { username: selfUsername, avatar: selfAvatar } =
+        currentUser ?? selfInfoRef.current;
+
+      // Optimistic message with upload progress
+      setAllMessages((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(channelId) ?? [];
+        next.set(channelId, [
+          ...existing,
+          {
+            id: null,
+            clientMessageId,
+            channelId,
+            senderId: "__self__",
+            senderUsername: selfUsername,
+            senderAvatar: selfAvatar,
+            cipherText: "",
+            iv: "",
+            authTag: "",
+            sentAt: Date.now(),
+            pending: true,
+            plaintext: plaintext.trim() || undefined,
+            uploadProgress: 0,
+            attachmentFilename: file.name,
+          },
+        ]);
+        return next;
+      });
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const fileBytes = new Uint8Array(arrayBuffer);
+
+        // Encrypt the file bytes using the channel key
+        const encryptedBytes = encryptFileWithChannelKey(fileBytes, key);
+
+        // Encrypt metadata using the channel key
+        const metadataJson = JSON.stringify({
+          name: file.name,
+          size: file.size,
+          mimeType: file.type,
+        });
+        const encryptedMetadata = encryptWithChannelKey(key, metadataJson);
+
+        // Encrypt the caption text (or zero-width space if empty)
+        const textToEncrypt = plaintext.trim() || "\u200b";
+        const encryptedText = encryptWithChannelKey(key, textToEncrypt);
+
+        const encryptedBlob = new Blob([
+          encryptedBytes.buffer.slice(
+            encryptedBytes.byteOffset,
+            encryptedBytes.byteOffset + encryptedBytes.byteLength,
+          ) as ArrayBuffer,
+        ]);
+
+        const formData = new FormData();
+        formData.append("size", String(encryptedBlob.size));
+        formData.append("metadata", encryptedMetadata.ciphertext);
+        formData.append("metadata_iv", encryptedMetadata.iv);
+        formData.append("metadata_auth_tag", encryptedMetadata.authTag);
+        formData.append("file", encryptedBlob, file.name);
+
+        const token = jotaiStore.get(serverTokensAtom).get(server.id) ?? "";
+
+        const attachmentId = await xhrUpload(
+          `https://${server.address}/api/attachment/upload`,
+          token,
+          formData,
+          (pct) => {
+            setAllMessages((prev) => {
+              const next = new Map(prev);
+              const existing = next.get(channelId) ?? [];
+              next.set(
+                channelId,
+                existing.map((m) =>
+                  m.clientMessageId === clientMessageId
+                    ? { ...m, uploadProgress: pct }
+                    : m,
+                ),
+              );
+              return next;
+            });
+          },
+        );
+
+        setAllMessages((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(channelId) ?? [];
+          next.set(
+            channelId,
+            existing.map((m) =>
+              m.clientMessageId === clientMessageId
+                ? {
+                    ...m,
+                    uploadProgress: undefined,
+                    cipherText: encryptedText.ciphertext,
+                    iv: encryptedText.iv,
+                    authTag: encryptedText.authTag,
+                    plaintext: plaintext.trim() || undefined,
+                    attachmentId,
+                    attachmentFilename: undefined,
+                    attachmentMetadata: encryptedMetadata.ciphertext,
+                    attachmentMetadataIv: encryptedMetadata.iv,
+                    attachmentMetadataAuthTag: encryptedMetadata.authTag,
+                  }
+                : m,
+            ),
+          );
+          return next;
+        });
+
+        sendMessage(WS_MSG.CHANNEL_MESSAGE, {
+          channel_id: channelId,
+          cipher_text: encryptedText.ciphertext,
+          iv: encryptedText.iv,
+          auth_tag: encryptedText.authTag,
+          client_message_id: clientMessageId,
+          attachment_id: attachmentId,
+        });
+      } catch (err) {
+        console.error(
+          "[useChannelMessages] sendChannelMessageWithAttachment failed:",
+          err,
+        );
+        setAllMessages((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(channelId) ?? [];
+          next.set(
+            channelId,
+            existing.filter((m) => m.clientMessageId !== clientMessageId),
+          );
+          return next;
+        });
+      }
+    },
+    [
+      channelId,
+      channel,
+      platform.vault,
+      server,
+      sendMessage,
+      setAllMessages,
+      currentUser,
+    ],
+  );
+
   return {
     messages: currentMessages,
     loading,
     hasMore,
     fetchMore,
     sendChannelMessage,
+    sendChannelMessageWithAttachment,
     sendWriteIndicator,
+    getChannelAttachmentMeta,
+    channelKey,
   };
 }

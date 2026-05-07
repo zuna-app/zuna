@@ -395,6 +395,22 @@ func (c *AttachmentClient) QueryMessage(_m *Attachment) *MessageQuery {
 	return query
 }
 
+// QueryChannelMessage queries the channel_message edge of a Attachment.
+func (c *AttachmentClient) QueryChannelMessage(_m *Attachment) *ChannelMessageQuery {
+	query := (&ChannelMessageClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(attachment.Table, attachment.FieldID, id),
+			sqlgraph.To(channelmessage.Table, channelmessage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, attachment.ChannelMessageTable, attachment.ChannelMessageColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryUser queries the user edge of a Attachment.
 func (c *AttachmentClient) QueryUser(_m *Attachment) *UserQuery {
 	query := (&UserClient{config: c.config}).Query()
@@ -931,6 +947,22 @@ func (c *ChannelMessageClient) QueryChannel(_m *ChannelMessage) *ChannelQuery {
 			sqlgraph.From(channelmessage.Table, channelmessage.FieldID, id),
 			sqlgraph.To(channel.Table, channel.FieldID),
 			sqlgraph.Edge(sqlgraph.M2O, true, channelmessage.ChannelTable, channelmessage.ChannelColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryAttachment queries the attachment edge of a ChannelMessage.
+func (c *ChannelMessageClient) QueryAttachment(_m *ChannelMessage) *AttachmentQuery {
+	query := (&AttachmentClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(channelmessage.Table, channelmessage.FieldID, id),
+			sqlgraph.To(attachment.Table, attachment.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, channelmessage.AttachmentTable, channelmessage.AttachmentColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil

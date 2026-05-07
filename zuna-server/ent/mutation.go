@@ -46,20 +46,22 @@ const (
 // AttachmentMutation represents an operation that mutates the Attachment nodes in the graph.
 type AttachmentMutation struct {
 	config
-	op                Op
-	typ               string
-	id                *string
-	metadata          *string
-	metadata_iv       *string
-	metadata_auth_tag *string
-	clearedFields     map[string]struct{}
-	message           *int64
-	clearedmessage    bool
-	user              *string
-	cleareduser       bool
-	done              bool
-	oldValue          func(context.Context) (*Attachment, error)
-	predicates        []predicate.Attachment
+	op                     Op
+	typ                    string
+	id                     *string
+	metadata               *string
+	metadata_iv            *string
+	metadata_auth_tag      *string
+	clearedFields          map[string]struct{}
+	message                *int64
+	clearedmessage         bool
+	channel_message        *int64
+	clearedchannel_message bool
+	user                   *string
+	cleareduser            bool
+	done                   bool
+	oldValue               func(context.Context) (*Attachment, error)
+	predicates             []predicate.Attachment
 }
 
 var _ ent.Mutation = (*AttachmentMutation)(nil)
@@ -313,6 +315,45 @@ func (m *AttachmentMutation) ResetMessage() {
 	m.clearedmessage = false
 }
 
+// SetChannelMessageID sets the "channel_message" edge to the ChannelMessage entity by id.
+func (m *AttachmentMutation) SetChannelMessageID(id int64) {
+	m.channel_message = &id
+}
+
+// ClearChannelMessage clears the "channel_message" edge to the ChannelMessage entity.
+func (m *AttachmentMutation) ClearChannelMessage() {
+	m.clearedchannel_message = true
+}
+
+// ChannelMessageCleared reports if the "channel_message" edge to the ChannelMessage entity was cleared.
+func (m *AttachmentMutation) ChannelMessageCleared() bool {
+	return m.clearedchannel_message
+}
+
+// ChannelMessageID returns the "channel_message" edge ID in the mutation.
+func (m *AttachmentMutation) ChannelMessageID() (id int64, exists bool) {
+	if m.channel_message != nil {
+		return *m.channel_message, true
+	}
+	return
+}
+
+// ChannelMessageIDs returns the "channel_message" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// ChannelMessageID instead. It exists only for internal usage by the builders.
+func (m *AttachmentMutation) ChannelMessageIDs() (ids []int64) {
+	if id := m.channel_message; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetChannelMessage resets all changes to the "channel_message" edge.
+func (m *AttachmentMutation) ResetChannelMessage() {
+	m.channel_message = nil
+	m.clearedchannel_message = false
+}
+
 // SetUserID sets the "user" edge to the User entity by id.
 func (m *AttachmentMutation) SetUserID(id string) {
 	m.user = &id
@@ -519,9 +560,12 @@ func (m *AttachmentMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *AttachmentMutation) AddedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.message != nil {
 		edges = append(edges, attachment.EdgeMessage)
+	}
+	if m.channel_message != nil {
+		edges = append(edges, attachment.EdgeChannelMessage)
 	}
 	if m.user != nil {
 		edges = append(edges, attachment.EdgeUser)
@@ -537,6 +581,10 @@ func (m *AttachmentMutation) AddedIDs(name string) []ent.Value {
 		if id := m.message; id != nil {
 			return []ent.Value{*id}
 		}
+	case attachment.EdgeChannelMessage:
+		if id := m.channel_message; id != nil {
+			return []ent.Value{*id}
+		}
 	case attachment.EdgeUser:
 		if id := m.user; id != nil {
 			return []ent.Value{*id}
@@ -547,7 +595,7 @@ func (m *AttachmentMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *AttachmentMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	return edges
 }
 
@@ -559,9 +607,12 @@ func (m *AttachmentMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *AttachmentMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.clearedmessage {
 		edges = append(edges, attachment.EdgeMessage)
+	}
+	if m.clearedchannel_message {
+		edges = append(edges, attachment.EdgeChannelMessage)
 	}
 	if m.cleareduser {
 		edges = append(edges, attachment.EdgeUser)
@@ -575,6 +626,8 @@ func (m *AttachmentMutation) EdgeCleared(name string) bool {
 	switch name {
 	case attachment.EdgeMessage:
 		return m.clearedmessage
+	case attachment.EdgeChannelMessage:
+		return m.clearedchannel_message
 	case attachment.EdgeUser:
 		return m.cleareduser
 	}
@@ -587,6 +640,9 @@ func (m *AttachmentMutation) ClearEdge(name string) error {
 	switch name {
 	case attachment.EdgeMessage:
 		m.ClearMessage()
+		return nil
+	case attachment.EdgeChannelMessage:
+		m.ClearChannelMessage()
 		return nil
 	case attachment.EdgeUser:
 		m.ClearUser()
@@ -601,6 +657,9 @@ func (m *AttachmentMutation) ResetEdge(name string) error {
 	switch name {
 	case attachment.EdgeMessage:
 		m.ResetMessage()
+		return nil
+	case attachment.EdgeChannelMessage:
+		m.ResetChannelMessage()
 		return nil
 	case attachment.EdgeUser:
 		m.ResetUser()
@@ -1841,6 +1900,8 @@ type ChannelMessageMutation struct {
 	clearedsender     bool
 	channel           *string
 	clearedchannel    bool
+	attachment        *string
+	clearedattachment bool
 	done              bool
 	oldValue          func(context.Context) (*ChannelMessage, error)
 	predicates        []predicate.ChannelMessage
@@ -2208,6 +2269,45 @@ func (m *ChannelMessageMutation) ResetChannel() {
 	m.clearedchannel = false
 }
 
+// SetAttachmentID sets the "attachment" edge to the Attachment entity by id.
+func (m *ChannelMessageMutation) SetAttachmentID(id string) {
+	m.attachment = &id
+}
+
+// ClearAttachment clears the "attachment" edge to the Attachment entity.
+func (m *ChannelMessageMutation) ClearAttachment() {
+	m.clearedattachment = true
+}
+
+// AttachmentCleared reports if the "attachment" edge to the Attachment entity was cleared.
+func (m *ChannelMessageMutation) AttachmentCleared() bool {
+	return m.clearedattachment
+}
+
+// AttachmentID returns the "attachment" edge ID in the mutation.
+func (m *ChannelMessageMutation) AttachmentID() (id string, exists bool) {
+	if m.attachment != nil {
+		return *m.attachment, true
+	}
+	return
+}
+
+// AttachmentIDs returns the "attachment" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// AttachmentID instead. It exists only for internal usage by the builders.
+func (m *ChannelMessageMutation) AttachmentIDs() (ids []string) {
+	if id := m.attachment; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetAttachment resets all changes to the "attachment" edge.
+func (m *ChannelMessageMutation) ResetAttachment() {
+	m.attachment = nil
+	m.clearedattachment = false
+}
+
 // Where appends a list predicates to the ChannelMessageMutation builder.
 func (m *ChannelMessageMutation) Where(ps ...predicate.ChannelMessage) {
 	m.predicates = append(m.predicates, ps...)
@@ -2409,12 +2509,15 @@ func (m *ChannelMessageMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ChannelMessageMutation) AddedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.sender != nil {
 		edges = append(edges, channelmessage.EdgeSender)
 	}
 	if m.channel != nil {
 		edges = append(edges, channelmessage.EdgeChannel)
+	}
+	if m.attachment != nil {
+		edges = append(edges, channelmessage.EdgeAttachment)
 	}
 	return edges
 }
@@ -2431,13 +2534,17 @@ func (m *ChannelMessageMutation) AddedIDs(name string) []ent.Value {
 		if id := m.channel; id != nil {
 			return []ent.Value{*id}
 		}
+	case channelmessage.EdgeAttachment:
+		if id := m.attachment; id != nil {
+			return []ent.Value{*id}
+		}
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ChannelMessageMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	return edges
 }
 
@@ -2449,12 +2556,15 @@ func (m *ChannelMessageMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ChannelMessageMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 2)
+	edges := make([]string, 0, 3)
 	if m.clearedsender {
 		edges = append(edges, channelmessage.EdgeSender)
 	}
 	if m.clearedchannel {
 		edges = append(edges, channelmessage.EdgeChannel)
+	}
+	if m.clearedattachment {
+		edges = append(edges, channelmessage.EdgeAttachment)
 	}
 	return edges
 }
@@ -2467,6 +2577,8 @@ func (m *ChannelMessageMutation) EdgeCleared(name string) bool {
 		return m.clearedsender
 	case channelmessage.EdgeChannel:
 		return m.clearedchannel
+	case channelmessage.EdgeAttachment:
+		return m.clearedattachment
 	}
 	return false
 }
@@ -2481,6 +2593,9 @@ func (m *ChannelMessageMutation) ClearEdge(name string) error {
 	case channelmessage.EdgeChannel:
 		m.ClearChannel()
 		return nil
+	case channelmessage.EdgeAttachment:
+		m.ClearAttachment()
+		return nil
 	}
 	return fmt.Errorf("unknown ChannelMessage unique edge %s", name)
 }
@@ -2494,6 +2609,9 @@ func (m *ChannelMessageMutation) ResetEdge(name string) error {
 		return nil
 	case channelmessage.EdgeChannel:
 		m.ResetChannel()
+		return nil
+	case channelmessage.EdgeAttachment:
+		m.ResetAttachment()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMessage edge %s", name)

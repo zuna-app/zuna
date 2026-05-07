@@ -9,6 +9,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
 )
@@ -26,21 +27,24 @@ type Attachment struct {
 	MetadataAuthTag string `json:"metadata_auth_tag,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the AttachmentQuery when eager-loading is set.
-	Edges              AttachmentEdges `json:"edges"`
-	message_attachment *int64
-	user_attachments   *string
-	selectValues       sql.SelectValues
+	Edges                      AttachmentEdges `json:"edges"`
+	channel_message_attachment *int64
+	message_attachment         *int64
+	user_attachments           *string
+	selectValues               sql.SelectValues
 }
 
 // AttachmentEdges holds the relations/edges for other nodes in the graph.
 type AttachmentEdges struct {
 	// Message holds the value of the message edge.
 	Message *Message `json:"message,omitempty"`
+	// ChannelMessage holds the value of the channel_message edge.
+	ChannelMessage *ChannelMessage `json:"channel_message,omitempty"`
 	// User holds the value of the user edge.
 	User *User `json:"user,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // MessageOrErr returns the Message value or an error if the edge
@@ -54,12 +58,23 @@ func (e AttachmentEdges) MessageOrErr() (*Message, error) {
 	return nil, &NotLoadedError{edge: "message"}
 }
 
+// ChannelMessageOrErr returns the ChannelMessage value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e AttachmentEdges) ChannelMessageOrErr() (*ChannelMessage, error) {
+	if e.ChannelMessage != nil {
+		return e.ChannelMessage, nil
+	} else if e.loadedTypes[1] {
+		return nil, &NotFoundError{label: channelmessage.Label}
+	}
+	return nil, &NotLoadedError{edge: "channel_message"}
+}
+
 // UserOrErr returns the User value or an error if the edge
 // was not loaded in eager-loading, or loaded but was not found.
 func (e AttachmentEdges) UserOrErr() (*User, error) {
 	if e.User != nil {
 		return e.User, nil
-	} else if e.loadedTypes[1] {
+	} else if e.loadedTypes[2] {
 		return nil, &NotFoundError{label: user.Label}
 	}
 	return nil, &NotLoadedError{edge: "user"}
@@ -72,9 +87,11 @@ func (*Attachment) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case attachment.FieldID, attachment.FieldMetadata, attachment.FieldMetadataIv, attachment.FieldMetadataAuthTag:
 			values[i] = new(sql.NullString)
-		case attachment.ForeignKeys[0]: // message_attachment
+		case attachment.ForeignKeys[0]: // channel_message_attachment
 			values[i] = new(sql.NullInt64)
-		case attachment.ForeignKeys[1]: // user_attachments
+		case attachment.ForeignKeys[1]: // message_attachment
+			values[i] = new(sql.NullInt64)
+		case attachment.ForeignKeys[2]: // user_attachments
 			values[i] = new(sql.NullString)
 		default:
 			values[i] = new(sql.UnknownType)
@@ -117,12 +134,19 @@ func (_m *Attachment) assignValues(columns []string, values []any) error {
 			}
 		case attachment.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for edge-field channel_message_attachment", value)
+			} else if value.Valid {
+				_m.channel_message_attachment = new(int64)
+				*_m.channel_message_attachment = int64(value.Int64)
+			}
+		case attachment.ForeignKeys[1]:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for edge-field message_attachment", value)
 			} else if value.Valid {
 				_m.message_attachment = new(int64)
 				*_m.message_attachment = int64(value.Int64)
 			}
-		case attachment.ForeignKeys[1]:
+		case attachment.ForeignKeys[2]:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field user_attachments", values[i])
 			} else if value.Valid {
@@ -145,6 +169,11 @@ func (_m *Attachment) Value(name string) (ent.Value, error) {
 // QueryMessage queries the "message" edge of the Attachment entity.
 func (_m *Attachment) QueryMessage() *MessageQuery {
 	return NewAttachmentClient(_m.config).QueryMessage(_m)
+}
+
+// QueryChannelMessage queries the "channel_message" edge of the Attachment entity.
+func (_m *Attachment) QueryChannelMessage() *ChannelMessageQuery {
+	return NewAttachmentClient(_m.config).QueryChannelMessage(_m)
 }
 
 // QueryUser queries the "user" edge of the Attachment entity.

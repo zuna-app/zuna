@@ -46,6 +46,9 @@ export function ChannelView({
     hasMore,
     fetchMore,
     sendChannelMessage,
+    sendChannelMessageWithAttachment,
+    getChannelAttachmentMeta,
+    channelKey,
     sendWriteIndicator,
   } = useChannelMessages(server, channel);
 
@@ -97,6 +100,15 @@ export function ChannelView({
       sendWriteIndicator(writing);
     },
     [sendWriteIndicator],
+  );
+
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+
+  const handleSendFile = useCallback(
+    (file: File, plaintext: string) => {
+      sendChannelMessageWithAttachment(file, plaintext);
+    },
+    [sendChannelMessageWithAttachment],
   );
 
   const writingText = buildTypingText(channelWriters);
@@ -220,6 +232,9 @@ export function ChannelView({
                   selfId={selfId}
                   selfUsername={selfUsername}
                   selfAvatar={selfAvatar}
+                  server={server}
+                  channelKey={channelKey}
+                  attachmentMeta={getChannelAttachmentMeta(msg)}
                   emoteMap={emoteMap}
                   emoteDataMap={emoteDataMap}
                 />
@@ -244,6 +259,9 @@ export function ChannelView({
       <ChannelInput
         channelName={channel.name}
         onSend={handleSend}
+        onSendFile={handleSendFile}
+        pendingFile={pendingFile}
+        onPendingFileChange={setPendingFile}
         onWrite={handleWrite}
         sevenTvEnabled={sevenTvEnabled}
         sevenTvEmotesSet={sevenTvEmotesSet}

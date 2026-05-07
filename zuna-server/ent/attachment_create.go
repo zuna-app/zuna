@@ -10,6 +10,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
 )
@@ -70,6 +71,25 @@ func (_c *AttachmentCreate) SetNillableMessageID(id *int64) *AttachmentCreate {
 // SetMessage sets the "message" edge to the Message entity.
 func (_c *AttachmentCreate) SetMessage(v *Message) *AttachmentCreate {
 	return _c.SetMessageID(v.ID)
+}
+
+// SetChannelMessageID sets the "channel_message" edge to the ChannelMessage entity by ID.
+func (_c *AttachmentCreate) SetChannelMessageID(id int64) *AttachmentCreate {
+	_c.mutation.SetChannelMessageID(id)
+	return _c
+}
+
+// SetNillableChannelMessageID sets the "channel_message" edge to the ChannelMessage entity by ID if the given value is not nil.
+func (_c *AttachmentCreate) SetNillableChannelMessageID(id *int64) *AttachmentCreate {
+	if id != nil {
+		_c = _c.SetChannelMessageID(*id)
+	}
+	return _c
+}
+
+// SetChannelMessage sets the "channel_message" edge to the ChannelMessage entity.
+func (_c *AttachmentCreate) SetChannelMessage(v *ChannelMessage) *AttachmentCreate {
+	return _c.SetChannelMessageID(v.ID)
 }
 
 // SetUserID sets the "user" edge to the User entity by ID.
@@ -200,6 +220,23 @@ func (_c *AttachmentCreate) createSpec() (*Attachment, *sqlgraph.CreateSpec) {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.message_attachment = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ChannelMessageIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: true,
+			Table:   attachment.ChannelMessageTable,
+			Columns: []string{attachment.ChannelMessageColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.channel_message_attachment = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	if nodes := _c.mutation.UserIDs(); len(nodes) > 0 {

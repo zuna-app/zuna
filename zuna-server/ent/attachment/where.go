@@ -296,6 +296,29 @@ func HasMessageWith(preds ...predicate.Message) predicate.Attachment {
 	})
 }
 
+// HasChannelMessage applies the HasEdge predicate on the "channel_message" edge.
+func HasChannelMessage() predicate.Attachment {
+	return predicate.Attachment(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, ChannelMessageTable, ChannelMessageColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasChannelMessageWith applies the HasEdge predicate on the "channel_message" edge with a given conditions (other predicates).
+func HasChannelMessageWith(preds ...predicate.ChannelMessage) predicate.Attachment {
+	return predicate.Attachment(func(s *sql.Selector) {
+		step := newChannelMessageStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUser applies the HasEdge predicate on the "user" edge.
 func HasUser() predicate.Attachment {
 	return predicate.Attachment(func(s *sql.Selector) {

@@ -1,10 +1,11 @@
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { getFirstLetters } from "@/utils/basicUtils";
-import type { ChannelMessage } from "@/types/serverTypes";
+import type { ChannelMessage, Server } from "@/types/serverTypes";
 import type { EmoteDataMap } from "@/hooks/ui/useEmotes";
 import { renderMessage } from "./messages/render-message";
 import { usePlatform } from "../../platform";
+import { ChannelAttachmentCard } from "./messages/channel-attachment-card";
 
 const MESSAGE_GROUPED_THRESHOLD = 5 * 60 * 1000;
 
@@ -39,6 +40,9 @@ interface ChannelMessageItemProps {
   selfId: string;
   selfUsername: string;
   selfAvatar: string;
+  server: Server;
+  channelKey: string | null;
+  attachmentMeta: { name: string; size: number; mimeType: string } | null;
   emoteMap?: ReadonlyMap<string, string>;
   emoteDataMap?: EmoteDataMap;
 }
@@ -49,6 +53,9 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   selfId,
   selfUsername,
   selfAvatar,
+  server,
+  channelKey,
+  attachmentMeta,
   emoteMap,
   emoteDataMap,
 }: ChannelMessageItemProps) {
@@ -70,29 +77,44 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
     prevIsSelf &&
     message.sentAt - prevMessage!.sentAt < MESSAGE_GROUPED_THRESHOLD;
 
-  const displayText = message.plaintext ?? "[encrypted]";
+  const hasAttachment = !!message.attachmentId || !!message.attachmentFilename;
+
+  const displayText =
+    message.plaintext === "\u200b" ||
+    message.plaintext === undefined ||
+    message.plaintext === ""
+      ? hasAttachment
+        ? null
+        : "[encrypted]"
+      : message.plaintext;
 
   const renderedContent =
-    emoteMap && emoteDataMap && emoteMap.size > 0
+    displayText && emoteMap && emoteDataMap && emoteMap.size > 0
       ? renderMessage(displayText, emoteMap, emoteDataMap, shell)
       : displayText;
 
   // Compact variant — same sender within MESSAGE_GROUPED_THRESHOLD, no avatar/name repeat
-  // pl-16 = 64px = px-4(16) + size-9(36) + gap-3(12) — aligns with full message text
   if (isGrouped) {
     return (
       <div className="group relative flex items-start pl-16 pr-4 py-0.5 hover:bg-muted/30">
         <span className="invisible group-hover:visible absolute left-4 top-0.5 text-[10px] leading-5 text-muted-foreground/40 tabular-nums select-none">
           {formatTime(message.sentAt)}
         </span>
-        <p
-          className={cn(
-            "text-sm leading-relaxed wrap-break-word whitespace-pre-wrap min-w-0 w-full",
-            message.pending && "opacity-50",
+        <div className={cn("min-w-0 w-full", message.pending && "opacity-50")}>
+          {hasAttachment && (
+            <ChannelAttachmentCard
+              server={server}
+              message={message}
+              channelKey={channelKey}
+              meta={attachmentMeta}
+            />
           )}
-        >
-          {renderedContent}
-        </p>
+          {renderedContent && (
+            <p className="text-sm leading-relaxed wrap-break-word whitespace-pre-wrap min-w-0 w-full">
+              {renderedContent}
+            </p>
+          )}
+        </div>
       </div>
     );
   }
@@ -122,20 +144,27 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
           <span className="text-[10px] text-muted-foreground/70 tabular-nums">
             {formatDateTime(message.sentAt)}
           </span>
-          {message.pending && (
+          {message.pending && !hasAttachment && (
             <span className="text-[10px] text-muted-foreground/50 italic">
               sending…
             </span>
           )}
         </div>
-        <p
-          className={cn(
-            "text-sm leading-relaxed wrap-break-word whitespace-pre-wrap min-w-0",
-            message.pending && "opacity-50",
+        <div className={cn("min-w-0", message.pending && "opacity-50")}>
+          {hasAttachment && (
+            <ChannelAttachmentCard
+              server={server}
+              message={message}
+              channelKey={channelKey}
+              meta={attachmentMeta}
+            />
           )}
-        >
-          {renderedContent}
-        </p>
+          {renderedContent && (
+            <p className="text-sm leading-relaxed wrap-break-word whitespace-pre-wrap min-w-0">
+              {renderedContent}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );

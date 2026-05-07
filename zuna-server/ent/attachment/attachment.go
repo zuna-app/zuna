@@ -20,6 +20,8 @@ const (
 	FieldMetadataAuthTag = "metadata_auth_tag"
 	// EdgeMessage holds the string denoting the message edge name in mutations.
 	EdgeMessage = "message"
+	// EdgeChannelMessage holds the string denoting the channel_message edge name in mutations.
+	EdgeChannelMessage = "channel_message"
 	// EdgeUser holds the string denoting the user edge name in mutations.
 	EdgeUser = "user"
 	// Table holds the table name of the attachment in the database.
@@ -31,6 +33,13 @@ const (
 	MessageInverseTable = "messages"
 	// MessageColumn is the table column denoting the message relation/edge.
 	MessageColumn = "message_attachment"
+	// ChannelMessageTable is the table that holds the channel_message relation/edge.
+	ChannelMessageTable = "attachments"
+	// ChannelMessageInverseTable is the table name for the ChannelMessage entity.
+	// It exists in this package in order to avoid circular dependency with the "channelmessage" package.
+	ChannelMessageInverseTable = "channel_messages"
+	// ChannelMessageColumn is the table column denoting the channel_message relation/edge.
+	ChannelMessageColumn = "channel_message_attachment"
 	// UserTable is the table that holds the user relation/edge.
 	UserTable = "attachments"
 	// UserInverseTable is the table name for the User entity.
@@ -51,6 +60,7 @@ var Columns = []string{
 // ForeignKeys holds the SQL foreign-keys that are owned by the "attachments"
 // table and are not defined as standalone fields in the schema.
 var ForeignKeys = []string{
+	"channel_message_attachment",
 	"message_attachment",
 	"user_attachments",
 }
@@ -105,6 +115,13 @@ func ByMessageField(field string, opts ...sql.OrderTermOption) OrderOption {
 	}
 }
 
+// ByChannelMessageField orders the results by channel_message field.
+func ByChannelMessageField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newChannelMessageStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByUserField orders the results by user field.
 func ByUserField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -116,6 +133,13 @@ func newMessageStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(MessageInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2O, true, MessageTable, MessageColumn),
+	)
+}
+func newChannelMessageStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ChannelMessageInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2O, true, ChannelMessageTable, ChannelMessageColumn),
 	)
 }
 func newUserStep() *sqlgraph.Step {

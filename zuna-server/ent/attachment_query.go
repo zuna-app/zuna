@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
@@ -20,13 +21,14 @@ import (
 // AttachmentQuery is the builder for querying Attachment entities.
 type AttachmentQuery struct {
 	config
-	ctx         *QueryContext
-	order       []attachment.OrderOption
-	inters      []Interceptor
-	predicates  []predicate.Attachment
-	withMessage *MessageQuery
-	withUser    *UserQuery
-	withFKs     bool
+	ctx                *QueryContext
+	order              []attachment.OrderOption
+	inters             []Interceptor
+	predicates         []predicate.Attachment
+	withMessage        *MessageQuery
+	withChannelMessage *ChannelMessageQuery
+	withUser           *UserQuery
+	withFKs            bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -78,6 +80,28 @@ func (_q *AttachmentQuery) QueryMessage() *MessageQuery {
 			sqlgraph.From(attachment.Table, attachment.FieldID, selector),
 			sqlgraph.To(message.Table, message.FieldID),
 			sqlgraph.Edge(sqlgraph.O2O, true, attachment.MessageTable, attachment.MessageColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryChannelMessage chains the current query on the "channel_message" edge.
+func (_q *AttachmentQuery) QueryChannelMessage() *ChannelMessageQuery {
+	query := (&ChannelMessageClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(attachment.Table, attachment.FieldID, selector),
+			sqlgraph.To(channelmessage.Table, channelmessage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, true, attachment.ChannelMessageTable, attachment.ChannelMessageColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -294,13 +318,14 @@ func (_q *AttachmentQuery) Clone() *AttachmentQuery {
 		return nil
 	}
 	return &AttachmentQuery{
-		config:      _q.config,
-		ctx:         _q.ctx.Clone(),
-		order:       append([]attachment.OrderOption{}, _q.order...),
-		inters:      append([]Interceptor{}, _q.inters...),
-		predicates:  append([]predicate.Attachment{}, _q.predicates...),
-		withMessage: _q.withMessage.Clone(),
-		withUser:    _q.withUser.Clone(),
+		config:             _q.config,
+		ctx:                _q.ctx.Clone(),
+		order:              append([]attachment.OrderOption{}, _q.order...),
+		inters:             append([]Interceptor{}, _q.inters...),
+		predicates:         append([]predicate.Attachment{}, _q.predicates...),
+		withMessage:        _q.withMessage.Clone(),
+		withChannelMessage: _q.withChannelMessage.Clone(),
+		withUser:           _q.withUser.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -315,6 +340,17 @@ func (_q *AttachmentQuery) WithMessage(opts ...func(*MessageQuery)) *AttachmentQ
 		opt(query)
 	}
 	_q.withMessage = query
+	return _q
+}
+
+// WithChannelMessage tells the query-builder to eager-load the nodes that are connected to
+// the "channel_message" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *AttachmentQuery) WithChannelMessage(opts ...func(*ChannelMessageQuery)) *AttachmentQuery {
+	query := (&ChannelMessageClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withChannelMessage = query
 	return _q
 }
 
@@ -408,12 +444,13 @@ func (_q *AttachmentQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*A
 		nodes       = []*Attachment{}
 		withFKs     = _q.withFKs
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
 			_q.withMessage != nil,
+			_q.withChannelMessage != nil,
 			_q.withUser != nil,
 		}
 	)
-	if _q.withMessage != nil || _q.withUser != nil {
+	if _q.withMessage != nil || _q.withChannelMessage != nil || _q.withUser != nil {
 		withFKs = true
 	}
 	if withFKs {
@@ -440,6 +477,12 @@ func (_q *AttachmentQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*A
 	if query := _q.withMessage; query != nil {
 		if err := _q.loadMessage(ctx, query, nodes, nil,
 			func(n *Attachment, e *Message) { n.Edges.Message = e }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withChannelMessage; query != nil {
+		if err := _q.loadChannelMessage(ctx, query, nodes, nil,
+			func(n *Attachment, e *ChannelMessage) { n.Edges.ChannelMessage = e }); err != nil {
 			return nil, err
 		}
 	}
@@ -477,6 +520,38 @@ func (_q *AttachmentQuery) loadMessage(ctx context.Context, query *MessageQuery,
 		nodes, ok := nodeids[n.ID]
 		if !ok {
 			return fmt.Errorf(`unexpected foreign-key "message_attachment" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
+func (_q *AttachmentQuery) loadChannelMessage(ctx context.Context, query *ChannelMessageQuery, nodes []*Attachment, init func(*Attachment), assign func(*Attachment, *ChannelMessage)) error {
+	ids := make([]int64, 0, len(nodes))
+	nodeids := make(map[int64][]*Attachment)
+	for i := range nodes {
+		if nodes[i].channel_message_attachment == nil {
+			continue
+		}
+		fk := *nodes[i].channel_message_attachment
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(channelmessage.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "channel_message_attachment" returned %v`, n.ID)
 		}
 		for i := range nodes {
 			assign(nodes[i], n)

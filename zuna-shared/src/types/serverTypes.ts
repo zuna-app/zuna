@@ -133,6 +133,14 @@ export type ChannelMessage = {
   sentAt: number;
   pending: boolean;
   plaintext?: string;
+  attachmentId?: string;
+  attachmentMetadata?: string;
+  attachmentMetadataIv?: string;
+  attachmentMetadataAuthTag?: string;
+  /** Plaintext filename for local upload-in-progress messages */
+  attachmentFilename?: string;
+  /** 0-100 while uploading; undefined once WS ack has been received */
+  uploadProgress?: number;
 };
 
 export type GroupKeyPayload = {

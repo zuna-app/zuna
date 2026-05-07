@@ -426,6 +426,29 @@ func HasChannelWith(preds ...predicate.Channel) predicate.ChannelMessage {
 	})
 }
 
+// HasAttachment applies the HasEdge predicate on the "attachment" edge.
+func HasAttachment() predicate.ChannelMessage {
+	return predicate.ChannelMessage(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2O, false, AttachmentTable, AttachmentColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasAttachmentWith applies the HasEdge predicate on the "attachment" edge with a given conditions (other predicates).
+func HasAttachmentWith(preds ...predicate.Attachment) predicate.ChannelMessage {
+	return predicate.ChannelMessage(func(s *sql.Selector) {
+		step := newAttachmentStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.ChannelMessage) predicate.ChannelMessage {
 	return predicate.ChannelMessage(sql.AndPredicates(predicates...))

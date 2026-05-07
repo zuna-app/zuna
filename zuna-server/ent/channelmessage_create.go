@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/channel"
 	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/user"
@@ -86,6 +87,25 @@ func (_c *ChannelMessageCreate) SetChannelID(id string) *ChannelMessageCreate {
 // SetChannel sets the "channel" edge to the Channel entity.
 func (_c *ChannelMessageCreate) SetChannel(v *Channel) *ChannelMessageCreate {
 	return _c.SetChannelID(v.ID)
+}
+
+// SetAttachmentID sets the "attachment" edge to the Attachment entity by ID.
+func (_c *ChannelMessageCreate) SetAttachmentID(id string) *ChannelMessageCreate {
+	_c.mutation.SetAttachmentID(id)
+	return _c
+}
+
+// SetNillableAttachmentID sets the "attachment" edge to the Attachment entity by ID if the given value is not nil.
+func (_c *ChannelMessageCreate) SetNillableAttachmentID(id *string) *ChannelMessageCreate {
+	if id != nil {
+		_c = _c.SetAttachmentID(*id)
+	}
+	return _c
+}
+
+// SetAttachment sets the "attachment" edge to the Attachment entity.
+func (_c *ChannelMessageCreate) SetAttachment(v *Attachment) *ChannelMessageCreate {
+	return _c.SetAttachmentID(v.ID)
 }
 
 // Mutation returns the ChannelMessageMutation object of the builder.
@@ -236,6 +256,22 @@ func (_c *ChannelMessageCreate) createSpec() (*ChannelMessage, *sqlgraph.CreateS
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
 		_node.channel_channel_messages = &nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.AttachmentIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2O,
+			Inverse: false,
+			Table:   channelmessage.AttachmentTable,
+			Columns: []string{channelmessage.AttachmentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(attachment.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec

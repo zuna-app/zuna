@@ -55,11 +55,11 @@ type PresenceDTO struct {
 }
 
 type ChannelDTO struct {
-	ID        string              `json:"id"`
-	Name      string              `json:"name"`
-	IsPublic  bool                `json:"is_public"`
-	OwnerID   string              `json:"owner_id"`
-	CreatedAt int64               `json:"created_at"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	IsPublic    bool                   `json:"is_public"`
+	OwnerID     string                 `json:"owner_id"`
+	CreatedAt   int64                  `json:"created_at"`
 	LastMessage *ChannelLastMessageDTO `json:"last_message,omitempty"`
 }
 
@@ -72,15 +72,19 @@ type ChannelLastMessageDTO struct {
 }
 
 type ChannelMessageDTO struct {
-	ID              int64  `json:"id"`
-	ClientMessageID string `json:"client_message_id"`
-	SenderID        string `json:"sender_id"`
-	SenderUsername  string `json:"sender_username"`
-	SenderAvatar    string `json:"sender_avatar"`
-	CipherText      string `json:"cipher_text"`
-	Iv              string `json:"iv"`
-	AuthTag         string `json:"auth_tag"`
-	SentAt          int64  `json:"sent_at"`
+	ID                        int64  `json:"id"`
+	ClientMessageID           string `json:"client_message_id"`
+	SenderID                  string `json:"sender_id"`
+	SenderUsername            string `json:"sender_username"`
+	SenderAvatar              string `json:"sender_avatar"`
+	CipherText                string `json:"cipher_text"`
+	Iv                        string `json:"iv"`
+	AuthTag                   string `json:"auth_tag"`
+	SentAt                    int64  `json:"sent_at"`
+	AttachmentID              string `json:"attachment_id,omitempty"`
+	AttachmentMetadata        string `json:"attachment_metadata,omitempty"`
+	AttachmentMetadataIv      string `json:"attachment_metadata_iv,omitempty"`
+	AttachmentMetadataAuthTag string `json:"attachment_metadata_auth_tag,omitempty"`
 }
 
 type ChannelMemberDTO struct {

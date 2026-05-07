@@ -9,6 +9,7 @@ import (
 
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
+	"zuna.chat/zuna-server/ent/attachment"
 	"zuna.chat/zuna-server/ent/channel"
 	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/user"
@@ -43,9 +44,11 @@ type ChannelMessageEdges struct {
 	Sender *User `json:"sender,omitempty"`
 	// Channel holds the value of the channel edge.
 	Channel *Channel `json:"channel,omitempty"`
+	// Attachment holds the value of the attachment edge.
+	Attachment *Attachment `json:"attachment,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // SenderOrErr returns the Sender value or an error if the edge
@@ -68,6 +71,17 @@ func (e ChannelMessageEdges) ChannelOrErr() (*Channel, error) {
 		return nil, &NotFoundError{label: channel.Label}
 	}
 	return nil, &NotLoadedError{edge: "channel"}
+}
+
+// AttachmentOrErr returns the Attachment value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ChannelMessageEdges) AttachmentOrErr() (*Attachment, error) {
+	if e.Attachment != nil {
+		return e.Attachment, nil
+	} else if e.loadedTypes[2] {
+		return nil, &NotFoundError{label: attachment.Label}
+	}
+	return nil, &NotLoadedError{edge: "attachment"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -171,6 +185,11 @@ func (_m *ChannelMessage) QuerySender() *UserQuery {
 // QueryChannel queries the "channel" edge of the ChannelMessage entity.
 func (_m *ChannelMessage) QueryChannel() *ChannelQuery {
 	return NewChannelMessageClient(_m.config).QueryChannel(_m)
+}
+
+// QueryAttachment queries the "attachment" edge of the ChannelMessage entity.
+func (_m *ChannelMessage) QueryAttachment() *AttachmentQuery {
+	return NewChannelMessageClient(_m.config).QueryAttachment(_m)
 }
 
 // Update returns a builder for updating this ChannelMessage.

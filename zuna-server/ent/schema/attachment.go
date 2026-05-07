@@ -30,6 +30,9 @@ func (Attachment) Edges() []ent.Edge {
 		edge.From("message", Message.Type).
 			Ref("attachment").
 			Unique(),
+		edge.From("channel_message", ChannelMessage.Type).
+			Ref("attachment").
+			Unique(),
 		edge.From("user", User.Type).
 			Ref("attachments").
 			Unique().Required(),
