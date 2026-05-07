@@ -2,6 +2,7 @@ package push
 
 type NotificationPayload struct {
 	ServerID          string `json:"server_id"`
+	ChatID            string `json:"chat_id"`
 	SenderID          string `json:"sender_id"`
 	SenderIdentityKey string `json:"sender_identity_key"`
 	CipherText        string `json:"cipher_text"`
@@ -15,6 +16,7 @@ type ApnPayload struct {
 
 	SenderID          string `json:"sid"`
 	ServerID          string `json:"srv"`
+	ChatID            string `json:"cid"`
 	CipherText        string `json:"ct"`
 	Iv                string `json:"iv"`
 	AuthTag           string `json:"at"`

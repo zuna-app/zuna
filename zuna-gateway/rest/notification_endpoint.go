@@ -12,6 +12,7 @@ import (
 type NotificationRequest struct {
 	UserID            string   `json:"user_id"`
 	SenderID          string   `json:"sender_id"`
+	ChatID            string   `json:"chat_id"`
 	ServerID          string   `json:"server_id"`
 	SenderIdentityKey string   `json:"sender_identity_key"`
 	CipherText        string   `json:"cipher_text"`
@@ -56,6 +57,7 @@ func NotificationEndpoint(c *echo.Context) error {
 		ServerID:          req.ServerID,
 		SenderID:          req.SenderID,
 		SenderIdentityKey: req.SenderIdentityKey,
+		ChatID:            req.ChatID,
 		CipherText:        req.CipherText,
 		Iv:                req.Iv,
 		AuthTag:           req.AuthTag,

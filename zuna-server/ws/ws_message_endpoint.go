@@ -224,7 +224,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 				deviceTokens[i] = d.DeviceToken
 			}
 
-			go utils.SendNotificationToGateway(ud.UserID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag, deviceTokens)
+			go utils.SendNotificationToGateway(ud.UserID, ch.ID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag, deviceTokens)
 		}
 
 		if ud.ConnectionID == "" {
