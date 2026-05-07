@@ -40,9 +40,10 @@ type Configuration struct {
 }
 
 type APN struct {
-	KeyPath string `toml:"apn_key_path" comment:"Path to the APNs Auth Key P8 file"`
-	KeyId   string `toml:"apn_key_id" comment:"APNs Key ID from Apple Developer account"`
-	TeamId  string `toml:"apn_team_id" comment:"APNs Team ID from Apple Developer account"`
+	KeyPath         string `toml:"key_path" comment:"Path to the APNs Auth Key P8 file"`
+	KeyID           string `toml:"key_id" comment:"APNs Key ID from Apple Developer account"`
+	TeamID          string `toml:"team_id" comment:"APNs Team ID from Apple Developer account"`
+	DevelopmentMode bool   `toml:"development_mode" comment:"Enable development mode for APNs (use sandbox environment)"`
 }
 
 var Config = Configuration{
@@ -64,9 +65,10 @@ var Config = Configuration{
 		KeyFile:      "server_tls_key.pem",
 	},
 	APN: APN{
-		KeyPath: "AuthKey.p8",
-		KeyId:   "ABC123XYZ",
-		TeamId:  "TEAMID123",
+		KeyPath:         "AuthKey.p8",
+		KeyID:           "ABC123XYZ",
+		TeamID:          "TEAMID123",
+		DevelopmentMode: false,
 	},
 }
 

@@ -13,7 +13,7 @@ import (
 var client *apns2.Client
 
 func InitializeApnClient() {
-	if len(config.ApnKey) == 0 || config.Config.APN.KeyId == "" || config.Config.APN.TeamId == "" {
+	if len(config.ApnKey) == 0 || config.Config.APN.KeyID == "" || config.Config.APN.TeamID == "" {
 		log.Warn().Msg("APNs is not configured, skipping APNs client initialization")
 		return
 	}
@@ -26,14 +26,19 @@ func InitializeApnClient() {
 
 	authToken := &token.Token{
 		AuthKey: authKey,
-		KeyID:   config.Config.APN.KeyId,
-		TeamID:  config.Config.APN.TeamId,
+		KeyID:   config.Config.APN.KeyID,
+		TeamID:  config.Config.APN.TeamID,
 	}
 
 	tokenClient := apns2.NewTokenClient(authToken)
 
-	client = tokenClient.Development()
-	// client = tokenClient.Production()
+	if config.Config.APN.DevelopmentMode {
+		log.Info().Msg("Initializing APNs client in development mode (sandbox environment)")
+		client = tokenClient.Development()
+	} else {
+		log.Info().Msg("Initializing APNs client in production mode")
+		client = tokenClient.Production()
+	}
 }
 
 func SendApnNotification(tokens []string, payload NotificationPayload) []string {
