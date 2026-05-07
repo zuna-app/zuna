@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useWsHandler } from "../ws/useWsHandler";
 import { WS_MSG } from "../ws/wsTypes";
 import { unwrapChannelKey, wrapChannelKey } from "../../crypto/channel";
@@ -14,36 +15,45 @@ import { useWsConnection } from "../ws/useWsConnection";
 export function useChannelKeyManager(server: Server) {
   const platform = usePlatform();
   const { sendMessage } = useWsConnection(server);
+  const queryClient = useQueryClient();
 
   const handleKeyReceive = useCallback(
     async (payload: GroupKeyPayload) => {
       try {
-        const ownPrivateKey = (await platform.vault.get(
-          "encPrivateKey",
-        )) as string | null;
+        const ownPrivateKey = (await platform.vault.get("encPrivateKey")) as
+          | string
+          | null;
         if (!ownPrivateKey) return;
 
-        const channelKey = unwrapChannelKey(ownPrivateKey, payload.sender_identity_key, {
-          ciphertext: payload.encrypted_key,
-          iv: payload.iv,
-          authTag: payload.auth_tag,
-        });
+        const channelKey = unwrapChannelKey(
+          ownPrivateKey,
+          payload.sender_identity_key,
+          {
+            ciphertext: payload.encrypted_key,
+            iv: payload.iv,
+            authTag: payload.auth_tag,
+          },
+        );
 
-        await platform.vault.set(`channel_key_${payload.channel_id}`, channelKey);
+        await platform.vault.set(
+          `channel_key_${payload.channel_id}`,
+          channelKey,
+        );
+        queryClient.invalidateQueries({ queryKey: ["channels", server.id] });
       } catch (err) {
         console.error("[channel] failed to unwrap channel key", err);
       }
     },
-    [platform.vault],
+    [platform.vault, queryClient, server.id],
   );
 
   const handleKeyRequests = useCallback(
     async (payload: ChannelKeyRequestsPayload) => {
       if (!payload?.requests?.length) return;
 
-      const ownPrivateKey = (await platform.vault.get(
-        "encPrivateKey",
-      )) as string | null;
+      const ownPrivateKey = (await platform.vault.get("encPrivateKey")) as
+        | string
+        | null;
       if (!ownPrivateKey) return;
 
       const keysToProvide: Array<{
@@ -74,7 +84,10 @@ export function useChannelKeyManager(server: Server) {
             auth_tag: wrapped.authTag,
           });
         } catch (err) {
-          console.error("[channel] failed to wrap channel key for redistribution", err);
+          console.error(
+            "[channel] failed to wrap channel key for redistribution",
+            err,
+          );
         }
       }
 
@@ -85,6 +98,14 @@ export function useChannelKeyManager(server: Server) {
     [platform.vault, sendMessage],
   );
 
-  useWsHandler<GroupKeyPayload>(server, WS_MSG.CHANNEL_KEY_RECEIVE, handleKeyReceive);
-  useWsHandler<ChannelKeyRequestsPayload>(server, WS_MSG.CHANNEL_KEY_REQUESTS, handleKeyRequests);
+  useWsHandler<GroupKeyPayload>(
+    server,
+    WS_MSG.CHANNEL_KEY_RECEIVE,
+    handleKeyReceive,
+  );
+  useWsHandler<ChannelKeyRequestsPayload>(
+    server,
+    WS_MSG.CHANNEL_KEY_REQUESTS,
+    handleKeyRequests,
+  );
 }

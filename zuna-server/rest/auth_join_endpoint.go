@@ -10,6 +10,8 @@ import (
 	"zuna.chat/zuna-server/crypto"
 	"zuna.chat/zuna-server/data"
 	"zuna.chat/zuna-server/db"
+	gochannel "zuna.chat/zuna-server/ent/channel"
+	"zuna.chat/zuna-server/ent/groupkey"
 	"zuna.chat/zuna-server/ent/user"
 	"zuna.chat/zuna-server/storage"
 	"zuna.chat/zuna-server/utils"
@@ -150,6 +152,61 @@ func AuthJoinEndpoint(c *echo.Context) error {
 	if err := tx.Commit(); err != nil {
 		log.Error().Err(err).Str("username", req.Username).Msg("failed to commit join transaction")
 		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	// Add new user to all existing public channels and notify online key-holders to redistribute.
+	publicChannels, pErr := db.EntClient.Channel.Query().
+		Where(gochannel.IsPublic(true)).
+		All(ctx)
+	if pErr != nil {
+		log.Error().Err(pErr).Str("userId", u.ID).Msg("failed to query public channels for new user")
+	} else {
+		for _, ch := range publicChannels {
+			if _, addErr := db.EntClient.ChannelMember.Create().
+				SetChannelID(ch.ID).
+				SetUserID(u.ID).
+				Save(ctx); addErr != nil {
+				log.Error().Err(addErr).Str("channelId", ch.ID).Str("userId", u.ID).Msg("failed to add new user to public channel")
+				continue
+			}
+
+			// Find all online members who have a delivered key and ask them to provide one to the new user.
+			membersWithKeys, mkErr := db.EntClient.GroupKey.Query().
+				WithRecipient().
+				Where(
+					groupkey.HasChannelWith(gochannel.IDEQ(ch.ID)),
+					groupkey.DeliveredAtNotNil(),
+				).
+				All(ctx)
+			if mkErr != nil {
+				log.Error().Err(mkErr).Str("channelId", ch.ID).Msg("failed to query key-holders for redistribution")
+				continue
+			}
+
+			for _, gk := range membersWithKeys {
+				if gk.Edges.Recipient == nil {
+					continue
+				}
+				holderData, holderErr := data.GetUserDataByID(gk.Edges.Recipient.ID)
+				if holderErr != nil || !holderData.Active {
+					continue
+				}
+				for _, connID := range holderData.ConnectionIDs {
+					ws.HubInstance.SendTo(connID, ws.OutgoingMessage{
+						Type: "channel_key_requests",
+						Payload: map[string]any{
+							"requests": []data.KeyRequestDTO{
+								{
+									ChannelID:            ch.ID,
+									RecipientUserID:      u.ID,
+									RecipientIdentityKey: u.IdentityKey,
+								},
+							},
+						},
+					})
+				}
+			}
+		}
 	}
 
 	for _, ud := range data.GetUserDataSnapshot() {
