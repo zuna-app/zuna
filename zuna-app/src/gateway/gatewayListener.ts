@@ -8,6 +8,12 @@ import { sendNotification } from "../notification/notification";
 import { getNotificationWindowHost } from "../notification/host";
 import { Server } from "@/types";
 import { computeSharedSecret, decrypt } from "@/crypto";
+import fetch from "node-fetch";
+import https from "https";
+
+const agent = new https.Agent({
+  rejectUnauthorized: false,
+});
 
 interface NotificationInfoPayload {
   server_id: string;
@@ -166,7 +172,9 @@ async function handleNotification(
       let senderAvatarNativeImage: Electron.NativeImage | undefined;
       if (senderAvatarUrl) {
         try {
-          const response = await fetch(senderAvatarUrl);
+          const response = await fetch(senderAvatarUrl, {
+            agent,
+          });
           const buffer = await response.arrayBuffer();
           senderAvatarNativeImage = nativeImage.createFromBuffer(
             Buffer.from(buffer),
