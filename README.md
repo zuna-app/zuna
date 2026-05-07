@@ -47,15 +47,31 @@
 
 - Fully end-to-end encrypted message, voice and screensharing transport
 - Beautiful and modern desktop application
-- Mature LiveKit voice/screensharing platform integration
 - 7tv integration for animated emotes
 - Code mode
 - Push notifications
 - Encrypted file and photo sharing
-- Completely self-hosted
+- Completely self-hosted through Docker Compose
 - Editing/deleting messages
 - Pinning messages
 - PWA for web and mobile use
+
+### Planned major features for May-June 2026
+
+- iOS and Android builds available in App Store/Google Play Store
+- Mature LiveKit voice/screensharing platform integration (1 on 1, calling)
+- Per-app audio/video screenshare for all major platforms (Linux, Windows, MacOS)
+
+### Planned major features for 2026
+
+- Basic text and voice channel support akin to Discord
+- User administrative roles and/or visible ranks
+- Complete administration web panel
+- Calling (i.e. LiveKit) support in the iOS/Android apps
+- True 1-click installation scripts instead of Docker
+- Better file encryption/transport protocol allowing for big files over 512MB+
+- In-app video attachment streaming
+- Voice attachments
 
 > [!NOTE]
 > Hurray! 🎉 Both our Google and Apple accounts were successfully approved. We're very close to releasing first iOS and (further down the line) Android builds. It will take some time to get approved by both of Apple and Google, especially since heavily encrypted applications often require additional documentation and audits. Stay patient and we'll deliver!
