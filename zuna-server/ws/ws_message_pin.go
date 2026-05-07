@@ -60,18 +60,20 @@ func (r *MessageRouter) handlePinMessage(c HubClient, msg IncomingMessage, userD
 	}
 
 	for _, uu := range ch.Edges.Users {
-		if uu.ID == userData.UserID {
-			continue
-		}
-
 		ud, err := data.GetUserDataByUsername(uu.Username)
-		if err != nil || ud.ConnectionID == "" {
+		if err != nil || len(ud.ConnectionIDs) == 0 {
 			continue
 		}
 
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_pin_receive", Payload: PinMessageResponseMulticast{
-			Id:     m.ID,
-			Pinned: pinned,
-		}})
+		for _, connectionID := range ud.ConnectionIDs {
+			if connectionID == c.ID() {
+				continue
+			}
+
+			r.h.SendTo(connectionID, OutgoingMessage{Type: "message_pin_receive", Payload: PinMessageResponseMulticast{
+				Id:     m.ID,
+				Pinned: pinned,
+			}})
+		}
 	}
 }

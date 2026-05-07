@@ -78,8 +78,8 @@ func (r *MessageRouter) Dispatch(c HubClient, raw []byte) {
 		return
 	}
 
-	// Missing connection ID in UserData, auth request over WS is required first
-	if userData.ConnectionID == "" && msg.Type != "auth" {
+	// Missing current connection ID in UserData, auth request over WS is required first
+	if msg.Type != "auth" && !data.HasConnectionID(userData, c.ID()) {
 		sendError(c, "forbidden", "auth over websockets required first")
 		return
 	}

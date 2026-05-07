@@ -42,9 +42,10 @@ func AuthHandshakeEndpoint(c *echo.Context) error {
 	userData, err := data.GetUserDataByUsername(req.Username)
 	if err != nil {
 		userData = data.UserData{
-			Username:     req.Username,
-			AuthToken:    "",
-			Ed25519Nonce: "",
+			Username:      req.Username,
+			AuthTokens:    []string{},
+			Ed25519Nonce:  "",
+			ConnectionIDs: []string{},
 		}
 	}
 

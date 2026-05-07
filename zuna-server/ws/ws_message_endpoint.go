@@ -209,10 +209,6 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 	}})
 
 	for _, uu := range ch.Edges.Users {
-		if uu.ID == userData.UserID {
-			continue
-		}
-
 		ud, err := data.GetUserDataByUsername(uu.Username)
 		if err != nil {
 			continue
@@ -227,26 +223,32 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 			go utils.SendNotificationToGateway(ud.UserID, ch.ID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag, deviceTokens)
 		}
 
-		if ud.ConnectionID == "" {
+		if len(ud.ConnectionIDs) == 0 {
 			continue
 		}
 
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_receive", Payload: MessageReceiveResponseMulticast{
-			Id:                        m.ID,
-			ChatId:                    ch.ID,
-			CreatedAt:                 m.SentAt.UnixMilli(),
-			SenderId:                  userData.UserID,
-			CipherText:                req.CipherText,
-			Iv:                        req.Iv,
-			AuthTag:                   req.AuthTag,
-			AttachmentID:              attachmentId,
-			AttachmentMetadata:        attachmentMetadata,
-			AttachmentMetadataIv:      attachmentMetadataIv,
-			AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
-			Modified:                  false,
-			Pinned:                    false,
-			IsReply:                   isReply,
-			ReplyInfo:                 replyInfo,
-		}})
+		for _, connectionID := range ud.ConnectionIDs {
+			if connectionID == c.ID() {
+				continue
+			}
+
+			r.h.SendTo(connectionID, OutgoingMessage{Type: "message_receive", Payload: MessageReceiveResponseMulticast{
+				Id:                        m.ID,
+				ChatId:                    ch.ID,
+				CreatedAt:                 m.SentAt.UnixMilli(),
+				SenderId:                  userData.UserID,
+				CipherText:                req.CipherText,
+				Iv:                        req.Iv,
+				AuthTag:                   req.AuthTag,
+				AttachmentID:              attachmentId,
+				AttachmentMetadata:        attachmentMetadata,
+				AttachmentMetadataIv:      attachmentMetadataIv,
+				AttachmentMetadataAuthTag: attachmentMetadataAuthTag,
+				Modified:                  false,
+				Pinned:                    false,
+				IsReply:                   isReply,
+				ReplyInfo:                 replyInfo,
+			}})
+		}
 	}
 }

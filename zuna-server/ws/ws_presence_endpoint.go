@@ -42,20 +42,22 @@ func (r *MessageRouter) handlePresence(c HubClient, msg IncomingMessage, userDat
 	}
 
 	for _, ud := range data.GetUserDataSnapshot() {
-		if ud.ConnectionID == "" {
+		if len(ud.ConnectionIDs) == 0 {
 			continue
 		}
 
-		if ud.UserID == userData.UserID {
-			continue
-		}
+		for _, connectionID := range ud.ConnectionIDs {
+			if connectionID == c.ID() {
+				continue
+			}
 
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
-			Presence: data.PresenceDTO{
-				UserID:   userData.UserID,
-				LastSeen: userData.LastSeen,
-				Active:   userData.Active,
-			},
-		}})
+			r.h.SendTo(connectionID, OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
+				Presence: data.PresenceDTO{
+					UserID:   userData.UserID,
+					LastSeen: userData.LastSeen,
+					Active:   userData.Active,
+				},
+			}})
+		}
 	}
 }

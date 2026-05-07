@@ -58,22 +58,19 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 	}
 
 	for _, uu := range ch.Edges.Users {
-		if uu.ID == userData.UserID {
-			continue
-		}
-
 		ud, err := data.GetUserDataByUsername(uu.Username)
 		if err != nil {
 			continue
 		}
 
-		connectionId := ud.ConnectionID
-		if connectionId == "" {
-			continue // User disconnected from ws
-		}
+		for _, connectionID := range ud.ConnectionIDs {
+			if connectionID == c.ID() {
+				continue
+			}
 
-		r.h.SendTo(connectionId, OutgoingMessage{Type: "message_read_info", Payload: MessageReadResponseMulticast{
-			ChatID: ch.ID,
-		}})
+			r.h.SendTo(connectionID, OutgoingMessage{Type: "message_read_info", Payload: MessageReadResponseMulticast{
+				ChatID: ch.ID,
+			}})
+		}
 	}
 }

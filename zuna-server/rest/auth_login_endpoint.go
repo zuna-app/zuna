@@ -78,13 +78,14 @@ func AuthLoginEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusUnauthorized, HttpErrorResponse{Error: "signature validation failed"})
 	}
 
+	token := cuid2.Generate()
 	userData.UserID = u.ID
 	userData.Ed25519Nonce = ""
-	userData.AuthToken = cuid2.Generate()
+	userData = data.AddAuthToken(userData, token)
 	data.UpdateUserData(userData)
 
 	return c.JSON(http.StatusOK, LoginResponse{
-		Token:     userData.AuthToken,
+		Token:     token,
 		ServerID:  config.Config.Server.ServerID,
 		Signature: crypto.SignEd25519(config.Config.Server.ServerID),
 	})

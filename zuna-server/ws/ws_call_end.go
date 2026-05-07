@@ -37,8 +37,8 @@ func (r *MessageRouter) handleCallEnd(c HubClient, msg IncomingMessage, userData
 		return
 	}
 
-	if receipentData.ConnectionID != "" {
-		r.h.SendTo(receipentData.ConnectionID, OutgoingMessage{Type: "call_end_info", Payload: CallEndRecipientResponse{
+	for _, connectionID := range receipentData.ConnectionIDs {
+		r.h.SendTo(connectionID, OutgoingMessage{Type: "call_end_info", Payload: CallEndRecipientResponse{
 			Room: req.Room,
 		}})
 	}
