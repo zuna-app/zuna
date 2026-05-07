@@ -9,6 +9,7 @@ import { useAuthorizedServerFetch } from "../server/useServerFetch";
 import { wrapChannelKey } from "../../crypto/channel";
 import { usePlatform } from "../../platform/PlatformContext";
 import type { Channel, ChannelMember, Server } from "../../types/serverTypes";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function useUpdateChannel(server: Server) {
   const platform = usePlatform();
@@ -19,6 +20,7 @@ export function useUpdateChannel(server: Server) {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const renameChannel = useCallback(
     async (channelId: string, name: string): Promise<boolean> => {
@@ -34,9 +36,7 @@ export function useUpdateChannel(server: Server) {
           const j = await res.json().catch(() => ({}));
           throw new Error(j?.error ?? "Failed to rename channel");
         }
-        setChannels((prev) =>
-          prev.map((ch) => (ch.id === channelId ? { ...ch, name } : ch)),
-        );
+        queryClient.invalidateQueries({ queryKey: ["channels", server.id] });
         return true;
       } catch (err) {
         setError(
