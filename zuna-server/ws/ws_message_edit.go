@@ -57,11 +57,11 @@ func (r *MessageRouter) handleModifyMessage(c HubClient, msg IncomingMessage, us
 	}
 
 	ch, err := db.EntClient.Chat.Query().WithUsers().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
-  if err != nil {
-    log.Error().Err(err).Msg("failed to query chat")
-    sendInternalServerError(c)
-    return
-  }
+	if err != nil {
+		log.Error().Err(err).Msg("failed to query chat")
+		sendInternalServerError(c)
+		return
+	}
 
 	_, err = m.Update().SetCipherText(req.CipherText).SetIv(req.Iv).SetAuthTag(req.AuthTag).SetModified(true).Save(ctx)
 	if err != nil {
@@ -71,21 +71,24 @@ func (r *MessageRouter) handleModifyMessage(c HubClient, msg IncomingMessage, us
 	}
 
 	for _, uu := range ch.Edges.Users {
-		if uu.ID == userData.UserID {
-			continue
-		}
-		
 		ud, err := data.GetUserDataByUsername(uu.Username)
-		if err != nil || ud.ConnectionID == "" {
+		if err != nil || len(ud.ConnectionIDs) == 0 {
 			continue
 		}
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_modify_receive", Payload: ModifyMessageResponseMulticast{
-			Id:         m.ID,
-			ChatId:     ch.ID,
-			SenderId:   userData.UserID,
-			CipherText: req.CipherText,
-			Iv:         req.Iv,
-			AuthTag:    req.AuthTag,
-		}})
+
+		for _, connectionID := range ud.ConnectionIDs {
+			if connectionID == c.ID() {
+				continue
+			}
+
+			r.h.SendTo(connectionID, OutgoingMessage{Type: "message_modify_receive", Payload: ModifyMessageResponseMulticast{
+				Id:         m.ID,
+				ChatId:     ch.ID,
+				SenderId:   userData.UserID,
+				CipherText: req.CipherText,
+				Iv:         req.Iv,
+				AuthTag:    req.AuthTag,
+			}})
+		}
 	}
 }

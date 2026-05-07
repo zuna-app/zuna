@@ -62,15 +62,17 @@ func (r *MessageRouter) handleWritingIndicator(c HubClient, msg IncomingMessage,
 			continue
 		}
 
-		if ud.ConnectionID == "" {
+		if len(ud.ConnectionIDs) == 0 {
 			continue
 		}
 
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
-			ChatID:   req.ChatID,
-			SenderID: userData.UserID,
-			Writing:  req.Writing,
-		}})
+		for _, connectionID := range ud.ConnectionIDs {
+			r.h.SendTo(connectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
+				ChatID:   req.ChatID,
+				SenderID: userData.UserID,
+				Writing:  req.Writing,
+			}})
+		}
 
 	}
 }

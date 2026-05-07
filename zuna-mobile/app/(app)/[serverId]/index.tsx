@@ -18,6 +18,7 @@ import { serverTokensAtom } from '@/store/atoms';
 import { useChatList } from '@/hooks/chat/useChatList';
 import { useSharedSecret, computeSharedSecretFromVault } from '@/hooks/ws/useSharedSecret';
 import { useBackgroundMessages } from '@/hooks/ws/useBackgroundMessages';
+import { useWsConnection } from '@/hooks/ws/useWsConnection';
 import { decrypt } from '@/lib/crypto/x25519';
 import { ChatListItem } from '@/components/chat/ChatListItem';
 import { ServerDrawer } from '@/components/chat/ServerDrawer';
@@ -97,6 +98,8 @@ export default function ChatListScreen() {
       setSelectedChat(null);
     }, [setSelectedChat])
   );
+
+  useWsConnection(server!);
 
   function openChat(member: ChatMember) {
     setSelectedChat(member);

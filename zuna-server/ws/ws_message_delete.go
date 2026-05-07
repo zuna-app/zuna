@@ -56,11 +56,11 @@ func (r *MessageRouter) handleDeleteMessage(c HubClient, msg IncomingMessage, us
 	}
 
 	ch, err := db.EntClient.Chat.Query().WithUsers().Where(chat.IDEQ(m.Edges.Chat.ID)).First(ctx)
-  if err != nil {
-    log.Error().Err(err).Msg("failed to query chat")
-    sendInternalServerError(c)
-    return
-  }
+	if err != nil {
+		log.Error().Err(err).Msg("failed to query chat")
+		sendInternalServerError(c)
+		return
+	}
 
 	_, err = db.EntClient.Message.Delete().Where(message.IDEQ(req.Id)).Exec(ctx)
 	if err != nil {
@@ -71,14 +71,20 @@ func (r *MessageRouter) handleDeleteMessage(c HubClient, msg IncomingMessage, us
 
 	for _, uu := range ch.Edges.Users {
 		ud, err := data.GetUserDataByUsername(uu.Username)
-		if err != nil || ud.ConnectionID == "" {
+		if err != nil || len(ud.ConnectionIDs) == 0 {
 			continue
 		}
 
 		fmt.Printf("Sending message delete for message %d to user %s\n", m.ID, uu.Username)
 
-		r.h.SendTo(ud.ConnectionID, OutgoingMessage{Type: "message_delete_receive", Payload: DeleteMessageResponseMulticast{
-			Id: m.ID,
-		}})
+		for _, connectionID := range ud.ConnectionIDs {
+			if connectionID == c.ID() {
+				continue
+			}
+
+			r.h.SendTo(connectionID, OutgoingMessage{Type: "message_delete_receive", Payload: DeleteMessageResponseMulticast{
+				Id: m.ID,
+			}})
+		}
 	}
 }

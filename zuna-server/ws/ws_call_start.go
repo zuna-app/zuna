@@ -42,7 +42,7 @@ func (r *MessageRouter) handleCallStart(c HubClient, msg IncomingMessage, userDa
 		return
 	}
 
-	if receipentData.ConnectionID == "" {
+	if len(receipentData.ConnectionIDs) == 0 {
 		sendError(c, "bad_request", "receipent is offline")
 		return
 	}
@@ -59,11 +59,13 @@ func (r *MessageRouter) handleCallStart(c HubClient, msg IncomingMessage, userDa
 		LiveKitToken: tokenCaller,
 	}})
 
-	r.h.SendTo(receipentData.ConnectionID, OutgoingMessage{Type: "call_start_info", Payload: CallStartRecipientResponse{
-		CallerID:     userData.UserID,
-		RecipientID:  req.RecipientID,
-		Room:         room,
-		LiveKitUrl:   config.Config.LiveKit.Url,
-		LiveKitToken: tokenRecipient,
-	}})
+	for _, connectionID := range receipentData.ConnectionIDs {
+		r.h.SendTo(connectionID, OutgoingMessage{Type: "call_start_info", Payload: CallStartRecipientResponse{
+			CallerID:     userData.UserID,
+			RecipientID:  req.RecipientID,
+			Room:         room,
+			LiveKitUrl:   config.Config.LiveKit.Url,
+			LiveKitToken: tokenRecipient,
+		}})
+	}
 }

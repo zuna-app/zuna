@@ -15,13 +15,13 @@ var UserDataMap = make(map[string]UserData)
 var userDataMutex sync.RWMutex
 
 type UserData struct {
-	UserID       string
-	Username     string
-	AuthToken    string
-	Ed25519Nonce string
-	ConnectionID string
-	LastSeen     int64
-	Active       bool
+	UserID        string
+	Username      string
+	AuthTokens    []string
+	Ed25519Nonce  string
+	ConnectionIDs []string
+	LastSeen      int64
+	Active        bool
 }
 
 func InitializeUserManager() {
@@ -35,13 +35,13 @@ func InitializeUserManager() {
 	for _, user := range users {
 		userDataMutex.Lock()
 		UserDataMap[user.Username] = UserData{
-			UserID:       user.ID,
-			Username:     user.Username,
-			AuthToken:    "",
-			Ed25519Nonce: "",
-			ConnectionID: "",
-			LastSeen:     user.LastSeen.UnixMilli(),
-			Active:       false,
+			UserID:        user.ID,
+			Username:      user.Username,
+			AuthTokens:    []string{},
+			Ed25519Nonce:  "",
+			ConnectionIDs: []string{},
+			LastSeen:      user.LastSeen.UnixMilli(),
+			Active:        false,
 		}
 		userDataMutex.Unlock()
 	}
@@ -65,8 +65,10 @@ func GetUserDataByToken(token string) (UserData, error) {
 	defer userDataMutex.RUnlock()
 
 	for _, ud := range UserDataMap {
-		if ud.AuthToken == token {
-			return ud, nil
+		for _, t := range ud.AuthTokens {
+			if t == token {
+				return ud, nil
+			}
 		}
 	}
 
@@ -91,8 +93,10 @@ func GetUserDataByConnectionId(connectionId string) (UserData, error) {
 	defer userDataMutex.RUnlock()
 
 	for _, ud := range UserDataMap {
-		if ud.ConnectionID == connectionId {
-			return ud, nil
+		for _, id := range ud.ConnectionIDs {
+			if id == connectionId {
+				return ud, nil
+			}
 		}
 	}
 
@@ -116,4 +120,58 @@ func GetUserDataSnapshot() []UserData {
 	}
 
 	return users
+}
+
+func HasAuthToken(userData UserData, token string) bool {
+	for _, t := range userData.AuthTokens {
+		if t == token {
+			return true
+		}
+	}
+
+	return false
+}
+
+func HasConnectionID(userData UserData, connectionID string) bool {
+	for _, id := range userData.ConnectionIDs {
+		if id == connectionID {
+			return true
+		}
+	}
+
+	return false
+}
+
+func AddAuthToken(userData UserData, token string) UserData {
+	if token == "" || HasAuthToken(userData, token) {
+		return userData
+	}
+
+	userData.AuthTokens = append(userData.AuthTokens, token)
+	return userData
+}
+
+func AddConnectionID(userData UserData, connectionID string) UserData {
+	if connectionID == "" || HasConnectionID(userData, connectionID) {
+		return userData
+	}
+
+	userData.ConnectionIDs = append(userData.ConnectionIDs, connectionID)
+	return userData
+}
+
+func RemoveConnectionID(userData UserData, connectionID string) UserData {
+	if connectionID == "" || len(userData.ConnectionIDs) == 0 {
+		return userData
+	}
+
+	filtered := make([]string, 0, len(userData.ConnectionIDs))
+	for _, id := range userData.ConnectionIDs {
+		if id != connectionID {
+			filtered = append(filtered, id)
+		}
+	}
+
+	userData.ConnectionIDs = filtered
+	return userData
 }

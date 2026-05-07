@@ -153,11 +153,13 @@ func AuthJoinEndpoint(c *echo.Context) error {
 	}
 
 	for _, ud := range data.GetUserDataSnapshot() {
-		if ud.ConnectionID == "" {
+		if len(ud.ConnectionIDs) == 0 {
 			continue
 		}
 
-		ws.HubInstance.SendTo(ud.ConnectionID, ws.OutgoingMessage{Type: "user_joined", Payload: map[string]string{}})
+		for _, connectionID := range ud.ConnectionIDs {
+			ws.HubInstance.SendTo(connectionID, ws.OutgoingMessage{Type: "user_joined", Payload: map[string]string{}})
+		}
 	}
 
 	return c.JSON(http.StatusOK, JoinResponse{

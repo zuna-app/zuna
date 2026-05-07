@@ -77,10 +77,16 @@ func (h *Hub) Run() {
 		case client := <-h.Unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client.ID()]; ok {
-				ud, _ := data.GetUserDataByConnectionId(client.ID())
-
-				ud.ConnectionID = ""
-				data.UpdateUserData(ud)
+				ud, udErr := data.GetUserDataByConnectionId(client.ID())
+				userBecameOffline := false
+				if udErr == nil {
+					ud = data.RemoveConnectionID(ud, client.ID())
+					if len(ud.ConnectionIDs) == 0 {
+						ud.Active = false
+						userBecameOffline = true
+					}
+					data.UpdateUserData(ud)
+				}
 
 				delete(h.clients, client.ID())
 				log.Printf("[hub] client unregistered id=%s  total=%d", client.ID(), len(h.clients))
@@ -94,38 +100,42 @@ func (h *Hub) Run() {
 				}
 				h.mu.Unlock()
 
-				for _, cid := range remainingIDs {
-					h.SendTo(cid, OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
-						Presence: data.PresenceDTO{
-							UserID:   ud.UserID,
-							LastSeen: ud.LastSeen,
-							Active:   ud.Active,
-						},
-					}})
-				}
-
-				chats, err := db.EntClient.Chat.Query().WithUsers().Where(chat.HasUsersWith(user.IDEQ(ud.UserID))).All(context.Background())
-				if err == nil {
-					for _, ch := range chats {
-						for _, uu := range ch.Edges.Users {
-							if uu.ID == ud.UserID {
-								continue
-							}
-
-							currentUserData, _ := data.GetUserDataByUsername(uu.Username)
-							if currentUserData.ConnectionID == "" {
-								continue
-							}
-
-							h.SendTo(currentUserData.ConnectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
-								ChatID:   ch.ID,
-								SenderID: ud.UserID,
-								Writing:  false,
-							}})
-						}
+				if userBecameOffline {
+					for _, cid := range remainingIDs {
+						h.SendTo(cid, OutgoingMessage{Type: "presence_update", Payload: PresenceResponseMulticast{
+							Presence: data.PresenceDTO{
+								UserID:   ud.UserID,
+								LastSeen: ud.LastSeen,
+								Active:   ud.Active,
+							},
+						}})
 					}
-				} else {
-					log.Error().Err(err).Str("userId", ud.UserID).Msg("failed to query chats for writing indicator update on disconnect")
+
+					chats, err := db.EntClient.Chat.Query().WithUsers().Where(chat.HasUsersWith(user.IDEQ(ud.UserID))).All(context.Background())
+					if err == nil {
+						for _, ch := range chats {
+							for _, uu := range ch.Edges.Users {
+								if uu.ID == ud.UserID {
+									continue
+								}
+
+								currentUserData, err := data.GetUserDataByUsername(uu.Username)
+								if err != nil || len(currentUserData.ConnectionIDs) == 0 {
+									continue
+								}
+
+								for _, connectionID := range currentUserData.ConnectionIDs {
+									h.SendTo(connectionID, OutgoingMessage{Type: "write_receive", Payload: WritingIndicatorMulticast{
+										ChatID:   ch.ID,
+										SenderID: ud.UserID,
+										Writing:  false,
+									}})
+								}
+							}
+						}
+					} else {
+						log.Error().Err(err).Str("userId", ud.UserID).Msg("failed to query chats for writing indicator update on disconnect")
+					}
 				}
 			} else {
 				h.mu.Unlock()
