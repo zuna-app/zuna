@@ -25,13 +25,13 @@ type MessageRequest struct {
 	ShortCipherText string `json:"short_cipher_text"`
 	ShortIv         string `json:"short_iv"`
 	ShortAuthTag    string `json:"short_auth_tag"`
-	LocalId         int    `json:"local_id"`
+	ClientMessageID string `json:"client_message_id"`
 	AttachmentID    string `json:"attachment_id"`
 	ReplyTo         int64  `json:"reply_to"`
 }
 
 type MessageAckResponse struct {
-	LocalId                   int                      `json:"local_id"`
+	ClientMessageID           string                   `json:"client_message_id"`
 	Id                        int64                    `json:"id"`
 	ChatId                    string                   `json:"chat_id"`
 	CreatedAt                 int64                    `json:"created_at"`
@@ -59,6 +59,7 @@ type MessageReceiveResponseMulticast struct {
 	Pinned                    bool                     `json:"pinned"`
 	IsReply                   bool                     `json:"is_reply"`
 	ReplyInfo                 data.MessageReplyInfoDTO `json:"reply_info"`
+	ClientMessageID           string                   `json:"client_message_id"`
 }
 
 // Receive over: message
@@ -147,6 +148,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 		SetUserID(userData.UserID).
 		SetChatID(req.ChatId).
 		SetNillableReplyToID(replyToID).
+		SetClientMessageID(req.ClientMessageID).
 		Save(ctx)
 
 	if err != nil {
@@ -196,7 +198,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 	}
 
 	c.Send(OutgoingMessage{Type: "message_ack", Payload: MessageAckResponse{
-		LocalId:                   req.LocalId,
+		ClientMessageID:           req.ClientMessageID,
 		Id:                        m.ID,
 		ChatId:                    ch.ID,
 		CreatedAt:                 m.SentAt.UnixMilli(),
@@ -223,15 +225,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 			go utils.SendNotificationToGateway(ud.UserID, ch.ID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag, deviceTokens)
 		}
 
-		if len(ud.ConnectionIDs) == 0 {
-			continue
-		}
-
 		for _, connectionID := range ud.ConnectionIDs {
-			if connectionID == c.ID() {
-				continue
-			}
-
 			r.h.SendTo(connectionID, OutgoingMessage{Type: "message_receive", Payload: MessageReceiveResponseMulticast{
 				Id:                        m.ID,
 				ChatId:                    ch.ID,
@@ -248,6 +242,7 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 				Pinned:                    false,
 				IsReply:                   isReply,
 				ReplyInfo:                 replyInfo,
+				ClientMessageID:           req.ClientMessageID,
 			}})
 		}
 	}

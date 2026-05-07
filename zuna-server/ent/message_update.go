@@ -31,6 +31,20 @@ func (_u *MessageUpdate) Where(ps ...predicate.Message) *MessageUpdate {
 	return _u
 }
 
+// SetClientMessageID sets the "client_message_id" field.
+func (_u *MessageUpdate) SetClientMessageID(v string) *MessageUpdate {
+	_u.mutation.SetClientMessageID(v)
+	return _u
+}
+
+// SetNillableClientMessageID sets the "client_message_id" field if the given value is not nil.
+func (_u *MessageUpdate) SetNillableClientMessageID(v *string) *MessageUpdate {
+	if v != nil {
+		_u.SetClientMessageID(*v)
+	}
+	return _u
+}
+
 // SetCipherText sets the "cipher_text" field.
 func (_u *MessageUpdate) SetCipherText(v string) *MessageUpdate {
 	_u.mutation.SetCipherText(v)
@@ -310,6 +324,9 @@ func (_u *MessageUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			}
 		}
 	}
+	if value, ok := _u.mutation.ClientMessageID(); ok {
+		_spec.SetField(message.FieldClientMessageID, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.CipherText(); ok {
 		_spec.SetField(message.FieldCipherText, field.TypeString, value)
 	}
@@ -513,6 +530,20 @@ type MessageUpdateOne struct {
 	fields   []string
 	hooks    []Hook
 	mutation *MessageMutation
+}
+
+// SetClientMessageID sets the "client_message_id" field.
+func (_u *MessageUpdateOne) SetClientMessageID(v string) *MessageUpdateOne {
+	_u.mutation.SetClientMessageID(v)
+	return _u
+}
+
+// SetNillableClientMessageID sets the "client_message_id" field if the given value is not nil.
+func (_u *MessageUpdateOne) SetNillableClientMessageID(v *string) *MessageUpdateOne {
+	if v != nil {
+		_u.SetClientMessageID(*v)
+	}
+	return _u
 }
 
 // SetCipherText sets the "cipher_text" field.
@@ -823,6 +854,9 @@ func (_u *MessageUpdateOne) sqlSave(ctx context.Context) (_node *Message, err er
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.ClientMessageID(); ok {
+		_spec.SetField(message.FieldClientMessageID, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.CipherText(); ok {
 		_spec.SetField(message.FieldCipherText, field.TypeString, value)

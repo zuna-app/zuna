@@ -23,6 +23,12 @@ type MessageCreate struct {
 	hooks    []Hook
 }
 
+// SetClientMessageID sets the "client_message_id" field.
+func (_c *MessageCreate) SetClientMessageID(v string) *MessageCreate {
+	_c.mutation.SetClientMessageID(v)
+	return _c
+}
+
 // SetCipherText sets the "cipher_text" field.
 func (_c *MessageCreate) SetCipherText(v string) *MessageCreate {
 	_c.mutation.SetCipherText(v)
@@ -229,6 +235,9 @@ func (_c *MessageCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *MessageCreate) check() error {
+	if _, ok := _c.mutation.ClientMessageID(); !ok {
+		return &ValidationError{Name: "client_message_id", err: errors.New(`ent: missing required field "Message.client_message_id"`)}
+	}
 	if _, ok := _c.mutation.CipherText(); !ok {
 		return &ValidationError{Name: "cipher_text", err: errors.New(`ent: missing required field "Message.cipher_text"`)}
 	}
@@ -284,6 +293,10 @@ func (_c *MessageCreate) createSpec() (*Message, *sqlgraph.CreateSpec) {
 	if id, ok := _c.mutation.ID(); ok {
 		_node.ID = id
 		_spec.ID.Value = id
+	}
+	if value, ok := _c.mutation.ClientMessageID(); ok {
+		_spec.SetField(message.FieldClientMessageID, field.TypeString, value)
+		_node.ClientMessageID = value
 	}
 	if value, ok := _c.mutation.CipherText(); ok {
 		_spec.SetField(message.FieldCipherText, field.TypeString, value)

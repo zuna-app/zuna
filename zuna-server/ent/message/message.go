@@ -14,6 +14,8 @@ const (
 	Label = "message"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldClientMessageID holds the string denoting the client_message_id field in the database.
+	FieldClientMessageID = "client_message_id"
 	// FieldCipherText holds the string denoting the cipher_text field in the database.
 	FieldCipherText = "cipher_text"
 	// FieldIv holds the string denoting the iv field in the database.
@@ -74,6 +76,7 @@ const (
 // Columns holds all SQL columns for message fields.
 var Columns = []string{
 	FieldID,
+	FieldClientMessageID,
 	FieldCipherText,
 	FieldIv,
 	FieldAuthTag,
@@ -121,6 +124,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByClientMessageID orders the results by the client_message_id field.
+func ByClientMessageID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldClientMessageID, opts...).ToFunc()
 }
 
 // ByCipherText orders the results by the cipher_text field.

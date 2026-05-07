@@ -72,6 +72,7 @@ var (
 	// MessagesColumns holds the columns for the "messages" table.
 	MessagesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "client_message_id", Type: field.TypeString, Unique: true},
 		{Name: "cipher_text", Type: field.TypeString, SchemaType: map[string]string{"mysql": "mediumtext"}},
 		{Name: "iv", Type: field.TypeString},
 		{Name: "auth_tag", Type: field.TypeString},
@@ -91,19 +92,19 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "messages_chats_messages",
-				Columns:    []*schema.Column{MessagesColumns[8]},
+				Columns:    []*schema.Column{MessagesColumns[9]},
 				RefColumns: []*schema.Column{ChatsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "messages_messages_reply_to",
-				Columns:    []*schema.Column{MessagesColumns[9]},
+				Columns:    []*schema.Column{MessagesColumns[10]},
 				RefColumns: []*schema.Column{MessagesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "messages_users_messages",
-				Columns:    []*schema.Column{MessagesColumns[10]},
+				Columns:    []*schema.Column{MessagesColumns[11]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},

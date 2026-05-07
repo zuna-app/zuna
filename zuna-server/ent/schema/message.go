@@ -18,6 +18,7 @@ type Message struct {
 func (Message) Fields() []ent.Field {
 	return []ent.Field{
 		field.Int64("id"),
+		field.String("client_message_id").Unique(),
 		field.String("cipher_text").SchemaType(map[string]string{dialect.MySQL: "mediumtext"}),
 		field.String("iv"),
 		field.String("auth_tag"),

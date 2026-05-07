@@ -1560,6 +1560,7 @@ type MessageMutation struct {
 	op                Op
 	typ               string
 	id                *int64
+	client_message_id *string
 	cipher_text       *string
 	iv                *string
 	auth_tag          *string
@@ -1686,6 +1687,42 @@ func (m *MessageMutation) IDs(ctx context.Context) ([]int64, error) {
 	default:
 		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
 	}
+}
+
+// SetClientMessageID sets the "client_message_id" field.
+func (m *MessageMutation) SetClientMessageID(s string) {
+	m.client_message_id = &s
+}
+
+// ClientMessageID returns the value of the "client_message_id" field in the mutation.
+func (m *MessageMutation) ClientMessageID() (r string, exists bool) {
+	v := m.client_message_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldClientMessageID returns the old "client_message_id" field's value of the Message entity.
+// If the Message object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *MessageMutation) OldClientMessageID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldClientMessageID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldClientMessageID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldClientMessageID: %w", err)
+	}
+	return oldValue.ClientMessageID, nil
+}
+
+// ResetClientMessageID resets all changes to the "client_message_id" field.
+func (m *MessageMutation) ResetClientMessageID() {
+	m.client_message_id = nil
 }
 
 // SetCipherText sets the "cipher_text" field.
@@ -2197,7 +2234,10 @@ func (m *MessageMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *MessageMutation) Fields() []string {
-	fields := make([]string, 0, 7)
+	fields := make([]string, 0, 8)
+	if m.client_message_id != nil {
+		fields = append(fields, message.FieldClientMessageID)
+	}
 	if m.cipher_text != nil {
 		fields = append(fields, message.FieldCipherText)
 	}
@@ -2227,6 +2267,8 @@ func (m *MessageMutation) Fields() []string {
 // schema.
 func (m *MessageMutation) Field(name string) (ent.Value, bool) {
 	switch name {
+	case message.FieldClientMessageID:
+		return m.ClientMessageID()
 	case message.FieldCipherText:
 		return m.CipherText()
 	case message.FieldIv:
@@ -2250,6 +2292,8 @@ func (m *MessageMutation) Field(name string) (ent.Value, bool) {
 // database failed.
 func (m *MessageMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
 	switch name {
+	case message.FieldClientMessageID:
+		return m.OldClientMessageID(ctx)
 	case message.FieldCipherText:
 		return m.OldCipherText(ctx)
 	case message.FieldIv:
@@ -2273,6 +2317,13 @@ func (m *MessageMutation) OldField(ctx context.Context, name string) (ent.Value,
 // type.
 func (m *MessageMutation) SetField(name string, value ent.Value) error {
 	switch name {
+	case message.FieldClientMessageID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetClientMessageID(v)
+		return nil
 	case message.FieldCipherText:
 		v, ok := value.(string)
 		if !ok {
@@ -2380,6 +2431,9 @@ func (m *MessageMutation) ClearField(name string) error {
 // It returns an error if the field is not defined in the schema.
 func (m *MessageMutation) ResetField(name string) error {
 	switch name {
+	case message.FieldClientMessageID:
+		m.ResetClientMessageID()
+		return nil
 	case message.FieldCipherText:
 		m.ResetCipherText()
 		return nil

@@ -20,6 +20,8 @@ type Message struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int64 `json:"id,omitempty"`
+	// ClientMessageID holds the value of the "client_message_id" field.
+	ClientMessageID string `json:"client_message_id,omitempty"`
 	// CipherText holds the value of the "cipher_text" field.
 	CipherText string `json:"cipher_text,omitempty"`
 	// Iv holds the value of the "iv" field.
@@ -122,7 +124,7 @@ func (*Message) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case message.FieldID:
 			values[i] = new(sql.NullInt64)
-		case message.FieldCipherText, message.FieldIv, message.FieldAuthTag:
+		case message.FieldClientMessageID, message.FieldCipherText, message.FieldIv, message.FieldAuthTag:
 			values[i] = new(sql.NullString)
 		case message.FieldSentAt, message.FieldReadAt:
 			values[i] = new(sql.NullTime)
@@ -153,6 +155,12 @@ func (_m *Message) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int64(value.Int64)
+		case message.FieldClientMessageID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field client_message_id", values[i])
+			} else if value.Valid {
+				_m.ClientMessageID = value.String
+			}
 		case message.FieldCipherText:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field cipher_text", values[i])
@@ -278,6 +286,9 @@ func (_m *Message) String() string {
 	var builder strings.Builder
 	builder.WriteString("Message(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("client_message_id=")
+	builder.WriteString(_m.ClientMessageID)
+	builder.WriteString(", ")
 	builder.WriteString("cipher_text=")
 	builder.WriteString(_m.CipherText)
 	builder.WriteString(", ")

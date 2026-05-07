@@ -442,12 +442,12 @@ func (_q *MessageQuery) WithAttachment(opts ...func(*AttachmentQuery)) *MessageQ
 // Example:
 //
 //	var v []struct {
-//		CipherText string `json:"cipher_text,omitempty"`
+//		ClientMessageID string `json:"client_message_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.Message.Query().
-//		GroupBy(message.FieldCipherText).
+//		GroupBy(message.FieldClientMessageID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *MessageQuery) GroupBy(field string, fields ...string) *MessageGroupBy {
@@ -465,11 +465,11 @@ func (_q *MessageQuery) GroupBy(field string, fields ...string) *MessageGroupBy 
 // Example:
 //
 //	var v []struct {
-//		CipherText string `json:"cipher_text,omitempty"`
+//		ClientMessageID string `json:"client_message_id,omitempty"`
 //	}
 //
 //	client.Message.Query().
-//		Select(message.FieldCipherText).
+//		Select(message.FieldClientMessageID).
 //		Scan(ctx, &v)
 func (_q *MessageQuery) Select(fields ...string) *MessageSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)

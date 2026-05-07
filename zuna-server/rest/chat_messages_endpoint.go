@@ -113,6 +113,7 @@ func ChatMessagesEndpoint(c *echo.Context) error {
 
 		dtos = append(dtos, data.MessageDTO{
 			ID:                        m.ID,
+			ClientMessageID:           m.ClientMessageID,
 			SenderID:                  senderID,
 			CipherText:                m.CipherText,
 			Iv:                        m.Iv,

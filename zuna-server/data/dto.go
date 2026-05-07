@@ -22,6 +22,7 @@ type UserInfoDTO struct {
 
 type MessageDTO struct {
 	ID                        int64               `json:"id"`
+	ClientMessageID           string              `json:"client_message_id"`
 	SenderID                  string              `json:"sender_id"`
 	CipherText                string              `json:"cipher_text"`
 	Iv                        string              `json:"iv"`
