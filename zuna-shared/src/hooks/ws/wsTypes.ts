@@ -56,8 +56,8 @@ export interface ErrorPayload {
 }
 
 export interface MessageAckPayload {
-  local_id: number;
   id: number;
+  client_message_id: string;
   chat_id: string;
   created_at: number;
   attachment_id?: string;
@@ -70,6 +70,7 @@ export interface MessageAckPayload {
 
 export interface MessageReceivePayload {
   id: number;
+  client_message_id: string;
   chat_id: string;
   created_at: number;
   sender_id: string;

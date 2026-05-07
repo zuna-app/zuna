@@ -40,7 +40,7 @@ export interface Chat {
 
 export type Message = {
   id: number | null;
-  localId: number | null;
+  clientMessageId: string;
   chatId: string;
   cipherText: string;
   iv: string;
@@ -67,6 +67,7 @@ export type Message = {
 
 export type RawMessageDTO = {
   id: number;
+  client_message_id: string;
   sender_id: string;
   cipher_text: string;
   iv: string;

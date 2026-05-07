@@ -102,16 +102,16 @@ export function useMessages(
 
   useWsHandler<MessageAckPayload>(server, WS_MSG.MESSAGE_ACK, (payload) => {
     if (payload.chat_id !== chatIdRef.current) return;
+
     setMessages((prev) =>
       prev.map((m) =>
-        m.localId === payload.local_id
+        m.clientMessageId === payload.client_message_id
           ? {
               ...m,
               id: payload.id,
               sentAt: payload.created_at,
               pending: false,
               isOwn: true,
-              localId: null,
               uploadProgress: undefined,
               attachmentId: payload.attachment_id ?? m.attachmentId,
               attachmentMetadata:
@@ -134,26 +134,68 @@ export function useMessages(
       if (payload.chat_id !== chatIdRef.current) return;
 
       setMessages((prev) => {
-        if (prev.some((m) => m.id === payload.id)) return prev;
+        const existing = prev.find(
+          (m) => m.clientMessageId === payload.client_message_id,
+        );
+
+        if (existing) {
+          return prev.map((m) =>
+            m.clientMessageId === payload.client_message_id
+              ? {
+                  ...m,
+                  id: payload.id,
+                  sentAt: payload.created_at,
+                  pending: false,
+
+                  attachmentId: payload.attachment_id ?? m.attachmentId,
+
+                  attachmentMetadata:
+                    payload.attachment_metadata ?? m.attachmentMetadata,
+
+                  attachmentMetadataIv:
+                    payload.attachment_metadata_iv ?? m.attachmentMetadataIv,
+
+                  attachmentMetadataAuthTag:
+                    payload.attachment_metadata_auth_tag ??
+                    m.attachmentMetadataAuthTag,
+
+                  modified: payload.modified ?? m.modified,
+
+                  pinned: payload.pinned ?? m.pinned,
+
+                  isReply: payload.is_reply ?? m.isReply,
+
+                  replyInfo: payload.reply_info ?? m.replyInfo,
+                }
+              : m,
+          );
+        }
+
         return [
           ...prev,
           {
             id: payload.id,
-            localId: null,
+            clientMessageId: payload.client_message_id,
             chatId: chatIdRef.current,
+
             cipherText: payload.cipher_text,
             iv: payload.iv,
             authTag: payload.auth_tag,
+
             sentAt: payload.created_at,
             senderId: payload.sender_id,
-            isOwn: false,
+            isOwn: payload.sender_id === server.id,
+
             pending: false,
+
             attachmentId: payload.attachment_id,
             attachmentMetadata: payload.attachment_metadata,
             attachmentMetadataIv: payload.attachment_metadata_iv,
             attachmentMetadataAuthTag: payload.attachment_metadata_auth_tag,
+
             modified: payload.modified ?? false,
             pinned: payload.pinned ?? false,
+
             isReply: payload.is_reply,
             replyInfo: payload.reply_info,
           },
@@ -174,16 +216,18 @@ export function useMessages(
             iv: payload.iv,
             authTag: payload.auth_tag,
           });
+
           updateLastMessage({
             chatId: chatIdRef.current,
             senderId: payload.sender_id,
-            content: payload.attachment_id
-              ? "\uD83D\uDCCE Attachment"
-              : plaintext,
+
+            content: payload.attachment_id ? "📎 Attachment" : plaintext,
+
             unreadMessages: isFocusedRef.current
               ? 0
               : (lastMessagesRef.current?.[chatIdRef.current]?.unreadMessages ??
                   0) + 1,
+
             lastActivityAt: payload.created_at,
           });
         } catch (err) {
@@ -396,7 +440,7 @@ export function useMessages(
         const json: { messages: RawMessageDTO[] } = await res.json();
         const fetched: Message[] = (json.messages ?? []).reverse().map((m) => ({
           id: m.id,
-          localId: null,
+          clientMessageId: m.client_message_id,
           chatId,
           cipherText: m.cipher_text,
           iv: m.iv,
@@ -486,10 +530,11 @@ export function useMessages(
       authTag: string,
       plaintext: string,
     ) => {
-      const localId = ++localIdCounter.current;
+      // random uuid
+      const clientMessageId = crypto.randomUUID();
       const optimistic: Message = {
         id: null,
-        localId,
+        clientMessageId: clientMessageId,
         chatId,
         cipherText,
         iv,
@@ -517,7 +562,7 @@ export function useMessages(
         cipher_text: cipherText,
         iv,
         auth_tag: authTag,
-        local_id: localId,
+        client_message_id: clientMessageId,
         short_cipher_text: encryptedPreviewContent.ciphertext,
         short_iv: encryptedPreviewContent.iv,
         short_auth_tag: encryptedPreviewContent.authTag,
@@ -551,10 +596,10 @@ export function useMessages(
         return;
       }
 
-      const localId = ++localIdCounter.current;
+      const clientMessageId = crypto.randomUUID();
       const optimistic: Message = {
         id: null,
-        localId,
+        clientMessageId: clientMessageId,
         chatId,
         cipherText,
         iv,
@@ -589,7 +634,7 @@ export function useMessages(
         cipher_text: cipherText,
         iv,
         auth_tag: authTag,
-        local_id: localId,
+        client_message_id: clientMessageId,
         short_cipher_text: encryptedPreviewContent.ciphertext,
         short_iv: encryptedPreviewContent.iv,
         short_auth_tag: encryptedPreviewContent.authTag,
@@ -657,13 +702,13 @@ export function useMessages(
 
   const uploadAndSend = useCallback(
     async (file: File, plaintext: string) => {
-      const localId = ++localIdCounter.current;
+      const clientMessageId = crypto.randomUUID();
 
       setMessages((prev) => [
         ...prev,
         {
           id: null,
-          localId,
+          clientMessageId: clientMessageId,
           chatId,
           cipherText: "",
           iv: "",
@@ -729,7 +774,9 @@ export function useMessages(
           (pct) => {
             setMessages((prev) =>
               prev.map((m) =>
-                m.localId === localId ? { ...m, uploadProgress: pct } : m,
+                m.clientMessageId === clientMessageId
+                  ? { ...m, uploadProgress: pct }
+                  : m,
               ),
             );
           },
@@ -737,7 +784,7 @@ export function useMessages(
 
         setMessages((prev) =>
           prev.map((m) =>
-            m.localId === localId
+            m.clientMessageId === clientMessageId
               ? {
                   ...m,
                   uploadProgress: undefined,
@@ -762,7 +809,7 @@ export function useMessages(
           cipher_text: encText.ciphertext,
           iv: encText.iv,
           auth_tag: encText.authTag,
-          local_id: localId,
+          client_message_id: clientMessageId,
           attachment_id: attachmentId,
         });
 
@@ -775,7 +822,9 @@ export function useMessages(
         });
       } catch (err) {
         console.error("[useMessages] uploadAndSend failed:", err);
-        setMessages((prev) => prev.filter((m) => m.localId !== localId));
+        setMessages((prev) =>
+          prev.filter((m) => m.clientMessageId !== clientMessageId),
+        );
       }
     },
     [chatId, server, identityKey, wsSend, updateLastMessage, vault],
