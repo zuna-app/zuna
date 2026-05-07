@@ -55,6 +55,7 @@
 - Editing/deleting messages
 - Pinning messages
 - PWA for web and mobile use
+- Basic text channels support akin to Discord (with voice/screenshare on the way!)
 
 ### Planned major features for May-June 2026
 
@@ -64,7 +65,6 @@
 
 ### Planned major features for 2026
 
-- Basic text and voice channel support akin to Discord
 - User administrative roles and/or visible ranks
 - Complete administration web panel
 - Calling (i.e. LiveKit) support in the iOS/Android apps
@@ -72,8 +72,6 @@
 - Better file encryption/transport protocol allowing for big files over 512MB+
 - In-app video attachment streaming
 - Voice attachments
-
-Some of those features are obviously more important than others. We will definitely prioritize Discord (voice/text channels) functionality first for true multi-user communication. Unfortunately, proper group end-to-end encryption is hard, and it may take us a little longer.
 
 > [!NOTE]
 > Hurray! 🎉 Both our Google and Apple accounts were successfully approved. We're very close to releasing first iOS and (further down the line) Android builds. It will take some time to get approved by both of Apple and Google, especially since heavily encrypted applications often require additional documentation and audits. Stay patient and we'll deliver!
