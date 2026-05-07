@@ -74,7 +74,7 @@ const NotificationCard = ({
       className="relative flex w-full cursor-pointer items-start gap-3 overflow-hidden rounded-md border border-border bg-muted px-2 py-1 text-left transition-colors duration-150 hover:border-white/20 hover:bg-background"
       style={{ willChange: "transform, opacity" }}
     >
-      <div className="relative flex h-full shrink-0 items-center justify-center mt-1.5">
+      <div className="relative flex h-full shrink-0 items-center justify-center">
         {hasAvatar ? (
           <img
             src={notification.avatarUrl}

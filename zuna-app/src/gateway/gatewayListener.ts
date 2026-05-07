@@ -86,7 +86,6 @@ function connectToGateway(address: string, servers: Server[]): void {
           type: "register_request",
           payload: {
             user_id: server.id,
-            server_id: server.serverId ? [server.serverId] : [],
             mobile: false,
           },
         }),
@@ -120,7 +119,9 @@ function connectToGateway(address: string, servers: Server[]): void {
   });
 }
 
-function handleNotification(payload: NotificationInfoPayload): void {
+async function handleNotification(
+  payload: NotificationInfoPayload,
+): Promise<void> {
   try {
     const encPrivateKey = vaultGet("encPrivateKey") as string | null;
     if (!encPrivateKey) return;
@@ -154,19 +155,27 @@ function handleNotification(payload: NotificationInfoPayload): void {
 
     const senderInfo = userCache.get("users")[payload.sender_id];
 
-    const senderAvatar = senderInfo?.avatar;
-    const senderAvatarNativeImage =
-      senderAvatar && senderAvatar.startsWith("data:")
-        ? nativeImage.createFromDataURL(senderAvatar)
-        : undefined;
-
+    const senderAvatarUrl = senderInfo?.avatar;
     if (process.platform === "win32") {
       sendNotification({
         senderName: senderInfo?.username || "New Message",
         content: plaintext,
-        avatarUrl: senderAvatar || undefined,
+        avatarUrl: senderAvatarUrl || undefined,
       });
     } else {
+      let senderAvatarNativeImage: Electron.NativeImage | undefined;
+      if (senderAvatarUrl) {
+        try {
+          const response = await fetch(senderAvatarUrl);
+          const buffer = await response.arrayBuffer();
+          senderAvatarNativeImage = nativeImage.createFromBuffer(
+            Buffer.from(buffer),
+          );
+        } catch {
+          // ignore avatar download errors and fallback to no avatar
+        }
+      }
+
       const n = new Notification({
         title: senderInfo?.username || "New Message",
         body: plaintext,
