@@ -74,7 +74,7 @@ func (h *Hub) Run() {
 				user, err := data.GetUserByConnectionId(client.ID())
 				if err == nil {
 					user.RemoveConnection(client.ID())
-					if len(user.Connections) == 0 {
+					if len(user.ConnectionIDs) == 0 {
 						data.DeleteUser(user.UserID)
 					}
 				}

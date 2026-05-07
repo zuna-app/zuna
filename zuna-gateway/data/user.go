@@ -2,7 +2,6 @@ package data
 
 import (
 	"errors"
-	"slices"
 	"sync"
 )
 
@@ -11,78 +10,12 @@ var UserMap = make(map[string]User)
 var userMutex sync.RWMutex
 
 type User struct {
-	UserID      string
-	ServerIDs   []string
-	Connections []ConnectionInfo
-	WebPushSubs []WebPushSubscription
-}
-
-type ConnectionInfo struct {
-	ConnectionID string
-	Mobile       bool
-}
-
-type WebPushSubscription struct {
-	Endpoint string
-	P256DH   string
-	Auth     string
-}
-
-func (u *User) IsInServer(serverId string) bool {
-	return slices.Contains(u.ServerIDs, serverId)
-}
-
-func (u *User) AddServerID(serverID string) {
-	if serverID == "" {
-		return
-	}
-
-	if !slices.Contains(u.ServerIDs, serverID) {
-		u.ServerIDs = append(u.ServerIDs, serverID)
-	}
+	UserID        string
+	ConnectionIDs []string
 }
 
 func (u *User) AddConnection(connectionId string, mobile bool) {
-	u.Connections = append(u.Connections, ConnectionInfo{
-		ConnectionID: connectionId,
-		Mobile:       mobile,
-	})
-}
-
-func (u *User) IsConnectedFromDesktop() bool {
-	for _, conn := range u.Connections {
-		if !conn.Mobile {
-			return true
-		}
-	}
-	return false
-}
-
-func (u *User) AddOrUpdateWebPushSubscription(sub WebPushSubscription) {
-	for i := range u.WebPushSubs {
-		if u.WebPushSubs[i].Endpoint == sub.Endpoint {
-			u.WebPushSubs[i] = sub
-			return
-		}
-	}
-
-	u.WebPushSubs = append(u.WebPushSubs, sub)
-}
-
-func (u *User) RemoveWebPushSubscription(endpoint string) bool {
-	removed := false
-	newSubs := make([]WebPushSubscription, 0, len(u.WebPushSubs))
-	for _, sub := range u.WebPushSubs {
-		if sub.Endpoint == endpoint {
-			removed = true
-			continue
-		}
-
-		newSubs = append(newSubs, sub)
-	}
-
-	u.WebPushSubs = newSubs
-	return removed
+	u.ConnectionIDs = append(u.ConnectionIDs, connectionId)
 }
 
 func (u *User) RemoveConnection(connectionId string) {
@@ -90,13 +23,13 @@ func (u *User) RemoveConnection(connectionId string) {
 	defer userMutex.Unlock()
 
 	if ud, ok := UserMap[u.UserID]; ok {
-		newConnections := make([]ConnectionInfo, 0, len(ud.Connections))
-		for _, conn := range ud.Connections {
-			if conn.ConnectionID != connectionId {
+		newConnections := make([]string, 0, len(ud.ConnectionIDs))
+		for _, conn := range ud.ConnectionIDs {
+			if conn != connectionId {
 				newConnections = append(newConnections, conn)
 			}
 		}
-		ud.Connections = newConnections
+		ud.ConnectionIDs = newConnections
 		UserMap[u.UserID] = ud
 	}
 }
@@ -117,8 +50,8 @@ func GetUserByConnectionId(connectionId string) (User, error) {
 	defer userMutex.RUnlock()
 
 	for _, ud := range UserMap {
-		for _, conn := range ud.Connections {
-			if conn.ConnectionID == connectionId {
+		for _, conn := range ud.ConnectionIDs {
+			if conn == connectionId {
 				return ud, nil
 			}
 		}

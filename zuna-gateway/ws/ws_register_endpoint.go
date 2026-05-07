@@ -7,7 +7,6 @@ import (
 
 type RegisterUserPayload struct {
 	UserID   string   `json:"user_id"`
-	ServerID []string `json:"server_id"`
 	Mobile   bool     `json:"mobile"`
 }
 
@@ -26,9 +25,8 @@ func (r *MessageRouter) handleRegisterUser(c HubClient, msg IncomingMessage) {
 	user, err := data.GetUserByConnectionId(connectionID)
 	if err != nil {
 		user = data.User{
-			UserID:      req.UserID,
-			Connections: make([]data.ConnectionInfo, 0),
-			ServerIDs:   req.ServerID,
+			UserID:        req.UserID,
+			ConnectionIDs: make([]string, 0),
 		}
 	}
 

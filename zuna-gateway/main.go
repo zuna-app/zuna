@@ -40,11 +40,6 @@ func main() {
 		return
 	}
 
-	if err := crypto.LoadVapidKeypair(); err != nil {
-		log.Fatal().Err(err).Msg("failed to load vapid keypair")
-		return
-	}
-
 	push.InitializeApnClient()
 
 	ctx := context.Background()
@@ -67,11 +62,6 @@ func main() {
 	api := e.Group("/api", apiLimiter.Middleware())
 	api.POST("/notification", rest.NotificationEndpoint)
 	api.GET("/validate", rest.ValidateEndpoint)
-
-	vapid := api.Group("/vapid", apiLimiter.Middleware())
-	vapid.GET("/public-key", rest.VapidPublicKeyEndpoint)
-	vapid.POST("/subscribe", rest.VapidSubscribeEndpoint)
-	vapid.POST("/unsubscribe", rest.VapidUnsubscribeEndpoint)
 
 	ws.HubInstance = ws.NewHub()
 	go ws.HubInstance.Run()
