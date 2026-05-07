@@ -49,9 +49,7 @@ export function useConversationMessages(
 
   usePresenceTracking({
     chatId,
-    chatIdRef,
     lastMessages,
-    lastMessagesRef,
     isFocusedRef,
     wsSend,
     updateLastMessage,

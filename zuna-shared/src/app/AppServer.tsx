@@ -8,6 +8,7 @@ import { useMessages } from "@/hooks/chat/useMessages";
 import { useSharedSecret } from "@/hooks/ws/useSharedSecret";
 import { useBackgroundMessages } from "@/hooks/ws/useBackgroundMessages";
 import { useWsConnection } from "@/hooks/ws/useWsConnection";
+import { useAppPresence } from "@/hooks/ws/useAppPresence";
 import { useChannelKeyManager } from "@/hooks/channel/useChannelKeyManager";
 import { WS_MSG } from "@/hooks/ws/wsTypes";
 import { Loader2, Upload } from "lucide-react";
@@ -215,6 +216,7 @@ export const AppServer = ({
 
   // Mount channel key manager at app level so keys are delivered even when no channel is selected
   useChannelKeyManager(server);
+  useAppPresence(server);
 
   useBackgroundMessages(server);
 
