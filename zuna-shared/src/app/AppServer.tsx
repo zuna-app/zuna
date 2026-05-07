@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useAtomValue } from "jotai";
-import { Server, ChatMember } from "@/types/serverTypes";
+import { Server, ChatMember, Channel } from "@/types/serverTypes";
 import { useAuthorizer } from "@/hooks/auth/useAuthorizer";
 import { serverMetaAtom, jotaiStore } from "@/store/atoms";
 import { useMessages } from "@/hooks/chat/useMessages";
 import { useSharedSecret } from "@/hooks/ws/useSharedSecret";
 import { useBackgroundMessages } from "@/hooks/ws/useBackgroundMessages";
 import { useWsConnection } from "@/hooks/ws/useWsConnection";
+import { useChannelKeyManager } from "@/hooks/channel/useChannelKeyManager";
 import { WS_MSG } from "@/hooks/ws/wsTypes";
 import { Loader2, Upload } from "lucide-react";
 import { ChatListPanel } from "@/components/chat/chat-list-panel";
@@ -15,8 +16,11 @@ import { ChatTopbar } from "@/components/chat/chat-topbar";
 import { ChatMessages } from "@/components/chat/chat-messages";
 import { ChatInput } from "@/components/chat/chat-input";
 import { ChatEmptyState } from "@/components/chat/chat-empty-state";
+import { ChannelView } from "@/components/chat/channel-view";
 import { useSelectedChat } from "@/hooks/chat/useSelectedChat";
 import { useMessageDecryption } from "@/components/chat/messages/use-decryption";
+import { usePlatform } from "@/platform/PlatformContext";
+import { useSelfInfo } from "@/hooks/server/useSelfInfo";
 
 function ChatView({
   server,
@@ -105,8 +109,7 @@ function ChatView({
       if (!message.isOwn || message.id == null || message.pending) continue;
       return {
         id: message.id,
-        originalText:
-          getRawText(message) === "\u200b" ? "" : getRawText(message),
+        originalText: getRawText(message) === "​" ? "" : getRawText(message),
       };
     }
 
@@ -170,9 +173,7 @@ function ChatView({
           setEditingMessage(null);
           setReplyingTo({ id: messageId, rawText });
         }}
-        onJumpToReply={() => {
-          // scrollToMessageById is handled inside chat-messages
-        }}
+        onJumpToReply={() => {}}
       />
       <ChatInput
         key={member.chatId}
@@ -202,11 +203,18 @@ export const AppServer = ({
   onMobileServerMenu?: () => void;
 }) => {
   const { authorize, token, isAuthorizing, error } = useAuthorizer(server);
+  const platform = usePlatform();
   const [selectedMember, setSelectedMember] = useState<ChatMember | null>(null);
+  const [selectedChannel, setSelectedChannel] = useState<Channel | null>(null);
   const [mobileView, setMobileView] = useState<"list" | "chat">("list");
   const { selectChat } = useSelectedChat();
-  // Mobile panel-switching is only active in PWA/web (when onMobileServerMenu is provided)
   const mobileEnabled = onMobileServerMenu !== undefined;
+
+  // Self identity for channel view — resolved from cache after auth
+  const { username: selfUsername, avatar: selfAvatar } = useSelfInfo(server);
+
+  // Mount channel key manager at app level so keys are delivered even when no channel is selected
+  useChannelKeyManager(server);
 
   useBackgroundMessages(server);
 
@@ -218,9 +226,34 @@ export const AppServer = ({
 
   useEffect(() => {
     setSelectedMember(null);
+    setSelectedChannel(null);
     setMobileView("list");
     selectChat(null);
   }, [server.id]);
+
+  const handleSelectMember = useCallback(
+    (member: ChatMember) => {
+      setSelectedMember(member);
+      setSelectedChannel(null);
+      setMobileView("chat");
+      selectChat(member);
+    },
+    [selectChat],
+  );
+
+  const handleSelectChannel = useCallback(
+    (channel: Channel) => {
+      setSelectedChannel(channel);
+      setSelectedMember(null);
+      setMobileView("chat");
+      selectChat(null);
+    },
+    [selectChat],
+  );
+
+  const handleMobileBack = () => {
+    setMobileView("list");
+  };
 
   if (isAuthorizing) {
     return (
@@ -250,19 +283,14 @@ export const AppServer = ({
 
   if (!token) return null;
 
-  const handleSelectMember = (member: ChatMember) => {
-    setSelectedMember(member);
-    setMobileView("chat");
-    selectChat(member);
-  };
+  const selfId = server.id;
 
-  const handleMobileBack = () => {
-    setMobileView("list");
-  };
+  const showChat = selectedMember !== null;
+  const showChannel = selectedChannel !== null;
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* Chat list panel: on mobile (PWA) hidden when chatting; always visible on desktop/native */}
+      {/* Sidebar: chat + channel list */}
       <div
         className={
           mobileEnabled
@@ -273,12 +301,14 @@ export const AppServer = ({
         <ChatListPanel
           server={server}
           selectedMember={selectedMember}
+          selectedChannel={selectedChannel}
           onSelect={handleSelectMember}
+          onSelectChannel={handleSelectChannel}
           onMenuOpen={onMobileServerMenu}
         />
       </div>
 
-      {/* Chat view: on mobile (PWA) hidden when listing; always visible on desktop/native */}
+      {/* Main content area */}
       <div
         className={
           mobileEnabled
@@ -286,10 +316,19 @@ export const AppServer = ({
             : "flex flex-1 flex-col min-h-0 overflow-hidden"
         }
       >
-        {selectedMember ? (
+        {showChat ? (
           <ChatView
             server={server}
-            member={selectedMember}
+            member={selectedMember!}
+            onBack={mobileEnabled ? handleMobileBack : undefined}
+          />
+        ) : showChannel ? (
+          <ChannelView
+            server={server}
+            channel={selectedChannel!}
+            selfId={selfId}
+            selfUsername={selfUsername}
+            selfAvatar={selfAvatar}
             onBack={mobileEnabled ? handleMobileBack : undefined}
           />
         ) : (

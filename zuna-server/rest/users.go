@@ -30,9 +30,10 @@ func UsersEndpoint(c *echo.Context) error {
 		}
 
 		userDTOs[i] = data.UserInfoDTO{
-			ID:       user.ID,
-			Username: user.Username,
-			Avatar:   avatarString,
+			ID:          user.ID,
+			Username:    user.Username,
+			Avatar:      avatarString,
+			IdentityKey: user.IdentityKey,
 		}
 	}
 

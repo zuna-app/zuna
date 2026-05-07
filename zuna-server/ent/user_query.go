@@ -13,8 +13,12 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channel"
+	"zuna.chat/zuna-server/ent/channelmember"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/device"
+	"zuna.chat/zuna-server/ent/groupkey"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
@@ -23,14 +27,19 @@ import (
 // UserQuery is the builder for querying User entities.
 type UserQuery struct {
 	config
-	ctx             *QueryContext
-	order           []user.OrderOption
-	inters          []Interceptor
-	predicates      []predicate.User
-	withChats       *ChatQuery
-	withMessages    *MessageQuery
-	withAttachments *AttachmentQuery
-	withDevices     *DeviceQuery
+	ctx                     *QueryContext
+	order                   []user.OrderOption
+	inters                  []Interceptor
+	predicates              []predicate.User
+	withChats               *ChatQuery
+	withMessages            *MessageQuery
+	withAttachments         *AttachmentQuery
+	withDevices             *DeviceQuery
+	withOwnedChannels       *ChannelQuery
+	withChannelMemberships  *ChannelMemberQuery
+	withChannelMessagesSent *ChannelMessageQuery
+	withReceivedGroupKeys   *GroupKeyQuery
+	withSentGroupKeys       *GroupKeyQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -148,6 +157,116 @@ func (_q *UserQuery) QueryDevices() *DeviceQuery {
 			sqlgraph.From(user.Table, user.FieldID, selector),
 			sqlgraph.To(device.Table, device.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, user.DevicesTable, user.DevicesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryOwnedChannels chains the current query on the "owned_channels" edge.
+func (_q *UserQuery) QueryOwnedChannels() *ChannelQuery {
+	query := (&ChannelClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(channel.Table, channel.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.OwnedChannelsTable, user.OwnedChannelsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryChannelMemberships chains the current query on the "channel_memberships" edge.
+func (_q *UserQuery) QueryChannelMemberships() *ChannelMemberQuery {
+	query := (&ChannelMemberClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(channelmember.Table, channelmember.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.ChannelMembershipsTable, user.ChannelMembershipsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryChannelMessagesSent chains the current query on the "channel_messages_sent" edge.
+func (_q *UserQuery) QueryChannelMessagesSent() *ChannelMessageQuery {
+	query := (&ChannelMessageClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(channelmessage.Table, channelmessage.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.ChannelMessagesSentTable, user.ChannelMessagesSentColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryReceivedGroupKeys chains the current query on the "received_group_keys" edge.
+func (_q *UserQuery) QueryReceivedGroupKeys() *GroupKeyQuery {
+	query := (&GroupKeyClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(groupkey.Table, groupkey.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.ReceivedGroupKeysTable, user.ReceivedGroupKeysColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySentGroupKeys chains the current query on the "sent_group_keys" edge.
+func (_q *UserQuery) QuerySentGroupKeys() *GroupKeyQuery {
+	query := (&GroupKeyClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(user.Table, user.FieldID, selector),
+			sqlgraph.To(groupkey.Table, groupkey.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, user.SentGroupKeysTable, user.SentGroupKeysColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -342,15 +461,20 @@ func (_q *UserQuery) Clone() *UserQuery {
 		return nil
 	}
 	return &UserQuery{
-		config:          _q.config,
-		ctx:             _q.ctx.Clone(),
-		order:           append([]user.OrderOption{}, _q.order...),
-		inters:          append([]Interceptor{}, _q.inters...),
-		predicates:      append([]predicate.User{}, _q.predicates...),
-		withChats:       _q.withChats.Clone(),
-		withMessages:    _q.withMessages.Clone(),
-		withAttachments: _q.withAttachments.Clone(),
-		withDevices:     _q.withDevices.Clone(),
+		config:                  _q.config,
+		ctx:                     _q.ctx.Clone(),
+		order:                   append([]user.OrderOption{}, _q.order...),
+		inters:                  append([]Interceptor{}, _q.inters...),
+		predicates:              append([]predicate.User{}, _q.predicates...),
+		withChats:               _q.withChats.Clone(),
+		withMessages:            _q.withMessages.Clone(),
+		withAttachments:         _q.withAttachments.Clone(),
+		withDevices:             _q.withDevices.Clone(),
+		withOwnedChannels:       _q.withOwnedChannels.Clone(),
+		withChannelMemberships:  _q.withChannelMemberships.Clone(),
+		withChannelMessagesSent: _q.withChannelMessagesSent.Clone(),
+		withReceivedGroupKeys:   _q.withReceivedGroupKeys.Clone(),
+		withSentGroupKeys:       _q.withSentGroupKeys.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -398,6 +522,61 @@ func (_q *UserQuery) WithDevices(opts ...func(*DeviceQuery)) *UserQuery {
 		opt(query)
 	}
 	_q.withDevices = query
+	return _q
+}
+
+// WithOwnedChannels tells the query-builder to eager-load the nodes that are connected to
+// the "owned_channels" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithOwnedChannels(opts ...func(*ChannelQuery)) *UserQuery {
+	query := (&ChannelClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withOwnedChannels = query
+	return _q
+}
+
+// WithChannelMemberships tells the query-builder to eager-load the nodes that are connected to
+// the "channel_memberships" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithChannelMemberships(opts ...func(*ChannelMemberQuery)) *UserQuery {
+	query := (&ChannelMemberClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withChannelMemberships = query
+	return _q
+}
+
+// WithChannelMessagesSent tells the query-builder to eager-load the nodes that are connected to
+// the "channel_messages_sent" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithChannelMessagesSent(opts ...func(*ChannelMessageQuery)) *UserQuery {
+	query := (&ChannelMessageClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withChannelMessagesSent = query
+	return _q
+}
+
+// WithReceivedGroupKeys tells the query-builder to eager-load the nodes that are connected to
+// the "received_group_keys" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithReceivedGroupKeys(opts ...func(*GroupKeyQuery)) *UserQuery {
+	query := (&GroupKeyClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withReceivedGroupKeys = query
+	return _q
+}
+
+// WithSentGroupKeys tells the query-builder to eager-load the nodes that are connected to
+// the "sent_group_keys" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *UserQuery) WithSentGroupKeys(opts ...func(*GroupKeyQuery)) *UserQuery {
+	query := (&GroupKeyClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSentGroupKeys = query
 	return _q
 }
 
@@ -479,11 +658,16 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 	var (
 		nodes       = []*User{}
 		_spec       = _q.querySpec()
-		loadedTypes = [4]bool{
+		loadedTypes = [9]bool{
 			_q.withChats != nil,
 			_q.withMessages != nil,
 			_q.withAttachments != nil,
 			_q.withDevices != nil,
+			_q.withOwnedChannels != nil,
+			_q.withChannelMemberships != nil,
+			_q.withChannelMessagesSent != nil,
+			_q.withReceivedGroupKeys != nil,
+			_q.withSentGroupKeys != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -529,6 +713,41 @@ func (_q *UserQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*User, e
 		if err := _q.loadDevices(ctx, query, nodes,
 			func(n *User) { n.Edges.Devices = []*Device{} },
 			func(n *User, e *Device) { n.Edges.Devices = append(n.Edges.Devices, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withOwnedChannels; query != nil {
+		if err := _q.loadOwnedChannels(ctx, query, nodes,
+			func(n *User) { n.Edges.OwnedChannels = []*Channel{} },
+			func(n *User, e *Channel) { n.Edges.OwnedChannels = append(n.Edges.OwnedChannels, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withChannelMemberships; query != nil {
+		if err := _q.loadChannelMemberships(ctx, query, nodes,
+			func(n *User) { n.Edges.ChannelMemberships = []*ChannelMember{} },
+			func(n *User, e *ChannelMember) { n.Edges.ChannelMemberships = append(n.Edges.ChannelMemberships, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withChannelMessagesSent; query != nil {
+		if err := _q.loadChannelMessagesSent(ctx, query, nodes,
+			func(n *User) { n.Edges.ChannelMessagesSent = []*ChannelMessage{} },
+			func(n *User, e *ChannelMessage) { n.Edges.ChannelMessagesSent = append(n.Edges.ChannelMessagesSent, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withReceivedGroupKeys; query != nil {
+		if err := _q.loadReceivedGroupKeys(ctx, query, nodes,
+			func(n *User) { n.Edges.ReceivedGroupKeys = []*GroupKey{} },
+			func(n *User, e *GroupKey) { n.Edges.ReceivedGroupKeys = append(n.Edges.ReceivedGroupKeys, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSentGroupKeys; query != nil {
+		if err := _q.loadSentGroupKeys(ctx, query, nodes,
+			func(n *User) { n.Edges.SentGroupKeys = []*GroupKey{} },
+			func(n *User, e *GroupKey) { n.Edges.SentGroupKeys = append(n.Edges.SentGroupKeys, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -684,6 +903,161 @@ func (_q *UserQuery) loadDevices(ctx context.Context, query *DeviceQuery, nodes 
 		node, ok := nodeids[*fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "user_devices" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadOwnedChannels(ctx context.Context, query *ChannelQuery, nodes []*User, init func(*User), assign func(*User, *Channel)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[string]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.Channel(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.OwnedChannelsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.user_owned_channels
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_owned_channels" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_owned_channels" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadChannelMemberships(ctx context.Context, query *ChannelMemberQuery, nodes []*User, init func(*User), assign func(*User, *ChannelMember)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[string]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.ChannelMember(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.ChannelMembershipsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.user_channel_memberships
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_channel_memberships" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_channel_memberships" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadChannelMessagesSent(ctx context.Context, query *ChannelMessageQuery, nodes []*User, init func(*User), assign func(*User, *ChannelMessage)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[string]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.ChannelMessage(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.ChannelMessagesSentColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.user_channel_messages_sent
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_channel_messages_sent" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_channel_messages_sent" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadReceivedGroupKeys(ctx context.Context, query *GroupKeyQuery, nodes []*User, init func(*User), assign func(*User, *GroupKey)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[string]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.GroupKey(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.ReceivedGroupKeysColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.user_received_group_keys
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_received_group_keys" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_received_group_keys" returned %v for node %v`, *fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *UserQuery) loadSentGroupKeys(ctx context.Context, query *GroupKeyQuery, nodes []*User, init func(*User), assign func(*User, *GroupKey)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[string]*User)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	query.withFKs = true
+	query.Where(predicate.GroupKey(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(user.SentGroupKeysColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.user_sent_group_keys
+		if fk == nil {
+			return fmt.Errorf(`foreign-key "user_sent_group_keys" is nil for node %v`, n.ID)
+		}
+		node, ok := nodeids[*fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "user_sent_group_keys" returned %v for node %v`, *fk, n.ID)
 		}
 		assign(node, n)
 	}

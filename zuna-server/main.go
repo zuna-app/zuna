@@ -114,6 +114,12 @@ func main() {
 	chat.GET("/users", rest.UsersEndpoint)
 	chat.GET("/pinned", rest.ChatPinMessagesEndpoint)
 
+	channel := api.Group("/channel", rest.AuthMiddleware, apiLimiter.Middleware())
+	channel.POST("/create", rest.ChannelCreateEndpoint)
+	channel.GET("/list", rest.ChannelListEndpoint)
+	channel.GET("/messages", rest.ChannelMessagesEndpoint)
+	channel.GET("/members", rest.ChannelMembersEndpoint)
+
 	notifications := api.Group("/notifications", rest.AuthMiddleware, apiLimiter.Middleware())
 	notifications.POST("/register", rest.NotificationsRegisterEndpoint)
 

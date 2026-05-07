@@ -7,6 +7,7 @@ import {
   serverTokensAtom,
   serverAuthErrorsAtom,
   serverMetaAtom,
+  currentUserAtom,
 } from "../../store/atoms";
 import type { Server } from "../../types/serverTypes";
 
@@ -259,6 +260,7 @@ export function useAuthorizer(server: Server) {
                 { username: string; avatar: string }
               >),
             };
+          let selfInfo: { username: string; avatar: string } | null = null;
           for (const user of users) {
             const avatarUrl = `https://${server.address}/api/auth/avatar?user_id=${encodeURIComponent(
               user.id,
@@ -267,12 +269,27 @@ export function useAuthorizer(server: Server) {
               username: user.username,
               avatar: avatarUrl,
             };
+            if (user.username === username) {
+              selfInfo = { username: user.username, avatar: avatarUrl };
+            }
           }
           await platform.cache
             .set("user-cache", "users", usersMap)
             .catch((err: unknown) => {
               console.error("Failed to save users to cache", err);
             });
+          if (selfInfo) {
+            await platform.cache
+              .set("user-cache", `self-${server.id}`, selfInfo)
+              .catch((err: unknown) => {
+                console.error("Failed to save self info to cache", err);
+              });
+            jotaiStore.set(currentUserAtom, (prev) => {
+              const next = new Map(prev);
+              next.set(server.id, selfInfo!);
+              return next;
+            });
+          }
         }
       }
 

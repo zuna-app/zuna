@@ -24,6 +24,15 @@ export const WS_MSG = {
   WRITE_RECEIVE: "write_receive",
   ERROR: "error",
   USER_JOINED: "user_joined",
+  // Channel messages
+  CHANNEL_MESSAGE: "channel_message",
+  CHANNEL_MESSAGE_ACK: "channel_message_ack",
+  CHANNEL_MESSAGE_RECEIVE: "channel_message_receive",
+  CHANNEL_WRITE: "channel_write",
+  CHANNEL_WRITE_RECEIVE: "channel_write_receive",
+  CHANNEL_KEY_RECEIVE: "channel_key_receive",
+  CHANNEL_KEY_REQUESTS: "channel_key_requests",
+  CHANNEL_KEY_PROVIDE: "channel_key_provide",
 } as const;
 
 export type WsMsgType = (typeof WS_MSG)[keyof typeof WS_MSG];
@@ -132,4 +141,39 @@ export interface WriteReceivePayload {
   chat_id: string;
   sender_id: string;
   writing: boolean;
+}
+
+export interface ChannelMessageAckPayload {
+  client_message_id: string;
+  id: number;
+  channel_id: string;
+  sent_at: number;
+}
+
+export interface ChannelMessageReceivePayload {
+  id: number;
+  client_message_id: string;
+  channel_id: string;
+  sender_id: string;
+  sender_username: string;
+  sender_avatar: string;
+  cipher_text: string;
+  iv: string;
+  auth_tag: string;
+  sent_at: number;
+}
+
+export interface ChannelWriteReceivePayload {
+  channel_id: string;
+  sender_id: string;
+  sender_username: string;
+  writing: boolean;
+}
+
+export interface ChannelKeyRequestsPayload {
+  requests: Array<{
+    channel_id: string;
+    recipient_user_id: string;
+    recipient_identity_key: string;
+  }>;
 }

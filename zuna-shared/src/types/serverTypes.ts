@@ -92,3 +92,60 @@ export type ReplyInfo = {
   auth_tag: string;
   has_attachment: boolean;
 };
+
+// ── Channels ────────────────────────────────────────────────────────────────
+
+export type Channel = {
+  id: string;
+  name: string;
+  isPublic: boolean;
+  ownerId: string;
+  createdAt: number;
+  lastMessage?: ChannelLastMessage;
+};
+
+export type ChannelLastMessage = {
+  senderId: string;
+  cipherText: string;
+  iv: string;
+  authTag: string;
+  sentAt: number;
+  plaintext?: string;
+};
+
+export type ChannelMember = {
+  userId: string;
+  username: string;
+  avatar: string;
+  identityKey: string;
+};
+
+export type ChannelMessage = {
+  id: number | null;
+  clientMessageId: string;
+  channelId: string;
+  senderId: string;
+  senderUsername: string;
+  senderAvatar: string;
+  cipherText: string;
+  iv: string;
+  authTag: string;
+  sentAt: number;
+  pending: boolean;
+  plaintext?: string;
+};
+
+export type GroupKeyPayload = {
+  channel_id: string;
+  sender_user_id: string;
+  sender_identity_key: string;
+  encrypted_key: string;
+  iv: string;
+  auth_tag: string;
+};
+
+export type ChannelKeyRequest = {
+  channel_id: string;
+  recipient_user_id: string;
+  recipient_identity_key: string;
+};

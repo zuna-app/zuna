@@ -15,9 +15,10 @@ type ChatMemberDTO struct {
 }
 
 type UserInfoDTO struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Avatar   string `json:"avatar"`
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	Avatar      string `json:"avatar"`
+	IdentityKey string `json:"identity_key"`
 }
 
 type MessageDTO struct {
@@ -51,4 +52,55 @@ type PresenceDTO struct {
 	UserID   string `json:"user_id"`
 	LastSeen int64  `json:"last_seen"`
 	Active   bool   `json:"active"`
+}
+
+type ChannelDTO struct {
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	IsPublic  bool                `json:"is_public"`
+	OwnerID   string              `json:"owner_id"`
+	CreatedAt int64               `json:"created_at"`
+	LastMessage *ChannelLastMessageDTO `json:"last_message,omitempty"`
+}
+
+type ChannelLastMessageDTO struct {
+	SenderID   string `json:"sender_id"`
+	CipherText string `json:"cipher_text"`
+	Iv         string `json:"iv"`
+	AuthTag    string `json:"auth_tag"`
+	SentAt     int64  `json:"sent_at"`
+}
+
+type ChannelMessageDTO struct {
+	ID              int64  `json:"id"`
+	ClientMessageID string `json:"client_message_id"`
+	SenderID        string `json:"sender_id"`
+	SenderUsername  string `json:"sender_username"`
+	SenderAvatar    string `json:"sender_avatar"`
+	CipherText      string `json:"cipher_text"`
+	Iv              string `json:"iv"`
+	AuthTag         string `json:"auth_tag"`
+	SentAt          int64  `json:"sent_at"`
+}
+
+type ChannelMemberDTO struct {
+	UserID      string `json:"user_id"`
+	Username    string `json:"username"`
+	Avatar      string `json:"avatar"`
+	IdentityKey string `json:"identity_key"`
+}
+
+type GroupKeyDTO struct {
+	ChannelID      string `json:"channel_id"`
+	SenderUserID   string `json:"sender_user_id"`
+	SenderIdentKey string `json:"sender_identity_key"`
+	EncryptedKey   string `json:"encrypted_key"`
+	Iv             string `json:"iv"`
+	AuthTag        string `json:"auth_tag"`
+}
+
+type KeyRequestDTO struct {
+	ChannelID            string `json:"channel_id"`
+	RecipientUserID      string `json:"recipient_user_id"`
+	RecipientIdentityKey string `json:"recipient_identity_key"`
 }

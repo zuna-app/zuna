@@ -17,7 +17,7 @@ export function useConversationMessages(
 ) {
   const { vault } = usePlatform();
   const { lastMessages, updateLastMessage } = useLastMessagesUpdater();
-  const { authorizedFetch } = useAuthorizedServerFetch(server);
+  const { authorizedFetch, hasToken } = useAuthorizedServerFetch(server);
   const { sendMessage: wsSend, readyState } = useWsConnection(server);
 
   const chatIdRef = useRef(chatId);
@@ -34,7 +34,7 @@ export function useConversationMessages(
   );
 
   const { messages, loading, hasMore, setMessages, messagesRef, fetchMore } =
-    useMessageHistory(server, chatId, authorizedFetch, readyState);
+    useMessageHistory(server, chatId, authorizedFetch, readyState, hasToken);
 
   useConversationWsHandlers({
     server,

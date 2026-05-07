@@ -6,7 +6,8 @@
       "Bash(grep -r \"fetch\\\\|axios\\\\|http\" /Users/mikigal/Desktop/zuna/zuna-mobile --include=\"*.ts\" --include=\"*.tsx\" ! -path \"*/node_modules/*\")",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('expo:', d.get\\('dependencies',{}\\).get\\('expo'\\)\\); print\\('newArch:', d.get\\('expo',{}\\).get\\('newArchEnabled'\\)\\)\")",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('expo',{}\\).get\\('ios',{}\\), indent=2\\)\\)\")",
-      "Bash(grep -r \"deviceId\\\\|device_id\\\\|getUniqueId\\\\|deviceToken\" /Users/mikigal/Desktop/zuna/zuna-mobile --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.swift\" ! -path \"*/node_modules/*\")"
+      "Bash(grep -r \"deviceId\\\\|device_id\\\\|getUniqueId\\\\|deviceToken\" /Users/mikigal/Desktop/zuna/zuna-mobile --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.swift\" ! -path \"*/node_modules/*\")",
+      "Bash(go generate *)"
     ]
   }
 }

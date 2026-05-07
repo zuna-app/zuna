@@ -89,16 +89,21 @@ export function useServerFetch(server: Server) {
 }
 
 export function useAuthorizedServerFetch(server: Server) {
-  const [serverTokens, setServerTokens] = useAtom(serverTokensAtom, {
+  const setServerTokens = useSetAtom(serverTokensAtom, {
     store: jotaiStore,
   });
   const setServerAuthErrors = useSetAtom(serverAuthErrorsAtom, {
     store: jotaiStore,
   });
+  const serverTokens = useAtomValue(serverTokensAtom, { store: jotaiStore });
+  const hasToken = serverTokens.has(server.id);
 
   const authorizedFetch = useCallback(
     async (path: string, options?: RequestInit): Promise<Response> => {
-      const token = serverTokens.get(server.id);
+      // Read the token from the store at call time so we always get the
+      // latest value, even if this callback was created before the token
+      // was set (e.g. during initial login).
+      const token = jotaiStore.get(serverTokensAtom).get(server.id);
       if (!token) throw new Error("No token available");
 
       const res = await safeFetch(`https://${server.address}${path}`, {
@@ -130,16 +135,10 @@ export function useAuthorizedServerFetch(server: Server) {
 
       return res;
     },
-    [
-      server.id,
-      server.address,
-      serverTokens,
-      setServerTokens,
-      setServerAuthErrors,
-    ],
+    [server.id, server.address, setServerTokens, setServerAuthErrors],
   );
 
-  return { authorizedFetch };
+  return { authorizedFetch, hasToken };
 }
 
 export function useServerConnector() {

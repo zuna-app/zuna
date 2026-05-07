@@ -16,4 +16,8 @@ func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage, userData da
 	c.Send(OutgoingMessage{Type: "auth_confirmation", Payload: AuthResponse{
 		Success: "ok",
 	}})
+
+	// Deliver pending channel keys and send redistribution requests asynchronously.
+	go r.deliverPendingGroupKeys(c, userData)
+	go r.sendKeyRedistributionRequests(c, userData)
 }

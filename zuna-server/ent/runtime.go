@@ -6,7 +6,11 @@ import (
 	"time"
 
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channel"
+	"zuna.chat/zuna-server/ent/channelmember"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/groupkey"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/schema"
 	"zuna.chat/zuna-server/ent/user"
@@ -22,12 +26,48 @@ func init() {
 	attachmentDescID := attachmentFields[0].Descriptor()
 	// attachment.DefaultID holds the default value on creation for the id field.
 	attachment.DefaultID = attachmentDescID.Default.(func() string)
+	channelFields := schema.Channel{}.Fields()
+	_ = channelFields
+	// channelDescIsPublic is the schema descriptor for is_public field.
+	channelDescIsPublic := channelFields[2].Descriptor()
+	// channel.DefaultIsPublic holds the default value on creation for the is_public field.
+	channel.DefaultIsPublic = channelDescIsPublic.Default.(bool)
+	// channelDescCreatedAt is the schema descriptor for created_at field.
+	channelDescCreatedAt := channelFields[3].Descriptor()
+	// channel.DefaultCreatedAt holds the default value on creation for the created_at field.
+	channel.DefaultCreatedAt = channelDescCreatedAt.Default.(func() time.Time)
+	// channelDescID is the schema descriptor for id field.
+	channelDescID := channelFields[0].Descriptor()
+	// channel.DefaultID holds the default value on creation for the id field.
+	channel.DefaultID = channelDescID.Default.(func() string)
+	channelmemberFields := schema.ChannelMember{}.Fields()
+	_ = channelmemberFields
+	// channelmemberDescJoinedAt is the schema descriptor for joined_at field.
+	channelmemberDescJoinedAt := channelmemberFields[1].Descriptor()
+	// channelmember.DefaultJoinedAt holds the default value on creation for the joined_at field.
+	channelmember.DefaultJoinedAt = channelmemberDescJoinedAt.Default.(func() time.Time)
+	// channelmemberDescID is the schema descriptor for id field.
+	channelmemberDescID := channelmemberFields[0].Descriptor()
+	// channelmember.DefaultID holds the default value on creation for the id field.
+	channelmember.DefaultID = channelmemberDescID.Default.(func() string)
+	channelmessageFields := schema.ChannelMessage{}.Fields()
+	_ = channelmessageFields
+	// channelmessageDescSentAt is the schema descriptor for sent_at field.
+	channelmessageDescSentAt := channelmessageFields[5].Descriptor()
+	// channelmessage.DefaultSentAt holds the default value on creation for the sent_at field.
+	channelmessage.DefaultSentAt = channelmessageDescSentAt.Default.(func() time.Time)
 	chatFields := schema.Chat{}.Fields()
 	_ = chatFields
 	// chatDescID is the schema descriptor for id field.
 	chatDescID := chatFields[0].Descriptor()
 	// chat.DefaultID holds the default value on creation for the id field.
 	chat.DefaultID = chatDescID.Default.(func() string)
+	groupkeyFields := schema.GroupKey{}.Fields()
+	_ = groupkeyFields
+	// groupkeyDescID is the schema descriptor for id field.
+	groupkeyDescID := groupkeyFields[0].Descriptor()
+	// groupkey.DefaultID holds the default value on creation for the id field.
+	groupkey.DefaultID = groupkeyDescID.Default.(func() string)
 	messageFields := schema.Message{}.Fields()
 	_ = messageFields
 	// messageDescSentAt is the schema descriptor for sent_at field.

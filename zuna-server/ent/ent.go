@@ -13,8 +13,12 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channel"
+	"zuna.chat/zuna-server/ent/channelmember"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/device"
+	"zuna.chat/zuna-server/ent/groupkey"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/user"
 )
@@ -77,11 +81,15 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			attachment.Table: attachment.ValidColumn,
-			chat.Table:       chat.ValidColumn,
-			device.Table:     device.ValidColumn,
-			message.Table:    message.ValidColumn,
-			user.Table:       user.ValidColumn,
+			attachment.Table:     attachment.ValidColumn,
+			channel.Table:        channel.ValidColumn,
+			channelmember.Table:  channelmember.ValidColumn,
+			channelmessage.Table: channelmessage.ValidColumn,
+			chat.Table:           chat.ValidColumn,
+			device.Table:         device.ValidColumn,
+			groupkey.Table:       groupkey.ValidColumn,
+			message.Table:        message.ValidColumn,
+			user.Table:           user.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

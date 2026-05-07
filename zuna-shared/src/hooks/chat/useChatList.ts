@@ -5,7 +5,7 @@ import { WS_MSG } from "../ws/wsTypes";
 import type { ChatMember, Server } from "../../types/serverTypes";
 
 export function useChatList(server: Server) {
-  const { authorizedFetch } = useAuthorizedServerFetch(server);
+  const { authorizedFetch, hasToken } = useAuthorizedServerFetch(server);
   const queryClient = useQueryClient();
 
   useWsHandler(server, WS_MSG.USER_JOINED, () => {
@@ -14,6 +14,7 @@ export function useChatList(server: Server) {
 
   return useQuery<ChatMember[]>({
     queryKey: ["chats", server.id],
+    enabled: hasToken,
     queryFn: async () => {
       const res = await authorizedFetch("/api/chat/list");
       const json = await res.json();

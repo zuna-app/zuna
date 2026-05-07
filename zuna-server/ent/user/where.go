@@ -567,6 +567,121 @@ func HasDevicesWith(preds ...predicate.Device) predicate.User {
 	})
 }
 
+// HasOwnedChannels applies the HasEdge predicate on the "owned_channels" edge.
+func HasOwnedChannels() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, OwnedChannelsTable, OwnedChannelsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasOwnedChannelsWith applies the HasEdge predicate on the "owned_channels" edge with a given conditions (other predicates).
+func HasOwnedChannelsWith(preds ...predicate.Channel) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newOwnedChannelsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasChannelMemberships applies the HasEdge predicate on the "channel_memberships" edge.
+func HasChannelMemberships() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ChannelMembershipsTable, ChannelMembershipsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasChannelMembershipsWith applies the HasEdge predicate on the "channel_memberships" edge with a given conditions (other predicates).
+func HasChannelMembershipsWith(preds ...predicate.ChannelMember) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newChannelMembershipsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasChannelMessagesSent applies the HasEdge predicate on the "channel_messages_sent" edge.
+func HasChannelMessagesSent() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ChannelMessagesSentTable, ChannelMessagesSentColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasChannelMessagesSentWith applies the HasEdge predicate on the "channel_messages_sent" edge with a given conditions (other predicates).
+func HasChannelMessagesSentWith(preds ...predicate.ChannelMessage) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newChannelMessagesSentStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasReceivedGroupKeys applies the HasEdge predicate on the "received_group_keys" edge.
+func HasReceivedGroupKeys() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ReceivedGroupKeysTable, ReceivedGroupKeysColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasReceivedGroupKeysWith applies the HasEdge predicate on the "received_group_keys" edge with a given conditions (other predicates).
+func HasReceivedGroupKeysWith(preds ...predicate.GroupKey) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newReceivedGroupKeysStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasSentGroupKeys applies the HasEdge predicate on the "sent_group_keys" edge.
+func HasSentGroupKeys() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, SentGroupKeysTable, SentGroupKeysColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasSentGroupKeysWith applies the HasEdge predicate on the "sent_group_keys" edge with a given conditions (other predicates).
+func HasSentGroupKeysWith(preds ...predicate.GroupKey) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newSentGroupKeysStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.User) predicate.User {
 	return predicate.User(sql.AndPredicates(predicates...))

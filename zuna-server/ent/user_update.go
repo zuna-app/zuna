@@ -12,8 +12,12 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"zuna.chat/zuna-server/ent/attachment"
+	"zuna.chat/zuna-server/ent/channel"
+	"zuna.chat/zuna-server/ent/channelmember"
+	"zuna.chat/zuna-server/ent/channelmessage"
 	"zuna.chat/zuna-server/ent/chat"
 	"zuna.chat/zuna-server/ent/device"
+	"zuna.chat/zuna-server/ent/groupkey"
 	"zuna.chat/zuna-server/ent/message"
 	"zuna.chat/zuna-server/ent/predicate"
 	"zuna.chat/zuna-server/ent/user"
@@ -190,6 +194,81 @@ func (_u *UserUpdate) AddDevices(v ...*Device) *UserUpdate {
 	return _u.AddDeviceIDs(ids...)
 }
 
+// AddOwnedChannelIDs adds the "owned_channels" edge to the Channel entity by IDs.
+func (_u *UserUpdate) AddOwnedChannelIDs(ids ...string) *UserUpdate {
+	_u.mutation.AddOwnedChannelIDs(ids...)
+	return _u
+}
+
+// AddOwnedChannels adds the "owned_channels" edges to the Channel entity.
+func (_u *UserUpdate) AddOwnedChannels(v ...*Channel) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddOwnedChannelIDs(ids...)
+}
+
+// AddChannelMembershipIDs adds the "channel_memberships" edge to the ChannelMember entity by IDs.
+func (_u *UserUpdate) AddChannelMembershipIDs(ids ...string) *UserUpdate {
+	_u.mutation.AddChannelMembershipIDs(ids...)
+	return _u
+}
+
+// AddChannelMemberships adds the "channel_memberships" edges to the ChannelMember entity.
+func (_u *UserUpdate) AddChannelMemberships(v ...*ChannelMember) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChannelMembershipIDs(ids...)
+}
+
+// AddChannelMessagesSentIDs adds the "channel_messages_sent" edge to the ChannelMessage entity by IDs.
+func (_u *UserUpdate) AddChannelMessagesSentIDs(ids ...int64) *UserUpdate {
+	_u.mutation.AddChannelMessagesSentIDs(ids...)
+	return _u
+}
+
+// AddChannelMessagesSent adds the "channel_messages_sent" edges to the ChannelMessage entity.
+func (_u *UserUpdate) AddChannelMessagesSent(v ...*ChannelMessage) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChannelMessagesSentIDs(ids...)
+}
+
+// AddReceivedGroupKeyIDs adds the "received_group_keys" edge to the GroupKey entity by IDs.
+func (_u *UserUpdate) AddReceivedGroupKeyIDs(ids ...string) *UserUpdate {
+	_u.mutation.AddReceivedGroupKeyIDs(ids...)
+	return _u
+}
+
+// AddReceivedGroupKeys adds the "received_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdate) AddReceivedGroupKeys(v ...*GroupKey) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddReceivedGroupKeyIDs(ids...)
+}
+
+// AddSentGroupKeyIDs adds the "sent_group_keys" edge to the GroupKey entity by IDs.
+func (_u *UserUpdate) AddSentGroupKeyIDs(ids ...string) *UserUpdate {
+	_u.mutation.AddSentGroupKeyIDs(ids...)
+	return _u
+}
+
+// AddSentGroupKeys adds the "sent_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdate) AddSentGroupKeys(v ...*GroupKey) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSentGroupKeyIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdate) Mutation() *UserMutation {
 	return _u.mutation
@@ -277,6 +356,111 @@ func (_u *UserUpdate) RemoveDevices(v ...*Device) *UserUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveDeviceIDs(ids...)
+}
+
+// ClearOwnedChannels clears all "owned_channels" edges to the Channel entity.
+func (_u *UserUpdate) ClearOwnedChannels() *UserUpdate {
+	_u.mutation.ClearOwnedChannels()
+	return _u
+}
+
+// RemoveOwnedChannelIDs removes the "owned_channels" edge to Channel entities by IDs.
+func (_u *UserUpdate) RemoveOwnedChannelIDs(ids ...string) *UserUpdate {
+	_u.mutation.RemoveOwnedChannelIDs(ids...)
+	return _u
+}
+
+// RemoveOwnedChannels removes "owned_channels" edges to Channel entities.
+func (_u *UserUpdate) RemoveOwnedChannels(v ...*Channel) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveOwnedChannelIDs(ids...)
+}
+
+// ClearChannelMemberships clears all "channel_memberships" edges to the ChannelMember entity.
+func (_u *UserUpdate) ClearChannelMemberships() *UserUpdate {
+	_u.mutation.ClearChannelMemberships()
+	return _u
+}
+
+// RemoveChannelMembershipIDs removes the "channel_memberships" edge to ChannelMember entities by IDs.
+func (_u *UserUpdate) RemoveChannelMembershipIDs(ids ...string) *UserUpdate {
+	_u.mutation.RemoveChannelMembershipIDs(ids...)
+	return _u
+}
+
+// RemoveChannelMemberships removes "channel_memberships" edges to ChannelMember entities.
+func (_u *UserUpdate) RemoveChannelMemberships(v ...*ChannelMember) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChannelMembershipIDs(ids...)
+}
+
+// ClearChannelMessagesSent clears all "channel_messages_sent" edges to the ChannelMessage entity.
+func (_u *UserUpdate) ClearChannelMessagesSent() *UserUpdate {
+	_u.mutation.ClearChannelMessagesSent()
+	return _u
+}
+
+// RemoveChannelMessagesSentIDs removes the "channel_messages_sent" edge to ChannelMessage entities by IDs.
+func (_u *UserUpdate) RemoveChannelMessagesSentIDs(ids ...int64) *UserUpdate {
+	_u.mutation.RemoveChannelMessagesSentIDs(ids...)
+	return _u
+}
+
+// RemoveChannelMessagesSent removes "channel_messages_sent" edges to ChannelMessage entities.
+func (_u *UserUpdate) RemoveChannelMessagesSent(v ...*ChannelMessage) *UserUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChannelMessagesSentIDs(ids...)
+}
+
+// ClearReceivedGroupKeys clears all "received_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdate) ClearReceivedGroupKeys() *UserUpdate {
+	_u.mutation.ClearReceivedGroupKeys()
+	return _u
+}
+
+// RemoveReceivedGroupKeyIDs removes the "received_group_keys" edge to GroupKey entities by IDs.
+func (_u *UserUpdate) RemoveReceivedGroupKeyIDs(ids ...string) *UserUpdate {
+	_u.mutation.RemoveReceivedGroupKeyIDs(ids...)
+	return _u
+}
+
+// RemoveReceivedGroupKeys removes "received_group_keys" edges to GroupKey entities.
+func (_u *UserUpdate) RemoveReceivedGroupKeys(v ...*GroupKey) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveReceivedGroupKeyIDs(ids...)
+}
+
+// ClearSentGroupKeys clears all "sent_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdate) ClearSentGroupKeys() *UserUpdate {
+	_u.mutation.ClearSentGroupKeys()
+	return _u
+}
+
+// RemoveSentGroupKeyIDs removes the "sent_group_keys" edge to GroupKey entities by IDs.
+func (_u *UserUpdate) RemoveSentGroupKeyIDs(ids ...string) *UserUpdate {
+	_u.mutation.RemoveSentGroupKeyIDs(ids...)
+	return _u
+}
+
+// RemoveSentGroupKeys removes "sent_group_keys" edges to GroupKey entities.
+func (_u *UserUpdate) RemoveSentGroupKeys(v ...*GroupKey) *UserUpdate {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSentGroupKeyIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -516,6 +700,231 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.OwnedChannelsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OwnedChannelsTable,
+			Columns: []string{user.OwnedChannelsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channel.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedOwnedChannelsIDs(); len(nodes) > 0 && !_u.mutation.OwnedChannelsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OwnedChannelsTable,
+			Columns: []string{user.OwnedChannelsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channel.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OwnedChannelsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OwnedChannelsTable,
+			Columns: []string{user.OwnedChannelsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channel.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMembershipsTable,
+			Columns: []string{user.ChannelMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmember.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChannelMembershipsIDs(); len(nodes) > 0 && !_u.mutation.ChannelMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMembershipsTable,
+			Columns: []string{user.ChannelMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmember.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMembershipsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMembershipsTable,
+			Columns: []string{user.ChannelMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmember.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMessagesSentCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMessagesSentTable,
+			Columns: []string{user.ChannelMessagesSentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChannelMessagesSentIDs(); len(nodes) > 0 && !_u.mutation.ChannelMessagesSentCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMessagesSentTable,
+			Columns: []string{user.ChannelMessagesSentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMessagesSentIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMessagesSentTable,
+			Columns: []string{user.ChannelMessagesSentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ReceivedGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ReceivedGroupKeysTable,
+			Columns: []string{user.ReceivedGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedReceivedGroupKeysIDs(); len(nodes) > 0 && !_u.mutation.ReceivedGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ReceivedGroupKeysTable,
+			Columns: []string{user.ReceivedGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ReceivedGroupKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ReceivedGroupKeysTable,
+			Columns: []string{user.ReceivedGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SentGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.SentGroupKeysTable,
+			Columns: []string{user.SentGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSentGroupKeysIDs(); len(nodes) > 0 && !_u.mutation.SentGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.SentGroupKeysTable,
+			Columns: []string{user.SentGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SentGroupKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.SentGroupKeysTable,
+			Columns: []string{user.SentGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{user.Label}
@@ -694,6 +1103,81 @@ func (_u *UserUpdateOne) AddDevices(v ...*Device) *UserUpdateOne {
 	return _u.AddDeviceIDs(ids...)
 }
 
+// AddOwnedChannelIDs adds the "owned_channels" edge to the Channel entity by IDs.
+func (_u *UserUpdateOne) AddOwnedChannelIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.AddOwnedChannelIDs(ids...)
+	return _u
+}
+
+// AddOwnedChannels adds the "owned_channels" edges to the Channel entity.
+func (_u *UserUpdateOne) AddOwnedChannels(v ...*Channel) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddOwnedChannelIDs(ids...)
+}
+
+// AddChannelMembershipIDs adds the "channel_memberships" edge to the ChannelMember entity by IDs.
+func (_u *UserUpdateOne) AddChannelMembershipIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.AddChannelMembershipIDs(ids...)
+	return _u
+}
+
+// AddChannelMemberships adds the "channel_memberships" edges to the ChannelMember entity.
+func (_u *UserUpdateOne) AddChannelMemberships(v ...*ChannelMember) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChannelMembershipIDs(ids...)
+}
+
+// AddChannelMessagesSentIDs adds the "channel_messages_sent" edge to the ChannelMessage entity by IDs.
+func (_u *UserUpdateOne) AddChannelMessagesSentIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.AddChannelMessagesSentIDs(ids...)
+	return _u
+}
+
+// AddChannelMessagesSent adds the "channel_messages_sent" edges to the ChannelMessage entity.
+func (_u *UserUpdateOne) AddChannelMessagesSent(v ...*ChannelMessage) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChannelMessagesSentIDs(ids...)
+}
+
+// AddReceivedGroupKeyIDs adds the "received_group_keys" edge to the GroupKey entity by IDs.
+func (_u *UserUpdateOne) AddReceivedGroupKeyIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.AddReceivedGroupKeyIDs(ids...)
+	return _u
+}
+
+// AddReceivedGroupKeys adds the "received_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdateOne) AddReceivedGroupKeys(v ...*GroupKey) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddReceivedGroupKeyIDs(ids...)
+}
+
+// AddSentGroupKeyIDs adds the "sent_group_keys" edge to the GroupKey entity by IDs.
+func (_u *UserUpdateOne) AddSentGroupKeyIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.AddSentGroupKeyIDs(ids...)
+	return _u
+}
+
+// AddSentGroupKeys adds the "sent_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdateOne) AddSentGroupKeys(v ...*GroupKey) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSentGroupKeyIDs(ids...)
+}
+
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdateOne) Mutation() *UserMutation {
 	return _u.mutation
@@ -781,6 +1265,111 @@ func (_u *UserUpdateOne) RemoveDevices(v ...*Device) *UserUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveDeviceIDs(ids...)
+}
+
+// ClearOwnedChannels clears all "owned_channels" edges to the Channel entity.
+func (_u *UserUpdateOne) ClearOwnedChannels() *UserUpdateOne {
+	_u.mutation.ClearOwnedChannels()
+	return _u
+}
+
+// RemoveOwnedChannelIDs removes the "owned_channels" edge to Channel entities by IDs.
+func (_u *UserUpdateOne) RemoveOwnedChannelIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.RemoveOwnedChannelIDs(ids...)
+	return _u
+}
+
+// RemoveOwnedChannels removes "owned_channels" edges to Channel entities.
+func (_u *UserUpdateOne) RemoveOwnedChannels(v ...*Channel) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveOwnedChannelIDs(ids...)
+}
+
+// ClearChannelMemberships clears all "channel_memberships" edges to the ChannelMember entity.
+func (_u *UserUpdateOne) ClearChannelMemberships() *UserUpdateOne {
+	_u.mutation.ClearChannelMemberships()
+	return _u
+}
+
+// RemoveChannelMembershipIDs removes the "channel_memberships" edge to ChannelMember entities by IDs.
+func (_u *UserUpdateOne) RemoveChannelMembershipIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.RemoveChannelMembershipIDs(ids...)
+	return _u
+}
+
+// RemoveChannelMemberships removes "channel_memberships" edges to ChannelMember entities.
+func (_u *UserUpdateOne) RemoveChannelMemberships(v ...*ChannelMember) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChannelMembershipIDs(ids...)
+}
+
+// ClearChannelMessagesSent clears all "channel_messages_sent" edges to the ChannelMessage entity.
+func (_u *UserUpdateOne) ClearChannelMessagesSent() *UserUpdateOne {
+	_u.mutation.ClearChannelMessagesSent()
+	return _u
+}
+
+// RemoveChannelMessagesSentIDs removes the "channel_messages_sent" edge to ChannelMessage entities by IDs.
+func (_u *UserUpdateOne) RemoveChannelMessagesSentIDs(ids ...int64) *UserUpdateOne {
+	_u.mutation.RemoveChannelMessagesSentIDs(ids...)
+	return _u
+}
+
+// RemoveChannelMessagesSent removes "channel_messages_sent" edges to ChannelMessage entities.
+func (_u *UserUpdateOne) RemoveChannelMessagesSent(v ...*ChannelMessage) *UserUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChannelMessagesSentIDs(ids...)
+}
+
+// ClearReceivedGroupKeys clears all "received_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdateOne) ClearReceivedGroupKeys() *UserUpdateOne {
+	_u.mutation.ClearReceivedGroupKeys()
+	return _u
+}
+
+// RemoveReceivedGroupKeyIDs removes the "received_group_keys" edge to GroupKey entities by IDs.
+func (_u *UserUpdateOne) RemoveReceivedGroupKeyIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.RemoveReceivedGroupKeyIDs(ids...)
+	return _u
+}
+
+// RemoveReceivedGroupKeys removes "received_group_keys" edges to GroupKey entities.
+func (_u *UserUpdateOne) RemoveReceivedGroupKeys(v ...*GroupKey) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveReceivedGroupKeyIDs(ids...)
+}
+
+// ClearSentGroupKeys clears all "sent_group_keys" edges to the GroupKey entity.
+func (_u *UserUpdateOne) ClearSentGroupKeys() *UserUpdateOne {
+	_u.mutation.ClearSentGroupKeys()
+	return _u
+}
+
+// RemoveSentGroupKeyIDs removes the "sent_group_keys" edge to GroupKey entities by IDs.
+func (_u *UserUpdateOne) RemoveSentGroupKeyIDs(ids ...string) *UserUpdateOne {
+	_u.mutation.RemoveSentGroupKeyIDs(ids...)
+	return _u
+}
+
+// RemoveSentGroupKeys removes "sent_group_keys" edges to GroupKey entities.
+func (_u *UserUpdateOne) RemoveSentGroupKeys(v ...*GroupKey) *UserUpdateOne {
+	ids := make([]string, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSentGroupKeyIDs(ids...)
 }
 
 // Where appends a list predicates to the UserUpdate builder.
@@ -1043,6 +1632,231 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(device.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.OwnedChannelsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OwnedChannelsTable,
+			Columns: []string{user.OwnedChannelsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channel.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedOwnedChannelsIDs(); len(nodes) > 0 && !_u.mutation.OwnedChannelsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OwnedChannelsTable,
+			Columns: []string{user.OwnedChannelsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channel.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.OwnedChannelsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.OwnedChannelsTable,
+			Columns: []string{user.OwnedChannelsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channel.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMembershipsTable,
+			Columns: []string{user.ChannelMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmember.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChannelMembershipsIDs(); len(nodes) > 0 && !_u.mutation.ChannelMembershipsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMembershipsTable,
+			Columns: []string{user.ChannelMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmember.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMembershipsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMembershipsTable,
+			Columns: []string{user.ChannelMembershipsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmember.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMessagesSentCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMessagesSentTable,
+			Columns: []string{user.ChannelMessagesSentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChannelMessagesSentIDs(); len(nodes) > 0 && !_u.mutation.ChannelMessagesSentCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMessagesSentTable,
+			Columns: []string{user.ChannelMessagesSentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMessagesSentIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ChannelMessagesSentTable,
+			Columns: []string{user.ChannelMessagesSentColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmessage.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ReceivedGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ReceivedGroupKeysTable,
+			Columns: []string{user.ReceivedGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedReceivedGroupKeysIDs(); len(nodes) > 0 && !_u.mutation.ReceivedGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ReceivedGroupKeysTable,
+			Columns: []string{user.ReceivedGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ReceivedGroupKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ReceivedGroupKeysTable,
+			Columns: []string{user.ReceivedGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SentGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.SentGroupKeysTable,
+			Columns: []string{user.SentGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSentGroupKeysIDs(); len(nodes) > 0 && !_u.mutation.SentGroupKeysCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.SentGroupKeysTable,
+			Columns: []string{user.SentGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SentGroupKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.SentGroupKeysTable,
+			Columns: []string{user.SentGroupKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(groupkey.FieldID, field.TypeString),
 			},
 		}
 		for _, k := range nodes {

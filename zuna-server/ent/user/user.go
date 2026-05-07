@@ -36,6 +36,16 @@ const (
 	EdgeAttachments = "attachments"
 	// EdgeDevices holds the string denoting the devices edge name in mutations.
 	EdgeDevices = "devices"
+	// EdgeOwnedChannels holds the string denoting the owned_channels edge name in mutations.
+	EdgeOwnedChannels = "owned_channels"
+	// EdgeChannelMemberships holds the string denoting the channel_memberships edge name in mutations.
+	EdgeChannelMemberships = "channel_memberships"
+	// EdgeChannelMessagesSent holds the string denoting the channel_messages_sent edge name in mutations.
+	EdgeChannelMessagesSent = "channel_messages_sent"
+	// EdgeReceivedGroupKeys holds the string denoting the received_group_keys edge name in mutations.
+	EdgeReceivedGroupKeys = "received_group_keys"
+	// EdgeSentGroupKeys holds the string denoting the sent_group_keys edge name in mutations.
+	EdgeSentGroupKeys = "sent_group_keys"
 	// Table holds the table name of the user in the database.
 	Table = "users"
 	// ChatsTable is the table that holds the chats relation/edge. The primary key declared below.
@@ -64,6 +74,41 @@ const (
 	DevicesInverseTable = "devices"
 	// DevicesColumn is the table column denoting the devices relation/edge.
 	DevicesColumn = "user_devices"
+	// OwnedChannelsTable is the table that holds the owned_channels relation/edge.
+	OwnedChannelsTable = "channels"
+	// OwnedChannelsInverseTable is the table name for the Channel entity.
+	// It exists in this package in order to avoid circular dependency with the "channel" package.
+	OwnedChannelsInverseTable = "channels"
+	// OwnedChannelsColumn is the table column denoting the owned_channels relation/edge.
+	OwnedChannelsColumn = "user_owned_channels"
+	// ChannelMembershipsTable is the table that holds the channel_memberships relation/edge.
+	ChannelMembershipsTable = "channel_members"
+	// ChannelMembershipsInverseTable is the table name for the ChannelMember entity.
+	// It exists in this package in order to avoid circular dependency with the "channelmember" package.
+	ChannelMembershipsInverseTable = "channel_members"
+	// ChannelMembershipsColumn is the table column denoting the channel_memberships relation/edge.
+	ChannelMembershipsColumn = "user_channel_memberships"
+	// ChannelMessagesSentTable is the table that holds the channel_messages_sent relation/edge.
+	ChannelMessagesSentTable = "channel_messages"
+	// ChannelMessagesSentInverseTable is the table name for the ChannelMessage entity.
+	// It exists in this package in order to avoid circular dependency with the "channelmessage" package.
+	ChannelMessagesSentInverseTable = "channel_messages"
+	// ChannelMessagesSentColumn is the table column denoting the channel_messages_sent relation/edge.
+	ChannelMessagesSentColumn = "user_channel_messages_sent"
+	// ReceivedGroupKeysTable is the table that holds the received_group_keys relation/edge.
+	ReceivedGroupKeysTable = "group_keys"
+	// ReceivedGroupKeysInverseTable is the table name for the GroupKey entity.
+	// It exists in this package in order to avoid circular dependency with the "groupkey" package.
+	ReceivedGroupKeysInverseTable = "group_keys"
+	// ReceivedGroupKeysColumn is the table column denoting the received_group_keys relation/edge.
+	ReceivedGroupKeysColumn = "user_received_group_keys"
+	// SentGroupKeysTable is the table that holds the sent_group_keys relation/edge.
+	SentGroupKeysTable = "group_keys"
+	// SentGroupKeysInverseTable is the table name for the GroupKey entity.
+	// It exists in this package in order to avoid circular dependency with the "groupkey" package.
+	SentGroupKeysInverseTable = "group_keys"
+	// SentGroupKeysColumn is the table column denoting the sent_group_keys relation/edge.
+	SentGroupKeysColumn = "user_sent_group_keys"
 )
 
 // Columns holds all SQL columns for user fields.
@@ -205,6 +250,76 @@ func ByDevices(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newDevicesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByOwnedChannelsCount orders the results by owned_channels count.
+func ByOwnedChannelsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newOwnedChannelsStep(), opts...)
+	}
+}
+
+// ByOwnedChannels orders the results by owned_channels terms.
+func ByOwnedChannels(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newOwnedChannelsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByChannelMembershipsCount orders the results by channel_memberships count.
+func ByChannelMembershipsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newChannelMembershipsStep(), opts...)
+	}
+}
+
+// ByChannelMemberships orders the results by channel_memberships terms.
+func ByChannelMemberships(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newChannelMembershipsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByChannelMessagesSentCount orders the results by channel_messages_sent count.
+func ByChannelMessagesSentCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newChannelMessagesSentStep(), opts...)
+	}
+}
+
+// ByChannelMessagesSent orders the results by channel_messages_sent terms.
+func ByChannelMessagesSent(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newChannelMessagesSentStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByReceivedGroupKeysCount orders the results by received_group_keys count.
+func ByReceivedGroupKeysCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newReceivedGroupKeysStep(), opts...)
+	}
+}
+
+// ByReceivedGroupKeys orders the results by received_group_keys terms.
+func ByReceivedGroupKeys(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newReceivedGroupKeysStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// BySentGroupKeysCount orders the results by sent_group_keys count.
+func BySentGroupKeysCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newSentGroupKeysStep(), opts...)
+	}
+}
+
+// BySentGroupKeys orders the results by sent_group_keys terms.
+func BySentGroupKeys(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSentGroupKeysStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newChatsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -231,5 +346,40 @@ func newDevicesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(DevicesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, DevicesTable, DevicesColumn),
+	)
+}
+func newOwnedChannelsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(OwnedChannelsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, OwnedChannelsTable, OwnedChannelsColumn),
+	)
+}
+func newChannelMembershipsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ChannelMembershipsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ChannelMembershipsTable, ChannelMembershipsColumn),
+	)
+}
+func newChannelMessagesSentStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ChannelMessagesSentInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ChannelMessagesSentTable, ChannelMessagesSentColumn),
+	)
+}
+func newReceivedGroupKeysStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ReceivedGroupKeysInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ReceivedGroupKeysTable, ReceivedGroupKeysColumn),
+	)
+}
+func newSentGroupKeysStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SentGroupKeysInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, SentGroupKeysTable, SentGroupKeysColumn),
 	)
 }

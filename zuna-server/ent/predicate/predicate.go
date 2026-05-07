@@ -9,11 +9,23 @@ import (
 // Attachment is the predicate function for attachment builders.
 type Attachment func(*sql.Selector)
 
+// Channel is the predicate function for channel builders.
+type Channel func(*sql.Selector)
+
+// ChannelMember is the predicate function for channelmember builders.
+type ChannelMember func(*sql.Selector)
+
+// ChannelMessage is the predicate function for channelmessage builders.
+type ChannelMessage func(*sql.Selector)
+
 // Chat is the predicate function for chat builders.
 type Chat func(*sql.Selector)
 
 // Device is the predicate function for device builders.
 type Device func(*sql.Selector)
+
+// GroupKey is the predicate function for groupkey builders.
+type GroupKey func(*sql.Selector)
 
 // Message is the predicate function for message builders.
 type Message func(*sql.Selector)

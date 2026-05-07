@@ -14,10 +14,18 @@ type Tx struct {
 	config
 	// Attachment is the client for interacting with the Attachment builders.
 	Attachment *AttachmentClient
+	// Channel is the client for interacting with the Channel builders.
+	Channel *ChannelClient
+	// ChannelMember is the client for interacting with the ChannelMember builders.
+	ChannelMember *ChannelMemberClient
+	// ChannelMessage is the client for interacting with the ChannelMessage builders.
+	ChannelMessage *ChannelMessageClient
 	// Chat is the client for interacting with the Chat builders.
 	Chat *ChatClient
 	// Device is the client for interacting with the Device builders.
 	Device *DeviceClient
+	// GroupKey is the client for interacting with the GroupKey builders.
+	GroupKey *GroupKeyClient
 	// Message is the client for interacting with the Message builders.
 	Message *MessageClient
 	// User is the client for interacting with the User builders.
@@ -154,8 +162,12 @@ func (tx *Tx) Client() *Client {
 
 func (tx *Tx) init() {
 	tx.Attachment = NewAttachmentClient(tx.config)
+	tx.Channel = NewChannelClient(tx.config)
+	tx.ChannelMember = NewChannelMemberClient(tx.config)
+	tx.ChannelMessage = NewChannelMessageClient(tx.config)
 	tx.Chat = NewChatClient(tx.config)
 	tx.Device = NewDeviceClient(tx.config)
+	tx.GroupKey = NewGroupKeyClient(tx.config)
 	tx.Message = NewMessageClient(tx.config)
 	tx.User = NewUserClient(tx.config)
 }

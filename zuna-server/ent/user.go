@@ -47,9 +47,19 @@ type UserEdges struct {
 	Attachments []*Attachment `json:"attachments,omitempty"`
 	// Devices holds the value of the devices edge.
 	Devices []*Device `json:"devices,omitempty"`
+	// OwnedChannels holds the value of the owned_channels edge.
+	OwnedChannels []*Channel `json:"owned_channels,omitempty"`
+	// ChannelMemberships holds the value of the channel_memberships edge.
+	ChannelMemberships []*ChannelMember `json:"channel_memberships,omitempty"`
+	// ChannelMessagesSent holds the value of the channel_messages_sent edge.
+	ChannelMessagesSent []*ChannelMessage `json:"channel_messages_sent,omitempty"`
+	// ReceivedGroupKeys holds the value of the received_group_keys edge.
+	ReceivedGroupKeys []*GroupKey `json:"received_group_keys,omitempty"`
+	// SentGroupKeys holds the value of the sent_group_keys edge.
+	SentGroupKeys []*GroupKey `json:"sent_group_keys,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [9]bool
 }
 
 // ChatsOrErr returns the Chats value or an error if the edge
@@ -86,6 +96,51 @@ func (e UserEdges) DevicesOrErr() ([]*Device, error) {
 		return e.Devices, nil
 	}
 	return nil, &NotLoadedError{edge: "devices"}
+}
+
+// OwnedChannelsOrErr returns the OwnedChannels value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) OwnedChannelsOrErr() ([]*Channel, error) {
+	if e.loadedTypes[4] {
+		return e.OwnedChannels, nil
+	}
+	return nil, &NotLoadedError{edge: "owned_channels"}
+}
+
+// ChannelMembershipsOrErr returns the ChannelMemberships value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) ChannelMembershipsOrErr() ([]*ChannelMember, error) {
+	if e.loadedTypes[5] {
+		return e.ChannelMemberships, nil
+	}
+	return nil, &NotLoadedError{edge: "channel_memberships"}
+}
+
+// ChannelMessagesSentOrErr returns the ChannelMessagesSent value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) ChannelMessagesSentOrErr() ([]*ChannelMessage, error) {
+	if e.loadedTypes[6] {
+		return e.ChannelMessagesSent, nil
+	}
+	return nil, &NotLoadedError{edge: "channel_messages_sent"}
+}
+
+// ReceivedGroupKeysOrErr returns the ReceivedGroupKeys value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) ReceivedGroupKeysOrErr() ([]*GroupKey, error) {
+	if e.loadedTypes[7] {
+		return e.ReceivedGroupKeys, nil
+	}
+	return nil, &NotLoadedError{edge: "received_group_keys"}
+}
+
+// SentGroupKeysOrErr returns the SentGroupKeys value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) SentGroupKeysOrErr() ([]*GroupKey, error) {
+	if e.loadedTypes[8] {
+		return e.SentGroupKeys, nil
+	}
+	return nil, &NotLoadedError{edge: "sent_group_keys"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -193,6 +248,31 @@ func (_m *User) QueryAttachments() *AttachmentQuery {
 // QueryDevices queries the "devices" edge of the User entity.
 func (_m *User) QueryDevices() *DeviceQuery {
 	return NewUserClient(_m.config).QueryDevices(_m)
+}
+
+// QueryOwnedChannels queries the "owned_channels" edge of the User entity.
+func (_m *User) QueryOwnedChannels() *ChannelQuery {
+	return NewUserClient(_m.config).QueryOwnedChannels(_m)
+}
+
+// QueryChannelMemberships queries the "channel_memberships" edge of the User entity.
+func (_m *User) QueryChannelMemberships() *ChannelMemberQuery {
+	return NewUserClient(_m.config).QueryChannelMemberships(_m)
+}
+
+// QueryChannelMessagesSent queries the "channel_messages_sent" edge of the User entity.
+func (_m *User) QueryChannelMessagesSent() *ChannelMessageQuery {
+	return NewUserClient(_m.config).QueryChannelMessagesSent(_m)
+}
+
+// QueryReceivedGroupKeys queries the "received_group_keys" edge of the User entity.
+func (_m *User) QueryReceivedGroupKeys() *GroupKeyQuery {
+	return NewUserClient(_m.config).QueryReceivedGroupKeys(_m)
+}
+
+// QuerySentGroupKeys queries the "sent_group_keys" edge of the User entity.
+func (_m *User) QuerySentGroupKeys() *GroupKeyQuery {
+	return NewUserClient(_m.config).QuerySentGroupKeys(_m)
 }
 
 // Update returns a builder for updating this User.

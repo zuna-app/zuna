@@ -21,6 +21,42 @@ func (f AttachmentFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, 
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AttachmentMutation", m)
 }
 
+// The ChannelFunc type is an adapter to allow the use of ordinary
+// function as Channel mutator.
+type ChannelFunc func(context.Context, *ent.ChannelMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ChannelFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ChannelMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChannelMutation", m)
+}
+
+// The ChannelMemberFunc type is an adapter to allow the use of ordinary
+// function as ChannelMember mutator.
+type ChannelMemberFunc func(context.Context, *ent.ChannelMemberMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ChannelMemberFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ChannelMemberMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChannelMemberMutation", m)
+}
+
+// The ChannelMessageFunc type is an adapter to allow the use of ordinary
+// function as ChannelMessage mutator.
+type ChannelMessageFunc func(context.Context, *ent.ChannelMessageMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ChannelMessageFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ChannelMessageMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChannelMessageMutation", m)
+}
+
 // The ChatFunc type is an adapter to allow the use of ordinary
 // function as Chat mutator.
 type ChatFunc func(context.Context, *ent.ChatMutation) (ent.Value, error)
@@ -43,6 +79,18 @@ func (f DeviceFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, erro
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DeviceMutation", m)
+}
+
+// The GroupKeyFunc type is an adapter to allow the use of ordinary
+// function as GroupKey mutator.
+type GroupKeyFunc func(context.Context, *ent.GroupKeyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupKeyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupKeyMutation", m)
 }
 
 // The MessageFunc type is an adapter to allow the use of ordinary

@@ -37,5 +37,10 @@ func (User) Edges() []ent.Edge {
 		edge.To("messages", Message.Type),
 		edge.To("attachments", Attachment.Type),
 		edge.To("devices", Device.Type),
+		edge.To("owned_channels", Channel.Type),
+		edge.To("channel_memberships", ChannelMember.Type),
+		edge.To("channel_messages_sent", ChannelMessage.Type),
+		edge.To("received_group_keys", GroupKey.Type),
+		edge.To("sent_group_keys", GroupKey.Type),
 	}
 }

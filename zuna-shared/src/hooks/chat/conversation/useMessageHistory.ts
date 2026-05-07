@@ -17,6 +17,7 @@ export function useMessageHistory(
   chatId: string,
   authorizedFetch: (path: string) => Promise<Response>,
   readyState: ReadyState,
+  hasToken = true,
 ) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
@@ -105,13 +106,17 @@ export function useMessageHistory(
       isFetchingRef.current = false;
     }
 
-    if (readyState === ReadyState.OPEN && (chatChanged || justConnected)) {
+    if (
+      readyState === ReadyState.OPEN &&
+      (chatChanged || justConnected) &&
+      hasToken
+    ) {
       fetchMessages(MAX_CURSOR);
     }
 
     prevReadyStateRef.current = readyState;
     prevChatIdRef.current = chatId;
-  }, [readyState, chatId, fetchMessages]);
+  }, [readyState, chatId, fetchMessages, hasToken]);
 
   useEffect(() => {
     if (wasOlderPaginationRef.current) {

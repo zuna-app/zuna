@@ -37,6 +37,93 @@ var (
 			},
 		},
 	}
+	// ChannelsColumns holds the columns for the "channels" table.
+	ChannelsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString},
+		{Name: "name", Type: field.TypeString},
+		{Name: "is_public", Type: field.TypeBool, Default: false},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "user_owned_channels", Type: field.TypeString},
+	}
+	// ChannelsTable holds the schema information for the "channels" table.
+	ChannelsTable = &schema.Table{
+		Name:       "channels",
+		Columns:    ChannelsColumns,
+		PrimaryKey: []*schema.Column{ChannelsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "channels_users_owned_channels",
+				Columns:    []*schema.Column{ChannelsColumns[4]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// ChannelMembersColumns holds the columns for the "channel_members" table.
+	ChannelMembersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString},
+		{Name: "joined_at", Type: field.TypeTime},
+		{Name: "channel_channel_members", Type: field.TypeString},
+		{Name: "user_channel_memberships", Type: field.TypeString},
+	}
+	// ChannelMembersTable holds the schema information for the "channel_members" table.
+	ChannelMembersTable = &schema.Table{
+		Name:       "channel_members",
+		Columns:    ChannelMembersColumns,
+		PrimaryKey: []*schema.Column{ChannelMembersColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "channel_members_channels_channel_members",
+				Columns:    []*schema.Column{ChannelMembersColumns[2]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "channel_members_users_channel_memberships",
+				Columns:    []*schema.Column{ChannelMembersColumns[3]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "channelmember_channel_channel_members_user_channel_memberships",
+				Unique:  true,
+				Columns: []*schema.Column{ChannelMembersColumns[2], ChannelMembersColumns[3]},
+			},
+		},
+	}
+	// ChannelMessagesColumns holds the columns for the "channel_messages" table.
+	ChannelMessagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "client_message_id", Type: field.TypeString, Unique: true},
+		{Name: "cipher_text", Type: field.TypeString, SchemaType: map[string]string{"mysql": "mediumtext"}},
+		{Name: "iv", Type: field.TypeString},
+		{Name: "auth_tag", Type: field.TypeString},
+		{Name: "sent_at", Type: field.TypeTime},
+		{Name: "channel_channel_messages", Type: field.TypeString},
+		{Name: "user_channel_messages_sent", Type: field.TypeString},
+	}
+	// ChannelMessagesTable holds the schema information for the "channel_messages" table.
+	ChannelMessagesTable = &schema.Table{
+		Name:       "channel_messages",
+		Columns:    ChannelMessagesColumns,
+		PrimaryKey: []*schema.Column{ChannelMessagesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "channel_messages_channels_channel_messages",
+				Columns:    []*schema.Column{ChannelMessagesColumns[6]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "channel_messages_users_channel_messages_sent",
+				Columns:    []*schema.Column{ChannelMessagesColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+	}
 	// ChatsColumns holds the columns for the "chats" table.
 	ChatsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString},
@@ -66,6 +153,50 @@ var (
 				Columns:    []*schema.Column{DevicesColumns[4]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
+			},
+		},
+	}
+	// GroupKeysColumns holds the columns for the "group_keys" table.
+	GroupKeysColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeString},
+		{Name: "encrypted_key", Type: field.TypeString},
+		{Name: "iv", Type: field.TypeString},
+		{Name: "auth_tag", Type: field.TypeString},
+		{Name: "delivered_at", Type: field.TypeTime, Nullable: true},
+		{Name: "channel_group_keys", Type: field.TypeString},
+		{Name: "user_received_group_keys", Type: field.TypeString},
+		{Name: "user_sent_group_keys", Type: field.TypeString},
+	}
+	// GroupKeysTable holds the schema information for the "group_keys" table.
+	GroupKeysTable = &schema.Table{
+		Name:       "group_keys",
+		Columns:    GroupKeysColumns,
+		PrimaryKey: []*schema.Column{GroupKeysColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "group_keys_channels_group_keys",
+				Columns:    []*schema.Column{GroupKeysColumns[5]},
+				RefColumns: []*schema.Column{ChannelsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "group_keys_users_received_group_keys",
+				Columns:    []*schema.Column{GroupKeysColumns[6]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "group_keys_users_sent_group_keys",
+				Columns:    []*schema.Column{GroupKeysColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "groupkey_channel_group_keys_user_received_group_keys",
+				Unique:  true,
+				Columns: []*schema.Column{GroupKeysColumns[5], GroupKeysColumns[6]},
 			},
 		},
 	}
@@ -155,8 +286,12 @@ var (
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		AttachmentsTable,
+		ChannelsTable,
+		ChannelMembersTable,
+		ChannelMessagesTable,
 		ChatsTable,
 		DevicesTable,
+		GroupKeysTable,
 		MessagesTable,
 		UsersTable,
 		UserChatsTable,
@@ -166,7 +301,15 @@ var (
 func init() {
 	AttachmentsTable.ForeignKeys[0].RefTable = MessagesTable
 	AttachmentsTable.ForeignKeys[1].RefTable = UsersTable
+	ChannelsTable.ForeignKeys[0].RefTable = UsersTable
+	ChannelMembersTable.ForeignKeys[0].RefTable = ChannelsTable
+	ChannelMembersTable.ForeignKeys[1].RefTable = UsersTable
+	ChannelMessagesTable.ForeignKeys[0].RefTable = ChannelsTable
+	ChannelMessagesTable.ForeignKeys[1].RefTable = UsersTable
 	DevicesTable.ForeignKeys[0].RefTable = UsersTable
+	GroupKeysTable.ForeignKeys[0].RefTable = ChannelsTable
+	GroupKeysTable.ForeignKeys[1].RefTable = UsersTable
+	GroupKeysTable.ForeignKeys[2].RefTable = UsersTable
 	MessagesTable.ForeignKeys[0].RefTable = ChatsTable
 	MessagesTable.ForeignKeys[1].RefTable = MessagesTable
 	MessagesTable.ForeignKeys[2].RefTable = UsersTable

@@ -1,5 +1,12 @@
 import { atom, createStore } from "jotai";
-import type { Server, ChatMember, LastMessage } from "../types/serverTypes";
+import type {
+  Server,
+  ChatMember,
+  LastMessage,
+  Channel,
+  ChannelMessage,
+  ChannelMember,
+} from "../types/serverTypes";
 import type { MemberPresence } from "../hooks/ws/wsTypes";
 
 export const jotaiStore = createStore();
@@ -31,6 +38,11 @@ export const lastMessagesAtom = atom<Record<string, LastMessage>>({});
 // ── Vault (in-memory decrypted state) ────────────────────────────────────────
 export const vaultAtom = atom<Record<string, unknown> | null>(null);
 
+// ── Current user (per server) ─────────────────────────────────────────────────
+export const currentUserAtom = atom<
+  Map<string, { username: string; avatar: string }>
+>(new Map());
+
 // ── Real-time presence ───────────────────────────────────────────────────────
 export const presenceAtom = atom<Map<string, MemberPresence>>(new Map());
 
@@ -39,3 +51,19 @@ interface WritingState {
   writing: boolean;
 }
 export const writingAtom = atom<Map<string, WritingState>>(new Map());
+
+// ── Channels ─────────────────────────────────────────────────────────────────
+export const channelsAtom = atom<Channel[]>([]);
+export const selectedChannelAtom = atom<Channel | null>(null);
+export const channelMessagesAtom = atom<Map<string, ChannelMessage[]>>(
+  new Map(),
+);
+export const channelMembersAtom = atom<Map<string, ChannelMember[]>>(new Map());
+
+interface ChannelWritingState {
+  username: string;
+}
+// channelId → Map<senderId, ChannelWritingState>
+export const channelWritingAtom = atom<
+  Map<string, Map<string, ChannelWritingState>>
+>(new Map());
