@@ -75,6 +75,16 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "username already taken"})
 	}
 
+	exists, err = db.EntClient.User.Query().Where(user.IdentityKeyEQ(req.IdentityKey)).Exist(c.Request().Context())
+	if err != nil {
+		log.Error().Err(err).Msg("failed to check identity key uniqueness")
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	if exists {
+		return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "identity key already registered"})
+	}
+
 	avatarKey := ""
 	avatarMime := ""
 
