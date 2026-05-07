@@ -64,7 +64,6 @@ func NotificationEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
-	connectedFromDesktop := len(user.ConnectionIDs) > 0
 	for _, conn := range user.ConnectionIDs {
 		ws.HubInstance.SendTo(conn, ws.OutgoingMessage{Type: "notification_info", Payload: WsNotificationInfoResponse{
 			ServerID:          req.ServerID,
@@ -75,10 +74,6 @@ func NotificationEndpoint(c *echo.Context) error {
 			AuthTag:           req.AuthTag,
 			Signature:         req.Signature,
 		}})
-	}
-
-	if !connectedFromDesktop {
-		return c.JSON(http.StatusOK, NotificationResponse{InvalidApnTokens: []string{}})
 	}
 
 	invalidIds := push.SendApnNotification(req.DeviceTokens, push.NotificationPayload{
