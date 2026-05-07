@@ -12,6 +12,7 @@ type AuthResponse struct {
 // Response to sender over: auth_confirmation
 func (r *MessageRouter) handleAuth(c HubClient, msg IncomingMessage, userData data.UserData) {
 	userData = data.AddConnectionID(userData, c.ID())
+	userData.Active = true
 	data.UpdateUserData(userData)
 	c.Send(OutgoingMessage{Type: "auth_confirmation", Payload: AuthResponse{
 		Success: "ok",
