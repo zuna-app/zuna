@@ -1,20 +1,19 @@
-import { useRef, useEffect, useCallback, useState, KeyboardEvent } from "react";
+import { useRef, useEffect, useCallback } from "react";
 import { useAtomValue } from "jotai";
 import { Hash, Users, ArrowLeft, Loader2, Shield } from "lucide-react";
-import { cn } from "@/lib/utils";
 import {
   channelWritingAtom,
   channelMembersAtom,
+  serverMetaAtom,
   jotaiStore,
 } from "@/store/atoms";
 import { useChannelMessages } from "@/hooks/channel/useChannelMessages";
+import { useEmotes } from "@/hooks/ui/useEmotes";
 import { ChannelMessageItem } from "./channel-message-item";
-import { Textarea } from "@/components/ui/textarea";
+import { ChannelInput } from "./channel-input";
 import { Button } from "@/components/ui/button";
 import type { Channel, Server } from "@/types/serverTypes";
 import { Badge } from "../ui/badge";
-
-const WRITE_IDLE_MS = 4000;
 
 interface ChannelViewProps {
   server: Server;
@@ -44,12 +43,16 @@ export function ChannelView({
 
   const writing = useAtomValue(channelWritingAtom, { store: jotaiStore });
   const members = useAtomValue(channelMembersAtom, { store: jotaiStore });
+  const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
   const channelWriters = writing.get(channel.id);
   const channelMembers = members.get(channel.id) ?? [];
+  const sevenTvEnabled = serverMeta.get(server.id)?.sevenTvEnabled ?? true;
+  const sevenTvEmotesSet = serverMeta.get(server.id)?.sevenTvEmotesSet ?? null;
+  const { emoteMap, emoteDataMap } = useEmotes(
+    sevenTvEmotesSet,
+    sevenTvEnabled,
+  );
 
-  const [text, setText] = useState("");
-  const writeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isWritingRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -74,42 +77,18 @@ export function ChannelView({
     }
   }, [hasMore, loading, fetchMore]);
 
-  const handleTextChange = useCallback(
-    (value: string) => {
-      setText(value);
-
-      if (!isWritingRef.current) {
-        isWritingRef.current = true;
-        sendWriteIndicator(true);
-      }
-
-      if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
-      writeTimerRef.current = setTimeout(() => {
-        isWritingRef.current = false;
-        sendWriteIndicator(false);
-      }, WRITE_IDLE_MS);
+  const handleSend = useCallback(
+    (text: string) => {
+      sendChannelMessage(text);
     },
-    [sendWriteIndicator],
+    [sendChannelMessage],
   );
 
-  const handleSend = useCallback(() => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setText("");
-    if (writeTimerRef.current) clearTimeout(writeTimerRef.current);
-    isWritingRef.current = false;
-    sendWriteIndicator(false);
-    sendChannelMessage(trimmed);
-  }, [text, sendChannelMessage, sendWriteIndicator]);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend();
-      }
+  const handleWrite = useCallback(
+    (writing: boolean) => {
+      sendWriteIndicator(writing);
     },
-    [handleSend],
+    [sendWriteIndicator],
   );
 
   const writingText = buildTypingText(channelWriters);
@@ -212,6 +191,8 @@ export function ChannelView({
                   selfId={selfId}
                   selfUsername={selfUsername}
                   selfAvatar={selfAvatar}
+                  emoteMap={emoteMap}
+                  emoteDataMap={emoteDataMap}
                 />
               ))}
             </div>
@@ -231,23 +212,13 @@ export function ChannelView({
       </div>
 
       {/* Input */}
-      <div className="px-4 pb-4 pt-1 shrink-0">
-        <div
-          className={cn(
-            "relative rounded-xl border border-border/60 bg-muted/30 transition-all",
-            "focus-within:border-ring/50 focus-within:ring-2 focus-within:ring-ring/20",
-          )}
-        >
-          <Textarea
-            value={text}
-            onChange={(e) => handleTextChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={`Message #${channel.name}`}
-            rows={1}
-            className="resize-none border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 min-h-10.5 max-h-50 py-3 px-3.5 text-sm placeholder:text-muted-foreground/50"
-          />
-        </div>
-      </div>
+      <ChannelInput
+        channelName={channel.name}
+        onSend={handleSend}
+        onWrite={handleWrite}
+        sevenTvEnabled={sevenTvEnabled}
+        sevenTvEmotesSet={sevenTvEmotesSet}
+      />
     </div>
   );
 }

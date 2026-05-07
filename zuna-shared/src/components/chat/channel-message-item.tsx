@@ -2,6 +2,9 @@ import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { getFirstLetters } from "@/utils/basicUtils";
 import type { ChannelMessage } from "@/types/serverTypes";
+import type { EmoteDataMap } from "@/hooks/ui/useEmotes";
+import { renderMessage } from "./messages/render-message";
+import { usePlatform } from "../../platform";
 
 const MESSAGE_GROUPED_THRESHOLD = 5 * 60 * 1000;
 
@@ -36,6 +39,8 @@ interface ChannelMessageItemProps {
   selfId: string;
   selfUsername: string;
   selfAvatar: string;
+  emoteMap?: ReadonlyMap<string, string>;
+  emoteDataMap?: EmoteDataMap;
 }
 
 export const ChannelMessageItem = memo(function ChannelMessageItem({
@@ -44,7 +49,10 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
   selfId,
   selfUsername,
   selfAvatar,
+  emoteMap,
+  emoteDataMap,
 }: ChannelMessageItemProps) {
+  const { shell } = usePlatform();
   const isSelf = message.senderId === "__self__" || message.senderId === selfId;
   const senderUsername = isSelf ? selfUsername : message.senderUsername;
   const senderAvatar = isSelf ? selfAvatar : message.senderAvatar;
@@ -64,6 +72,11 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
 
   const displayText = message.plaintext ?? "[encrypted]";
 
+  const renderedContent =
+    emoteMap && emoteDataMap && emoteMap.size > 0
+      ? renderMessage(displayText, emoteMap, emoteDataMap, shell)
+      : displayText;
+
   // Compact variant — same sender within MESSAGE_GROUPED_THRESHOLD, no avatar/name repeat
   // pl-16 = 64px = px-4(16) + size-9(36) + gap-3(12) — aligns with full message text
   if (isGrouped) {
@@ -78,7 +91,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             message.pending && "opacity-50",
           )}
         >
-          {displayText}
+          {renderedContent}
         </p>
       </div>
     );
@@ -121,7 +134,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
             message.pending && "opacity-50",
           )}
         >
-          {displayText}
+          {renderedContent}
         </p>
       </div>
     </div>
