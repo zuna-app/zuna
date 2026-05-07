@@ -34,3 +34,6 @@ export const vaultPinAtom = atom<string | null>(null);
 // Real-time
 export const presenceAtom = atom<Map<string, MemberPresence>>(new Map());
 export const writingAtom = atom<Map<string, { chatId: string; writing: boolean }>>(new Map());
+
+// Push notifications
+export const pushTokenAtom = atom<string | null>(null);

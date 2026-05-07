@@ -6,10 +6,12 @@ import {
   serverAuthErrorsAtom,
   serverMetaAtom,
   vaultAtom,
+  pushTokenAtom,
 } from '@/store/atoms';
 import { signMessage } from '@/lib/crypto/ed25519';
 import { verifySignature } from '@/lib/crypto/ed25519';
 import { Server } from '@/types/serverTypes';
+import { getOrCreateDeviceId, registerDeviceWithServer } from '@/lib/notifications';
 
 export async function reauthorize(server: Server): Promise<void> {
   const vault = jotaiStore.get(vaultAtom);
@@ -107,6 +109,16 @@ export function useAuthorizer(server: Server) {
         next.set(server.id, newToken);
         return next;
       });
+
+      // Register device for push notifications if we already have a token
+      const pushToken = jotaiStore.get(pushTokenAtom);
+      if (pushToken) {
+        getOrCreateDeviceId()
+          .then((deviceId) =>
+            registerDeviceWithServer(server, deviceId, pushToken, newToken)
+          )
+          .catch(console.error);
+      }
 
       jotaiStore.set(serverMetaAtom, (prev) => {
         const next = new Map(prev);

@@ -24,6 +24,10 @@ type NotificationRequest struct {
 	DeviceTokens      []string `json:"device_tokens"`
 }
 
+type NotificationResponse struct {
+	InvalidApnTokens []string `json:"invalid_apn_tokens"`
+}
+
 type WsNotificationInfoResponse struct {
 	ServerID          string `json:"server_id"`
 	SenderID          string `json:"sender_id"`
@@ -53,7 +57,7 @@ func NotificationEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
-	push.SendApnNotification(req.DeviceTokens, push.NotificationPayload{
+	invalidIds := push.SendApnNotification(req.DeviceTokens, push.NotificationPayload{
 		ServerID:          req.ServerID,
 		SenderID:          req.SenderID,
 		SenderIdentityKey: req.SenderIdentityKey,
@@ -64,7 +68,9 @@ func NotificationEndpoint(c *echo.Context) error {
 		Signature:         req.Signature,
 	})
 
-	// VAPID stuff
+	return c.JSON(http.StatusOK, NotificationResponse{InvalidApnTokens: invalidIds})
+
+	// VAPID and Desktop stuff
 	// user, err := data.GetUserByUserId(req.UserID)
 	// if err != nil {
 	// 	return c.JSON(http.StatusForbidden, Forbidden)
@@ -121,5 +127,4 @@ func NotificationEndpoint(c *echo.Context) error {
 	// 	}
 	// }
 
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }

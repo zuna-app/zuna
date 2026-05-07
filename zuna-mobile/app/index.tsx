@@ -9,11 +9,13 @@ import {
   vaultPinAtom,
   serverListAtom,
   selectedServerAtom,
+  pushTokenAtom,
 } from '@/store/atoms';
 import { clearSession, getSessionPin } from '@/lib/keychain';
 
 import 'react-native-get-random-values';
 import { fetchAndUpdateServerInfos } from '@/hooks/auth/useAuthorizer';
+import { storeEncPrivateKeyForNSE, setupPushNotifications } from '@/lib/notifications';
 
 import * as LocalAuthentication from 'expo-local-authentication';
 
@@ -31,6 +33,12 @@ export default function Index() {
         if (!vault) return false;
 
         setVault(vault);
+
+        // Store NSE data and request push permissions in the background.
+        void storeEncPrivateKeyForNSE(vault);
+        void setupPushNotifications().then((token) => {
+          if (token) jotaiStore.set(pushTokenAtom, token);
+        });
 
         const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
         setServerList(servers);

@@ -9,13 +9,40 @@
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		A1B2C3D4E5F60009A1B2C3D4 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60005A1B2C3D4 /* NotificationService.swift */; };
+		A1B2C3D4E5F60010A1B2C3D4 /* ZunaNotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60008A1B2C3D4 /* ZunaNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A75F09A5512FAEBAFC02FAD3 /* libPods-Zuna.a in Frameworks */ = {isa = PBXBuildFile; fileRef = A847D60DA66BE4AA7514CD70 /* libPods-Zuna.a */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		D715D11DA8924991889C5B8C /* TrustAllCerts.m in Sources */ = {isa = PBXBuildFile; fileRef = 6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */; };
 		D90D485927AB100D5C01E9C8 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 156CDAC5B6907BD7891EAEBE /* ExpoModulesProvider.swift */; };
 		EEAB74DF7B120C2A1DFE4491 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 1EC3E298636ECBAC88828FA3 /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		A1B2C3D4E5F60021A1B2C3D4 /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60020A1B2C3D4 /* Intents.framework */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1B2C3D4E5F60012A1B2C3D4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3D4E5F60004A1B2C3D4;
+			remoteInfo = ZunaNotificationService;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1B2C3D4E5F6000FA1B2C3D4 /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1B2C3D4E5F60010A1B2C3D4 /* ZunaNotificationService.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* Zuna.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Zuna.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -24,6 +51,10 @@
 		156CDAC5B6907BD7891EAEBE /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Zuna/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		1EC3E298636ECBAC88828FA3 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Zuna/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6DD186D9DEA64D07A3D16DBB /* TrustAllCerts.m */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.c.objc; name = TrustAllCerts.m; path = Zuna/TrustAllCerts.m; sourceTree = "<group>"; };
+		A1B2C3D4E5F60005A1B2C3D4 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60006A1B2C3D4 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1B2C3D4E5F60007A1B2C3D4 /* ZunaNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ZunaNotificationService.entitlements; sourceTree = "<group>"; };
+		A1B2C3D4E5F60008A1B2C3D4 /* ZunaNotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ZunaNotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A847D60DA66BE4AA7514CD70 /* libPods-Zuna.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Zuna.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Zuna/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
@@ -32,6 +63,7 @@
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Zuna/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Zuna-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Zuna-Bridging-Header.h"; path = "Zuna/Zuna-Bridging-Header.h"; sourceTree = "<group>"; };
 		F676415F29704D4415CEB776 /* Pods-Zuna.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Zuna.debug.xcconfig"; path = "Target Support Files/Pods-Zuna/Pods-Zuna.debug.xcconfig"; sourceTree = "<group>"; };
+		A1B2C3D4E5F60020A1B2C3D4 /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,6 +72,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				A75F09A5512FAEBAFC02FAD3 /* libPods-Zuna.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F60003A1B2C3D4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F60021A1B2C3D4 /* Intents.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +138,7 @@
 			isa = PBXGroup;
 			children = (
 				13B07FAE1A68108700A75B9A /* Zuna */,
+				A1B2C3D4E5F6000BA1B2C3D4 /* ZunaNotificationService */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
@@ -113,8 +154,19 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* Zuna.app */,
+				A1B2C3D4E5F60008A1B2C3D4 /* ZunaNotificationService.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A1B2C3D4E5F6000BA1B2C3D4 /* ZunaNotificationService */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F60005A1B2C3D4 /* NotificationService.swift */,
+				A1B2C3D4E5F60006A1B2C3D4 /* Info.plist */,
+				A1B2C3D4E5F60007A1B2C3D4 /* ZunaNotificationService.entitlements */,
+			);
+			path = ZunaNotificationService;
 			sourceTree = "<group>";
 		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
@@ -149,15 +201,34 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				84EAF34D03E017F18F6EA4E5 /* [CP] Embed Pods Frameworks */,
+				A1B2C3D4E5F6000FA1B2C3D4 /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1B2C3D4E5F60011A1B2C3D4 /* PBXTargetDependency */,
 			);
 			name = Zuna;
 			productName = Zuna;
 			productReference = 13B07F961A680F5B00A75B9A /* Zuna.app */;
 			productType = "com.apple.product-type.application";
+		};
+		A1B2C3D4E5F60004A1B2C3D4 /* ZunaNotificationService */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D4E5F6000EA1B2C3D4 /* Build configuration list for PBXNativeTarget "ZunaNotificationService" */;
+			buildPhases = (
+				A1B2C3D4E5F60001A1B2C3D4 /* Sources */,
+				A1B2C3D4E5F60003A1B2C3D4 /* Frameworks */,
+				A1B2C3D4E5F60002A1B2C3D4 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ZunaNotificationService;
+			productName = ZunaNotificationService;
+			productReference = A1B2C3D4E5F60008A1B2C3D4 /* ZunaNotificationService.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -168,6 +239,9 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
+						LastSwiftMigration = 1250;
+					};
+					A1B2C3D4E5F60004A1B2C3D4 = {
 						LastSwiftMigration = 1250;
 					};
 				};
@@ -186,6 +260,7 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* Zuna */,
+				A1B2C3D4E5F60004A1B2C3D4 /* ZunaNotificationService */,
 			);
 		};
 /* End PBXProject section */
@@ -199,6 +274,13 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				EEAB74DF7B120C2A1DFE4491 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D4E5F60002A1B2C3D4 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -275,11 +357,13 @@
 			);
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-Zuna/Pods-Zuna-resources.sh",
+				"${PODS_CONFIGURATION_BUILD_DIR}/EXApplication/ExpoApplication_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXUpdates/EXUpdates.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoMediaLibrary/ExpoMediaLibrary_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoNotifications/ExpoNotifications_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoSystemUI/ExpoSystemUI_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNSVG/RNSVGFilters.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ReachabilitySwift/ReachabilitySwift.bundle",
@@ -289,11 +373,13 @@
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoApplication_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXUpdates.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoMediaLibrary_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoNotifications_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoSystemUI_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNSVGFilters.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ReachabilitySwift.bundle",
@@ -341,7 +427,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D4E5F60001A1B2C3D4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F60009A1B2C3D4 /* NotificationService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1B2C3D4E5F60011A1B2C3D4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3D4E5F60004A1B2C3D4 /* ZunaNotificationService */;
+			targetProxy = A1B2C3D4E5F60012A1B2C3D4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -534,6 +636,50 @@
 			};
 			name = Release;
 		};
+		A1B2C3D4E5F6000CA1B2C3D4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ZunaNotificationService/ZunaNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = SGKB9R23YT;
+				INFOPLIST_FILE = ZunaNotificationService/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = chat.zuna.mobile.NotificationService;
+				PRODUCT_NAME = ZunaNotificationService;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A1B2C3D4E5F6000DA1B2C3D4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ZunaNotificationService/ZunaNotificationService.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = SGKB9R23YT;
+				INFOPLIST_FILE = ZunaNotificationService/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = chat.zuna.mobile.NotificationService;
+				PRODUCT_NAME = ZunaNotificationService;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -551,6 +697,15 @@
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D4E5F6000EA1B2C3D4 /* Build configuration list for PBXNativeTarget "ZunaNotificationService" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D4E5F6000CA1B2C3D4 /* Debug */,
+				A1B2C3D4E5F6000DA1B2C3D4 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

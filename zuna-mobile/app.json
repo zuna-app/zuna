@@ -25,7 +25,8 @@
           "$(AppIdentifierPrefix)$(CFBundleIdentifier)",
           "SGKB9R23YT.chat.zuna.mobile",
           "$(AppIdentifierPrefix)SGKB9R23YT.chat.zuna.mobile"
-        ]
+        ],
+        "aps-environment": "development"
       },
       "infoPlist": {
         "NSLocalNetworkUsageDescription": "Zuna requires access to the local network to download and import your vault from other devices",
@@ -53,7 +54,14 @@
       "expo-image",
       "expo-secure-store",
       "expo-sharing",
-      "./plugins/withSelfSignedTLS"
+      [
+        "expo-notifications",
+        {
+          "sounds": []
+        }
+      ],
+      "./plugins/withSelfSignedTLS",
+      "./plugins/withNotificationServiceExtension"
     ],
     "experiments": {
       "typedRoutes": true

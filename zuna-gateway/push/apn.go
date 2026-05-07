@@ -36,15 +36,15 @@ func InitializeApnClient() {
 	// client = tokenClient.Production()
 }
 
-func SendApnNotification(tokens []string, payload NotificationPayload) {
+func SendApnNotification(tokens []string, payload NotificationPayload) []string {
 	if client == nil {
 		log.Error().Msg("APNs client is not initialized, cannot send APN notification")
-		return
+		return []string{}
 	}
 
 	if len(tokens) == 0 {
 		log.Debug().Msg("No APN tokens received in notification request, skipping APN notification")
-		return
+		return []string{}
 	}
 
 	payloadBytes, err := json.Marshal(ApnPayload{
@@ -55,7 +55,7 @@ func SendApnNotification(tokens []string, payload NotificationPayload) {
 			},
 			Sound:             "default",
 			MutableContent:    1,
-			ThreadID:          "chat_" + payload.SenderID,
+			ThreadID:          "chat_" + payload.ChatID,
 			InterruptionLevel: "active",
 		},
 		SenderID:          payload.SenderID,
@@ -69,14 +69,15 @@ func SendApnNotification(tokens []string, payload NotificationPayload) {
 
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to marshal APNs payload")
-		return
+		return []string{}
 	}
 
 	if len(payloadBytes) > 4096 {
 		log.Warn().Msgf("APNs payload size %d exceeds limit of 4096 bytes", len(payloadBytes))
-		return
+		return []string{}
 	}
 
+	invalidTokens := make([]string, 0)
 	for _, deviceToken := range tokens {
 		notification := &apns2.Notification{
 			DeviceToken: deviceToken,
@@ -94,6 +95,7 @@ func SendApnNotification(tokens []string, payload NotificationPayload) {
 
 		if res.Reason == apns2.ReasonUnregistered {
 			log.Debug().Msg("Device token is unregistered")
+			invalidTokens = append(invalidTokens, deviceToken)
 			continue
 		}
 
@@ -106,4 +108,6 @@ func SendApnNotification(tokens []string, payload NotificationPayload) {
 			log.Debug().Msgf("Reason: %v", res.Reason)
 		}
 	}
+
+	return invalidTokens
 }

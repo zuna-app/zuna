@@ -4,6 +4,7 @@ import { useAuthorizedServerFetch } from '@/hooks/server/useServerFetch';
 import { useWsHandler } from '@/hooks/ws/useWsHandler';
 import { WS_MSG } from '@/hooks/ws/wsTypes';
 import { Server, ChatMember } from '@/types/serverTypes';
+import { updateUserMapForNSE } from '@/lib/notifications';
 
 interface ChatListResponse {
   chats: Array<{
@@ -48,6 +49,12 @@ export function useChatList(server: Server) {
     staleTime: 30_000,
     enabled: !!token,
   });
+
+  useEffect(() => {
+    if (query.data) {
+      void updateUserMapForNSE(query.data, server.address);
+    }
+  }, [query.data, server.address]);
 
   useWsHandler(server, WS_MSG.USER_JOINED, () => {
     queryClient.invalidateQueries({ queryKey: ['chat-list', server.id] });

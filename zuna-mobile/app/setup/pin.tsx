@@ -15,6 +15,8 @@ import { getSessionPin } from '@/lib/keychain';
 import { unlockVaultWithSession } from '@/lib/vault';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchAndUpdateServerInfos } from '@/hooks/auth/useAuthorizer';
+import { storeEncPrivateKeyForNSE, setupPushNotifications } from '@/lib/notifications';
+import { pushTokenAtom } from '@/store/atoms';
 
 const PIN_LENGTH = 4;
 
@@ -62,6 +64,12 @@ export default function PinScreen() {
       const vault = await unlockVault(enteredPin);
       setVault(vault);
       setVaultPin(enteredPin);
+
+      void storeEncPrivateKeyForNSE(vault);
+      void setupPushNotifications().then((token) => {
+        if (token) jotaiStore.set(pushTokenAtom, token);
+      });
+
       const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
       setServerList(servers);
 
