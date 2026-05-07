@@ -96,7 +96,7 @@ _Our objective is not to compromise on security, but to make it more accessible 
 
 ## Architecture
 
-By default, running a Zuna server is intentionally straightforward: a single Linux instance and a supported database - such as SQLite, MariaDB, or PostgreSQL - are sufficient to get started. This simplicity, however, assumes the use of our cloud gateway relay (gateway.zuna.chat). That component handles certain external integrations, most notably enabling push notifications for PWA.
+By default, running a Zuna server is intentionally straightforward: a single Linux instance and a supported database - such as SQLite, MariaDB, or PostgreSQL - are sufficient to get started. This simplicity, however, assumes the use of our cloud gateway relay (gateway.zuna.chat). That component handles certain external integrations, most notably enabling push notifications for PWA and mobile.
 
 Due to Push Notification restrictions, delivering push notifications on PWAs or mobile devices requires integration with our third-party infrastructure. As a result, using Zuna PWA or Zuna Mobile applications in its standard form depends on our gateway relay. While this introduces a limited external dependency, it allows most users to deploy and operate Zuna with minimal setup complexity.
 
