@@ -1,6 +1,13 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, useState } from "react";
 import { useAtomValue } from "jotai";
-import { Hash, Users, ArrowLeft, Loader2, Shield } from "lucide-react";
+import {
+  Hash,
+  Users,
+  ArrowLeft,
+  Loader2,
+  Shield,
+  Settings,
+} from "lucide-react";
 import {
   channelWritingAtom,
   channelMembersAtom,
@@ -11,6 +18,7 @@ import { useChannelMessages } from "@/hooks/channel/useChannelMessages";
 import { useEmotes } from "@/hooks/ui/useEmotes";
 import { ChannelMessageItem } from "./channel-message-item";
 import { ChannelInput } from "./channel-input";
+import { ChannelSettingsModal } from "./channel-settings-modal";
 import { Button } from "@/components/ui/button";
 import type { Channel, Server } from "@/types/serverTypes";
 import { Badge } from "../ui/badge";
@@ -92,6 +100,7 @@ export function ChannelView({
   );
 
   const writingText = buildTypingText(channelWriters);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
@@ -121,11 +130,31 @@ export function ChannelView({
           <Shield />
           Encrypted
         </Badge>
-        <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground/60 shrink-0">
-          <Users className="size-3.5" />
-          <span>{channelMembers.length}</span>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground/60">
+            <Users className="size-3.5" />
+            <span>{channelMembers.length}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setSettingsOpen(true)}
+            className="text-muted-foreground hover:text-foreground"
+            title="Channel settings"
+          >
+            <Settings className="size-4" />
+          </Button>
         </div>
       </div>
+
+      <ChannelSettingsModal
+        server={server}
+        channel={channel}
+        members={channelMembers}
+        selfId={selfId}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
 
       {/* Messages area */}
       <div

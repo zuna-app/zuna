@@ -119,6 +119,9 @@ func main() {
 	channel.GET("/list", rest.ChannelListEndpoint)
 	channel.GET("/messages", rest.ChannelMessagesEndpoint)
 	channel.GET("/members", rest.ChannelMembersEndpoint)
+	channel.POST("/rename", rest.ChannelRenameEndpoint)
+	channel.POST("/members/add", rest.ChannelAddMemberEndpoint)
+	channel.POST("/members/remove", rest.ChannelRemoveMemberEndpoint)
 
 	notifications := api.Group("/notifications", rest.AuthMiddleware, apiLimiter.Middleware())
 	notifications.POST("/register", rest.NotificationsRegisterEndpoint)
