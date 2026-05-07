@@ -98,7 +98,7 @@ func SendApnNotification(tokens []string, payload NotificationPayload) []string 
 			continue
 		}
 
-		if res.Reason == apns2.ReasonUnregistered {
+		if res.Reason == apns2.ReasonUnregistered || res.Reason == apns2.ReasonBadDeviceToken {
 			log.Debug().Msg("Device token is unregistered")
 			invalidTokens = append(invalidTokens, deviceToken)
 			continue
