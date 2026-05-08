@@ -47,10 +47,15 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 		return
 	}
 
-	err = db.EntClient.Message.Update().
-		Where(message.HasChatWith(chat.IDEQ(req.ChatID)), message.SentAtLTE(time.UnixMilli(req.Timestamp)), message.HasUserWith(user.IDNEQ(userData.UserID))).
+	readCount, err := db.EntClient.Message.Update().
+		Where(
+			message.HasChatWith(chat.IDEQ(req.ChatID)),
+			message.SentAtLTE(time.UnixMilli(req.Timestamp)),
+			message.HasUserWith(user.IDNEQ(userData.UserID)),
+			message.ReadAtIsNil(),
+		).
 		SetReadAt(time.Now()).
-		Exec(ctx)
+		Save(ctx)
 	if err != nil {
 		log.Error().Err(err).Str("chat_id", ch.ID).Msg("failed to batch update messages")
 		sendInternalServerError(c)
@@ -85,5 +90,7 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 		deviceTokens[i] = d.DeviceToken
 	}
 
-	go utils.ClearNotificationsInGateway(userData.UserID, deviceTokens)
+	if readCount > 0 {
+		go utils.UpdateNotificationBadgeInGateway(userData.UserID, deviceTokens, readCount)
+	}
 }

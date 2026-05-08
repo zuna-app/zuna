@@ -11,25 +11,27 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-type NotificationClearRequest struct {
+type NotificationBadgeUpdateRequest struct {
 	UserID       string   `json:"user_id"`
+	ClearedCount int      `json:"cleared_count"`
 	Timestamp    int64    `json:"timestamp"`
 	Password     string   `json:"password"`
 	Signature    string   `json:"signature"`
 	DeviceTokens []string `json:"device_tokens"`
 }
 
-type WsNotificationClearResponse struct {
-	UserID string `json:"user_id"`
+type WsNotificationBadgeUpdateResponse struct {
+	UserID              string `json:"user_id"`
+	UnreadNotifications int    `json:"unread_notifications"`
 }
 
-func NotificationClearEndpoint(c *echo.Context) error {
+func NotificationBadgeUpdateEndpoint(c *echo.Context) error {
 	userAgent := c.Request().UserAgent()
 	if userAgent != "ZunaServer" {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
-	req := new(NotificationClearRequest)
+	req := new(NotificationBadgeUpdateRequest)
 	if err := c.Bind(req); err != nil {
 		return c.JSON(http.StatusBadRequest, InvalidRequest)
 	}
@@ -42,6 +44,10 @@ func NotificationClearEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusForbidden, Forbidden)
 	}
 
+	if req.ClearedCount < 0 {
+		return c.JSON(http.StatusBadRequest, InvalidRequest)
+	}
+
 	user, err := data.GetUserByUserId(req.UserID)
 	if err != nil {
 		user = data.User{
@@ -49,22 +55,29 @@ func NotificationClearEndpoint(c *echo.Context) error {
 			ConnectionIDs:       make([]string, 0),
 			UnreadNotifications: 0,
 		}
-	} else {
-		for _, conn := range user.ConnectionIDs {
-			ws.HubInstance.SendTo(conn, ws.OutgoingMessage{Type: "notification_clear", Payload: WsNotificationClearResponse{UserID: req.UserID}})
-		}
 	}
 
-	user.UnreadNotifications = 0
+	user.UnreadNotifications -= req.ClearedCount
+	if user.UnreadNotifications < 0 {
+		user.UnreadNotifications = 0
+	}
+
 	data.UpdateUser(user)
 	data.TrackDeviceTokens(req.UserID, req.DeviceTokens)
+
+	for _, conn := range user.ConnectionIDs {
+		ws.HubInstance.SendTo(conn, ws.OutgoingMessage{Type: "notification_badge_update", Payload: WsNotificationBadgeUpdateResponse{
+			UserID:              req.UserID,
+			UnreadNotifications: user.UnreadNotifications,
+		}})
+	}
 
 	badgeByToken := make(map[string]int, len(req.DeviceTokens))
 	for _, token := range req.DeviceTokens {
 		badgeByToken[token] = data.GetTokenBadgeTotal(token)
 	}
 
-	invalidIds := push.SendApnClearBadge(req.DeviceTokens, badgeByToken)
+	invalidIds := push.SendApnBadgeUpdate(req.DeviceTokens, badgeByToken)
 	for _, invalidToken := range invalidIds {
 		data.DeleteTrackedDeviceToken(invalidToken)
 	}

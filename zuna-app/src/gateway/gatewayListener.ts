@@ -35,6 +35,7 @@ interface RegisterResponsePayload {
 
 interface NotificationClearPayload {
   user_id?: string;
+  unread_notifications?: number;
 }
 
 interface WsMessage {
@@ -138,10 +139,14 @@ function connectToGateway(address: string, servers: Server[]): void {
           unreadByUser.set(payload.user_id, payload.unread_notifications);
           recomputeBadgeFromUsers();
         }
-      } else if (msg.type === "notification_clear") {
+      } else if (msg.type === "notification_badge_update") {
         const payload = msg.payload as NotificationClearPayload;
         if (typeof payload.user_id === "string") {
-          unreadByUser.set(payload.user_id, 0);
+          const unreadCount =
+            typeof payload.unread_notifications === "number"
+              ? payload.unread_notifications
+              : 0;
+          unreadByUser.set(payload.user_id, unreadCount);
           recomputeBadgeFromUsers();
         } else {
           unreadByUser.clear();

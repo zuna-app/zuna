@@ -61,7 +61,7 @@ func main() {
 
 	api := e.Group("/api", apiLimiter.Middleware())
 	api.POST("/notification", rest.NotificationEndpoint)
-	api.POST("/notification/clear", rest.NotificationClearEndpoint)
+	api.POST("/notification/badge-update", rest.NotificationBadgeUpdateEndpoint)
 	api.GET("/validate", rest.ValidateEndpoint)
 
 	ws.HubInstance = ws.NewHub()

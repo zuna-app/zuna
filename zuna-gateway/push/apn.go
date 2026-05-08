@@ -123,7 +123,7 @@ func SendApnNotification(tokens []string, payload NotificationPayload, badgeByTo
 	return invalidTokens
 }
 
-func SendApnClearBadge(tokens []string, badgeByToken map[string]int) []string {
+func SendApnBadgeUpdate(tokens []string, badgeByToken map[string]int) []string {
 	if client == nil {
 		return []string{}
 	}

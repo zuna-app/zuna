@@ -105,20 +105,22 @@ func SendNotificationToGateway(userId string, chatId string, senderId string, se
 	defer resp.Body.Close()
 }
 
-type NotificationClearRequest struct {
+type NotificationBadgeUpdateRequest struct {
 	UserID       string   `json:"user_id"`
+	ClearedCount int      `json:"cleared_count"`
 	Timestamp    int64    `json:"timestamp"`
 	Password     string   `json:"password"`
 	DeviceTokens []string `json:"device_tokens"`
 }
 
-func ClearNotificationsInGateway(userId string, deviceTokens []string) {
+func UpdateNotificationBadgeInGateway(userId string, deviceTokens []string, clearedCount int) {
 	if !GatewayWorking {
 		return
 	}
 
-	body := NotificationClearRequest{
+	body := NotificationBadgeUpdateRequest{
 		UserID:       userId,
+		ClearedCount: clearedCount,
 		Timestamp:    time.Now().UnixMilli(),
 		Password:     config.Config.Gateway.Password,
 		DeviceTokens: deviceTokens,
@@ -130,7 +132,7 @@ func ClearNotificationsInGateway(userId string, deviceTokens []string) {
 		return
 	}
 
-	url := fmt.Sprintf("https://%s/api/notification/clear", config.Config.Gateway.Address)
+	url := fmt.Sprintf("https://%s/api/notification/badge-update", config.Config.Gateway.Address)
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
 	if err != nil {
