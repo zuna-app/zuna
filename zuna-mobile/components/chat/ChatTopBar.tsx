@@ -1,8 +1,9 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { ChevronLeftIcon, PinIcon } from 'lucide-react-native';
+import { ChevronLeftIcon, PinIcon, ShieldIcon } from 'lucide-react-native';
 import { Avatar } from '@/components/ui/avatar';
 import { usePresence, useWriting } from '@/hooks/ws/usePresence';
+import { convertTimeToRelative } from '@/lib/utils';
 import { ChatMember, Message } from '@/types/serverTypes';
 
 interface Props {
@@ -18,7 +19,7 @@ export function ChatTopBar({ member, messages, onShowPinned }: Props) {
 
   const presence = getMemberPresence(member.id);
   const isOnline = presence?.active ?? false;
-  const isTyping = isMemberTyping(member.id, member.chatId);
+  const isTyping = isOnline && isMemberTyping(member.id, member.chatId);
   const pinnedCount = messages.filter((m) => m.pinned).length;
 
   return (
@@ -30,13 +31,23 @@ export function ChatTopBar({ member, messages, onShowPinned }: Props) {
       <Avatar name={member.username} size={34} uri={member.avatar || null} />
 
       <View style={styles.info}>
-        <Text style={styles.name} numberOfLines={1}>
-          {member.username}
-        </Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name} numberOfLines={1}>
+            {member.username}
+          </Text>
+          <View style={styles.encryptedBadge}>
+            <ShieldIcon size={10} color="#a1a1aa" />
+            <Text style={styles.encryptedText}>Encrypted</Text>
+          </View>
+        </View>
         <View style={styles.statusRow}>
           <View style={[styles.dot, isOnline && styles.dotOnline]} />
           <Text style={styles.status}>
-            {isTyping ? 'typing…' : isOnline ? 'online' : 'offline'}
+            {isTyping
+              ? 'typing…'
+              : isOnline
+                ? 'online'
+                : `Last seen ${presence?.lastSeen ? convertTimeToRelative(presence.lastSeen) : 'sometimes ago'}`}
           </Text>
         </View>
       </View>
@@ -64,7 +75,18 @@ const styles = StyleSheet.create({
   },
   backBtn: { padding: 4 },
   info: { flex: 1 },
-  name: { color: '#fff', fontWeight: '600', fontSize: 16 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  name: { color: '#fff', fontWeight: '600', fontSize: 16, flexShrink: 1 },
+  encryptedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#18181b',
+    borderRadius: 999,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  encryptedText: { color: '#a1a1aa', fontSize: 11, fontWeight: '600' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#52525b' },
   dotOnline: { backgroundColor: '#22c55e' },
