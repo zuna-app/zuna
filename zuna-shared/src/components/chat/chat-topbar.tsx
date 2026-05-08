@@ -14,6 +14,7 @@ import {
   BellOff,
   UserRound,
   ArrowLeft,
+  Shield,
 } from "lucide-react";
 import { usePresence } from "@/hooks/ws/usePresence";
 import { useWriting } from "@/hooks/ws/usePresence";
@@ -22,6 +23,7 @@ import { convertTimeToRelative, getFirstLetters } from "@/utils/basicUtils";
 import { ZunaAvatar } from "../avatar";
 import { PulseLoader } from "react-spinners";
 import { PinnedMessagesPanel } from "./pinned-messages-panel";
+import { Badge } from "@/components/ui/badge";
 
 interface ChatTopbarProps {
   member: ChatMember;
@@ -88,17 +90,22 @@ export function ChatTopbar({
           />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold leading-tight truncate">
-            {member.username}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold leading-tight truncate">
+              {member.username}
+            </p>
+            <Badge variant="secondary" className="shrink-0">
+              <Shield />
+              Encrypted
+            </Badge>
+          </div>
           <p
-            className={`text-[11px] leading-tight font-medium ${
-              isTyping
+            className={`text-[11px] leading-tight font-medium mt-0.5 ${isTyping
                 ? "text-emerald-500"
                 : presence?.active
                   ? "text-emerald-500"
                   : "text-gray-500"
-            }`}
+              }`}
           >
             {isTyping ? (
               <span className="flex flex-row items-center gap-0.5">
