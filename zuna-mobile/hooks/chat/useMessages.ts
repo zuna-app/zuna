@@ -122,8 +122,6 @@ export function useMessages(
   const prevReadyStateRef = useRef<ReadyState | null>(null);
   const prevChatIdRef = useRef<string | null>(null);
   const isActiveRef = useRef(AppState.currentState === 'active');
-  const inactivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isInactiveRef = useRef(false);
   const lastPresenceRef = useRef<boolean | null>(null);
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
@@ -157,18 +155,18 @@ export function useMessages(
         prev.map((m) =>
           m.clientMessageId === payload.client_message_id
             ? {
-                ...m,
-                id: payload.id,
-                sentAt: payload.created_at,
-                pending: false,
-                isOwn: true,
-                uploadProgress: undefined,
-                attachmentId: payload.attachment_id ?? m.attachmentId,
-                attachmentMetadata: payload.attachment_metadata ?? m.attachmentMetadata,
-                attachmentMetadataIv: payload.attachment_metadata_iv ?? m.attachmentMetadataIv,
-                attachmentMetadataAuthTag:
-                  payload.attachment_metadata_auth_tag ?? m.attachmentMetadataAuthTag,
-              }
+              ...m,
+              id: payload.id,
+              sentAt: payload.created_at,
+              pending: false,
+              isOwn: true,
+              uploadProgress: undefined,
+              attachmentId: payload.attachment_id ?? m.attachmentId,
+              attachmentMetadata: payload.attachment_metadata ?? m.attachmentMetadata,
+              attachmentMetadataIv: payload.attachment_metadata_iv ?? m.attachmentMetadataIv,
+              attachmentMetadataAuthTag:
+                payload.attachment_metadata_auth_tag ?? m.attachmentMetadataAuthTag,
+            }
             : m
         )
       );
@@ -192,22 +190,22 @@ export function useMessages(
             return prev.map((m, idx) =>
               idx === existingIdx
                 ? {
-                    ...m,
-                    id: payload.id,
-                    clientMessageId: payload.client_message_id,
-                    sentAt: payload.created_at,
-                    pending: false,
-                    senderId: payload.sender_id,
-                    isOwn: payload.sender_id === server.id,
-                    attachmentId: payload.attachment_id,
-                    attachmentMetadata: payload.attachment_metadata,
-                    attachmentMetadataIv: payload.attachment_metadata_iv,
-                    attachmentMetadataAuthTag: payload.attachment_metadata_auth_tag,
-                    modified: payload.modified ?? m.modified,
-                    pinned: payload.pinned ?? m.pinned,
-                    isReply: payload.is_reply,
-                    replyInfo: payload.reply_info,
-                  }
+                  ...m,
+                  id: payload.id,
+                  clientMessageId: payload.client_message_id,
+                  sentAt: payload.created_at,
+                  pending: false,
+                  senderId: payload.sender_id,
+                  isOwn: payload.sender_id === server.id,
+                  attachmentId: payload.attachment_id,
+                  attachmentMetadata: payload.attachment_metadata,
+                  attachmentMetadataIv: payload.attachment_metadata_iv,
+                  attachmentMetadataAuthTag: payload.attachment_metadata_auth_tag,
+                  modified: payload.modified ?? m.modified,
+                  pinned: payload.pinned ?? m.pinned,
+                  isReply: payload.is_reply,
+                  replyInfo: payload.reply_info,
+                }
                 : m
             );
           }
@@ -257,7 +255,7 @@ export function useMessages(
                 : (lastMessagesRef.current?.[chatIdRef.current]?.unreadMessages ?? 0) + 1,
               lastActivityAt: payload.created_at,
             });
-          } catch {}
+          } catch { }
         }
       },
       [wsSend, updateLastMessage]
@@ -280,13 +278,13 @@ export function useMessages(
         prev.map((m) =>
           m.id === payload.id
             ? {
-                ...m,
-                cipherText: payload.cipher_text,
-                iv: payload.iv,
-                authTag: payload.auth_tag,
-                plaintext: undefined,
-                modified: true,
-              }
+              ...m,
+              cipherText: payload.cipher_text,
+              iv: payload.iv,
+              authTag: payload.auth_tag,
+              plaintext: undefined,
+              modified: true,
+            }
             : m
         )
       );
@@ -328,38 +326,19 @@ export function useMessages(
     )
   );
 
-  // ── AppState presence (replaces window focus/blur) ──────────────────────────
+  // ── AppState presence: foreground = online, background/closed = offline ──────
 
   useEffect(() => {
-    const INACTIVITY_MS = 60_000;
-
     const sendPresence = (active: boolean) => {
       if (lastPresenceRef.current === active) return;
       lastPresenceRef.current = active;
       wsSend(WS_MSG.PRESENCE, { active });
     };
 
-    const clearTimer = () => {
-      if (inactivityTimerRef.current) {
-        clearTimeout(inactivityTimerRef.current);
-        inactivityTimerRef.current = null;
-      }
-    };
-
-    const startTimer = () => {
-      clearTimer();
-      inactivityTimerRef.current = setTimeout(() => {
-        isInactiveRef.current = true;
-        sendPresence(false);
-      }, INACTIVITY_MS);
-    };
-
     const onAppStateChange = (next: AppStateStatus) => {
       if (next === 'active') {
         isActiveRef.current = true;
-        isInactiveRef.current = false;
         sendPresence(true);
-        startTimer();
         const msgs = lastMessagesRef.current;
         const cId = chatIdRef.current;
         const lastMsg = msgs?.[cId];
@@ -369,20 +348,18 @@ export function useMessages(
         wsSend(WS_MSG.MARK_READ, { chat_id: cId, timestamp: Date.now() });
       } else {
         isActiveRef.current = false;
-        clearTimer();
         sendPresence(false);
       }
     };
 
     if (isActiveRef.current) {
       sendPresence(true);
-      startTimer();
     }
 
     const sub = AppState.addEventListener('change', onAppStateChange);
     return () => {
       sub.remove();
-      clearTimer();
+      sendPresence(false);
     };
   }, [wsSend, updateLastMessage]);
 
@@ -703,20 +680,20 @@ export function useMessages(
           prev.map((m) =>
             m.clientMessageId === clientMessageId
               ? {
-                  ...m,
-                  uploadProgress: undefined,
-                  cipherText: encText.ciphertext,
-                  iv: encText.iv,
-                  authTag: encText.authTag,
-                  plaintext: plaintext.trim() || undefined,
-                  attachmentId,
-                  attachmentFilename: undefined,
-                  attachmentMetadata: encMeta.ciphertext,
-                  attachmentMetadataIv: encMeta.iv,
-                  attachmentMetadataAuthTag: encMeta.authTag,
-                  modified: false,
-                  pinned: false,
-                }
+                ...m,
+                uploadProgress: undefined,
+                cipherText: encText.ciphertext,
+                iv: encText.iv,
+                authTag: encText.authTag,
+                plaintext: plaintext.trim() || undefined,
+                attachmentId,
+                attachmentFilename: undefined,
+                attachmentMetadata: encMeta.ciphertext,
+                attachmentMetadataIv: encMeta.iv,
+                attachmentMetadataAuthTag: encMeta.authTag,
+                modified: false,
+                pinned: false,
+              }
               : m
           )
         );
@@ -741,7 +718,7 @@ export function useMessages(
         // Cleanup temp file
         (await import('expo-file-system/legacy'))
           .deleteAsync(tempUri, { idempotent: true })
-          .catch(() => {});
+          .catch(() => { });
       } catch (err) {
         console.error('[useMessages] uploadAndSend failed:', err);
         setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
