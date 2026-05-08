@@ -29,7 +29,9 @@ export function useConversationMessages(
   const lastMessagesRef = useRef(lastMessages);
   lastMessagesRef.current = lastMessages;
 
-  const [isFocused, setIsFocused] = useState(false);
+  const [isFocused, setIsFocused] = useState(
+    () => typeof document !== "undefined" && document.hasFocus(),
+  );
 
   useEffect(() => {
     const onFocus = () => {
@@ -47,7 +49,7 @@ export function useConversationMessages(
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
-  }, [document]);
+  }, []);
 
   const { messages, loading, hasMore, setMessages, messagesRef, fetchMore } =
     useMessageHistory(server, chatId, authorizedFetch, readyState, hasToken);

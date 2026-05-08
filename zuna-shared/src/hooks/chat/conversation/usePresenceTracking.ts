@@ -39,5 +39,5 @@ export function usePresenceTracking({
       }
       wsSend(WS_MSG.MARK_READ, { chat_id: chatId, timestamp: Date.now() });
     }
-  }, [chatId]);
+  }, [chatId, isFocused]);
 }
