@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWsConnection } from "../../ws/useWsConnection";
 import { useAuthorizedServerFetch } from "../../server/useServerFetch";
 import { Server } from "../../../types/serverTypes";
@@ -29,9 +29,25 @@ export function useConversationMessages(
   const lastMessagesRef = useRef(lastMessages);
   lastMessagesRef.current = lastMessages;
 
-  const isFocusedRef = useRef(
-    typeof document !== "undefined" ? document.hasFocus() : true,
-  );
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    const onFocus = () => {
+      setIsFocused(true);
+    };
+
+    const onBlur = () => {
+      setIsFocused(false);
+    };
+
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [document]);
 
   const { messages, loading, hasMore, setMessages, messagesRef, fetchMore } =
     useMessageHistory(server, chatId, authorizedFetch, readyState, hasToken);
@@ -40,7 +56,7 @@ export function useConversationMessages(
     server,
     chatIdRef,
     sharedSecretRef,
-    isFocusedRef,
+    isFocused,
     lastMessagesRef,
     setMessages,
     wsSend,
@@ -50,7 +66,7 @@ export function useConversationMessages(
   usePresenceTracking({
     chatId,
     lastMessages,
-    isFocusedRef,
+    isFocused,
     wsSend,
     updateLastMessage,
   });

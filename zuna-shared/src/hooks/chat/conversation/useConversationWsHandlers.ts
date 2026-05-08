@@ -20,7 +20,7 @@ interface ConversationWsHandlersParams {
   server: Server;
   chatIdRef: MutableRefObject<string>;
   sharedSecretRef: MutableRefObject<string | null>;
-  isFocusedRef: MutableRefObject<boolean>;
+  isFocused: boolean;
   lastMessagesRef: MutableRefObject<Record<string, LastMessage> | null>;
   setMessages: Dispatch<SetStateAction<Message[]>>;
   wsSend: WsSend;
@@ -31,7 +31,7 @@ export function useConversationWsHandlers({
   server,
   chatIdRef,
   sharedSecretRef,
-  isFocusedRef,
+  isFocused,
   lastMessagesRef,
   setMessages,
   wsSend,
@@ -125,11 +125,12 @@ export function useConversationWsHandlers({
         ];
       });
 
-      if (isFocusedRef.current && payload.sender_id !== server.id) {
-        wsSend(WS_MSG.MARK_READ, {
-          chat_id: chatIdRef.current,
-          timestamp: Date.now(),
-        });
+      if (isFocused && payload.sender_id !== server.id) {
+        console.log(isFocused);
+        // wsSend(WS_MSG.MARK_READ, {
+        //   chat_id: chatIdRef.current,
+        //   timestamp: Date.now(),
+        // });
       }
 
       if (sharedSecretRef.current) {
@@ -144,7 +145,7 @@ export function useConversationWsHandlers({
             chatId: chatIdRef.current,
             senderId: payload.sender_id,
             content: payload.attachment_id ? "📎 Attachment" : plaintext,
-            unreadMessages: isFocusedRef.current
+            unreadMessages: isFocused
               ? 0
               : (lastMessagesRef.current?.[chatIdRef.current]?.unreadMessages ??
                   0) + 1,

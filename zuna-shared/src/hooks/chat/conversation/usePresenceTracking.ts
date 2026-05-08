@@ -8,7 +8,7 @@ type UpdateLastMessage = (msg: LastMessage) => void;
 interface PresenceTrackingParams {
   chatId: string;
   lastMessages: Record<string, LastMessage> | null;
-  isFocusedRef: MutableRefObject<boolean>;
+  isFocused: boolean;
   wsSend: WsSend;
   updateLastMessage: UpdateLastMessage;
 }
@@ -16,7 +16,7 @@ interface PresenceTrackingParams {
 export function usePresenceTracking({
   chatId,
   lastMessages,
-  isFocusedRef,
+  isFocused,
   wsSend,
   updateLastMessage,
 }: PresenceTrackingParams) {
@@ -25,7 +25,7 @@ export function usePresenceTracking({
   // App-level focus/blur/inactivity presence is handled by useAppPresence.
 
   useEffect(() => {
-    if (!isFocusedRef.current) return;
+    if (!isFocused) return;
     if (lastMessages) {
       const lastMsg = lastMessages[chatId];
       if (lastMsg) {
@@ -37,7 +37,7 @@ export function usePresenceTracking({
           lastActivityAt: lastMsg.lastActivityAt,
         });
       }
-      wsSend(WS_MSG.MARK_READ, { chat_id: chatId, timestamp: Date.now() });
+      //wsSend(WS_MSG.MARK_READ, { chat_id: chatId, timestamp: Date.now() });
     }
   }, [chatId]);
 }
