@@ -37,7 +37,7 @@ export function usePresenceTracking({
           lastActivityAt: lastMsg.lastActivityAt,
         });
       }
-      //wsSend(WS_MSG.MARK_READ, { chat_id: chatId, timestamp: Date.now() });
+      wsSend(WS_MSG.MARK_READ, { chat_id: chatId, timestamp: Date.now() });
     }
   }, [chatId]);
 }

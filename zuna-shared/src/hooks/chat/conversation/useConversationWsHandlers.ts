@@ -126,11 +126,10 @@ export function useConversationWsHandlers({
       });
 
       if (isFocused && payload.sender_id !== server.id) {
-        console.log(isFocused);
-        // wsSend(WS_MSG.MARK_READ, {
-        //   chat_id: chatIdRef.current,
-        //   timestamp: Date.now(),
-        // });
+        wsSend(WS_MSG.MARK_READ, {
+          chat_id: chatIdRef.current,
+          timestamp: Date.now(),
+        });
       }
 
       if (sharedSecretRef.current) {
