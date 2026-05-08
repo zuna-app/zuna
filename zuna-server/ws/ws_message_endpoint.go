@@ -216,10 +216,13 @@ func (r *MessageRouter) handleMessage(c HubClient, msg IncomingMessage, userData
 			continue
 		}
 
-		if !ud.Active {
-			deviceTokens := make([]string, len(uu.Edges.Devices))
-			for i, d := range uu.Edges.Devices {
-				deviceTokens[i] = d.DeviceToken
+		if uu.ID != userData.UserID {
+			deviceTokens := []string{}
+			if !ud.Active {
+				deviceTokens = make([]string, len(uu.Edges.Devices))
+				for i, d := range uu.Edges.Devices {
+					deviceTokens[i] = d.DeviceToken
+				}
 			}
 
 			go utils.SendNotificationToGateway(ud.UserID, ch.ID, userData.UserID, user.IdentityKey, req.ShortCipherText, req.ShortIv, req.ShortAuthTag, deviceTokens)
