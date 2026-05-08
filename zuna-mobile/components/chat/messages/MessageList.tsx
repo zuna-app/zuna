@@ -90,12 +90,12 @@ export function MessageList({
 
     // messages is oldest-first; last element is the newest
     const newest = messages[messages.length - 1];
-    // Use same key priority as keyExtractor: localId first, then id
+    // Use same key priority as keyExtractor: server id first, then client message id
     const newestKey =
-      newest?.localId != null
-        ? `local-${newest.localId}`
-        : newest?.id != null
+      newest?.id != null
           ? `id-${newest.id}`
+        : newest?.clientMessageId
+          ? `client-${newest.clientMessageId}`
           : null;
 
     if (newestKey === prevNewestKeyRef.current) return;
@@ -169,8 +169,8 @@ export function MessageList({
       data={groupedReversedMessages}
       inverted
       keyExtractor={(m) => {
-        if (m.localId != null) return `local-${m.localId}`;
         if (m.id != null) return `id-${m.id}`;
+        if (m.clientMessageId) return `client-${m.clientMessageId}`;
         return `fallback-${m.senderId}-${m.sentAt}`;
       }}
       renderItem={renderItem}

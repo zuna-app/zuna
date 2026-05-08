@@ -17,6 +17,7 @@ import { jotaiStore, serverTokensAtom, vaultAtom } from '@/store/atoms';
 import { useLastMessagesUpdater } from './useLastChatMessages';
 import { encrypt, decrypt } from '@/lib/crypto/x25519';
 import { encryptFile } from '@/lib/crypto/file';
+import { generateUuid } from '@/lib/utils';
 import { Server, Message, RawMessageDTO } from '@/types/serverTypes';
 
 const MESSAGES_LIMIT = 50;
@@ -54,6 +55,58 @@ async function xhrUpload(
   });
 }
 
+function isSameMessage(a: Pick<Message, 'id' | 'clientMessageId'>, b: Pick<Message, 'id' | 'clientMessageId'>) {
+  return (a.id != null && b.id != null && a.id === b.id) || a.clientMessageId === b.clientMessageId;
+}
+
+function mergeMessages(base: Message[], incoming: Message[]): Message[] {
+  const next = [...base];
+
+  for (const message of incoming) {
+    const existingIndex = next.findIndex((candidate) => isSameMessage(candidate, message));
+
+    if (existingIndex === -1) {
+      next.push(message);
+      continue;
+    }
+
+    const existing = next[existingIndex];
+    next[existingIndex] = {
+      ...existing,
+      ...message,
+      plaintext: message.plaintext ?? existing.plaintext,
+      uploadProgress: message.uploadProgress ?? existing.uploadProgress,
+      attachmentFilename: message.attachmentFilename ?? existing.attachmentFilename,
+    };
+  }
+
+  return next;
+}
+
+function mapRawMessage(chatId: string, serverId: string, message: RawMessageDTO): Message {
+  return {
+    id: message.id,
+    clientMessageId: message.client_message_id,
+    chatId,
+    cipherText: message.cipher_text,
+    iv: message.iv,
+    authTag: message.auth_tag,
+    sentAt: message.sent_at,
+    readAt: message.read_at > 0 ? message.read_at : undefined,
+    senderId: message.sender_id,
+    isOwn: message.sender_id === serverId,
+    pending: false,
+    attachmentId: message.attachment_id,
+    attachmentMetadata: message.attachment_metadata,
+    attachmentMetadataIv: message.attachment_metadata_iv,
+    attachmentMetadataAuthTag: message.attachment_metadata_auth_tag,
+    modified: message.modified,
+    pinned: message.pinned ?? message.pin ?? false,
+    isReply: message.is_reply,
+    replyInfo: message.reply_info,
+  };
+}
+
 export function useMessages(
   server: Server,
   chatId: string,
@@ -64,7 +117,6 @@ export function useMessages(
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
 
-  const localIdCounter = useRef(0);
   const isFetchingRef = useRef(false);
   const wasOlderPaginationRef = useRef(false);
   const prevReadyStateRef = useRef<ReadyState | null>(null);
@@ -103,12 +155,13 @@ export function useMessages(
       if (payload.chat_id !== chatIdRef.current) return;
       setMessages((prev) =>
         prev.map((m) =>
-          m.localId === payload.local_id
+          m.clientMessageId === payload.client_message_id
             ? {
                 ...m,
                 id: payload.id,
                 sentAt: payload.created_at,
                 pending: false,
+                isOwn: true,
                 uploadProgress: undefined,
                 attachmentId: payload.attachment_id ?? m.attachmentId,
                 attachmentMetadata: payload.attachment_metadata ?? m.attachmentMetadata,
@@ -130,27 +183,22 @@ export function useMessages(
         if (payload.chat_id !== chatIdRef.current) return;
 
         setMessages((prev) => {
-          if (prev.some((m) => m.id === payload.id)) return prev;
-
-          // The sender can receive its own MESSAGE_RECEIVE before/after MESSAGE_ACK.
-          // Reconcile against the optimistic row instead of appending a duplicate.
-          const optimisticOwnIdx = prev.findIndex(
+          const existingIdx = prev.findIndex(
             (m) =>
-              m.isOwn &&
-              m.pending &&
-              m.cipherText === payload.cipher_text &&
-              m.iv === payload.iv &&
-              m.authTag === payload.auth_tag
+              m.id === payload.id || m.clientMessageId === payload.client_message_id
           );
 
-          if (optimisticOwnIdx !== -1) {
+          if (existingIdx !== -1) {
             return prev.map((m, idx) =>
-              idx === optimisticOwnIdx
+              idx === existingIdx
                 ? {
                     ...m,
                     id: payload.id,
+                    clientMessageId: payload.client_message_id,
                     sentAt: payload.created_at,
                     pending: false,
+                    senderId: payload.sender_id,
+                    isOwn: payload.sender_id === server.id,
                     attachmentId: payload.attachment_id,
                     attachmentMetadata: payload.attachment_metadata,
                     attachmentMetadataIv: payload.attachment_metadata_iv,
@@ -168,14 +216,14 @@ export function useMessages(
             ...prev,
             {
               id: payload.id,
-              localId: null,
+              clientMessageId: payload.client_message_id,
               chatId: chatIdRef.current,
               cipherText: payload.cipher_text,
               iv: payload.iv,
               authTag: payload.auth_tag,
               sentAt: payload.created_at,
               senderId: payload.sender_id,
-              isOwn: false,
+              isOwn: payload.sender_id === server.id,
               pending: false,
               attachmentId: payload.attachment_id,
               attachmentMetadata: payload.attachment_metadata,
@@ -363,38 +411,26 @@ export function useMessages(
           `/api/chat/messages?chat_id=${encodeURIComponent(chatId)}&limit=${MESSAGES_LIMIT}&cursor=${cursor}`
         );
         const json: { messages: RawMessageDTO[] } = await res.json();
-        const fetched: Message[] = (json.messages ?? []).reverse().map((m) => ({
-          id: m.id,
-          localId: null,
-          chatId,
-          cipherText: m.cipher_text,
-          iv: m.iv,
-          authTag: m.auth_tag,
-          sentAt: m.sent_at,
-          readAt: m.read_at > 0 ? m.read_at : undefined,
-          senderId: m.sender_id,
-          isOwn: m.sender_id === server.id,
-          pending: false,
-          attachmentId: m.attachment_id,
-          attachmentMetadata: m.attachment_metadata,
-          attachmentMetadataIv: m.attachment_metadata_iv,
-          attachmentMetadataAuthTag: m.attachment_metadata_auth_tag,
-          modified: m.modified,
-          pinned: m.pinned ?? m.pin ?? false,
-          isReply: m.is_reply,
-          replyInfo: m.reply_info,
-        }));
+        const fetched: Message[] = (json.messages ?? []).reverse().map((m) =>
+          mapRawMessage(chatId, server.id, m)
+        );
 
         if (cursor === MAX_CURSOR) {
           setMessages((prev) => {
             const pending = prev.filter((m) => m.pending);
-            const fetchedIds = new Set(fetched.map((m) => m.id));
-            const uniquePending = pending.filter((m) => m.id === null || !fetchedIds.has(m.id));
-            return [...fetched, ...uniquePending];
+            const uniquePending = pending.filter(
+              (pendingMessage) => !fetched.some((fetchedMessage) => isSameMessage(fetchedMessage, pendingMessage))
+            );
+            return mergeMessages(fetched, uniquePending);
           });
         } else {
           wasOlderPaginationRef.current = true;
-          setMessages((prev) => [...fetched, ...prev]);
+          setMessages((prev) => {
+            const olderUnique = fetched.filter(
+              (fetchedMessage) => !prev.some((existingMessage) => isSameMessage(existingMessage, fetchedMessage))
+            );
+            return [...olderUnique, ...prev];
+          });
         }
 
         setHasMore(fetched.length === MESSAGES_LIMIT);
@@ -431,10 +467,10 @@ export function useMessages(
 
   const sendChatMessage = useCallback(
     async (cipherText: string, iv: string, authTag: string, plaintext: string) => {
-      const localId = ++localIdCounter.current;
+      const clientMessageId = generateUuid();
       const optimistic: Message = {
         id: null,
-        localId,
+        clientMessageId,
         chatId,
         cipherText,
         iv,
@@ -460,7 +496,7 @@ export function useMessages(
         cipher_text: cipherText,
         iv,
         auth_tag: authTag,
-        local_id: localId,
+        client_message_id: clientMessageId,
         short_cipher_text: encPreview.ciphertext,
         short_iv: encPreview.iv,
         short_auth_tag: encPreview.authTag,
@@ -483,10 +519,10 @@ export function useMessages(
       const replyMessage = messagesRef.current.find((m) => m.id === replyTo);
       if (!replyMessage) return;
 
-      const localId = ++localIdCounter.current;
+      const clientMessageId = generateUuid();
       const optimistic: Message = {
         id: null,
-        localId,
+        clientMessageId,
         chatId,
         cipherText,
         iv,
@@ -519,7 +555,7 @@ export function useMessages(
         cipher_text: cipherText,
         iv,
         auth_tag: authTag,
-        local_id: localId,
+        client_message_id: clientMessageId,
         short_cipher_text: encPreview.ciphertext,
         short_iv: encPreview.iv,
         short_auth_tag: encPreview.authTag,
@@ -591,12 +627,12 @@ export function useMessages(
       const encPrivateKey = vaultRef.current['encPrivateKey'] as string;
       if (!encPrivateKey) throw new Error('Encryption key not in vault');
 
-      const localId = ++localIdCounter.current;
+      const clientMessageId = generateUuid();
       setMessages((prev) => [
         ...prev,
         {
           id: null,
-          localId,
+          clientMessageId,
           chatId,
           cipherText: '',
           iv: '',
@@ -632,7 +668,7 @@ export function useMessages(
         const encText = encrypt(secret, textToEncrypt);
 
         // Write encrypted bytes to temp file so we can pass it to FormData
-        const tempUri = `${(await import('expo-file-system/legacy')).cacheDirectory}upload_${localId}`;
+        const tempUri = `${(await import('expo-file-system/legacy')).cacheDirectory}upload_${clientMessageId}`;
         let b64Out = '';
         for (let i = 0; i < encryptedBytes.length; i++) {
           b64Out += String.fromCharCode(encryptedBytes[i]);
@@ -657,13 +693,15 @@ export function useMessages(
           formData,
           (pct) =>
             setMessages((prev) =>
-              prev.map((m) => (m.localId === localId ? { ...m, uploadProgress: pct } : m))
+              prev.map((m) =>
+                m.clientMessageId === clientMessageId ? { ...m, uploadProgress: pct } : m
+              )
             )
         );
 
         setMessages((prev) =>
           prev.map((m) =>
-            m.localId === localId
+            m.clientMessageId === clientMessageId
               ? {
                   ...m,
                   uploadProgress: undefined,
@@ -688,7 +726,7 @@ export function useMessages(
           cipher_text: encText.ciphertext,
           iv: encText.iv,
           auth_tag: encText.authTag,
-          local_id: localId,
+          client_message_id: clientMessageId,
           attachment_id: attachmentId,
         });
 
@@ -706,7 +744,7 @@ export function useMessages(
           .catch(() => {});
       } catch (err) {
         console.error('[useMessages] uploadAndSend failed:', err);
-        setMessages((prev) => prev.filter((m) => m.localId !== localId));
+        setMessages((prev) => prev.filter((m) => m.clientMessageId !== clientMessageId));
       }
     },
     [chatId, server, identityKey, wsSend, updateLastMessage]

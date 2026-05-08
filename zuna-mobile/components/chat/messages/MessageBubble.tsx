@@ -107,7 +107,7 @@ export function MessageBubble({
 }: Props) {
   const { width, height } = useWindowDimensions();
   const isOwn = message.isOwn;
-  const shouldAnimateEnter = isOwn && message.localId != null;
+  const shouldAnimateEnter = isOwn && message.pending;
   const enterAnim = useRef(new Animated.Value(shouldAnimateEnter ? 0 : 1)).current;
   const status = getStatus(message);
   const text = plaintext ?? message.plaintext ?? '';
