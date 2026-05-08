@@ -125,7 +125,7 @@ export function useConversationWsHandlers({
         ];
       });
 
-      if (isFocusedRef.current) {
+      if (isFocusedRef.current && payload.sender_id !== server.id) {
         wsSend(WS_MSG.MARK_READ, {
           chat_id: chatIdRef.current,
           timestamp: Date.now(),
