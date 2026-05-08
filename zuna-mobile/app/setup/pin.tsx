@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchAndUpdateServerInfos } from '@/hooks/auth/useAuthorizer';
 import { storeEncPrivateKeyForNSE, setupPushNotifications } from '@/lib/notifications';
 import { pushTokenAtom } from '@/store/atoms';
+import { startGatewayBadgeSync } from '@/lib/gatewayBadgeSync';
 
 const PIN_LENGTH = 4;
 
@@ -75,6 +76,7 @@ export default function PinScreen() {
 
       // Populate metadata in background so unlock feels instant.
       void fetchAndUpdateServerInfos(servers);
+      startGatewayBadgeSync(vault);
 
       if (servers.length > 0) {
         setSelectedServer(servers[0]);
@@ -113,6 +115,7 @@ export default function PinScreen() {
     if (pinFromStore) setVaultPin(pinFromStore);
     const servers = Array.isArray(vault['serverList']) ? (vault['serverList'] as any[]) : [];
     setServerList(servers);
+    startGatewayBadgeSync(vault);
     if (servers.length > 0) {
       setSelectedServer(servers[0]);
       router.replace(`/(app)/${servers[0].id}` as any);

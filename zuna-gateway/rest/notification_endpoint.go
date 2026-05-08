@@ -31,13 +31,15 @@ type NotificationResponse struct {
 }
 
 type WsNotificationInfoResponse struct {
-	ServerID          string `json:"server_id"`
-	SenderID          string `json:"sender_id"`
-	SenderIdentityKey string `json:"sender_identity_key"`
-	CipherText        string `json:"cipher_text"`
-	Iv                string `json:"iv"`
-	AuthTag           string `json:"auth_tag"`
-	Signature         string `json:"signature"`
+	UserID              string `json:"user_id"`
+	ServerID            string `json:"server_id"`
+	SenderID            string `json:"sender_id"`
+	SenderIdentityKey   string `json:"sender_identity_key"`
+	CipherText          string `json:"cipher_text"`
+	Iv                  string `json:"iv"`
+	AuthTag             string `json:"auth_tag"`
+	Signature           string `json:"signature"`
+	UnreadNotifications int    `json:"unread_notifications"`
 }
 
 func NotificationEndpoint(c *echo.Context) error {
@@ -61,31 +63,52 @@ func NotificationEndpoint(c *echo.Context) error {
 
 	user, err := data.GetUserByUserId(req.UserID)
 	if err != nil {
-		return c.JSON(http.StatusForbidden, Forbidden)
+		user = data.User{
+			UserID:              req.UserID,
+			ConnectionIDs:       make([]string, 0),
+			UnreadNotifications: 0,
+		}
 	}
+
+	user.UnreadNotifications++
+	data.UpdateUser(user)
+	data.TrackDeviceTokens(req.UserID, req.DeviceTokens)
 
 	for _, conn := range user.ConnectionIDs {
 		ws.HubInstance.SendTo(conn, ws.OutgoingMessage{Type: "notification_info", Payload: WsNotificationInfoResponse{
-			ServerID:          req.ServerID,
-			SenderID:          req.SenderID,
-			SenderIdentityKey: req.SenderIdentityKey,
-			CipherText:        req.CipherText,
-			Iv:                req.Iv,
-			AuthTag:           req.AuthTag,
-			Signature:         req.Signature,
+			UserID:              req.UserID,
+			ServerID:            req.ServerID,
+			SenderID:            req.SenderID,
+			SenderIdentityKey:   req.SenderIdentityKey,
+			CipherText:          req.CipherText,
+			Iv:                  req.Iv,
+			AuthTag:             req.AuthTag,
+			Signature:           req.Signature,
+			UnreadNotifications: user.UnreadNotifications,
 		}})
 	}
 
+	badgeByToken := make(map[string]int, len(req.DeviceTokens))
+	for _, token := range req.DeviceTokens {
+		badgeByToken[token] = data.GetTokenBadgeTotal(token)
+	}
+
 	invalidIds := push.SendApnNotification(req.DeviceTokens, push.NotificationPayload{
-		ServerID:          req.ServerID,
-		SenderID:          req.SenderID,
-		SenderIdentityKey: req.SenderIdentityKey,
-		ChatID:            req.ChatID,
-		CipherText:        req.CipherText,
-		Iv:                req.Iv,
-		AuthTag:           req.AuthTag,
-		Signature:         req.Signature,
-	})
+		UserID:              req.UserID,
+		ServerID:            req.ServerID,
+		SenderID:            req.SenderID,
+		SenderIdentityKey:   req.SenderIdentityKey,
+		ChatID:              req.ChatID,
+		CipherText:          req.CipherText,
+		Iv:                  req.Iv,
+		AuthTag:             req.AuthTag,
+		Signature:           req.Signature,
+		UnreadNotifications: user.UnreadNotifications,
+	}, badgeByToken)
+
+	for _, invalidToken := range invalidIds {
+		data.DeleteTrackedDeviceToken(invalidToken)
+	}
 
 	return c.JSON(http.StatusOK, NotificationResponse{InvalidApnTokens: invalidIds})
 

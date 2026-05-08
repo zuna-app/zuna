@@ -16,6 +16,7 @@ import { clearSession, getSessionPin } from '@/lib/keychain';
 import 'react-native-get-random-values';
 import { fetchAndUpdateServerInfos } from '@/hooks/auth/useAuthorizer';
 import { storeEncPrivateKeyForNSE, setupPushNotifications } from '@/lib/notifications';
+import { startGatewayBadgeSync } from '@/lib/gatewayBadgeSync';
 
 import * as LocalAuthentication from 'expo-local-authentication';
 
@@ -45,6 +46,7 @@ export default function Index() {
 
         // Don't block navigation on metadata fetch.
         void fetchAndUpdateServerInfos(servers);
+        startGatewayBadgeSync(vault);
 
         if (servers.length > 0) {
           setSelectedServer(servers[0]);

@@ -6,12 +6,14 @@ import (
 )
 
 type RegisterUserPayload struct {
-	UserID   string   `json:"user_id"`
-	Mobile   bool     `json:"mobile"`
+	UserID string `json:"user_id"`
+	Mobile bool   `json:"mobile"`
 }
 
 type RegisterUserResponse struct {
-	Status string `json:"status"`
+	Status              string `json:"status"`
+	UserID              string `json:"user_id"`
+	UnreadNotifications int    `json:"unread_notifications"`
 }
 
 func (r *MessageRouter) handleRegisterUser(c HubClient, msg IncomingMessage) {
@@ -22,11 +24,12 @@ func (r *MessageRouter) handleRegisterUser(c HubClient, msg IncomingMessage) {
 	}
 
 	connectionID := c.ID()
-	user, err := data.GetUserByConnectionId(connectionID)
+	user, err := data.GetUserByUserId(req.UserID)
 	if err != nil {
 		user = data.User{
-			UserID:        req.UserID,
-			ConnectionIDs: make([]string, 0),
+			UserID:              req.UserID,
+			ConnectionIDs:       make([]string, 0),
+			UnreadNotifications: 0,
 		}
 	}
 
@@ -34,6 +37,8 @@ func (r *MessageRouter) handleRegisterUser(c HubClient, msg IncomingMessage) {
 	data.UpdateUser(user)
 
 	c.Send(OutgoingMessage{Type: "register_response", Payload: RegisterUserResponse{
-		Status: "ok",
+		Status:              "ok",
+		UserID:              req.UserID,
+		UnreadNotifications: user.UnreadNotifications,
 	}})
 }

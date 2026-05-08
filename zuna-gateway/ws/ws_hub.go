@@ -71,13 +71,7 @@ func (h *Hub) Run() {
 		case client := <-h.Unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[client.ID()]; ok {
-				user, err := data.GetUserByConnectionId(client.ID())
-				if err == nil {
-					user.RemoveConnection(client.ID())
-					if len(user.ConnectionIDs) == 0 {
-						data.DeleteUser(user.UserID)
-					}
-				}
+				data.RemoveConnectionFromAll(client.ID())
 
 				delete(h.clients, client.ID())
 				log.Printf("[hub] client unregistered id=%s  total=%d", client.ID(), len(h.clients))

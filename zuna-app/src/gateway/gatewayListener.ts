@@ -16,6 +16,7 @@ const agent = new https.Agent({
 });
 
 interface NotificationInfoPayload {
+  user_id: string;
   server_id: string;
   sender_id: string;
   sender_identity_key: string;
@@ -23,6 +24,17 @@ interface NotificationInfoPayload {
   iv: string;
   auth_tag: string;
   signature: string;
+  unread_notifications: number;
+}
+
+interface RegisterResponsePayload {
+  status: string;
+  user_id?: string;
+  unread_notifications?: number;
+}
+
+interface NotificationClearPayload {
+  user_id?: string;
 }
 
 interface WsMessage {
@@ -31,6 +43,7 @@ interface WsMessage {
 }
 
 const activeConnections = new Map<string, WebSocket>();
+const unreadByUser = new Map<string, number>();
 export let unreadMessagesBadge = 0;
 
 export function setUnreadMessagesBadge(count: number): void {
@@ -38,8 +51,19 @@ export function setUnreadMessagesBadge(count: number): void {
   setBadgeCount(unreadMessagesBadge);
 }
 
+function recomputeBadgeFromUsers(): void {
+  let total = 0;
+  for (const count of unreadByUser.values()) {
+    total += count;
+  }
+
+  setUnreadMessagesBadge(total);
+}
+
 export function startGatewayListeners(): void {
   stopGatewayListeners();
+  unreadByUser.clear();
+  setUnreadMessagesBadge(0);
 
   let serverList: Server[];
   let gatewayRecord: Record<string, string>;
@@ -104,6 +128,25 @@ function connectToGateway(address: string, servers: Server[]): void {
       const msg = JSON.parse(data.toString()) as WsMessage;
       if (msg.type === "notification_info") {
         handleNotification(msg.payload as NotificationInfoPayload);
+      } else if (msg.type === "register_response") {
+        const payload = msg.payload as RegisterResponsePayload;
+        if (
+          payload.status === "ok" &&
+          typeof payload.user_id === "string" &&
+          typeof payload.unread_notifications === "number"
+        ) {
+          unreadByUser.set(payload.user_id, payload.unread_notifications);
+          recomputeBadgeFromUsers();
+        }
+      } else if (msg.type === "notification_clear") {
+        const payload = msg.payload as NotificationClearPayload;
+        if (typeof payload.user_id === "string") {
+          unreadByUser.set(payload.user_id, 0);
+          recomputeBadgeFromUsers();
+        } else {
+          unreadByUser.clear();
+          setUnreadMessagesBadge(0);
+        }
       }
     } catch {
       // ignore malformed frames
@@ -202,7 +245,8 @@ async function handleNotification(
       });
       n.show();
     }
-    setUnreadMessagesBadge(unreadMessagesBadge + 1);
+    unreadByUser.set(payload.user_id, payload.unread_notifications);
+    recomputeBadgeFromUsers();
   } catch (e) {
     // ignore decrypt errors (e.g. wrong key, tampered message)
     console.error("Failed to handle notification:", e);

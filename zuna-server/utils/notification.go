@@ -105,6 +105,73 @@ func SendNotificationToGateway(userId string, chatId string, senderId string, se
 	defer resp.Body.Close()
 }
 
+type NotificationClearRequest struct {
+	UserID       string   `json:"user_id"`
+	Timestamp    int64    `json:"timestamp"`
+	Password     string   `json:"password"`
+	DeviceTokens []string `json:"device_tokens"`
+}
+
+func ClearNotificationsInGateway(userId string, deviceTokens []string) {
+	if !GatewayWorking {
+		return
+	}
+
+	body := NotificationClearRequest{
+		UserID:       userId,
+		Timestamp:    time.Now().UnixMilli(),
+		Password:     config.Config.Gateway.Password,
+		DeviceTokens: deviceTokens,
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to marshal notification clear request")
+		return
+	}
+
+	url := fmt.Sprintf("https://%s/api/notification/clear", config.Config.Gateway.Address)
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to create notification clear request")
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "ZunaServer")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: config.Config.Gateway.AllowSelfSigned,
+			},
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to send notification clear to gateway")
+		return
+	}
+	defer resp.Body.Close()
+
+	var notificationResp NotificationResponse
+	if err = json.NewDecoder(resp.Body).Decode(&notificationResp); err != nil {
+		log.Warn().Err(err).Msg("failed to parse notification clear response from gateway")
+		return
+	}
+
+	for _, invalidToken := range notificationResp.InvalidApnTokens {
+		_, err := db.EntClient.Device.Delete().Where(device.DeviceTokenEQ(invalidToken)).Exec(context.Background())
+		if err != nil {
+			log.Warn().Err(err).Str("token", invalidToken).Msg("failed to delete device with invalid token")
+		} else {
+			log.Info().Str("token", invalidToken).Msg("deleted device with invalid APN token after clear")
+		}
+	}
+}
+
 func ValidateGatewayConnection() {
 	url := fmt.Sprintf("https://%s/api/validate?password=%s", config.Config.Gateway.Address, config.Config.Gateway.Password)
 

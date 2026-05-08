@@ -73,4 +73,17 @@ func (r *MessageRouter) handleMarkRead(c HubClient, msg IncomingMessage, userDat
 			}})
 		}
 	}
+
+	currentUser, err := db.EntClient.User.Query().WithDevices().Where(user.IDEQ(userData.UserID)).First(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("user_id", userData.UserID).Msg("failed to query user devices for notification clear")
+		return
+	}
+
+	deviceTokens := make([]string, len(currentUser.Edges.Devices))
+	for i, d := range currentUser.Edges.Devices {
+		deviceTokens[i] = d.DeviceToken
+	}
+
+	go utils.ClearNotificationsInGateway(userData.UserID, deviceTokens)
 }

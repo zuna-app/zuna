@@ -15,13 +15,14 @@ var UserDataMap = make(map[string]UserData)
 var userDataMutex sync.RWMutex
 
 type UserData struct {
-	UserID        string
-	Username      string
-	AuthTokens    []string
-	Ed25519Nonce  string
-	ConnectionIDs []string
-	LastSeen      int64
-	Active        bool
+	UserID              string
+	Username            string
+	AuthTokens          []string
+	Ed25519Nonce        string
+	ConnectionIDs       []string
+	LastSeen            int64
+	Active              bool
+	UnreadNotifications int
 }
 
 func InitializeUserManager() {
@@ -35,13 +36,14 @@ func InitializeUserManager() {
 	for _, user := range users {
 		userDataMutex.Lock()
 		UserDataMap[user.Username] = UserData{
-			UserID:        user.ID,
-			Username:      user.Username,
-			AuthTokens:    []string{},
-			Ed25519Nonce:  "",
-			ConnectionIDs: []string{},
-			LastSeen:      user.LastSeen.UnixMilli(),
-			Active:        false,
+			UserID:              user.ID,
+			Username:            user.Username,
+			AuthTokens:          []string{},
+			Ed25519Nonce:        "",
+			ConnectionIDs:       []string{},
+			LastSeen:            user.LastSeen.UnixMilli(),
+			Active:              false,
+			UnreadNotifications: 0,
 		}
 		userDataMutex.Unlock()
 	}
