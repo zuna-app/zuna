@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 import { useAtomValue } from 'jotai';
 import { jotaiStore, serverTokensAtom, serverAuthErrorsAtom } from '@/store/atoms';
 import { presenceAtom, writingAtom } from './usePresence';
@@ -37,6 +38,8 @@ export function useWsConnection(server: Server) {
   const serverRef = useRef(server);
   serverRef.current = server;
   const isReauthorizingRef = useRef(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const lastPresenceRef = useRef<boolean | null>(null);
 
   const [readyState, setReadyState] = useState<ReadyState>(ReadyState.CLOSED);
 
@@ -59,6 +62,21 @@ export function useWsConnection(server: Server) {
       })
     );
   }, [sendRaw]);
+
+  const sendPresence = useCallback(
+    (active: boolean, force = false) => {
+      if (!force && lastPresenceRef.current === active) return;
+      lastPresenceRef.current = active;
+      sendRaw(
+        JSON.stringify({
+          type: WS_MSG.PRESENCE,
+          token: tokenRef.current ?? '',
+          payload: { active },
+        })
+      );
+    },
+    [sendRaw]
+  );
 
   const connect = useCallback(() => {
     if (!tokenRef.current) return;
@@ -107,6 +125,7 @@ export function useWsConnection(server: Server) {
             payload: {},
           })
         );
+        sendPresence(appStateRef.current === 'active', true);
         return;
       }
 
@@ -166,6 +185,7 @@ export function useWsConnection(server: Server) {
 
     ws.onclose = () => {
       setReadyState(ReadyState.CLOSED);
+      lastPresenceRef.current = null;
       const count = reconnectCounts.get(server.id) ?? 0;
       if (count < MAX_RECONNECT && tokenRef.current) {
         reconnectCounts.set(server.id, count + 1);
@@ -180,7 +200,7 @@ export function useWsConnection(server: Server) {
     ws.onerror = () => {
       // onclose fires after onerror; reconnect is handled there
     };
-  }, [server.id, server.address, sendRaw]);
+  }, [server.id, server.address, sendRaw, sendPresence]);
 
   useEffect(() => {
     if (!token) return;
@@ -189,6 +209,22 @@ export function useWsConnection(server: Server) {
       // Don't close on unmount — socket is shared and persists while app is open
     };
   }, [token, connect]);
+
+  useEffect(() => {
+    const onAppStateChange = (nextState: AppStateStatus) => {
+      appStateRef.current = nextState;
+      sendPresence(nextState === 'active');
+    };
+
+    if (readyState === ReadyState.OPEN) {
+      sendPresence(AppState.currentState === 'active');
+    }
+
+    const sub = AppState.addEventListener('change', onAppStateChange);
+    return () => {
+      sub.remove();
+    };
+  }, [readyState, sendPresence]);
 
   const sendMessage = useCallback(
     (type: string, payload: unknown = {}) => {

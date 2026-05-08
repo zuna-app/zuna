@@ -122,7 +122,6 @@ export function useMessages(
   const prevReadyStateRef = useRef<ReadyState | null>(null);
   const prevChatIdRef = useRef<string | null>(null);
   const isActiveRef = useRef(AppState.currentState === 'active');
-  const lastPresenceRef = useRef<boolean | null>(null);
   const chatIdRef = useRef(chatId);
   chatIdRef.current = chatId;
 
@@ -329,16 +328,9 @@ export function useMessages(
   // ── AppState presence: foreground = online, background/closed = offline ──────
 
   useEffect(() => {
-    const sendPresence = (active: boolean) => {
-      if (lastPresenceRef.current === active) return;
-      lastPresenceRef.current = active;
-      wsSend(WS_MSG.PRESENCE, { active });
-    };
-
     const onAppStateChange = (next: AppStateStatus) => {
       if (next === 'active') {
         isActiveRef.current = true;
-        sendPresence(true);
         const msgs = lastMessagesRef.current;
         const cId = chatIdRef.current;
         const lastMsg = msgs?.[cId];
@@ -348,18 +340,12 @@ export function useMessages(
         wsSend(WS_MSG.MARK_READ, { chat_id: cId, timestamp: Date.now() });
       } else {
         isActiveRef.current = false;
-        sendPresence(false);
       }
     };
-
-    if (isActiveRef.current) {
-      sendPresence(true);
-    }
 
     const sub = AppState.addEventListener('change', onAppStateChange);
     return () => {
       sub.remove();
-      sendPresence(false);
     };
   }, [wsSend, updateLastMessage]);
 
@@ -368,7 +354,6 @@ export function useMessages(
   useEffect(() => {
     if (!isActiveRef.current) return;
     const lastMsg = lastMessages?.[chatId];
-    wsSend(WS_MSG.PRESENCE, { active: true });
     if (lastMsg) {
       updateLastMessage({ ...lastMsg, unreadMessages: 0 });
     }
