@@ -6,6 +6,7 @@ import (
 	"zuna-gateway/config"
 	"zuna-gateway/data"
 	"zuna-gateway/push"
+	"zuna-gateway/utils"
 	"zuna-gateway/ws"
 
 	"github.com/labstack/echo/v5"
@@ -43,6 +44,11 @@ type WsNotificationInfoResponse struct {
 }
 
 func NotificationEndpoint(c *echo.Context) error {
+	serverIp := utils.GetRealIP(c.Request())
+	if data.IsIPBanned(serverIp) {
+		return c.JSON(http.StatusForbidden, Forbidden)
+	}
+
 	userAgent := c.Request().UserAgent()
 	if userAgent != "ZunaServer" {
 		return c.JSON(http.StatusForbidden, Forbidden)
@@ -93,7 +99,7 @@ func NotificationEndpoint(c *echo.Context) error {
 		badgeByToken[token] = data.GetTokenBadgeTotal(token)
 	}
 
-	invalidIds := push.SendApnNotification(req.DeviceTokens, push.NotificationPayload{
+	invalidIds := push.SendApnNotification(serverIp, req.DeviceTokens, push.NotificationPayload{
 		UserID:              req.UserID,
 		ServerID:            req.ServerID,
 		SenderID:            req.SenderID,

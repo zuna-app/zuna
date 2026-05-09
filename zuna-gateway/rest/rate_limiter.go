@@ -2,9 +2,9 @@ package rest
 
 import (
 	"net/http"
-	"strings"
 	"sync"
 	"time"
+	"zuna-gateway/utils"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog/log"
@@ -70,33 +70,12 @@ func (rl *RateLimiter) cleanupLoop() {
 	}
 }
 
-// realIP extracts the real client IP, preferring X-Real-IP then X-Forwarded-For
-// then the direct remote address (with port stripped).
-func realIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return strings.TrimSpace(ip)
-	}
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		// X-Forwarded-For may be a comma-separated list; take the first entry.
-		if idx := strings.IndexByte(fwd, ','); idx != -1 {
-			return strings.TrimSpace(fwd[:idx])
-		}
-		return strings.TrimSpace(fwd)
-	}
-	// Strip port from RemoteAddr.
-	addr := r.RemoteAddr
-	if idx := strings.LastIndexByte(addr, ':'); idx != -1 {
-		return addr[:idx]
-	}
-	return addr
-}
-
 // Middleware returns an Echo middleware that enforces the rate limit.
 // Requests that exceed the limit receive 429 Too Many Requests.
 func (rl *RateLimiter) Middleware() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
-			ip := realIP(c.Request())
+			ip := utils.GetRealIP(c.Request())
 			if !rl.limiterFor(ip).Allow() {
 				log.Warn().Str("ip", ip).Str("path", c.Request().URL.Path).Msg("rate limit exceeded")
 				return c.JSON(http.StatusForbidden, Forbidden)

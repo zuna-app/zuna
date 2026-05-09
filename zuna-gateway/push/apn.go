@@ -3,6 +3,7 @@ package push
 import (
 	"encoding/json"
 	"zuna-gateway/config"
+	"zuna-gateway/data"
 
 	"github.com/rs/zerolog/log"
 
@@ -41,7 +42,7 @@ func InitializeApnClient() {
 	}
 }
 
-func SendApnNotification(tokens []string, payload NotificationPayload, badgeByToken map[string]int) []string {
+func SendApnNotification(serverIp string, tokens []string, payload NotificationPayload, badgeByToken map[string]int) []string {
 	if client == nil {
 		return []string{}
 	}
@@ -104,6 +105,10 @@ func SendApnNotification(tokens []string, payload NotificationPayload, badgeByTo
 			continue
 		}
 
+		if res.Reason != "" {
+			data.IncrementInvalidRequest(serverIp)
+		}
+
 		if res.Reason == apns2.ReasonUnregistered || res.Reason == apns2.ReasonBadDeviceToken {
 			log.Debug().Msg("Device token is unregistered")
 			invalidTokens = append(invalidTokens, deviceToken)
@@ -123,7 +128,7 @@ func SendApnNotification(tokens []string, payload NotificationPayload, badgeByTo
 	return invalidTokens
 }
 
-func SendApnBadgeUpdate(tokens []string, badgeByToken map[string]int) []string {
+func SendApnBadgeUpdate(serverIp string, tokens []string, badgeByToken map[string]int) []string {
 	if client == nil {
 		return []string{}
 	}
@@ -168,6 +173,10 @@ func SendApnBadgeUpdate(tokens []string, badgeByToken map[string]int) []string {
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to push notification")
 			continue
+		}
+
+		if res.Reason != "" {
+			data.IncrementInvalidRequest(serverIp)
 		}
 
 		if res.Reason == apns2.ReasonUnregistered || res.Reason == apns2.ReasonBadDeviceToken {

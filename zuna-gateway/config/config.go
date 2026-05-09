@@ -20,9 +20,10 @@ type LimitsConfig struct {
 }
 
 type GatewayConfig struct {
-	BindAddress string `toml:"bind_address"`
-	Port        int    `toml:"port"`
-	Password    string `toml:"password" comment:"Gateway password, strongly recommended for non-public gateways. Server must send it to authenticate notifications."`
+	BindAddress         string `toml:"bind_address"`
+	Port                int    `toml:"port"`
+	Password            string `toml:"password" comment:"Gateway password, strongly recommended for non-public gateways. Server must send it to authenticate notifications."`
+	InvalidRequestLimit int    `toml:"invalid_request_limit" comment:"Maximum number of invalid requests, after which the client's IP will be banned. Counter resets after 24 hours."`
 }
 
 type TLSConfig struct {
@@ -55,9 +56,10 @@ var Config = Configuration{
 		NotificationBurstLimit: 80,
 	},
 	Gateway: GatewayConfig{
-		BindAddress: "0.0.0.0",
-		Port:        25511,
-		Password:    "",
+		BindAddress:         "0.0.0.0",
+		Port:                25511,
+		Password:            "",
+		InvalidRequestLimit: 30,
 	},
 	TLS: TLSConfig{
 		AutoGenerate: true,
