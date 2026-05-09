@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, FileIcon, ImageIcon, Loader2, PlayCircle, Video } from "lucide-react";
+import { Download, FileIcon, ImageIcon, Loader2, Music, PlayCircle, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChannelMessage, Server } from "@/types/serverTypes";
 import { useChannelAttachmentDownload } from "@/hooks/chat/useChannelAttachmentDownload";
@@ -9,6 +9,8 @@ import { formatFileSize } from "./types";
 const IMAGE_INLINE_SIZE_LIMIT = 8 * 1024 * 1024; // 8 MB
 const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024; // 50 MB — ask before downloading larger videos
 const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024; // 200 MB — above this, treat as generic file
+const AUDIO_AUTO_FETCH_LIMIT = 25 * 1024 * 1024; // 25 MB — auto-download audio below this
+const AUDIO_MAX_INLINE_SIZE = 100 * 1024 * 1024; // 100 MB — above this, treat as generic file
 
 function isImageMime(mime: string) {
   return mime.startsWith("image/");
@@ -16,6 +18,10 @@ function isImageMime(mime: string) {
 
 function isVideoMime(mime: string) {
   return mime.startsWith("video/");
+}
+
+function isAudioMime(mime: string) {
+  return mime.startsWith("audio/");
 }
 
 interface ChannelAttachmentCardProps {
@@ -34,10 +40,13 @@ export function ChannelAttachmentCard({
   const mimeType = meta?.mimeType ?? "";
   const isImage = isImageMime(mimeType);
   const isVideo = isVideoMime(mimeType);
+  const isAudio = isAudioMime(mimeType);
   const isInlineImage =
     isImage && meta !== null && meta.size <= IMAGE_INLINE_SIZE_LIMIT;
   const isInlineVideo = isVideo && meta !== null && meta.size <= VIDEO_MAX_INLINE_SIZE;
   const videoAutoFetch = isVideo && meta !== null && meta.size <= VIDEO_AUTO_FETCH_LIMIT;
+  const isInlineAudio = isAudio && meta !== null && meta.size <= AUDIO_MAX_INLINE_SIZE;
+  const audioAutoFetch = isAudio && meta !== null && meta.size <= AUDIO_AUTO_FETCH_LIMIT;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
@@ -47,7 +56,7 @@ export function ChannelAttachmentCard({
       message.attachmentId,
       channelKey,
       mimeType,
-      isInlineImage || videoAutoFetch,
+      isInlineImage || videoAutoFetch || audioAutoFetch,
     );
 
   // Upload in progress – show progress bar
@@ -145,6 +154,52 @@ export function ChannelAttachmentCard({
             <PlayCircle className="size-8 opacity-50" />
             <span className="text-[11px] opacity-60">
               {meta ? formatFileSize(meta.size) : "Load video"}
+            </span>
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (isInlineAudio) {
+    return (
+      <div className="mb-1 bg-muted/50 border border-border/50 rounded-lg px-3 py-2.5 min-w-72 max-w-xs">
+        <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center justify-center size-7 shrink-0 rounded-md bg-muted-foreground/10">
+            <Music className="size-3.5" />
+          </div>
+          <span className="text-[13px] font-medium truncate leading-tight">
+            {meta?.name ?? "Audio"}
+          </span>
+        </div>
+        {url ? (
+          <audio src={url} controls className="w-full" />
+        ) : error ? (
+          <div className="flex flex-col items-center gap-1.5 py-3 text-[11px] opacity-60 justify-center bg-muted-foreground/10 rounded-md">
+            <Music className="size-4" />
+            <span>Failed to load</span>
+            <button
+              type="button"
+              onClick={download}
+              className="underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="flex items-center gap-2 py-3 text-[10px] opacity-50 justify-center bg-muted-foreground/10 rounded-md">
+            <Loader2 className="size-4 animate-spin" />
+            <span>Loading…</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={download}
+            className="flex items-center gap-2 py-2.5 px-3 w-full bg-muted-foreground/10 rounded-md transition-opacity hover:opacity-70"
+          >
+            <PlayCircle className="size-4 opacity-50 shrink-0" />
+            <span className="text-[11px] opacity-60">
+              {meta ? formatFileSize(meta.size) : "Load audio"}
             </span>
           </button>
         )}
