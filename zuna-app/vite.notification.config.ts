@@ -12,6 +12,10 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    outDir: path.resolve(__dirname, ".vite/renderer/notification_host_window"),
+    emptyOutDir: true,
+  },
   optimizeDeps: {
     force: true,
     include: ["react", "react-dom", "react-dom/client", "motion/react"],

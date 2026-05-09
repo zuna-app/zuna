@@ -152,7 +152,7 @@ export const NotificationHost = () => {
         return;
       }
 
-      const audio = new Audio("/notification-sound.mp3");
+      const audio = new Audio("./notification-sound.mp3");
       audio.play().catch(() => {});
 
       const id = nextIdRef.current++;

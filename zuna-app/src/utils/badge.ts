@@ -1,9 +1,11 @@
 import { app, BrowserWindow, nativeImage } from "electron";
 import { execFile } from "child_process";
+import { getZunaWindow } from "./basicUtils";
 
 export async function setBadgeCount(count: number) {
   if (process.platform === "win32") {
-    const mainWindow = BrowserWindow.getAllWindows()[0];
+    const mainWindow = getZunaWindow();
+    if (!mainWindow) return;
     const badgeIcon = await createWindowsBadgeIcon(count);
     mainWindow.setOverlayIcon(badgeIcon, `${count} unread messages`);
   } else if (process.platform === "linux") {
@@ -15,7 +17,7 @@ export async function setBadgeCount(count: number) {
       "/com/canonical/unity/launcherentry/0",
       "--signal",
       "com.canonical.Unity.LauncherEntry.Update",
-      "application://zuna-app.desktop",
+      "application://Zuna.desktop",
       launcherEntry,
     ];
 

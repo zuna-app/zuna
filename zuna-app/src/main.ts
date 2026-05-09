@@ -16,6 +16,7 @@ import { windowStateCache } from "./storage/appCache";
 import { setUnreadMessagesBadge } from "./gateway/gatewayListener";
 import { showNotificationWindowHost } from "./notification/host";
 import { registerNotificationIPC } from "./notification/ipc";
+import { getZunaWindow } from "./utils/basicUtils";
 
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
@@ -55,7 +56,8 @@ if (!gotTheLock) {
 if (gotTheLock) {
   registerIPC();
 
-  app.setAppUserModelId("chat.zuna.app");
+  app.setAppUserModelId("chat.zuna.app.v1");
+  app.setName("Zuna");
   app.dock?.setIcon(resolveIconPath("zuna.png"));
 
   let tray: Tray | null = null;
@@ -70,7 +72,7 @@ if (gotTheLock) {
 
   const createWindow = () => {
     const { width, height } = windowStateCache.getAll();
-    const appIconPath = resolveIconPath("zuna.png");
+    const appIconPath = resolveIconPath(isWindows ? "icon.ico" : "zuna.png");
     const mainWindow = new BrowserWindow({
       icon: appIconPath,
       width,
@@ -88,6 +90,8 @@ if (gotTheLock) {
       },
     });
 
+    mainWindow.setIcon(appIconPath);
+
     if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
       mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
     } else {
@@ -96,7 +100,7 @@ if (gotTheLock) {
       );
     }
 
-    mainWindow.once("focus", () => mainWindow.flashFrame(false));
+    mainWindow.on("focus", () => mainWindow.flashFrame(false));
 
     // Vite's dep-optimizer can invalidate the cache mid-load in dev; reload automatically.
     mainWindow.webContents.on("did-fail-load", (_, errorCode) => {
@@ -178,7 +182,7 @@ if (gotTheLock) {
   );
 
   app.on("second-instance", () => {
-    const mainWindow = BrowserWindow.getAllWindows()[0];
+    const mainWindow = getZunaWindow();
 
     if (!mainWindow) {
       return;
@@ -209,7 +213,7 @@ if (gotTheLock) {
   app.on("window-all-closed", () => {});
 
   app.on("activate", () => {
-    const mainWindow = BrowserWindow.getAllWindows()[0];
+    const mainWindow = getZunaWindow();
 
     if (mainWindow) {
       mainWindow.show();

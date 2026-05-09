@@ -63,6 +63,8 @@ export const showNotificationWindowHost = (options?: {
   const width = DEFAULT_WIDTH;
   const height = options?.height ?? host.getBounds().height;
 
+  console.log("Showing notification host with height", height);
+
   host.setSize(width, height);
 
   if (typeof options?.x === "number" && typeof options?.y === "number") {

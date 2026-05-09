@@ -10,6 +10,7 @@ import { Server } from "@/types";
 import { computeSharedSecret, decrypt } from "@/crypto";
 import fetch from "node-fetch";
 import https from "https";
+import { getZunaWindow } from "@/utils/basicUtils";
 
 const agent = new https.Agent({
   rejectUnauthorized: false,
@@ -211,8 +212,10 @@ async function handleNotification(
 
     const senderAvatarUrl = senderInfo?.avatar;
     if (process.platform === "win32") {
-      const mainWindow = BrowserWindow.getAllWindows()[0];
-      mainWindow.flashFrame(true);
+      const mainWindow = getZunaWindow();
+      if (mainWindow) {
+        mainWindow.flashFrame(true);
+      }
       sendNotification({
         senderName: senderInfo?.username || "New Message",
         content: plaintext,
@@ -241,7 +244,7 @@ async function handleNotification(
       });
 
       n.on("click", () => {
-        const win = BrowserWindow.getAllWindows()[0];
+        const win = getZunaWindow();
         if (win) {
           if (win.isMinimized()) win.restore();
           win.setAlwaysOnTop(true);
