@@ -3,6 +3,7 @@ import { ExternalLink, Globe, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOgPreview } from "@/hooks/ui/useOgPreview";
 import { usePlatform } from "../../platform";
+import { getVideoEmbed } from "@/lib/video-embed";
 
 interface OgPreviewCardProps {
   url: string;
@@ -181,7 +182,28 @@ export function OgPreviewCard({
   );
 }
 
-/** Renders clickable URL spans with optional OG card below */
+function VideoEmbedCard({
+  embedUrl,
+  onLoad,
+}: {
+  embedUrl: string;
+  onLoad?: () => void;
+}) {
+  return (
+    <div className="mt-1.5 w-full aspect-video rounded-xl overflow-hidden">
+      <iframe
+        src={embedUrl}
+        className="w-full h-full border-0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+        onLoad={onLoad}
+        title="Video"
+      />
+    </div>
+  );
+}
+
+/** Renders an inline video player for known video hosting URLs, or an OG card otherwise */
 interface MessageUrlProps {
   url: string;
   isOwn: boolean;
@@ -189,6 +211,10 @@ interface MessageUrlProps {
 }
 
 export function MessageOgPreview({ url, isOwn, onLoad }: MessageUrlProps) {
+  const embed = getVideoEmbed(url);
+  if (embed) {
+    return <VideoEmbedCard embedUrl={embed.embedUrl} onLoad={onLoad} />;
+  }
   return (
     <OgPreviewCard url={url} variant="bubble" isOwn={isOwn} onLoad={onLoad} />
   );
