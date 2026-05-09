@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld("cache", {
     ipcRenderer.invoke("cache:set", name, key, value),
 });
 
+contextBridge.exposeInMainWorld("og", {
+  fetch: (url: string) => ipcRenderer.invoke("og:fetch", url),
+});
+
 contextBridge.exposeInMainWorld("notification", {
   resize: (height: number) => ipcRenderer.invoke("notification:resize", height),
   restore: () => ipcRenderer.invoke("notification:restore"),

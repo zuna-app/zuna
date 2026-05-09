@@ -44,4 +44,13 @@ interface Window {
     get: (name: string, key: string) => Promise<unknown>;
     set: (name: string, key: string, value: unknown) => Promise<void>;
   };
+  og: {
+    fetch: (url: string) => Promise<{
+      url: string;
+      title?: string;
+      description?: string;
+      image?: string;
+      siteName?: string;
+    } | null>;
+  };
 }

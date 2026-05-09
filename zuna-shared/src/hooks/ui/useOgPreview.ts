@@ -21,6 +21,12 @@ export function extractFirstUrl(text: string): string | null {
 }
 
 async function fetchOgBestEffort(url: string): Promise<OgData | null> {
+  // In Electron the preload exposes window.og.fetch which routes through the
+  // main process (open-graph-scraper via Node.js), bypassing CORS entirely.
+  if (typeof window !== "undefined" && typeof window.og?.fetch === "function") {
+    return window.og.fetch(url);
+  }
+
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!res.ok) return null;
@@ -40,7 +46,6 @@ async function fetchOgBestEffort(url: string): Promise<OgData | null> {
       siteName: getMeta("og:site_name") ?? undefined,
     };
   } catch {
-    // CORS failure or network error — silently return null
     return null;
   }
 }
