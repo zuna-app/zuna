@@ -1,0 +1,13 @@
+{
+  "name": "zuna-wasapi-browser-client",
+  "version": "1.0.0",
+  "description": "Node.js bridge: streams zuna-wasapi named pipe PCM to a browser via WebSocket",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.17.0"
+  }
+}
+

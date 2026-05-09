@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>zuna-wasapi - reference browser player</title>
+    <style>
+      :root {
+        --bg: #0f1117;
+        --surface: #1a1d27;
+        --border: #2e3147;
+        --accent: #5b6af0;
+        --green: #3ecf8e;
+        --red: #f06060;
+        --text: #e2e4f0;
+        --muted: #7b82a4;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-height: 100vh;
+        padding: 2rem 1rem;
+      }
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: var(--accent);
+        margin-bottom: 0.25rem;
+      }
+      .subtitle {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin-bottom: 2rem;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        width: 100%;
+        max-width: 640px;
+        margin-bottom: 1rem;
+      }
+      .card-title {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--muted);
+        margin-bottom: 1rem;
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex-shrink: 0;
+        transition: background 0.3s;
+      }
+      .dot.green {
+        background: var(--green);
+        box-shadow: 0 0 6px var(--green);
+      }
+      .dot.red {
+        background: var(--red);
+        box-shadow: 0 0 6px var(--red);
+      }
+      .dot.yellow {
+        background: #f0c060;
+        box-shadow: 0 0 6px #f0c060;
+      }
+      #statusText {
+        font-size: 0.9rem;
+      }
+
+      .fmt-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 0.75rem;
+      }
+      .fmt-item label {
+        display: block;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-bottom: 0.2rem;
+      }
+      .fmt-item span {
+        font-size: 0.95rem;
+        font-weight: 600;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex-wrap: wrap;
+      }
+      button {
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 8px;
+        padding: 0.6rem 1.4rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.15s;
+      }
+      button:hover {
+        opacity: 0.85;
+      }
+      button:active {
+        opacity: 0.7;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      .vol-group {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        flex: 1;
+        min-width: 160px;
+      }
+      .vol-group label {
+        font-size: 0.8rem;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      input[type="range"] {
+        flex: 1;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      #volVal {
+        font-size: 0.85rem;
+        min-width: 36px;
+        text-align: right;
+      }
+
+      canvas {
+        width: 100%;
+        height: 80px;
+        border-radius: 6px;
+        background: var(--bg);
+        display: block;
+      }
+
+      .stats {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+      }
+      .stat {
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .stat span {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      #log {
+        font-family: "Cascadia Code", "Consolas", monospace;
+        font-size: 0.75rem;
+        color: var(--muted);
+        height: 90px;
+        overflow-y: auto;
+        line-height: 1.6;
+      }
+      #log p {
+        margin: 0;
+      }
+      #log p.err {
+        color: var(--red);
+      }
+      #log p.ok {
+        color: var(--green);
+      }
+    </style>
+  </head>
+  <body>
+    <h1>zuna-wasapi</h1>
+    <p class="subtitle">WASAPI per-process audio -> browser</p>
+
+    <div class="card">
+      <div class="card-title">Connection</div>
+      <div class="status-row">
+        <div class="dot" id="dot"></div>
+        <span id="statusText">Connecting to server...</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Audio Format</div>
+      <div class="fmt-grid">
+        <div class="fmt-item">
+          <label>Sample rate</label><span id="fSr">—</span>
+        </div>
+        <div class="fmt-item">
+          <label>Channels</label> <span id="fCh">—</span>
+        </div>
+        <div class="fmt-item">
+          <label>Bit depth</label> <span id="fBd">—</span>
+        </div>
+        <div class="fmt-item">
+          <label>Encoding</label> <span id="fEnc">—</span>
+        </div>
+        <div class="fmt-item">
+          <label>Block align</label><span id="fBa">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Playback</div>
+      <div class="controls">
+        <button id="btnPlay" disabled>Play</button>
+        <button id="btnStop" disabled>Stop</button>
+        <div class="vol-group">
+          <label>Volume</label>
+          <input type="range" id="volSlider" min="0" max="100" value="80" />
+          <span id="volVal">80%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Waveform</div>
+      <canvas id="scope"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Stats</div>
+      <div class="stats">
+        <div class="stat">Buffer: <span id="stBuf">-</span></div>
+        <div class="stat">Underruns: <span id="stUnd">0</span></div>
+        <div class="stat">Trimmed: <span id="stTrim">0</span></div>
+        <div class="stat">Received: <span id="stBytes">0 B</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Log</div>
+      <div id="log"></div>
+    </div>
+
+    <script>
+      "use strict";
+      const $ = (id) => document.getElementById(id);
+
+      function log(msg, cls) {
+        const el = document.createElement("p");
+        if (cls) el.className = cls;
+        el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        $("log").prepend(el);
+        while ($("log").children.length > 80) $("log").lastChild.remove();
+      }
+
+      function fmtBytes(n) {
+        if (n < 1024) return n + " B";
+        if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+        if (n < 1073741824) return (n / 1048576).toFixed(2) + " MB";
+        return (n / 1073741824).toFixed(2) + " GB";
+      }
+
+      function setStatus(text, dotClass) {
+        $("statusText").textContent = text;
+        $("dot").className = "dot " + (dotClass || "");
+      }
+
+      let ws = null;
+      let audioFormat = null;
+      let totalBytes = 0;
+      let pendingChunks = []; // ArrayBuffers queued before AudioWorklet is ready
+
+      function connectWS() {
+        const url = `ws://${location.host}`;
+        log(`Connecting WebSocket to ${url}`);
+        setStatus("Connecting...", "yellow");
+
+        ws = new WebSocket(url);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          log("WebSocket connected", "ok");
+          setStatus("WebSocket connected — waiting for pipe...", "yellow");
+        };
+
+        ws.onclose = () => {
+          log("WebSocket closed, reconnecting in 3 s...", "err");
+          setStatus("Disconnected - retrying...", "red");
+          setTimeout(connectWS, 3000);
+        };
+
+        ws.onerror = (e) =>
+          log("WebSocket error: " + (e.message || "unknown"), "err");
+
+        ws.onmessage = (e) => {
+          if (typeof e.data === "string") {
+            const msg = JSON.parse(e.data);
+            handleJsonMsg(msg);
+          } else {
+            // Binary PCM chunk
+            totalBytes += e.data.byteLength;
+            $("stBytes").textContent = fmtBytes(totalBytes);
+            handlePcmChunk(e.data);
+          }
+        };
+      }
+
+      function handleJsonMsg(msg) {
+        if (msg.type === "status") {
+          if (msg.connected) {
+            setStatus("Pipe connected — receiving audio...", "green");
+            log("Pipe connected to zuna-wasapi", "ok");
+          } else {
+            setStatus("Pipe disconnected", "red");
+            log("Pipe closed by server", "err");
+          }
+        }
+
+        if (msg.type === "format") {
+          audioFormat = msg;
+          MAX_BRIDGE_BYTES =
+            Math.ceil(msg.nSamplesPerSec * 0.05) * msg.nBlockAlign;
+          $("fSr").textContent = msg.nSamplesPerSec.toLocaleString() + " Hz";
+          $("fCh").textContent =
+            msg.nChannels + (msg.nChannels === 1 ? " (mono)" : " (stereo)");
+          $("fBd").textContent = msg.wBitsPerSample + "-bit";
+          $("fEnc").textContent = msg.isFloat
+            ? "IEEE Float"
+            : msg.isPcm
+              ? "PCM"
+              : "Unknown";
+          $("fBa").textContent = msg.nBlockAlign + " B";
+          log(
+            `Format: ${msg.nSamplesPerSec} Hz, ${msg.nChannels}ch, ${msg.wBitsPerSample}-bit ${msg.isFloat ? "float" : "int"}`,
+            "ok",
+          );
+          $("btnPlay").disabled = false;
+          $("btnStop").disabled = false;
+        }
+      }
+
+      let audioCtx = null;
+      let gainNode = null;
+      let analyser = null;
+      let worklet = null;
+      let playing = false;
+
+      // Max bytes kept in the bridge buffer (filled while worklet is being loaded).
+      // Recalculated when the format arrives; capped at 50 ms of live audio.
+      let MAX_BRIDGE_BYTES = 24000; // safe default (50 ms @ 48kHz 2ch float32)
+
+      async function startAudio() {
+        if (!audioFormat) {
+          log("No format info yet", "err");
+          return;
+        }
+        if (playing) {
+          log("Already playing");
+          return;
+        }
+
+        try {
+          audioCtx = new AudioContext({
+            sampleRate: audioFormat.nSamplesPerSec,
+          });
+
+          if (audioCtx.state === "suspended") await audioCtx.resume();
+          await audioCtx.audioWorklet.addModule("/audio-processor.js");
+
+          worklet = new AudioWorkletNode(audioCtx, "pcm-audio-processor", {
+            numberOfOutputs: 1,
+            outputChannelCount: [audioFormat.nChannels],
+          });
+
+          worklet.port.postMessage({
+            type: "config",
+            channels: audioFormat.nChannels,
+            isFloat32: audioFormat.isFloat && audioFormat.wBitsPerSample === 32,
+            bitsPerSample: audioFormat.wBitsPerSample,
+          });
+
+          worklet.port.onmessage = (e) => {
+            if (e.data.type === "stats") {
+              const ms = Math.round(
+                (e.data.bufferedFrames / audioFormat.nSamplesPerSec) * 1000,
+              );
+              $("stBuf").textContent = `${ms} ms`;
+              $("stUnd").textContent = e.data.underruns;
+              $("stTrim").textContent = e.data.trimmed;
+            }
+          };
+
+          gainNode = audioCtx.createGain();
+          gainNode.gain.value = $("volSlider").value / 100;
+
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 2048;
+
+          worklet.connect(gainNode);
+          gainNode.connect(analyser);
+          analyser.connect(audioCtx.destination);
+
+          playing = true;
+          log("Audio started", "ok");
+
+          pendingChunks = [];
+
+          startVisualiser();
+        } catch (err) {
+          log("Audio error: " + err.message, "err");
+          console.error(err);
+        }
+      }
+
+      function stopAudio() {
+        if (!playing) return;
+        playing = false;
+        pendingChunks = [];
+        if (worklet) {
+          worklet.port.postMessage({ type: "flush" });
+          worklet.disconnect();
+          worklet = null;
+        }
+        if (gainNode) {
+          gainNode.disconnect();
+          gainNode = null;
+        }
+        if (analyser) {
+          analyser.disconnect();
+          analyser = null;
+        }
+        if (audioCtx) {
+          audioCtx.close();
+          audioCtx = null;
+        }
+        cancelAnimationFrame(rafId);
+        log("Audio stopped");
+      }
+
+      function sendToWorklet(arrayBuffer) {
+        if (!worklet) {
+          pendingChunks.push(arrayBuffer);
+          let total = pendingChunks.reduce((s, b) => s + b.byteLength, 0);
+          while (pendingChunks.length > 1 && total > MAX_BRIDGE_BYTES) {
+            total -= pendingChunks.shift().byteLength;
+          }
+          return;
+        }
+        if (pendingChunks.length) {
+          for (const buf of pendingChunks)
+            worklet.port.postMessage({ type: "pcm", buffer: buf }, [buf]);
+          pendingChunks = [];
+        }
+        worklet.port.postMessage({ type: "pcm", buffer: arrayBuffer }, [
+          arrayBuffer,
+        ]);
+      }
+
+      function handlePcmChunk(arrayBuffer) {
+        if (playing) {
+          sendToWorklet(arrayBuffer);
+        }
+      }
+
+      $("volSlider").addEventListener("input", () => {
+        const v = $("volSlider").value;
+        $("volVal").textContent = v + "%";
+        if (gainNode) gainNode.gain.value = v / 100;
+      });
+
+      $("btnPlay").addEventListener("click", startAudio);
+      $("btnStop").addEventListener("click", stopAudio);
+
+      const canvas = $("scope");
+      const ctx2d = canvas.getContext("2d");
+      let rafId = 0;
+
+      function resizeCanvas() {
+        canvas.width = canvas.clientWidth * devicePixelRatio;
+        canvas.height = canvas.clientHeight * devicePixelRatio;
+      }
+      resizeCanvas();
+      window.addEventListener("resize", resizeCanvas);
+
+      function drawScope() {
+        rafId = requestAnimationFrame(drawScope);
+        const W = canvas.width,
+          H = canvas.height;
+        ctx2d.clearRect(0, 0, W, H);
+
+        if (!analyser) {
+          ctx2d.strokeStyle = "#2e3147";
+          ctx2d.lineWidth = 1;
+          ctx2d.beginPath();
+          ctx2d.moveTo(0, H / 2);
+          ctx2d.lineTo(W, H / 2);
+          ctx2d.stroke();
+          return;
+        }
+
+        const buf = new Float32Array(analyser.fftSize);
+        analyser.getFloatTimeDomainData(buf);
+
+        ctx2d.strokeStyle = "#5b6af0";
+        ctx2d.lineWidth = 1.5 * devicePixelRatio;
+        ctx2d.beginPath();
+
+        const sliceW = W / buf.length;
+        for (let i = 0; i < buf.length; i++) {
+          const y = (1 - (buf[i] * 0.8 + 1) / 2) * H;
+          i === 0 ? ctx2d.moveTo(0, y) : ctx2d.lineTo(i * sliceW, y);
+        }
+        ctx2d.stroke();
+      }
+      drawScope();
+      connectWS();
+    </script>
+  </body>
+</html>
