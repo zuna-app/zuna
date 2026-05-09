@@ -18,5 +18,11 @@ export const sendNotification = (payload: NotificationPayload) => {
   const host = getNotificationWindowHost();
   if (!host || host.isDestroyed()) return;
 
-  host.webContents.send("notification:show", payload);
+  const send = () => host.webContents.send("notification:show", payload);
+
+  if (host.webContents.isLoading()) {
+    host.webContents.once("did-finish-load", send);
+  } else {
+    send();
+  }
 };

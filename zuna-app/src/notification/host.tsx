@@ -2,7 +2,7 @@ import { BrowserWindow, screen } from "electron";
 import * as path from "path";
 
 const DEFAULT_WIDTH = 300;
-const DEFAULT_HEIGHT = 600;
+const DEFAULT_HEIGHT = 1;
 
 let notificationWindowHost: BrowserWindow | null = null;
 
@@ -63,8 +63,6 @@ export const showNotificationWindowHost = (options?: {
   const width = DEFAULT_WIDTH;
   const height = options?.height ?? host.getBounds().height;
 
-  console.log("Showing notification host with height", height);
-
   host.setSize(width, height);
 
   if (typeof options?.x === "number" && typeof options?.y === "number") {
@@ -99,14 +97,7 @@ export const showNotificationWindowHost = (options?: {
   }
 };
 
-export const hideNotificationWindowHost = () => {
-  if (!notificationWindowHost || notificationWindowHost.isDestroyed()) {
-    return;
-  }
-
-  notificationWindowHost.hide();
-};
-
+let firstTracker = true;
 export const resizeNotificationWindowHost = (
   height: number,
   mainWindow?: BrowserWindow,
@@ -114,8 +105,13 @@ export const resizeNotificationWindowHost = (
   if (!notificationWindowHost || notificationWindowHost.isDestroyed()) {
     return;
   }
-
   const padding = 16;
+  if (height <= padding && !firstTracker) {
+    notificationWindowHost.hide();
+    return;
+  }
+  firstTracker = false;
+
   const width = DEFAULT_WIDTH;
 
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -144,6 +140,10 @@ export const resizeNotificationWindowHost = (
       width: bounds.width,
       height,
     });
+  }
+
+  if (!notificationWindowHost.isVisible()) {
+    notificationWindowHost.showInactive();
   }
 };
 
