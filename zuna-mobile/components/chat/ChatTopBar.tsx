@@ -28,7 +28,10 @@ export function ChatTopBar({ member, messages, onShowPinned }: Props) {
         <ChevronLeftIcon size={22} color="#fff" />
       </Pressable>
 
-      <Avatar name={member.username} size={34} uri={member.avatar || null} />
+      <View style={styles.avatarWrap}>
+        <Avatar name={member.username} size={44} uri={member.avatar || null} />
+        <View style={[styles.dot, isOnline && styles.dotOnline]} />
+      </View>
 
       <View style={styles.info}>
         <View style={styles.nameRow}>
@@ -41,7 +44,6 @@ export function ChatTopBar({ member, messages, onShowPinned }: Props) {
           </View>
         </View>
         <View style={styles.statusRow}>
-          <View style={[styles.dot, isOnline && styles.dotOnline]} />
           <Text style={styles.status}>
             {isTyping
               ? 'typing…'
@@ -74,6 +76,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   backBtn: { padding: 4 },
+  avatarWrap: { position: 'relative' },
   info: { flex: 1 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { color: '#fff', fontWeight: '600', fontSize: 16, flexShrink: 1 },
@@ -87,8 +90,18 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   encryptedText: { color: '#a1a1aa', fontSize: 11, fontWeight: '600' },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#52525b' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', marginTop: 1 },
+  dot: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#52525b',
+    borderWidth: 2,
+    borderColor: '#0a0a0a',
+  },
   dotOnline: { backgroundColor: '#22c55e' },
   status: { color: '#71717a', fontSize: 12 },
   pinBtn: {
