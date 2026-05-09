@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Download, FileIcon, ImageIcon, Loader2 } from "lucide-react";
+import { Download, FileIcon, ImageIcon, Loader2, PlayCircle, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChannelMessage, Server } from "@/types/serverTypes";
 import { useChannelAttachmentDownload } from "@/hooks/chat/useChannelAttachmentDownload";
@@ -7,9 +7,15 @@ import { ImageLightbox } from "./image-lightbox";
 import { formatFileSize } from "./types";
 
 const IMAGE_INLINE_SIZE_LIMIT = 8 * 1024 * 1024; // 8 MB
+const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024; // 50 MB — ask before downloading larger videos
+const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024; // 200 MB — above this, treat as generic file
 
 function isImageMime(mime: string) {
   return mime.startsWith("image/");
+}
+
+function isVideoMime(mime: string) {
+  return mime.startsWith("video/");
 }
 
 interface ChannelAttachmentCardProps {
@@ -27,8 +33,11 @@ export function ChannelAttachmentCard({
 }: ChannelAttachmentCardProps) {
   const mimeType = meta?.mimeType ?? "";
   const isImage = isImageMime(mimeType);
+  const isVideo = isVideoMime(mimeType);
   const isInlineImage =
     isImage && meta !== null && meta.size <= IMAGE_INLINE_SIZE_LIMIT;
+  const isInlineVideo = isVideo && meta !== null && meta.size <= VIDEO_MAX_INLINE_SIZE;
+  const videoAutoFetch = isVideo && meta !== null && meta.size <= VIDEO_AUTO_FETCH_LIMIT;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
 
@@ -38,7 +47,7 @@ export function ChannelAttachmentCard({
       message.attachmentId,
       channelKey,
       mimeType,
-      isInlineImage,
+      isInlineImage || videoAutoFetch,
     );
 
   // Upload in progress – show progress bar
@@ -102,6 +111,44 @@ export function ChannelAttachmentCard({
           )}
         </div>
       </>
+    );
+  }
+
+  if (isInlineVideo) {
+    return (
+      <div className="mb-1 rounded-md overflow-hidden max-w-sm">
+        {url ? (
+          <video src={url} controls className="w-full max-h-72 block" />
+        ) : error ? (
+          <div className="flex flex-col items-center gap-1.5 p-4 text-[11px] opacity-60 min-w-40 min-h-28 justify-center bg-muted-foreground/10 rounded-md">
+            <Video className="size-5" />
+            <span>Failed to load</span>
+            <button
+              type="button"
+              onClick={download}
+              className="underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
+          <div className="flex flex-col items-center gap-2 p-6 opacity-50 min-h-28 justify-center bg-muted-foreground/10 rounded-md">
+            <Loader2 className="size-5 animate-spin" />
+            <span className="text-[10px]">Loading…</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={download}
+            className="flex flex-col items-center gap-2 p-6 w-full min-h-28 justify-center bg-muted-foreground/10 rounded-md transition-opacity hover:opacity-70"
+          >
+            <PlayCircle className="size-8 opacity-50" />
+            <span className="text-[11px] opacity-60">
+              {meta ? formatFileSize(meta.size) : "Load video"}
+            </span>
+          </button>
+        )}
+      </div>
     );
   }
 

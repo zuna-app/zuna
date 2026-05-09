@@ -6,6 +6,8 @@ import {
   FileIcon,
   ImageIcon,
   Loader2,
+  PlayCircle,
+  Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Server } from "@/types/serverTypes";
@@ -20,9 +22,15 @@ import {
 import { ImageLightbox } from "./image-lightbox";
 
 const IMAGE_INLINE_SIZE_LIMIT = 8 * 1024 * 1024; // 8 MB
+const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024; // 50 MB — ask before downloading larger videos
+const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024; // 200 MB — above this, treat as generic file
 
 function isImageMime(mime: string) {
   return mime.startsWith("image/");
+}
+
+function isVideoMime(mime: string) {
+  return mime.startsWith("video/");
 }
 
 interface AttachmentCardProps {
@@ -50,9 +58,11 @@ export function AttachmentCard({
 }: AttachmentCardProps) {
   const mimeType = meta?.mimeType ?? "";
   const isImage = isImageMime(mimeType);
-  // Images over 8 MB are shown as file attachments to avoid huge inline loads
+  const isVideo = isVideoMime(mimeType);
   const isInlineImage =
     isImage && meta !== null && meta.size <= IMAGE_INLINE_SIZE_LIMIT;
+  const isInlineVideo = isVideo && meta !== null && meta.size <= VIDEO_MAX_INLINE_SIZE;
+  const videoAutoFetch = isVideo && meta !== null && meta.size <= VIDEO_AUTO_FETCH_LIMIT;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const { vault } = usePlatform();
@@ -67,7 +77,22 @@ export function AttachmentCard({
     senderIdentityKey,
     mimeType,
     ownPrivateKey,
-    isInlineImage,
+    isInlineImage || videoAutoFetch,
+  );
+
+  const mediaOverlay = url && (
+    <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-t from-black/55 to-transparent pointer-events-none select-none">
+      <span className="text-[10px] text-white/90">{formatTime(sentAt)}</span>
+      {isOwn && status === "pending" && (
+        <Loader2 className="size-3 shrink-0 text-white/80 animate-spin" />
+      )}
+      {isOwn && status === "sent" && (
+        <Check className="size-3 shrink-0 text-white/80" strokeWidth={2.5} />
+      )}
+      {isOwn && status === "read" && (
+        <CheckCheck className="size-3 shrink-0 text-white/80" strokeWidth={2.5} />
+      )}
+    </div>
   );
 
   return (
@@ -121,28 +146,7 @@ export function AttachmentCard({
                 <span className="text-[10px]">Loading…</span>
               </div>
             )}
-            {url && (
-              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-end gap-1 px-2.5 py-1.5 opacity-0 group-hover:opacity-100 transition-opacity bg-linear-to-t from-black/55 to-transparent pointer-events-none select-none">
-                <span className="text-[10px] text-white/90">
-                  {formatTime(sentAt)}
-                </span>
-                {isOwn && status === "pending" && (
-                  <Loader2 className="size-3 shrink-0 text-white/80 animate-spin" />
-                )}
-                {isOwn && status === "sent" && (
-                  <Check
-                    className="size-3 shrink-0 text-white/80"
-                    strokeWidth={2.5}
-                  />
-                )}
-                {isOwn && status === "read" && (
-                  <CheckCheck
-                    className="size-3 shrink-0 text-white/80"
-                    strokeWidth={2.5}
-                  />
-                )}
-              </div>
-            )}
+            {mediaOverlay}
             {textContent && (
               <div
                 className={cn(
@@ -155,6 +159,69 @@ export function AttachmentCard({
             )}
           </div>
         </>
+      ) : isInlineVideo ? (
+        <div className="relative group">
+          {url ? (
+            <video
+              src={url}
+              controls
+              className="w-full max-h-72 block"
+              onLoadedData={onLoad}
+            />
+          ) : error ? (
+            <div
+              className={cn(
+                "flex flex-col items-center gap-1.5 p-4 text-[11px] opacity-60 min-w-40 min-h-28 justify-center",
+                isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
+              )}
+            >
+              <Video className="size-5" />
+              <span>Failed to load</span>
+              <button
+                type="button"
+                onClick={download}
+                className="underline underline-offset-2"
+              >
+                Retry
+              </button>
+            </div>
+          ) : loading ? (
+            <div
+              className={cn(
+                "flex flex-col items-center gap-2 p-6 opacity-50 min-h-28 justify-center",
+                isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
+              )}
+            >
+              <Loader2 className="size-5 animate-spin" />
+              <span className="text-[10px]">Loading…</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={download}
+              className={cn(
+                "flex flex-col items-center gap-2 p-6 w-full min-h-28 justify-center transition-opacity hover:opacity-70",
+                isOwn ? "bg-primary-foreground/10" : "bg-muted-foreground/10",
+              )}
+            >
+              <PlayCircle className="size-8 opacity-50" />
+              <span className="text-[11px] opacity-60">
+                {meta ? formatFileSize(meta.size) : "Load video"}
+              </span>
+            </button>
+          )}
+          {mediaOverlay}
+          {textContent && (
+            <div
+              className={cn(
+                "px-3.5 py-2 border-t text-sm",
+                isOwn ? "border-primary-foreground/20" : "border-border/40",
+              )}
+            >
+              {textContent}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="px-3.5 py-2">
           <div className="flex items-center gap-2.5 min-w-40 pb-0.5">
