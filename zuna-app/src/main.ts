@@ -29,13 +29,13 @@ if (!isLinux) {
 const resolveIconPath = (...pathSegments: string[]) => {
   const candidates = app.isPackaged
     ? [
-      path.join(process.resourcesPath, ...pathSegments),
-      path.join(process.resourcesPath, "public", ...pathSegments),
-    ]
+        path.join(process.resourcesPath, ...pathSegments),
+        path.join(process.resourcesPath, "public", ...pathSegments),
+      ]
     : [
-      path.join(app.getAppPath(), ...pathSegments),
-      path.join(app.getAppPath(), "public", ...pathSegments),
-    ];
+        path.join(app.getAppPath(), ...pathSegments),
+        path.join(app.getAppPath(), "public", ...pathSegments),
+      ];
 
   return (
     candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
@@ -95,6 +95,8 @@ if (gotTheLock) {
         path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
       );
     }
+
+    mainWindow.once("focus", () => mainWindow.flashFrame(false));
 
     // Vite's dep-optimizer can invalidate the cache mid-load in dev; reload automatically.
     mainWindow.webContents.on("did-fail-load", (_, errorCode) => {
@@ -204,7 +206,7 @@ if (gotTheLock) {
     lockVault();
   });
 
-  app.on("window-all-closed", () => { });
+  app.on("window-all-closed", () => {});
 
   app.on("activate", () => {
     const mainWindow = BrowserWindow.getAllWindows()[0];
