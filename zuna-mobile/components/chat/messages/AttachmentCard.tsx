@@ -1,8 +1,12 @@
 import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
-import { FileIcon, DownloadIcon } from 'lucide-react-native';
+import { VideoView, useVideoPlayer } from 'expo-video';
+import { FileIcon, DownloadIcon, PlayCircleIcon } from 'lucide-react-native';
 import { useAttachmentDownload } from '@/hooks/chat/useAttachmentDownload';
 import { Server, AttachmentMeta } from '@/types/serverTypes';
+
+const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024;  // 50 MB — auto-download
+const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024;  // 200 MB — above this, generic file card
 
 interface Props {
   server: Server;
@@ -11,6 +15,11 @@ interface Props {
   meta: AttachmentMeta | undefined;
   onImagePress?: (uri: string) => void;
   onLongPress?: (e: import('react-native').GestureResponderEvent) => void;
+}
+
+function VideoPlayer({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri);
+  return <VideoView player={player} style={styles.video} nativeControls />;
 }
 
 export function AttachmentCard({
@@ -23,12 +32,16 @@ export function AttachmentCard({
 }: Props) {
   const mimeType = meta?.mimeType ?? 'application/octet-stream';
   const isImage = mimeType.startsWith('image/');
+  const isVideo = mimeType.startsWith('video/');
+  const isInlineVideo = isVideo && (meta == null || meta.size <= VIDEO_MAX_INLINE_SIZE);
+  const videoAutoFetch = isVideo && meta != null && meta.size <= VIDEO_AUTO_FETCH_LIMIT;
+
   const { uri, loading, error, download, saveFile } = useAttachmentDownload(
     server,
     attachmentId,
     senderIdentityKey,
     mimeType,
-    isImage, // auto-fetch images
+    isImage || videoAutoFetch,
     meta?.name
   );
 
@@ -47,6 +60,27 @@ export function AttachmentCard({
         </Pressable>
       );
     }
+  }
+
+  if (isInlineVideo) {
+    if (uri) {
+      return <VideoPlayer uri={uri} />;
+    }
+    if (loading) {
+      return (
+        <View style={styles.videoPlaceholder}>
+          <ActivityIndicator color="#71717a" size="small" />
+        </View>
+      );
+    }
+    // Not yet fetched — show tap-to-load prompt (always shown for >50 MB, shown on error retry too)
+    return (
+      <Pressable style={styles.videoPlaceholder} onPress={download} onLongPress={onLongPress}>
+        <PlayCircleIcon size={36} color="#71717a" />
+        {meta && <Text style={styles.videoSize}>{formatBytes(meta.size)}</Text>}
+        {error && <Text style={styles.errorText}>{error}</Text>}
+      </Pressable>
+    );
   }
 
   return (
@@ -96,6 +130,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   image: { width: 220, height: 165, borderRadius: 12 },
+  video: { width: 220, height: 165, borderRadius: 12 },
+  videoPlaceholder: {
+    width: 220,
+    height: 165,
+    backgroundColor: '#18181b',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  videoSize: { color: '#71717a', fontSize: 12 },
   fileCard: {
     backgroundColor: '#18181b',
     borderRadius: 12,

@@ -3696,6 +3696,11 @@ expo-updates@~55.0.16:
     ignore "^5.3.1"
     resolve-from "^5.0.0"
 
+expo-video@^55.0.16:
+  version "55.0.16"
+  resolved "https://registry.yarnpkg.com/expo-video/-/expo-video-55.0.16.tgz#6daf2eead893f919e53ebd266571bd43f24183c9"
+  integrity sha512-sarOgIIe+3QwDrQkLyE6KghLLJTijuBuRvBhP2RdQex3ntFHqz/ie2Gv149PHewdPdDM4I5Lycnes9Ky3SW8qg==
+
 expo@~55.0.9:
   version "55.0.20"
   resolved "https://registry.yarnpkg.com/expo/-/expo-55.0.20.tgz#ef97771556ba402012c42fb0fc741e00751a9a2b"
