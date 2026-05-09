@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Modal,
   Image,
+  Linking,
   useWindowDimensions,
   GestureResponderEvent,
   Animated,
@@ -23,10 +24,19 @@ import {
 } from 'lucide-react-native';
 import { AttachmentCard } from './AttachmentCard';
 import { ReplyBubble } from './ReplyBubble';
+import { OgPreview } from './OgPreview';
 import { Message, Server, AttachmentMeta } from '@/types/serverTypes';
 import { EmoteV3, getEmoteDisplaySize } from '@/lib/seventv';
 
 const EMOTE_SPLIT_RE = /(\b[a-zA-Z0-9_]+\b)/g;
+const URL_SPLIT_RE = /(https?:\/\/[^\s<>"']+)/i;
+const TRAILING_PUNCT_RE = /[.,;:!?)'"\]]+$/;
+
+function extractFirstUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s<>"']+/i);
+  if (!match) return null;
+  return match[0].replace(TRAILING_PUNCT_RE, '');
+}
 
 interface Props {
   message: Message;
@@ -65,25 +75,40 @@ function renderMessageText(
   emoteMap: ReadonlyMap<string, string>,
   emoteDataMap: ReadonlyMap<string, EmoteV3>,
 ) {
-  return text.split(EMOTE_SPLIT_RE).map((part, index) => {
-    const src = emoteMap.get(part);
-    if (!src) {
-      if (!part) return null;
-      return (
-        <Text key={`text-${index}`} style={[styles.text, isOwn && styles.textOwn]}>
-          {part}
+  return text.split(URL_SPLIT_RE).flatMap((segment, segIdx) => {
+    if (URL_SPLIT_RE.test(segment)) {
+      const clean = segment.replace(TRAILING_PUNCT_RE, '');
+      return [(
+        <Text
+          key={`url-${segIdx}`}
+          style={[styles.text, isOwn && styles.textOwn, styles.link]}
+          onPress={() => Linking.openURL(clean)}
+        >
+          {clean}
         </Text>
-      );
+      )];
     }
 
-    const emote = emoteDataMap.get(part);
-    const dimensions = emote ? getEmoteDisplaySize(emote) : null;
-    const height = 28;
-    const width = dimensions
-      ? Math.max(24, Math.round((dimensions.width / dimensions.height) * height))
-      : height;
+    return segment.split(EMOTE_SPLIT_RE).map((part, partIdx) => {
+      const src = emoteMap.get(part);
+      if (!src) {
+        if (!part) return null;
+        return (
+          <Text key={`text-${segIdx}-${partIdx}`} style={[styles.text, isOwn && styles.textOwn]}>
+            {part}
+          </Text>
+        );
+      }
 
-    return <Image key={`emote-${index}`} source={{ uri: src }} style={[styles.emote, { width, height }]} />;
+      const emote = emoteDataMap.get(part);
+      const dimensions = emote ? getEmoteDisplaySize(emote) : null;
+      const height = 28;
+      const width = dimensions
+        ? Math.max(24, Math.round((dimensions.width / dimensions.height) * height))
+        : height;
+
+      return <Image key={`emote-${segIdx}-${partIdx}`} source={{ uri: src }} style={[styles.emote, { width, height }]} />;
+    });
   });
 }
 
@@ -114,6 +139,10 @@ export function MessageBubble({
   const hasPendingUpload = message.uploadProgress != null;
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 });
+
+  const ogUrl = text && !hasPendingUpload && !message.attachmentId
+    ? extractFirstUrl(text)
+    : null;
 
   useEffect(() => {
     if (!shouldAnimateEnter) {
@@ -198,7 +227,8 @@ export function MessageBubble({
   }
 
   return (
-    <Animated.View style={[styles.row, isFirst ? styles.rowFirst : styles.rowGrouped, isOwn && styles.rowOwn, enterStyle]}>
+    <Animated.View style={[styles.messageColumn, isFirst ? styles.rowFirst : styles.rowGrouped, enterStyle]}>
+      <View style={[styles.row, isOwn && styles.rowOwn]}>
       <Pressable
         style={[
           styles.bubble,
@@ -278,7 +308,12 @@ export function MessageBubble({
           </View>
         )}
       </Pressable>
-
+      </View>
+      {ogUrl && (
+        <View style={[styles.ogWrapper, isOwn && styles.ogWrapperOwn]}>
+          <OgPreview url={ogUrl} />
+        </View>
+      )}
       <Modal visible={menuVisible} transparent animationType="fade" onRequestClose={() => setMenuVisible(false)}>
         <Pressable style={styles.menuOverlay} onPress={() => setMenuVisible(false)}>
           <View style={[styles.menu, { left: menuLeft, top: menuTop, width: menuWidth }]}>
@@ -304,15 +339,24 @@ export function MessageBubble({
 }
 
 const styles = StyleSheet.create({
+  messageColumn: {
+    paddingHorizontal: 12,
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    paddingHorizontal: 12,
     gap: 6,
   },
   rowFirst: { marginTop: 6 },
   rowGrouped: { marginTop: 1 },
   rowOwn: { flexDirection: 'row-reverse' },
+  ogWrapper: {
+    alignSelf: 'flex-start',
+    maxWidth: '78%',
+  },
+  ogWrapperOwn: {
+    alignSelf: 'flex-end',
+  },
   bubble: {
     maxWidth: '78%',
     paddingVertical: 8,
@@ -371,6 +415,7 @@ const styles = StyleSheet.create({
   },
   text: { color: '#fff', fontSize: 15, lineHeight: 21, flexShrink: 1 },
   textOwn: { color: '#f4f4f5' },
+  link: { color: '#60a5fa', textDecorationLine: 'underline' },
   emote: {
     marginVertical: 1,
   },
