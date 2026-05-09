@@ -211,6 +211,8 @@ async function handleNotification(
 
     const senderAvatarUrl = senderInfo?.avatar;
     if (process.platform === "win32") {
+      const mainWindow = BrowserWindow.getAllWindows()[0];
+      mainWindow.flashFrame(true);
       sendNotification({
         senderName: senderInfo?.username || "New Message",
         content: plaintext,
