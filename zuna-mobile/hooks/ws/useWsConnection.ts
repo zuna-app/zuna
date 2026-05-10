@@ -29,6 +29,32 @@ const sockets = new Map<string, WebSocket>();
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const reconnectCounts = new Map<string, number>();
 
+/**
+ * Sends presence=false on the open socket for a server, then closes it.
+ * Call this before removing a server so the server-side broadcasts offline status
+ * to other connected clients immediately instead of waiting for the TCP timeout.
+ */
+export function sendPresenceOfflineAndClose(serverId: string, token: string): void {
+  const ws = sockets.get(serverId);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(
+      JSON.stringify({
+        type: WS_MSG.PRESENCE,
+        token,
+        payload: { active: false },
+      })
+    );
+    ws.close();
+  }
+  sockets.delete(serverId);
+  const timer = reconnectTimers.get(serverId);
+  if (timer) {
+    clearTimeout(timer);
+    reconnectTimers.delete(serverId);
+  }
+  reconnectCounts.delete(serverId);
+}
+
 export function useWsConnection(server: Server) {
   const tokens = useAtomValue(serverTokensAtom, { store: jotaiStore });
   const token = tokens.get(server.id) ?? null;

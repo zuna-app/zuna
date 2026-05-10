@@ -16,7 +16,7 @@ export function ChatListItem({ member, lastMessage, isSelected, onPress }: Props
 
   const presence = getMemberPresence(member.id);
   const isOnline = presence?.active ?? false;
-  const unread = lastMessage?.unreadMessages ?? member.unreadMessages ?? 0;
+  const unread = member.unreadMessages ?? 0;
   const preview = lastMessage?.content?.trim() ? lastMessage.content : 'No messages yet';
   const ts = lastMessage?.lastActivityAt ?? member.lastActivityAt ?? 0;
 

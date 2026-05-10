@@ -1,8 +1,10 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { jotaiStore, serverListAtom, selectedServerAtom, serverTokensAtom, vaultAtom, vaultPinAtom, pushTokenAtom } from '@/store/atoms';
+import { jotaiStore, serverListAtom, selectedServerAtom, serverTokensAtom, vaultAtom, vaultPinAtom } from '@/store/atoms';
 import { saveVaultChange } from '@/lib/vault';
 import { Server } from '@/types/serverTypes';
 import { getOrCreateDeviceId, unregisterDeviceFromServer } from '@/lib/notifications';
+import { sendPresenceOfflineAndClose } from '@/hooks/ws/useWsConnection';
+import { startGatewayBadgeSync } from '@/lib/gatewayBadgeSync';
 
 export function useServerConnector() {
   const [serverList, setServerList] = useAtom(serverListAtom, { store: jotaiStore });
@@ -63,10 +65,15 @@ export function useServerConnector() {
   async function leaveServer(server: Server): Promise<void> {
     const nextList = serverList.filter((s) => s.id !== server.id);
 
-    // Unregister APNs device before removing local state.
+    // Tell the server we're going offline so other clients get an immediate
+    // presence_update instead of waiting for the TCP connection to time out.
     const authToken = jotaiStore.get(serverTokensAtom).get(server.id);
-    const pushToken = jotaiStore.get(pushTokenAtom);
-    if (authToken && pushToken) {
+    if (authToken) {
+      sendPresenceOfflineAndClose(server.id, authToken);
+    }
+
+    // Unregister APNs device — only needs authToken + deviceId, not the push token.
+    if (authToken) {
       const deviceId = await getOrCreateDeviceId();
       await unregisterDeviceFromServer(server, deviceId, authToken).catch(console.error);
     }
@@ -81,9 +88,11 @@ export function useServerConnector() {
       setSelectedServer(nextList[0] ?? null);
     }
 
-    if (pin) {
+    if (pin && vault) {
       const updatedVault = { ...vault, serverList: nextList };
       await saveVaultChange(updatedVault, pin).catch(console.error);
+      // Restart WebSocket badge sync so the left server stops updating the badge.
+      startGatewayBadgeSync(updatedVault);
     }
   }
 
