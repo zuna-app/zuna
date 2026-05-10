@@ -10,6 +10,7 @@ import { useBackgroundMessages } from "@/hooks/ws/useBackgroundMessages";
 import { useWsConnection } from "@/hooks/ws/useWsConnection";
 import { useAppPresence } from "@/hooks/ws/useAppPresence";
 import { useChannelKeyManager } from "@/hooks/channel/useChannelKeyManager";
+import { useVoiceChannel } from "@/hooks/channel/useVoiceChannel";
 import { WS_MSG } from "@/hooks/ws/wsTypes";
 import { Loader2, Upload } from "lucide-react";
 import { ChatListPanel } from "@/components/chat/chat-list-panel";
@@ -218,6 +219,9 @@ export const AppServer = ({
   useChannelKeyManager(server);
   useAppPresence(server);
 
+  const { joinVoiceChannel, leaveVoiceChannel, toggleMute } =
+    useVoiceChannel(server);
+
   useBackgroundMessages(server);
 
   useEffect(() => {
@@ -251,6 +255,13 @@ export const AppServer = ({
       selectChat(null);
     },
     [selectChat],
+  );
+
+  const handleVoiceJoin = useCallback(
+    (channel: Channel) => {
+      joinVoiceChannel(channel.id);
+    },
+    [joinVoiceChannel],
   );
 
   const handleMobileBack = () => {
@@ -306,6 +317,9 @@ export const AppServer = ({
           selectedChannel={selectedChannel}
           onSelect={handleSelectMember}
           onSelectChannel={handleSelectChannel}
+          onVoiceJoin={handleVoiceJoin}
+          onVoiceLeave={leaveVoiceChannel}
+          onVoiceMuteToggle={toggleMute}
           onMenuOpen={onMobileServerMenu}
         />
       </div>

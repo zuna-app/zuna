@@ -25,6 +25,7 @@ type EncryptedKeyForMember struct {
 type CreateChannelRequest struct {
 	Name          string                  `json:"name"`
 	IsPublic      bool                    `json:"is_public"`
+	ChannelType   string                  `json:"channel_type"`
 	MemberIDs     []string                `json:"member_ids"`
 	EncryptedKeys []EncryptedKeyForMember `json:"encrypted_keys"`
 }
@@ -71,9 +72,15 @@ func ChannelCreateEndpoint(c *echo.Context) error {
 		}
 	}
 
+	channelType := req.ChannelType
+	if channelType != "voice" {
+		channelType = "text"
+	}
+
 	ch, err := db.EntClient.Channel.Create().
 		SetName(req.Name).
 		SetIsPublic(req.IsPublic).
+		SetChannelType(channelType).
 		SetOwnerID(ownerID).
 		Save(ctx)
 	if err != nil {
@@ -168,9 +175,10 @@ func ChannelCreateEndpoint(c *echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"id":       ch.ID,
-		"name":     ch.Name,
-		"owner_id": ownerID,
-		"members":  memberDTOs,
+		"id":           ch.ID,
+		"name":         ch.Name,
+		"channel_type": ch.ChannelType,
+		"owner_id":     ownerID,
+		"members":      memberDTOs,
 	})
 }

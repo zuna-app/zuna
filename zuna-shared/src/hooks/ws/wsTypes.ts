@@ -34,6 +34,11 @@ export const WS_MSG = {
   CHANNEL_KEY_REQUESTS: "channel_key_requests",
   CHANNEL_KEY_PROVIDE: "channel_key_provide",
   CHANNEL_MARK_READ: "channel_mark_read",
+  // Voice channel
+  VOICE_CHANNEL_JOIN: "voice_channel_join",
+  VOICE_CHANNEL_LEAVE: "voice_channel_leave",
+  VOICE_CHANNEL_TOKEN: "voice_channel_token",
+  VOICE_CHANNEL_UPDATE: "voice_channel_update",
 } as const;
 
 export type WsMsgType = (typeof WS_MSG)[keyof typeof WS_MSG];
@@ -185,4 +190,16 @@ export interface ChannelKeyRequestsPayload {
     recipient_user_id: string;
     recipient_identity_key: string;
   }>;
+}
+
+export interface VoiceChannelTokenPayload {
+  channel_id: string;
+  livekit_url: string;
+  livekit_token: string;
+  participants: Array<{ user_id: string; username: string; avatar: string }>;
+}
+
+export interface VoiceChannelUpdatePayload {
+  channel_id: string;
+  participants: Array<{ user_id: string; username: string; avatar: string }>;
 }

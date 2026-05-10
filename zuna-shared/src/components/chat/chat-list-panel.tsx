@@ -1,11 +1,18 @@
 import { useState, useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { Server, ChatMember, Channel } from "@/types/serverTypes";
-import { serverMetaAtom, jotaiStore } from "@/store/atoms";
+import {
+  serverMetaAtom,
+  activeVoiceChannelAtom,
+  voiceMutedAtom,
+  channelsAtom,
+  jotaiStore,
+} from "@/store/atoms";
 import { useChatList } from "@/hooks/chat/useChatList";
 import { useChannelList } from "@/hooks/channel/useChannelList";
 import { ChatListItem } from "@/components/chat/chat-list-item";
 import { ChannelListSection } from "@/components/chat/channel-list-section";
+import { VoiceStatusBar } from "@/components/chat/voice-status-bar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -33,6 +40,9 @@ interface ChatListPanelProps {
   selectedChannel: Channel | null;
   onSelect: (member: ChatMember) => void;
   onSelectChannel: (channel: Channel) => void;
+  onVoiceJoin: (channel: Channel) => void;
+  onVoiceLeave: () => void;
+  onVoiceMuteToggle: () => void;
   onMenuOpen?: () => void;
 }
 
@@ -58,6 +68,9 @@ export function ChatListPanel({
   selectedChannel,
   onSelect,
   onSelectChannel,
+  onVoiceJoin,
+  onVoiceLeave,
+  onVoiceMuteToggle,
   onMenuOpen,
 }: ChatListPanelProps) {
   const [search, setSearch] = useState("");
@@ -67,6 +80,15 @@ export function ChatListPanel({
   const serverName =
     serverMeta.get(server.id)?.name ?? server.name ?? server.address;
   const currentUser = useCurrentUser(server);
+
+  const activeVoiceChannelId = useAtomValue(activeVoiceChannelAtom, {
+    store: jotaiStore,
+  });
+  const voiceMuted = useAtomValue(voiceMutedAtom, { store: jotaiStore });
+  const channels = useAtomValue(channelsAtom, { store: jotaiStore });
+  const activeVoiceChannel = activeVoiceChannelId
+    ? channels.find((c) => c.id === activeVoiceChannelId) ?? null
+    : null;
 
   const { lastMessages } = useLastChatMessages(server, data ?? []);
 
@@ -159,9 +181,20 @@ export function ChatListPanel({
           server={server}
           selectedChannel={selectedChannel}
           onSelect={onSelectChannel}
+          onVoiceJoin={onVoiceJoin}
           isLoading={channelsLoading}
         />
       </div>
+
+      {/* Voice status bar (shown when connected to a voice channel) */}
+      {activeVoiceChannel && (
+        <VoiceStatusBar
+          channelName={activeVoiceChannel.name}
+          muted={voiceMuted}
+          onToggleMute={onVoiceMuteToggle}
+          onLeave={onVoiceLeave}
+        />
+      )}
 
       {/* User card */}
       <div className="shrink-0 border-t border-border/40 bg-neutral-100/80 dark:bg-neutral-900/60 px-3 py-2.5">

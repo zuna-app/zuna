@@ -7,7 +7,15 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('expo:', d.get\\('dependencies',{}\\).get\\('expo'\\)\\); print\\('newArch:', d.get\\('expo',{}\\).get\\('newArchEnabled'\\)\\)\")",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('expo',{}\\).get\\('ios',{}\\), indent=2\\)\\)\")",
       "Bash(grep -r \"deviceId\\\\|device_id\\\\|getUniqueId\\\\|deviceToken\" /Users/mikigal/Desktop/zuna/zuna-mobile --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.swift\" ! -path \"*/node_modules/*\")",
-      "Bash(go generate *)"
+      "Bash(go generate *)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\SocketByte\\\\zuna\" -Directory)",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(dir \"c:\\\\Users\\\\SocketByte\\\\zuna\")",
+      "PowerShell(head -30)",
+      "Bash(dir \"c:\\\\Users\\\\SocketByte\\\\zuna\\\\zuna-server\")",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\SocketByte\\\\zuna\" -MaxDepth 1 -Directory | Where-Object {$_.Name -match \"^zuna-\"} | Select-Object -ExpandProperty Name)",
+      "Bash(go build *)",
+      "Bash(npm install *)"
     ]
   }
 }

@@ -9,7 +9,10 @@ import (
 
 	"zuna.chat/zuna-server/data"
 	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent"
+	gochannel "zuna.chat/zuna-server/ent/channel"
 	"zuna.chat/zuna-server/ent/chat"
+	"zuna.chat/zuna-server/ent/channelmember"
 	"zuna.chat/zuna-server/ent/user"
 
 	"github.com/rs/zerolog/log"
@@ -109,6 +112,36 @@ func (h *Hub) Run() {
 								Active:   ud.Active,
 							},
 						}})
+					}
+
+					// Clean up voice channel state and notify affected channels
+					affectedChannelIDs := data.LeaveAllVoiceChannels(ud.UserID)
+					for _, channelId := range affectedChannelIDs {
+						participants := data.GetVoiceChannelParticipants(channelId)
+						members, err := db.EntClient.ChannelMember.Query().
+							WithUser(func(uq *ent.UserQuery) {}).
+							Where(channelmember.HasChannelWith(gochannel.IDEQ(channelId))).
+							All(context.Background())
+						if err != nil {
+							log.Error().Err(err).Str("channelId", channelId).Msg("failed to query channel members for voice disconnect cleanup")
+							continue
+						}
+						payload := OutgoingMessage{Type: "voice_channel_update", Payload: VoiceChannelUpdatePayload{
+							ChannelID:    channelId,
+							Participants: participants,
+						}}
+						for _, cm := range members {
+							if cm.Edges.User == nil {
+								continue
+							}
+							memberUd, err := data.GetUserDataByUsername(cm.Edges.User.Username)
+							if err != nil {
+								continue
+							}
+							for _, connID := range memberUd.ConnectionIDs {
+								h.SendTo(connID, payload)
+							}
+						}
 					}
 
 					chats, err := db.EntClient.Chat.Query().WithUsers().Where(chat.HasUsersWith(user.IDEQ(ud.UserID))).All(context.Background())

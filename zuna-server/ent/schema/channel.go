@@ -20,6 +20,7 @@ func (Channel) Fields() []ent.Field {
 		}),
 		field.String("name"),
 		field.Bool("is_public").Default(false),
+		field.String("channel_type").Default("text"),
 		field.Time("created_at").Default(time.Now),
 	}
 }

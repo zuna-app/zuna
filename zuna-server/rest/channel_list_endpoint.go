@@ -85,6 +85,7 @@ func ChannelListEndpoint(c *echo.Context) error {
 			ID:             ch.ID,
 			Name:           ch.Name,
 			IsPublic:       ch.IsPublic,
+			ChannelType:    ch.ChannelType,
 			OwnerID:        ownerID,
 			CreatedAt:      ch.CreatedAt.UnixMilli(),
 			LastMessage:    lastMsgDTO,

@@ -32,8 +32,12 @@ func init() {
 	channelDescIsPublic := channelFields[2].Descriptor()
 	// channel.DefaultIsPublic holds the default value on creation for the is_public field.
 	channel.DefaultIsPublic = channelDescIsPublic.Default.(bool)
+	// channelDescChannelType is the schema descriptor for channel_type field.
+	channelDescChannelType := channelFields[3].Descriptor()
+	// channel.DefaultChannelType holds the default value on creation for the channel_type field.
+	channel.DefaultChannelType = channelDescChannelType.Default.(string)
 	// channelDescCreatedAt is the schema descriptor for created_at field.
-	channelDescCreatedAt := channelFields[3].Descriptor()
+	channelDescCreatedAt := channelFields[4].Descriptor()
 	// channel.DefaultCreatedAt holds the default value on creation for the created_at field.
 	channel.DefaultCreatedAt = channelDescCreatedAt.Default.(func() time.Time)
 	// channelDescID is the schema descriptor for id field.

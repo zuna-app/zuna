@@ -6,6 +6,7 @@ import type {
   Channel,
   ChannelMessage,
   ChannelMember,
+  VoiceParticipant,
 } from "../types/serverTypes";
 import type { MemberPresence } from "../hooks/ws/wsTypes";
 
@@ -69,3 +70,10 @@ interface ChannelWritingState {
 export const channelWritingAtom = atom<
   Map<string, Map<string, ChannelWritingState>>
 >(new Map());
+
+// ── Voice channels ────────────────────────────────────────────────────────────
+// channelId → list of connected participants
+export const voiceChannelParticipantsAtom = atom<Map<string, VoiceParticipant[]>>(new Map());
+// channelId the current user is connected to, or null
+export const activeVoiceChannelAtom = atom<string | null>(null);
+export const voiceMutedAtom = atom<boolean>(false);

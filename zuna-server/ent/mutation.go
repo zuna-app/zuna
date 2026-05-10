@@ -676,6 +676,7 @@ type ChannelMutation struct {
 	id                      *string
 	name                    *string
 	is_public               *bool
+	channel_type            *string
 	created_at              *time.Time
 	clearedFields           map[string]struct{}
 	owner                   *string
@@ -868,6 +869,42 @@ func (m *ChannelMutation) OldIsPublic(ctx context.Context) (v bool, err error) {
 // ResetIsPublic resets all changes to the "is_public" field.
 func (m *ChannelMutation) ResetIsPublic() {
 	m.is_public = nil
+}
+
+// SetChannelType sets the "channel_type" field.
+func (m *ChannelMutation) SetChannelType(s string) {
+	m.channel_type = &s
+}
+
+// ChannelType returns the value of the "channel_type" field in the mutation.
+func (m *ChannelMutation) ChannelType() (r string, exists bool) {
+	v := m.channel_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChannelType returns the old "channel_type" field's value of the Channel entity.
+// If the Channel object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMutation) OldChannelType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChannelType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChannelType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChannelType: %w", err)
+	}
+	return oldValue.ChannelType, nil
+}
+
+// ResetChannelType resets all changes to the "channel_type" field.
+func (m *ChannelMutation) ResetChannelType() {
+	m.channel_type = nil
 }
 
 // SetCreatedAt sets the "created_at" field.
@@ -1141,12 +1178,15 @@ func (m *ChannelMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMutation) Fields() []string {
-	fields := make([]string, 0, 3)
+	fields := make([]string, 0, 4)
 	if m.name != nil {
 		fields = append(fields, channel.FieldName)
 	}
 	if m.is_public != nil {
 		fields = append(fields, channel.FieldIsPublic)
+	}
+	if m.channel_type != nil {
+		fields = append(fields, channel.FieldChannelType)
 	}
 	if m.created_at != nil {
 		fields = append(fields, channel.FieldCreatedAt)
@@ -1163,6 +1203,8 @@ func (m *ChannelMutation) Field(name string) (ent.Value, bool) {
 		return m.Name()
 	case channel.FieldIsPublic:
 		return m.IsPublic()
+	case channel.FieldChannelType:
+		return m.ChannelType()
 	case channel.FieldCreatedAt:
 		return m.CreatedAt()
 	}
@@ -1178,6 +1220,8 @@ func (m *ChannelMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldName(ctx)
 	case channel.FieldIsPublic:
 		return m.OldIsPublic(ctx)
+	case channel.FieldChannelType:
+		return m.OldChannelType(ctx)
 	case channel.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	}
@@ -1202,6 +1246,13 @@ func (m *ChannelMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIsPublic(v)
+		return nil
+	case channel.FieldChannelType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChannelType(v)
 		return nil
 	case channel.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -1264,6 +1315,9 @@ func (m *ChannelMutation) ResetField(name string) error {
 		return nil
 	case channel.FieldIsPublic:
 		m.ResetIsPublic()
+		return nil
+	case channel.FieldChannelType:
+		m.ResetChannelType()
 		return nil
 	case channel.FieldCreatedAt:
 		m.ResetCreatedAt()

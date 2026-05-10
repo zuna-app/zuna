@@ -60,6 +60,20 @@ func (_u *ChannelUpdate) SetNillableIsPublic(v *bool) *ChannelUpdate {
 	return _u
 }
 
+// SetChannelType sets the "channel_type" field.
+func (_u *ChannelUpdate) SetChannelType(v string) *ChannelUpdate {
+	_u.mutation.SetChannelType(v)
+	return _u
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_u *ChannelUpdate) SetNillableChannelType(v *string) *ChannelUpdate {
+	if v != nil {
+		_u.SetChannelType(*v)
+	}
+	return _u
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_u *ChannelUpdate) SetCreatedAt(v time.Time) *ChannelUpdate {
 	_u.mutation.SetCreatedAt(v)
@@ -256,6 +270,9 @@ func (_u *ChannelUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.IsPublic(); ok {
 		_spec.SetField(channel.FieldIsPublic, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ChannelType(); ok {
+		_spec.SetField(channel.FieldChannelType, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(channel.FieldCreatedAt, field.TypeTime, value)
@@ -468,6 +485,20 @@ func (_u *ChannelUpdateOne) SetIsPublic(v bool) *ChannelUpdateOne {
 func (_u *ChannelUpdateOne) SetNillableIsPublic(v *bool) *ChannelUpdateOne {
 	if v != nil {
 		_u.SetIsPublic(*v)
+	}
+	return _u
+}
+
+// SetChannelType sets the "channel_type" field.
+func (_u *ChannelUpdateOne) SetChannelType(v string) *ChannelUpdateOne {
+	_u.mutation.SetChannelType(v)
+	return _u
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_u *ChannelUpdateOne) SetNillableChannelType(v *string) *ChannelUpdateOne {
+	if v != nil {
+		_u.SetChannelType(*v)
 	}
 	return _u
 }
@@ -698,6 +729,9 @@ func (_u *ChannelUpdateOne) sqlSave(ctx context.Context) (_node *Channel, err er
 	}
 	if value, ok := _u.mutation.IsPublic(); ok {
 		_spec.SetField(channel.FieldIsPublic, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ChannelType(); ok {
+		_spec.SetField(channel.FieldChannelType, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.CreatedAt(); ok {
 		_spec.SetField(channel.FieldCreatedAt, field.TypeTime, value)

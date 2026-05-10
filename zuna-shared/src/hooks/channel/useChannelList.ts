@@ -10,6 +10,7 @@ function rawToChannel(m: Record<string, unknown>): Channel {
     id: m.id as string,
     name: m.name as string,
     isPublic: (m.is_public as boolean) ?? false,
+    channelType: ((m.channel_type as string) === "voice" ? "voice" : "text") as "text" | "voice",
     ownerId: (m.owner_id as string) ?? "",
     createdAt: (m.created_at as number) ?? 0,
     unreadMessages: (m.unread_messages as number) ?? 0,

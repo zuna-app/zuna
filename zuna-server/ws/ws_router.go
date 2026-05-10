@@ -107,6 +107,9 @@ func (r *MessageRouter) registerBuiltins() {
 	r.Register("channel_write", r.handleChannelWrite)
 	r.Register("channel_key_provide", r.handleChannelKeyProvide)
 	r.Register("channel_mark_read", r.handleChannelMarkRead)
+	// Voice channel handlers
+	r.Register("voice_channel_join", r.handleVoiceChannelJoin)
+	r.Register("voice_channel_leave", r.handleVoiceChannelLeave)
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

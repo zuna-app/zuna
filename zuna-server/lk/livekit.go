@@ -50,6 +50,26 @@ func CreateRoom(CallerID string, RecipientID string) (string, string, string, er
 	return room, tokenCaller, tokenRecipient, nil
 }
 
+func CreateVoiceChannelToken(channelId, userId string) (string, string, error) {
+	room := "voice_" + channelId
+	canPublish := true
+	canSubscribe := true
+
+	at := auth.NewAccessToken(config.Config.LiveKit.ApiKey, config.Config.LiveKit.ApiSecret)
+	at.SetVideoGrant(&auth.VideoGrant{
+		RoomJoin:     true,
+		Room:         room,
+		CanPublish:   &canPublish,
+		CanSubscribe: &canSubscribe,
+	}).SetIdentity(userId).SetValidFor(1 * time.Hour)
+
+	token, err := at.ToJWT()
+	if err != nil {
+		return "", "", err
+	}
+	return token, config.Config.LiveKit.Url, nil
+}
+
 func DeleteRoom(roomName string) error {
 	rc := newRoomClient()
 	ctx := context.Background()

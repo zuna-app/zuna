@@ -58,10 +58,17 @@ type ChannelDTO struct {
 	ID             string                 `json:"id"`
 	Name           string                 `json:"name"`
 	IsPublic       bool                   `json:"is_public"`
+	ChannelType    string                 `json:"channel_type"`
 	OwnerID        string                 `json:"owner_id"`
 	CreatedAt      int64                  `json:"created_at"`
 	LastMessage    *ChannelLastMessageDTO `json:"last_message,omitempty"`
 	UnreadMessages int                    `json:"unread_messages"`
+}
+
+type VoiceParticipantDTO struct {
+	UserID   string `json:"user_id"`
+	Username string `json:"username"`
+	Avatar   string `json:"avatar"`
 }
 
 type ChannelLastMessageDTO struct {

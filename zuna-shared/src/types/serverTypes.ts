@@ -99,10 +99,17 @@ export type Channel = {
   id: string;
   name: string;
   isPublic: boolean;
+  channelType: "text" | "voice";
   ownerId: string;
   createdAt: number;
   lastMessage?: ChannelLastMessage;
   unreadMessages?: number;
+};
+
+export type VoiceParticipant = {
+  userId: string;
+  username: string;
+  avatar: string;
 };
 
 export type ChannelLastMessage = {

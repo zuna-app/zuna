@@ -18,6 +18,8 @@ const (
 	FieldName = "name"
 	// FieldIsPublic holds the string denoting the is_public field in the database.
 	FieldIsPublic = "is_public"
+	// FieldChannelType holds the string denoting the channel_type field in the database.
+	FieldChannelType = "channel_type"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// EdgeOwner holds the string denoting the owner edge name in mutations.
@@ -65,6 +67,7 @@ var Columns = []string{
 	FieldID,
 	FieldName,
 	FieldIsPublic,
+	FieldChannelType,
 	FieldCreatedAt,
 }
 
@@ -92,6 +95,8 @@ func ValidColumn(column string) bool {
 var (
 	// DefaultIsPublic holds the default value on creation for the "is_public" field.
 	DefaultIsPublic bool
+	// DefaultChannelType holds the default value on creation for the "channel_type" field.
+	DefaultChannelType string
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultID holds the default value on creation for the "id" field.
@@ -114,6 +119,11 @@ func ByName(opts ...sql.OrderTermOption) OrderOption {
 // ByIsPublic orders the results by the is_public field.
 func ByIsPublic(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldIsPublic, opts...).ToFunc()
+}
+
+// ByChannelType orders the results by the channel_type field.
+func ByChannelType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldChannelType, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

@@ -44,6 +44,20 @@ func (_c *ChannelCreate) SetNillableIsPublic(v *bool) *ChannelCreate {
 	return _c
 }
 
+// SetChannelType sets the "channel_type" field.
+func (_c *ChannelCreate) SetChannelType(v string) *ChannelCreate {
+	_c.mutation.SetChannelType(v)
+	return _c
+}
+
+// SetNillableChannelType sets the "channel_type" field if the given value is not nil.
+func (_c *ChannelCreate) SetNillableChannelType(v *string) *ChannelCreate {
+	if v != nil {
+		_c.SetChannelType(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *ChannelCreate) SetCreatedAt(v time.Time) *ChannelCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -167,6 +181,10 @@ func (_c *ChannelCreate) defaults() {
 		v := channel.DefaultIsPublic
 		_c.mutation.SetIsPublic(v)
 	}
+	if _, ok := _c.mutation.ChannelType(); !ok {
+		v := channel.DefaultChannelType
+		_c.mutation.SetChannelType(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := channel.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -184,6 +202,9 @@ func (_c *ChannelCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsPublic(); !ok {
 		return &ValidationError{Name: "is_public", err: errors.New(`ent: missing required field "Channel.is_public"`)}
+	}
+	if _, ok := _c.mutation.ChannelType(); !ok {
+		return &ValidationError{Name: "channel_type", err: errors.New(`ent: missing required field "Channel.channel_type"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "Channel.created_at"`)}
@@ -233,6 +254,10 @@ func (_c *ChannelCreate) createSpec() (*Channel, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.IsPublic(); ok {
 		_spec.SetField(channel.FieldIsPublic, field.TypeBool, value)
 		_node.IsPublic = value
+	}
+	if value, ok := _c.mutation.ChannelType(); ok {
+		_spec.SetField(channel.FieldChannelType, field.TypeString, value)
+		_node.ChannelType = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(channel.FieldCreatedAt, field.TypeTime, value)

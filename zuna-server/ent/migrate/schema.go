@@ -49,6 +49,7 @@ var (
 		{Name: "id", Type: field.TypeString},
 		{Name: "name", Type: field.TypeString},
 		{Name: "is_public", Type: field.TypeBool, Default: false},
+		{Name: "channel_type", Type: field.TypeString, Default: "text"},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "user_owned_channels", Type: field.TypeString},
 	}
@@ -60,7 +61,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "channels_users_owned_channels",
-				Columns:    []*schema.Column{ChannelsColumns[4]},
+				Columns:    []*schema.Column{ChannelsColumns[5]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},

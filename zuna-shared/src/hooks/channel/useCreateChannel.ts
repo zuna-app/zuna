@@ -9,6 +9,7 @@ import type { Channel, ChannelMember, Server } from "../../types/serverTypes";
 export interface CreateChannelOptions {
   name: string;
   isPublic: boolean;
+  channelType?: "text" | "voice";
   /** For restricted channels — the selected member IDs (not needed for public). */
   memberIds?: string[];
 }
@@ -70,6 +71,7 @@ export function useCreateChannel(server: Server) {
           body: JSON.stringify({
             name: opts.name,
             is_public: opts.isPublic,
+            channel_type: opts.channelType ?? "text",
             member_ids: opts.isPublic ? [] : targetUsers.map((u) => u.id),
             encrypted_keys: encryptedKeys,
           }),
@@ -84,6 +86,7 @@ export function useCreateChannel(server: Server) {
           id: json.id,
           name: json.name,
           isPublic: opts.isPublic,
+          channelType: (json.channel_type as "text" | "voice") ?? opts.channelType ?? "text",
           ownerId: json.owner_id,
           createdAt: Date.now(),
         };

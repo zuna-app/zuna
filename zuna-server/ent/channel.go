@@ -22,6 +22,8 @@ type Channel struct {
 	Name string `json:"name,omitempty"`
 	// IsPublic holds the value of the "is_public" field.
 	IsPublic bool `json:"is_public,omitempty"`
+	// ChannelType holds the value of the "channel_type" field.
+	ChannelType string `json:"channel_type,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
@@ -91,7 +93,7 @@ func (*Channel) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case channel.FieldIsPublic:
 			values[i] = new(sql.NullBool)
-		case channel.FieldID, channel.FieldName:
+		case channel.FieldID, channel.FieldName, channel.FieldChannelType:
 			values[i] = new(sql.NullString)
 		case channel.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -129,6 +131,12 @@ func (_m *Channel) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field is_public", values[i])
 			} else if value.Valid {
 				_m.IsPublic = value.Bool
+			}
+		case channel.FieldChannelType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field channel_type", values[i])
+			} else if value.Valid {
+				_m.ChannelType = value.String
 			}
 		case channel.FieldCreatedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
@@ -204,6 +212,9 @@ func (_m *Channel) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("is_public=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IsPublic))
+	builder.WriteString(", ")
+	builder.WriteString("channel_type=")
+	builder.WriteString(_m.ChannelType)
 	builder.WriteString(", ")
 	builder.WriteString("created_at=")
 	builder.WriteString(_m.CreatedAt.Format(time.ANSIC))
