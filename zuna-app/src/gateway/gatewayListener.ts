@@ -217,6 +217,7 @@ async function handleChannelNotification(
     }
 
     const title = "#" + payload.channel_name;
+    const senderAvatarUrl = userCache.get("users")[payload.sender_id]?.avatar;
 
     if (process.platform === "win32") {
       const mainWindow = getZunaWindow();
@@ -226,12 +227,26 @@ async function handleChannelNotification(
       sendNotification({
         senderName: title,
         content: messageBody,
-        avatarUrl: undefined,
+        avatarUrl: senderAvatarUrl || undefined,
       });
     } else {
+      let senderAvatarNativeImage: Electron.NativeImage | undefined;
+      if (senderAvatarUrl) {
+        try {
+          const response = await fetch(senderAvatarUrl, { agent });
+          const buffer = await response.arrayBuffer();
+          senderAvatarNativeImage = nativeImage.createFromBuffer(
+            Buffer.from(buffer),
+          );
+        } catch {
+          // ignore avatar download errors and fallback to no avatar
+        }
+      }
+
       const n = new Notification({
         title,
         body: messageBody,
+        icon: senderAvatarNativeImage,
       });
 
       n.on("click", () => {
