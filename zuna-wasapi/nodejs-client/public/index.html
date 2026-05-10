@@ -215,19 +215,19 @@
       <div class="card-title">Audio Format</div>
       <div class="fmt-grid">
         <div class="fmt-item">
-          <label>Sample rate</label><span id="fSr">—</span>
+          <label>Sample rate</label><span id="fSr">-</span>
         </div>
         <div class="fmt-item">
-          <label>Channels</label> <span id="fCh">—</span>
+          <label>Channels</label> <span id="fCh">-</span>
         </div>
         <div class="fmt-item">
-          <label>Bit depth</label> <span id="fBd">—</span>
+          <label>Bit depth</label> <span id="fBd">-</span>
         </div>
         <div class="fmt-item">
-          <label>Encoding</label> <span id="fEnc">—</span>
+          <label>Encoding</label> <span id="fEnc">-</span>
         </div>
         <div class="fmt-item">
-          <label>Block align</label><span id="fBa">—</span>
+          <label>Block align</label><span id="fBa">-</span>
         </div>
       </div>
     </div>
@@ -304,7 +304,7 @@
 
         ws.onopen = () => {
           log("WebSocket connected", "ok");
-          setStatus("WebSocket connected — waiting for pipe...", "yellow");
+          setStatus("WebSocket connected - waiting for pipe...", "yellow");
         };
 
         ws.onclose = () => {
@@ -332,7 +332,7 @@
       function handleJsonMsg(msg) {
         if (msg.type === "status") {
           if (msg.connected) {
-            setStatus("Pipe connected — receiving audio...", "green");
+            setStatus("Pipe connected - receiving audio...", "green");
             log("Pipe connected to zuna-wasapi", "ok");
           } else {
             setStatus("Pipe disconnected", "red");

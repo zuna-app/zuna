@@ -55,7 +55,7 @@ function isVaultLockedError(e: unknown): boolean {
 }
 
 function certErrorMessage(address: string): string {
-  return `Cannot reach ${address} — the server's SSL certificate is not trusted by your browser. Open https://${address} in a new tab, accept the certificate warning, 
+  return `Cannot reach ${address} - the server's SSL certificate is not trusted by your browser. Open https://${address} in a new tab, accept the certificate warning, 
   then try again or install the certificate to avoid this issue in the future.`;
 }
 

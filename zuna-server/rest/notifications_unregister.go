@@ -40,6 +40,6 @@ func NotificationsUnregisterEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusOK, map[string]string{})
 	}
 
-	// Device not found for this user — treat as success.
+	// Device not found for this user - treat as success.
 	return c.JSON(http.StatusOK, map[string]string{})
 }

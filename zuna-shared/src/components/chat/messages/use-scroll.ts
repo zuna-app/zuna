@@ -134,7 +134,7 @@ export function useScrollBehavior(
       return;
     }
 
-    // Not in DOM yet — fetch another page if possible
+    // Not in DOM yet - fetch another page if possible
     if (hasMoreRef.current && !loadingRef.current) {
       const prevScrollHeight = el.scrollHeight;
       const prevScrollTop = el.scrollTop;
@@ -145,7 +145,7 @@ export function useScrollBehavior(
       };
       fetchMoreRef.current();
     } else if (!hasMoreRef.current) {
-      // No more pages — message not found, give up
+      // No more pages - message not found, give up
       pendingJumpIdRef.current = null;
     }
   }, [messages]);

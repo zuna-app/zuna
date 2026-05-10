@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { Download, FileIcon, ImageIcon, Loader2, Music, PlayCircle, Video } from "lucide-react";
+import {
+  Download,
+  FileIcon,
+  ImageIcon,
+  Loader2,
+  Music,
+  PlayCircle,
+  Video,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ChannelMessage, Server } from "@/types/serverTypes";
 import { useChannelAttachmentDownload } from "@/hooks/chat/useChannelAttachmentDownload";
@@ -7,10 +15,10 @@ import { ImageLightbox } from "./image-lightbox";
 import { formatFileSize } from "./types";
 
 const IMAGE_INLINE_SIZE_LIMIT = 8 * 1024 * 1024; // 8 MB
-const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024; // 50 MB — ask before downloading larger videos
-const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024; // 200 MB — above this, treat as generic file
-const AUDIO_AUTO_FETCH_LIMIT = 25 * 1024 * 1024; // 25 MB — auto-download audio below this
-const AUDIO_MAX_INLINE_SIZE = 100 * 1024 * 1024; // 100 MB — above this, treat as generic file
+const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024; // 50 MB - ask before downloading larger videos
+const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024; // 200 MB - above this, treat as generic file
+const AUDIO_AUTO_FETCH_LIMIT = 25 * 1024 * 1024; // 25 MB - auto-download audio below this
+const AUDIO_MAX_INLINE_SIZE = 100 * 1024 * 1024; // 100 MB - above this, treat as generic file
 
 function isImageMime(mime: string) {
   return mime.startsWith("image/");
@@ -43,10 +51,14 @@ export function ChannelAttachmentCard({
   const isAudio = isAudioMime(mimeType);
   const isInlineImage =
     isImage && meta !== null && meta.size <= IMAGE_INLINE_SIZE_LIMIT;
-  const isInlineVideo = isVideo && meta !== null && meta.size <= VIDEO_MAX_INLINE_SIZE;
-  const videoAutoFetch = isVideo && meta !== null && meta.size <= VIDEO_AUTO_FETCH_LIMIT;
-  const isInlineAudio = isAudio && meta !== null && meta.size <= AUDIO_MAX_INLINE_SIZE;
-  const audioAutoFetch = isAudio && meta !== null && meta.size <= AUDIO_AUTO_FETCH_LIMIT;
+  const isInlineVideo =
+    isVideo && meta !== null && meta.size <= VIDEO_MAX_INLINE_SIZE;
+  const videoAutoFetch =
+    isVideo && meta !== null && meta.size <= VIDEO_AUTO_FETCH_LIMIT;
+  const isInlineAudio =
+    isAudio && meta !== null && meta.size <= AUDIO_MAX_INLINE_SIZE;
+  const audioAutoFetch =
+    isAudio && meta !== null && meta.size <= AUDIO_AUTO_FETCH_LIMIT;
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
 

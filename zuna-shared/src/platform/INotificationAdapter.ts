@@ -1,5 +1,5 @@
 /**
- * Notification adapter — OS/browser notifications and badge counts.
+ * Notification adapter - OS/browser notifications and badge counts.
  * Implementations: ElectronNotificationAdapter (IPC), WebNotificationAdapter (Notification API).
  */
 export interface INotificationAdapter {

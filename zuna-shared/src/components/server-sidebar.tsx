@@ -68,7 +68,9 @@ function ServerIconButton({
               <div
                 className={cn(
                   "transition-all duration-150",
-                  isActive ? "rounded-xl" : "rounded-full group-hover:rounded-xl",
+                  isActive
+                    ? "rounded-xl"
+                    : "rounded-full group-hover:rounded-xl",
                 )}
               >
                 {logo ? (
@@ -121,12 +123,15 @@ interface ServerSidebarProps {
 }
 
 export function ServerSidebar({ onAddServer }: ServerSidebarProps) {
-  const { serverList, selectedServer, selectServer, leaveServer } = useServerConnector();
+  const { serverList, selectedServer, selectServer, leaveServer } =
+    useServerConnector();
   const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
   const [serverToLeave, setServerToLeave] = useState<Server | null>(null);
 
   const leaveDisplayName = serverToLeave
-    ? (serverMeta.get(serverToLeave.id)?.name ?? serverToLeave.name ?? serverToLeave.address)
+    ? (serverMeta.get(serverToLeave.id)?.name ??
+      serverToLeave.name ??
+      serverToLeave.address)
     : "";
 
   return (
@@ -180,7 +185,7 @@ export function ServerSidebar({ onAddServer }: ServerSidebarProps) {
             <AlertDialogTitle>Leave {leaveDisplayName}?</AlertDialogTitle>
             <AlertDialogDescription>
               You will stop receiving notifications from this server. You can
-              rejoin later — your data will not be deleted.
+              rejoin later - your data will not be deleted.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

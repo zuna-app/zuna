@@ -68,8 +68,7 @@ export function useAuthorizer(server: Server) {
         throw new Error(`Handshake failed (${handshakeRes.status}): ${text}`);
       }
 
-      const { nonce, seven_tv_emotes_set, seven_tv_enabled } =
-        await handshakeRes.json();
+      const { nonce, seven_tv_emotes_set, seven_tv_enabled } = await handshakeRes.json();
 
       const signature = signMessage(sigPrivateKey, nonce);
 
@@ -87,7 +86,7 @@ export function useAuthorizer(server: Server) {
 
       if (server.publicKey && server_id && serverSignature) {
         const isValid = verifySignature(server.publicKey, server_id, serverSignature);
-        if (!isValid) throw new Error('Invalid server signature — possible MITM attack');
+        if (!isValid) throw new Error('Invalid server signature - possible MITM attack');
       }
 
       return {
@@ -114,9 +113,7 @@ export function useAuthorizer(server: Server) {
       const pushToken = jotaiStore.get(pushTokenAtom);
       if (pushToken) {
         getOrCreateDeviceId()
-          .then((deviceId) =>
-            registerDeviceWithServer(server, deviceId, pushToken, newToken)
-          )
+          .then((deviceId) => registerDeviceWithServer(server, deviceId, pushToken, newToken))
           .catch(console.error);
       }
 

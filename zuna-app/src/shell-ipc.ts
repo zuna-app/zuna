@@ -9,7 +9,7 @@ export async function openExternal(rawUrl: string): Promise<void> {
     if (!ALLOWED_PROTOCOLS.has(u.protocol)) return;
     await shell.openExternal(rawUrl);
   } catch {
-    // invalid URL — do nothing
+    // invalid URL - do nothing
   }
 }
 

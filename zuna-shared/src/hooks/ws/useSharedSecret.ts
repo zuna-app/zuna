@@ -3,7 +3,7 @@ import { computeSharedSecret } from "../../crypto/x25519";
 import { usePlatform } from "../../platform/PlatformContext";
 import type { ChatMember } from "../../types/serverTypes";
 
-// Session-level cache — keyed by identity key, valid for entire session.
+// Session-level cache - keyed by identity key, valid for entire session.
 const sharedSecretCache = new Map<string, string>();
 let cachedPrivateKey: string | null = null;
 

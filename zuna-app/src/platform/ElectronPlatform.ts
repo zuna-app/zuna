@@ -1,7 +1,7 @@
 /**
  * Electron platform adapter.
  * Delegates to the window.* IPC APIs exposed by preload.ts.
- * The security/crypto IPC is now UNUSED — all crypto runs in shared JS.
+ * The security/crypto IPC is now UNUSED - all crypto runs in shared JS.
  */
 import type {
   IPlatform,

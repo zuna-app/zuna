@@ -1,4 +1,13 @@
-import { View, Text, Pressable, StyleSheet, ScrollView, Alert, Modal, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  Modal,
+  ActivityIndicator,
+} from 'react-native';
 import { useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAtomValue } from 'jotai';
@@ -90,7 +99,7 @@ export function ServerDrawer({ onClose }: DrawerProps) {
     const name = serverMeta.get(server.id)?.name || server.name || server.address;
     Alert.alert(
       `Leave ${name}?`,
-      'You will stop receiving notifications from this server. You can rejoin later — your data will not be deleted.',
+      'You will stop receiving notifications from this server. You can rejoin later - your data will not be deleted.',
       [
         { text: 'Cancel', style: 'cancel' },
         {

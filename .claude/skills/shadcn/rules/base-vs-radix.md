@@ -90,7 +90,9 @@ Same for triggers whose `render` is not a `Button`:
 
 ```tsx
 <Select>
-  <SelectTrigger><SelectValue placeholder="Select a fruit" /></SelectTrigger>
+  <SelectTrigger>
+    <SelectValue placeholder="Select a fruit" />
+  </SelectTrigger>
 </Select>
 ```
 
@@ -147,24 +149,26 @@ const items = [
 
 ---
 
-## Select — multiple selection and object values (base only)
+## Select - multiple selection and object values (base only)
 
 Base supports `multiple`, render-function children on `SelectValue`, and object values with `itemToStringValue`. Radix is single-select with string values only.
 
-**Correct (base — multiple selection):**
+**Correct (base - multiple selection):**
 
 ```tsx
 <Select items={items} multiple defaultValue={[]}>
   <SelectTrigger>
     <SelectValue>
-      {(value: string[]) => value.length === 0 ? "Select fruits" : `${value.length} selected`}
+      {(value: string[]) =>
+        value.length === 0 ? "Select fruits" : `${value.length} selected`
+      }
     </SelectValue>
   </SelectTrigger>
   ...
 </Select>
 ```
 
-**Correct (base — object values):**
+**Correct (base - object values):**
 
 ```tsx
 <Select defaultValue={plans[0]} itemToStringValue={(plan) => plan.name}>
@@ -224,11 +228,11 @@ Base uses a `multiple` boolean prop. Radix uses `type="single"` or `type="multip
 **Controlled single value:**
 
 ```tsx
-// base — wrap/unwrap arrays.
+// base - wrap/unwrap arrays.
 const [value, setValue] = React.useState("normal")
 <ToggleGroup value={[value]} onValueChange={(v) => setValue(v[0])}>
 
-// radix — plain string.
+// radix - plain string.
 const [value, setValue] = React.useState("normal")
 <ToggleGroup type="single" value={value} onValueChange={setValue}>
 ```

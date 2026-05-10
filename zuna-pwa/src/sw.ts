@@ -13,7 +13,7 @@ self.addEventListener("activate", (event: ExtendableEvent) => {
 precacheAndRoute(self.__WB_MANIFEST);
 cleanupOutdatedCaches();
 
-// SPA navigation fallback — serve index.html for all page navigations except
+// SPA navigation fallback - serve index.html for all page navigations except
 // API and WebSocket routes. Avoids createHandlerBoundToURL which requires
 // index.html to be in the precache manifest (fails in dev).
 registerRoute(
@@ -325,7 +325,7 @@ self.addEventListener("notificationclick", (event: NotificationEvent) => {
   );
 });
 
-// ── Crypto helpers (Web Crypto API — no external imports needed) ──────────────
+// ── Crypto helpers (Web Crypto API - no external imports needed) ──────────────
 
 function b64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(b64);
@@ -352,7 +352,7 @@ async function decryptNotification(
     ["deriveBits"],
   );
 
-  // Import sender's X25519 public key — raw 32 bytes or SPKI DER (44 bytes)
+  // Import sender's X25519 public key - raw 32 bytes or SPKI DER (44 bytes)
   const senderPubBytes = b64ToBytes(p.sender_identity_key);
   const rawPub =
     senderPubBytes.length === 44 ? senderPubBytes.slice(12) : senderPubBytes;

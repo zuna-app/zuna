@@ -52,7 +52,7 @@ async function fetchOgBestEffort(url: string): Promise<OgData | null> {
 
 /**
  * Fetches OG data for a given URL using a best-effort browser fetch.
- * CORS failures are silently ignored — returns null in those cases.
+ * CORS failures are silently ignored - returns null in those cases.
  */
 export function useOgPreview(url: string | null, debounceMs = 0) {
   const [data, setData] = useState<OgData | null>(() =>

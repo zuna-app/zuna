@@ -10,14 +10,14 @@ export interface OgData {
   siteName?: string;
 }
 
-// React Native has no DOMParser — extract <meta> tags via regex instead.
+// React Native has no DOMParser - extract <meta> tags via regex instead.
 // Use [^>]* (zero or more) so adjacent attributes without whitespace still match.
 function getMeta(html: string, prop: string): string | undefined {
   const esc = prop.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(
     `<meta[^>]*(?:property|name)=["']${esc}["'][^>]*content=["']([^"']*?)["']` +
       `|<meta[^>]*content=["']([^"']*?)["'][^>]*(?:property|name)=["']${esc}["']`,
-    'i',
+    'i'
   );
   const m = html.match(re);
   const raw = (m?.[1] ?? m?.[2]) || undefined;
@@ -74,9 +74,7 @@ async function fetchOgBestEffort(url: string): Promise<OgData | null> {
 }
 
 export function useOgPreview(url: string | null) {
-  const [data, setData] = useState<OgData | null>(() =>
-    url ? (ogCache.get(url) ?? null) : null,
-  );
+  const [data, setData] = useState<OgData | null>(() => (url ? (ogCache.get(url) ?? null) : null));
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

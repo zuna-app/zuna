@@ -213,7 +213,7 @@ export const AppServer = ({
   const { selectChat } = useSelectedChat();
   const mobileEnabled = onMobileServerMenu !== undefined;
 
-  // Self identity for channel view — resolved from cache after auth
+  // Self identity for channel view - resolved from cache after auth
   const { username: selfUsername, avatar: selfAvatar } = useSelfInfo(server);
 
   useServerReset(server.id);
@@ -222,8 +222,13 @@ export const AppServer = ({
   useChannelKeyManager(server);
   useAppPresence(server);
 
-  const { joinVoiceChannel, leaveVoiceChannel, toggleMute, toggleDeafen, setParticipantVolume } =
-    useVoiceChannel(server);
+  const {
+    joinVoiceChannel,
+    leaveVoiceChannel,
+    toggleMute,
+    toggleDeafen,
+    setParticipantVolume,
+  } = useVoiceChannel(server);
 
   useBackgroundMessages(server);
 

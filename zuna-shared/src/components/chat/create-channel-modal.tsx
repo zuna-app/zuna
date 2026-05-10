@@ -144,7 +144,7 @@ export function CreateChannelModal({
             </div>
           </div>
 
-          {/* Visibility — only for text channels */}
+          {/* Visibility - only for text channels */}
           {channelType === "text" && (
             <>
               <div className="flex items-center justify-between gap-3 rounded-lg border border-border/50 px-3 py-2.5">

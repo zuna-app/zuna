@@ -55,7 +55,7 @@ export default function ImportVaultScreen() {
 
     try {
       const url = result.data;
-      // Fetch vault.bin from the Electron export server (self-signed TLS — RN accepts it)
+      // Fetch vault.bin from the Electron export server (self-signed TLS - RN accepts it)
       const res = await fetchWithInitialIosRetry(url);
       if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
       // Response body is raw binary; convert it to base64 once via blob.
@@ -135,7 +135,7 @@ export default function ImportVaultScreen() {
       <View style={styles.inner}>
         <Text style={styles.title}>Import Vault</Text>
         <Text style={styles.subtitle}>
-          Open Zuna on your desktop, go to Settings → Export Vault, and scan the QR code — or pick
+          Open Zuna on your desktop, go to Settings → Export Vault, and scan the QR code - or pick
           the vault.bin file directly.
         </Text>
 

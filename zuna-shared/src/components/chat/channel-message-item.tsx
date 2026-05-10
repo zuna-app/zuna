@@ -93,7 +93,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
       ? renderMessage(displayText, emoteMap, emoteDataMap, shell)
       : displayText;
 
-  // Compact variant — same sender within MESSAGE_GROUPED_THRESHOLD, no avatar/name repeat
+  // Compact variant - same sender within MESSAGE_GROUPED_THRESHOLD, no avatar/name repeat
   if (isGrouped) {
     return (
       <div className="group relative flex items-start pl-16 pr-4 py-0.5 hover:bg-muted/30">
@@ -119,7 +119,7 @@ export const ChannelMessageItem = memo(function ChannelMessageItem({
     );
   }
 
-  // Full variant — avatar + username + timestamp
+  // Full variant - avatar + username + timestamp
   return (
     <div className="group flex items-start gap-3 px-4 pt-2 pb-0.5 hover:bg-muted/30">
       <div className="mt-0.5 shrink-0 size-9 rounded-full bg-muted flex items-center justify-center overflow-hidden ring-1 ring-border/20">

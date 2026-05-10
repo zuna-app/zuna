@@ -31,7 +31,7 @@ export function generateSigningKeyPair(): SigningKeyPair {
   privateKeyDer.set(privRaw, ED25519_PKCS8_HEADER.length);
 
   return {
-    publicKey: bytesToBase64(pubRaw), // raw 32 bytes — no header
+    publicKey: bytesToBase64(pubRaw), // raw 32 bytes - no header
     privateKey: bytesToBase64(privateKeyDer),
   };
 }

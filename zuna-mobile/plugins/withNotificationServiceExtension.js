@@ -48,7 +48,7 @@ const withNseFiles = (config) =>
 
       const bundleId = `${cfg.ios?.bundleIdentifier ?? 'chat.zuna.mobile'}.${NSE_BUNDLE_SUFFIX}`;
 
-      // NotificationService.swift — copied from committed file if it exists,
+      // NotificationService.swift - copied from committed file if it exists,
       // otherwise generated from the template below.
       const swiftSrc = path.join(nseDir, 'NotificationService.swift');
       if (!fs.existsSync(swiftSrc)) {
@@ -83,9 +83,21 @@ const withNseXcodeProject = (config) =>
     const mainTargetUuid = proj.getFirstTarget().uuid;
 
     // 1. File references
-    addFileRef(proj, UUID.NSE_FILE_SWIFT, 'sourcecode.swift', 'NotificationService.swift', NSE_NAME);
+    addFileRef(
+      proj,
+      UUID.NSE_FILE_SWIFT,
+      'sourcecode.swift',
+      'NotificationService.swift',
+      NSE_NAME
+    );
     addFileRef(proj, UUID.NSE_FILE_PLIST, 'text.plist.xml', 'Info.plist', NSE_NAME);
-    addFileRef(proj, UUID.NSE_FILE_ENTITLEMENTS, 'text.plist.entitlements', `${NSE_NAME}.entitlements`, NSE_NAME);
+    addFileRef(
+      proj,
+      UUID.NSE_FILE_ENTITLEMENTS,
+      'text.plist.entitlements',
+      `${NSE_NAME}.entitlements`,
+      NSE_NAME
+    );
     proj.pbxFileReferenceSection()[UUID.NSE_PRODUCT] = {
       isa: 'PBXFileReference',
       explicitFileType: '"wrapper.app-extension"',
@@ -203,7 +215,11 @@ const withNseXcodeProject = (config) =>
     };
     const xccfg = proj.pbxXCBuildConfigurationSection();
     xccfg[UUID.NSE_DEBUG_CONFIG] = { isa: 'XCBuildConfiguration', buildSettings, name: 'Debug' };
-    xccfg[UUID.NSE_RELEASE_CONFIG] = { isa: 'XCBuildConfiguration', buildSettings, name: 'Release' };
+    xccfg[UUID.NSE_RELEASE_CONFIG] = {
+      isa: 'XCBuildConfiguration',
+      buildSettings,
+      name: 'Release',
+    };
 
     // 8. Config list
     proj.pbxXCConfigurationListSection()[UUID.NSE_CONFIG_LIST] = {

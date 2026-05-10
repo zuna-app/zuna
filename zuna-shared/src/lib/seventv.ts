@@ -1,5 +1,5 @@
 // 7TV API v2 / v3 types and helpers.
-// Uses the browser's built-in fetch — no node-fetch needed in the renderer.
+// Uses the browser's built-in fetch - no node-fetch needed in the renderer.
 
 const BASE_V2 = "https://api.7tv.app/v2";
 const BASE_V3 = "https://api.7tv.app/v3";

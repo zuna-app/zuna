@@ -32,7 +32,7 @@ export function decryptVaultBlob(
   const jsonStr = bytesToText(jsonBytes);
   const raw: Record<string, string> = JSON.parse(jsonStr);
 
-  // Deserialize vault entries — mirrors Electron serialization format
+  // Deserialize vault entries - mirrors Electron serialization format
   const result: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
     try {

@@ -232,7 +232,7 @@ export function useWsConnection(server: Server) {
     if (!token) return;
     connect();
     return () => {
-      // Don't close on unmount — socket is shared and persists while app is open
+      // Don't close on unmount - socket is shared and persists while app is open
     };
   }, [token, connect]);
 

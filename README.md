@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/resources/banner_v2.png" alt="Zuna — Privacy. For Everyone." width="100%" />
+  <img src=".github/resources/banner_v2.png" alt="Zuna - Privacy. For Everyone." width="100%" />
 </p>
 
 <p align="center">
@@ -208,7 +208,7 @@ The defaults are for local development. Change secrets before any public deploym
 # Root password for the zuna-mysql container (not used by the app directly).
 MYSQL_ROOT_PASSWORD=changeme
 
-# Database name, app user and password — must match across all services.
+# Database name, app user and password - must match across all services.
 MYSQL_DATABASE=zuna
 MYSQL_USER=zuna
 MYSQL_PASSWORD=zunapass
@@ -247,7 +247,7 @@ Common keys to change:
 | Key                    | Description                                                                   |
 | ---------------------- | ----------------------------------------------------------------------------- |
 | `[server].name`        | Public display name of your server                                            |
-| `[server].password`    | Optional join password — set it to restrict who can register                  |
+| `[server].password`    | Optional join password - set it to restrict who can register                  |
 | `[server].logo`        | Path to a PNG/GIF logo file (mount a custom one into `zuna-data`)             |
 | `[tls].auto_generate`  | `true` generates self-signed certs; set `false` and provide your own cert/key |
 | `[tls].public_address` | Public IP or hostname used by TLS generation and clients                      |
@@ -266,12 +266,12 @@ All exposed ports are configured in `docker-compose.yml` using the `HOST:CONTAIN
 
 | Service       | Variable | Default host port | What it does                 |
 | ------------- | -------- | ----------------- | ---------------------------- |
-| `zuna-server` | —        | `25510`           | Zuna REST + WebSocket API    |
-| `livekit`     | —        | `7880`            | LiveKit HTTP / WebSocket API |
-| `livekit`     | —        | `7881`            | LiveKit RTC TCP              |
-| `livekit`     | —        | `50000-50100/udp` | WebRTC media (range UDP)     |
+| `zuna-server` | -        | `25510`           | Zuna REST + WebSocket API    |
+| `livekit`     | -        | `7880`            | LiveKit HTTP / WebSocket API |
+| `livekit`     | -        | `7881`            | LiveKit RTC TCP              |
+| `livekit`     | -        | `50000-50100/udp` | WebRTC media (range UDP)     |
 
-**Example — run zuna-server on port 9090 instead of 25510:**
+**Example - run zuna-server on port 9090 instead of 25510:**
 
 ```yaml
 # docker-compose.yml
@@ -280,7 +280,7 @@ zuna-server:
     - "9090:25510" # host:container
 ```
 
-**Example — run LiveKit API on port 8888:**
+**Example - run LiveKit API on port 8888:**
 
 ```yaml
 # docker-compose.yml
@@ -292,7 +292,7 @@ livekit:
 ```
 
 > [!IMPORTANT]
-> If you change the LiveKit API port on the host side you do **not** need to update `[livekit].port` in `config.toml` — that value refers to the port **inside** the Docker network, which is always `7880`. Only change it if you also change the container-side port mapping (i.e. `"XXXX:XXXX"` where both numbers differ).
+> If you change the LiveKit API port on the host side you do **not** need to update `[livekit].port` in `config.toml` - that value refers to the port **inside** the Docker network, which is always `7880`. Only change it if you also change the container-side port mapping (i.e. `"XXXX:XXXX"` where both numbers differ).
 
 ---
 
@@ -325,7 +325,7 @@ Zuna is released under the **GNU Affero General Public License v3.0** (AGPL-3.0)
 
 This means you are free to use, modify, and distribute Zuna, but any modified version that is made available over a network must also be distributed under the same license with its source code made available. See the [LICENSE](LICENSE) file for the full text.
 
-> TL;DR — run it, fork it, improve it. Just keep it open.
+> TL;DR - run it, fork it, improve it. Just keep it open.
 
 <br/>
 

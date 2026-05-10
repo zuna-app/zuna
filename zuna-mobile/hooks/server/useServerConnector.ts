@@ -1,5 +1,12 @@
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { jotaiStore, serverListAtom, selectedServerAtom, serverTokensAtom, vaultAtom, vaultPinAtom } from '@/store/atoms';
+import {
+  jotaiStore,
+  serverListAtom,
+  selectedServerAtom,
+  serverTokensAtom,
+  vaultAtom,
+  vaultPinAtom,
+} from '@/store/atoms';
 import { saveVaultChange } from '@/lib/vault';
 import { Server } from '@/types/serverTypes';
 import { getOrCreateDeviceId, unregisterDeviceFromServer } from '@/lib/notifications';
@@ -72,7 +79,7 @@ export function useServerConnector() {
       sendPresenceOfflineAndClose(server.id, authToken);
     }
 
-    // Unregister APNs device — only needs authToken + deviceId, not the push token.
+    // Unregister APNs device - only needs authToken + deviceId, not the push token.
     if (authToken) {
       const deviceId = await getOrCreateDeviceId();
       await unregisterDeviceFromServer(server, deviceId, authToken).catch(console.error);

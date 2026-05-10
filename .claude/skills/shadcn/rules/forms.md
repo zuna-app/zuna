@@ -13,7 +13,7 @@
 
 ## Forms use FieldGroup + Field
 
-Always use `FieldGroup` + `Field` — never raw `div` with `space-y-*`:
+Always use `FieldGroup` + `Field` - never raw `div` with `space-y-*`:
 
 ```tsx
 <FieldGroup>
@@ -59,11 +59,11 @@ Never use raw `Input` or `Textarea` inside an `InputGroup`.
 **Correct:**
 
 ```tsx
-import { InputGroup, InputGroupInput } from "@/components/ui/input-group"
+import { InputGroup, InputGroupInput } from "@/components/ui/input-group";
 
 <InputGroup>
   <InputGroupInput placeholder="Search..." />
-</InputGroup>
+</InputGroup>;
 ```
 
 ---
@@ -86,7 +86,11 @@ Never place a `Button` directly inside or adjacent to an `Input` with custom pos
 **Correct:**
 
 ```tsx
-import { InputGroup, InputGroupInput, InputGroupAddon } from "@/components/ui/input-group"
+import {
+  InputGroup,
+  InputGroupInput,
+  InputGroupAddon,
+} from "@/components/ui/input-group";
 
 <InputGroup>
   <InputGroupInput placeholder="Search..." />
@@ -95,7 +99,7 @@ import { InputGroup, InputGroupInput, InputGroupAddon } from "@/components/ui/in
       <SearchIcon data-icon="inline-start" />
     </Button>
   </InputGroupAddon>
-</InputGroup>
+</InputGroup>;
 ```
 
 ---
@@ -125,13 +129,13 @@ const [selected, setSelected] = useState("daily")
 **Correct:**
 
 ```tsx
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 <ToggleGroup spacing={2}>
   <ToggleGroupItem value="daily">Daily</ToggleGroupItem>
   <ToggleGroupItem value="weekly">Weekly</ToggleGroupItem>
   <ToggleGroupItem value="monthly">Monthly</ToggleGroupItem>
-</ToggleGroup>
+</ToggleGroup>;
 ```
 
 Combine with `Field` for labelled toggle groups:
@@ -153,7 +157,7 @@ Combine with `Field` for labelled toggle groups:
 
 ## FieldSet + FieldLegend for grouping related fields
 
-Use `FieldSet` + `FieldLegend` for related checkboxes, radios, or switches — not `div` with a heading:
+Use `FieldSet` + `FieldLegend` for related checkboxes, radios, or switches - not `div` with a heading:
 
 ```tsx
 <FieldSet>
@@ -162,7 +166,9 @@ Use `FieldSet` + `FieldLegend` for related checkboxes, radios, or switches — n
   <FieldGroup className="gap-3">
     <Field orientation="horizontal">
       <Checkbox id="dark" />
-      <FieldLabel htmlFor="dark" className="font-normal">Dark mode</FieldLabel>
+      <FieldLabel htmlFor="dark" className="font-normal">
+        Dark mode
+      </FieldLabel>
     </Field>
   </FieldGroup>
 </FieldSet>
@@ -172,7 +178,7 @@ Use `FieldSet` + `FieldLegend` for related checkboxes, radios, or switches — n
 
 ## Field validation and disabled states
 
-Both attributes are needed — `data-invalid`/`data-disabled` styles the field (label, description), while `aria-invalid`/`disabled` styles the control.
+Both attributes are needed - `data-invalid`/`data-disabled` styles the field (label, description), while `aria-invalid`/`disabled` styles the control.
 
 ```tsx
 // Invalid.

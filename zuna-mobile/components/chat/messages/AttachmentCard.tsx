@@ -3,14 +3,21 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-nati
 import { Image } from 'expo-image';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
-import { FileIcon, DownloadIcon, MusicIcon, PauseIcon, PlayCircleIcon, PlayIcon } from 'lucide-react-native';
+import {
+  FileIcon,
+  DownloadIcon,
+  MusicIcon,
+  PauseIcon,
+  PlayCircleIcon,
+  PlayIcon,
+} from 'lucide-react-native';
 import { useAttachmentDownload } from '@/hooks/chat/useAttachmentDownload';
 import { Server, AttachmentMeta } from '@/types/serverTypes';
 
-const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024;  // 50 MB — auto-download
-const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024;  // 200 MB — above this, generic file card
-const AUDIO_AUTO_FETCH_LIMIT = 25 * 1024 * 1024;  // 25 MB — auto-download
-const AUDIO_MAX_INLINE_SIZE = 100 * 1024 * 1024;  // 100 MB — above this, generic file card
+const VIDEO_AUTO_FETCH_LIMIT = 50 * 1024 * 1024; // 50 MB - auto-download
+const VIDEO_MAX_INLINE_SIZE = 200 * 1024 * 1024; // 200 MB - above this, generic file card
+const AUDIO_AUTO_FETCH_LIMIT = 25 * 1024 * 1024; // 25 MB - auto-download
+const AUDIO_MAX_INLINE_SIZE = 100 * 1024 * 1024; // 100 MB - above this, generic file card
 
 interface Props {
   server: Server;
@@ -38,8 +45,7 @@ function AudioPlayer({ uri }: { uri: string }) {
       <Pressable
         style={styles.audioPlayBtn}
         onPress={() => (status.playing ? player.pause() : player.play())}
-        hitSlop={8}
-      >
+        hitSlop={8}>
         {status.playing ? (
           <PauseIcon size={22} color="#a1a1aa" />
         ) : (
@@ -55,8 +61,7 @@ function AudioPlayer({ uri }: { uri: string }) {
               const ratio = Math.min(Math.max(e.nativeEvent.locationX / trackWidth, 0), 1);
               player.seekTo(ratio * status.duration);
             }
-          }}
-        >
+          }}>
           <View style={[styles.audioTrackFill, { width: trackWidth * progress }]} />
         </Pressable>
         <Text style={styles.audioTime}>

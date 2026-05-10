@@ -1,5 +1,5 @@
 /**
- * Cache adapter — lightweight persistent JSON cache by name + key.
+ * Cache adapter - lightweight persistent JSON cache by name + key.
  * Implementations: ElectronCacheAdapter (wraps IPC), WebCacheAdapter (localStorage).
  */
 export interface ICacheAdapter {

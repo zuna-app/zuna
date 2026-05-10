@@ -51,7 +51,7 @@ static void WriteExact(HANDLE hPipe, const void* data, DWORD bytes)
     while (bytes > 0) {
         DWORD written = 0;
         if (!WriteFile(hPipe, ptr, bytes, &written, nullptr) || written == 0)
-            throw std::runtime_error("WriteFile failed — client disconnected?");
+            throw std::runtime_error("WriteFile failed - client disconnected?");
         ptr   += written;
         bytes -= written;
     }

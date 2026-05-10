@@ -123,7 +123,7 @@ export function useAttachmentDownload(
 
 async function saveToFiles(cacheUri: string, name: string, mimeType: string): Promise<void> {
   if (Platform.OS === 'android') {
-    // StorageAccessFramework opens a folder picker and writes the file directly —
+    // StorageAccessFramework opens a folder picker and writes the file directly -
     // no share sheet, file lands in the chosen directory (e.g. Downloads).
     const { StorageAccessFramework } = FileSystem;
     const result = await StorageAccessFramework.requestDirectoryPermissionsAsync();

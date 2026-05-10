@@ -19,7 +19,7 @@ Components reference semantic CSS variable tokens. Change the variables to chang
 
 1. CSS variables defined in `:root` (light) and `.dark` (dark mode).
 2. Tailwind maps them to utilities: `bg-primary`, `text-muted-foreground`, etc.
-3. Components use these utilities — changing a variable changes all components that reference it.
+3. Components use these utilities - changing a variable changes all components that reference it.
 
 ---
 
@@ -52,11 +52,11 @@ Colors use OKLCH: `--primary: oklch(0.205 0 0)` where values are lightness (0–
 Class-based toggle via `.dark` on the root element. In Next.js, use `next-themes`:
 
 ```tsx
-import { ThemeProvider } from "next-themes"
+import { ThemeProvider } from "next-themes";
 
 <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
   {children}
-</ThemeProvider>
+</ThemeProvider>;
 ```
 
 ---
@@ -122,7 +122,7 @@ module.exports = {
       },
     },
   },
-}
+};
 ```
 
 ```tsx
@@ -187,7 +187,7 @@ export function ConfirmDialog({ title, description, onConfirm, children }) {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
+  );
 }
 ```
 

@@ -26,7 +26,7 @@ export const WebCacheAdapter: ICacheAdapter = {
   },
 };
 
-/** No-op window adapter — web tabs have no native window controls */
+/** No-op window adapter - web tabs have no native window controls */
 export const WebWindowAdapter: IWindowAdapter = {
   isNative: false,
   minimize: () => {},

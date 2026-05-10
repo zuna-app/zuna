@@ -10,7 +10,7 @@ export interface CreateChannelOptions {
   name: string;
   isPublic: boolean;
   channelType?: "text" | "voice";
-  /** For restricted channels — the selected member IDs (not needed for public). */
+  /** For restricted channels - the selected member IDs (not needed for public). */
   memberIds?: string[];
 }
 
@@ -27,9 +27,9 @@ export function useCreateChannel(server: Server) {
       setError(null);
 
       try {
-        const ownPrivateKey = (await platform.vault.get(
-          "encPrivateKey",
-        )) as string | null;
+        const ownPrivateKey = (await platform.vault.get("encPrivateKey")) as
+          | string
+          | null;
         if (!ownPrivateKey) throw new Error("Private key not found in vault");
 
         // Fetch all server users (with identity keys) so we can encrypt for each
@@ -41,9 +41,7 @@ export function useCreateChannel(server: Server) {
         // For public channels, use all users; for restricted, filter to selected
         const targetUsers = opts.isPublic
           ? allUsers
-          : allUsers.filter(
-              (u) => opts.memberIds?.includes(u.id) ?? false,
-            );
+          : allUsers.filter((u) => opts.memberIds?.includes(u.id) ?? false);
 
         // Generate a fresh symmetric channel key
         const channelKey = generateChannelKey();
@@ -86,7 +84,10 @@ export function useCreateChannel(server: Server) {
           id: json.id,
           name: json.name,
           isPublic: opts.isPublic,
-          channelType: (json.channel_type as "text" | "voice") ?? opts.channelType ?? "text",
+          channelType:
+            (json.channel_type as "text" | "voice") ??
+            opts.channelType ??
+            "text",
           ownerId: json.owner_id,
           createdAt: Date.now(),
         };
@@ -94,7 +95,8 @@ export function useCreateChannel(server: Server) {
         setChannels((prev) => [channel, ...prev]);
         return channel;
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "Failed to create channel";
+        const msg =
+          err instanceof Error ? err.message : "Failed to create channel";
         setError(msg);
         return null;
       } finally {

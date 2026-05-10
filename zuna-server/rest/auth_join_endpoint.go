@@ -77,7 +77,7 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		if existingUser.Username != req.Username {
 			return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "identity key already registered with a different username"})
 		}
-		// Same identity key and username — allow rejoin.
+		// Same identity key and username - allow rejoin.
 		return c.JSON(http.StatusOK, JoinResponse{
 			ID:              existingUser.ID,
 			ServerID:        config.Config.Server.ServerID,

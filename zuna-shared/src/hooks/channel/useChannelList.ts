@@ -2,8 +2,17 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { useAuthorizedServerFetch } from "../server/useServerFetch";
-import { channelsAtom, channelUnreadAtom, voiceChannelParticipantsAtom, jotaiStore } from "../../store/atoms";
-import type { Channel, Server, VoiceParticipant } from "../../types/serverTypes";
+import {
+  channelsAtom,
+  channelUnreadAtom,
+  voiceChannelParticipantsAtom,
+  jotaiStore,
+} from "../../store/atoms";
+import type {
+  Channel,
+  Server,
+  VoiceParticipant,
+} from "../../types/serverTypes";
 
 function rawToChannel(m: Record<string, unknown>): Channel {
   const lastRaw = m.last_message as Record<string, unknown> | undefined;
@@ -11,7 +20,9 @@ function rawToChannel(m: Record<string, unknown>): Channel {
     id: m.id as string,
     name: m.name as string,
     isPublic: (m.is_public as boolean) ?? false,
-    channelType: ((m.channel_type as string) === "voice" ? "voice" : "text") as "text" | "voice",
+    channelType: ((m.channel_type as string) === "voice" ? "voice" : "text") as
+      | "text"
+      | "voice",
     ownerId: (m.owner_id as string) ?? "",
     createdAt: (m.created_at as number) ?? 0,
     unreadMessages: (m.unread_messages as number) ?? 0,
@@ -31,7 +42,9 @@ export function useChannelList(server: Server) {
   const { authorizedFetch, hasToken } = useAuthorizedServerFetch(server);
   const setChannels = useSetAtom(channelsAtom, { store: jotaiStore });
   const setChannelUnread = useSetAtom(channelUnreadAtom, { store: jotaiStore });
-  const setVoiceParticipants = useSetAtom(voiceChannelParticipantsAtom, { store: jotaiStore });
+  const setVoiceParticipants = useSetAtom(voiceChannelParticipantsAtom, {
+    store: jotaiStore,
+  });
 
   const query = useQuery<Channel[]>({
     queryKey: ["channels", server.id],
@@ -54,12 +67,22 @@ export function useChannelList(server: Server) {
         const next = new Map(prev);
         for (const m of raw) {
           if ((m.channel_type as string) !== "voice") continue;
-          const rawParticipants = (m.voice_participants as Array<{ user_id: string; username: string; avatar: string }>) ?? [];
-          next.set(m.id as string, rawParticipants.map((p): VoiceParticipant => ({
-            userId: p.user_id,
-            username: p.username,
-            avatar: p.avatar,
-          })));
+          const rawParticipants =
+            (m.voice_participants as Array<{
+              user_id: string;
+              username: string;
+              avatar: string;
+            }>) ?? [];
+          next.set(
+            m.id as string,
+            rawParticipants.map(
+              (p): VoiceParticipant => ({
+                userId: p.user_id,
+                username: p.username,
+                avatar: p.avatar,
+              }),
+            ),
+          );
         }
         return next;
       });
@@ -68,7 +91,7 @@ export function useChannelList(server: Server) {
     staleTime: 30_000,
   });
 
-  // Sync atoms from cached data too — queryFn only runs on cache misses
+  // Sync atoms from cached data too - queryFn only runs on cache misses
   useEffect(() => {
     if (!query.data) return;
     setChannels(query.data);

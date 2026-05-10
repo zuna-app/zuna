@@ -33,7 +33,7 @@ if [ ! -f "$DATA_DIR/logo.png" ]; then
 fi
 
 if [ ! -f "$DATA_DIR/config.toml" ]; then
-  echo "[entrypoint] No config.toml found — writing defaults to $DATA_DIR/config.toml"
+  echo "[entrypoint] No config.toml found - writing defaults to $DATA_DIR/config.toml"
   cat > "$DATA_DIR/config.toml" << EOF
 # ── Database ─────────────────────────────────────────────────────────────────
 database_type = 'mysql'

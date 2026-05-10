@@ -285,7 +285,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
           return next;
         });
       })
-      .catch(() => { });
+      .catch(() => {});
 
     // Fetch initial messages
     setLoading(true);
@@ -308,7 +308,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
         }
         setHasMore(raw.length === 50);
       })
-      .catch(() => { })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [channelId, serverToken]);
 
@@ -342,7 +342,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
     useCallback(
       async (payload) => {
         if (payload.channel_id !== channelId) return;
-        // Channel is currently open — send mark_read immediately
+        // Channel is currently open - send mark_read immediately
         sendChannelMarkRead(payload.sent_at);
         let msg: ChannelMessage = {
           id: payload.id,
@@ -391,21 +391,21 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
             existing.map((m) =>
               m.clientMessageId === payload.client_message_id
                 ? {
-                  ...m,
-                  id: payload.id,
-                  sentAt: payload.sent_at,
-                  pending: false,
-                  attachmentId: payload.attachment_id || m.attachmentId,
-                  attachmentMetadata:
-                    payload.attachment_metadata || m.attachmentMetadata,
-                  attachmentMetadataIv:
-                    payload.attachment_metadata_iv || m.attachmentMetadataIv,
-                  attachmentMetadataAuthTag:
-                    payload.attachment_metadata_auth_tag ||
-                    m.attachmentMetadataAuthTag,
-                  uploadProgress: undefined,
-                  attachmentFilename: undefined,
-                }
+                    ...m,
+                    id: payload.id,
+                    sentAt: payload.sent_at,
+                    pending: false,
+                    attachmentId: payload.attachment_id || m.attachmentId,
+                    attachmentMetadata:
+                      payload.attachment_metadata || m.attachmentMetadata,
+                    attachmentMetadataIv:
+                      payload.attachment_metadata_iv || m.attachmentMetadataIv,
+                    attachmentMetadataAuthTag:
+                      payload.attachment_metadata_auth_tag ||
+                      m.attachmentMetadataAuthTag,
+                    uploadProgress: undefined,
+                    attachmentFilename: undefined,
+                  }
                 : m,
             ),
           );
@@ -612,18 +612,18 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
             existing.map((m) =>
               m.clientMessageId === clientMessageId
                 ? {
-                  ...m,
-                  uploadProgress: undefined,
-                  cipherText: encryptedText.ciphertext,
-                  iv: encryptedText.iv,
-                  authTag: encryptedText.authTag,
-                  plaintext: plaintext.trim() || undefined,
-                  attachmentId,
-                  attachmentFilename: undefined,
-                  attachmentMetadata: encryptedMetadata.ciphertext,
-                  attachmentMetadataIv: encryptedMetadata.iv,
-                  attachmentMetadataAuthTag: encryptedMetadata.authTag,
-                }
+                    ...m,
+                    uploadProgress: undefined,
+                    cipherText: encryptedText.ciphertext,
+                    iv: encryptedText.iv,
+                    authTag: encryptedText.authTag,
+                    plaintext: plaintext.trim() || undefined,
+                    attachmentId,
+                    attachmentFilename: undefined,
+                    attachmentMetadata: encryptedMetadata.ciphertext,
+                    attachmentMetadataIv: encryptedMetadata.iv,
+                    attachmentMetadataAuthTag: encryptedMetadata.authTag,
+                  }
                 : m,
             ),
           );

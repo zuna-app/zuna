@@ -1,4 +1,9 @@
-const { withAndroidManifest, withInfoPlist, withDangerousMod, withXcodeProject } = require('@expo/config-plugins');
+const {
+  withAndroidManifest,
+  withInfoPlist,
+  withDangerousMod,
+  withXcodeProject,
+} = require('@expo/config-plugins');
 const { getMainApplicationOrThrow } = require('@expo/config-plugins').AndroidConfig.Manifest;
 const path = require('path');
 const fs = require('fs');
@@ -77,7 +82,7 @@ object TrustAllSSL {
 
 // iOS equivalent of the Android JVM-level bypass.
 // NSAllowsArbitraryLoads in Info.plist disables ATS rules but does NOT bypass
-// certificate chain validation — self-signed certs still fail at the URLSession
+// certificate chain validation - self-signed certs still fail at the URLSession
 // level. This file swizzles the URLSession delegate challenge handlers on
 // RCTHTTPRequestHandler (fetch/XHR) and RCTWebSocketModule (WebSocket) so that
 // all server trust challenges are accepted unconditionally.
@@ -228,7 +233,11 @@ const withAndroidUnsafeOkHttp = (config) => {
       const packagePath = packageName.replace(/\./g, '/');
       const javaDir = path.join(
         config.modRequest.platformProjectRoot,
-        'app', 'src', 'main', 'java', packagePath
+        'app',
+        'src',
+        'main',
+        'java',
+        packagePath
       );
 
       // Write UnsafeOkHttpClientFactory.kt (patches OkHttp-based fetch)
@@ -238,13 +247,9 @@ const withAndroidUnsafeOkHttp = (config) => {
         'utf8'
       );
 
-      // Write TrustAllSSL.kt (JVM-level bypass — covers new-arch WebSocket,
+      // Write TrustAllSSL.kt (JVM-level bypass - covers new-arch WebSocket,
       // HttpsURLConnection, and any path that bypasses OkHttpClientProvider)
-      fs.writeFileSync(
-        path.join(javaDir, 'TrustAllSSL.kt'),
-        getTrustAllSSL(packageName),
-        'utf8'
-      );
+      fs.writeFileSync(path.join(javaDir, 'TrustAllSSL.kt'), getTrustAllSSL(packageName), 'utf8');
 
       // Patch MainApplication.kt
       const mainAppPath = path.join(javaDir, 'MainApplication.kt');
@@ -253,27 +258,19 @@ const withAndroidUnsafeOkHttp = (config) => {
 
         const okHttpImport = 'import com.facebook.react.modules.network.OkHttpClientProvider';
         if (!src.includes(okHttpImport)) {
-          src = src.replace(
-            /^(import android\.app\.Application)/m,
-            `${okHttpImport}\n$1`
-          );
+          src = src.replace(/^(import android\.app\.Application)/m, `${okHttpImport}\n$1`);
         }
 
         // JVM-level bypass must run before everything else in onCreate
         const trustAllCall = 'TrustAllSSL.install()';
         if (!src.includes(trustAllCall)) {
-          src = src.replace(
-            'super.onCreate()',
-            `super.onCreate()\n    ${trustAllCall}`
-          );
+          src = src.replace('super.onCreate()', `super.onCreate()\n    ${trustAllCall}`);
         }
 
-        const factoryCall = 'OkHttpClientProvider.setOkHttpClientFactory(UnsafeOkHttpClientFactory())';
+        const factoryCall =
+          'OkHttpClientProvider.setOkHttpClientFactory(UnsafeOkHttpClientFactory())';
         if (!src.includes(factoryCall)) {
-          src = src.replace(
-            'super.onCreate()',
-            `super.onCreate()\n    ${factoryCall}`
-          );
+          src = src.replace('super.onCreate()', `super.onCreate()\n    ${factoryCall}`);
         }
 
         fs.writeFileSync(mainAppPath, src, 'utf8');
@@ -313,7 +310,10 @@ const withIosTrustAllCertsXcode = (config) => {
 
     // Guard against double-adding on repeated prebuild runs
     const alreadyAdded = Object.values(proj.pbxFileReferenceSection()).some(
-      (ref) => ref && typeof ref === 'object' && ref.path &&
+      (ref) =>
+        ref &&
+        typeof ref === 'object' &&
+        ref.path &&
         (ref.path === `"${fileName}"` || ref.path === fileName)
     );
 

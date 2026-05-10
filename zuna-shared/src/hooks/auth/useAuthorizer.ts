@@ -219,7 +219,7 @@ export function useAuthorizer(server: Server) {
         signature: serverSignature,
       } = await authorizeRes.json();
 
-      // MITM check — only verify if the server supplied a public key on join
+      // MITM check - only verify if the server supplied a public key on join
       if (server.publicKey && server_id && serverSignature) {
         const isValid = verifySignature(
           server.publicKey,

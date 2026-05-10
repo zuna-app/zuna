@@ -44,7 +44,7 @@ export async function setSessionDerivedKey(derivedKeyBase64: string): Promise<vo
   await SecureStore.setItemAsync(SESSION_DERIVED_KEY_KEY, derivedKeyBase64, secureStoreOptions());
 }
 
-// Device ID — app-local, no cross-extension sharing needed
+// Device ID - app-local, no cross-extension sharing needed
 function deviceIdOptions(): SecureStore.SecureStoreOptions {
   return {
     keychainService: 'zuna_device',

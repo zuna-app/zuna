@@ -1,5 +1,5 @@
 /**
- * Vault adapter — manages encrypted key/value storage.
+ * Vault adapter - manages encrypted key/value storage.
  * Implementations: ElectronVaultAdapter (wraps IPC), WebVaultAdapter (IndexedDB).
  */
 export interface IVaultAdapter {
@@ -12,7 +12,7 @@ export interface IVaultAdapter {
   importVault(base64Bytes: string): Promise<void>;
 
   /**
-   * Optional — Electron-only vault export capabilities.
+   * Optional - Electron-only vault export capabilities.
    * Components should check `vault.export !== undefined` before using.
    */
   export?: {

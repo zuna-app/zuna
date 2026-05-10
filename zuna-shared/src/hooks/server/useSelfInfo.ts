@@ -45,7 +45,7 @@ export function useSelfInfo(server: Server): SelfInfo {
 }
 
 /**
- * Non-hook version — resolves self info from cache once.
+ * Non-hook version - resolves self info from cache once.
  */
 export async function getSelfInfo(
   cache: { get<T>(cacheName: string, key: string): Promise<T | null> },

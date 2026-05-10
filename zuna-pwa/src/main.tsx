@@ -23,7 +23,7 @@ import {
 /**
  * Subscribes to Web Push for each authenticated server's gateway and keeps
  * the service worker supplied with the vault keys needed to decrypt payloads.
- * Renders nothing — purely a side-effect component.
+ * Renders nothing - purely a side-effect component.
  */
 function GatewayPushManager() {
   const { vault, cache } = usePlatform();

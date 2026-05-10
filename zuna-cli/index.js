@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * zuna-cli — interactive CLI client for the Zuna chat server.
+ * zuna-cli - interactive CLI client for the Zuna chat server.
  *
  * Usage:
  *   node index.js
@@ -176,11 +176,11 @@ async function runChatView(api, wsc, server, member, store) {
       }
 
       if (text === "/help") {
-        print("  /exit        — back to chat list");
-        print("  /more        — load older messages");
-        print("  /read <id>   — mark a message as read");
-        print("  /ping        — measure server latency");
-        print("  /seen        — request last-seen info for all users");
+        print("  /exit        - back to chat list");
+        print("  /more        - load older messages");
+        print("  /read <id>   - mark a message as read");
+        print("  /ping        - measure server latency");
+        print("  /seen        - request last-seen info for all users");
         print("  (anything else is sent as a message)");
         rl.prompt();
         return;
@@ -320,7 +320,7 @@ async function runServerSession(server, store) {
     print("  Chat list");
     printLine();
     if (chats.length === 0) {
-      print("  (no chats yet — other users need to join the server)");
+      print("  (no chats yet - other users need to join the server)");
     } else {
       chats.forEach((m, i) => {
         print(`  ${i + 1}. ${m.username}  (chat_id: ${m.chat_id})`);
@@ -401,7 +401,7 @@ async function main() {
 
   // Generate keys on first run
   if (!store.sigPrivateKey || !store.encPrivateKey) {
-    print("  First time setup — generating identity keys…");
+    print("  First time setup - generating identity keys…");
     const sigPair = generateSigningKeyPair();
     const encPair = generateEncryptionKeyPair();
     store.sigPublicKey = sigPair.publicKey;
@@ -426,9 +426,9 @@ async function main() {
       });
     }
     print("");
-    print("  j  — join a new server (register)");
-    print("  r  — remove a saved server");
-    print("  q  — quit");
+    print("  j  - join a new server (register)");
+    print("  r  - remove a saved server");
+    print("  q  - quit");
     printLine();
 
     const input = await ask("  Select a server number or option: ");
