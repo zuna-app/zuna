@@ -91,5 +91,8 @@
     "update-electron-app": "^3.1.2",
     "vite-plugin-static-copy": "^4.1.0",
     "ws": "^8.20.0"
+  },
+  "optionalDependencies": {
+    "macos-alias": "^0.2.12"
   }
 }
