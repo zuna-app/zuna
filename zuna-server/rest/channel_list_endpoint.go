@@ -81,7 +81,7 @@ func ChannelListEndpoint(c *echo.Context) error {
 		}
 		unreadCount, _ := unreadQuery.Count(ctx)
 
-		dtos = append(dtos, data.ChannelDTO{
+		dto := data.ChannelDTO{
 			ID:             ch.ID,
 			Name:           ch.Name,
 			IsPublic:       ch.IsPublic,
@@ -90,7 +90,11 @@ func ChannelListEndpoint(c *echo.Context) error {
 			CreatedAt:      ch.CreatedAt.UnixMilli(),
 			LastMessage:    lastMsgDTO,
 			UnreadMessages: unreadCount,
-		})
+		}
+		if ch.ChannelType == "voice" {
+			dto.VoiceParticipants = data.GetVoiceChannelParticipants(ch.ID)
+		}
+		dtos = append(dtos, dto)
 	}
 
 	return c.JSON(http.StatusOK, ChannelListResponse{Channels: dtos})

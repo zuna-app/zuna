@@ -1,8 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { useAuthorizedServerFetch } from "../server/useServerFetch";
-import { channelsAtom, channelUnreadAtom, jotaiStore } from "../../store/atoms";
-import type { Channel, Server } from "../../types/serverTypes";
+import { channelsAtom, channelUnreadAtom, voiceChannelParticipantsAtom, jotaiStore } from "../../store/atoms";
+import type { Channel, Server, VoiceParticipant } from "../../types/serverTypes";
 
 function rawToChannel(m: Record<string, unknown>): Channel {
   const lastRaw = m.last_message as Record<string, unknown> | undefined;
@@ -30,6 +30,7 @@ export function useChannelList(server: Server) {
   const { authorizedFetch, hasToken } = useAuthorizedServerFetch(server);
   const setChannels = useSetAtom(channelsAtom, { store: jotaiStore });
   const setChannelUnread = useSetAtom(channelUnreadAtom, { store: jotaiStore });
+  const setVoiceParticipants = useSetAtom(voiceChannelParticipantsAtom, { store: jotaiStore });
 
   return useQuery<Channel[]>({
     queryKey: ["channels", server.id],
@@ -45,6 +46,19 @@ export function useChannelList(server: Server) {
         const next = new Map(prev);
         for (const ch of channels) {
           next.set(ch.id, ch.unreadMessages ?? 0);
+        }
+        return next;
+      });
+      setVoiceParticipants((prev) => {
+        const next = new Map(prev);
+        for (const m of raw) {
+          if ((m.channel_type as string) !== "voice") continue;
+          const rawParticipants = (m.voice_participants as Array<{ user_id: string; username: string; avatar: string }>) ?? [];
+          next.set(m.id as string, rawParticipants.map((p): VoiceParticipant => ({
+            userId: p.user_id,
+            username: p.username,
+            avatar: p.avatar,
+          })));
         }
         return next;
       });
