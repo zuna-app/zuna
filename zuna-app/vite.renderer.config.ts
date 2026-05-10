@@ -13,6 +13,7 @@ export default defineConfig({
       "@": sharedSrcPath,
       "@zuna/shared": path.resolve(sharedSrcPath, "index.ts"),
     },
+    dedupe: ["react", "react-dom"],
   },
   optimizeDeps: {
     force: true,

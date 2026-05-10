@@ -31,13 +31,13 @@ if (!isLinux) {
 const resolveIconPath = (...pathSegments: string[]) => {
   const candidates = app.isPackaged
     ? [
-        path.join(process.resourcesPath, ...pathSegments),
-        path.join(process.resourcesPath, "public", ...pathSegments),
-      ]
+      path.join(process.resourcesPath, ...pathSegments),
+      path.join(process.resourcesPath, "public", ...pathSegments),
+    ]
     : [
-        path.join(app.getAppPath(), ...pathSegments),
-        path.join(app.getAppPath(), "public", ...pathSegments),
-      ];
+      path.join(app.getAppPath(), ...pathSegments),
+      path.join(app.getAppPath(), "public", ...pathSegments),
+    ];
 
   return (
     candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
@@ -217,7 +217,7 @@ if (gotTheLock) {
     lockVault();
   });
 
-  app.on("window-all-closed", () => {});
+  app.on("window-all-closed", () => { });
 
   app.on("activate", () => {
     const mainWindow = getZunaWindow();
