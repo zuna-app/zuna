@@ -44,6 +44,24 @@ export async function registerDeviceWithServer(
   });
 }
 
+export async function unregisterDeviceFromServer(
+  server: Server,
+  deviceId: string,
+  authToken: string
+): Promise<void> {
+  await fetch(`https://${server.address}/api/notifications/unregister`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({
+      user_id: server.id,
+      device_id: deviceId,
+    }),
+  });
+}
+
 export async function registerDeviceWithAllServers(deviceToken: string): Promise<void> {
   const servers = jotaiStore.get(serverListAtom);
   const tokens = jotaiStore.get(serverTokensAtom);

@@ -1,11 +1,13 @@
-import { useAtom, useAtomValue } from 'jotai';
-import { jotaiStore, serverListAtom, selectedServerAtom, vaultAtom, vaultPinAtom } from '@/store/atoms';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { jotaiStore, serverListAtom, selectedServerAtom, serverTokensAtom, vaultAtom, vaultPinAtom, pushTokenAtom } from '@/store/atoms';
 import { saveVaultChange } from '@/lib/vault';
 import { Server } from '@/types/serverTypes';
+import { getOrCreateDeviceId, unregisterDeviceFromServer } from '@/lib/notifications';
 
 export function useServerConnector() {
   const [serverList, setServerList] = useAtom(serverListAtom, { store: jotaiStore });
   const [selectedServer, setSelectedServer] = useAtom(selectedServerAtom, { store: jotaiStore });
+  const setServerTokens = useSetAtom(serverTokensAtom, { store: jotaiStore });
   const vault = useAtomValue(vaultAtom, { store: jotaiStore });
   const pin = useAtomValue(vaultPinAtom, { store: jotaiStore });
 
@@ -58,9 +60,36 @@ export function useServerConnector() {
     return newServer;
   }
 
+  async function leaveServer(server: Server): Promise<void> {
+    const nextList = serverList.filter((s) => s.id !== server.id);
+
+    // Unregister APNs device before removing local state.
+    const authToken = jotaiStore.get(serverTokensAtom).get(server.id);
+    const pushToken = jotaiStore.get(pushTokenAtom);
+    if (authToken && pushToken) {
+      const deviceId = await getOrCreateDeviceId();
+      await unregisterDeviceFromServer(server, deviceId, authToken).catch(console.error);
+    }
+
+    setServerList(nextList);
+    setServerTokens((prev) => {
+      const next = new Map(prev);
+      next.delete(server.id);
+      return next;
+    });
+    if (selectedServer?.id === server.id) {
+      setSelectedServer(nextList[0] ?? null);
+    }
+
+    if (pin) {
+      const updatedVault = { ...vault, serverList: nextList };
+      await saveVaultChange(updatedVault, pin).catch(console.error);
+    }
+  }
+
   function selectServer(server: Server) {
     setSelectedServer(server);
   }
 
-  return { serverList, selectedServer, joinServer, selectServer };
+  return { serverList, selectedServer, joinServer, leaveServer, selectServer };
 }

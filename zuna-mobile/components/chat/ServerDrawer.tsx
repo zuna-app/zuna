@@ -82,8 +82,33 @@ export function ServerDrawer({ onClose }: DrawerProps) {
   const serverList = useAtomValue(serverListAtom, { store: jotaiStore });
   const selectedServer = useAtomValue(selectedServerAtom, { store: jotaiStore });
   const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
-  const { selectServer } = useServerConnector();
+  const { selectServer, leaveServer } = useServerConnector();
   const [showJoin, setShowJoin] = useState(false);
+
+  function confirmLeave(server: Server) {
+    const name = serverMeta.get(server.id)?.name || server.name || server.address;
+    Alert.alert(
+      `Leave ${name}?`,
+      'You will stop receiving notifications from this server. You can rejoin later — your data will not be deleted.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave server',
+          style: 'destructive',
+          onPress: async () => {
+            await leaveServer(server);
+            const remaining = serverList.filter((s) => s.id !== server.id);
+            if (remaining.length > 0) {
+              router.replace(`/(app)/${remaining[0].id}` as any);
+            } else {
+              router.replace('/(app)/join' as any);
+            }
+            onClose();
+          },
+        },
+      ]
+    );
+  }
 
   if (showJoin) return <JoinSheet onClose={() => setShowJoin(false)} />;
 
@@ -103,7 +128,8 @@ export function ServerDrawer({ onClose }: DrawerProps) {
               selectServer(server);
               router.replace(`/(app)/${server.id}` as any);
               onClose();
-            }}>
+            }}
+            onLongPress={() => confirmLeave(server)}>
             <View
               style={[styles.indicator, selectedServer?.id === server.id && styles.indicatorActive]}
             />

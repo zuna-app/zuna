@@ -125,6 +125,7 @@ func main() {
 
 	notifications := api.Group("/notifications", rest.AuthMiddleware, apiLimiter.Middleware())
 	notifications.POST("/register", rest.NotificationsRegisterEndpoint)
+	notifications.POST("/unregister", rest.NotificationsUnregisterEndpoint)
 
 	attachment := api.Group("/attachment", rest.AuthMiddleware, apiLimiter.Middleware())
 	attachment.POST("/upload", rest.AttachmentUploadEndpoint)
