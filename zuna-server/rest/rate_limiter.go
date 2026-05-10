@@ -70,9 +70,13 @@ func (rl *RateLimiter) cleanupLoop() {
 	}
 }
 
-// realIP extracts the real client IP, preferring X-Real-IP then X-Forwarded-For
-// then the direct remote address (with port stripped).
+// realIP extracts the real client IP, preferring CF-Connecting-IP,
+// then X-Real-IP, then X-Forwarded-For, then the direct remote address
+// (with port stripped).
 func realIP(r *http.Request) string {
+	if ip := r.Header.Get("CF-Connecting-IP"); ip != "" {
+		return strings.TrimSpace(ip)
+	}
 	if ip := r.Header.Get("X-Real-IP"); ip != "" {
 		return strings.TrimSpace(ip)
 	}
