@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import {
   AudioPresets,
-  ExternalE2EEKeyProvider,
   Room,
   RoomEvent,
+  Track,
+  RemoteAudioTrack,
   type LocalAudioTrack,
   createLocalAudioTrack,
 } from "livekit-client";
@@ -17,7 +18,6 @@ import {
 import { useWsConnection } from "../ws/useWsConnection";
 import { useWsHandler } from "../ws/useWsHandler";
 import { WS_MSG } from "../ws/wsTypes";
-import { base64ToBytes } from "../../crypto/base64";
 import { usePlatform } from "../../platform/PlatformContext";
 import type { Server, VoiceParticipant } from "../../types/serverTypes";
 import type {
@@ -88,21 +88,11 @@ export function useVoiceChannel(server: Server) {
         return;
       }
 
-      // Disconnect from any existing room first
       await disconnectRoom();
-
-      // const rawKey = base64ToBytes(channelKeyB64);
-      // const keyProvider = new ExternalE2EEKeyProvider();
-      // await keyProvider.setKey(rawKey.buffer as ArrayBuffer);
-
-      // const e2eeWorker = new Worker(
-      //   new URL("livekit-client/e2ee-worker", import.meta.url),
-      // );
 
       const room = new Room({
         adaptiveStream: false,
         dynacast: false,
-        //e2ee: { keyProvider, worker: e2eeWorker },
       });
 
       room.on(RoomEvent.Disconnected, () => {
@@ -112,9 +102,43 @@ export function useVoiceChannel(server: Server) {
         setMuted(false);
       });
 
+      // Ensure remote audio tracks are attached and playing
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind !== Track.Kind.Audio) return;
+        const audioTrack = track as RemoteAudioTrack;
+        if (audioTrack.attachedElements.length === 0) {
+          const el = audioTrack.attach();
+          el.autoplay = true;
+          document.body.appendChild(el);
+          el.play().catch(() => {});
+        } else {
+          audioTrack.attachedElements.forEach((el) => {
+            if (el.paused) el.play().catch(() => {});
+          });
+        }
+      });
+
       try {
         await room.connect(livekit_url, livekit_token);
         await room.startAudio();
+
+        // Re-check all already-subscribed remote tracks after startAudio
+        for (const participant of room.remoteParticipants.values()) {
+          for (const pub of participant.trackPublications.values()) {
+            if (pub.kind !== Track.Kind.Audio || !pub.track) continue;
+            const audioTrack = pub.track as RemoteAudioTrack;
+            if (audioTrack.attachedElements.length === 0) {
+              const el = audioTrack.attach();
+              el.autoplay = true;
+              document.body.appendChild(el);
+              el.play().catch(() => {});
+            } else {
+              audioTrack.attachedElements.forEach((el) => {
+                if (el.paused) el.play().catch(() => {});
+              });
+            }
+          }
+        }
 
         const audioTrack = await createLocalAudioTrack({
           echoCancellation: true,
@@ -169,7 +193,6 @@ export function useVoiceChannel(server: Server) {
         activeChannelIdRef.current &&
         activeChannelIdRef.current !== channelId
       ) {
-        // Leave the current channel before joining a new one
         sendMessage(WS_MSG.VOICE_CHANNEL_LEAVE, {
           channel_id: activeChannelIdRef.current,
         });
