@@ -44,6 +44,7 @@ interface ChatListPanelProps {
   onVoiceLeave: () => void;
   onVoiceMuteToggle: () => void;
   onVoiceDeafenToggle: () => void;
+  onVoiceSetParticipantVolume: (userId: string, volume: number) => void;
   onMenuOpen?: () => void;
 }
 
@@ -73,6 +74,7 @@ export function ChatListPanel({
   onVoiceLeave,
   onVoiceMuteToggle,
   onVoiceDeafenToggle,
+  onVoiceSetParticipantVolume,
   onMenuOpen,
 }: ChatListPanelProps) {
   const [search, setSearch] = useState("");
@@ -181,6 +183,7 @@ export function ChatListPanel({
           selectedChannel={selectedChannel}
           onSelect={onSelectChannel}
           onVoiceJoin={onVoiceJoin}
+          onSetParticipantVolume={onVoiceSetParticipantVolume}
           isLoading={channelsLoading}
         />
       </div>

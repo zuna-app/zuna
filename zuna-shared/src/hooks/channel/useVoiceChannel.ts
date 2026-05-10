@@ -17,6 +17,7 @@ import {
   voiceSpeakingAtom,
   voiceMutedParticipantsAtom,
   voiceDeafenedAtom,
+  voiceParticipantVolumesAtom,
   jotaiStore,
 } from "../../store/atoms";
 import { useWsConnection } from "../ws/useWsConnection";
@@ -58,6 +59,7 @@ export function useVoiceChannel(server: Server) {
   });
   const setSpeaking = useSetAtom(voiceSpeakingAtom, { store: jotaiStore });
   const setMutedParticipants = useSetAtom(voiceMutedParticipantsAtom, { store: jotaiStore });
+  const setParticipantVolumes = useSetAtom(voiceParticipantVolumesAtom, { store: jotaiStore });
 
   const activeChannelIdRef = useRef(activeChannelId?.id ?? null);
   activeChannelIdRef.current = activeChannelId?.id ?? null;
@@ -120,6 +122,7 @@ export function useVoiceChannel(server: Server) {
         setDeafened(false);
         setSpeaking(new Set<string>());
         setMutedParticipants(new Set<string>());
+        setParticipantVolumes(new Map<string, number>());
       });
 
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
@@ -230,12 +233,17 @@ export function useVoiceChannel(server: Server) {
     },
   );
 
-  // Disconnect on unmount (server switch / logout)
+  // Disconnect when the server changes
   useEffect(() => {
     return () => {
-      if (activeChannelIdRef.current) {
-        disconnectRoom();
-      }
+      disconnectRoom();
+    };
+  }, [server.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Disconnect on unmount (logout)
+  useEffect(() => {
+    return () => {
+      disconnectRoom();
     };
   }, [disconnectRoom]);
 
@@ -293,5 +301,21 @@ export function useVoiceChannel(server: Server) {
     setDeafened(next);
   }, [deafened, setDeafened]);
 
-  return { joinVoiceChannel, leaveVoiceChannel, toggleMute, toggleDeafen, deafened };
+  const setParticipantVolume = useCallback((userId: string, volume: number) => {
+    if (!roomRef.current) return;
+    const participant = Array.from(roomRef.current.remoteParticipants.values())
+      .find((p) => p.identity === userId);
+    if (participant) {
+      for (const pub of participant.trackPublications.values()) {
+        if (pub.kind !== Track.Kind.Audio || !pub.track) continue;
+        const audioTrack = pub.track as RemoteAudioTrack;
+        audioTrack.attachedElements.forEach((el) => {
+          el.volume = volume / 100;
+        });
+      }
+    }
+    setParticipantVolumes((prev) => new Map(prev).set(userId, volume));
+  }, [setParticipantVolumes]);
+
+  return { joinVoiceChannel, leaveVoiceChannel, toggleMute, toggleDeafen, deafened, setParticipantVolume };
 }

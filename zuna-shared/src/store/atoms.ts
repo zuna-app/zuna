@@ -83,3 +83,5 @@ export const voiceSpeakingAtom = atom<Set<string>>(new Set<string>());
 export const voiceMutedParticipantsAtom = atom<Set<string>>(new Set<string>());
 // whether the local user has deafened themselves (headphone mute)
 export const voiceDeafenedAtom = atom<boolean>(false);
+// userId → volume override 0-100 (default 100)
+export const voiceParticipantVolumesAtom = atom<Map<string, number>>(new Map<string, number>());

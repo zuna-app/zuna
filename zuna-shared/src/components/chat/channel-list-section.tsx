@@ -9,9 +9,17 @@ import {
   activeVoiceChannelAtom,
   voiceSpeakingAtom,
   voiceMutedParticipantsAtom,
+  voiceParticipantVolumesAtom,
   jotaiStore,
 } from "@/store/atoms";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { CreateChannelModal } from "./create-channel-modal";
 import { useChannelUnreadTracker } from "@/hooks/channel/useChannelUnreadTracker";
 import type { Channel, Server, VoiceParticipant } from "@/types/serverTypes";
@@ -21,6 +29,7 @@ interface ChannelListSectionProps {
   selectedChannel: Channel | null;
   onSelect: (channel: Channel) => void;
   onVoiceJoin: (channel: Channel) => void;
+  onSetParticipantVolume: (userId: string, volume: number) => void;
   isLoading?: boolean;
 }
 
@@ -29,18 +38,16 @@ export function ChannelListSection({
   selectedChannel,
   onSelect,
   onVoiceJoin,
+  onSetParticipantVolume,
   isLoading,
 }: ChannelListSectionProps) {
   const channels = useAtomValue(channelsAtom, { store: jotaiStore });
   const channelUnread = useAtomValue(channelUnreadAtom, { store: jotaiStore });
-  const voiceParticipants = useAtomValue(voiceChannelParticipantsAtom, {
-    store: jotaiStore,
-  });
-  const activeVoiceChannelId = useAtomValue(activeVoiceChannelAtom, {
-    store: jotaiStore,
-  });
+  const voiceParticipants = useAtomValue(voiceChannelParticipantsAtom, { store: jotaiStore });
+  const activeVoiceChannelId = useAtomValue(activeVoiceChannelAtom, { store: jotaiStore });
   const speaking = useAtomValue(voiceSpeakingAtom, { store: jotaiStore });
   const mutedParticipants = useAtomValue(voiceMutedParticipantsAtom, { store: jotaiStore });
+  const participantVolumes = useAtomValue(voiceParticipantVolumesAtom, { store: jotaiStore });
   const [createOpen, setCreateOpen] = useState(false);
   useChannelUnreadTracker(server, selectedChannel?.id ?? null);
 
@@ -109,6 +116,8 @@ export function ChannelListSection({
             participants={voiceParticipants.get(ch.id) ?? []}
             speaking={speaking}
             mutedParticipants={mutedParticipants}
+            participantVolumes={participantVolumes}
+            onSetParticipantVolume={onSetParticipantVolume}
             onClick={() => onVoiceJoin(ch)}
           />
         ))}
@@ -176,6 +185,8 @@ function VoiceChannelItem({
   participants,
   speaking,
   mutedParticipants,
+  participantVolumes,
+  onSetParticipantVolume,
   onClick,
 }: {
   channel: Channel;
@@ -183,6 +194,8 @@ function VoiceChannelItem({
   participants: VoiceParticipant[];
   speaking: Set<string>;
   mutedParticipants: Set<string>;
+  participantVolumes: Map<string, number>;
+  onSetParticipantVolume: (userId: string, volume: number) => void;
   onClick: () => void;
 }) {
   return (
@@ -207,28 +220,58 @@ function VoiceChannelItem({
       {participants.length > 0 && (
         <div className="flex flex-col pl-6 pb-0.5">
           {participants.map((p) => (
-            <div key={p.userId} className="flex items-center gap-2 px-2 py-1">
-              <div className={cn(
-                "rounded-full shrink-0 p-0.5 transition-colors",
-                speaking.has(p.userId) ? "ring-2 ring-green-500" : "",
-              )}>
-                {p.avatar ? (
-                  <img
-                    src={p.avatar}
-                    alt={p.username}
-                    className="size-5 rounded-full object-cover"
+            <ContextMenu key={p.userId}>
+              <ContextMenuTrigger asChild>
+                <div className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/40 cursor-default select-none">
+                  <div className={cn(
+                    "rounded-full shrink-0 transition-colors",
+                    speaking.has(p.userId) ? "ring-2 ring-green-500" : "",
+                  )}>
+                    {p.avatar ? (
+                      <img
+                        src={p.avatar}
+                        alt={p.username}
+                        className="size-5 rounded-full object-cover"
+                      />
+                    ) : (
+                      <span className="size-5 rounded-full bg-muted block" />
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground truncate flex-1">
+                    {p.username}
+                  </span>
+                  {mutedParticipants.has(p.userId) && (
+                    <MicOff className="size-3 text-muted-foreground/60 shrink-0" />
+                  )}
+                </div>
+              </ContextMenuTrigger>
+              <ContextMenuContent className="w-52">
+                <ContextMenuLabel>{p.username}</ContextMenuLabel>
+                <ContextMenuSeparator />
+                <div className="px-2 py-2">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-muted-foreground">Volume</span>
+                    <span className="text-xs font-medium tabular-nums">
+                      {participantVolumes.get(p.userId) ?? 100}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={participantVolumes.get(p.userId) ?? 100}
+                    onChange={(e) => onSetParticipantVolume(p.userId, Number(e.target.value))}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="w-full h-1.5 appearance-none rounded-full bg-muted accent-primary cursor-pointer"
                   />
-                ) : (
-                  <span className="size-5 rounded-full bg-muted block" />
-                )}
-              </div>
-              <span className="text-xs text-muted-foreground truncate flex-1">
-                {p.username}
-              </span>
-              {mutedParticipants.has(p.userId) && (
-                <MicOff className="size-3 text-muted-foreground/60 shrink-0" />
-              )}
-            </div>
+                  <div className="flex justify-between mt-1">
+                    <span className="text-[10px] text-muted-foreground/60">0%</span>
+                    <span className="text-[10px] text-muted-foreground/60">100%</span>
+                  </div>
+                </div>
+              </ContextMenuContent>
+            </ContextMenu>
           ))}
         </div>
       )}
