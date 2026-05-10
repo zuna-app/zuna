@@ -119,13 +119,13 @@ export function loadAndUnlockVault(password: string) {
 
   startGatewayListeners();
 
-  console.log(
-    "Vault contents after unlock:",
-    Array.from(vault.entries()).map(([k, v]) => [
-      k,
-      Buffer.isBuffer(v) ? "<Buffer>" : v,
-    ]),
-  );
+  // console.log(
+  //   "Vault contents after unlock:",
+  //   Array.from(vault.entries()).map(([k, v]) => [
+  //     k,
+  //     Buffer.isBuffer(v) ? "<Buffer>" : v,
+  //   ]),
+  // );
 }
 
 export function lockVault() {
