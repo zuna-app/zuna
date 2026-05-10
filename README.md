@@ -85,6 +85,12 @@
   <img src=".github/resources/screenshot_1.png" alt="Zuna screenshot 1" width="31%" />
   <img src=".github/resources/screenshot_2.png" alt="Zuna screenshot 2" width="31%" />
   <img src=".github/resources/screenshot_3.png" alt="Zuna screenshot 3" width="31%" />
+  <img src=".github/resources/screenshot_4.png" alt="Zuna screenshot 3" width="31%" />
+</p>
+
+<p align="center">
+  <img src=".github/resources/screenshot_5.png" alt="Zuna screenshot 1" width="31%" />
+  <img src=".github/resources/screenshot_6.png" alt="Zuna screenshot 2" width="31%" />
 </p>
 
 ---
