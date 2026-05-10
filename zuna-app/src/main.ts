@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   ipcMain,
   safeStorage,
+  session,
   Tray,
   Menu,
   nativeImage,
@@ -199,7 +200,13 @@ if (gotTheLock) {
     mainWindow.focus();
   });
 
-  app.on("ready", createWindow);
+  app.on("ready", () => {
+    session.defaultSession.webRequest.onBeforeRequest(
+      { urls: ["wss://socket.streamable.com/*", "ws://socket.streamable.com/*"] },
+      (_details, callback) => callback({ cancel: true })
+    );
+    createWindow();
+  });
 
   app.on("before-quit", () => {
     if (isLinux) {
