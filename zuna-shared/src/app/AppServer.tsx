@@ -259,7 +259,7 @@ export const AppServer = ({
 
   const handleVoiceJoin = useCallback(
     (channel: Channel) => {
-      joinVoiceChannel(channel.id);
+      joinVoiceChannel(channel.id, channel.name);
     },
     [joinVoiceChannel],
   );

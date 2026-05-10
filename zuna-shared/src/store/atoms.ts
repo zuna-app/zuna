@@ -74,6 +74,6 @@ export const channelWritingAtom = atom<
 // ── Voice channels ────────────────────────────────────────────────────────────
 // channelId → list of connected participants
 export const voiceChannelParticipantsAtom = atom<Map<string, VoiceParticipant[]>>(new Map());
-// channelId the current user is connected to, or null
-export const activeVoiceChannelAtom = atom<string | null>(null);
+// active voice channel info for the current user, or null
+export const activeVoiceChannelAtom = atom<{ id: string; name: string } | null>(null);
 export const voiceMutedAtom = atom<boolean>(false);

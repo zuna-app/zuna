@@ -51,8 +51,10 @@ export function useVoiceChannel(server: Server) {
     store: jotaiStore,
   });
 
-  const activeChannelIdRef = useRef(activeChannelId);
-  activeChannelIdRef.current = activeChannelId;
+  const activeChannelIdRef = useRef(activeChannelId?.id ?? null);
+  activeChannelIdRef.current = activeChannelId?.id ?? null;
+
+  const pendingChannelNameRef = useRef<string>("");
 
   const disconnectRoom = useCallback(async () => {
     if (audioTrackRef.current) {
@@ -78,9 +80,9 @@ export function useVoiceChannel(server: Server) {
     async (payload) => {
       const { channel_id, livekit_url, livekit_token, participants } = payload;
 
-      const channelKeyB64 = (await vault.get(
-        `channel_key_${channel_id}`,
-      )) as string | null;
+      const channelKeyB64 = (await vault.get(`channel_key_${channel_id}`)) as
+        | string
+        | null;
       if (!channelKeyB64) {
         console.error("[voice] no channel key found for", channel_id);
         return;
@@ -89,18 +91,18 @@ export function useVoiceChannel(server: Server) {
       // Disconnect from any existing room first
       await disconnectRoom();
 
-      const rawKey = base64ToBytes(channelKeyB64);
-      const keyProvider = new ExternalE2EEKeyProvider();
-      await keyProvider.setKey(rawKey.buffer as ArrayBuffer);
+      // const rawKey = base64ToBytes(channelKeyB64);
+      // const keyProvider = new ExternalE2EEKeyProvider();
+      // await keyProvider.setKey(rawKey.buffer as ArrayBuffer);
 
-      const e2eeWorker = new Worker(
-        new URL("livekit-client/e2ee-worker", import.meta.url),
-      );
+      // const e2eeWorker = new Worker(
+      //   new URL("livekit-client/e2ee-worker", import.meta.url),
+      // );
 
       const room = new Room({
         adaptiveStream: false,
         dynacast: false,
-        e2ee: { keyProvider, worker: e2eeWorker },
+        //e2ee: { keyProvider, worker: e2eeWorker },
       });
 
       room.on(RoomEvent.Disconnected, () => {
@@ -125,7 +127,7 @@ export function useVoiceChannel(server: Server) {
 
         roomRef.current = room;
         audioTrackRef.current = audioTrack;
-        setActiveChannelId(channel_id);
+        setActiveChannelId({ id: channel_id, name: pendingChannelNameRef.current });
         setMuted(false);
         setParticipants((prev) => {
           const next = new Map(prev);
@@ -162,8 +164,11 @@ export function useVoiceChannel(server: Server) {
   }, [disconnectRoom]);
 
   const joinVoiceChannel = useCallback(
-    (channelId: string) => {
-      if (activeChannelIdRef.current && activeChannelIdRef.current !== channelId) {
+    (channelId: string, channelName: string) => {
+      if (
+        activeChannelIdRef.current &&
+        activeChannelIdRef.current !== channelId
+      ) {
         // Leave the current channel before joining a new one
         sendMessage(WS_MSG.VOICE_CHANNEL_LEAVE, {
           channel_id: activeChannelIdRef.current,
@@ -171,6 +176,7 @@ export function useVoiceChannel(server: Server) {
         disconnectRoom();
         setActiveChannelId(null);
       }
+      pendingChannelNameRef.current = channelName;
       sendMessage(WS_MSG.VOICE_CHANNEL_JOIN, { channel_id: channelId });
     },
     [sendMessage, disconnectRoom, setActiveChannelId],

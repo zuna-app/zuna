@@ -5,7 +5,6 @@ import {
   serverMetaAtom,
   activeVoiceChannelAtom,
   voiceMutedAtom,
-  channelsAtom,
   jotaiStore,
 } from "@/store/atoms";
 import { useChatList } from "@/hooks/chat/useChatList";
@@ -81,14 +80,10 @@ export function ChatListPanel({
     serverMeta.get(server.id)?.name ?? server.name ?? server.address;
   const currentUser = useCurrentUser(server);
 
-  const activeVoiceChannelId = useAtomValue(activeVoiceChannelAtom, {
+  const activeVoiceChannel = useAtomValue(activeVoiceChannelAtom, {
     store: jotaiStore,
   });
   const voiceMuted = useAtomValue(voiceMutedAtom, { store: jotaiStore });
-  const channels = useAtomValue(channelsAtom, { store: jotaiStore });
-  const activeVoiceChannel = activeVoiceChannelId
-    ? channels.find((c) => c.id === activeVoiceChannelId) ?? null
-    : null;
 
   const { lastMessages } = useLastChatMessages(server, data ?? []);
 

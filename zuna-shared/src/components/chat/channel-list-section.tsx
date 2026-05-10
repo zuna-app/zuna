@@ -101,7 +101,7 @@ export function ChannelListSection({
           <VoiceChannelItem
             key={ch.id}
             channel={ch}
-            isActive={activeVoiceChannelId === ch.id}
+            isActive={activeVoiceChannelId?.id === ch.id}
             participants={voiceParticipants.get(ch.id) ?? []}
             onClick={() => onVoiceJoin(ch)}
           />
