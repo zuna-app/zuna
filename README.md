@@ -137,9 +137,6 @@ Zuna Install will be a 1-click solution to setup, configure and install Zuna ser
 
 The easiest way to run a Zuna server is with Docker Compose. The provided setup bundles **zuna-server**, **MariaDB 11**, and **LiveKit** (for voice calls and screen sharing) into a single stack.
 
-> [!WARNING]
-> Zuna is currently in **early alpha**. LiveKit isn't implemented just yet, but it's a top priority feature on our roadmap. You can expect early calling/screensharing implementations coming as soon as May of 2026.
-
 ### Prerequisites
 
 - Docker 24+ and Docker Compose v2
@@ -195,9 +192,9 @@ The defaults are for local development. Change secrets before any public deploym
 
 #### TLS
 
-| Variable             | Default | Description                                                   |
-| -------------------- | ------- | ------------------------------------------------------------- |
-| `TLS_AUTO_GENERATE`  | `true`  | Whether the server auto-generates self-signed TLS cert/key    |
+| Variable            | Default | Description                                                |
+| ------------------- | ------- | ---------------------------------------------------------- |
+| `TLS_AUTO_GENERATE` | `true`  | Whether the server auto-generates self-signed TLS cert/key |
 
 #### Example `.env` file
 
