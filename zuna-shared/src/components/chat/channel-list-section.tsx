@@ -7,6 +7,7 @@ import {
   channelUnreadAtom,
   voiceChannelParticipantsAtom,
   activeVoiceChannelAtom,
+  voiceSpeakingAtom,
   jotaiStore,
 } from "@/store/atoms";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ export function ChannelListSection({
   const activeVoiceChannelId = useAtomValue(activeVoiceChannelAtom, {
     store: jotaiStore,
   });
+  const speaking = useAtomValue(voiceSpeakingAtom, { store: jotaiStore });
   const [createOpen, setCreateOpen] = useState(false);
   useChannelUnreadTracker(server, selectedChannel?.id ?? null);
 
@@ -103,6 +105,7 @@ export function ChannelListSection({
             channel={ch}
             isActive={activeVoiceChannelId?.id === ch.id}
             participants={voiceParticipants.get(ch.id) ?? []}
+            speaking={speaking}
             onClick={() => onVoiceJoin(ch)}
           />
         ))}
@@ -168,11 +171,13 @@ function VoiceChannelItem({
   channel,
   isActive,
   participants,
+  speaking,
   onClick,
 }: {
   channel: Channel;
   isActive: boolean;
   participants: VoiceParticipant[];
+  speaking: Set<string>;
   onClick: () => void;
 }) {
   return (
@@ -189,7 +194,7 @@ function VoiceChannelItem({
         <Volume2 className="size-3.5 shrink-0" />
         <span className="truncate flex-1">{channel.name}</span>
         {participants.length > 0 && (
-          <span className="text-[10px] text-muted-foreground shrink-0">
+          <span className="text-xs text-muted-foreground shrink-0">
             {participants.length}
           </span>
         )}
@@ -197,20 +202,22 @@ function VoiceChannelItem({
       {participants.length > 0 && (
         <div className="flex flex-col pl-6 pb-0.5">
           {participants.map((p) => (
-            <div
-              key={p.userId}
-              className="flex items-center gap-1.5 px-2 py-0.5"
-            >
-              {p.avatar ? (
-                <img
-                  src={p.avatar}
-                  alt={p.username}
-                  className="size-3.5 rounded-full shrink-0 object-cover"
-                />
-              ) : (
-                <span className="size-3.5 rounded-full bg-muted shrink-0" />
-              )}
-              <span className="text-[11px] text-muted-foreground truncate">
+            <div key={p.userId} className="flex items-center gap-2 px-2 py-1">
+              <div className={cn(
+                "rounded-full shrink-0 p-0.5 transition-colors",
+                speaking.has(p.userId) ? "ring-2 ring-green-500" : "",
+              )}>
+                {p.avatar ? (
+                  <img
+                    src={p.avatar}
+                    alt={p.username}
+                    className="size-5 rounded-full object-cover"
+                  />
+                ) : (
+                  <span className="size-5 rounded-full bg-muted block" />
+                )}
+              </div>
+              <span className="text-xs text-muted-foreground truncate">
                 {p.username}
               </span>
             </div>

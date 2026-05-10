@@ -77,3 +77,5 @@ export const voiceChannelParticipantsAtom = atom<Map<string, VoiceParticipant[]>
 // active voice channel info for the current user, or null
 export const activeVoiceChannelAtom = atom<{ id: string; name: string } | null>(null);
 export const voiceMutedAtom = atom<boolean>(false);
+// set of user IDs currently speaking (LiveKit active speakers)
+export const voiceSpeakingAtom = atom<Set<string>>(new Set<string>());

@@ -14,6 +14,7 @@ import {
   activeVoiceChannelAtom,
   voiceChannelParticipantsAtom,
   voiceMutedAtom,
+  voiceSpeakingAtom,
   jotaiStore,
 } from "../../store/atoms";
 import { useWsConnection } from "../ws/useWsConnection";
@@ -52,6 +53,7 @@ export function useVoiceChannel(server: Server) {
   const setParticipants = useSetAtom(voiceChannelParticipantsAtom, {
     store: jotaiStore,
   });
+  const setSpeaking = useSetAtom(voiceSpeakingAtom, { store: jotaiStore });
 
   const activeChannelIdRef = useRef(activeChannelId?.id ?? null);
   activeChannelIdRef.current = activeChannelId?.id ?? null;
@@ -111,6 +113,11 @@ export function useVoiceChannel(server: Server) {
         roomRef.current = null;
         setActiveChannelId(null);
         setMuted(false);
+        setSpeaking(new Set<string>());
+      });
+
+      room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+        setSpeaking(new Set<string>(speakers.map((p) => p.identity)));
       });
 
       // Ensure remote audio tracks are attached and playing
