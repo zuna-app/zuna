@@ -4,6 +4,10 @@ import type { IWindowAdapter } from "./IWindowAdapter";
 import type { IShellAdapter } from "./IShellAdapter";
 import type { INotificationAdapter } from "./INotificationAdapter";
 
+export interface IGatewayAdapter {
+  restart: () => Promise<void>;
+}
+
 /**
  * Master platform interface.
  * Pass an implementation to <PlatformProvider platform={...}> at the app root.
@@ -14,4 +18,5 @@ export interface IPlatform {
   window: IWindowAdapter;
   shell: IShellAdapter;
   notification: INotificationAdapter;
+  gateway?: IGatewayAdapter;
 }

@@ -18,6 +18,7 @@ import {
   verifyPin,
 } from "./storage/safeVault";
 import { getCacheByName } from "./storage/appCache";
+import { startGatewayListeners } from "./gateway/gatewayListener";
 
 let exportServer: https.Server | null = null;
 
@@ -231,6 +232,11 @@ export function registerIPC() {
       exportServer.close();
       exportServer = null;
     }
+    return true;
+  });
+
+  ipcMain.handle("gateway:restart", () => {
+    startGatewayListeners();
     return true;
   });
 

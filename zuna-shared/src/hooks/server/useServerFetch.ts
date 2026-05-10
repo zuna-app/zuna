@@ -149,6 +149,7 @@ export function useServerConnector() {
   const [selectedServer, setSelectedServer] = useAtom(selectedServerAtom, {
     store: jotaiStore,
   });
+  const setServerTokens = useSetAtom(serverTokensAtom, { store: jotaiStore });
 
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +198,21 @@ export function useServerConnector() {
   }, [platform.vault, setSelectedServer, setServerList]);
 
   const selectServer = (server: Server | null) => setSelectedServer(server);
+
+  async function leaveServer(server: Server): Promise<void> {
+    const nextList = serverList.filter((s) => s.id !== server.id);
+    setServerList(nextList);
+    setServerTokens((prev) => {
+      const next = new Map(prev);
+      next.delete(server.id);
+      return next;
+    });
+    await platform.vault.set("serverList", nextList);
+    if (selectedServer?.id === server.id) {
+      setSelectedServer(nextList[0] ?? null);
+    }
+    await platform.gateway?.restart();
+  }
 
   async function joinServer({
     address,
@@ -263,7 +279,7 @@ export function useServerConnector() {
     return newServer;
   }
 
-  return { serverList, selectedServer, joinServer, selectServer };
+  return { serverList, selectedServer, joinServer, leaveServer, selectServer };
 }
 
 export function useServer(serverId: string): Server | undefined {

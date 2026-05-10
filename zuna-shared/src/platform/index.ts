@@ -1,4 +1,4 @@
-export type { IPlatform } from "./IPlatform";
+export type { IPlatform, IGatewayAdapter } from "./IPlatform";
 export type { IVaultAdapter } from "./IVaultAdapter";
 export type { ICacheAdapter } from "./ICacheAdapter";
 export type { IWindowAdapter } from "./IWindowAdapter";

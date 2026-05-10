@@ -10,6 +10,7 @@ import type {
   IWindowAdapter,
   IShellAdapter,
   INotificationAdapter,
+  IGatewayAdapter,
 } from "@zuna/shared";
 
 const vaultAdapter: IVaultAdapter = {
@@ -68,10 +69,15 @@ const notificationAdapter: INotificationAdapter = {
   },
 };
 
+const gatewayAdapter: IGatewayAdapter = {
+  restart: () => window.gateway.restart(),
+};
+
 export const ElectronPlatform: IPlatform = {
   vault: vaultAdapter,
   cache: cacheAdapter,
   window: windowAdapter,
   shell: shellAdapter,
   notification: notificationAdapter,
+  gateway: gatewayAdapter,
 };

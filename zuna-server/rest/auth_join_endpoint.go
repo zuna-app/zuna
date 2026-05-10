@@ -10,6 +10,7 @@ import (
 	"zuna.chat/zuna-server/crypto"
 	"zuna.chat/zuna-server/data"
 	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent"
 	gochannel "zuna.chat/zuna-server/ent/channel"
 	"zuna.chat/zuna-server/ent/groupkey"
 	"zuna.chat/zuna-server/ent/user"
@@ -65,6 +66,25 @@ func AuthJoinEndpoint(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, HttpErrorResponse{Error: "invalid signing key"})
 	}
 
+	// Check if a user with this identity key already exists (returning user).
+	existingUser, err := db.EntClient.User.Query().Where(user.IdentityKeyEQ(req.IdentityKey)).Only(c.Request().Context())
+	if err != nil && !ent.IsNotFound(err) {
+		log.Error().Err(err).Msg("failed to check identity key uniqueness")
+		return c.JSON(http.StatusInternalServerError, InternalServerError)
+	}
+
+	if existingUser != nil {
+		if existingUser.Username != req.Username {
+			return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "identity key already registered with a different username"})
+		}
+		// Same identity key and username — allow rejoin.
+		return c.JSON(http.StatusOK, JoinResponse{
+			ID:              existingUser.ID,
+			ServerID:        config.Config.Server.ServerID,
+			ServerPublicKey: crypto.ServerPublicKeyBase64,
+		})
+	}
+
 	exists, err := db.EntClient.User.Query().Where(user.UsernameEQ(req.Username)).Exist(c.Request().Context())
 	if err != nil {
 		log.Error().Err(err).Msg("failed to check user existence")
@@ -73,16 +93,6 @@ func AuthJoinEndpoint(c *echo.Context) error {
 
 	if exists {
 		return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "username already taken"})
-	}
-
-	exists, err = db.EntClient.User.Query().Where(user.IdentityKeyEQ(req.IdentityKey)).Exist(c.Request().Context())
-	if err != nil {
-		log.Error().Err(err).Msg("failed to check identity key uniqueness")
-		return c.JSON(http.StatusInternalServerError, InternalServerError)
-	}
-
-	if exists {
-		return c.JSON(http.StatusConflict, HttpErrorResponse{Error: "identity key already registered"})
 	}
 
 	avatarKey := ""

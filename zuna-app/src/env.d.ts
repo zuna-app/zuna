@@ -53,4 +53,7 @@ interface Window {
       siteName?: string;
     } | null>;
   };
+  gateway: {
+    restart: () => Promise<void>;
+  };
 }

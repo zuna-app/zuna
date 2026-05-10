@@ -41,6 +41,10 @@ contextBridge.exposeInMainWorld("og", {
   fetch: (url: string) => ipcRenderer.invoke("og:fetch", url),
 });
 
+contextBridge.exposeInMainWorld("gateway", {
+  restart: () => ipcRenderer.invoke("gateway:restart"),
+});
+
 contextBridge.exposeInMainWorld("notification", {
   resize: (height: number) => ipcRenderer.invoke("notification:resize", height),
   restore: () => ipcRenderer.invoke("notification:restore"),
