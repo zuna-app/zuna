@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAtomValue } from "jotai";
-import { Hash, Plus, Loader2, Volume2 } from "lucide-react";
+import { Hash, Plus, Loader2, Volume2, MicOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   channelsAtom,
@@ -8,6 +8,7 @@ import {
   voiceChannelParticipantsAtom,
   activeVoiceChannelAtom,
   voiceSpeakingAtom,
+  voiceMutedParticipantsAtom,
   jotaiStore,
 } from "@/store/atoms";
 import { Button } from "@/components/ui/button";
@@ -39,6 +40,7 @@ export function ChannelListSection({
     store: jotaiStore,
   });
   const speaking = useAtomValue(voiceSpeakingAtom, { store: jotaiStore });
+  const mutedParticipants = useAtomValue(voiceMutedParticipantsAtom, { store: jotaiStore });
   const [createOpen, setCreateOpen] = useState(false);
   useChannelUnreadTracker(server, selectedChannel?.id ?? null);
 
@@ -106,6 +108,7 @@ export function ChannelListSection({
             isActive={activeVoiceChannelId?.id === ch.id}
             participants={voiceParticipants.get(ch.id) ?? []}
             speaking={speaking}
+            mutedParticipants={mutedParticipants}
             onClick={() => onVoiceJoin(ch)}
           />
         ))}
@@ -172,12 +175,14 @@ function VoiceChannelItem({
   isActive,
   participants,
   speaking,
+  mutedParticipants,
   onClick,
 }: {
   channel: Channel;
   isActive: boolean;
   participants: VoiceParticipant[];
   speaking: Set<string>;
+  mutedParticipants: Set<string>;
   onClick: () => void;
 }) {
   return (
@@ -217,9 +222,12 @@ function VoiceChannelItem({
                   <span className="size-5 rounded-full bg-muted block" />
                 )}
               </div>
-              <span className="text-xs text-muted-foreground truncate">
+              <span className="text-xs text-muted-foreground truncate flex-1">
                 {p.username}
               </span>
+              {mutedParticipants.has(p.userId) && (
+                <MicOff className="size-3 text-muted-foreground/60 shrink-0" />
+              )}
             </div>
           ))}
         </div>

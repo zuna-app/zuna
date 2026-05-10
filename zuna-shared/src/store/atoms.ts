@@ -79,3 +79,5 @@ export const activeVoiceChannelAtom = atom<{ id: string; name: string } | null>(
 export const voiceMutedAtom = atom<boolean>(false);
 // set of user IDs currently speaking (LiveKit active speakers)
 export const voiceSpeakingAtom = atom<Set<string>>(new Set<string>());
+// set of user IDs whose microphone is muted
+export const voiceMutedParticipantsAtom = atom<Set<string>>(new Set<string>());

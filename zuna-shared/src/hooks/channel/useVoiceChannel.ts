@@ -15,6 +15,7 @@ import {
   voiceChannelParticipantsAtom,
   voiceMutedAtom,
   voiceSpeakingAtom,
+  voiceMutedParticipantsAtom,
   jotaiStore,
 } from "../../store/atoms";
 import { useWsConnection } from "../ws/useWsConnection";
@@ -54,6 +55,7 @@ export function useVoiceChannel(server: Server) {
     store: jotaiStore,
   });
   const setSpeaking = useSetAtom(voiceSpeakingAtom, { store: jotaiStore });
+  const setMutedParticipants = useSetAtom(voiceMutedParticipantsAtom, { store: jotaiStore });
 
   const activeChannelIdRef = useRef(activeChannelId?.id ?? null);
   activeChannelIdRef.current = activeChannelId?.id ?? null;
@@ -114,10 +116,25 @@ export function useVoiceChannel(server: Server) {
         setActiveChannelId(null);
         setMuted(false);
         setSpeaking(new Set<string>());
+        setMutedParticipants(new Set<string>());
       });
 
       room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
         setSpeaking(new Set<string>(speakers.map((p) => p.identity)));
+      });
+
+      room.on(RoomEvent.TrackMuted, (pub, participant) => {
+        if (pub.kind !== Track.Kind.Audio) return;
+        setMutedParticipants((prev) => new Set<string>([...prev, participant.identity]));
+      });
+
+      room.on(RoomEvent.TrackUnmuted, (pub, participant) => {
+        if (pub.kind !== Track.Kind.Audio) return;
+        setMutedParticipants((prev) => {
+          const next = new Set<string>(prev);
+          next.delete(participant.identity);
+          return next;
+        });
       });
 
       // Ensure remote audio tracks are attached and playing
@@ -139,6 +156,17 @@ export function useVoiceChannel(server: Server) {
       try {
         await room.connect(livekit_url, livekit_token);
         await room.startAudio();
+
+        // Seed initial mute state for already-present participants
+        const initiallyMuted = new Set<string>();
+        for (const participant of room.remoteParticipants.values()) {
+          for (const pub of participant.trackPublications.values()) {
+            if (pub.kind === Track.Kind.Audio && pub.isMuted) {
+              initiallyMuted.add(participant.identity);
+            }
+          }
+        }
+        setMutedParticipants(initiallyMuted);
 
         // Re-check all already-subscribed remote tracks after startAudio
         for (const participant of room.remoteParticipants.values()) {
