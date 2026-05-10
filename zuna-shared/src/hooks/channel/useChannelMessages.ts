@@ -91,6 +91,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
     Map<string, { name: string; size: number; mimeType: string }>
   >(new Map());
   const metaInFlightRef = useRef<Set<string>>(new Set());
+  const lastMarkedReadSentAtRef = useRef<number>(0);
 
   const channelId = channel?.id ?? null;
   const serverToken =
@@ -101,8 +102,10 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
   useEffect(() => {
     if (!channelId) {
       setChannelKey(null);
+      lastMarkedReadSentAtRef.current = 0;
       return;
     }
+    lastMarkedReadSentAtRef.current = 0;
     getChannelKey(platform.vault, channelId).then(setChannelKey);
   }, [channelId, platform.vault]);
 
@@ -215,14 +218,42 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
     [decryptedMeta],
   );
 
+  const sendChannelMarkRead = useCallback(
+    (timestamp?: number) => {
+      if (!channelId) return;
+      const now = Date.now();
+      const candidate = timestamp ?? now;
+      const monotonicTs = Math.max(
+        candidate,
+        now,
+        lastMarkedReadSentAtRef.current,
+      );
+      lastMarkedReadSentAtRef.current = monotonicTs;
+      sendMessage(WS_MSG.CHANNEL_MARK_READ, {
+        channel_id: channelId,
+        timestamp: monotonicTs,
+      });
+    },
+    [channelId, sendMessage],
+  );
+
   // Mark channel as read when opened
   useEffect(() => {
     if (!channelId) return;
-    sendMessage(WS_MSG.CHANNEL_MARK_READ, {
-      channel_id: channelId,
-      timestamp: Date.now(),
-    });
-  }, [channelId]);
+    sendChannelMarkRead();
+  }, [channelId, sendChannelMarkRead]);
+
+  // Re-mark with server message timestamp so backend read state is clock-skew safe.
+  useEffect(() => {
+    if (!channelId || currentMessages.length === 0) return;
+    const lastSentAt = currentMessages.reduce((max, msg) => {
+      const sentAt = typeof msg.sentAt === "number" ? msg.sentAt : 0;
+      return sentAt > max ? sentAt : max;
+    }, 0);
+    if (lastSentAt > 0) {
+      sendChannelMarkRead(lastSentAt);
+    }
+  }, [channelId, currentMessages, sendChannelMarkRead]);
 
   // Initial load + members
   useEffect(() => {
@@ -254,7 +285,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
           return next;
         });
       })
-      .catch(() => {});
+      .catch(() => { });
 
     // Fetch initial messages
     setLoading(true);
@@ -277,7 +308,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
         }
         setHasMore(raw.length === 50);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [channelId, serverToken]);
 
@@ -312,10 +343,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
       async (payload) => {
         if (payload.channel_id !== channelId) return;
         // Channel is currently open — send mark_read immediately
-        sendMessage(WS_MSG.CHANNEL_MARK_READ, {
-          channel_id: channelId,
-          timestamp: payload.sent_at,
-        });
+        sendChannelMarkRead(payload.sent_at);
         let msg: ChannelMessage = {
           id: payload.id,
           clientMessageId: payload.client_message_id,
@@ -344,7 +372,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
           return next;
         });
       },
-      [channelId, decryptMessage, setAllMessages, sendMessage],
+      [channelId, decryptMessage, setAllMessages, sendChannelMarkRead],
     ),
   );
 
@@ -363,21 +391,21 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
             existing.map((m) =>
               m.clientMessageId === payload.client_message_id
                 ? {
-                    ...m,
-                    id: payload.id,
-                    sentAt: payload.sent_at,
-                    pending: false,
-                    attachmentId: payload.attachment_id || m.attachmentId,
-                    attachmentMetadata:
-                      payload.attachment_metadata || m.attachmentMetadata,
-                    attachmentMetadataIv:
-                      payload.attachment_metadata_iv || m.attachmentMetadataIv,
-                    attachmentMetadataAuthTag:
-                      payload.attachment_metadata_auth_tag ||
-                      m.attachmentMetadataAuthTag,
-                    uploadProgress: undefined,
-                    attachmentFilename: undefined,
-                  }
+                  ...m,
+                  id: payload.id,
+                  sentAt: payload.sent_at,
+                  pending: false,
+                  attachmentId: payload.attachment_id || m.attachmentId,
+                  attachmentMetadata:
+                    payload.attachment_metadata || m.attachmentMetadata,
+                  attachmentMetadataIv:
+                    payload.attachment_metadata_iv || m.attachmentMetadataIv,
+                  attachmentMetadataAuthTag:
+                    payload.attachment_metadata_auth_tag ||
+                    m.attachmentMetadataAuthTag,
+                  uploadProgress: undefined,
+                  attachmentFilename: undefined,
+                }
                 : m,
             ),
           );
@@ -584,18 +612,18 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
             existing.map((m) =>
               m.clientMessageId === clientMessageId
                 ? {
-                    ...m,
-                    uploadProgress: undefined,
-                    cipherText: encryptedText.ciphertext,
-                    iv: encryptedText.iv,
-                    authTag: encryptedText.authTag,
-                    plaintext: plaintext.trim() || undefined,
-                    attachmentId,
-                    attachmentFilename: undefined,
-                    attachmentMetadata: encryptedMetadata.ciphertext,
-                    attachmentMetadataIv: encryptedMetadata.iv,
-                    attachmentMetadataAuthTag: encryptedMetadata.authTag,
-                  }
+                  ...m,
+                  uploadProgress: undefined,
+                  cipherText: encryptedText.ciphertext,
+                  iv: encryptedText.iv,
+                  authTag: encryptedText.authTag,
+                  plaintext: plaintext.trim() || undefined,
+                  attachmentId,
+                  attachmentFilename: undefined,
+                  attachmentMetadata: encryptedMetadata.ciphertext,
+                  attachmentMetadataIv: encryptedMetadata.iv,
+                  attachmentMetadataAuthTag: encryptedMetadata.authTag,
+                }
                 : m,
             ),
           );
