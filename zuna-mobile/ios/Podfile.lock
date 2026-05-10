@@ -35,6 +35,8 @@ PODS:
     - Yoga
   - ExpoAsset (55.0.16):
     - ExpoModulesCore
+  - ExpoAudio (55.0.14):
+    - ExpoModulesCore
   - ExpoCamera (55.0.17):
     - ExpoModulesCore
   - ExpoCameraBarcodeScanning (55.0.17):
@@ -2416,6 +2418,7 @@ DEPENDENCIES:
   - EXManifests (from `../node_modules/expo-manifests/ios`)
   - Expo (from `../node_modules/expo`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
+  - ExpoAudio (from `../node_modules/expo-audio/ios`)
   - ExpoCamera (from `../node_modules/expo-camera/ios`)
   - ExpoCameraBarcodeScanning (from `../node_modules/expo-camera/ios`)
   - ExpoDocumentPicker (from `../node_modules/expo-document-picker/ios`)
@@ -2556,6 +2559,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo"
   ExpoAsset:
     :path: "../node_modules/expo-asset/ios"
+  ExpoAudio:
+    :path: "../node_modules/expo-audio/ios"
   ExpoCamera:
     :path: "../node_modules/expo-camera/ios"
   ExpoCameraBarcodeScanning:
@@ -2788,6 +2793,7 @@ SPEC CHECKSUMS:
   EXManifests: f4e50a54115948e206f4c2391bdea755a1aa74ec
   Expo: 1bf84a82787de952fb2fb1270214e3f15d166f05
   ExpoAsset: f56ed740b6a127da2bfd90832cf688ae309d4410
+  ExpoAudio: a826903abdeba843cde8602bd1c077d808b31f1d
   ExpoCamera: 1f783af198ebb299f430758c86af8339cf7d63a9
   ExpoCameraBarcodeScanning: 76e0fe3e7d5b17c3c73f1cae8a3ffe76df9e971f
   ExpoDocumentPicker: be59b82799ae30811e3f37a7521d6622baa63a19

@@ -82,9 +82,12 @@ export function useAttachmentDownload(
 
       setUri(cacheFile);
 
-      // For non-image/video files: save directly to user-chosen folder on Android,
+      // For non-image/video/audio files: save directly to user-chosen folder on Android,
       // or open share sheet with "Save to Files" on iOS.
-      const isMedia = mimeType.startsWith('image/') || mimeType.startsWith('video/');
+      const isMedia =
+        mimeType.startsWith('image/') ||
+        mimeType.startsWith('video/') ||
+        mimeType.startsWith('audio/');
       if (!isMedia) {
         await saveToFiles(cacheFile, fileName ?? 'file', mimeType);
       }

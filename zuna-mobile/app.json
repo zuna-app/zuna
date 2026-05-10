@@ -61,7 +61,8 @@
         }
       ],
       "./plugins/withSelfSignedTLS",
-      "./plugins/withNotificationServiceExtension"
+      "./plugins/withNotificationServiceExtension",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true

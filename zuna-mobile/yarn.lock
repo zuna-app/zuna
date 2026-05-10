@@ -3460,6 +3460,11 @@ expo-asset@~55.0.16:
     "@expo/image-utils" "^0.8.13"
     expo-constants "~55.0.15"
 
+expo-audio@~55.0.14:
+  version "55.0.14"
+  resolved "https://registry.yarnpkg.com/expo-audio/-/expo-audio-55.0.14.tgz#2a2b8f420eb860f15f2de9ffaedf21156139a889"
+  integrity sha512-Biy6ffKXrnKHgcWSVWLKVdWLNhV/pj1JWJeotY6nDR6fVe8mjXQDCvi6EbaSFPdffVHym6UB2siKzWUNSnG+kQ==
+
 expo-camera@~55.0.16:
   version "55.0.17"
   resolved "https://registry.yarnpkg.com/expo-camera/-/expo-camera-55.0.17.tgz#e145aa5df49fc136d48096d9f4adfb0c62612d21"
