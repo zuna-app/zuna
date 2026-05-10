@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { channelsAtom, channelUnreadAtom, jotaiStore } from "@/store/atoms";
 import { Button } from "@/components/ui/button";
 import { CreateChannelModal } from "./create-channel-modal";
+import { useChannelUnreadTracker } from "@/hooks/channel/useChannelUnreadTracker";
 import type { Channel, Server } from "@/types/serverTypes";
 
 interface ChannelListSectionProps {
@@ -23,6 +24,7 @@ export function ChannelListSection({
   const channels = useAtomValue(channelsAtom, { store: jotaiStore });
   const channelUnread = useAtomValue(channelUnreadAtom, { store: jotaiStore });
   const [createOpen, setCreateOpen] = useState(false);
+  useChannelUnreadTracker(server, selectedChannel?.id ?? null);
 
   return (
     <div className="flex flex-col">
