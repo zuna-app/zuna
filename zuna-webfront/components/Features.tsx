@@ -1,7 +1,17 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Lock, Server, Phone, Paperclip, Zap, Github } from "lucide-react";
+import {
+  Lock,
+  Server,
+  Phone,
+  Paperclip,
+  Zap,
+  Github,
+  Hash,
+  Bell,
+  Globe,
+} from "lucide-react";
 
 const features = [
   {
@@ -28,7 +38,7 @@ const features = [
     iconColor: "text-violet-400",
     title: "Voice & Video Calls",
     description:
-      "Crystal-clear encrypted calls and screen sharing powered by LiveKit WebRTC — the same open-source engine trusted by major platforms. No telemetry.",
+      "Crystal-clear encrypted calls and screen sharing powered by LiveKit WebRTC, the same open-source engine trusted by major platforms. No telemetry.",
     tag: "LiveKit WebRTC",
   },
   {
@@ -37,7 +47,7 @@ const features = [
     iconColor: "text-cyan-400",
     title: "Encrypted File Sharing",
     description:
-      "Share files up to 512 MB with full end-to-end encryption. Even filenames are encrypted client-side — the server has no idea what you're sending.",
+      "Share files up to 512 MB with full end-to-end encryption. Even filenames are encrypted client-side. The server has no idea what you're sending.",
     tag: "Up to 512 MB",
   },
   {
@@ -55,8 +65,35 @@ const features = [
     iconColor: "text-slate-300",
     title: "Fully Open Source",
     description:
-      "Licensed under AGPL-3.0. Every line of code is auditable on GitHub. Trust through transparency — not promises. Fork it, extend it, make it yours.",
+      "Licensed under AGPL-3.0. Every line of code is auditable on GitHub. Trust through transparency, not promises. Fork it, extend it, make it yours.",
     tag: "AGPL-3.0",
+  },
+  {
+    icon: Hash,
+    iconBg: "bg-green-500/15",
+    iconColor: "text-green-400",
+    title: "Voice & Text Channels",
+    description:
+      "Organize your community with Discord-like text and voice channels. Create dedicated spaces for topics, teams, or friends, all encrypted and running on your own server.",
+    tag: "Discord-Like",
+  },
+  {
+    icon: Bell,
+    iconBg: "bg-rose-500/15",
+    iconColor: "text-rose-400",
+    title: "Push Notifications",
+    description:
+      "Stay in the loop on iOS, Android, and PWA with end-to-end encrypted push notifications routed through a stateless, zero-knowledge gateway that stores nothing about you.",
+    tag: "Zero-Knowledge",
+  },
+  {
+    icon: Globe,
+    iconBg: "bg-teal-500/15",
+    iconColor: "text-teal-400",
+    title: "Every Platform",
+    description:
+      "Native desktop apps for Windows, macOS, and Linux. A full-featured PWA for browsers. iOS via TestFlight beta and Android coming soon. One server, every device.",
+    tag: "Cross-Platform",
   },
 ];
 
@@ -83,8 +120,9 @@ export default function Features() {
             <span className="gradient-text">nothing you don&apos;t.</span>
           </h2>
           <p className="text-slate-400 text-lg max-w-2xl mx-auto">
-            Zuna is engineered from the ground up with privacy as the foundation
-            — not an afterthought.
+            A self-hosted Discord alternative built for privacy. Zuna is
+            engineered from the ground up with encryption as the foundation, not
+            an afterthought.
           </p>
         </motion.div>
 

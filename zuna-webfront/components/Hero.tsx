@@ -171,10 +171,15 @@ export default function Hero() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
-              className="inline-flex items-center gap-2 bg-accent/10 border border-accent/25 rounded-full px-4 py-1.5 text-sm text-accent-glow mb-8"
+              className="flex flex-wrap gap-2 mb-8"
             >
-              <Shield className="w-3.5 h-3.5" />
-              Open Source · AGPL-3.0 License
+              <div className="inline-flex items-center gap-2 bg-accent/10 border border-accent/25 rounded-full px-4 py-1.5 text-sm text-accent-glow">
+                <Shield className="w-3.5 h-3.5" />
+                Open Source · AGPL-3.0 License
+              </div>
+              <div className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/25 rounded-full px-4 py-1.5 text-sm text-green-400">
+                Self-Hosted Discord/Telegram Alternative
+              </div>
             </motion.div>
 
             <motion.h1
@@ -195,8 +200,8 @@ export default function Hero() {
               className="text-slate-400 text-lg leading-relaxed mb-10 max-w-lg"
             >
               Zuna is a fully self-hosted, end-to-end encrypted messaging
-              platform. Your server, your keys, your data — the server never
-              sees plaintext. Ever.
+              platform with Discord-like voice and text channels. Your server,
+              your keys, your data. The server never sees plaintext. Ever.
             </motion.p>
 
             <motion.div
@@ -210,7 +215,7 @@ export default function Hero() {
                 <span className="font-semibold text-amber-300">
                   Early alpha.
                 </span>{" "}
-                Zuna is under active development — some features may be
+                Zuna is under active development; some features may be
                 incomplete or unavailable.
               </p>
             </motion.div>

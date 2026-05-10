@@ -5,24 +5,34 @@ import { motion } from "framer-motion";
 import { Server, Copy, Check, Terminal, ChevronRight } from "lucide-react";
 
 const dockerCompose = `services:
-  zuna-server:
-    build:
-      context: ./zuna-server
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--config", "/config/livekit.yaml"]
+    restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "7880:7880"
+      - "7881:7881"
+      - "50000-50100:50000-50100/udp"
+
+  zuna-server:
+    build: ./zuna-server
+    restart: unless-stopped
+    ports:
+      - "25510:25510"
     environment:
+      LIVEKIT_HOST: livekit
+      LIVEKIT_PORT: "7880"
       MYSQL_HOST: zuna-mysql
       MYSQL_USER: \${MYSQL_USER:-zuna}
       MYSQL_PASSWORD: \${MYSQL_PASSWORD:-zunapass}
-      LIVEKIT_HOST: livekit
+      TLS_PUBLIC_ADDRESS: \${TLS_PUBLIC_ADDRESS}
+      TLS_AUTO_GENERATE: "true"
     volumes:
       - zuna-data:/data
-    depends_on:
-      - zuna-mysql
-      - livekit
 
   zuna-mysql:
     image: mariadb:11
+    restart: unless-stopped
     environment:
       MYSQL_DATABASE: \${MYSQL_DATABASE:-zuna}
       MYSQL_USER: \${MYSQL_USER:-zuna}
@@ -30,13 +40,8 @@ const dockerCompose = `services:
     volumes:
       - zuna-mysql-data:/var/lib/mysql
 
-  livekit:
-    image: livekit/livekit-server:latest
-    ports:
-      - "7880:7880"
-      - "50000-60000:50000-60000/udp"
-
 volumes:
+  livekit-config:
   zuna-data:
   zuna-mysql-data:`;
 
@@ -119,8 +124,8 @@ export default function SelfHost() {
             Own your <span className="gradient-text">infrastructure.</span>
           </h2>
           <p className="text-slate-400 text-lg max-w-xl mx-auto">
-            One Docker Compose command spins up the chat server, database, and
-            LiveKit media server. No DevOps expertise required.
+            One Docker Compose command spins up the chat server, MariaDB
+            database, and LiveKit media server. No DevOps expertise required.
           </p>
         </motion.div>
 

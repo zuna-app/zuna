@@ -21,7 +21,7 @@ const steps = [
     iconColor: "text-indigo-400",
     title: "Generate Your Keys",
     description:
-      "Open the desktop app and complete first-time setup. Your Ed25519 signing key and X25519 encryption key are generated entirely offline — they never leave your device.",
+      "Open the desktop app and complete first-time setup. Your Ed25519 signing key and X25519 encryption key are generated entirely offline. They never leave your device.",
     code: "Keys generated locally",
   },
   {

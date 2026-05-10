@@ -55,7 +55,7 @@
 - Editing/deleting messages
 - Pinning messages
 - PWA for web and mobile use
-- Basic text channels support akin to Discord (with voice/screenshare on the way!)
+- Basic text and voice channels akin to Discord (with screenshare on the way!)
 
 ### Planned major features for May-June 2026
 
