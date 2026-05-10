@@ -59,7 +59,6 @@
 
 ### Planned major features for May-June 2026
 
-- iOS and Android builds available in App Store/Google Play Store
 - Mature LiveKit voice/screensharing platform integration (1 on 1, calling)
 - Per-app audio/video screenshare for all major platforms (Linux, Windows, MacOS)
 
@@ -74,7 +73,9 @@
 - Voice attachments
 
 > [!NOTE]
-> Hurray! 🎉 Both our Google and Apple accounts were successfully approved. We're very close to releasing first iOS and (further down the line) Android builds. It will take some time to get approved by both of Apple and Google, especially since heavily encrypted applications often require additional documentation and audits. Stay patient and we'll deliver!
+> 🎉 The Zuna mobile app is now available in **early access on TestFlight**! Join the public beta using the link below. Android support is planned once the iOS version matures.
+>
+> <a href="https://testflight.apple.com/join/EjEqfXN6"><img src="https://img.shields.io/badge/Join%20TestFlight%20Beta-0D96F6?style=for-the-badge&logo=apple&logoColor=white" alt="Join TestFlight Beta" /></a>
 
 ---
 
