@@ -24,6 +24,7 @@ const config: ForgeConfig = {
     asar: {
       unpack: "**/{sharp,@img}/**/*",
     },
+    executableName: "Zuna",
     icon: "./public/icon",
     extraResource: ["./public/zuna.png", "./public/icon.ico"],
     osxSign: {
@@ -43,11 +44,13 @@ const config: ForgeConfig = {
     new MakerZIP({}, ["linux", "darwin"]),
     new MakerDeb({
       options: {
+        bin: "Zuna",
         icon: "./public/zuna.png",
       },
     }),
     new MakerRpm({
       options: {
+        bin: "Zuna",
         icon: "./public/zuna.png",
       },
     }),
