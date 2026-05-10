@@ -35,23 +35,19 @@ async function getSigningKeyOrThrow(
   }
 }
 
-function saveGatewayToVault(
+async function saveGatewayToVault(
   vault: ReturnType<typeof usePlatform>["vault"],
   serverId: string,
   gatewayAddress: string | null,
-) {
-  vault
-    .get("gatewayList")
-    .then((data) => {
-      const obj = data ? JSON.parse(data as string) : {};
-      obj[serverId] = gatewayAddress;
-      vault.set("gatewayList", JSON.stringify(obj)).catch((err: unknown) => {
-        console.error("Failed to save gateway address to vault", err);
-      });
-    })
-    .catch((err: unknown) => {
-      console.error("Failed to retrieve gateway addresses from vault", err);
-    });
+): Promise<void> {
+  try {
+    const data = await vault.get("gatewayList");
+    const obj = data ? JSON.parse(data as string) : {};
+    obj[serverId] = gatewayAddress;
+    await vault.set("gatewayList", JSON.stringify(obj));
+  } catch (err) {
+    console.error("Failed to save gateway address to vault", err);
+  }
 }
 
 export async function getGatewayFromVault(
@@ -307,7 +303,7 @@ export function useAuthorizer(server: Server) {
         return next;
       });
     },
-    onSuccess: ({
+    onSuccess: async ({
       token: newToken,
       gatewayAddress,
       sevenTvEmotesSet,
@@ -330,7 +326,8 @@ export function useAuthorizer(server: Server) {
         });
         return next;
       });
-      saveGatewayToVault(platform.vault, server.id, gatewayAddress);
+      await saveGatewayToVault(platform.vault, server.id, gatewayAddress);
+      await platform.gateway?.restart();
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : String(err);
