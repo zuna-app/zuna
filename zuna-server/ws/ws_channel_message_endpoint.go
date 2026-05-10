@@ -8,11 +8,13 @@ import (
 	"zuna.chat/zuna-server/config"
 	"zuna.chat/zuna-server/data"
 	"zuna.chat/zuna-server/db"
+	"zuna.chat/zuna-server/ent"
 	"zuna.chat/zuna-server/ent/attachment"
 	gochannel "zuna.chat/zuna-server/ent/channel"
 	"zuna.chat/zuna-server/ent/channelmember"
 	"zuna.chat/zuna-server/ent/user"
 	"zuna.chat/zuna-server/storage"
+	"zuna.chat/zuna-server/utils"
 
 	"github.com/rs/zerolog/log"
 )
@@ -153,9 +155,18 @@ func (r *MessageRouter) handleChannelMessage(c HubClient, msg IncomingMessage, u
 		senderAvatar = "data:" + senderUser.AvatarMime + ";base64," + base64.StdEncoding.EncodeToString(avatarBytes)
 	}
 
-	// Broadcast to all online channel members
+	// Fetch channel name for notifications
+	ch, err := db.EntClient.Channel.Query().Where(gochannel.IDEQ(req.ChannelID)).First(ctx)
+	if err != nil {
+		log.Error().Err(err).Str("channelId", req.ChannelID).Msg("failed to query channel for notification")
+		return
+	}
+
+	// Broadcast to all online channel members, notify offline ones
 	members, err := db.EntClient.ChannelMember.Query().
-		WithUser().
+		WithUser(func(uq *ent.UserQuery) {
+			uq.WithDevices()
+		}).
 		Where(channelmember.HasChannelWith(gochannel.IDEQ(req.ChannelID))).
 		All(ctx)
 	if err != nil {
@@ -185,9 +196,19 @@ func (r *MessageRouter) handleChannelMessage(c HubClient, msg IncomingMessage, u
 			continue
 		}
 		ud, err := data.GetUserDataByUsername(cm.Edges.User.Username)
-		if err != nil || !ud.Active {
+		if err != nil {
 			continue
 		}
+
+		deviceTokens := []string{}
+		if !ud.Active {
+			deviceTokens = make([]string, len(cm.Edges.User.Edges.Devices))
+			for i, d := range cm.Edges.User.Edges.Devices {
+				deviceTokens[i] = d.DeviceToken
+			}
+		}
+		go utils.SendChannelNotificationToGateway(ud.UserID, req.ChannelID, ch.Name, userData.UserID, senderUser.Username, req.CipherText, req.Iv, req.AuthTag, deviceTokens)
+
 		for _, connID := range ud.ConnectionIDs {
 			r.h.SendTo(connID, OutgoingMessage{Type: "channel_message_receive", Payload: payload})
 		}

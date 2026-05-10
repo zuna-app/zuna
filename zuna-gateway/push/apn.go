@@ -128,6 +128,90 @@ func SendApnNotification(serverIp string, tokens []string, payload NotificationP
 	return invalidTokens
 }
 
+func SendApnChannelNotification(serverIp string, tokens []string, payload ChannelNotificationPayload, badgeByToken map[string]int) []string {
+	if client == nil {
+		return []string{}
+	}
+
+	if len(tokens) == 0 {
+		return []string{}
+	}
+
+	invalidTokens := make([]string, 0)
+	for _, deviceToken := range tokens {
+		badgeCount := payload.UnreadNotifications
+		if badgeByToken != nil {
+			if value, ok := badgeByToken[deviceToken]; ok {
+				badgeCount = value
+			}
+		}
+
+		payloadBytes, err := json.Marshal(ApnChannelPayload{
+			APS: ApnAPS{
+				Alert: ApnAlert{
+					Title: "#" + payload.ChannelName,
+					Body:  payload.SenderUsername + ": New message",
+				},
+				Sound:             "default",
+				MutableContent:    0,
+				ThreadID:          "channel_" + payload.ChannelID,
+				InterruptionLevel: "active",
+				Badge:             badgeCount,
+			},
+			UserID:         payload.UserID,
+			SenderID:       payload.SenderID,
+			ServerID:       payload.ServerID,
+			ChannelID:      payload.ChannelID,
+			SenderUsername: payload.SenderUsername,
+			ChannelName:    payload.ChannelName,
+		})
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to marshal APNs channel payload")
+			continue
+		}
+
+		if len(payloadBytes) > 4096 {
+			log.Warn().Msgf("APNs channel payload size %d exceeds limit of 4096 bytes", len(payloadBytes))
+			continue
+		}
+
+		notification := &apns2.Notification{
+			DeviceToken: deviceToken,
+			Topic:       "chat.zuna.mobile",
+			PushType:    apns2.PushTypeAlert,
+			Priority:    apns2.PriorityHigh,
+			Payload:     payloadBytes,
+		}
+
+		res, err := client.Push(notification)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to push channel notification")
+			continue
+		}
+
+		if res.Reason != "" {
+			data.IncrementInvalidRequest(serverIp)
+		}
+
+		if res.Reason == apns2.ReasonUnregistered || res.Reason == apns2.ReasonBadDeviceToken {
+			log.Debug().Msg("Device token is unregistered")
+			invalidTokens = append(invalidTokens, deviceToken)
+			continue
+		}
+
+		log.Debug().Msgf("Status: %v", res.StatusCode)
+		log.Debug().Msgf("ApnsID: %v", res.ApnsID)
+
+		if res.Sent() {
+			log.Debug().Msg("Channel notification sent successfully")
+		} else {
+			log.Debug().Msgf("Reason: %v", res.Reason)
+		}
+	}
+
+	return invalidTokens
+}
+
 func SendApnBadgeUpdate(serverIp string, tokens []string, badgeByToken map[string]int) []string {
 	if client == nil {
 		return []string{}

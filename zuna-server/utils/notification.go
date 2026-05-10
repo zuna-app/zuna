@@ -17,18 +17,21 @@ import (
 )
 
 type NotificationRequest struct {
-	UserID            string   `json:"user_id"`
-	SenderID          string   `json:"sender_id"`
-	ChatID            string   `json:"chat_id"`
-	ServerID          string   `json:"server_id"`
-	SenderIdentityKey string   `json:"sender_identity_key"`
-	CipherText        string   `json:"cipher_text"`
-	Iv                string   `json:"iv"`
-	AuthTag           string   `json:"auth_tag"`
-	Timestamp         int64    `json:"timestamp"`
-	Password          string   `json:"password"`
-	Signature         string   `json:"signature"`
-	DeviceTokens      []string `json:"device_tokens"`
+	UserID                string   `json:"user_id"`
+	SenderID              string   `json:"sender_id"`
+	ChatID                string   `json:"chat_id"`
+	ServerID              string   `json:"server_id"`
+	SenderIdentityKey     string   `json:"sender_identity_key"`
+	CipherText            string   `json:"cipher_text"`
+	Iv                    string   `json:"iv"`
+	AuthTag               string   `json:"auth_tag"`
+	Timestamp             int64    `json:"timestamp"`
+	Password              string   `json:"password"`
+	Signature             string   `json:"signature"`
+	DeviceTokens          []string `json:"device_tokens"`
+	IsChannelNotification bool     `json:"is_channel_notification"`
+	SenderUsername        string   `json:"sender_username"`
+	ChannelName           string   `json:"channel_name"`
 }
 
 type NotificationResponse struct {
@@ -90,6 +93,78 @@ func SendNotificationToGateway(userId string, chatId string, senderId string, se
 	err = json.NewDecoder(resp.Body).Decode(&notificationResp)
 	if err != nil {
 		log.Warn().Err(err).Msg("failed to parse notification response from gateway")
+		return
+	}
+
+	for _, invalidToken := range notificationResp.InvalidApnTokens {
+		_, err := db.EntClient.Device.Delete().Where(device.DeviceTokenEQ(invalidToken)).Exec(context.Background())
+		if err != nil {
+			log.Warn().Err(err).Str("token", invalidToken).Msg("failed to delete device with invalid token")
+		} else {
+			log.Info().Str("token", invalidToken).Msg("deleted device with invalid APN token")
+		}
+	}
+
+	defer resp.Body.Close()
+}
+
+func SendChannelNotificationToGateway(userId string, channelId string, channelName string, senderId string, senderUsername string, cipherText string, iv string, authTag string, deviceTokens []string) {
+	if !GatewayWorking {
+		return
+	}
+
+	body := NotificationRequest{
+		UserID:                userId,
+		SenderID:              senderId,
+		ChatID:                channelId,
+		ServerID:              config.Config.Server.ServerID,
+		IsChannelNotification: true,
+		SenderUsername:        senderUsername,
+		ChannelName:           channelName,
+		CipherText:            cipherText,
+		Iv:                    iv,
+		AuthTag:               authTag,
+		DeviceTokens:          deviceTokens,
+		Timestamp:             time.Now().UnixMilli(),
+		Password:              config.Config.Gateway.Password,
+		Signature:             crypto.SignEd25519(config.Config.Server.ServerID),
+	}
+
+	payload, err := json.Marshal(body)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to marshal channel notification request")
+		return
+	}
+
+	url := fmt.Sprintf("https://%s/api/notification", config.Config.Gateway.Address)
+
+	req, err := http.NewRequest("POST", url, bytes.NewReader(payload))
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to create channel notification request")
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "ZunaServer")
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: config.Config.Gateway.AllowSelfSigned,
+			},
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to send channel notification to gateway")
+		return
+	}
+
+	var notificationResp NotificationResponse
+	err = json.NewDecoder(resp.Body).Decode(&notificationResp)
+	if err != nil {
+		log.Warn().Err(err).Msg("failed to parse channel notification response from gateway")
 		return
 	}
 

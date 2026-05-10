@@ -8,6 +8,7 @@ import { sendNotification } from "../notification/notification";
 import { getNotificationWindowHost } from "../notification/host";
 import { Server } from "@/types";
 import { computeSharedSecret, decrypt } from "@/crypto";
+import { decryptWithChannelKey } from "@/crypto/channel";
 import fetch from "node-fetch";
 import https from "https";
 import { getZunaWindow } from "@/utils/basicUtils";
@@ -32,6 +33,19 @@ interface RegisterResponsePayload {
   status: string;
   user_id?: string;
   unread_notifications?: number;
+}
+
+interface ChannelNotificationInfoPayload {
+  user_id: string;
+  server_id: string;
+  sender_id: string;
+  sender_username: string;
+  channel_id: string;
+  channel_name: string;
+  cipher_text: string;
+  iv: string;
+  auth_tag: string;
+  unread_notifications: number;
 }
 
 interface NotificationClearPayload {
@@ -130,6 +144,10 @@ function connectToGateway(address: string, servers: Server[]): void {
       const msg = JSON.parse(data.toString()) as WsMessage;
       if (msg.type === "notification_info") {
         handleNotification(msg.payload as NotificationInfoPayload);
+      } else if (msg.type === "channel_notification_info") {
+        handleChannelNotification(
+          msg.payload as ChannelNotificationInfoPayload,
+        );
       } else if (msg.type === "register_response") {
         const payload = msg.payload as RegisterResponsePayload;
         if (
@@ -172,6 +190,67 @@ function connectToGateway(address: string, servers: Server[]): void {
   ws.on("error", () => {
     // 'close' will follow and trigger reconnect
   });
+}
+
+async function handleChannelNotification(
+  payload: ChannelNotificationInfoPayload,
+): Promise<void> {
+  try {
+    const channelKey = vaultGet(
+      `channel_key_${payload.channel_id}`,
+    ) as string | null;
+
+    let messageBody: string;
+    if (channelKey) {
+      try {
+        const plaintext = decryptWithChannelKey(channelKey, {
+          ciphertext: payload.cipher_text,
+          iv: payload.iv,
+          authTag: payload.auth_tag,
+        });
+        messageBody = payload.sender_username + ": " + plaintext;
+      } catch {
+        messageBody = payload.sender_username + ": New message";
+      }
+    } else {
+      messageBody = payload.sender_username + ": New message";
+    }
+
+    const title = "#" + payload.channel_name;
+
+    if (process.platform === "win32") {
+      const mainWindow = getZunaWindow();
+      if (mainWindow) {
+        mainWindow.flashFrame(true);
+      }
+      sendNotification({
+        senderName: title,
+        content: messageBody,
+        avatarUrl: undefined,
+      });
+    } else {
+      const n = new Notification({
+        title,
+        body: messageBody,
+      });
+
+      n.on("click", () => {
+        const win = getZunaWindow();
+        if (win) {
+          if (win.isMinimized()) win.restore();
+          win.setAlwaysOnTop(true);
+          win.show();
+          win.focus();
+          win.setAlwaysOnTop(false);
+        }
+      });
+      n.show();
+    }
+    unreadByUser.set(payload.user_id, payload.unread_notifications);
+    recomputeBadgeFromUsers();
+  } catch (e) {
+    console.error("Failed to handle channel notification:", e);
+  }
 }
 
 async function handleNotification(

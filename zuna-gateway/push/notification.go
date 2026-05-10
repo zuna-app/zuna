@@ -13,6 +13,16 @@ type NotificationPayload struct {
 	UnreadNotifications int    `json:"unread_notifications"`
 }
 
+type ChannelNotificationPayload struct {
+	UserID              string `json:"user_id"`
+	ServerID            string `json:"server_id"`
+	SenderID            string `json:"sender_id"`
+	SenderUsername      string `json:"sender_username"`
+	ChannelID           string `json:"channel_id"`
+	ChannelName         string `json:"channel_name"`
+	UnreadNotifications int    `json:"unread_notifications"`
+}
+
 type ApnPayload struct {
 	APS ApnAPS `json:"aps"`
 
@@ -47,4 +57,14 @@ type ApnPayloadBadge struct {
 
 type ApnAPSBadge struct {
 	Badge int `json:"badge"`
+}
+
+type ApnChannelPayload struct {
+	APS            ApnAPS `json:"aps"`
+	UserID         string `json:"uid"`
+	SenderID       string `json:"sid"`
+	ServerID       string `json:"srv"`
+	ChannelID      string `json:"cid"`
+	SenderUsername string `json:"sun"`
+	ChannelName    string `json:"chn"`
 }
