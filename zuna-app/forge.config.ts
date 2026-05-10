@@ -31,7 +31,7 @@ const config: ForgeConfig = {
       identity: "Developer ID Application: Mikolaj Galazka (SGKB9R23YT)",
     },
     osxNotarize: {
-      appleApiIssuer: process.env.APPLE_API_ISSUER_ID as string,
+      appleApiIssuer: process.env.APPLE_API_ISSUER as string,
       appleApiKey: keyPath,
       appleApiKeyId: process.env.APPLE_API_KEY_ID as string,
     },
