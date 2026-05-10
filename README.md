@@ -192,13 +192,11 @@ The defaults are for local development. Change secrets before any public deploym
 | `LIVEKIT_API_KEY`    | `zunakey`               | Must match between `livekit-init` and `zuna-server` |
 | `LIVEKIT_API_SECRET` | `zunaS3cr3tChangeme123` | Keep private                                        |
 | `LIVEKIT_HOST`       | `1.2.3.4`               | LiveKit Host                                        |
-| `LIVEKIT_PORT`       | `7880`                  | LiveKit Port                                        |
 
 #### TLS
 
 | Variable             | Default | Description                                                   |
 | -------------------- | ------- | ------------------------------------------------------------- |
-| `TLS_PUBLIC_ADDRESS` | ``      | Address written to `[tls].public_address` in generated config |
 | `TLS_AUTO_GENERATE`  | `true`  | Whether the server auto-generates self-signed TLS cert/key    |
 
 #### Example `.env` file
