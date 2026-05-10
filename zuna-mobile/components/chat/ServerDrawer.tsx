@@ -1,4 +1,4 @@
-import { View, Text, Pressable, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView, Alert, Modal, ActivityIndicator } from 'react-native';
 import { useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAtomValue } from 'jotai';
@@ -84,6 +84,7 @@ export function ServerDrawer({ onClose }: DrawerProps) {
   const serverMeta = useAtomValue(serverMetaAtom, { store: jotaiStore });
   const { selectServer, leaveServer } = useServerConnector();
   const [showJoin, setShowJoin] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
   function confirmLeave(server: Server) {
     const name = serverMeta.get(server.id)?.name || server.name || server.address;
@@ -96,7 +97,12 @@ export function ServerDrawer({ onClose }: DrawerProps) {
           text: 'Leave server',
           style: 'destructive',
           onPress: async () => {
-            await leaveServer(server);
+            setLeaving(true);
+            try {
+              await leaveServer(server);
+            } finally {
+              setLeaving(false);
+            }
             const remaining = serverList.filter((s) => s.id !== server.id);
             if (remaining.length > 0) {
               router.replace(`/(app)/${remaining[0].id}` as any);
@@ -114,6 +120,14 @@ export function ServerDrawer({ onClose }: DrawerProps) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      <Modal transparent animationType="fade" visible={leaving}>
+        <View style={styles.leavingOverlay}>
+          <View style={styles.leavingBox}>
+            <ActivityIndicator size="large" color="#fff" />
+            <Text style={styles.leavingText}>Leaving server...</Text>
+          </View>
+        </View>
+      </Modal>
       <Text style={styles.header}>Servers</Text>
       <ScrollView style={styles.list}>
         {serverList.map((server) => (
@@ -186,6 +200,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   addBtnText: { color: '#a1a1aa', fontWeight: '600', fontSize: 15 },
+  leavingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leavingBox: {
+    backgroundColor: '#18181b',
+    borderRadius: 16,
+    paddingVertical: 28,
+    paddingHorizontal: 36,
+    alignItems: 'center',
+    gap: 16,
+  },
+  leavingText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });
 
 const join = StyleSheet.create({

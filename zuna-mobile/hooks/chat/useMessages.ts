@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useWsConnection, ReadyState } from '@/hooks/ws/useWsConnection';
 import { useWsHandler } from '@/hooks/ws/useWsHandler';
 import {
@@ -139,6 +140,7 @@ export function useMessages(
   const { lastMessages, updateLastMessage } = useLastMessagesUpdater();
   const lastMessagesRef = useRef(lastMessages);
   lastMessagesRef.current = lastMessages;
+  const queryClient = useQueryClient();
 
   const { authorizedFetch } = useAuthorizedServerFetch(server);
   const { sendMessage: wsSend, readyState } = useWsConnection(server);
@@ -320,8 +322,9 @@ export function useMessages(
           lastActivityAt:
             lastMessagesRef.current?.[chatIdRef.current]?.lastActivityAt ?? Date.now(),
         });
+        void queryClient.invalidateQueries({ queryKey: ['chat-list', server.id] });
       },
-      [updateLastMessage]
+      [queryClient, server.id, updateLastMessage]
     )
   );
 
@@ -338,6 +341,7 @@ export function useMessages(
           updateLastMessage({ ...lastMsg, unreadMessages: 0 });
         }
         wsSend(WS_MSG.MARK_READ, { chat_id: cId, timestamp: Date.now() });
+        void queryClient.invalidateQueries({ queryKey: ['chat-list', server.id] });
       } else {
         isActiveRef.current = false;
       }
@@ -358,8 +362,9 @@ export function useMessages(
       updateLastMessage({ ...lastMsg, unreadMessages: 0 });
     }
     wsSend(WS_MSG.MARK_READ, { chat_id: chatId, timestamp: Date.now() });
+    void queryClient.invalidateQueries({ queryKey: ['chat-list', server.id] });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatId]);
+  }, [chatId, queryClient, server.id]);
 
   // ── History fetch ───────────────────────────────────────────────────────────
 

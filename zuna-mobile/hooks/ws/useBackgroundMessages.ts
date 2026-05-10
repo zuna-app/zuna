@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { jotaiStore, vaultAtom, lastMessagesAtom, selectedChatAtom } from '@/store/atoms';
 import { useWsHandler } from './useWsHandler';
@@ -11,6 +12,7 @@ export function useBackgroundMessages(server: Server, members: ChatMember[]) {
   const vault = useAtomValue(vaultAtom, { store: jotaiStore });
   const selectedChat = useAtomValue(selectedChatAtom, { store: jotaiStore });
   const setLastMessages = useSetAtom(lastMessagesAtom, { store: jotaiStore });
+  const queryClient = useQueryClient();
 
   const vaultRef = useRef(vault);
   vaultRef.current = vault;
@@ -42,6 +44,7 @@ export function useBackgroundMessages(server: Server, members: ChatMember[]) {
           lastActivityAt: payload.created_at,
         },
       }));
+      void queryClient.invalidateQueries({ queryKey: ['chat-list', server.id] });
       return;
     }
 
@@ -61,6 +64,7 @@ export function useBackgroundMessages(server: Server, members: ChatMember[]) {
           lastActivityAt: payload.created_at,
         },
       }));
+      void queryClient.invalidateQueries({ queryKey: ['chat-list', server.id] });
     } catch {}
   });
 }

@@ -140,6 +140,7 @@ export function startGatewayBadgeSync(vault: Record<string, unknown> | null): vo
   const gatewayRecord = parseGatewayRecord(vault);
 
   unreadByUser.clear();
+  void setBadgeFromUnreadMap();
 
   const gatewayToServers = new Map<string, Server[]>();
   for (const server of serverList) {
