@@ -44,6 +44,26 @@ func (_u *ChannelMemberUpdate) SetNillableJoinedAt(v *time.Time) *ChannelMemberU
 	return _u
 }
 
+// SetLastReadAt sets the "last_read_at" field.
+func (_u *ChannelMemberUpdate) SetLastReadAt(v time.Time) *ChannelMemberUpdate {
+	_u.mutation.SetLastReadAt(v)
+	return _u
+}
+
+// SetNillableLastReadAt sets the "last_read_at" field if the given value is not nil.
+func (_u *ChannelMemberUpdate) SetNillableLastReadAt(v *time.Time) *ChannelMemberUpdate {
+	if v != nil {
+		_u.SetLastReadAt(*v)
+	}
+	return _u
+}
+
+// ClearLastReadAt clears the value of the "last_read_at" field.
+func (_u *ChannelMemberUpdate) ClearLastReadAt() *ChannelMemberUpdate {
+	_u.mutation.ClearLastReadAt()
+	return _u
+}
+
 // SetChannelID sets the "channel" edge to the Channel entity by ID.
 func (_u *ChannelMemberUpdate) SetChannelID(id string) *ChannelMemberUpdate {
 	_u.mutation.SetChannelID(id)
@@ -136,6 +156,12 @@ func (_u *ChannelMemberUpdate) sqlSave(ctx context.Context) (_node int, err erro
 	if value, ok := _u.mutation.JoinedAt(); ok {
 		_spec.SetField(channelmember.FieldJoinedAt, field.TypeTime, value)
 	}
+	if value, ok := _u.mutation.LastReadAt(); ok {
+		_spec.SetField(channelmember.FieldLastReadAt, field.TypeTime, value)
+	}
+	if _u.mutation.LastReadAtCleared() {
+		_spec.ClearField(channelmember.FieldLastReadAt, field.TypeTime)
+	}
 	if _u.mutation.ChannelCleared() {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -225,6 +251,26 @@ func (_u *ChannelMemberUpdateOne) SetNillableJoinedAt(v *time.Time) *ChannelMemb
 	if v != nil {
 		_u.SetJoinedAt(*v)
 	}
+	return _u
+}
+
+// SetLastReadAt sets the "last_read_at" field.
+func (_u *ChannelMemberUpdateOne) SetLastReadAt(v time.Time) *ChannelMemberUpdateOne {
+	_u.mutation.SetLastReadAt(v)
+	return _u
+}
+
+// SetNillableLastReadAt sets the "last_read_at" field if the given value is not nil.
+func (_u *ChannelMemberUpdateOne) SetNillableLastReadAt(v *time.Time) *ChannelMemberUpdateOne {
+	if v != nil {
+		_u.SetLastReadAt(*v)
+	}
+	return _u
+}
+
+// ClearLastReadAt clears the value of the "last_read_at" field.
+func (_u *ChannelMemberUpdateOne) ClearLastReadAt() *ChannelMemberUpdateOne {
+	_u.mutation.ClearLastReadAt()
 	return _u
 }
 
@@ -349,6 +395,12 @@ func (_u *ChannelMemberUpdateOne) sqlSave(ctx context.Context) (_node *ChannelMe
 	}
 	if value, ok := _u.mutation.JoinedAt(); ok {
 		_spec.SetField(channelmember.FieldJoinedAt, field.TypeTime, value)
+	}
+	if value, ok := _u.mutation.LastReadAt(); ok {
+		_spec.SetField(channelmember.FieldLastReadAt, field.TypeTime, value)
+	}
+	if _u.mutation.LastReadAtCleared() {
+		_spec.ClearField(channelmember.FieldLastReadAt, field.TypeTime)
 	}
 	if _u.mutation.ChannelCleared() {
 		edge := &sqlgraph.EdgeSpec{

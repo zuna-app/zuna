@@ -3,6 +3,7 @@ import { useSetAtom, useAtomValue } from "jotai";
 import {
   channelMessagesAtom,
   channelMembersAtom,
+  channelUnreadAtom,
   serverTokensAtom,
   jotaiStore,
 } from "../../store/atoms";
@@ -76,6 +77,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
   const setChannelWriting = useSetAtom(channelWritingAtom, {
     store: jotaiStore,
   });
+  const setChannelUnread = useSetAtom(channelUnreadAtom, { store: jotaiStore });
   const currentUser = useCurrentUser(server);
   const selfInfo = useSelfInfo(server);
   const selfInfoRef = useRef(selfInfo);
@@ -215,6 +217,20 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
     [decryptedMeta],
   );
 
+  // Mark channel as read when opened
+  useEffect(() => {
+    if (!channelId) return;
+    sendMessage(WS_MSG.CHANNEL_MARK_READ, {
+      channel_id: channelId,
+      timestamp: Date.now(),
+    });
+    setChannelUnread((prev) => {
+      const next = new Map(prev);
+      next.set(channelId, 0);
+      return next;
+    });
+  }, [channelId]);
+
   // Initial load + members
   useEffect(() => {
     if (!channelId || !serverToken) return;
@@ -301,7 +317,19 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
     WS_MSG.CHANNEL_MESSAGE_RECEIVE,
     useCallback(
       async (payload) => {
-        if (payload.channel_id !== channelId) return;
+        if (payload.channel_id !== channelId) {
+          setChannelUnread((prev) => {
+            const next = new Map(prev);
+            next.set(payload.channel_id, (prev.get(payload.channel_id) ?? 0) + 1);
+            return next;
+          });
+          return;
+        }
+        // Channel is currently open — send mark_read immediately
+        sendMessage(WS_MSG.CHANNEL_MARK_READ, {
+          channel_id: channelId,
+          timestamp: payload.sent_at,
+        });
         let msg: ChannelMessage = {
           id: payload.id,
           clientMessageId: payload.client_message_id,
@@ -330,7 +358,7 @@ export function useChannelMessages(server: Server, channel: Channel | null) {
           return next;
         });
       },
-      [channelId, decryptMessage, setAllMessages],
+      [channelId, decryptMessage, setAllMessages, setChannelUnread, sendMessage],
     ),
   );
 

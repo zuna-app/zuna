@@ -36,6 +36,20 @@ func (_c *ChannelMemberCreate) SetNillableJoinedAt(v *time.Time) *ChannelMemberC
 	return _c
 }
 
+// SetLastReadAt sets the "last_read_at" field.
+func (_c *ChannelMemberCreate) SetLastReadAt(v time.Time) *ChannelMemberCreate {
+	_c.mutation.SetLastReadAt(v)
+	return _c
+}
+
+// SetNillableLastReadAt sets the "last_read_at" field if the given value is not nil.
+func (_c *ChannelMemberCreate) SetNillableLastReadAt(v *time.Time) *ChannelMemberCreate {
+	if v != nil {
+		_c.SetLastReadAt(*v)
+	}
+	return _c
+}
+
 // SetID sets the "id" field.
 func (_c *ChannelMemberCreate) SetID(v string) *ChannelMemberCreate {
 	_c.mutation.SetID(v)
@@ -166,6 +180,10 @@ func (_c *ChannelMemberCreate) createSpec() (*ChannelMember, *sqlgraph.CreateSpe
 	if value, ok := _c.mutation.JoinedAt(); ok {
 		_spec.SetField(channelmember.FieldJoinedAt, field.TypeTime, value)
 		_node.JoinedAt = value
+	}
+	if value, ok := _c.mutation.LastReadAt(); ok {
+		_spec.SetField(channelmember.FieldLastReadAt, field.TypeTime, value)
+		_node.LastReadAt = &value
 	}
 	if nodes := _c.mutation.ChannelIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{

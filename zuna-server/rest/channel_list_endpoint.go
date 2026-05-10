@@ -72,13 +72,23 @@ func ChannelListEndpoint(c *echo.Context) error {
 			ownerID = ch.Edges.Owner.ID
 		}
 
+		unreadQuery := db.EntClient.ChannelMessage.Query().
+			Where(channelmessage.HasChannelWith(gochannel.IDEQ(ch.ID)))
+		if m.LastReadAt != nil {
+			unreadQuery = unreadQuery.Where(channelmessage.SentAtGT(*m.LastReadAt))
+		} else {
+			unreadQuery = unreadQuery.Where(channelmessage.SentAtGT(m.JoinedAt))
+		}
+		unreadCount, _ := unreadQuery.Count(ctx)
+
 		dtos = append(dtos, data.ChannelDTO{
-			ID:          ch.ID,
-			Name:        ch.Name,
-			IsPublic:    ch.IsPublic,
-			OwnerID:     ownerID,
-			CreatedAt:   ch.CreatedAt.UnixMilli(),
-			LastMessage: lastMsgDTO,
+			ID:             ch.ID,
+			Name:           ch.Name,
+			IsPublic:       ch.IsPublic,
+			OwnerID:        ownerID,
+			CreatedAt:      ch.CreatedAt.UnixMilli(),
+			LastMessage:    lastMsgDTO,
+			UnreadMessages: unreadCount,
 		})
 	}
 

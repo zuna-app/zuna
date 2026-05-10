@@ -58,6 +58,8 @@ export const selectedChannelAtom = atom<Channel | null>(null);
 export const channelMessagesAtom = atom<Map<string, ChannelMessage[]>>(
   new Map(),
 );
+// channelId → unread message count
+export const channelUnreadAtom = atom<Map<string, number>>(new Map());
 export const channelMembersAtom = atom<Map<string, ChannelMember[]>>(new Map());
 
 interface ChannelWritingState {

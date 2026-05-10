@@ -55,12 +55,13 @@ type PresenceDTO struct {
 }
 
 type ChannelDTO struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	IsPublic    bool                   `json:"is_public"`
-	OwnerID     string                 `json:"owner_id"`
-	CreatedAt   int64                  `json:"created_at"`
-	LastMessage *ChannelLastMessageDTO `json:"last_message,omitempty"`
+	ID             string                 `json:"id"`
+	Name           string                 `json:"name"`
+	IsPublic       bool                   `json:"is_public"`
+	OwnerID        string                 `json:"owner_id"`
+	CreatedAt      int64                  `json:"created_at"`
+	LastMessage    *ChannelLastMessageDTO `json:"last_message,omitempty"`
+	UnreadMessages int                    `json:"unread_messages"`
 }
 
 type ChannelLastMessageDTO struct {

@@ -70,6 +70,7 @@ var (
 	ChannelMembersColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeString},
 		{Name: "joined_at", Type: field.TypeTime},
+		{Name: "last_read_at", Type: field.TypeTime, Nullable: true},
 		{Name: "channel_channel_members", Type: field.TypeString},
 		{Name: "user_channel_memberships", Type: field.TypeString},
 	}
@@ -81,13 +82,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "channel_members_channels_channel_members",
-				Columns:    []*schema.Column{ChannelMembersColumns[2]},
+				Columns:    []*schema.Column{ChannelMembersColumns[3]},
 				RefColumns: []*schema.Column{ChannelsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "channel_members_users_channel_memberships",
-				Columns:    []*schema.Column{ChannelMembersColumns[3]},
+				Columns:    []*schema.Column{ChannelMembersColumns[4]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -96,7 +97,7 @@ var (
 			{
 				Name:    "channelmember_channel_channel_members_user_channel_memberships",
 				Unique:  true,
-				Columns: []*schema.Column{ChannelMembersColumns[2], ChannelMembersColumns[3]},
+				Columns: []*schema.Column{ChannelMembersColumns[3], ChannelMembersColumns[4]},
 			},
 		},
 	}

@@ -1433,6 +1433,7 @@ type ChannelMemberMutation struct {
 	typ            string
 	id             *string
 	joined_at      *time.Time
+	last_read_at   *time.Time
 	clearedFields  map[string]struct{}
 	channel        *string
 	clearedchannel bool
@@ -1583,6 +1584,55 @@ func (m *ChannelMemberMutation) ResetJoinedAt() {
 	m.joined_at = nil
 }
 
+// SetLastReadAt sets the "last_read_at" field.
+func (m *ChannelMemberMutation) SetLastReadAt(t time.Time) {
+	m.last_read_at = &t
+}
+
+// LastReadAt returns the value of the "last_read_at" field in the mutation.
+func (m *ChannelMemberMutation) LastReadAt() (r time.Time, exists bool) {
+	v := m.last_read_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLastReadAt returns the old "last_read_at" field's value of the ChannelMember entity.
+// If the ChannelMember object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMemberMutation) OldLastReadAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLastReadAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLastReadAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLastReadAt: %w", err)
+	}
+	return oldValue.LastReadAt, nil
+}
+
+// ClearLastReadAt clears the value of the "last_read_at" field.
+func (m *ChannelMemberMutation) ClearLastReadAt() {
+	m.last_read_at = nil
+	m.clearedFields[channelmember.FieldLastReadAt] = struct{}{}
+}
+
+// LastReadAtCleared returns if the "last_read_at" field was cleared in this mutation.
+func (m *ChannelMemberMutation) LastReadAtCleared() bool {
+	_, ok := m.clearedFields[channelmember.FieldLastReadAt]
+	return ok
+}
+
+// ResetLastReadAt resets all changes to the "last_read_at" field.
+func (m *ChannelMemberMutation) ResetLastReadAt() {
+	m.last_read_at = nil
+	delete(m.clearedFields, channelmember.FieldLastReadAt)
+}
+
 // SetChannelID sets the "channel" edge to the Channel entity by id.
 func (m *ChannelMemberMutation) SetChannelID(id string) {
 	m.channel = &id
@@ -1695,9 +1745,12 @@ func (m *ChannelMemberMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMemberMutation) Fields() []string {
-	fields := make([]string, 0, 1)
+	fields := make([]string, 0, 2)
 	if m.joined_at != nil {
 		fields = append(fields, channelmember.FieldJoinedAt)
+	}
+	if m.last_read_at != nil {
+		fields = append(fields, channelmember.FieldLastReadAt)
 	}
 	return fields
 }
@@ -1709,6 +1762,8 @@ func (m *ChannelMemberMutation) Field(name string) (ent.Value, bool) {
 	switch name {
 	case channelmember.FieldJoinedAt:
 		return m.JoinedAt()
+	case channelmember.FieldLastReadAt:
+		return m.LastReadAt()
 	}
 	return nil, false
 }
@@ -1720,6 +1775,8 @@ func (m *ChannelMemberMutation) OldField(ctx context.Context, name string) (ent.
 	switch name {
 	case channelmember.FieldJoinedAt:
 		return m.OldJoinedAt(ctx)
+	case channelmember.FieldLastReadAt:
+		return m.OldLastReadAt(ctx)
 	}
 	return nil, fmt.Errorf("unknown ChannelMember field %s", name)
 }
@@ -1735,6 +1792,13 @@ func (m *ChannelMemberMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetJoinedAt(v)
+		return nil
+	case channelmember.FieldLastReadAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLastReadAt(v)
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMember field %s", name)
@@ -1765,7 +1829,11 @@ func (m *ChannelMemberMutation) AddField(name string, value ent.Value) error {
 // ClearedFields returns all nullable fields that were cleared during this
 // mutation.
 func (m *ChannelMemberMutation) ClearedFields() []string {
-	return nil
+	var fields []string
+	if m.FieldCleared(channelmember.FieldLastReadAt) {
+		fields = append(fields, channelmember.FieldLastReadAt)
+	}
+	return fields
 }
 
 // FieldCleared returns a boolean indicating if a field with the given name was
@@ -1778,6 +1846,11 @@ func (m *ChannelMemberMutation) FieldCleared(name string) bool {
 // ClearField clears the value of the field with the given name. It returns an
 // error if the field is not defined in the schema.
 func (m *ChannelMemberMutation) ClearField(name string) error {
+	switch name {
+	case channelmember.FieldLastReadAt:
+		m.ClearLastReadAt()
+		return nil
+	}
 	return fmt.Errorf("unknown ChannelMember nullable field %s", name)
 }
 
@@ -1787,6 +1860,9 @@ func (m *ChannelMemberMutation) ResetField(name string) error {
 	switch name {
 	case channelmember.FieldJoinedAt:
 		m.ResetJoinedAt()
+		return nil
+	case channelmember.FieldLastReadAt:
+		m.ResetLastReadAt()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMember field %s", name)

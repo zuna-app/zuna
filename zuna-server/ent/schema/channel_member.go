@@ -20,6 +20,7 @@ func (ChannelMember) Fields() []ent.Field {
 			return cuid2.Generate()
 		}),
 		field.Time("joined_at").Default(time.Now),
+		field.Time("last_read_at").Optional().Nillable(),
 	}
 }
 

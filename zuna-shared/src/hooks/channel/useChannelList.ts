@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { useAuthorizedServerFetch } from "../server/useServerFetch";
-import { channelsAtom, jotaiStore } from "../../store/atoms";
+import { channelsAtom, channelUnreadAtom, jotaiStore } from "../../store/atoms";
 import type { Channel, Server } from "../../types/serverTypes";
 
 function rawToChannel(m: Record<string, unknown>): Channel {
@@ -12,6 +12,7 @@ function rawToChannel(m: Record<string, unknown>): Channel {
     isPublic: (m.is_public as boolean) ?? false,
     ownerId: (m.owner_id as string) ?? "",
     createdAt: (m.created_at as number) ?? 0,
+    unreadMessages: (m.unread_messages as number) ?? 0,
     lastMessage: lastRaw
       ? {
           senderId: (lastRaw.sender_id as string) ?? "",
@@ -27,6 +28,7 @@ function rawToChannel(m: Record<string, unknown>): Channel {
 export function useChannelList(server: Server) {
   const { authorizedFetch, hasToken } = useAuthorizedServerFetch(server);
   const setChannels = useSetAtom(channelsAtom, { store: jotaiStore });
+  const setChannelUnread = useSetAtom(channelUnreadAtom, { store: jotaiStore });
 
   return useQuery<Channel[]>({
     queryKey: ["channels", server.id],
@@ -38,6 +40,13 @@ export function useChannelList(server: Server) {
       if (!Array.isArray(raw)) return [];
       const channels = raw.map(rawToChannel);
       setChannels(channels);
+      setChannelUnread((prev) => {
+        const next = new Map(prev);
+        for (const ch of channels) {
+          next.set(ch.id, ch.unreadMessages ?? 0);
+        }
+        return next;
+      });
       return channels;
     },
     staleTime: 30_000,

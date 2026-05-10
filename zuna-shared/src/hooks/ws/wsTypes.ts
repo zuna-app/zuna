@@ -33,6 +33,7 @@ export const WS_MSG = {
   CHANNEL_KEY_RECEIVE: "channel_key_receive",
   CHANNEL_KEY_REQUESTS: "channel_key_requests",
   CHANNEL_KEY_PROVIDE: "channel_key_provide",
+  CHANNEL_MARK_READ: "channel_mark_read",
 } as const;
 
 export type WsMsgType = (typeof WS_MSG)[keyof typeof WS_MSG];

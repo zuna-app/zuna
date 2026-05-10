@@ -70,6 +70,11 @@ func JoinedAt(v time.Time) predicate.ChannelMember {
 	return predicate.ChannelMember(sql.FieldEQ(FieldJoinedAt, v))
 }
 
+// LastReadAt applies equality check predicate on the "last_read_at" field. It's identical to LastReadAtEQ.
+func LastReadAt(v time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldEQ(FieldLastReadAt, v))
+}
+
 // JoinedAtEQ applies the EQ predicate on the "joined_at" field.
 func JoinedAtEQ(v time.Time) predicate.ChannelMember {
 	return predicate.ChannelMember(sql.FieldEQ(FieldJoinedAt, v))
@@ -108,6 +113,56 @@ func JoinedAtLT(v time.Time) predicate.ChannelMember {
 // JoinedAtLTE applies the LTE predicate on the "joined_at" field.
 func JoinedAtLTE(v time.Time) predicate.ChannelMember {
 	return predicate.ChannelMember(sql.FieldLTE(FieldJoinedAt, v))
+}
+
+// LastReadAtEQ applies the EQ predicate on the "last_read_at" field.
+func LastReadAtEQ(v time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldEQ(FieldLastReadAt, v))
+}
+
+// LastReadAtNEQ applies the NEQ predicate on the "last_read_at" field.
+func LastReadAtNEQ(v time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldNEQ(FieldLastReadAt, v))
+}
+
+// LastReadAtIn applies the In predicate on the "last_read_at" field.
+func LastReadAtIn(vs ...time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldIn(FieldLastReadAt, vs...))
+}
+
+// LastReadAtNotIn applies the NotIn predicate on the "last_read_at" field.
+func LastReadAtNotIn(vs ...time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldNotIn(FieldLastReadAt, vs...))
+}
+
+// LastReadAtGT applies the GT predicate on the "last_read_at" field.
+func LastReadAtGT(v time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldGT(FieldLastReadAt, v))
+}
+
+// LastReadAtGTE applies the GTE predicate on the "last_read_at" field.
+func LastReadAtGTE(v time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldGTE(FieldLastReadAt, v))
+}
+
+// LastReadAtLT applies the LT predicate on the "last_read_at" field.
+func LastReadAtLT(v time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldLT(FieldLastReadAt, v))
+}
+
+// LastReadAtLTE applies the LTE predicate on the "last_read_at" field.
+func LastReadAtLTE(v time.Time) predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldLTE(FieldLastReadAt, v))
+}
+
+// LastReadAtIsNil applies the IsNil predicate on the "last_read_at" field.
+func LastReadAtIsNil() predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldIsNull(FieldLastReadAt))
+}
+
+// LastReadAtNotNil applies the NotNil predicate on the "last_read_at" field.
+func LastReadAtNotNil() predicate.ChannelMember {
+	return predicate.ChannelMember(sql.FieldNotNull(FieldLastReadAt))
 }
 
 // HasChannel applies the HasEdge predicate on the "channel" edge.

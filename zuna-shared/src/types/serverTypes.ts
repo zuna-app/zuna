@@ -102,6 +102,7 @@ export type Channel = {
   ownerId: string;
   createdAt: number;
   lastMessage?: ChannelLastMessage;
+  unreadMessages?: number;
 };
 
 export type ChannelLastMessage = {

@@ -16,6 +16,8 @@ const (
 	FieldID = "id"
 	// FieldJoinedAt holds the string denoting the joined_at field in the database.
 	FieldJoinedAt = "joined_at"
+	// FieldLastReadAt holds the string denoting the last_read_at field in the database.
+	FieldLastReadAt = "last_read_at"
 	// EdgeChannel holds the string denoting the channel edge name in mutations.
 	EdgeChannel = "channel"
 	// EdgeUser holds the string denoting the user edge name in mutations.
@@ -42,6 +44,7 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldJoinedAt,
+	FieldLastReadAt,
 }
 
 // ForeignKeys holds the SQL foreign-keys that are owned by the "channel_members"
@@ -84,6 +87,11 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // ByJoinedAt orders the results by the joined_at field.
 func ByJoinedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldJoinedAt, opts...).ToFunc()
+}
+
+// ByLastReadAt orders the results by the last_read_at field.
+func ByLastReadAt(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldLastReadAt, opts...).ToFunc()
 }
 
 // ByChannelField orders the results by channel field.

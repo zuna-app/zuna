@@ -21,6 +21,8 @@ type ChannelMember struct {
 	ID string `json:"id,omitempty"`
 	// JoinedAt holds the value of the "joined_at" field.
 	JoinedAt time.Time `json:"joined_at,omitempty"`
+	// LastReadAt holds the value of the "last_read_at" field.
+	LastReadAt *time.Time `json:"last_read_at,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the ChannelMemberQuery when eager-loading is set.
 	Edges                    ChannelMemberEdges `json:"edges"`
@@ -69,7 +71,7 @@ func (*ChannelMember) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case channelmember.FieldID:
 			values[i] = new(sql.NullString)
-		case channelmember.FieldJoinedAt:
+		case channelmember.FieldJoinedAt, channelmember.FieldLastReadAt:
 			values[i] = new(sql.NullTime)
 		case channelmember.ForeignKeys[0]: // channel_channel_members
 			values[i] = new(sql.NullString)
@@ -101,6 +103,13 @@ func (_m *ChannelMember) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field joined_at", values[i])
 			} else if value.Valid {
 				_m.JoinedAt = value.Time
+			}
+		case channelmember.FieldLastReadAt:
+			if value, ok := values[i].(*sql.NullTime); !ok {
+				return fmt.Errorf("unexpected type %T for field last_read_at", values[i])
+			} else if value.Valid {
+				_m.LastReadAt = new(time.Time)
+				*_m.LastReadAt = value.Time
 			}
 		case channelmember.ForeignKeys[0]:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -164,6 +173,11 @@ func (_m *ChannelMember) String() string {
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
 	builder.WriteString("joined_at=")
 	builder.WriteString(_m.JoinedAt.Format(time.ANSIC))
+	builder.WriteString(", ")
+	if v := _m.LastReadAt; v != nil {
+		builder.WriteString("last_read_at=")
+		builder.WriteString(v.Format(time.ANSIC))
+	}
 	builder.WriteByte(')')
 	return builder.String()
 }
