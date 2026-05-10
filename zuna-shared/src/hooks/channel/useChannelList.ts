@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSetAtom } from "jotai";
 import { useAuthorizedServerFetch } from "../server/useServerFetch";
@@ -32,7 +33,7 @@ export function useChannelList(server: Server) {
   const setChannelUnread = useSetAtom(channelUnreadAtom, { store: jotaiStore });
   const setVoiceParticipants = useSetAtom(voiceChannelParticipantsAtom, { store: jotaiStore });
 
-  return useQuery<Channel[]>({
+  const query = useQuery<Channel[]>({
     queryKey: ["channels", server.id],
     enabled: hasToken,
     queryFn: async () => {
@@ -66,4 +67,19 @@ export function useChannelList(server: Server) {
     },
     staleTime: 30_000,
   });
+
+  // Sync atoms from cached data too — queryFn only runs on cache misses
+  useEffect(() => {
+    if (!query.data) return;
+    setChannels(query.data);
+    setChannelUnread((prev) => {
+      const next = new Map(prev);
+      for (const ch of query.data!) {
+        next.set(ch.id, ch.unreadMessages ?? 0);
+      }
+      return next;
+    });
+  }, [query.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return query;
 }

@@ -23,6 +23,7 @@ import { useSelectedChat } from "@/hooks/chat/useSelectedChat";
 import { useMessageDecryption } from "@/components/chat/messages/use-decryption";
 import { usePlatform } from "@/platform/PlatformContext";
 import { useSelfInfo } from "@/hooks/server/useSelfInfo";
+import { useServerReset } from "@/hooks/server/useServerReset";
 
 function ChatView({
   server,
@@ -214,6 +215,8 @@ export const AppServer = ({
 
   // Self identity for channel view — resolved from cache after auth
   const { username: selfUsername, avatar: selfAvatar } = useSelfInfo(server);
+
+  useServerReset(server.id);
 
   // Mount channel key manager at app level so keys are delivered even when no channel is selected
   useChannelKeyManager(server);

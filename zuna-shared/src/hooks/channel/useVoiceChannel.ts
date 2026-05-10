@@ -53,13 +53,19 @@ export function useVoiceChannel(server: Server) {
     { store: jotaiStore },
   );
   const [muted, setMuted] = useAtom(voiceMutedAtom, { store: jotaiStore });
-  const [deafened, setDeafened] = useAtom(voiceDeafenedAtom, { store: jotaiStore });
+  const [deafened, setDeafened] = useAtom(voiceDeafenedAtom, {
+    store: jotaiStore,
+  });
   const setParticipants = useSetAtom(voiceChannelParticipantsAtom, {
     store: jotaiStore,
   });
   const setSpeaking = useSetAtom(voiceSpeakingAtom, { store: jotaiStore });
-  const setMutedParticipants = useSetAtom(voiceMutedParticipantsAtom, { store: jotaiStore });
-  const setParticipantVolumes = useSetAtom(voiceParticipantVolumesAtom, { store: jotaiStore });
+  const setMutedParticipants = useSetAtom(voiceMutedParticipantsAtom, {
+    store: jotaiStore,
+  });
+  const setParticipantVolumes = useSetAtom(voiceParticipantVolumesAtom, {
+    store: jotaiStore,
+  });
 
   const activeChannelIdRef = useRef(activeChannelId?.id ?? null);
   activeChannelIdRef.current = activeChannelId?.id ?? null;
@@ -131,7 +137,9 @@ export function useVoiceChannel(server: Server) {
 
       room.on(RoomEvent.TrackMuted, (pub, participant) => {
         if (pub.kind !== Track.Kind.Audio) return;
-        setMutedParticipants((prev) => new Set<string>([...prev, participant.identity]));
+        setMutedParticipants(
+          (prev) => new Set<string>([...prev, participant.identity]),
+        );
       });
 
       room.on(RoomEvent.TrackUnmuted, (pub, participant) => {
@@ -199,6 +207,7 @@ export function useVoiceChannel(server: Server) {
         await room.localParticipant.publishTrack(audioTrack, {
           audioPreset: AudioPresets.speech,
           dtx: true,
+          red: true,
         });
 
         roomRef.current = room;
@@ -301,21 +310,32 @@ export function useVoiceChannel(server: Server) {
     setDeafened(next);
   }, [deafened, setDeafened]);
 
-  const setParticipantVolume = useCallback((userId: string, volume: number) => {
-    if (!roomRef.current) return;
-    const participant = Array.from(roomRef.current.remoteParticipants.values())
-      .find((p) => p.identity === userId);
-    if (participant) {
-      for (const pub of participant.trackPublications.values()) {
-        if (pub.kind !== Track.Kind.Audio || !pub.track) continue;
-        const audioTrack = pub.track as RemoteAudioTrack;
-        audioTrack.attachedElements.forEach((el) => {
-          el.volume = volume / 100;
-        });
+  const setParticipantVolume = useCallback(
+    (userId: string, volume: number) => {
+      if (!roomRef.current) return;
+      const participant = Array.from(
+        roomRef.current.remoteParticipants.values(),
+      ).find((p) => p.identity === userId);
+      if (participant) {
+        for (const pub of participant.trackPublications.values()) {
+          if (pub.kind !== Track.Kind.Audio || !pub.track) continue;
+          const audioTrack = pub.track as RemoteAudioTrack;
+          audioTrack.attachedElements.forEach((el) => {
+            el.volume = volume / 100;
+          });
+        }
       }
-    }
-    setParticipantVolumes((prev) => new Map(prev).set(userId, volume));
-  }, [setParticipantVolumes]);
+      setParticipantVolumes((prev) => new Map(prev).set(userId, volume));
+    },
+    [setParticipantVolumes],
+  );
 
-  return { joinVoiceChannel, leaveVoiceChannel, toggleMute, toggleDeafen, deafened, setParticipantVolume };
+  return {
+    joinVoiceChannel,
+    leaveVoiceChannel,
+    toggleMute,
+    toggleDeafen,
+    deafened,
+    setParticipantVolume,
+  };
 }
