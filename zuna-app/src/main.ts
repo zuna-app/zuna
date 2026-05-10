@@ -205,6 +205,21 @@ if (gotTheLock) {
       { urls: ["wss://socket.streamable.com/*", "ws://socket.streamable.com/*"] },
       (_details, callback) => callback({ cancel: true })
     );
+
+    // YouTube's embed player rejects requests with a null/missing Referer
+    // (which happens when the app is loaded via file:// in production).
+    // Injecting a YouTube referer fixes error 153.
+    session.defaultSession.webRequest.onBeforeSendHeaders(
+      { urls: ["*://*.youtube.com/*", "*://*.ytimg.com/*", "*://*.googlevideo.com/*"] },
+      (details, callback) => {
+        const headers = { ...details.requestHeaders };
+        if (!headers["Referer"] && !headers["referer"]) {
+          headers["Referer"] = "https://www.youtube.com/";
+        }
+        callback({ requestHeaders: headers });
+      }
+    );
+
     createWindow();
   });
 
