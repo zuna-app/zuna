@@ -74,7 +74,6 @@ max_attachment_size = 536870912
 # auto_generate = true produces a self-signed certificate on first boot.
 # For production set auto_generate = false and supply cert_file / key_file.
 auto_generate = ${_tls_auto_generate}
-public_address = '${_tls_public_address}'
 cert_file = '/data/server_tls_cert.pem'
 key_file  = '/data/server_tls_key.pem'
 
@@ -95,7 +94,6 @@ enabled = ${_lk_enabled}
 api_key = '${_lk_key}'
 api_secret = '${_lk_secret}'
 url = '${_lk_host}'
-port = ${_lk_port}
 EOF
 fi
 
