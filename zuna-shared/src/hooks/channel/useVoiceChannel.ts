@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import {
   AudioPresets,
+  ExternalE2EEKeyProvider,
   Room,
   RoomEvent,
   Track,
@@ -18,6 +19,7 @@ import {
 import { useWsConnection } from "../ws/useWsConnection";
 import { useWsHandler } from "../ws/useWsHandler";
 import { WS_MSG } from "../ws/wsTypes";
+import { base64ToBytes } from "../../crypto/base64";
 import { usePlatform } from "../../platform/PlatformContext";
 import type { Server, VoiceParticipant } from "../../types/serverTypes";
 import type {
@@ -90,9 +92,18 @@ export function useVoiceChannel(server: Server) {
 
       await disconnectRoom();
 
+      const rawKey = base64ToBytes(channelKeyB64);
+      const keyProvider = new ExternalE2EEKeyProvider();
+      await keyProvider.setKey(rawKey.buffer as ArrayBuffer);
+
+      const e2eeWorker = new Worker(
+        new URL("livekit-client/e2ee-worker", import.meta.url),
+      );
+
       const room = new Room({
         adaptiveStream: false,
         dynacast: false,
+        e2ee: { keyProvider, worker: e2eeWorker },
       });
 
       room.on(RoomEvent.Disconnected, () => {
@@ -151,7 +162,10 @@ export function useVoiceChannel(server: Server) {
 
         roomRef.current = room;
         audioTrackRef.current = audioTrack;
-        setActiveChannelId({ id: channel_id, name: pendingChannelNameRef.current });
+        setActiveChannelId({
+          id: channel_id,
+          name: pendingChannelNameRef.current,
+        });
         setMuted(false);
         setParticipants((prev) => {
           const next = new Map(prev);
