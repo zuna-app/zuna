@@ -1,18 +1,22 @@
-import { Mic, MicOff, PhoneOff } from "lucide-react";
+import { Mic, MicOff, Headphones, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 interface VoiceStatusBarProps {
   channelName: string;
   muted: boolean;
+  deafened: boolean;
   onToggleMute: () => void;
+  onToggleDeafen: () => void;
   onLeave: () => void;
 }
 
 export function VoiceStatusBar({
   channelName,
   muted,
+  deafened,
   onToggleMute,
+  onToggleDeafen,
   onLeave,
 }: VoiceStatusBarProps) {
   return (
@@ -42,6 +46,18 @@ export function VoiceStatusBar({
           ) : (
             <Mic className="size-3.5" />
           )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onToggleDeafen}
+          className={cn(
+            "shrink-0 text-muted-foreground hover:text-foreground",
+            deafened && "text-destructive hover:text-destructive",
+          )}
+          title={deafened ? "Undeafen" : "Deafen"}
+        >
+          <Headphones className="size-3.5" />
         </Button>
         <Button
           variant="ghost"

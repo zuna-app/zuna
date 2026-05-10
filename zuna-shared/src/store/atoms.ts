@@ -81,3 +81,5 @@ export const voiceMutedAtom = atom<boolean>(false);
 export const voiceSpeakingAtom = atom<Set<string>>(new Set<string>());
 // set of user IDs whose microphone is muted
 export const voiceMutedParticipantsAtom = atom<Set<string>>(new Set<string>());
+// whether the local user has deafened themselves (headphone mute)
+export const voiceDeafenedAtom = atom<boolean>(false);

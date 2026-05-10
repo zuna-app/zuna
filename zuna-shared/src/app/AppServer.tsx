@@ -219,7 +219,7 @@ export const AppServer = ({
   useChannelKeyManager(server);
   useAppPresence(server);
 
-  const { joinVoiceChannel, leaveVoiceChannel, toggleMute } =
+  const { joinVoiceChannel, leaveVoiceChannel, toggleMute, toggleDeafen } =
     useVoiceChannel(server);
 
   useBackgroundMessages(server);
@@ -320,6 +320,7 @@ export const AppServer = ({
           onVoiceJoin={handleVoiceJoin}
           onVoiceLeave={leaveVoiceChannel}
           onVoiceMuteToggle={toggleMute}
+          onVoiceDeafenToggle={toggleDeafen}
           onMenuOpen={onMobileServerMenu}
         />
       </div>

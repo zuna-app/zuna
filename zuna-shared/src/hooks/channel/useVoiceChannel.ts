@@ -16,6 +16,7 @@ import {
   voiceMutedAtom,
   voiceSpeakingAtom,
   voiceMutedParticipantsAtom,
+  voiceDeafenedAtom,
   jotaiStore,
 } from "../../store/atoms";
 import { useWsConnection } from "../ws/useWsConnection";
@@ -51,6 +52,7 @@ export function useVoiceChannel(server: Server) {
     { store: jotaiStore },
   );
   const [muted, setMuted] = useAtom(voiceMutedAtom, { store: jotaiStore });
+  const [deafened, setDeafened] = useAtom(voiceDeafenedAtom, { store: jotaiStore });
   const setParticipants = useSetAtom(voiceChannelParticipantsAtom, {
     store: jotaiStore,
   });
@@ -115,6 +117,7 @@ export function useVoiceChannel(server: Server) {
         roomRef.current = null;
         setActiveChannelId(null);
         setMuted(false);
+        setDeafened(false);
         setSpeaking(new Set<string>());
         setMutedParticipants(new Set<string>());
       });
@@ -275,5 +278,20 @@ export function useVoiceChannel(server: Server) {
     }
   }, [muted, setMuted]);
 
-  return { joinVoiceChannel, leaveVoiceChannel, toggleMute };
+  const toggleDeafen = useCallback(() => {
+    if (!roomRef.current) return;
+    const next = !deafened;
+    for (const participant of roomRef.current.remoteParticipants.values()) {
+      for (const pub of participant.trackPublications.values()) {
+        if (pub.kind !== Track.Kind.Audio || !pub.track) continue;
+        const audioTrack = pub.track as RemoteAudioTrack;
+        audioTrack.attachedElements.forEach((el) => {
+          el.volume = next ? 0 : 1;
+        });
+      }
+    }
+    setDeafened(next);
+  }, [deafened, setDeafened]);
+
+  return { joinVoiceChannel, leaveVoiceChannel, toggleMute, toggleDeafen, deafened };
 }

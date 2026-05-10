@@ -5,6 +5,7 @@ import {
   serverMetaAtom,
   activeVoiceChannelAtom,
   voiceMutedAtom,
+  voiceDeafenedAtom,
   jotaiStore,
 } from "@/store/atoms";
 import { useChatList } from "@/hooks/chat/useChatList";
@@ -42,6 +43,7 @@ interface ChatListPanelProps {
   onVoiceJoin: (channel: Channel) => void;
   onVoiceLeave: () => void;
   onVoiceMuteToggle: () => void;
+  onVoiceDeafenToggle: () => void;
   onMenuOpen?: () => void;
 }
 
@@ -70,6 +72,7 @@ export function ChatListPanel({
   onVoiceJoin,
   onVoiceLeave,
   onVoiceMuteToggle,
+  onVoiceDeafenToggle,
   onMenuOpen,
 }: ChatListPanelProps) {
   const [search, setSearch] = useState("");
@@ -84,6 +87,7 @@ export function ChatListPanel({
     store: jotaiStore,
   });
   const voiceMuted = useAtomValue(voiceMutedAtom, { store: jotaiStore });
+  const voiceDeafened = useAtomValue(voiceDeafenedAtom, { store: jotaiStore });
 
   const { lastMessages } = useLastChatMessages(server, data ?? []);
 
@@ -186,7 +190,9 @@ export function ChatListPanel({
         <VoiceStatusBar
           channelName={activeVoiceChannel.name}
           muted={voiceMuted}
+          deafened={voiceDeafened}
           onToggleMute={onVoiceMuteToggle}
+          onToggleDeafen={onVoiceDeafenToggle}
           onLeave={onVoiceLeave}
         />
       )}
@@ -206,32 +212,6 @@ export function ChatListPanel({
             {currentUser?.username ?? "…"}
           </span>
           <div className="flex items-center gap-0.5 shrink-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Mute microphone"
-                >
-                  <Mic className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Mute microphone</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label="Mute headphones"
-                >
-                  <Headphones className="size-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Mute headphones</TooltipContent>
-            </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
