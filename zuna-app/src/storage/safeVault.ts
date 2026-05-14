@@ -9,11 +9,11 @@ import {
   startGatewayListeners,
   stopGatewayListeners,
 } from "@/gateway/gatewayListener";
+import { isDev } from "@/utils/env";
 
 let vault: Map<string, any> | null = null;
 let currentPassword: string | null = null;
 
-const isDev = process.argv.includes("--dev");
 const vaultPath = path.join(
   app.getPath("userData"),
   isDev ? "vault-dev.bin" : "vault.bin",

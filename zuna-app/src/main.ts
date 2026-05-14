@@ -48,7 +48,7 @@ if (started) {
   app.quit();
 }
 
-const isDev = process.argv.includes("--dev");
+import { isDev } from "./utils/env";
 
 const gotTheLock = isDev || app.requestSingleInstanceLock();
 

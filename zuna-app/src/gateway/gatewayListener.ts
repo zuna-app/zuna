@@ -12,6 +12,7 @@ import { decryptWithChannelKey } from "@/crypto/channel";
 import fetch from "node-fetch";
 import https from "https";
 import { getZunaWindow } from "@/utils/basicUtils";
+import { isDev } from "@/utils/env";
 
 const agent = new https.Agent({
   rejectUnauthorized: false,
@@ -58,7 +59,8 @@ interface WsMessage {
   payload: unknown;
 }
 
-const activeConnections = new Map<string, WebSocket>();
+let activeConnection: WebSocket | null;
+let activeServerAddress: string;
 const unreadByUser = new Map<string, number>();
 export let unreadMessagesBadge = 0;
 
@@ -82,12 +84,9 @@ export function startGatewayListeners(): void {
   setUnreadMessagesBadge(0);
 
   let serverList: Server[];
-  let gatewayRecord: Record<string, string>;
 
   try {
     serverList = (vaultGet("serverList") as Server[] | null) ?? [];
-    const raw = vaultGet("gatewayList") as string | null;
-    gatewayRecord = raw ? (JSON.parse(raw) as Record<string, string>) : {};
   } catch {
     console.error(
       "Failed to load server or gateway list from vault, skipping gateway listener setup",
@@ -95,48 +94,37 @@ export function startGatewayListeners(): void {
     return;
   }
 
-  // Group servers by unique gateway address to avoid duplicate connections
-  const gatewayToServers = new Map<string, Server[]>();
-  for (const server of serverList) {
-    const gwAddr = gatewayRecord[server.id];
-    if (!gwAddr) continue;
-    const list = gatewayToServers.get(gwAddr) ?? [];
-    list.push(server);
-    gatewayToServers.set(gwAddr, list);
+  let serverAddress;
+  if (isDev) {
+    serverAddress = "devgw.zuna.chat";
+  } else {
+    serverAddress = "gateway.zuna.chat";
   }
-
-  console.log(
-    `Setting up gateway listeners for ${gatewayToServers.size} gateways and ${serverList.length} servers`,
-  );
-
-  for (const [address, servers] of gatewayToServers) {
-    connectToGateway(address, servers);
-  }
+  connectToGateway(serverAddress, serverList);
+  activeServerAddress = serverAddress;
 }
 
 export function stopGatewayListeners(): void {
-  for (const ws of activeConnections.values()) {
-    ws.terminate();
+  if (activeConnection) {
+    activeConnection.terminate();
+    activeConnection = null;
   }
-  activeConnections.clear();
 }
 
 function connectToGateway(address: string, servers: Server[]): void {
   const ws = new WebSocket(`wss://${address}/ws`);
-  activeConnections.set(address, ws);
+  activeConnection = ws;
 
   ws.on("open", () => {
-    for (const server of servers) {
-      ws.send(
-        JSON.stringify({
-          type: "register_request",
-          payload: {
-            user_id: server.id,
-            mobile: false,
-          },
-        }),
-      );
-    }
+    ws.send(
+      JSON.stringify({
+        type: "register_request",
+        payload: {
+          user_id: servers[0].id, // TODO: support multiple servers
+          mobile: false,
+        },
+      }),
+    );
   });
 
   ws.on("message", (data) => {
@@ -178,12 +166,10 @@ function connectToGateway(address: string, servers: Server[]): void {
   });
 
   ws.on("close", () => {
-    activeConnections.delete(address);
+    activeConnection = null;
     // Reconnect after 5s unless listeners were stopped
     setTimeout(() => {
-      if (!activeConnections.has(address)) {
-        connectToGateway(address, servers);
-      }
+      connectToGateway(activeServerAddress, servers);
     }, 5000);
   });
 
@@ -196,9 +182,9 @@ async function handleChannelNotification(
   payload: ChannelNotificationInfoPayload,
 ): Promise<void> {
   try {
-    const channelKey = vaultGet(
-      `channel_key_${payload.channel_id}`,
-    ) as string | null;
+    const channelKey = vaultGet(`channel_key_${payload.channel_id}`) as
+      | string
+      | null;
 
     let messageBody: string;
     if (channelKey) {
