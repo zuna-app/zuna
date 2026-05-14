@@ -1,7 +1,6 @@
+import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Server } from '@/types/serverTypes';
-
-declare const __DEV__: boolean;
 
 type WsMessage = {
   type: string;
@@ -128,7 +127,7 @@ export function startGatewayBadgeSync(vault: Record<string, unknown> | null): vo
   unreadByUser.clear();
   void setBadgeFromUnreadMap();
 
-  activeAddress = __DEV__ ? 'devgw.zuna.chat' : 'gateway.zuna.chat';
+  activeAddress = Device.isDevice ? 'gateway.zuna.chat' : 'devgw.zuna.chat';
   connectToGateway(activeAddress, serverList);
 }
 
