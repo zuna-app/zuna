@@ -144,6 +144,8 @@ export function useMessages(
 
   const { authorizedFetch } = useAuthorizedServerFetch(server);
   const { sendMessage: wsSend, readyState } = useWsConnection(server);
+  const readyStateRef = useRef(readyState);
+  readyStateRef.current = readyState;
 
   // ── WS Handlers ─────────────────────────────────────────────────────────────
 
@@ -342,6 +344,11 @@ export function useMessages(
         }
         wsSend(WS_MSG.MARK_READ, { chat_id: cId, timestamp: Date.now() });
         void queryClient.invalidateQueries({ queryKey: ['chat-list', server.id] });
+        // If WS stayed connected during background, justConnected won't fire -
+        // re-fetch so messages sent while suspended are picked up.
+        if (readyStateRef.current === ReadyState.OPEN) {
+          fetchMessagesRef.current(MAX_CURSOR);
+        }
       } else {
         isActiveRef.current = false;
       }
@@ -410,6 +417,9 @@ export function useMessages(
     },
     [authorizedFetch, chatId, server.id]
   );
+
+  const fetchMessagesRef = useRef(fetchMessages);
+  fetchMessagesRef.current = fetchMessages;
 
   useEffect(() => {
     const chatChanged = prevChatIdRef.current !== null && prevChatIdRef.current !== chatId;
