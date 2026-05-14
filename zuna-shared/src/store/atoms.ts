@@ -59,23 +59,27 @@ export const selectedChannelAtom = atom<Channel | null>(null);
 export const channelMessagesAtom = atom<Map<string, ChannelMessage[]>>(
   new Map(),
 );
-// channelId → unread message count
+// channelId -> unread message count
 export const channelUnreadAtom = atom<Map<string, number>>(new Map());
 export const channelMembersAtom = atom<Map<string, ChannelMember[]>>(new Map());
 
 interface ChannelWritingState {
   username: string;
 }
-// channelId → Map<senderId, ChannelWritingState>
+// channelId -> Map<senderId, ChannelWritingState>
 export const channelWritingAtom = atom<
   Map<string, Map<string, ChannelWritingState>>
 >(new Map());
 
 // ── Voice channels ────────────────────────────────────────────────────────────
-// channelId → list of connected participants
-export const voiceChannelParticipantsAtom = atom<Map<string, VoiceParticipant[]>>(new Map());
+// channelId -> list of connected participants
+export const voiceChannelParticipantsAtom = atom<
+  Map<string, VoiceParticipant[]>
+>(new Map());
 // active voice channel info for the current user, or null
-export const activeVoiceChannelAtom = atom<{ id: string; name: string } | null>(null);
+export const activeVoiceChannelAtom = atom<{ id: string; name: string } | null>(
+  null,
+);
 export const voiceMutedAtom = atom<boolean>(false);
 // set of user IDs currently speaking (LiveKit active speakers)
 export const voiceSpeakingAtom = atom<Set<string>>(new Set<string>());
@@ -83,5 +87,7 @@ export const voiceSpeakingAtom = atom<Set<string>>(new Set<string>());
 export const voiceMutedParticipantsAtom = atom<Set<string>>(new Set<string>());
 // whether the local user has deafened themselves (headphone mute)
 export const voiceDeafenedAtom = atom<boolean>(false);
-// userId → volume override 0-100 (default 100)
-export const voiceParticipantVolumesAtom = atom<Map<string, number>>(new Map<string, number>());
+// userId -> volume override 0-100 (default 100)
+export const voiceParticipantVolumesAtom = atom<Map<string, number>>(
+  new Map<string, number>(),
+);

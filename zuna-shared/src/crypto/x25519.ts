@@ -55,7 +55,7 @@ function getRandomBytes(n: number): Uint8Array {
   return buf;
 }
 
-// identityKey from the server may be SPKI DER (44 bytes → 12-byte header + 32 raw)
+// identityKey from the server may be SPKI DER (44 bytes -> 12-byte header + 32 raw)
 // or raw 32 bytes. Detect by length after base64 decode.
 function extractPublicKeyBytes(b64: string): Uint8Array {
   const raw = base64ToBytes(b64);

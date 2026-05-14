@@ -7,7 +7,7 @@ export function useAutoFocus(
 ) {
   const prevCanSendRef = useRef(false);
 
-  // Focus on canSend false→true transition (channel open, secret established, post-send)
+  // Focus on canSend false->true transition (channel open, secret established, post-send)
   useEffect(() => {
     if (!prevCanSendRef.current && canSend) {
       textareaRef.current?.focus();

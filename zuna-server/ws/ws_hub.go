@@ -26,7 +26,7 @@ var HubInstance *Hub
 // Sender is optional: when set the hub skips that client (echo-suppression).
 type Message struct {
 	Payload any
-	Sender  HubClient // nil → send to everyone
+	Sender  HubClient // nil -> send to everyone
 }
 
 // HubClient represents a single connected WebSocket peer.

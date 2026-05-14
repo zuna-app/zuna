@@ -54,9 +54,9 @@ export type EmoteMap = ReadonlyMap<string, string>;
 export type EmoteDataMap = ReadonlyMap<string, EmoteV3>;
 
 export interface UseEmotesResult {
-  /** Emote name → CDN image URL */
+  /** Emote name -> CDN image URL */
   emoteMap: EmoteMap;
-  /** Emote name → full EmoteV3 data (for hover panels etc.) */
+  /** Emote name -> full EmoteV3 data (for hover panels etc.) */
   emoteDataMap: EmoteDataMap;
   loading: boolean;
   error: Error | null;

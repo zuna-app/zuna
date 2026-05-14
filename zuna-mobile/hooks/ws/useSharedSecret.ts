@@ -4,7 +4,7 @@ import { jotaiStore, vaultAtom } from '@/store/atoms';
 import { computeSharedSecret } from '@/lib/crypto/x25519';
 import { ChatMember } from '@/types/serverTypes';
 
-// Module-level cache: identity key → shared secret (base64)
+// Module-level cache: identity key -> shared secret (base64)
 const sharedSecretCache = new Map<string, string>();
 
 export function useSharedSecret(member: ChatMember | null): string | null {

@@ -194,7 +194,7 @@ func (c *Client) writePump() {
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 
 			if !ok {
-				// Hub closed the channel → send close frame and exit.
+				// Hub closed the channel -> send close frame and exit.
 				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}

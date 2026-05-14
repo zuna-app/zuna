@@ -135,7 +135,7 @@ export default function ImportVaultScreen() {
       <View style={styles.inner}>
         <Text style={styles.title}>Import Vault</Text>
         <Text style={styles.subtitle}>
-          Open Zuna on your desktop, go to Settings → Export Vault, and scan the QR code - or pick
+          Open Zuna on your desktop, go to Settings -> Export Vault, and scan the QR code - or pick
           the vault.bin file directly.
         </Text>
 
