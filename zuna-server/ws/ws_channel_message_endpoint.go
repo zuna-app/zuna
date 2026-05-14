@@ -200,14 +200,13 @@ func (r *MessageRouter) handleChannelMessage(c HubClient, msg IncomingMessage, u
 			continue
 		}
 
-		deviceTokens := []string{}
 		if !ud.Active {
-			deviceTokens = make([]string, len(cm.Edges.User.Edges.Devices))
+			deviceTokens := make([]string, len(cm.Edges.User.Edges.Devices))
 			for i, d := range cm.Edges.User.Edges.Devices {
 				deviceTokens[i] = d.DeviceToken
 			}
+			go utils.SendChannelNotificationToGateway(ud.UserID, req.ChannelID, ch.Name, userData.UserID, senderUser.Username, req.CipherText, req.Iv, req.AuthTag, deviceTokens)
 		}
-		go utils.SendChannelNotificationToGateway(ud.UserID, req.ChannelID, ch.Name, userData.UserID, senderUser.Username, req.CipherText, req.Iv, req.AuthTag, deviceTokens)
 
 		for _, connID := range ud.ConnectionIDs {
 			r.h.SendTo(connID, OutgoingMessage{Type: "channel_message_receive", Payload: payload})
