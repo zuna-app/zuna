@@ -13,8 +13,15 @@ import {
 let vault: Map<string, any> | null = null;
 let currentPassword: string | null = null;
 
-const vaultPath = path.join(app.getPath("userData"), "vault.bin");
-const vaultSessionPath = path.join(app.getPath("userData"), "vault.session");
+const isDev = process.argv.includes("--dev");
+const vaultPath = path.join(
+  app.getPath("userData"),
+  isDev ? "vault-dev.bin" : "vault.bin",
+);
+const vaultSessionPath = path.join(
+  app.getPath("userData"),
+  isDev ? "vault-dev.session" : "vault.session",
+);
 
 let dirty = false;
 let saveTimer: NodeJS.Timeout | null = null;

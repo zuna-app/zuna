@@ -31,13 +31,13 @@ if (!isLinux) {
 const resolveIconPath = (...pathSegments: string[]) => {
   const candidates = app.isPackaged
     ? [
-      path.join(process.resourcesPath, ...pathSegments),
-      path.join(process.resourcesPath, "public", ...pathSegments),
-    ]
+        path.join(process.resourcesPath, ...pathSegments),
+        path.join(process.resourcesPath, "public", ...pathSegments),
+      ]
     : [
-      path.join(app.getAppPath(), ...pathSegments),
-      path.join(app.getAppPath(), "public", ...pathSegments),
-    ];
+        path.join(app.getAppPath(), ...pathSegments),
+        path.join(app.getAppPath(), "public", ...pathSegments),
+      ];
 
   return (
     candidates.find((candidate) => fs.existsSync(candidate)) ?? candidates[0]
@@ -48,7 +48,9 @@ if (started) {
   app.quit();
 }
 
-const gotTheLock = app.requestSingleInstanceLock();
+const isDev = process.argv.includes("--dev");
+
+const gotTheLock = isDev || app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
   app.quit();
@@ -202,22 +204,30 @@ if (gotTheLock) {
 
   app.on("ready", () => {
     session.defaultSession.webRequest.onBeforeRequest(
-      { urls: ["wss://socket.streamable.com/*", "ws://socket.streamable.com/*"] },
-      (_details, callback) => callback({ cancel: true })
+      {
+        urls: ["wss://socket.streamable.com/*", "ws://socket.streamable.com/*"],
+      },
+      (_details, callback) => callback({ cancel: true }),
     );
 
     // YouTube's embed player rejects requests with a null/missing Referer
     // (which happens when the app is loaded via file:// in production).
     // Injecting a YouTube referer fixes error 153.
     session.defaultSession.webRequest.onBeforeSendHeaders(
-      { urls: ["*://*.youtube.com/*", "*://*.ytimg.com/*", "*://*.googlevideo.com/*"] },
+      {
+        urls: [
+          "*://*.youtube.com/*",
+          "*://*.ytimg.com/*",
+          "*://*.googlevideo.com/*",
+        ],
+      },
       (details, callback) => {
         const headers = { ...details.requestHeaders };
         if (!headers["Referer"] && !headers["referer"]) {
           headers["Referer"] = "https://www.youtube.com/";
         }
         callback({ requestHeaders: headers });
-      }
+      },
     );
 
     createWindow();
@@ -232,7 +242,7 @@ if (gotTheLock) {
     lockVault();
   });
 
-  app.on("window-all-closed", () => { });
+  app.on("window-all-closed", () => {});
 
   app.on("activate", () => {
     const mainWindow = getZunaWindow();
