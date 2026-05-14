@@ -293,20 +293,20 @@ export function useMessageActions({
           prev.map((m) =>
             m.clientMessageId === clientMessageId
               ? {
-                  ...m,
-                  uploadProgress: undefined,
-                  cipherText: encryptedText.ciphertext,
-                  iv: encryptedText.iv,
-                  authTag: encryptedText.authTag,
-                  plaintext: plaintext.trim() || undefined,
-                  attachmentId,
-                  attachmentFilename: undefined,
-                  attachmentMetadata: encryptedMetadata.ciphertext,
-                  attachmentMetadataIv: encryptedMetadata.iv,
-                  attachmentMetadataAuthTag: encryptedMetadata.authTag,
-                  modified: false,
-                  pinned: false,
-                }
+                ...m,
+                uploadProgress: undefined,
+                cipherText: encryptedText.ciphertext,
+                iv: encryptedText.iv,
+                authTag: encryptedText.authTag,
+                plaintext: plaintext.trim() || undefined,
+                attachmentId,
+                attachmentFilename: undefined,
+                attachmentMetadata: encryptedMetadata.ciphertext,
+                attachmentMetadataIv: encryptedMetadata.iv,
+                attachmentMetadataAuthTag: encryptedMetadata.authTag,
+                modified: false,
+                pinned: false,
+              }
               : m,
           ),
         );

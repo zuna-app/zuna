@@ -78,10 +78,6 @@ func (r *MessageRouter) handleDeleteMessage(c HubClient, msg IncomingMessage, us
 		fmt.Printf("Sending message delete for message %d to user %s\n", m.ID, uu.Username)
 
 		for _, connectionID := range ud.ConnectionIDs {
-			if connectionID == c.ID() {
-				continue
-			}
-
 			r.h.SendTo(connectionID, OutgoingMessage{Type: "message_delete_receive", Payload: DeleteMessageResponseMulticast{
 				Id: m.ID,
 			}})
