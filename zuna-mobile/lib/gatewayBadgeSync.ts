@@ -1,6 +1,8 @@
 import * as Notifications from 'expo-notifications';
 import { Server } from '@/types/serverTypes';
 
+declare const __DEV__: boolean;
+
 type WsMessage = {
   type: string;
   payload: unknown;
@@ -22,8 +24,9 @@ type NotificationClearPayload = {
   unread_notifications?: number;
 };
 
-const activeConnections = new Map<string, WebSocket>();
 const unreadByUser = new Map<string, number>();
+let activeConnection: WebSocket | null = null;
+let activeAddress: string | null = null;
 
 async function setBadgeFromUnreadMap(): Promise<void> {
   let total = 0;
@@ -36,40 +39,20 @@ async function setBadgeFromUnreadMap(): Promise<void> {
   });
 }
 
-function parseGatewayRecord(vault: Record<string, unknown>): Record<string, string> {
-  const raw = vault['gatewayList'];
-
-  if (typeof raw === 'string') {
-    try {
-      return JSON.parse(raw) as Record<string, string>;
-    } catch {
-      return {};
-    }
-  }
-
-  if (raw && typeof raw === 'object') {
-    return raw as Record<string, string>;
-  }
-
-  return {};
-}
-
 function connectToGateway(address: string, servers: Server[]): void {
   const ws = new WebSocket(`wss://${address}/ws`);
-  activeConnections.set(address, ws);
+  activeConnection = ws;
 
   ws.onopen = () => {
-    for (const server of servers) {
-      ws.send(
-        JSON.stringify({
-          type: 'register_request',
-          payload: {
-            user_id: server.id,
-            mobile: true,
-          },
-        })
-      );
-    }
+    ws.send(
+      JSON.stringify({
+        type: 'register_request',
+        payload: {
+          user_ids: servers.map((s) => s.id),
+          mobile: true,
+        },
+      })
+    );
   };
 
   ws.onmessage = ({ data }) => {
@@ -113,11 +96,11 @@ function connectToGateway(address: string, servers: Server[]): void {
   };
 
   ws.onclose = () => {
-    activeConnections.delete(address);
+    activeConnection = null;
 
     setTimeout(() => {
-      if (!activeConnections.has(address)) {
-        connectToGateway(address, servers);
+      if (activeAddress) {
+        connectToGateway(activeAddress, servers);
       }
     }, 5000);
   };
@@ -137,31 +120,23 @@ export function startGatewayBadgeSync(vault: Record<string, unknown> | null): vo
   const serverList = Array.isArray(vault['serverList'])
     ? (vault['serverList'] as Server[])
     : [];
-  const gatewayRecord = parseGatewayRecord(vault);
+
+  if (serverList.length === 0) {
+    return;
+  }
 
   unreadByUser.clear();
   void setBadgeFromUnreadMap();
 
-  const gatewayToServers = new Map<string, Server[]>();
-  for (const server of serverList) {
-    const gatewayAddress = gatewayRecord[server.id];
-    if (!gatewayAddress) {
-      continue;
-    }
-
-    const list = gatewayToServers.get(gatewayAddress) ?? [];
-    list.push(server);
-    gatewayToServers.set(gatewayAddress, list);
-  }
-
-  for (const [address, servers] of gatewayToServers) {
-    connectToGateway(address, servers);
-  }
+  activeAddress = __DEV__ ? 'devgw.zuna.chat' : 'gateway.zuna.chat';
+  connectToGateway(activeAddress, serverList);
 }
 
 export function stopGatewayBadgeSync(): void {
-  for (const ws of activeConnections.values()) {
-    ws.close();
+  activeAddress = null;
+  if (activeConnection) {
+    activeConnection.close();
+    activeConnection = null;
   }
-  activeConnections.clear();
+  unreadByUser.clear();
 }

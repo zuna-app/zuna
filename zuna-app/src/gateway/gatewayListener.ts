@@ -120,7 +120,7 @@ function connectToGateway(address: string, servers: Server[]): void {
       JSON.stringify({
         type: "register_request",
         payload: {
-          user_id: servers[0].id, // TODO: support multiple servers
+          user_ids: servers.map((s) => s.id),
           mobile: false,
         },
       }),

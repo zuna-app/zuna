@@ -6,8 +6,8 @@ import (
 )
 
 type RegisterUserPayload struct {
-	UserID string `json:"user_id"`
-	Mobile bool   `json:"mobile"`
+	UserIDs []string `json:"user_ids"`
+	Mobile  bool     `json:"mobile"`
 }
 
 type RegisterUserResponse struct {
@@ -24,21 +24,32 @@ func (r *MessageRouter) handleRegisterUser(c HubClient, msg IncomingMessage) {
 	}
 
 	connectionID := c.ID()
-	user, err := data.GetUserByUserId(req.UserID)
-	if err != nil {
-		user = data.User{
-			UserID:              req.UserID,
-			ConnectionIDs:       make([]string, 0),
-			UnreadNotifications: 0,
+
+	// Both desktop and mobile send user_ids (array) for all servers in a single request.
+	if len(req.UserIDs) > 0 {
+		for _, uid := range req.UserIDs {
+			if uid == "" {
+				continue
+			}
+			user, err := data.GetUserByUserId(uid)
+			if err != nil {
+				user = data.User{
+					UserID:              uid,
+					ConnectionIDs:       make([]string, 0),
+					UnreadNotifications: 0,
+				}
+			}
+			user.AddConnection(connectionID, req.Mobile)
+			data.UpdateUser(user)
+
+			c.Send(OutgoingMessage{Type: "register_response", Payload: RegisterUserResponse{
+				Status:              "ok",
+				UserID:              uid,
+				UnreadNotifications: user.UnreadNotifications,
+			}})
 		}
+		return
 	}
 
-	user.AddConnection(connectionID, req.Mobile)
-	data.UpdateUser(user)
-
-	c.Send(OutgoingMessage{Type: "register_response", Payload: RegisterUserResponse{
-		Status:              "ok",
-		UserID:              req.UserID,
-		UnreadNotifications: user.UnreadNotifications,
-	}})
+	sendInvalidRequest(c)
 }
