@@ -3479,7 +3479,7 @@ expo-constants@~55.0.15, expo-constants@~55.0.9:
   dependencies:
     "@expo/env" "~2.1.1"
 
-expo-device@~55.0.17:
+expo-device@^55.0.17:
   version "55.0.17"
   resolved "https://registry.yarnpkg.com/expo-device/-/expo-device-55.0.17.tgz#703fb93f69fab62de9deaad9bd1fb9031d8496a3"
   integrity sha512-ZcMrSeD0zWooosm5Bet5qluxUrhw+NPgcMmN6ySVF7cm4K8Bvh4KPogJePbI1qfhFAiJWcWeV9e/2uewb9ktfw==

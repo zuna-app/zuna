@@ -16,7 +16,7 @@
       "**/*"
     ],
     "ios": {
-      "buildNumber": "8",
+      "buildNumber": "9",
       "supportsTablet": true,
       "bundleIdentifier": "chat.zuna.mobile",
       "appleTeamId": "SGKB9R23YT",
