@@ -9,6 +9,8 @@
 
 Rust is only needed for building the encryption core. On Windows, the plain `x86_64-pc-windows-gnu` toolchain works for WebAssembly builds without Visual Studio.
 
+On Linux, `dev/setup.sh` checks all of this for you. It installs what it can with your package manager, adds the matching wasm-bindgen, and then runs the two commands below. Rust from a package manager needs its WebAssembly target as a separate package, such as `rust-wasm` on Arch Linux.
+
 ## Getting started
 
 ```bash
@@ -19,13 +21,13 @@ npm install
 npm run build:crypto
 ```
 
-Three commands cover day-to-day work. On Windows you can also double-click the matching file in the `dev` folder.
+Three commands cover day-to-day work. The `dev` folder has the same as files to double-click on Windows, or to run on Linux.
 
-| Command | Double-click | What it does |
+| Command | In `dev` | What it does |
 |---|---|---|
-| `npm run dev:server` | `dev\server.cmd` | Opens a test server that's ready to use, and prints how to sign in |
-| `npm run dev` | `dev\app.cmd` | Opens a development version of the app, with live reload |
-| `npm run dev:clean` | `dev\clean.cmd` | Deletes all development data, for a fresh start |
+| `npm run dev:server` | `server.cmd`, `server.sh` | Opens a test server that's ready to use, and prints how to sign in |
+| `npm run dev` | `app.cmd`, `app.sh` | Opens a development version of the app, with live reload |
+| `npm run dev:clean` | `clean.cmd`, `clean.sh` | Deletes all development data, for a fresh start |
 
 **The test server** sets itself up the first time, in a few seconds: an owner account, a server name, an emote set, a reusable invite link, and five people who are online and reply to direct messages. Everything is kept between runs. Press Ctrl+C or close its window to stop it.
 
@@ -84,6 +86,8 @@ npm run build:server
 ```
 
 Installers go to `apps/desktop/release`, and server binaries for every platform to `dist/server`.
+
+On Linux, `dev/build.sh` rebuilds the encryption core and then runs both, giving an AppImage and a `.deb`. `dev/build.sh app` or `dev/build.sh server` builds just one.
 
 ## Changes touching cryptography
 
