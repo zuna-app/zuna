@@ -41,6 +41,11 @@ linux:
     - target: deb
       arch: [x64]
   icon: resources/icon.png
+  # The default comes from the package name, @zuna/desktop, which isn't a valid file name.
+  executableName: zuna
+  # Names the .desktop file after desktopName in package.json, which Electron uses
+  # as the window's app ID, so the desktop links the window to its icon.
+  syncDesktopName: true
   category: Network;InstantMessaging
   maintainer: Zuna contributors <zuna@users.noreply.github.com>
   artifactName: Zuna-${version}-${arch}.${ext}
