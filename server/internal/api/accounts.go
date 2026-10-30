@@ -1,0 +1,658 @@
+package api
+
+import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"errors"
+	"net/http"
+	"regexp"
+	"strconv"
+
+	"zuna/server/internal/store"
+)
+
+// Bounds on client-chosen Argon2id parameters. Clients enforce the same
+// minimums when logging in, so a malicious server can't downgrade them.
+const (
+	minKDFMemory     = 32 << 10 // KiB
+	maxKDFMemory     = 1 << 20
+	minKDFIterations = 2
+	maxKDFIterations = 16
+	maxKDFParallel   = 8
+
+	defaultKDFMemory     = 64 << 10
+	defaultKDFIterations = 3
+	defaultKDFParallel   = 1
+)
+
+var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{1,31}$`)
+
+func saltedHash(salt, key []byte) []byte {
+	sum := sha256.Sum256(append(append([]byte{}, salt...), key...))
+	return sum[:]
+}
+
+func newSalt() []byte {
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		panic(err)
+	}
+	return salt
+}
+
+// fakeKDF gives unknown usernames stable, realistic-looking parameters, so that
+// prelogin can't be used to check whether an account exists.
+func (s *Server) fakeKDF(r *http.Request, username string) (store.KDFParams, error) {
+	secret, err := s.db.Setting(r.Context(), "prelogin_secret", "")
+	if err != nil {
+		return store.KDFParams{}, err
+	}
+	if secret == "" {
+		secret = randomToken(32)
+		if err := s.db.SetSetting(r.Context(), "prelogin_secret", secret); err != nil {
+			return store.KDFParams{}, err
+		}
+	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(username))
+	return store.KDFParams{
+		Salt:        mac.Sum(nil)[:16],
+		Memory:      defaultKDFMemory,
+		Iterations:  defaultKDFIterations,
+		Parallelism: defaultKDFParallel,
+	}, nil
+}
+
+func (s *Server) handlePrelogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
+	if errors.Is(err, store.ErrNotFound) {
+		kdf, err := s.fakeKDF(r, body.Username)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, kdf)
+		return
+	}
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, creds.KDF)
+}
+
+func validKDF(k store.KDFParams) bool {
+	return len(k.Salt) == 16 &&
+		k.Memory >= minKDFMemory && k.Memory <= maxKDFMemory &&
+		k.Iterations >= minKDFIterations && k.Iterations <= maxKDFIterations &&
+		k.Parallelism >= 1 && k.Parallelism <= maxKDFParallel
+}
+
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		InviteCode         string          `json:"invite_code"`
+		Username           string          `json:"username"`
+		KDF                store.KDFParams `json:"kdf"`
+		AuthKey            []byte          `json:"auth_key"`
+		RecoveryAuthKey    []byte          `json:"recovery_auth_key"`
+		WrappedKeyPassword []byte          `json:"wrapped_key_password"`
+		WrappedKeyRecovery []byte          `json:"wrapped_key_recovery"`
+		IdentityKey        []byte          `json:"identity_key"`
+		HpkeKey            []byte          `json:"hpke_key"`
+		HpkeKeySig         []byte          `json:"hpke_key_sig"`
+		VaultCore          []byte          `json:"vault_core"`
+		Profile            []byte          `json:"profile"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if !usernamePattern.MatchString(body.Username) {
+		writeError(w, http.StatusBadRequest, "invalid_username",
+			"Usernames are 2-32 characters: letters, numbers, dots, dashes and underscores.")
+		return
+	}
+	if !validKDF(body.KDF) || len(body.AuthKey) != 32 || len(body.RecoveryAuthKey) != 32 ||
+		len(body.IdentityKey) != 32 || len(body.HpkeKey) != 32 || len(body.WrappedKeyPassword) == 0 ||
+		len(body.WrappedKeyRecovery) == 0 || len(body.VaultCore) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "The sign-up data is incomplete.")
+		return
+	}
+
+	if body.InviteCode == "" {
+		mode, err := s.db.Setting(r.Context(), "registration", "invite")
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		if mode != "open" {
+			writeError(w, http.StatusForbidden, "invite_required", "This server only accepts sign-ups through an invite link.")
+			return
+		}
+	}
+
+	authSalt, recoverySalt := newSalt(), newSalt()
+	userID, err := s.db.CreateUser(r.Context(), store.NewUser{
+		Username:           body.Username,
+		KDF:                body.KDF,
+		AuthHash:           saltedHash(authSalt, body.AuthKey),
+		AuthSalt:           authSalt,
+		RecoveryHash:       saltedHash(recoverySalt, body.RecoveryAuthKey),
+		RecoverySalt:       recoverySalt,
+		WrappedKeyPassword: body.WrappedKeyPassword,
+		WrappedKeyRecovery: body.WrappedKeyRecovery,
+		IdentityKey:        body.IdentityKey,
+		HpkeKey:            body.HpkeKey,
+		HpkeKeySig:         body.HpkeKeySig,
+		VaultCore:          body.VaultCore,
+		Profile:            body.Profile,
+	}, body.InviteCode)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusBadRequest, "invalid_invite", "This invite link has expired or was already used.")
+		return
+	}
+	if errors.Is(err, store.ErrConflict) {
+		writeError(w, http.StatusConflict, "username_taken", "That username is already taken.")
+		return
+	}
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	token, err := s.newSession(r, userID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	user, err := s.db.User(r.Context(), userID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	s.hub.ToAll(Event{Type: "user", Data: user})
+	writeJSON(w, http.StatusCreated, map[string]any{"user_id": userID, "token": token, "role": user.Role})
+}
+
+func (s *Server) newSession(r *http.Request, userID string) (string, error) {
+	token := randomToken(32)
+	if err := s.db.CreateSession(r.Context(), hashToken(token), userID); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+		AuthKey  []byte `json:"auth_key"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
+	if errors.Is(err, store.ErrNotFound) || (err == nil &&
+		subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.AuthKey), creds.AuthHash) != 1) {
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
+		return
+	}
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if creds.Banned {
+		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
+		return
+	}
+	token, err := s.newSession(r, creds.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user_id":     creds.UserID,
+		"username":    creds.Username,
+		"role":        creds.Role,
+		"token":       token,
+		"wrapped_key": creds.WrappedKeyPassword,
+		"vault_core":  creds.VaultCore,
+	})
+}
+
+func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username        string `json:"username"`
+		RecoveryAuthKey []byte `json:"recovery_auth_key"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
+	if errors.Is(err, store.ErrNotFound) || (err == nil &&
+		subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, body.RecoveryAuthKey), creds.RecoveryHash) != 1) {
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and recovery key don't match.")
+		return
+	}
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if creds.Banned {
+		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
+		return
+	}
+	token, err := s.newSession(r, creds.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user_id":     creds.UserID,
+		"username":    creds.Username,
+		"role":        creds.Role,
+		"token":       token,
+		"wrapped_key": creds.WrappedKeyRecovery,
+		"vault_core":  creds.VaultCore,
+	})
+}
+
+func (s *Server) credentialsOf(r *http.Request, sess *store.Session) (*store.Credentials, error) {
+	return s.db.CredentialsByUsername(r.Context(), sess.Username)
+}
+
+// handleChangePassword sets new password material. The caller proves itself
+// with the current password or, after a forgotten password, the recovery key.
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		CurrentAuthKey     []byte          `json:"current_auth_key"`
+		RecoveryAuthKey    []byte          `json:"recovery_auth_key"`
+		KDF                store.KDFParams `json:"kdf"`
+		AuthKey            []byte          `json:"auth_key"`
+		WrappedKeyPassword []byte          `json:"wrapped_key_password"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	creds, err := s.credentialsOf(r, sess)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	proved := subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.CurrentAuthKey), creds.AuthHash) == 1 ||
+		subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, body.RecoveryAuthKey), creds.RecoveryHash) == 1
+	if !proved {
+		writeError(w, http.StatusForbidden, "invalid_credentials", "Your current password isn't correct.")
+		return
+	}
+	if !validKDF(body.KDF) || len(body.AuthKey) != 32 || len(body.WrappedKeyPassword) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "The new password data is incomplete.")
+		return
+	}
+	salt := newSalt()
+	if err := s.db.UpdatePassword(r.Context(), sess.UserID, body.KDF, saltedHash(salt, body.AuthKey), salt, body.WrappedKeyPassword); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleChangeRecoveryKey(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		CurrentAuthKey     []byte `json:"current_auth_key"`
+		RecoveryAuthKey    []byte `json:"recovery_auth_key"`
+		WrappedKeyRecovery []byte `json:"wrapped_key_recovery"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	creds, err := s.credentialsOf(r, sess)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.CurrentAuthKey), creds.AuthHash) != 1 {
+		writeError(w, http.StatusForbidden, "invalid_credentials", "Your current password isn't correct.")
+		return
+	}
+	if len(body.RecoveryAuthKey) != 32 || len(body.WrappedKeyRecovery) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "The new recovery key data is incomplete.")
+		return
+	}
+	salt := newSalt()
+	if err := s.db.UpdateRecovery(r.Context(), sess.UserID, saltedHash(salt, body.RecoveryAuthKey), salt, body.WrappedKeyRecovery); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	if err := s.db.DeleteSession(r.Context(), hashToken(bearerToken(r))); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if sess.DeviceID != "" {
+		if err := s.db.RevokeDevice(r.Context(), sess.UserID, sess.DeviceID); err != nil {
+			writeFailure(w, err)
+			return
+		}
+		s.broadcastUser(r, sess.UserID)
+		s.hub.Disconnect(sess.UserID, sess.DeviceID)
+	}
+	writeOK(w)
+}
+
+func (s *Server) broadcastUser(r *http.Request, userID string) {
+	user, err := s.db.User(r.Context(), userID)
+	if err != nil {
+		return
+	}
+	s.hub.ToAll(Event{Type: "user", Data: user})
+}
+
+// --- Users and devices ---
+
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+	users, err := s.db.Users(r.Context(), queryInt(r, "since", 0))
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"users":  users,
+		"online": s.hub.Online(),
+		"now":    store.Now(),
+	})
+}
+
+func (s *Server) handleUser(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+	user, err := s.db.User(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		Profile      []byte  `json:"profile"`
+		AvatarFile   *string `json:"avatar_file"`
+		HideLastSeen *bool   `json:"hide_last_seen"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if body.AvatarFile != nil && !store.ValidID(*body.AvatarFile) {
+		writeError(w, http.StatusBadRequest, "bad_request", "That avatar file isn't valid.")
+		return
+	}
+	if body.Profile != nil {
+		old, err := s.db.UpdateProfile(r.Context(), sess.UserID, body.Profile, body.AvatarFile)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		if old != "" {
+			s.removeFiles(r.Context(), []string{old})
+		}
+	}
+	if body.HideLastSeen != nil {
+		if err := s.db.SetHideLastSeen(r.Context(), sess.UserID, *body.HideLastSeen); err != nil {
+			writeFailure(w, err)
+			return
+		}
+		s.hub.SetHidden(sess.UserID, *body.HideLastSeen)
+	}
+	s.broadcastUser(r, sess.UserID)
+	writeOK(w)
+}
+
+func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		ID           string `json:"id"`
+		Certificate  []byte `json:"certificate"`
+		SignatureKey []byte `json:"signature_key"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if sess.DeviceID != "" {
+		writeError(w, http.StatusConflict, "conflict", "This session already has a device.")
+		return
+	}
+	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.SignatureKey) != 32 {
+		writeError(w, http.StatusBadRequest, "bad_request", "The device data is incomplete.")
+		return
+	}
+	err := s.db.AddDevice(r.Context(), hashToken(bearerToken(r)), store.Device{
+		ID:           body.ID,
+		UserID:       sess.UserID,
+		Certificate:  body.Certificate,
+		SignatureKey: body.SignatureKey,
+	})
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	s.broadcastUser(r, sess.UserID)
+	writeOK(w)
+}
+
+func (s *Server) handleRevokeDevice(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	deviceID := r.PathValue("id")
+	if err := s.db.RevokeDevice(r.Context(), sess.UserID, deviceID); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	s.hub.ToUsers([]string{sess.UserID}, Event{Type: "device_revoked", Data: map[string]string{"device_id": deviceID}})
+	s.hub.Disconnect(sess.UserID, deviceID)
+	s.broadcastUser(r, sess.UserID)
+	writeOK(w)
+}
+
+func (s *Server) handleKeyPackageStatus(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	count, lastResortAt, err := s.db.KeyPackageStatus(r.Context(), sess.DeviceID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": count, "last_resort_at": lastResortAt})
+}
+
+func (s *Server) handleAddKeyPackages(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		KeyPackages [][]byte `json:"key_packages"`
+		LastResort  []byte   `json:"last_resort"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if len(body.KeyPackages) > 200 {
+		writeError(w, http.StatusBadRequest, "bad_request", "Too many key packages at once.")
+		return
+	}
+	if err := s.db.AddKeyPackages(r.Context(), sess.DeviceID, body.KeyPackages, body.LastResort); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleClaimKeyPackages(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+	claimed, err := s.db.ClaimKeyPackages(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"key_packages": claimed})
+}
+
+// --- Vault ---
+
+func (s *Server) handleVaultGet(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	items, err := s.db.VaultItemsSince(r.Context(), sess.UserID, queryInt(r, "since", 0), clampLimit(queryInt(r, "limit", 500), 1000))
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		Items []store.VaultItem `json:"items"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if len(body.Items) == 0 {
+		writeOK(w)
+		return
+	}
+	seq, err := s.db.PutVaultItems(r.Context(), sess.UserID, body.Items)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	s.hub.ToUsersExcept([]string{sess.UserID}, sess.DeviceID, Event{Type: "vault", Data: map[string]int64{"seq": seq}})
+	writeJSON(w, http.StatusOK, map[string]int64{"seq": seq})
+}
+
+func (s *Server) handleVaultCore(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		VaultCore []byte `json:"vault_core"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if len(body.VaultCore) == 0 {
+		writeError(w, http.StatusBadRequest, "bad_request", "The vault data is empty.")
+		return
+	}
+	if err := s.db.UpdateVaultCore(r.Context(), sess.UserID, body.VaultCore); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+func (s *Server) handleHistoryGrants(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	grants, err := s.db.HistoryGrants(r.Context(), sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"grants": grants})
+}
+
+func (s *Server) handleDeleteHistoryGrant(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad_request", "That grant ID isn't valid.")
+		return
+	}
+	if err := s.db.DeleteHistoryGrant(r.Context(), sess.UserID, id); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeOK(w)
+}
+
+// --- Invites ---
+
+func (s *Server) handleInviteInfo(w http.ResponseWriter, r *http.Request) {
+	invite, err := s.db.ValidInvite(r.Context(), r.PathValue("code"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "invalid_invite", "This invite link has expired or was already used.")
+		return
+	}
+	info, err := s.serverInfo(r)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"setup":  invite.GrantsRole == "owner",
+		"server": info,
+	})
+}
+
+func (s *Server) canManageInvites(r *http.Request, sess *store.Session) (bool, error) {
+	if sess.Role == "owner" || sess.Role == "admin" {
+		return true, nil
+	}
+	allowed, err := s.db.Setting(r.Context(), "allow_member_invites", "false")
+	return allowed == "true", err
+}
+
+func (s *Server) handleListInvites(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	allowed, err := s.canManageInvites(r, sess)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, "forbidden", "Only server admins can manage invites.")
+		return
+	}
+	invites, err := s.db.Invites(r.Context())
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"invites": invites})
+}
+
+func (s *Server) handleCreateInvite(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	allowed, err := s.canManageInvites(r, sess)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, "forbidden", "Only server admins can create invites.")
+		return
+	}
+	var body struct {
+		MaxUses      int   `json:"max_uses"`
+		ExpiresInSec int64 `json:"expires_in_seconds"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	var expires *int64
+	if body.ExpiresInSec > 0 {
+		at := store.Now() + body.ExpiresInSec*1000
+		expires = &at
+	}
+	code := randomToken(9)
+	if err := s.db.CreateInvite(r.Context(), code, sess.UserID, "member", body.MaxUses, expires); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"code": code})
+}
+
+func (s *Server) handleRevokeInvite(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	allowed, err := s.canManageInvites(r, sess)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, "forbidden", "Only server admins can revoke invites.")
+		return
+	}
+	if err := s.db.RevokeInvite(r.Context(), r.PathValue("code")); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeOK(w)
+}

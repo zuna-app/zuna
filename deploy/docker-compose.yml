@@ -1,0 +1,23 @@
+# Run with:  ZUNA_DOMAIN=chat.example.com docker compose up -d
+# Then read your setup link with:  docker compose logs zuna
+#
+# Your domain must point at this machine, with ports 80 and 443 reachable.
+# Certificates are obtained and renewed automatically.
+
+services:
+  zuna:
+    build:
+      context: ../server
+    # Or use a published image instead of building:
+    # image: ghcr.io/zuna-chat/zuna-server:latest
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ZUNA_DOMAIN: ${ZUNA_DOMAIN:?Set ZUNA_DOMAIN to your domain name}
+    volumes:
+      - zuna-data:/data
+
+volumes:
+  zuna-data:

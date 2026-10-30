@@ -1,0 +1,21 @@
+# For servers that already run a reverse proxy (Caddy, nginx, Traefik) handling
+# HTTPS. Zuna listens on plain HTTP, only on this machine.
+#
+#   ZUNA_PUBLIC_URL=https://chat.example.com docker compose -f docker-compose.proxy.yml up -d
+
+services:
+  zuna:
+    build:
+      context: ../server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ZUNA_LISTEN: ":8080"
+      ZUNA_PUBLIC_URL: ${ZUNA_PUBLIC_URL:?Set ZUNA_PUBLIC_URL to the address members will use}
+      ZUNA_TRUST_PROXY: "true"
+    volumes:
+      - zuna-data:/data
+
+volumes:
+  zuna-data:

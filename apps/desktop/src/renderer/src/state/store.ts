@@ -1,0 +1,613 @@
+// All UI state, kept in sync with the core through its event stream.
+
+import type { CoreConnection, RemoteSession } from "@zuna/core/rpc";
+import type {
+  ConnectionState,
+  ConversationView,
+  CoreEvent,
+  EmoteSet,
+  MessageView,
+  Preferences,
+  ServerEntry,
+  ServerInfo,
+  UserView,
+} from "@zuna/core";
+import { create } from "zustand";
+import { bootCore, desktop } from "@/core/bridge";
+import { playNotificationSound } from "@/lib/sound";
+import { loadSettings, type AppSettings } from "./settings";
+
+export interface ServerSelf {
+  userId: string;
+  username: string;
+  role: "owner" | "admin" | "member";
+  deviceId: string;
+}
+
+export interface ServerState {
+  entry: ServerEntry;
+  info: ServerInfo | null;
+  connection: ConnectionState;
+  self: ServerSelf | null;
+  conversations: ConversationView[];
+  users: Record<string, UserView>;
+  /** username -> user ID. Replaced only when the people change, not on presence. */
+  mentionable: Map<string, string>;
+  emotes: EmoteSet;
+  prefs: Preferences;
+  activeKey: string | null;
+  /** groupId -> userId -> time the typing indicator expires. */
+  typing: Record<string, Record<string, number>>;
+}
+
+export interface MessageList {
+  items: MessageView[];
+  hasMore: boolean;
+  loading: boolean;
+  loaded: boolean;
+  /** Virtuoso index of the first item; decreases as older messages load. */
+  firstIndex: number;
+  /** The list is showing a window around a jump target, not the latest messages. */
+  detached: boolean;
+}
+
+export type Toast = { id: number; kind: "info" | "error" | "security"; message: string };
+
+export type Overlay =
+  | { type: "add-server"; link?: string }
+  | { type: "settings"; section?: string }
+  | { type: "server-settings"; section?: string }
+  | { type: "new-group" }
+  | { type: "invite" }
+  | { type: "verify"; userId: string }
+  | { type: "add-members"; groupId: string }
+  | { type: "image"; url: string; name: string }
+  | null;
+
+export type Panel = { type: "info" } | { type: "search" } | { type: "pins" } | null;
+
+interface AppState {
+  phase: "booting" | "ready" | "failed";
+  bootError: string | null;
+  core: CoreConnection | null;
+  keyProtected: boolean;
+  servers: Record<string, ServerState>;
+  order: string[];
+  activeServerId: string | null;
+  lists: Record<string, MessageList>;
+  overlay: Overlay;
+  panel: Panel;
+  toasts: Toast[];
+  settings: AppSettings;
+  windowFocused: boolean;
+  jumpTarget: { groupId: string; messageId: string; nonce: number } | null;
+  replyTo: Record<string, MessageView | null>;
+  editing: Record<string, MessageView | null>;
+  onboarding: { open: boolean };
+
+  boot(): Promise<void>;
+  session(serverId?: string): RemoteSession;
+  addServer(serverId: string): Promise<void>;
+  removeServer(serverId: string): void;
+  selectServer(serverId: string): void;
+  selectConversation(key: string | null): void;
+  loadList(listId: string, groupId: string | null): Promise<void>;
+  loadOlder(listId: string): Promise<void>;
+  jumpToMessage(groupId: string, messageId: string, seq?: number | null): Promise<void>;
+  returnToLatest(listId: string): Promise<void>;
+  setOverlay(overlay: Overlay): void;
+  setPanel(panel: Panel): void;
+  togglePanel(type: "info" | "search" | "pins"): void;
+  toast(message: string, kind?: Toast["kind"]): void;
+  dismissToast(id: number): void;
+  setReply(listId: string, message: MessageView | null): void;
+  setEditing(listId: string, message: MessageView | null): void;
+  updateSettings(changes: Partial<AppSettings>): void;
+  refreshConversations(serverId: string): void;
+}
+
+export const BASE_INDEX = 1_000_000;
+
+function sortMessages(items: MessageView[]): MessageView[] {
+  return items.sort((a, b) => {
+    if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
+    if (a.seq === null && b.seq === null) return a.createdAt - b.createdAt;
+    return a.seq === null ? 1 : -1;
+  });
+}
+
+function mentionMap(users: UserView[]): Map<string, string> {
+  return new Map(users.map((user) => [user.username.toLowerCase(), user.id]));
+}
+
+function emptyList(): MessageList {
+  return { items: [], hasMore: true, loading: false, loaded: false, firstIndex: BASE_INDEX, detached: false };
+}
+
+const debouncers = new Map<string, ReturnType<typeof setTimeout>>();
+function debounced(key: string, fn: () => void, ms = 60): void {
+  if (debouncers.has(key)) return;
+  debouncers.set(
+    key,
+    setTimeout(() => {
+      debouncers.delete(key);
+      fn();
+    }, ms),
+  );
+}
+
+let toastId = 1;
+
+export const useApp = create<AppState>((set, get) => {
+  const patchServer = (serverId: string, patch: Partial<ServerState> | ((server: ServerState) => Partial<ServerState>)) =>
+    set((state) => {
+      const server = state.servers[serverId];
+      if (!server) return state;
+      const changes = typeof patch === "function" ? patch(server) : patch;
+      return { servers: { ...state.servers, [serverId]: { ...server, ...changes } } };
+    });
+
+  const refreshUsers = (serverId: string) =>
+    debounced(`users:${serverId}`, async () => {
+      try {
+        const users = await get().session(serverId).getUsers();
+        const self = await get().session(serverId).getSelf();
+        patchServer(serverId, { users: Object.fromEntries(users.map((user) => [user.id, user])), mentionable: mentionMap(users), self });
+      } catch {
+        // The server may have just been removed.
+      }
+    });
+
+  const refreshConversations = (serverId: string) =>
+    debounced(`conversations:${serverId}`, async () => {
+      try {
+        const conversations = await get().session(serverId).getConversations();
+        patchServer(serverId, { conversations });
+        updateBadge();
+      } catch {
+        // The server may have just been removed.
+      }
+    });
+
+  const updateBadge = () => {
+    const { servers } = get();
+    let total = 0;
+    for (const server of Object.values(servers)) {
+      for (const conversation of server.conversations) {
+        if (!conversation.muted) total += conversation.unread;
+      }
+    }
+    void desktop?.setBadge(total);
+  };
+
+  const upsertMessage = (message: MessageView) => {
+    set((state) => {
+      const list = state.lists[message.groupId];
+      if (!list) return state;
+      const index = list.items.findIndex((item) => item.id === message.id);
+      let items: MessageView[];
+      if (index >= 0) {
+        items = list.items.slice();
+        items[index] = { ...message, uploadProgress: message.uploadProgress };
+      } else {
+        if (list.detached) return state;
+        items = sortMessages([...list.items, message]);
+      }
+      return { lists: { ...state.lists, [message.groupId]: { ...list, items } } };
+    });
+  };
+
+  const handleEvent = (event: CoreEvent) => {
+    switch (event.type) {
+      case "connection":
+        patchServer(event.serverId, { connection: event.state });
+        break;
+      case "conversations":
+        refreshConversations(event.serverId);
+        break;
+      case "users":
+        refreshUsers(event.serverId);
+        refreshConversations(event.serverId);
+        break;
+      case "message":
+        upsertMessage(event.message);
+        break;
+      case "message_removed":
+        set((state) => {
+          const list = state.lists[event.groupId];
+          if (!list) return state;
+          return {
+            lists: { ...state.lists, [event.groupId]: { ...list, items: list.items.filter((item) => item.id !== event.id) } },
+          };
+        });
+        break;
+      case "message_moved":
+        // The first message of a DM moves once its group exists; it stays on screen.
+        set((state) => {
+          const lists = { ...state.lists };
+          const from = lists[event.fromGroupId];
+          if (from) lists[event.fromGroupId] = { ...from, items: from.items.filter((item) => item.id !== event.message.id) };
+          const target = lists[event.message.groupId] ?? emptyList();
+          lists[event.message.groupId] = { ...target, items: sortMessages([...target.items.filter((item) => item.id !== event.message.id), event.message]) };
+          return { lists };
+        });
+        break;
+      case "presence":
+        patchServer(event.serverId, (server) => {
+          const user = server.users[event.userId];
+          if (!user) return {};
+          return {
+            users: { ...server.users, [event.userId]: { ...user, online: event.online, lastSeenAt: event.lastSeenAt } },
+          };
+        });
+        break;
+      case "typing":
+        patchServer(event.serverId, (server) => ({
+          typing: {
+            ...server.typing,
+            [event.groupId]: { ...(server.typing[event.groupId] ?? {}), [event.userId]: Date.now() + 5000 },
+          },
+        }));
+        setTimeout(() => {
+          patchServer(event.serverId, (server) => {
+            const current = server.typing[event.groupId];
+            if (!current?.[event.userId] || current[event.userId]! > Date.now()) return {};
+            const next = { ...current };
+            delete next[event.userId];
+            return { typing: { ...server.typing, [event.groupId]: next } };
+          });
+        }, 5100);
+        break;
+      case "read":
+        refreshConversations(event.serverId);
+        break;
+      case "settings":
+        patchServer(event.serverId, (server) => ({
+          info: event.info,
+          entry: { ...server.entry, name: event.info.name, hasIcon: event.info.has_icon },
+        }));
+        break;
+      case "emotes":
+        void get()
+          .session(event.serverId)
+          .getEmotes()
+          .then((emotes) => patchServer(event.serverId, { emotes }))
+          .catch(() => undefined);
+        break;
+      case "preferences":
+        void get()
+          .session(event.serverId)
+          .getPreferences()
+          .then((prefs) => patchServer(event.serverId, { prefs }))
+          .catch(() => undefined);
+        break;
+      case "signed_out":
+        get().removeServer(event.serverId);
+        get().toast(
+          event.reason === "banned"
+            ? "You were removed from a server by its admins."
+            : "You've been signed out of a server.",
+          "info",
+        );
+        break;
+      case "security":
+        get().toast(event.message, "security");
+        break;
+      case "notify":
+        notify(event);
+        break;
+    }
+  };
+
+  const notify = (event: Extract<CoreEvent, { type: "notify" }>) => {
+    const state = get();
+    const server = state.servers[event.serverId];
+    const isOpenAndVisible = state.windowFocused && state.activeServerId === event.serverId && server?.activeKey === event.conversationKey;
+    if (isOpenAndVisible) return;
+    const { settings } = state;
+    if (!settings.notifications) return;
+    if (settings.notificationSound) playNotificationSound();
+    const body = settings.notificationPreview === "full" ? event.body : "New message";
+    const title = settings.notificationPreview === "none" ? "Zuna" : event.title;
+    const route = { serverId: event.serverId, key: event.conversationKey };
+    if (desktop) {
+      void desktop.notify({ title, body, route });
+    } else if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(title, { body });
+    }
+  };
+
+  return {
+    phase: "booting",
+    bootError: null,
+    core: null,
+    keyProtected: true,
+    servers: {},
+    order: [],
+    activeServerId: null,
+    lists: {},
+    overlay: null,
+    panel: null,
+    toasts: [],
+    settings: loadSettings(),
+    windowFocused: document.hasFocus(),
+    jumpTarget: null,
+    replyTo: {},
+    editing: {},
+    onboarding: { open: false },
+
+    async boot() {
+      try {
+        const { core, keyProtected } = await bootCore(handleEvent);
+        set({ core, keyProtected });
+        const entries = await core.client.listServers();
+        for (const entry of entries) await loadServerState(entry);
+        set({
+          phase: "ready",
+          order: entries.map((entry) => entry.id),
+          activeServerId: entries[0]?.id ?? null,
+        });
+      } catch (error) {
+        set({ phase: "failed", bootError: (error as Error).message });
+      }
+
+      async function loadServerState(entry: ServerEntry) {
+        const { core } = get();
+        const session = core!.session(entry.id);
+        const [conversations, users, emotes, prefs, self, connection, info] = await Promise.all([
+          session.getConversations(),
+          session.getUsers(),
+          session.getEmotes(),
+          session.getPreferences(),
+          session.getSelf(),
+          session.getConnectionState(),
+          session.getInfo(),
+        ]);
+        set((state) => ({
+          servers: {
+            ...state.servers,
+            [entry.id]: {
+              entry,
+              info,
+              connection,
+              self,
+              conversations,
+              users: Object.fromEntries(users.map((user) => [user.id, user])),
+              mentionable: mentionMap(users),
+              emotes,
+              prefs,
+              activeKey: null,
+              typing: {},
+            },
+          },
+        }));
+      }
+    },
+
+    session(serverId) {
+      const { core, activeServerId } = get();
+      const id = serverId ?? activeServerId;
+      if (!core || !id) throw new Error("No server is selected.");
+      return core.session(id);
+    },
+
+    async addServer(serverId) {
+      const { core } = get();
+      if (!core) return;
+      const entries = await core.client.listServers();
+      const entry = entries.find((item) => item.id === serverId);
+      if (!entry) return;
+      const session = core.session(serverId);
+      const [conversations, users, emotes, prefs, self, info, connection] = await Promise.all([
+        session.getConversations(),
+        session.getUsers(),
+        session.getEmotes(),
+        session.getPreferences(),
+        session.getSelf(),
+        session.getInfo(),
+        session.getConnectionState(),
+      ]);
+      // A sign-in replaces any earlier account on the same server.
+      const staleIds = get().order.filter((id) => !entries.some((item) => item.id === id));
+      set((state) => {
+        const servers = { ...state.servers };
+        for (const id of staleIds) delete servers[id];
+        servers[serverId] = {
+          entry,
+          info,
+          connection,
+          self,
+          conversations,
+          users: Object.fromEntries(users.map((user) => [user.id, user])),
+          mentionable: mentionMap(users),
+          emotes,
+          prefs,
+          activeKey: null,
+          typing: {},
+        };
+        return { servers, order: entries.map((item) => item.id), activeServerId: serverId };
+      });
+      // Anything that happened while this state was loading had nowhere to go.
+      refreshConversations(serverId);
+      refreshUsers(serverId);
+      void session.getConnectionState().then((state) => patchServer(serverId, { connection: state }));
+    },
+
+    removeServer(serverId) {
+      set((state) => {
+        const servers = { ...state.servers };
+        delete servers[serverId];
+        const order = state.order.filter((id) => id !== serverId);
+        return {
+          servers,
+          order,
+          activeServerId: state.activeServerId === serverId ? (order[0] ?? null) : state.activeServerId,
+          panel: null,
+          overlay: null,
+        };
+      });
+      updateBadge();
+    },
+
+    selectServer(serverId) {
+      set({ activeServerId: serverId, panel: null });
+    },
+
+    selectConversation(key) {
+      const serverId = get().activeServerId;
+      if (!serverId) return;
+      patchServer(serverId, { activeKey: key });
+      set({ panel: null });
+    },
+
+    async loadList(listId, groupId) {
+      const existing = get().lists[listId];
+      if (existing?.loaded || existing?.loading) return;
+      set((state) => ({ lists: { ...state.lists, [listId]: { ...(existing ?? emptyList()), loading: true } } }));
+      if (!groupId) {
+        // A conversation that hasn't started yet has nothing to load.
+        set((state) => ({
+          lists: { ...state.lists, [listId]: { ...(state.lists[listId] ?? emptyList()), loading: false, loaded: true, hasMore: false } },
+        }));
+        return;
+      }
+      try {
+        const page = await get().session().loadMessages(groupId);
+        set((state) => {
+          const current = state.lists[listId] ?? emptyList();
+          const byId = new Map(page.messages.map((message) => [message.id, message]));
+          for (const item of current.items) if (!byId.has(item.id)) byId.set(item.id, item);
+          return {
+            lists: {
+              ...state.lists,
+              [listId]: { ...current, items: sortMessages([...byId.values()]), hasMore: page.hasMore, loading: false, loaded: true },
+            },
+          };
+        });
+      } catch (error) {
+        set((state) => ({ lists: { ...state.lists, [listId]: { ...(state.lists[listId] ?? emptyList()), loading: false } } }));
+        get().toast((error as Error).message, "error");
+      }
+    },
+
+    async loadOlder(listId) {
+      const list = get().lists[listId];
+      if (!list || list.loading || !list.hasMore) return;
+      const oldest = list.items.find((item) => item.seq !== null);
+      if (!oldest) return;
+      set((state) => ({ lists: { ...state.lists, [listId]: { ...list, loading: true } } }));
+      try {
+        const page = await get().session().loadMessages(listId, oldest.seq!);
+        set((state) => {
+          const current = state.lists[listId];
+          if (!current) return state;
+          const known = new Set(current.items.map((item) => item.id));
+          const older = page.messages.filter((message) => !known.has(message.id));
+          return {
+            lists: {
+              ...state.lists,
+              [listId]: {
+                ...current,
+                items: [...older, ...current.items],
+                firstIndex: current.firstIndex - older.length,
+                hasMore: page.hasMore,
+                loading: false,
+              },
+            },
+          };
+        });
+      } catch {
+        set((state) => ({ lists: { ...state.lists, [listId]: { ...state.lists[listId]!, loading: false } } }));
+      }
+    },
+
+    async jumpToMessage(groupId, messageId, seq) {
+      const list = get().lists[groupId];
+      const present = list?.items.some((item) => item.id === messageId);
+      if (!present) {
+        let target = seq ?? null;
+        if (target === null) {
+          const message = await get().session().messageById(groupId, messageId);
+          target = message?.seq ?? null;
+        }
+        if (target === null) {
+          get().toast("That message isn't available.", "info");
+          return;
+        }
+        const window = await get().session().loadAround(groupId, target);
+        set((state) => ({
+          lists: {
+            ...state.lists,
+            [groupId]: { items: sortMessages(window), hasMore: true, loading: false, loaded: true, firstIndex: BASE_INDEX, detached: true },
+          },
+        }));
+      }
+      set({ jumpTarget: { groupId, messageId, nonce: Date.now() } });
+    },
+
+    async returnToLatest(listId) {
+      set((state) => {
+        const lists = { ...state.lists };
+        delete lists[listId];
+        return { lists };
+      });
+      await get().loadList(listId, listId);
+    },
+
+    setOverlay(overlay) {
+      set({ overlay });
+    },
+
+    setPanel(panel) {
+      set({ panel });
+    },
+
+    togglePanel(type) {
+      set((state) => ({ panel: state.panel?.type === type ? null : { type } }));
+    },
+
+    toast(message, kind = "info") {
+      const id = toastId++;
+      set((state) => ({ toasts: [...state.toasts.slice(-3), { id, kind, message }] }));
+      setTimeout(() => get().dismissToast(id), kind === "security" ? 12000 : 4500);
+    },
+
+    dismissToast(id) {
+      set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) }));
+    },
+
+    setReply(listId, message) {
+      set((state) => ({
+        replyTo: { ...state.replyTo, [listId]: message },
+        editing: message ? { ...state.editing, [listId]: null } : state.editing,
+      }));
+    },
+
+    setEditing(listId, message) {
+      set((state) => ({
+        editing: { ...state.editing, [listId]: message },
+        replyTo: message ? { ...state.replyTo, [listId]: null } : state.replyTo,
+      }));
+    },
+
+    updateSettings(changes) {
+      set((state) => ({ settings: { ...state.settings, ...changes } }));
+    },
+
+    refreshConversations,
+  };
+});
+
+export const useActiveServer = (): ServerState | null =>
+  useApp((state) => (state.activeServerId ? (state.servers[state.activeServerId] ?? null) : null));
+
+export const useActiveConversation = (): ConversationView | null =>
+  useApp((state) => {
+    const server = state.activeServerId ? state.servers[state.activeServerId] : null;
+    if (!server?.activeKey) return null;
+    return server.conversations.find((item) => item.key === server.activeKey) ?? null;
+  });
+
+/** Where a conversation's messages live before and after its group exists. */
+export const listIdFor = (conversation: Pick<ConversationView, "groupId" | "key">): string =>
+  conversation.groupId ?? `pending:${conversation.key}`;

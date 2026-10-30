@@ -1,0 +1,46 @@
+appId: chat.zuna.app
+productName: Zuna
+copyright: Zuna contributors. Licensed under AGPL-3.0.
+directories:
+  output: release
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+  - resources/icon.png
+  - "!**/*.map"
+protocols:
+  - name: Zuna invite link
+    schemes:
+      - zuna
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.png
+nsis:
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  artifactName: Zuna-Setup-${version}.${ext}
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: resources/icon.png
+  category: public.app-category.social-networking
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  artifactName: Zuna-${version}-${arch}.${ext}
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  icon: resources/icon.png
+  category: Network;InstantMessaging
+  maintainer: Zuna contributors <zuna@users.noreply.github.com>
+  artifactName: Zuna-${version}-${arch}.${ext}

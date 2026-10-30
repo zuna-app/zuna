@@ -1,0 +1,35 @@
+[package]
+name = "zuna-crypto"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Zuna's end-to-end encryption core: OpenMLS group key agreement plus account-key and content primitives, compiled to WebAssembly."
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+openmls = { version = "0.9", features = ["js"] }
+openmls_rust_crypto = "0.6"
+openmls_basic_credential = "0.6"
+openmls_traits = "0.6"
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+tls_codec = "0.5"
+getrandom = { version = "0.2", features = ["js"] }
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+hkdf = "0.12"
+sha2 = "0.10"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

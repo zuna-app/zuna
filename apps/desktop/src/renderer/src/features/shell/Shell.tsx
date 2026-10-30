@@ -1,0 +1,113 @@
+import { Lock, MessageCircle } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { installStickyFocus } from "@/lib/focus";
+import { useActiveConversation, useActiveServer, useApp } from "@/state/store";
+import { ChatView } from "@/features/chat/ChatView";
+import { ConversationList } from "./ConversationList";
+import { ServerRail } from "./ServerRail";
+
+const LIST_WIDTH_KEY = "zuna-list-width";
+const MIN_LIST_WIDTH = 260;
+const MAX_LIST_WIDTH = 460;
+
+function loadWidth(): number {
+  const stored = Number(localStorage.getItem(LIST_WIDTH_KEY));
+  return stored >= MIN_LIST_WIDTH && stored <= MAX_LIST_WIDTH ? stored : 320;
+}
+
+function NoConversation() {
+  const server = useActiveServer();
+  return (
+    <div className="no-chat">
+      <div className="empty-state">
+        <MessageCircle size={28} className="empty-icon" />
+        <h3>{server?.entry.name ?? "Zuna"}</h3>
+        <p>Pick someone from the list to start talking.</p>
+        <p className="row faint" style={{ gap: 6, fontSize: 12.5, marginTop: 4 }}>
+          <Lock size={12} /> Everything here is end-to-end encrypted
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Alt+Up and Alt+Down move through conversations, Ctrl+K jumps to search. */
+function useShortcuts() {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        document.getElementById("conversation-search")?.focus();
+        return;
+      }
+      if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+      const state = useApp.getState();
+      const server = state.activeServerId ? state.servers[state.activeServerId] : null;
+      if (!server) return;
+      const visible = server.conversations.filter((item) => !item.hidden);
+      const index = visible.findIndex((item) => item.key === server.activeKey);
+      const next = visible[index + (event.key === "ArrowDown" ? 1 : -1)];
+      if (next) {
+        event.preventDefault();
+        state.selectConversation(next.key);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
+export function Shell() {
+  const conversation = useActiveConversation();
+  const activeServerId = useApp((state) => state.activeServerId);
+  const activeKey = useActiveServer()?.activeKey;
+  const [width, setWidth] = useState(loadWidth);
+  const dragging = useRef(false);
+
+  useEffect(installStickyFocus, []);
+  useShortcuts();
+
+  const onResizeStart = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      dragging.current = true;
+      document.body.style.cursor = "col-resize";
+      const startX = event.clientX;
+      const startWidth = width;
+      const onMove = (move: MouseEvent) => {
+        setWidth(Math.min(MAX_LIST_WIDTH, Math.max(MIN_LIST_WIDTH, startWidth + move.clientX - startX)));
+      };
+      const onUp = () => {
+        dragging.current = false;
+        document.body.style.cursor = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [width],
+  );
+
+  useEffect(() => {
+    localStorage.setItem(LIST_WIDTH_KEY, String(width));
+  }, [width]);
+
+  return (
+    <div className="shell">
+      <ServerRail />
+      <aside className="sidebar" style={{ width }}>
+        <div key={activeServerId} className="sidebar-inner">
+          <ConversationList />
+        </div>
+        <div className="sidebar-resizer" onMouseDown={onResizeStart} />
+      </aside>
+      <main className="main">
+        <div className="main-inner">
+          {/* Switching chats is instant: messages are already in memory or a few milliseconds away. */}
+          {conversation ? <ChatView key={`${activeServerId}:${activeKey}`} conversation={conversation} /> : <NoConversation />}
+        </div>
+      </main>
+    </div>
+  );
+}

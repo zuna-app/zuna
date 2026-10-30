@@ -1,0 +1,789 @@
+package api_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+
+	"zuna/server/internal/api"
+	"zuna/server/internal/store"
+)
+
+type harness struct {
+	t      *testing.T
+	url    string
+	srv    *api.Server
+	db     *store.DB
+	dir    string
+	invite string
+}
+
+type client struct {
+	h      *harness
+	token  string
+	userID string
+	device string
+}
+
+func newHarness(t *testing.T) *harness {
+	t.Helper()
+	dir := t.TempDir()
+	db, err := store.Open(filepath.Join(dir, "zuna.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := api.New(api.Config{DataDir: dir, PublicURL: "http://test", Version: "test"}, db)
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(func() {
+		ts.CloseClientConnections()
+		ts.Close()
+		db.Close()
+	})
+	code, err := srv.EnsureSetupInvite(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code == "" {
+		t.Fatal("a fresh server should have a setup invite")
+	}
+	return &harness{t: t, url: ts.URL, srv: srv, db: db, dir: dir, invite: code}
+}
+
+func bytesOf(n int, b byte) []byte { return bytes.Repeat([]byte{b}, n) }
+
+func (h *harness) do(method, path, token string, body, out any) (int, map[string]any) {
+	h.t.Helper()
+	var reader io.Reader
+	if raw, ok := body.([]byte); ok {
+		reader = bytes.NewReader(raw)
+	} else if body != nil {
+		data, err := json.Marshal(body)
+		if err != nil {
+			h.t.Fatal(err)
+		}
+		reader = bytes.NewReader(data)
+	}
+	req, err := http.NewRequest(method, h.url+path, reader)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	var generic map[string]any
+	json.Unmarshal(data, &generic)
+	if out != nil && resp.StatusCode < 300 {
+		if err := json.Unmarshal(data, out); err != nil {
+			h.t.Fatalf("%s %s: decoding %s: %v", method, path, data, err)
+		}
+	}
+	return resp.StatusCode, generic
+}
+
+func (h *harness) mustDo(method, path, token string, body, out any) {
+	h.t.Helper()
+	status, resp := h.do(method, path, token, body, out)
+	if status >= 300 {
+		h.t.Fatalf("%s %s: status %d: %v", method, path, status, resp)
+	}
+}
+
+// register signs a user up through an invite and registers one device.
+func (h *harness) register(name, invite string) *client {
+	h.t.Helper()
+	var out struct {
+		UserID string `json:"user_id"`
+		Token  string `json:"token"`
+	}
+	h.mustDo("POST", "/api/auth/register", "", map[string]any{
+		"invite_code":          invite,
+		"username":             name,
+		"kdf":                  map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
+		"auth_key":             bytesOf(32, name[0]),
+		"recovery_auth_key":    bytesOf(32, name[0]+1),
+		"wrapped_key_password": []byte("wrapped-pw"),
+		"wrapped_key_recovery": []byte("wrapped-rec"),
+		"identity_key":         bytesOf(32, 1),
+		"hpke_key":             bytesOf(32, 2),
+		"hpke_key_sig":         bytesOf(64, 3),
+		"vault_core":           []byte("vault"),
+		"profile":              []byte("encrypted-profile"),
+	}, &out)
+	c := &client{h: h, token: out.Token, userID: out.UserID, device: store.NewID()}
+	h.mustDo("POST", "/api/devices", c.token, map[string]any{
+		"id": c.device, "certificate": []byte("cert"), "signature_key": bytesOf(32, 9),
+	}, nil)
+	return c
+}
+
+func (h *harness) owner() *client {
+	h.t.Helper()
+	return h.register("owner", h.invite)
+}
+
+func (c *client) newInvite() string {
+	c.h.t.Helper()
+	var out struct {
+		Code string `json:"code"`
+	}
+	c.h.mustDo("POST", "/api/invites", c.token, map[string]any{}, &out)
+	return out.Code
+}
+
+func (c *client) dm(peer string) *store.Group {
+	c.h.t.Helper()
+	var out struct {
+		Group *store.Group `json:"group"`
+	}
+	c.h.mustDo("POST", "/api/groups", c.token, map[string]any{"kind": "dm", "peer_id": peer}, &out)
+	return out.Group
+}
+
+func (c *client) commit(groupID string, expected int64, extra map[string]any) (int, map[string]any) {
+	c.h.t.Helper()
+	body := map[string]any{"expected_epoch": expected, "commit": []byte("commit"), "group_info": []byte("info"), "kind": "update"}
+	for k, v := range extra {
+		body[k] = v
+	}
+	return c.h.do("POST", "/api/groups/"+groupID+"/commit", c.token, body, nil)
+}
+
+func (c *client) send(groupID string, epoch int64, id string) *store.Message {
+	c.h.t.Helper()
+	var m store.Message
+	c.h.mustDo("POST", "/api/groups/"+groupID+"/messages", c.token, map[string]any{
+		"id": id, "epoch": epoch, "envelope": []byte("ciphertext-" + id),
+	}, &m)
+	return &m
+}
+
+func TestSetupInviteCreatesOwnerOnce(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	var me store.PublicUser
+	h.mustDo("GET", "/api/users/"+owner.userID, owner.token, nil, &me)
+	if me.Role != "owner" {
+		t.Fatalf("role = %q, want owner", me.Role)
+	}
+	status, _ := h.do("POST", "/api/auth/register", "", map[string]any{"invite_code": h.invite, "username": "second"}, nil)
+	if status == http.StatusCreated {
+		t.Fatal("the setup invite must work only once")
+	}
+	code, err := h.srv.EnsureSetupInvite(context.Background())
+	if err != nil || code != "" {
+		t.Fatalf("claimed server gave setup code %q, err %v", code, err)
+	}
+}
+
+func TestInviteRequiredByDefault(t *testing.T) {
+	h := newHarness(t)
+	status, resp := h.do("POST", "/api/auth/register", "", map[string]any{
+		"username": "nobody",
+		"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
+		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2),
+		"wrapped_key_password": []byte("w"), "wrapped_key_recovery": []byte("w"),
+		"identity_key": bytesOf(32, 1), "hpke_key": bytesOf(32, 2), "vault_core": []byte("v"),
+	}, nil)
+	if status != http.StatusForbidden || resp["error"] != "invite_required" {
+		t.Fatalf("got %d %v", status, resp)
+	}
+}
+
+func TestLoginAndRecovery(t *testing.T) {
+	h := newHarness(t)
+	h.owner()
+
+	var kdf store.KDFParams
+	h.mustDo("POST", "/api/auth/prelogin", "", map[string]any{"username": "owner"}, &kdf)
+	if !bytes.Equal(kdf.Salt, bytesOf(16, 7)) {
+		t.Fatalf("salt = %x", kdf.Salt)
+	}
+
+	var ghost1, ghost2 store.KDFParams
+	h.mustDo("POST", "/api/auth/prelogin", "", map[string]any{"username": "ghost"}, &ghost1)
+	h.mustDo("POST", "/api/auth/prelogin", "", map[string]any{"username": "ghost"}, &ghost2)
+	if len(ghost1.Salt) != 16 || !bytes.Equal(ghost1.Salt, ghost2.Salt) {
+		t.Fatal("unknown users must get a stable fake salt")
+	}
+
+	status, _ := h.do("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xff)}, nil)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("wrong password gave %d", status)
+	}
+	var login struct {
+		Token      string `json:"token"`
+		WrappedKey []byte `json:"wrapped_key"`
+	}
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "OWNER", "auth_key": bytesOf(32, 'o')}, &login)
+	if string(login.WrappedKey) != "wrapped-pw" {
+		t.Fatalf("wrapped key = %q", login.WrappedKey)
+	}
+
+	var recovered struct {
+		WrappedKey []byte `json:"wrapped_key"`
+		Token      string `json:"token"`
+	}
+	h.mustDo("POST", "/api/auth/recover", "", map[string]any{"username": "owner", "recovery_auth_key": bytesOf(32, 'o'+1)}, &recovered)
+	if string(recovered.WrappedKey) != "wrapped-rec" {
+		t.Fatalf("recovery wrapped key = %q", recovered.WrappedKey)
+	}
+	h.mustDo("POST", "/api/auth/password", recovered.Token, map[string]any{
+		"recovery_auth_key":    bytesOf(32, 'o'+1),
+		"kdf":                  map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1},
+		"auth_key":             bytesOf(32, 0xab),
+		"wrapped_key_password": []byte("new-wrapped"),
+	}, nil)
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xab)}, &login)
+	if string(login.WrappedKey) != "new-wrapped" {
+		t.Fatalf("after reset wrapped key = %q", login.WrappedKey)
+	}
+}
+
+func TestKDFDowngradeRejectedAtRegistration(t *testing.T) {
+	h := newHarness(t)
+	status, _ := h.do("POST", "/api/auth/register", "", map[string]any{
+		"invite_code": h.invite, "username": "weak",
+		"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 8, "iterations": 1, "parallelism": 1},
+		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2),
+		"wrapped_key_password": []byte("w"), "wrapped_key_recovery": []byte("w"),
+		"identity_key": bytesOf(32, 1), "hpke_key": bytesOf(32, 2), "vault_core": []byte("v"),
+	}, nil)
+	if status != http.StatusBadRequest {
+		t.Fatalf("weak KDF gave %d", status)
+	}
+}
+
+func TestCommitCompareAndSwapOrdersEpochs(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	if again := bob.dm(owner.userID); again.ID != group.ID {
+		t.Fatal("both sides must get the same DM")
+	}
+
+	status, resp := owner.commit(group.ID, 0, map[string]any{"welcomes": []map[string]any{{"device_id": bob.device, "data": []byte("welcome")}}})
+	if status != http.StatusOK || resp["epoch"].(float64) != 1 {
+		t.Fatalf("first commit: %d %v", status, resp)
+	}
+	status, resp = bob.commit(group.ID, 0, nil)
+	if status != http.StatusConflict || resp["error"] != "stale_epoch" || resp["epoch"].(float64) != 1 {
+		t.Fatalf("a commit on an old epoch must lose: %d %v", status, resp)
+	}
+	status, _ = bob.commit(group.ID, 1, nil)
+	if status != http.StatusOK {
+		t.Fatalf("commit on the current epoch: %d", status)
+	}
+
+	var welcomes struct {
+		Welcomes []store.Welcome `json:"welcomes"`
+	}
+	h.mustDo("GET", "/api/welcomes", bob.token, nil, &welcomes)
+	if len(welcomes.Welcomes) != 1 || string(welcomes.Welcomes[0].Data) != "welcome" {
+		t.Fatalf("welcomes = %+v", welcomes.Welcomes)
+	}
+	h.mustDo("DELETE", fmt.Sprintf("/api/welcomes/%d", welcomes.Welcomes[0].ID), bob.token, nil, nil)
+	h.mustDo("GET", "/api/welcomes", bob.token, nil, &welcomes)
+	if len(welcomes.Welcomes) != 0 {
+		t.Fatal("a processed welcome should be gone")
+	}
+}
+
+func TestMessageLifecycle(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	path := "/api/groups/" + group.ID + "/messages"
+
+	// Stale epochs are refused, so content can't use a key a removed member knows.
+	status, resp := h.do("POST", path, owner.token, map[string]any{"id": store.NewID(), "epoch": 0, "envelope": []byte("x")}, nil)
+	if status != http.StatusConflict || resp["error"] != "stale_epoch" {
+		t.Fatalf("stale send: %d %v", status, resp)
+	}
+
+	id := store.NewID()
+	first := owner.send(group.ID, 1, id)
+	if retry := owner.send(group.ID, 1, id); retry.Seq != first.Seq {
+		t.Fatal("resending an ID must be idempotent")
+	}
+
+	var edited store.Message
+	h.mustDo("PUT", path+"/"+id, owner.token, map[string]any{"epoch": 1, "envelope": []byte("edited")}, &edited)
+	if string(edited.Envelope) != "edited" || edited.EditedAt == nil || edited.UpdatedSeq <= first.UpdatedSeq {
+		t.Fatalf("edit: %+v", edited)
+	}
+	status, _ = h.do("PUT", path+"/"+id, bob.token, map[string]any{"epoch": 1, "envelope": []byte("hack")}, nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("editing someone else's message gave %d", status)
+	}
+	status, _ = h.do("DELETE", path+"/"+id, bob.token, nil, nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("deleting someone else's DM message gave %d", status)
+	}
+
+	reactionID := store.NewID()
+	var reacted store.Message
+	h.mustDo("POST", path+"/"+id+"/reactions", bob.token, map[string]any{"id": reactionID, "epoch": 1, "data": []byte("r")}, &reacted)
+	if len(reacted.Reactions) != 1 || reacted.Reactions[0].UserID != bob.userID {
+		t.Fatalf("reaction: %+v", reacted.Reactions)
+	}
+	h.mustDo("DELETE", path+"/"+id+"/reactions/"+reactionID, bob.token, nil, &reacted)
+	if len(reacted.Reactions) != 0 {
+		t.Fatal("reaction should be gone")
+	}
+
+	var pinned store.Message
+	h.mustDo("PUT", path+"/"+id+"/pin", bob.token, nil, &pinned)
+	if pinned.PinnedAt == nil || pinned.PinnedBy != bob.userID {
+		t.Fatalf("pin: %+v", pinned)
+	}
+	var pins struct {
+		Messages []store.Message `json:"messages"`
+	}
+	h.mustDo("GET", "/api/groups/"+group.ID+"/pins", owner.token, nil, &pins)
+	if len(pins.Messages) != 1 {
+		t.Fatalf("pins = %d", len(pins.Messages))
+	}
+
+	var deleted store.Message
+	h.mustDo("DELETE", path+"/"+id, owner.token, nil, &deleted)
+	if deleted.DeletedAt == nil || len(deleted.Envelope) != 0 || deleted.PinnedAt != nil {
+		t.Fatalf("delete must erase the ciphertext: %+v", deleted)
+	}
+}
+
+func TestChangeFeedCatchesUpOnStateAndCommits(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	a, b := store.NewID(), store.NewID()
+	owner.send(group.ID, 1, a)
+	owner.send(group.ID, 1, b)
+	path := "/api/groups/" + group.ID
+	h.mustDo("PUT", path+"/messages/"+a, owner.token, map[string]any{"epoch": 1, "envelope": []byte("v2")}, nil)
+	owner.commit(group.ID, 1, nil)
+
+	var page store.Changes
+	h.mustDo("GET", path+"/changes?after=0&limit=2", bob.token, nil, &page)
+	if !page.HasMore || page.Cursor != 3 || len(page.Events) != 1 || len(page.Messages) != 1 || page.Messages[0].ID != b {
+		t.Fatalf("first page: %+v", page)
+	}
+	h.mustDo("GET", fmt.Sprintf("%s/changes?after=%d&limit=10", path, page.Cursor), bob.token, nil, &page)
+	if page.HasMore || len(page.Messages) != 1 || page.Messages[0].ID != a || string(page.Messages[0].Envelope) != "v2" {
+		t.Fatalf("second page must show the edited state: %+v", page)
+	}
+	if len(page.Events) != 1 || page.Events[0].Epoch != 2 {
+		t.Fatalf("second page must include the later commit: %+v", page.Events)
+	}
+}
+
+func TestGroupPermissionsAndHistoryVisibility(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	invite := owner.newInvite()
+	bob := h.register("bob", invite)
+	carol := h.register("carol", invite)
+	dave := h.register("dave", invite)
+
+	var created struct {
+		Group *store.Group `json:"group"`
+	}
+	h.mustDo("POST", "/api/groups", owner.token, map[string]any{"kind": "group"}, &created)
+	group := created.Group
+	path := "/api/groups/" + group.ID
+
+	status, _ := bob.commit(group.ID, 0, nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("a non-member's commit gave %d", status)
+	}
+	status, _ = h.do("GET", path+"/messages", bob.token, nil, nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("a non-member reading messages gave %d", status)
+	}
+
+	status, _ = owner.commit(group.ID, 0, map[string]any{"add_users": []string{bob.userID}})
+	if status != http.StatusOK {
+		t.Fatalf("adding bob: %d", status)
+	}
+	old := store.NewID()
+	owner.send(group.ID, 1, old)
+
+	status, _ = bob.commit(group.ID, 1, map[string]any{"add_users": []string{carol.userID}})
+	if status != http.StatusForbidden {
+		t.Fatalf("a regular member adding someone gave %d", status)
+	}
+
+	// Carol joins without a grant: she can't fetch what came before her.
+	owner.commit(group.ID, 1, map[string]any{"add_users": []string{carol.userID}})
+	newer := store.NewID()
+	owner.send(group.ID, 2, newer)
+	var messages struct {
+		Messages []store.Message `json:"messages"`
+	}
+	h.mustDo("GET", path+"/messages", carol.token, nil, &messages)
+	if len(messages.Messages) != 1 || messages.Messages[0].ID != newer {
+		t.Fatalf("carol sees %+v", messages.Messages)
+	}
+	status, _ = h.do("GET", path+"/messages/"+old, carol.token, nil, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("carol fetching an older message gave %d", status)
+	}
+
+	// Dave is added with a history grant, so older ciphertext is visible to him.
+	owner.commit(group.ID, 2, map[string]any{
+		"add_users":      []string{dave.userID},
+		"history_grants": []map[string]any{{"user_id": dave.userID, "data": []byte("sealed-keys")}},
+	})
+	h.mustDo("GET", path+"/messages", dave.token, nil, &messages)
+	if len(messages.Messages) != 2 {
+		t.Fatalf("dave sees %d messages, want 2", len(messages.Messages))
+	}
+	var grants struct {
+		Grants []store.HistoryGrant `json:"grants"`
+	}
+	h.mustDo("GET", "/api/history-grants", dave.token, nil, &grants)
+	if len(grants.Grants) != 1 || string(grants.Grants[0].Data) != "sealed-keys" {
+		t.Fatalf("grants: %+v", grants.Grants)
+	}
+
+	// Leaving moves the roster at once and asks a remaining member to commit.
+	h.mustDo("POST", path+"/leave", carol.token, nil, nil)
+	status, _ = h.do("GET", path+"/messages", carol.token, nil, nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("reading after leaving gave %d", status)
+	}
+	var feed store.Changes
+	h.mustDo("GET", path+"/changes?after=0", owner.token, nil, &feed)
+	last := feed.Events[len(feed.Events)-1]
+	if last.Kind != "member_left" || last.TargetUser != carol.userID {
+		t.Fatalf("last event: %+v", last)
+	}
+
+	// Removing through a commit also updates the roster.
+	status, _ = owner.commit(group.ID, 3, map[string]any{"remove_users": []string{bob.userID}})
+	if status != http.StatusOK {
+		t.Fatalf("removing bob: %d", status)
+	}
+	var state store.Group
+	h.mustDo("GET", path, owner.token, nil, &state)
+	if len(state.Members) != 2 {
+		t.Fatalf("members = %+v", state.Members)
+	}
+}
+
+func TestKeyPackageClaiming(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	h.mustDo("POST", "/api/key-packages", bob.token, map[string]any{
+		"key_packages": [][]byte{[]byte("kp1")},
+		"last_resort":  []byte("resort"),
+	}, nil)
+	claim := func() string {
+		var out struct {
+			KeyPackages []store.ClaimedKeyPackage `json:"key_packages"`
+		}
+		h.mustDo("POST", "/api/users/"+bob.userID+"/key-packages/claim", owner.token, nil, &out)
+		if len(out.KeyPackages) != 1 {
+			t.Fatalf("claimed %d", len(out.KeyPackages))
+		}
+		return string(out.KeyPackages[0].Data)
+	}
+	if got := claim(); got != "kp1" {
+		t.Fatalf("first claim = %q", got)
+	}
+	for range 2 {
+		if got := claim(); got != "resort" {
+			t.Fatalf("the last-resort package should be reused, got %q", got)
+		}
+	}
+}
+
+func TestFilesRoundTripAndAccess(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": 11}, &created)
+	path := "/api/files/" + created.ID
+
+	if status, _ := h.do("PUT", path+"/chunks/0", bob.token, []byte("nope"), nil); status != http.StatusForbidden {
+		t.Fatalf("uploading to someone else's file gave %d", status)
+	}
+	if status, _ := h.do("PUT", path+"/chunks/5", owner.token, []byte("x"), nil); status != http.StatusBadRequest {
+		t.Fatalf("an out-of-range chunk gave %d", status)
+	}
+	h.mustDo("PUT", path+"/chunks/0", owner.token, []byte("hello "), nil)
+	if status, _ := h.do("POST", path+"/complete", owner.token, nil, nil); status != http.StatusConflict {
+		t.Fatalf("completing a partial upload gave %d", status)
+	}
+	h.mustDo("PUT", path+"/chunks/1", owner.token, []byte("world"), nil)
+	h.mustDo("POST", path+"/complete", owner.token, nil, nil)
+
+	req, _ := http.NewRequest("GET", h.url+path+"/chunks/1", nil)
+	req.Header.Set("Authorization", "Bearer "+bob.token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if string(data) != "world" {
+		t.Fatalf("chunk = %q", data)
+	}
+
+	if status, _ := h.do("POST", "/api/files", owner.token, map[string]any{"chunk_count": 200, "total_size": 200 << 20}, nil); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("an oversized file gave %d", status)
+	}
+}
+
+// fake7TV serves a small emote set and one image.
+func fake7TV(t *testing.T) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/emote-sets/01ABCDEFGHIJKLMNOP"):
+			fmt.Fprint(w, `{"id":"01ABCDEFGHIJKLMNOP","name":"Our set","emotes":[
+				{"id":"01EMOTE0000000001","name":"KEKW","flags":0,"data":{"animated":true,"flags":0,"owner":{"username":"maker","display_name":"Maker"},"host":{"files":[{"name":"1x.webp","width":32,"height":32}]}}},
+				{"id":"01EMOTE0000000002","name":"RainTime","flags":1,"data":{"animated":true,"flags":0,"host":{"files":[{"name":"1x.webp","width":32,"height":32}]}}}
+			]}`)
+		case r.URL.Path == "/emote/01EMOTE0000000001/2x.webp":
+			w.Write([]byte("image-bytes"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func TestEmoteSetIsChosenByAdminsAndServedByTheServer(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	upstream := fake7TV(t)
+	h.srv.Emotes().APIBase = upstream.URL
+	h.srv.Emotes().CDNBase = upstream.URL
+
+	if status, _ := h.do("PUT", "/api/admin/emote-set", bob.token, map[string]any{"set": "01ABCDEFGHIJKLMNOP"}, nil); status != http.StatusForbidden {
+		t.Fatalf("a member choosing the set gave %d", status)
+	}
+	if status, _ := h.do("PUT", "/api/admin/emote-set", owner.token, map[string]any{"set": "not a set!"}, nil); status != http.StatusBadRequest {
+		t.Fatalf("an invalid set gave %d", status)
+	}
+	var result struct {
+		Count   int    `json:"count"`
+		SetName string `json:"set_name"`
+	}
+	h.mustDo("PUT", "/api/admin/emote-set", owner.token, map[string]any{"set": "https://7tv.app/emote-sets/01ABCDEFGHIJKLMNOP"}, &result)
+	if result.Count != 2 || result.SetName != "Our set" {
+		t.Fatalf("sync: %+v", result)
+	}
+	var set struct {
+		Emotes []store.Emote `json:"emotes"`
+	}
+	h.mustDo("GET", "/api/emotes", bob.token, nil, &set)
+	if len(set.Emotes) != 2 || !set.Emotes[1].ZeroWidth || set.Emotes[0].Owner != "Maker" {
+		t.Fatalf("emotes: %+v", set.Emotes)
+	}
+
+	resp, err := http.Get(h.url + "/api/emotes/01EMOTE0000000001/2x.webp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if string(data) != "image-bytes" {
+		t.Fatalf("image = %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(h.dir, "emotes", "01EMOTE0000000001", "2x.webp")); err != nil {
+		t.Fatalf("the image should be cached on disk: %v", err)
+	}
+
+	resp, err = http.Get(h.url + "/api/emotes/01UNKNOWNEMOTE0000/2x.webp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("an emote outside the set must not be proxied, got %d", resp.StatusCode)
+	}
+}
+
+func TestBanRemovesAccessAndAsksMembersToClean(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+
+	if status, _ := h.do("POST", "/api/admin/users/"+owner.userID+"/ban", bob.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("a member banning gave %d", status)
+	}
+	h.mustDo("POST", "/api/admin/users/"+bob.userID+"/ban", owner.token, nil, nil)
+	if status, _ := h.do("GET", "/api/users", bob.token, nil, nil); status != http.StatusUnauthorized {
+		t.Fatalf("a banned session gave %d", status)
+	}
+	status, _ := h.do("POST", "/api/auth/login", "", map[string]any{"username": "bob", "auth_key": bytesOf(32, 'b')}, nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("a banned login gave %d", status)
+	}
+	var feed store.Changes
+	h.mustDo("GET", "/api/groups/"+group.ID+"/changes?after=0", owner.token, nil, &feed)
+	if last := feed.Events[len(feed.Events)-1]; last.Kind != "member_left" || last.TargetUser != bob.userID {
+		t.Fatalf("last event: %+v", last)
+	}
+}
+
+// --- WebSocket ---
+
+type socket struct {
+	t  *testing.T
+	ws *websocket.Conn
+}
+
+func (c *client) connect() *socket {
+	c.h.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	url := "ws" + strings.TrimPrefix(c.h.url, "http") + "/api/ws"
+	ws, _, err := websocket.Dial(ctx, url, nil)
+	if err != nil {
+		c.h.t.Fatal(err)
+	}
+	c.h.t.Cleanup(func() { ws.CloseNow() })
+	frame, _ := json.Marshal(map[string]any{"t": "auth", "token": c.token})
+	if err := ws.Write(ctx, websocket.MessageText, frame); err != nil {
+		c.h.t.Fatal(err)
+	}
+	s := &socket{t: c.h.t, ws: ws}
+	s.waitFor("ready")
+	return s
+}
+
+func (s *socket) waitFor(eventType string) map[string]any {
+	s.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		_, data, err := s.ws.Read(ctx)
+		if err != nil {
+			s.t.Fatalf("waiting for %q: %v", eventType, err)
+		}
+		var event struct {
+			Type string         `json:"t"`
+			Data map[string]any `json:"d"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			s.t.Fatal(err)
+		}
+		if event.Type == eventType {
+			return event.Data
+		}
+	}
+}
+
+func TestRealtimeDeliveryAndPresence(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+
+	bobSocket := bob.connect()
+	ownerSocket := owner.connect()
+	// Bob's own online event may arrive first, since presence goes to everyone.
+	presence := bobSocket.waitFor("presence")
+	if presence["user_id"] == bob.userID {
+		presence = bobSocket.waitFor("presence")
+	}
+	if presence["user_id"] != owner.userID || presence["online"] != true {
+		t.Fatalf("presence: %v", presence)
+	}
+
+	id := store.NewID()
+	owner.send(group.ID, 1, id)
+	if got := bobSocket.waitFor("message"); got["id"] != id {
+		t.Fatalf("message event: %v", got)
+	}
+
+	frame, _ := json.Marshal(map[string]any{"t": "typing", "group_id": group.ID, "data": []byte("sealed")})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := ownerSocket.ws.Write(ctx, websocket.MessageText, frame); err != nil {
+		t.Fatal(err)
+	}
+	if got := bobSocket.waitFor("typing"); got["user_id"] != owner.userID {
+		t.Fatalf("typing event: %v", got)
+	}
+
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", owner.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	if got := bobSocket.waitFor("read"); got["user_id"] != owner.userID {
+		t.Fatalf("read event: %v", got)
+	}
+}
+
+func TestSocketRejectsBadToken(t *testing.T) {
+	h := newHarness(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(h.url, "http")+"/api/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.CloseNow()
+	frame, _ := json.Marshal(map[string]any{"t": "auth", "token": "wrong"})
+	ws.Write(ctx, websocket.MessageText, frame)
+	if _, _, err := ws.Read(ctx); websocket.CloseStatus(err) != 4401 {
+		t.Fatalf("got %v, want close code 4401", err)
+	}
+}
+
+func TestLandingPagesDoNotLeakAndWork(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	code := owner.newInvite()
+	resp, err := http.Get(h.url + "/invite/" + code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "Open in Zuna") {
+		t.Fatalf("invite page: %d", resp.StatusCode)
+	}
+	bad, err := http.Get(h.url + "/invite/nope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad.Body.Close()
+	if bad.StatusCode != http.StatusNotFound {
+		t.Fatalf("a bad invite page gave %d", bad.StatusCode)
+	}
+}

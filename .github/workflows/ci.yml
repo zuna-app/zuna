@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-bindgen
+        run: |
+          version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
+          curl -fsSL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/wasm-bindgen-$version-x86_64-unknown-linux-musl.tar.gz" | tar xz --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-bindgen' '*/wasm-bindgen-test-runner'
+      - run: npm ci
+      - run: npm run test:crypto
+      - run: npm run test:server
+      - run: npm run build:crypto
+      - run: npm run typecheck
+      - run: npm run test:core
+      - run: npm run build -w @zuna/desktop

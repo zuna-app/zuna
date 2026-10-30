@@ -1,0 +1,80 @@
+:root {
+  color-scheme: dark;
+
+  /* Surfaces. True neutrals, each step clearly lighter than the last. */
+  --bg-0: #0f0f11;
+  --bg-1: #151517;
+  --bg-2: #1b1b1e;
+  --bg-3: #232326;
+  --bg-4: #2c2c30;
+  --bg-5: #38383d;
+  --bg-chat: #0f0f11;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --hover: rgba(255, 255, 255, 0.05);
+  --hover-strong: rgba(255, 255, 255, 0.09);
+
+  --text-1: #ececee;
+  --text-2: #a0a0a6;
+  --text-3: #6e6e75;
+
+  /* The one emphasis color. Neutral by default, replaceable in Appearance. */
+  --accent: #ececee;
+  --accent-hover: #ffffff;
+  --on-accent: #111113;
+  --accent-soft: rgba(255, 255, 255, 0.1);
+  --accent-text: #ececee;
+
+  --bubble-own: #2f2f33;
+  --bubble-own-text: #f2f2f3;
+  --bubble-own-faint: rgba(255, 255, 255, 0.55);
+  --bubble-other: #1d1d20;
+
+  --link: #8ab4f8;
+  --green: #4cc38a;
+  --red: #f2555a;
+  --red-soft: rgba(242, 85, 90, 0.13);
+  --amber: #e5a50a;
+  --amber-soft: rgba(229, 165, 10, 0.12);
+
+  --radius-s: 6px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --radius-xl: 14px;
+
+  --shadow-s: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-m: 0 6px 20px rgba(0, 0, 0, 0.45);
+  --shadow-l: 0 12px 40px rgba(0, 0, 0, 0.55);
+
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+
+  --titlebar-height: 32px;
+  --rail-width: 64px;
+  --font-ui: "Inter Variable", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --message-size: 14.5px;
+}
+
+:root[data-accent="blue"] {
+  --accent: #4b8fe0; --accent-hover: #5e9de6; --on-accent: #fff;
+  --accent-soft: rgba(75, 143, 224, 0.16); --accent-text: #7fb0ec;
+  --bubble-own: #24486f; --bubble-own-text: #fff;
+}
+:root[data-accent="green"] {
+  --accent: #3fa772; --accent-hover: #4cb780; --on-accent: #fff;
+  --accent-soft: rgba(63, 167, 114, 0.16); --accent-text: #6cc798;
+  --bubble-own: #235240; --bubble-own-text: #fff;
+}
+:root[data-accent="red"] {
+  --accent: #d9534f; --accent-hover: #e2635f; --on-accent: #fff;
+  --accent-soft: rgba(217, 83, 79, 0.16); --accent-text: #ec8784;
+  --bubble-own: #6a2c2b; --bubble-own-text: #fff;
+}
+:root[data-accent="amber"] {
+  --accent: #d9962a; --accent-hover: #e3a43f; --on-accent: #111113;
+  --accent-soft: rgba(217, 150, 42, 0.16); --accent-text: #e8b562;
+  --bubble-own: #5a4318; --bubble-own-text: #fff;
+}
+
+:root[data-size="small"] { --message-size: 13.5px; }
+:root[data-size="large"] { --message-size: 16px; }
