@@ -2,7 +2,7 @@
 
 Zuna's goal is that a server you don't fully trust still can't read your messages. This page says exactly what that means, including what it doesn't protect against.
 
-**Zuna hasn't had an independent audit.** OpenMLS, the library at its core, has been audited, but Zuna's own code, including how it uses that library, hasn't. Keep this in mind for high-risk uses.
+**Zuna hasn't had an independent audit.** OpenMLS, the library at its core, has been audited, but Zuna's own code, including how it uses that library, hasn't been reviewed by anyone independent. Keep this in mind for high-risk uses.
 
 ## Reporting a vulnerability
 
@@ -51,21 +51,31 @@ Your **account key** is random. It encrypts your identity keys and a vault of co
 - your **password**, stretched on your device with Argon2id (64 MiB, 3 iterations), or
 - your **recovery key**, 200 random bits shown once at sign-up.
 
-Your password never leaves your device. A key derived from it authenticates you, and a separate one decrypts the account key. Clients refuse to derive keys with weak parameters, so a malicious server can't downgrade them.
+Your password never leaves your device. A key derived from it authenticates you, and a separate one decrypts the account key. The first is bound to the server's address and your username, so one a malicious server collects is no use anywhere else, even if you use the same password on several servers. Clients only derive keys within fixed limits, so a malicious server can't downgrade them or make the app run out of memory.
 
 ### Identity and devices
 
-Each account has one long-term Ed25519 **identity key**. Each device's MLS credential is a certificate signed by it, so the server can't add a device to someone's account or to any group without that key.
+Each account has one long-term Ed25519 **identity key**. Each device's MLS credential is a certificate signed by it, naming the key that device signs with. Certificates are public, so holding one proves nothing: clients check every member of every group, whenever a group's tree may have changed and before encrypting anything, against the identity key they know for that person, and that the member really signs with the key its certificate names. So without that identity key, the server can't add a device to anyone's account or to any group. Whoever tries is removed, and everyone is warned.
 
-Clients pin the first identity key they see for each person. Zuna accounts keep one identity key for life, so a later change produces a loud warning.
+Clients pin the first identity key they see for each person, and share those pins, and what you've verified, with your other devices through your encrypted vault. Zuna accounts keep one identity key for life, so a later change produces a loud warning, including on a new device of yours.
 
 ### The emoji check
 
-Pinning alone doesn't protect a first conversation: a malicious server could hand out a fake key from the start. The emoji check closes that gap. Two people compare 12 emoji (72 bits, from an iterated SHA-512 over both identity keys, in the style of Signal's safety numbers). If they match, each app holds the other person's real key.
+Pinning alone doesn't protect a first conversation: a malicious server could hand out a fake key from the start. The emoji check closes that gap. Two people compare 12 emoji (72 bits, from an iterated SHA-512 over both identity keys, in the style of Signal's safety numbers). If they match, each app holds the other person's real key, and since every device in a chat has to be signed by that key, nobody else's device can be in the chat as them.
 
-### Membership can't change silently
+### Who's in a conversation
 
-Membership announcements in chats come from authenticated MLS data, not from the server. If someone joins a conversation without a member having added them, everyone sees a warning.
+The server keeps the list of who's in each conversation, and it says who may do what. What MLS proves is who actually holds the keys. Clients go by that:
+
+- Someone joining without a member having added them, or a device that isn't what it claims, gets a warning in the conversation.
+- That someone left is only announced once their keys are really gone. Who removed them is named only if MLS shows it: otherwise, it would be the server's word.
+- The member list shows a difference if there is one: someone who holds the keys but isn't listed, or who's listed with no device in the group.
+- Only an admin's device can set a group's name and picture, which it signs, and an older copy can't be served again. Group details from before these were signed count only until signed ones are seen.
+- A member can't remove someone from a group's keys: everyone is told, and the person removed rejoins straight away.
+
+### What the server can't make your app do
+
+The server can say you're out of a conversation or signed out, but your messages stay on your device until you clear them, sign in again, or 30 days pass. That includes a device you removed from your account in Settings, so a lost device isn't wiped if it comes back online: removing it cuts off its access, not what it already holds.
 
 ### Profiles
 
@@ -79,9 +89,9 @@ Each file gets its own random key. It's split into 1 MiB chunks encrypted with X
 
 ### Link previews
 
-The sender's device makes a link's preview while they write: it fetches the page, and the title, description and a small picture travel encrypted inside the message. Recipients never contact the site, and the server never sees the link. The site sees the sender's IP address, as it would if they opened the link. Pages are fetched without cookies, only over HTTPS, and redirects are checked one at a time. Previews can be turned off on each device.
+The sender's device makes a link's preview while they write: it fetches the page, and the title, description and a small picture travel encrypted inside the message. Recipients never contact the site, and the server never sees the link. The site sees the sender's IP address, as it would if they opened the link. Pages are fetched without cookies, only over HTTPS, and only from public addresses: redirects are checked one at a time, and names that lead to this machine or a private network are refused. A determined attacker controlling a site's DNS could still try to switch where it points between the check and the fetch, though HTTPS certificates make that hard to use. Previews can be turned off on each device.
 
-A preview is the sender's claim about the page, like the message's text. The app only shows a preview for a link that's in the message's own text, so a preview can't present one site as another, and its picture must be inline: a preview can't make your device load anything.
+A preview's title and picture are the sender's claim about the page, like the message's text, so a card can say anything. The app only shows a preview for a whole link in the message's own text, always shows which site that link really goes to, and requires its picture to be inline: a preview can't make your device load anything.
 
 ### Forwarding
 
@@ -97,12 +107,12 @@ These are real limitations, stated plainly:
 
 - **A malicious server can try to guess weak passwords.** It holds what's needed to test guesses offline. Argon2id slows this down and sign-up rejects very weak passwords, but a long, unique password is your real protection.
 - **Stealing your account key exposes your history.** Anyone with your password or recovery key, combined with the server's data, can read everything you had access to. Stored history has no forward secrecy; this is the cost of history on new devices.
-- **Stored epoch keys limit post-compromise recovery.** MLS heals a stolen device's state as keys rotate, but while an attacker also has your account key, they can read new content keys from your vault. Change your password and remove the device.
+- **Stored epoch keys limit post-compromise recovery.** MLS heals a stolen device's state as keys rotate, but while an attacker also has your account key, they can read new content keys from your vault if they can get at it. If you think your password or recovery key was stolen, change them and remove any device you don't recognize in Settings. Changing either ends any session that has no device, and such a session can't read anything anyway, so an honest server stops giving the attacker your vault. The account key itself doesn't change yet, so someone holding a copy of it who also has the server's data could still read new items.
 - **Metadata is visible to the server.** See the table above.
-- **Group permissions are enforced by the server.** It decides who may add and remove members. A malicious server can't add someone invisibly, but it could allow actions a client's interface wouldn't offer. Those appear in the conversation.
+- **Group permissions are enforced by the server, and checked by clients where MLS allows.** It decides who may add and remove members. A malicious server can't add someone invisibly, but it could allow actions a client's interface wouldn't offer. Those appear in the conversation.
 - **A kicked member keeps the community key.** They could still read profile data if they had access to the server's database. They lose access to the server itself and to new messages.
 - **The server can withhold or delay delivery.** It can also serve an old version of an edited message, or claim a message was deleted. It can't forge content.
-- **Timestamps come from the server.**
+- **The time shown comes from the server.** The sender's device also signs the time it sent a message, and the app flags a message if the two are far apart.
 - **Deleting is best effort.** "Delete for everyone" removes the server's copy and the copies on members' apps, but a modified client or a screenshot can keep it.
 - **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.
 - **A compromised device is out of scope.** Malware on your computer can read what you can read.
@@ -111,6 +121,8 @@ These are real limitations, stated plainly:
 
 A web app's code comes from the server on every visit. A malicious or hacked server could quietly send code that steals keys, which defeats the purpose of end-to-end encryption. Installed apps avoid this.
 
+That only holds if the app you installed is genuine, so **install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases)**. Each release lists SHA-256 checksums for its files. Signed Windows and macOS builds update themselves, and only ever to an update signed by the same publisher. Linux builds don't update themselves yet.
+
 ## Electron hardening
 
-The renderer runs sandboxed with context isolation and no Node access. A strict content security policy applies, the main process only accepts requests from the app's own origin, and links only open in your browser for `http(s)` addresses. Message text never loads remote content, so a link can't be used to track whether you've seen it.
+The renderer runs sandboxed with context isolation and no Node access. A strict content security policy applies, the main process only accepts requests from the app's own origin, and links only open in your browser for `http(s)` addresses. Nothing in a message can load remote content: images only ever come from memory, so a link or an attachment can't be used to track whether you've seen it. Packaged builds can't be started as a plain Node process or with an inspector, and their code is checked for changes when they start. Anything a message says is checked before it's shown, and one that can't be displayed can't take the rest of the app with it.

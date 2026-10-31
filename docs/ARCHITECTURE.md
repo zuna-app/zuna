@@ -41,8 +41,15 @@ Each user has **devices**, and each device is a separate member of every MLS gro
 The server is a delivery service and a blob store:
 
 1. **Orders commits.** `POST /api/groups/{id}/commit` carries `expected_epoch`. In one transaction the server checks it against the group's epoch, then advances. If two members commit at once, one gets `409 stale_epoch` and retries from the new state. This is the total ordering MLS requires from a delivery service.
-2. **Requires current keys for content.** A message for an old epoch is refused the same way, so a sender who hasn't seen a removal can't encrypt with a key the removed person knows.
+2. **Requires current keys for content.** A message for an old epoch is refused the same way, so an honest sender who hasn't seen a removal can't encrypt with a key the removed person knows. Clients don't rely on this alone: before encrypting, they remove anyone who shouldn't hold the keys, and they refuse messages from a device in an epoch after it left, or that came after their epoch had ended.
 3. **Stores and relays ciphertext.**
+4. **Reads the outside of commits.** It can't read MLS content, but it refuses bytes that aren't a commit or group info for this group and epoch, since advancing a group on anything else would strand every member. A commit that gets past this but that nobody can apply is undone by an admin's app, which still holds the last good state: it takes the group back to that epoch, and everyone who never got past it carries on. Nobody has to accept anything new.
+
+## Who holds a group's keys
+
+Each device's MLS credential is a certificate signed by its owner's identity key, naming the key it signs with. Certificates are public, so holding one proves nothing. Clients run one check on every leaf, whenever the tree may have changed and before encrypting: the certificate is signed by the identity key known for that person, for the very signing key the leaf uses, and each device has one leaf. A leaf that fails is removed and warned about.
+
+Epoch keys only ever come from the MLS exporter for the current epoch. A history grant can fill in epochs from before this device joined, if an admin's device signed it, and it never replaces anything. So there's no way to plant a key for an epoch still to come.
 
 ## Sync
 
