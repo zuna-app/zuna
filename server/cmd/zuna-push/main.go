@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
+	"zuna/server/internal/clientip"
 	"zuna/server/internal/relay"
 )
 
@@ -34,7 +36,8 @@ func main() {
 	teamID := flag.String("apns-team", envOr("ZUNA_PUSH_APNS_TEAM", "SGKB9R23YT"), "the Apple Developer team that publishes the app (env ZUNA_PUSH_APNS_TEAM)")
 	topic := flag.String("apns-topic", envOr("ZUNA_PUSH_APNS_TOPIC", "chat.zuna.mobile"), "the app's bundle ID (env ZUNA_PUSH_APNS_TOPIC)")
 	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_PUSH_TRUST_PROXY"))
-	flag.BoolVar(&trustProxy, "trust-proxy", trustProxy, "take callers' addresses from X-Forwarded-For, set by a reverse proxy (env ZUNA_PUSH_TRUST_PROXY)")
+	flag.BoolVar(&trustProxy, "trust-proxy", trustProxy, "take callers' addresses from X-Forwarded-For, when the connection comes from this machine or a private network (env ZUNA_PUSH_TRUST_PROXY)")
+	trustedProxies := flag.String("trusted-proxies", os.Getenv("ZUNA_PUSH_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_PUSH_TRUSTED_PROXIES)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -62,7 +65,15 @@ func main() {
 	if err != nil {
 		fail("%v", err)
 	}
-	service.TrustProxy = trustProxy
+	var proxies []string
+	for _, proxy := range strings.Split(*trustedProxies, ",") {
+		if proxy = strings.TrimSpace(proxy); proxy != "" {
+			proxies = append(proxies, proxy)
+		}
+	}
+	if service.Callers, err = clientip.New(trustProxy, proxies); err != nil {
+		fail("%v", err)
+	}
 	server := &http.Server{Addr: *listen, Handler: service.Handler(), ReadTimeout: relay.ReadTimeout, WriteTimeout: relay.WriteTimeout}
 	slog.Info("zuna-push listening", "address", *listen, "version", version)
 	if err := server.ListenAndServe(); err != nil {

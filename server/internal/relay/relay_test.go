@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -230,6 +231,47 @@ func TestRefusesForgedHandlesAndFloods(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("one phone can be flooded with pushes")
+	}
+}
+
+func TestLimitsFollowThePhoneNotTheHandle(t *testing.T) {
+	h := newHarness(t)
+	// Handles hold a random nonce, so anyone who knows a token can make any number of them.
+	limited := false
+	for range 25 {
+		first := h.register(token, "production")
+		second := h.register(token, "production")
+		if first == second {
+			t.Fatal("handles should differ")
+		}
+		for range 5 {
+			for _, handle := range []string{first, second} {
+				if status, _ := h.post("/v1/push", map[string]any{"handle": handle, "data": map[string]string{}}); status == http.StatusTooManyRequests {
+					limited = true
+				}
+			}
+		}
+		if limited {
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("new handles for one phone got around its limit")
+	}
+}
+
+func TestRegisteringAndNamingDeadPhonesIsLimited(t *testing.T) {
+	h := newHarness(t)
+	limited := false
+	for i := range 40 {
+		status, _ := h.post("/v1/register", map[string]string{"platform": "apns", "token": fmt.Sprintf("%064x", i), "environment": "production"})
+		if status == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("one address can register endless phones")
 	}
 }
 

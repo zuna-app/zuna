@@ -4,8 +4,8 @@
 // A phone registers its push token and gets back a handle: the token sealed
 // with the relay's own key, so the relay keeps no list of devices. Servers post
 // a handle and a payload the server already sealed for the phone; the relay
-// opens the handle and passes the payload to Apple. It never learns which
-// server a phone uses, who sent what, or anything about a message.
+// opens the handle and passes the payload to Apple. It keeps no record of which
+// server a phone uses, and never learns who sent what or anything about a message.
 package relay
 
 import (
@@ -17,13 +17,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
-	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
 
+	"zuna/server/internal/clientip"
 	"zuna/server/internal/ratelimit"
 )
 
@@ -31,18 +31,26 @@ const (
 	maxRequestBytes = 8 << 10
 	// What fits in a push with room to spare: Apple allows 4 KB in all.
 	maxDataBytes = 2048
+	// A caller who keeps naming phones Apple says don't exist is put on hold, as
+	// too many of those could get the relay's key throttled for everyone.
+	goneCooldown = 10 * time.Minute
 )
 
 // Relay serves the relay's HTTP API.
 type Relay struct {
-	// TrustProxy takes callers' addresses from X-Forwarded-For, set by a
-	// reverse proxy in front of the relay, for rate limits, as the server does.
-	TrustProxy bool
+	// Callers works out callers' addresses for rate limits, from what a reverse
+	// proxy in front of the relay says, as the server does. Without it, from the
+	// connection.
+	Callers *clientip.Resolver
 
-	apns       *APNs
-	handles    cipher.AEAD
-	perAddress *ratelimit.Keyed
-	perHandle  *ratelimit.Keyed
+	apns         *APNs
+	handles      cipher.AEAD
+	perAddress   *ratelimit.Keyed
+	registers    *ratelimit.Keyed
+	perToken     *ratelimit.Keyed
+	goneAnswers  *ratelimit.Keyed
+	mu           sync.Mutex
+	goneCooldown map[string]time.Time
 }
 
 // New makes a relay that seals handles with handleKey (32 bytes, kept across
@@ -57,12 +65,50 @@ func New(handleKey []byte, apns *APNs) (*Relay, error) {
 		return nil, err
 	}
 	return &Relay{
+		Callers: &clientip.Resolver{},
 		apns:    apns,
 		handles: handles,
 		// Servers post a push per member per message; phones register rarely.
 		perAddress: ratelimit.NewKeyed(rate.Limit(200), 2000),
-		perHandle:  ratelimit.NewKeyed(rate.Limit(2), 60),
+		registers:  ratelimit.NewKeyed(rate.Every(5*time.Second), 30),
+		// Counted by the phone itself: anyone who knows a token could make handles for it.
+		perToken:     ratelimit.NewKeyed(rate.Limit(2), 60),
+		goneAnswers:  ratelimit.NewKeyed(rate.Limit(1), 100),
+		goneCooldown: map[string]time.Time{},
 	}, nil
+}
+
+// onHold reports whether a caller is waiting out a cooldown.
+func (r *Relay) onHold(address string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	until, held := r.goneCooldown[address]
+	if !held {
+		return false
+	}
+	if time.Now().After(until) {
+		delete(r.goneCooldown, address)
+		return false
+	}
+	return true
+}
+
+// noteGone counts an answer from Apple that a phone doesn't exist. Real phones
+// come and go slowly, so only a flood of them starts a cooldown.
+func (r *Relay) noteGone(address string) {
+	if r.goneAnswers.Allow(address) {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for other, until := range r.goneCooldown {
+		if now.After(until) {
+			delete(r.goneCooldown, other)
+		}
+	}
+	r.goneCooldown[address] = now.Add(goneCooldown)
+	slog.Warn("pausing a caller naming many phones that don't exist", "address", address)
 }
 
 func (r *Relay) Handler() http.Handler {
@@ -81,7 +127,7 @@ type device struct {
 }
 
 func (r *Relay) handleRegister(w http.ResponseWriter, req *http.Request) {
-	if !r.perAddress.Allow(r.address(req)) {
+	if !r.perAddress.Allow(r.address(req)) || !r.registers.Allow(r.address(req)) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
@@ -110,7 +156,8 @@ func (r *Relay) handleRegister(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
-	if !r.perAddress.Allow(r.address(req)) {
+	address := r.address(req)
+	if !r.perAddress.Allow(address) || r.onHold(address) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
@@ -133,7 +180,7 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
-	if !r.perHandle.Allow(body.Handle) {
+	if !r.perToken.Allow(target.Token) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
@@ -146,6 +193,7 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
 	case errors.Is(err, ErrGone):
+		r.noteGone(address)
 		writeError(w, http.StatusGone, "gone")
 	default:
 		slog.Warn("pushing through APNs", "error", err)
@@ -186,14 +234,7 @@ func writeError(w http.ResponseWriter, status int, code string) {
 
 // address is who's calling, for rate limits.
 func (r *Relay) address(req *http.Request) string {
-	if forwarded := req.Header.Get("X-Forwarded-For"); r.TrustProxy && forwarded != "" {
-		return strings.TrimSpace(strings.Split(forwarded, ",")[0])
-	}
-	host, _, err := net.SplitHostPort(req.RemoteAddr)
-	if err != nil {
-		return req.RemoteAddr
-	}
-	return host
+	return clientip.Key(r.Callers.Address(req))
 }
 
 // Timeouts for the relay's HTTP server.
