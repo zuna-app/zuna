@@ -16,8 +16,15 @@ import type { FileAdapter } from "./files";
 import { ServerSession } from "./session";
 import type { CoreEvent, InvitePreview, Profile, ServerEntry, ServerInfo } from "./types";
 
-const INDEX_DB = "zuna-index";
-const label = (text: string) => utf8(`zuna/local/${text}`);
+export const INDEX_DB = "zuna-index";
+export const label = (text: string) => utf8(`zuna/local/${text}`);
+
+/** The key a server's local data is sealed with, derived from the device key. */
+export const serverKeyFor = (deviceKey: Uint8Array, serverId: string) =>
+  wasm.hkdfSha256(deviceKey, new Uint8Array(0), utf8(`zuna/local/server/${serverId}`), 32);
+
+/** A server's local database. */
+export const serverDbName = (serverId: string) => `zuna-server-${serverId}`;
 
 function encodeAccount(account: AccountState): string {
   return JSON.stringify({
@@ -36,7 +43,7 @@ function encodeAccount(account: AccountState): string {
   });
 }
 
-function decodeAccount(json: string): AccountState {
+export function decodeAccount(json: string): AccountState {
   const raw = JSON.parse(json);
   const core: VaultCore = {
     identityPublic: fromBase64(raw.core.identityPublic),
@@ -89,11 +96,11 @@ export class ZunaClient {
   }
 
   private serverKey(serverId: string): Uint8Array {
-    return wasm.hkdfSha256(this.options.deviceKey, new Uint8Array(0), utf8(`zuna/local/server/${serverId}`), 32);
+    return serverKeyFor(this.options.deviceKey, serverId);
   }
 
   private async createSession(serverId: string, account: AccountState): Promise<ServerSession> {
-    const db = await this.options.db.open(`zuna-server-${serverId}`);
+    const db = await this.options.db.open(serverDbName(serverId));
     migrate(db);
     const session = new ServerSession(
       serverId,
@@ -205,7 +212,7 @@ export class ZunaClient {
     session?.stop();
     this.sessions.delete(serverId);
     this.index.run("DELETE FROM servers WHERE id = ?", [serverId]);
-    await this.options.db.remove(`zuna-server-${serverId}`);
+    await this.options.db.remove(serverDbName(serverId));
   }
 
   nudge(): void {
