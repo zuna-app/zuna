@@ -20,7 +20,7 @@ mkdirSync(shots, { recursive: true });
 
 const goBin = [join(process.env.LOCALAPPDATA ?? "", "Programs", "go", "bin"), join(homedir(), "go", "bin")].filter(existsSync);
 const binary = join(tmpdir(), `zuna-smoke-server${process.platform === "win32" ? ".exe" : ""}`);
-execFileSync("go", ["build", "-o", binary, "./cmd/zuna-server"], {
+execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], {
   cwd: join(root, "server"),
   env: { ...process.env, PATH: [...goBin, process.env.PATH ?? process.env.Path ?? ""].join(delimiter) },
   stdio: "inherit",

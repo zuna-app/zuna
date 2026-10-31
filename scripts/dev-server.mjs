@@ -27,7 +27,7 @@ mkdirSync(devWorld, { recursive: true });
 const log = createWriteStream(logPath, { flags: "a" });
 
 const binary = join(devData, "bin", process.platform === "win32" ? "zuna-server.exe" : "zuna-server");
-run("go", ["build", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server") });
+run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server") });
 
 const children = [];
 let stopping = false;
