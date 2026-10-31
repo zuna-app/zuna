@@ -7,6 +7,7 @@ import "./polyfills";
 import { ZunaClient, type CoreEvent } from "@zuna/core";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
+import { nativeFiles } from "./files";
 import { decodeWire, encodeWire } from "./wire";
 
 const g = globalThis as any;
@@ -105,6 +106,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     db: nativeDbProvider,
     deviceKey,
     deviceName,
+    files: nativeFiles,
     onEvent: (event: CoreEvent) => {
       // A server ending the session removes the account from this device.
       if (event.type === "signed_out") {
@@ -117,6 +119,8 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
   instance.open().then(
     () => {
       client = instance;
+      // Test builds can reach the client's internals, as the desktop's tests do.
+      if (__ZUNA_TEST__) g.__zunaTest.client = () => client;
       rememberAccounts();
       resolveClient(instance);
       done(null);

@@ -141,6 +141,11 @@ public final class ControlServer: @unchecked Sendable {
             reply(true)
         case "exit":
             exit(Int32((command["code"] as? Int) ?? 0))
+        case "crashOn":
+            #if DEBUG
+            runtime?.crashOnResponse(method: command["method"] as? String ?? "POST", urlPattern: command["url"] as? String ?? "$^")
+            #endif
+            reply(true)
         case "evaluate":
             #if DEBUG
             guard let runtime else { return reply("Error: the core isn't running") }

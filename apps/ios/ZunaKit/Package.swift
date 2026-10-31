@@ -11,6 +11,7 @@ let package = Package(
     platforms: [.iOS(.v18), .macOS(.v15)],
     products: [
         .library(name: "ZunaHost", targets: ["ZunaHost"]),
+        .library(name: "ZunaModels", targets: ["ZunaModels"]),
         .library(name: "ZunaControl", targets: ["ZunaControl"]),
         .executable(name: "zuna-host", targets: ["ZunaHostCLI"]),
     ],
@@ -43,6 +44,8 @@ let package = Package(
             resources: [.copy("Resources/zuna-core.js")],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // The core's types in Swift, and the RPC client the UI uses.
+        .target(name: "ZunaModels", dependencies: ["ZunaHost"]),
         // Test builds only: drives a host over a local WebSocket.
         .target(
             name: "ZunaControl",
@@ -56,7 +59,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ZunaHostTests",
-            dependencies: ["ZunaHost", "ZunaCrypto"],
+            dependencies: ["ZunaHost", "ZunaCrypto", "ZunaModels"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]

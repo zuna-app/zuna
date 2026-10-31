@@ -32,6 +32,8 @@ public struct AccountEvent: Decodable, Sendable {
 public final class CoreRuntime: @unchecked Sendable {
     public struct Options: Sendable {
         public var dataDirectory: URL
+        /// Where downloaded files are decrypted to. Emptied whenever the core starts.
+        public var cacheDirectory: URL
         public var deviceKey: Data
         public var deviceName: String
         /// Also print the core's log to standard error, for the command-line host.
@@ -39,8 +41,9 @@ public final class CoreRuntime: @unchecked Sendable {
         /// Called on the core's queue when an account signs in, changes its password or signs out.
         public var onAccountEvent: (@Sendable (AccountEvent) -> Void)?
 
-        public init(dataDirectory: URL, deviceKey: Data, deviceName: String) {
+        public init(dataDirectory: URL, cacheDirectory: URL? = nil, deviceKey: Data, deviceName: String) {
             self.dataDirectory = dataDirectory
+            self.cacheDirectory = cacheDirectory ?? dataDirectory.appendingPathComponent("decrypted", isDirectory: true)
             self.deviceKey = deviceKey
             self.deviceName = deviceName
         }
@@ -126,6 +129,9 @@ public final class CoreRuntime: @unchecked Sendable {
               let source = try? String(contentsOf: url, encoding: .utf8) else {
             throw CoreError(description: "The core bundle is missing. Run apps/ios/core-bundle/build.mjs.")
         }
+        // Decrypted files from an earlier run aren't needed any more.
+        try? FileManager.default.removeItem(at: options.cacheDirectory)
+        try FileManager.default.createDirectory(at: options.cacheDirectory, withIntermediateDirectories: true)
         context = JSContext(virtualMachine: JSVirtualMachine())!
         context.name = "Zuna core"
         context.exceptionHandler = { [weak self] _, exception in
@@ -217,8 +223,49 @@ public final class CoreRuntime: @unchecked Sendable {
         }
         define("post", post)
 
+        installFiles(into: host)
         network.install(into: host)
         context.setObject(host, forKeyedSubscript: "__zunaHost" as NSString)
+    }
+
+    /// Reading files to upload a chunk at a time, and writing downloaded ones to the cache.
+    private func installFiles(into host: JSValue) {
+        let fileSize: @convention(block) (String) -> Double = { path in
+            ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.doubleValue ?? 0
+        }
+        host.setObject(fileSize, forKeyedSubscript: "fileSize" as NSString)
+
+        let fileRead: @convention(block) (String, Double, Double) -> JSValue = { path, start, end in
+            let context = JSContext.current()!
+            guard let handle = FileHandle(forReadingAtPath: path) else { return throwError("Couldn't open a file to send.", in: context) }
+            defer { try? handle.close() }
+            do {
+                try handle.seek(toOffset: UInt64(start))
+                return JSBytes.make(try handle.read(upToCount: Int(end - start)) ?? Data(), in: context)
+            } catch {
+                return throwError("Couldn't read a file to send: \(error.localizedDescription)", in: context)
+            }
+        }
+        host.setObject(fileRead, forKeyedSubscript: "fileRead" as NSString)
+
+        let fileAssemble: @convention(block) (JSValue, String) -> JSValue = { [unowned self] parts, fileExtension in
+            let context = JSContext.current()!
+            let url = options.cacheDirectory.appendingPathComponent("\(UUID().uuidString).\(fileExtension)")
+            guard FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.protectionKey: FileProtectionType.complete]),
+                  let handle = FileHandle(forWritingAtPath: url.path) else {
+                return throwError("Couldn't save a downloaded file.", in: context)
+            }
+            defer { try? handle.close() }
+            do {
+                for part in parts.arrayElements {
+                    if let data = JSBytes.read(part) { try handle.write(contentsOf: data) }
+                }
+            } catch {
+                return throwError("Couldn't save a downloaded file: \(error.localizedDescription)", in: context)
+            }
+            return JSValue(object: url.path, in: context)
+        }
+        host.setObject(fileAssemble, forKeyedSubscript: "fileAssemble" as NSString)
     }
 
     // MARK: Calling into JavaScript
@@ -256,6 +303,12 @@ public final class CoreRuntime: @unchecked Sendable {
     }
 
     #if DEBUG
+    /// Exits the process as soon as a response to `method` on a URL matching `urlPattern` arrives.
+    public func crashOnResponse(method: String, urlPattern: String) {
+        guard let pattern = try? NSRegularExpression(pattern: urlPattern) else { return }
+        queue.async { [self] in network.crashOnResponse = (method, pattern) }
+    }
+
     /// Runs a script in the core's context, for tests that measure or inspect it.
     public func evaluateForTesting(_ script: String, completion: @escaping @Sendable (String) -> Void) {
         queue.async { [self] in

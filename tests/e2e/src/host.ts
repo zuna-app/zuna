@@ -1,15 +1,15 @@
 // An iOS client under test: the app's core host, driven over its control
 // channel with the same RPC calls the app's UI makes.
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectCore, type CoreConnection, type RemoteSession } from "@zuna/core/rpc";
 import type { CoreEvent, MessageView } from "@zuna/core";
 import { waitFor } from "../../../packages/core/test/helpers";
 import { hostBinary } from "./paths";
-import { launch, simulatorId, terminate } from "./simulator";
+import { BUNDLE_ID, launch, simulatorId, terminate } from "./simulator";
 import { decodeWire, encodeWire } from "./wire";
 
 export interface HostOptions {
@@ -45,6 +45,7 @@ export class HostApp {
     const port = this.options.target === "simulator" ? this.launchInSimulator() : await this.spawnProcess();
     const socket = await this.connect(port);
     this.socket = socket;
+    this.gone = new Promise((resolve) => socket.addEventListener("close", () => resolve()));
     const port_ = {
       onmessage: null as ((event: MessageEvent) => void) | null,
       postMessage: (message: unknown) => socket.send(encodeWire(message)),
@@ -92,7 +93,8 @@ export class HostApp {
   /** Launches the app in the E2E simulator, with fresh data the first time. */
   private launchInSimulator(): number {
     const port = 40_000 + Math.floor(Math.random() * 10_000);
-    const args = ["-ZunaControlPort", String(port)];
+    // A short grace period keeps background tests quick.
+    const args = ["-ZunaControlPort", String(port), "-ZunaSuspendDelay", "0.5"];
     if (!this.launchedOnce) args.push("-ZunaResetData", "YES");
     if (this.bootSession) args.push("-ZunaBootSession", this.bootSession);
     this.launchedOnce = true;
@@ -175,6 +177,46 @@ export class HostApp {
   /** Runs a script inside the host's JavaScript context (Debug builds only). */
   evaluate(script: string): Promise<string> {
     return this.hostCommand("evaluate", { script });
+  }
+
+  private gone: Promise<void> = Promise.resolve();
+
+  /** Resolves when the host's control connection drops, for example because it crashed. */
+  waitUntilGone(): Promise<void> {
+    return this.gone;
+  }
+
+  /** The app moving to the background, then back. The headless host has no app around it, so it suspends the core directly. */
+  async background(): Promise<void> {
+    if (this.options.target === "simulator") await this.hostCommand("background");
+    else await this.core.client.suspend();
+  }
+
+  async foreground(): Promise<void> {
+    if (this.options.target === "simulator") await this.hostCommand("foreground");
+    else await this.core.client.resume();
+  }
+
+  /** Makes the host exit the moment the server answers a matching request. */
+  async crashOn(method: string, url: string): Promise<void> {
+    await this.hostCommand("crashOn", { method, url });
+  }
+
+  /** The SQLite files the host keeps, for checking what's readable at rest. */
+  databaseFiles(): string[] {
+    let directory = this.dir;
+    if (this.options.target === "simulator") {
+      const udid = simulatorId();
+      const group = execFileSync("xcrun", ["simctl", "get_app_container", udid, BUNDLE_ID, "group.chat.zuna.app"], { encoding: "utf8" }).trim();
+      directory = join(group, "Zuna");
+      if (!existsSync(directory)) {
+        const data = execFileSync("xcrun", ["simctl", "get_app_container", udid, BUNDLE_ID, "data"], { encoding: "utf8" }).trim();
+        directory = join(data, "Library", "Application Support", "Zuna");
+      }
+    }
+    return readdirSync(directory)
+      .filter((name) => name.includes(".sqlite"))
+      .map((name) => join(directory, name));
   }
 
   /** Unlocks the app after a simulated restart of the phone, then connects to the core. */

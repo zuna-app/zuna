@@ -7,6 +7,20 @@ import "core-js/actual/url-search-params";
 
 const g = globalThis as any;
 
+// --- Test builds: a movable clock ---
+
+if (__ZUNA_TEST__) {
+  // Lets tests move time forward, for weekly key rotation and similar rules.
+  const realNow = Date.now;
+  let offset = 0;
+  Date.now = () => realNow() + offset;
+  g.__zunaTest = {
+    setClockOffset(ms: number) {
+      offset = ms;
+    },
+  };
+}
+
 // --- console ---
 
 function describe(value: unknown): string {

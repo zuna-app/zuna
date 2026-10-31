@@ -23,6 +23,8 @@ final class NetworkBridge: NSObject {
     private var sockets: [Int: NWConnection] = [:]
     /// Set by tests to make the network fail on purpose.
     var offline = false
+    /// Set by tests: the process exits the moment a matching response arrives.
+    var crashOnResponse: (method: String, url: NSRegularExpression)?
 
     init(queue: DispatchQueue, deliver: @escaping (_ function: String, _ arguments: [Any]) -> Void) {
         self.queue = queue
@@ -85,6 +87,11 @@ final class NetworkBridge: NSObject {
         }
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self, requests.removeValue(forKey: id) != nil else { return }
+            if let crash = crashOnResponse, error == nil, crash.method == method,
+               crash.url.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil {
+                // Like the app being killed after the server acted on a request, before we could.
+                exit(9)
+            }
             if let error {
                 deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), error.localizedDescription])
                 return
