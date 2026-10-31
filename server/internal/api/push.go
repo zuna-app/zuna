@@ -71,7 +71,7 @@ func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *sto
 		writeFailure(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeOK(w)
 }
 
 func (s *Server) handleDeletePush(w http.ResponseWriter, r *http.Request, sess *store.Session) {
@@ -79,7 +79,7 @@ func (s *Server) handleDeletePush(w http.ResponseWriter, r *http.Request, sess *
 		writeFailure(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeOK(w)
 }
 
 // pushMessage wakes the other members' phones for a new message, in the background.

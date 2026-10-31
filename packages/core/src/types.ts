@@ -92,6 +92,20 @@ export interface EmoteRef {
   owner?: string;
 }
 
+/** Where a server wakes this device for new messages: through a push relay, sealed with a key. */
+export interface PushSettings {
+  /** The relay's address, one the server must allow. */
+  relay: string;
+  /** The relay's handle for this device. */
+  handle: string;
+  /** Seals each push, so the relay sees only that one arrived. */
+  key: Uint8Array;
+  /** The app's own ID for this registration, so it knows which server a push is from. */
+  registration: string;
+  /** Tell the server which chats are muted, so it skips them, for an app that can't hide notifications itself. */
+  sendMuted: boolean;
+}
+
 export interface MessageBody {
   text?: string;
   replyTo?: string;

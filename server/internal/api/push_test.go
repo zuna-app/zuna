@@ -112,11 +112,11 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 		t.Fatalf("a short key gave %d", status)
 	}
 	for _, c := range []*client{bob, carol, owner} {
-		if status, resp := c.registerPush(relay.URL+"/", c.device, key, registration, nil); status != http.StatusNoContent {
+		if status, resp := c.registerPush(relay.URL+"/", c.device, key, registration, nil); status != http.StatusOK {
 			t.Fatalf("registering: %d %v", status, resp)
 		}
 	}
-	if status, _ := bob.registerPush(relay.URL+"/", "bob-phone", key, registration, nil); status != http.StatusNoContent {
+	if status, _ := bob.registerPush(relay.URL+"/", "bob-phone", key, registration, nil); status != http.StatusOK {
 		t.Fatal("a device can register again")
 	}
 

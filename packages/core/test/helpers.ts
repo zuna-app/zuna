@@ -2,6 +2,8 @@
 
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
@@ -129,12 +131,17 @@ export class TestServer {
   private process: ChildProcess | null = null;
   private dir = "";
 
+  /** `pushRelays` are the relays the server may send notifications through. */
+  constructor(private readonly options: { pushRelays?: string[] } = {}) {}
+
   async start(): Promise<void> {
     const binary = buildServer();
     this.dir = mkdtempSync(join(tmpdir(), "zuna-test-"));
     const port = 20000 + Math.floor(Math.random() * 20000);
     this.url = `http://127.0.0.1:${port}`;
-    this.process = spawn(binary, ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"], {
+    const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
+    if (this.options.pushRelays) args.push("--push-relays", this.options.pushRelays.join(","));
+    this.process = spawn(binary, args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
@@ -252,5 +259,29 @@ export async function waitFor(condition: () => boolean | Promise<boolean>, what:
     if (ok) return;
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await sleep(25);
+  }
+}
+
+/** A push relay that records what servers send it, for tests. */
+export class FakeRelay {
+  url = "";
+  readonly pushes: { handle: string; data: { r: string; p: string }; collapse_id: string }[] = [];
+  private server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", () => {
+      if (request.url === "/v1/push") this.pushes.push(JSON.parse(body));
+      response.statusCode = 204;
+      response.end();
+    });
+  });
+
+  async start(): Promise<void> {
+    await new Promise<void>((resolve) => this.server.listen(0, "127.0.0.1", resolve));
+    this.url = `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`;
+  }
+
+  stop(): void {
+    this.server.close();
   }
 }
