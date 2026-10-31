@@ -6,25 +6,33 @@ on:
     tags: ["v*"]
   pull_request:
 
+# Third-party actions are pinned to full commits, since a tag can be moved. Dependabot proposes updates.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.25"
-      - uses: actions/setup-node@v4
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown
       - name: Install wasm-bindgen
         run: |
           version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
-          curl -fsSL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/wasm-bindgen-$version-x86_64-unknown-linux-musl.tar.gz" | tar xz --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-bindgen' '*/wasm-bindgen-test-runner'
+          file="wasm-bindgen-$version-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL -o "$file" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$file"
+          # Change this when crypto/Cargo.lock moves to a new wasm-bindgen.
+          echo "9687f3bb551b9f66f37ed32a40d7913a00f7962db653054e56857bc306c3227f  $file" | sha256sum -c -
+          tar xzf "$file" --strip-components=1 -C "$HOME/.cargo/bin" --wildcards '*/wasm-bindgen' '*/wasm-bindgen-test-runner'
       - run: npm ci
       - run: npm run test:crypto
       - run: npm run test:server
@@ -32,6 +40,29 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:core
       - run: npm run build -w @zuna/desktop
+
+  # Known advisories in what's shipped. Test and packaging tools are left to Dependabot.
+  advisories:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: The server's Go modules
+        working-directory: server
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - name: The desktop app's npm packages
+        run: npm audit --omit=dev
+      - name: The encryption core's crates
+        working-directory: crypto
+        run: |
+          cargo install cargo-audit --locked --version 0.22.2
+          cargo audit
 
   # The iOS app: its quick checks, the iOS core host against desktop clients,
   # the Release guard and the UI tests in a simulator (docs/IOS_TESTING.md).
@@ -41,18 +72,18 @@ jobs:
     runs-on: xcode-27
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         with:
           xcode-version: latest-stable
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.25"
-      - uses: actions/setup-node@v4
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown, aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Install wasm-bindgen and XcodeGen
@@ -61,7 +92,11 @@ jobs:
           mkdir -p "$CARGO_HOME/bin"
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
           version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
-          curl -fsSL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/wasm-bindgen-$version-aarch64-apple-darwin.tar.gz" | tar xz --strip-components=1 -C "$CARGO_HOME/bin" '*/wasm-bindgen'
+          file="wasm-bindgen-$version-aarch64-apple-darwin.tar.gz"
+          curl -fsSL -o "$file" "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$file"
+          # Change this when crypto/Cargo.lock moves to a new wasm-bindgen.
+          echo "b90ddb9357f584b1af897d58ad77e4cce2b48fc17e2a967bc249a87f72809444  $file" | shasum -a 256 -c -
+          tar xzf "$file" --strip-components=1 -C "$CARGO_HOME/bin" '*/wasm-bindgen'
           brew install xcodegen
       - run: npm ci
       - run: npm run build:crypto
@@ -72,7 +107,7 @@ jobs:
       - run: npm run test:ios:ui
       - name: Keep the UI test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ios-ui-tests
           path: |

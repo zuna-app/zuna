@@ -1,0 +1,27 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      # electron-vite hoists to the root, so every workspace stays on one Vite
+      # major; a new one needs doing by hand, and checking with `npm run dev`.
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: gomod
+    directory: /server
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /crypto
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /server
+    schedule:
+      interval: weekly
