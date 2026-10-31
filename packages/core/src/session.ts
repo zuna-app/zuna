@@ -1612,17 +1612,15 @@ export class ServerSession {
 
   private async applyEvent(event: ApiEvent): Promise<void> {
     if (event.kind === "member_left") {
-      if (event.target_user && event.target_user !== event.sender_user) {
-        this.addSystemRow(event.group_id, event.created_at, event.sender_user, {
-          type: "member_removed",
-          actorId: event.sender_user,
-          targetIds: [event.target_user],
-        }, event.seq);
-      } else if (event.target_user) {
-        this.addSystemRow(event.group_id, event.created_at, event.target_user, {
-          type: "member_left",
-          actorId: event.target_user,
-        }, event.seq);
+      // Only said so by the server. It's shown once MLS bears it out.
+      const group = this.groups.get(event.group_id);
+      if (group && event.target_user) {
+        group.pendingRemovals = {
+          ...group.pendingRemovals,
+          [event.target_user]: { actor: event.sender_user, seq: event.seq, at: event.created_at },
+        };
+        this.persistGroup(group);
+        this.announceConfirmedRemovals(event.group_id);
       }
       this.scheduleReconcile(event.group_id);
       return;
@@ -1633,7 +1631,49 @@ export class ServerSession {
       if (this.hasMlsGroup(event.group_id) && this.mlsEpoch(event.group_id) > event.epoch) await this.repair(event.group_id);
       return;
     }
+    this.db.run("INSERT OR REPLACE INTO epoch_starts(group_id, epoch, seq) VALUES(?, ?, ?)", [event.group_id, event.epoch, event.seq]);
     await this.applyCommit(event);
+  }
+
+  /** People the server said left, whose keys are now really gone. */
+  private announceConfirmedRemovals(groupId: string): void {
+    const group = this.groups.get(groupId);
+    if (!group?.pendingRemovals || !this.hasMlsGroup(groupId)) return;
+    const inTree = new Set(this.treeUsers(groupId));
+    const pending = { ...group.pendingRemovals };
+    let changed = false;
+    for (const [target, { actor, seq, at }] of Object.entries(pending)) {
+      if (inTree.has(target)) continue;
+      changed = true;
+      delete pending[target];
+      if (target === actor) {
+        this.addSystemRow(groupId, at, target, { type: "member_left", actorId: target }, seq);
+      } else {
+        // That they're gone is proven. Who did it is only the server's word, so it isn't repeated.
+        this.addSystemRow(groupId, at, actor, { type: "member_removed", targetIds: [target] }, seq);
+      }
+    }
+    if (changed) {
+      group.pendingRemovals = pending;
+      this.persistGroup(group);
+    }
+  }
+
+  /** The epoch a device left a group's tree, if it has. */
+  private departedAt(groupId: string, deviceId: string): number | null {
+    return this.db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND device_id = ?", [groupId, deviceId])?.epoch ?? null;
+  }
+
+  private recordDepartures(groupId: string, epoch: number, removed: Uint8Array[]): void {
+    const present = new Set(this.treeMembers(groupId).filter((member) => member.genuine).map((member) => member.deviceId));
+    for (const deviceId of present) this.db.run("DELETE FROM device_departures WHERE group_id = ? AND device_id = ?", [groupId, deviceId]);
+    for (const credential of removed) {
+      const cert = parseCertificate(credential);
+      // A real device still here means what went was something using its certificate.
+      if (cert && !present.has(cert.deviceId)) {
+        this.db.run("INSERT OR REPLACE INTO device_departures(group_id, device_id, epoch) VALUES(?, ?, ?)", [groupId, cert.deviceId, epoch]);
+      }
+    }
   }
 
   /**
@@ -1716,8 +1756,10 @@ export class ServerSession {
     this.rememberCurrentEpochKey(groupId);
     void this.uploadEpochKeys().catch(() => undefined);
     await this.checkTree(groupId);
+    this.recordDepartures(groupId, processed.epoch, processed.removedCredentials);
     await this.checkCommitAuthority(event, processed);
     this.describeCommit(event, processed, usersBefore);
+    this.announceConfirmedRemovals(groupId);
     this.retryUndecryptable(groupId);
   }
 
@@ -1859,11 +1901,14 @@ export class ServerSession {
       const cert = parseCertificate(credential);
       if (cert && !inTree.has(cert.userId)) removedUsers.add(cert.userId);
     }
-    if (removedUsers.size > 0 && senderCert && this.isRosterRemoval(groupId, removedUsers) && !this.alreadyAnnouncedRemoval(groupId, removedUsers)) {
+    // Those the server already told us about get their notice from that.
+    const pending = this.groups.get(groupId)?.pendingRemovals ?? {};
+    const unannounced = new Set([...removedUsers].filter((user) => !pending[user]));
+    if (unannounced.size > 0 && senderCert && this.isRosterRemoval(groupId, unannounced) && !this.alreadyAnnouncedRemoval(groupId, unannounced)) {
       this.addSystemRow(groupId, event.created_at, senderCert.userId, {
         type: "member_removed",
         actorId: senderCert.userId,
-        targetIds: [...removedUsers],
+        targetIds: [...unannounced],
       }, event.seq);
     }
 
@@ -1970,6 +2015,7 @@ export class ServerSession {
       kind: "update",
       removeLeaves: await this.staleLeaves(groupId),
     }));
+    this.announceConfirmedRemovals(groupId);
   }
 
   // --- Realtime frames ---
@@ -2148,7 +2194,10 @@ export class ServerSession {
       const envelope = decode(message.envelope);
       const key = this.epochKey(message.group_id, message.epoch);
       const device = this.users.get(message.sender_user)?.devices.get(message.sender_device);
-      if (!key || !device) {
+      if (!this.couldBeSent(message)) {
+        status = "unverified";
+        raw = envelope;
+      } else if (!key || !device) {
         status = "undecryptable";
         raw = envelope;
       } else {
@@ -2220,6 +2269,21 @@ export class ServerSession {
     if (live && isNew && status !== "sent") this.awaitingKeys.add(ref);
     const fresh = live ? isNew : status === "sent" && this.awaitingKeys.delete(ref);
     if (fresh && status === "sent" && message.sender_user !== this.account.userId) this.maybeNotify(view);
+  }
+
+  /**
+   * Only the server enforces that content is sent under the current epoch, so a
+   * malicious server working with someone removed could slip in new-looking
+   * messages under an old key. This catches a message from a device in an epoch
+   * after it left, and one that came after a later epoch had already begun. Genuinely
+   * old messages are unaffected: they fit the order the group's commits came in.
+   */
+  private couldBeSent(message: ApiMessage): boolean {
+    const left = this.departedAt(message.group_id, message.sender_device);
+    if (left !== null && message.epoch >= left) return false;
+    if (message.edited_at) return true;
+    const next = this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
+    return !next || message.seq < next.seq;
   }
 
   private retryUndecryptable(groupId: string): void {
