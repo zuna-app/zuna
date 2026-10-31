@@ -22,10 +22,10 @@ Zuna 0.1 is desktop-only text chat. The design already allows for mobile apps an
 **Push notifications are the one new server feature.** Phones can't hold a socket open, so a server needs a way to wake them:
 
 1. The app registers a push token, through UnifiedPush, or through APNs and FCM.
-2. On a new message, the server sends a push holding only the group ID and message ID, never content.
+2. On a new message, the server sends a push holding only the group ID and message ID, sealed with a key the device gave it, never content.
 3. The phone wakes, fetches the message, decrypts it, and shows a local notification.
 
-Apple and Google require credentials tied to a published app. Self-hosted servers would either use a small relay run by the project, which sees only opaque tokens and timing, or UnifiedPush on Android.
+Apple and Google require credentials tied to a published app, so self-hosted servers use a small relay run by the project (`zuna-push`), which sees only sealed handles, sealed payloads and timing. Android can also use UnifiedPush. The iOS side is planned in [IOS_PLAN.md](IOS_PLAN.md#notifications-decided-2026-10-31).
 
 ## Voice, video and screen sharing
 

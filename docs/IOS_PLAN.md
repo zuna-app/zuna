@@ -303,7 +303,7 @@ Minimum iOS version: 18 (proposed).
 | About: version, license, links to the source and the security model, server version | same | F7 |
 | – (new on iOS) | App lock with Face ID, Touch ID or passcode on every launch; privacy cover in the app switcher | F7 |
 | Server administration (owner and admins): icon (256 px square), name, address, version; invites with "Let members create invite links" and "Open sign-ups" (with the community key warning); members with roles, ban and unban; 7TV emote set with a preview; upload limit and retention; signing out with local data erased | same | F7 |
-| Notifications (section, sound, previews, badge) | **left out for now**; the core's `notify` event is ignored | – |
+| Notifications (section, sound, previews, badge) | through a push relay and a Notification Service Extension; see "Notifications" | N1–N6 |
 | Keep running when closed (tray), title bar, resizable sidebar | don't apply on iOS | – |
 
 ## Phases
@@ -536,7 +536,7 @@ Work that needs a decision was set aside, as agreed, so the rest could go on:
 2. **GPL-3.0 on the App Store** (see risk 3): the project moved from AGPL-3.0 to GPL-3.0 on 2026-10-31, at the owner's decision. Distributing through the App Store still needs an extra permission under section 7 of the GPL, or another decision.
 3. **Signing and TestFlight:** archiving and uploading needs certificates and profiles created in the owner's Apple Developer account (Xcode's automatic signing with `-allowProvisioningUpdates` does it), so it waits for a go-ahead.
 4. **Look:** chat wallpapers, left open since F1. A light theme was ruled out on 2026-10-31.
-5. **Notifications:** the next stage, as agreed; the plan for it is below.
+5. **Notifications:** decided on 2026-10-31 and in progress; see "Notifications" below. The owner applies for the notification filtering entitlement, and gives the relay's domain and an APNs key when it's deployed.
 
 ## Risks and open questions
 
@@ -547,15 +547,44 @@ Work that needs a decision was set aside, as agreed, so the rest could go on:
 5. **No JIT on iOS.** The core is interpreted. F0 measured about 1 ms per synced message on a Mac running at interpreter speed. A first check on an iPhone is still due.
 6. **Settled in F0:** reproducing the no-JIT condition, animated WebP in ImageIO, and Shiki under JavaScriptCore. See "F0 results".
 7. **Decrypted media on disk** rather than in memory. Protected, capped and cleared; documented in `SECURITY.md`.
-8. **Without notifications**, new messages are only seen after opening the app. This is the agreed scope for this stage.
+8. **Notifications** depend on a relay the owner runs, and on Apple granting the notification filtering entitlement for muted chats; see "Notifications".
 
-## Preparing for notifications later
+## Notifications (decided 2026-10-31)
 
-Notifications need the server feature described in `ROADMAP.md`: push token registration, a relay to APNs, and a push holding only the group and message IDs. On iOS a Notification Service Extension decrypts them. **Notifications must show the message content**, so the extension has to read the unlocked device key, the epoch keys and the sender's signing key while the phone is locked, and while the app itself may be running. Until the password has been entered after a restart of the phone, it can only report that a message arrived (see "Device key and unlocking"). To avoid migrations later:
+Notifications show the message content, as the owner asked from the start, without the server, the relay or Apple seeing it. Messages are encrypted with the epoch's content key, a symmetric key exported from MLS, so the extension can decrypt them without touching MLS state, while the app may be running too.
 
-- databases go in the App Group container and the device key in a shared Keychain access group from day one, with `AfterFirstUnlock` protection (not `Complete`), so both stay readable in the background;
-- SQLite runs in WAL mode, so the app and the extension can share the database;
-- the core's `notify` event and mute preferences stay untouched;
-- Settings keep room for a Notifications section.
+### Decisions
 
-Whether the extension can run the core within its memory limit is a question for that stage.
+- **The relay** (`zuna-push`, a small Go service in this repository) runs on the owner's server, under a domain chosen when it's deployed. It holds the APNs key of the owner's Apple Developer account. Self-hosted servers use it by default.
+- **A push carries only identifiers,** encrypted: the group and message IDs, sealed with a key the device gave the server. The phone fetches the message itself.
+- **Muted chats:** the owner applies to Apple for the notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). It's needed for development, TestFlight and App Store builds alike. Until Apple grants it, the phone gives each server the list of its muted chats, and the server skips them, so mentions in muted chats don't notify. Once it's granted, the list goes, and the extension decides, as the desktop does.
+- **Quick reply and "Mark as read"** from a notification are part of this stage.
+
+### How it works
+
+1. **Registration.** The app gets an APNs token and registers it with the relay, which returns a handle: the token sealed with the relay's own key, so the relay stores nothing. The app gives each of its servers the handle, the relay's address and a random push key, and updates them when the token changes. Signing out, being banned or removing the device deletes the registration.
+2. **A new message** (not an edit, reaction or read receipt) makes the server push to every device of the other members, skipping muted chats while that list exists. The payload is the group and message IDs, sealed with the device's push key. The server only talks to relays its configuration allows.
+3. **The relay** opens the handle and sends an APNs alert with `mutable-content`, the sealed payload, and a generic fallback text. APNs answers that a token is gone, and the relay tells the server, which drops the registration.
+4. **The Notification Service Extension** opens the payload, fetches the message from the server with the device's session, checks the sender's signature, decrypts it with the content key from the local database, and shows the title and text the desktop would show, from the same core function. Notifications are grouped by chat, carry the sender's picture (Communication Notifications), and set the badge.
+5. **Fallbacks:** after a restart of the phone, until the password is entered, "New message" with the server's name; when the epoch isn't known yet, or the fetch fails, "New message" with the chat's name.
+6. **Who sees what:** the server, what it sees today plus the push registrations (and the muted list until the entitlement); the relay, a handle, the server's address, timing and the size of a sealed payload; Apple, the token, timing and the sealed payload.
+
+### Already in place
+
+- Databases are in the App Group container, and the device key is in a shared Keychain access group with `AfterFirstUnlock` protection, so both stay readable in the background.
+- SQLite runs in WAL mode, so the app and the extension can share the database.
+- The core's `notify` event and mute preferences are unchanged, and Settings has room for a Notifications section.
+
+### Stages
+
+| Stage | Work |
+|---|---|
+| N0 | A spike: the extension running a slim core bundle in JavaScriptCore, measured against its memory limit (about 24 MB). If it doesn't fit, the extension's path is written in Swift instead, with parity tests against the core. |
+| N1 | Server: push registrations per device, the fan-out on new messages, sealed payloads, the relay allowlist, the temporary muted list, cleanup. Go tests. |
+| N2 | Relay `zuna-push`: stateless handles, APNs over HTTP/2 with a token key, sandbox and production, rate limits, a Dockerfile. Go tests against a fake APNs. |
+| N3 | Core: a function that fetches one message and returns what `notify` would, with mentions and mutes; read-only use of the database. Node tests. |
+| N4 | App: asking for permission, registration, Settings → Notifications as on the desktop (on, sound, previews, badge), banners while the app is open but not in that chat, opening the chat on a tap, clearing notifications of chats that were read, Reply and Mark as read. |
+| N5 | Extension: decryption, threads per chat, sender pictures, the badge, the fallbacks. |
+| N6 | End-to-end tests on the simulator: a test relay delivers with `simctl push`; a desktop peer's message shows on the lock screen with its text, a tap opens the chat, a reply reaches the desktop. |
+
+Real APNs and the relay's deployment wait for the domain and the APNs key; everything up to N6 runs on the simulator.
