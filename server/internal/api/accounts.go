@@ -19,12 +19,12 @@ import (
 	"zuna/server/internal/store"
 )
 
-// Bounds on client-chosen Argon2id parameters. Clients enforce the same
-// minimums when logging in, so a malicious server can't downgrade them.
+// Bounds on client-chosen Argon2id parameters. Clients enforce the same limits
+// when logging in, so a malicious server can't downgrade them or make them hang.
 const (
-	minKDFMemory     = 32 << 10 // KiB
+	minKDFMemory     = 64 << 10 // KiB
 	maxKDFMemory     = 1 << 20
-	minKDFIterations = 2
+	minKDFIterations = 3
 	maxKDFIterations = 16
 	maxKDFParallel   = 8
 
