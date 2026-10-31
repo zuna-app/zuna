@@ -1,0 +1,236 @@
+# iOS app: testing plan
+
+Companion to [IOS_PLAN.md](IOS_PLAN.md). The goal is a test setup complete enough that the app can be built feature by feature **without a human in the loop**: every item in the parity matrix gets an automated check that runs headlessly on one Mac, against a real server and a real desktop client, and reports results in a form that can be read and acted on.
+
+## Principles
+
+1. **Prove compatibility with the desktop, not with ourselves.** Every end-to-end scenario has a desktop-core peer on the other side. An iOS client talking to another iOS client proves little.
+2. **Hermetic.** Everything runs on localhost: a fresh Go server per run, a fake 7TV, generated fixtures. No internet, no shared state between runs, no use of the developer's own simulators.
+3. **Test the host, not the core again.** `@zuna/core` is already covered by `npm run test:core`. The new risk is the iOS host around it (JavaScriptCore shims, native bridges, Swift models, lifecycle) and the native UI. Tests are aimed there.
+4. **One command per loop, readable output.** Each command writes a short `summary.md` with failures, file and line, log tails and screenshot paths.
+5. **Deterministic waits only.** No sleeps in tests. A test that passes on retry is reported as flaky and fixed, never retried into green.
+6. **Desktop stays green.** The existing `npm test` runs in every full regression.
+
+## Topology
+
+```mermaid
+flowchart LR
+  subgraph Mac["This Mac, all on localhost"]
+    Orch["Orchestrator<br/>scripts/ios-e2e.mjs + vitest"]
+    Server[("zuna-server<br/>temp data dir")]
+    Fake["Fake 7TV<br/>fixture emote set"]
+    Peers["Desktop-core peers<br/>Node: alice, bob, carol"]
+    Host["zuna-host<br/>macOS CLI, same Swift host as the app"]
+    subgraph Sim["Dedicated simulator"]
+      App["Zuna.app, Debug<br/>with control port"]
+      UIT["XCUITest runner"]
+    end
+  end
+  Orch -->|control| Host
+  Orch -->|control| App
+  Orch --> Peers
+  UIT -->|drives the UI| App
+  UIT -->|peer control| Peers
+  Host -->|HTTP + WebSocket| Server
+  App -->|HTTP + WebSocket| Server
+  Peers -->|HTTP + WebSocket| Server
+  Server --> Fake
+```
+
+## The control channel
+
+The key enabler. The app's core already sits behind an RPC boundary (`packages/core/src/rpc.ts`: `call`, `reply`, `event` messages). Test builds expose that same protocol over a local WebSocket, so a test can drive an iOS client exactly as the UI does, using the existing `RemoteClient`/`RemoteSession` types.
+
+- **Where:** `ZunaHost` starts a `ControlServer` (Network.framework, WebSocket) on `127.0.0.1` when launched with `-ZunaControlPort <port>` (the app) or `--control <port>` (`zuna-host`). The Node peers expose the same protocol, so UI tests drive peers the same way.
+- **Wire format:** JSON frames shaped like `rpc.ts` messages. Binary values are tagged as `{"$bytes": "<base64>"}`. Files are tagged as `{"$file": {"path", "name", "mime"}}` when both sides share the filesystem, and sent as bytes otherwise.
+- **Release builds never contain it.** The code is compiled only under the `ZUNA_TEST_HOOKS` Swift condition, and the JS hooks only under the bundle define `__ZUNA_TEST__`. A CI check builds Release and fails if the binary contains `ControlServer` or `__zunaTest`.
+- **Test-only methods** (namespace `test.`):
+
+| Method | Purpose |
+|---|---|
+| `test.messages(key)`, `test.texts(key)` | message views of a conversation, like `TestApp.texts()` in the core harness |
+| `test.events(since)` | the `CoreEvent` stream, buffered |
+| `test.clockOffset(ms)` | shifts `Date.now()` in the JS runtime, for 7-day key rotation and 21-day key packages |
+| `test.network(mode)` | the host's fetch and WebSocket shims go `normal`, `offline`, `flaky(p)` or `latency(ms)` |
+| `test.crashOn(pattern)` | the host exits the moment a response matching a URL pattern arrives. For example, `POST /api/groups/*/commit` simulates a crash after the server accepted a commit and before it was merged locally. This needs no core changes. |
+| `test.restart()` | tears down the JS runtime and reopens from persisted data, like an app relaunch |
+| `test.suspend()`, `test.resume()` | the iOS background and foreground path |
+| `test.dropDeviceKey()` | deletes the Keychain item but keeps the databases, like a restore onto a new phone |
+| `test.sql(query)` | read-only database queries, for checks of data at rest |
+| `test.logs(since)` | recent console and host log lines |
+
+## Test layers
+
+| Layer | What | Runs in | Time |
+|---|---|---|---|
+| L0 Static | TypeScript typecheck, Swift build with warnings as errors, Release guard (no test hooks) | macOS | < 1 min |
+| L1 Crypto | `cargo test` natively; existing WASM tests; cross vectors WASM ↔ native | macOS | < 1 min |
+| L2 Host units | JS environment conformance, golden parity, bridge contracts | `swift test` on macOS | < 1 min |
+| L3 Core on host | actor scenarios: `zuna-host` against Node peers | macOS | 2–4 min |
+| L4 Core in simulator | the same L3 scenarios, with the real app in the simulator as the actor | simulator | 5–8 min |
+| L5 UI end to end | XCUITest against peers, plus the screen tour | simulator | smoke 3 min, full 15–20 min |
+| L6 Performance | XCTest metrics, with thresholds for regressions | simulator | 5 min |
+| L7 Manual | short checklist on a physical iPhone at milestones | your device | – |
+
+### L1. Crypto: cross vectors
+
+The Rust code is shared, so this layer catches mistakes in the bindings (byte order, nulls, epoch conversion, errors that don't throw).
+
+- `scripts/crypto-vectors.mjs` produces `fixtures/crypto-vectors.json` with the WASM build. It covers:
+  - deterministic outputs: Argon2id, HKDF, SHA-256, `safetyDigest`;
+  - data sealed by WASM: AEAD, STREAM chunks, HPKE, signatures;
+  - an MLS group created in WASM with a Welcome for a native key package, plus commits in both directions with matching `exportSecret` values.
+- A Swift test (`ZunaCryptoTests`) opens and verifies everything, then writes its own sealed data, which the Node script verifies.
+
+### L2. Host units: golden parity
+
+The same pure functions run in Node (V8) and inside the iOS JavaScriptCore runtime over a fixed corpus. The outputs must match byte for byte.
+
+- **Core functions, run inside JavaScriptCore:**
+  - `plainText`, `tokenize`/`indexTokens` (fixed key), `parseInviteLink`, `normalizeServerUrl`;
+  - `toRecoveryText`/`fromRecoveryText`, `derivePasswordKeys` (minimum allowed parameters), `reactionId`, `safetyEmoji`;
+  - `sealEnvelope` and `openEnvelope` across runtimes, `u64Bytes`.
+- **The corpus** includes passwords and names with Polish diacritics, decomposed forms (NFD), emoji with zero-width joiners, RTL text and code fences. This catches differences in Unicode normalization or regexes between V8 and JavaScriptCore before they lock someone out of their account.
+- **Swift ports of UI logic:** the message markup parser, `jumboSize`, mention and emote extraction, preview text. Golden output comes from the **desktop's own code**: `renderMarkup` rendered with `react-dom/server` and normalized into a canonical tree. The Swift parser must produce the same tree. The desktop code stays untouched.
+- **JS environment and bridge contracts:**
+  - timers: order, `clearTimeout`, intervals, interleaving with native callbacks;
+  - `fetch`: methods, headers, JSON and binary bodies, status codes, `AbortSignal.timeout`, network errors becoming `ApiError(0)`. Tested against a local test HTTP server.
+  - `WebSocket`: open, message, close codes including 4401, errors;
+  - `TextEncoder`/`TextDecoder` including invalid UTF-8, `atob`/`btoa`, `URL`.
+- **SQLite bridge:** one `LocalDb` contract suite in TypeScript runs against both the Node `MemoryDb` and the native bridge. It covers:
+  - multi-statement `run`, every `SqlValue` type, BLOBs coming back as `Uint8Array`;
+  - nested transactions and rollback on throw;
+  - FTS5 with `contentless_delete`, `PRAGMA user_version`.
+- **FileAdapter:** range reads, assembling a file, files over 1 MiB.
+- **RPC codec:** binary tagging, error `code` and `status` preserved, event ordering.
+- **Swift models drift check:** every payload decoded by Swift is re-encoded and its key set compared with the original JSON. A field the core sends but the Swift model lacks fails the run. This runs automatically inside L3–L5 too.
+
+### L3 and L4. Core scenarios with actors
+
+New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServer` and `MemoryDbProvider` from `packages/core/test/helpers.ts`.
+
+- **`Actor` interface**, async everywhere: `register`, `login`, `session` (a typed `RemoteSession`), `waitForEvent(predicate)`, `texts(key)`, plus the `test.` hooks above.
+  - `NodeActor`: an in-process `ZunaClient`, i.e. the desktop core.
+  - `HostActor`: connects to a control port. It is backed by `zuna-host` (L3) or by the app in the simulator (L4), launched with `xcrun simctl launch` and `SIMCTL_CHILD_*` environment variables.
+- **Scenarios:** the existing `e2e.test.ts` scenarios ported once into actor form, so that each runs with the iOS actor in every role (sender, receiver, group creator, added member, new device, recovered account, admin). The original suite stays as it is. iOS-specific additions:
+  - suspend, peers send 200 messages, resume: everything arrives in order, unread counts are correct;
+  - offline send: the message waits in the outbox, the network returns, it is delivered exactly once;
+  - crash after the server accepted a commit: on relaunch the commit is merged and the group still works;
+  - crash during a multi-chunk upload: the message shows as failed, a retry works;
+  - device key lost (restore from backup): the app starts fresh, signs in, gets the full history;
+  - clock moved forward 8 days: the next send rotates the epoch, and the peer follows;
+  - registering on desktop with a diacritic password and signing in on iOS, and the reverse;
+  - files both ways: JPEG, PNG, converted HEIC, MP4, PDF, a 3.5 MiB multi-chunk file, a tampered chunk rejected;
+  - read receipts on and off, typing, presence, profile and avatar changes, verification emoji identical on both sides;
+  - revoking the iOS device from desktop signs it out, and the reverse; ban; server settings changes arriving live.
+- **Data at rest:** after the scenarios, `test.sql` and a raw scan of the database files confirm that no known plaintext (message texts, names, file names) appears anywhere.
+- **Matrix:** `node ↔ host` by default; `host ↔ host` and the simulator variant (L4) in the full run.
+
+### L5. UI end to end (XCUITest)
+
+- **Orchestration:** `scripts/ios-e2e.mjs`:
+  1. Builds the server, the core bundle and the app (`build-for-testing`).
+  2. Starts the server and the fake 7TV.
+  3. Seeds the world through the peers: owner account, invite links, peers with avatars, a DM history, a group with pins, reactions and emotes, and a 2,000-message conversation for scrolling.
+  4. Prepares the dedicated simulator.
+  5. Runs `xcodebuild test-without-building`, passing the server and peer URLs through `TEST_RUNNER_` environment variables.
+- **TestKit** in the UI test target:
+  - `Peers` client speaking the control protocol: `peers.alice.send(to:text:)`, `waitForMessage`, `react`, `createGroup`, `sendFile(fixture:)` and so on;
+  - `AppLauncher` with launch arguments for the control port, a fresh data directory, signing in programmatically (`-ZunaTestLogin`), animations off, `en_US` locale and UTC.
+  - Onboarding itself is tested through the real UI, in its own tests.
+- **Accessibility identifiers** come from one `A11y` enum compiled into both the app and the tests, for example `conversation.row.<key>`, `message.bubble.<id>`, `composer.input`, `composer.send`. Every interactive element and every asserted text gets one.
+- **Every test checks both sides:** what the UI shows, and what the desktop peer received. For example:
+  - type `**hi** @alice KEKW` and send: alice receives text, `emotes` and `mentions` identical to what the desktop composer would produce;
+  - alice reacts with an emote: the chip appears on iOS with the right image.
+- **One test file per matrix area:** Onboarding, ServerRail, ConversationList, ChatReading, Composer, MessageActions, Attachments, Groups, Invites, Verification, Settings, ServerAdmin, Lifecycle, iPad.
+- **Media:** `xcrun simctl addmedia` seeds the photo library with HEIC and HEVC fixtures. One test goes through the real PhotosPicker. The other attachment tests inject files through a Debug-only path, so they don't depend on an out-of-process picker.
+- **Lifecycle in the UI:** Home button and reactivation, `terminate` and relaunch with an unsent draft and a queued message, network faults through `test.network` showing "Waiting for network".
+- **Screen tour:** one test visits every screen with seeded data and attaches screenshots. They are exported to `apps/ios/.e2e/<run>/screens/*.png` for visual review against the desktop design tokens, also with large Dynamic Type and on iPad. On any failure, the test attaches a screenshot and `app.debugDescription`, a text dump of the element tree.
+
+### L6. Performance
+
+XCTest metrics with stored baselines, failing on regressions:
+
+- launch to the conversation list;
+- opening a chat;
+- scroll hitch rate through 2,000 messages with animated emotes;
+- signing in and syncing 10,000 messages (time and peak memory);
+- Argon2id time.
+
+The simulator runs on Mac hardware, so these catch regressions only, not absolute device performance. JavaScriptCore on iOS runs without a JIT. The tests try to reproduce that with `JSC_useJIT=0` (passed as `SIMCTL_CHILD_JSC_useJIT=0`); whether JavaScriptCore honors it is checked in the spike.
+
+### L7. Manual, at milestones only
+
+On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minutes with a checklist:
+
+- real performance without a JIT;
+- Keychain after a reboot, before the first unlock;
+- the OS killing the app in the background;
+- camera photos and videos;
+- install from TestFlight.
+
+## Hermetic environment
+
+- **Server:** a new binary and temporary data directory per run, `--auth-burst 1000`, listening on `127.0.0.1`. The core accepts plain HTTP for loopback, and the Debug app allows local networking in ATS.
+- **Fake 7TV:** a small HTTP server in the orchestrator serving a fixture set with static, animated and zero-width WebP emotes. This needs the **only server change: two optional environment variables, `ZUNA_7TV_API` and `ZUNA_7TV_CDN`**, overriding `APIBase` and `CDNBase` in `server/internal/emotes`. Without them, emote tests would depend on the real 7TV.
+- **Simulators:** dedicated devices created by script, `Zuna E2E iPhone` (iPhone 17, iOS 27.0) and `Zuna E2E iPad`. Tests use only these. Before each UI run:
+  - uninstall the app;
+  - `xcrun simctl keychain <udid> reset` (the simulator keychain survives uninstalling);
+  - grant photo permissions up front;
+  - add an interruption monitor for any system alert.
+- **Fixtures**, generated with macOS tools and committed so later runs need nothing extra:
+  - photos with `sips` (JPEG, PNG, HEIC);
+  - videos with `avconvert` (H.264, HEVC);
+  - random multi-chunk binaries;
+  - emote WebPs with `img2webp` (from Homebrew's `webp`, a one-time step).
+  - Desktop-only formats such as WebM and Ogg only need the right MIME type to test the fallback card.
+
+## Commands and results
+
+| Command | Runs |
+|---|---|
+| `npm run ios:check` | L0, L1, L2 |
+| `npm run ios:e2e:host` | L3 |
+| `npm run ios:e2e:sim` | L4 |
+| `npm run ios:e2e:ui -- [--only Composer]` | L5 |
+| `npm run ios:screens` | the screen tour |
+| `npm run ios:perf` | L6 |
+| `npm run ios:all` | everything, plus the desktop's `npm test` |
+
+Each run writes `apps/ios/.e2e/<run>/` (and `latest/`) containing:
+
+- `summary.md`: passes and failures, the failing assertion with file and line, and the last lines of each log;
+- `server.log`, `peers.log`, `host.log`;
+- `device.log` from `xcrun simctl spawn <udid> log stream` (subsystem `chat.zuna`);
+- the `.xcresult` bundle and exported screenshots.
+
+`xcresulttool` output is converted to the summary, so a failure can be understood without opening Xcode. Long runs go in the background with a hard timeout, so a hung simulator can't stall the work.
+
+## How I work with this
+
+For each item in the parity matrix:
+
+1. Write the scenario first: L3 when the feature touches the core or the host, L5 for the UI, both directions with a desktop peer.
+2. Implement until `ios:check` and the area's tests pass.
+3. Look at the screen tour for that area and fix what looks wrong.
+4. Run the full regression (`ios:all`, including the desktop's `npm test`).
+5. Commit directly to `main` with an English message, one commit per finished feature. Nothing is pushed without your go-ahead.
+
+A feature counts as done when its scenario passes against the desktop peer in both directions, its screenshots are reviewed, and nothing else regressed.
+
+## Built in phase F1, before any features
+
+The infrastructure comes first, so everything after it can be verified on its own:
+
+1. The control channel in `ZunaHost`, and `zuna-host`.
+2. `tests/e2e` with `NodeActor` and `HostActor`.
+3. The orchestrator, simulator setup and fake 7TV.
+4. The result summaries.
+5. The golden corpus and the crypto vectors.
+
+## Limits of autonomy
+
+- **No physical device:** real-device performance, the background behavior of a real OS, the camera (L7).
+- **Signing:** distribution needs your Apple Developer team. Simulator builds need no signing.
+- **The out-of-process photo picker** is tested by one UI test; the rest go through the Debug injection path.
+- **App Store questions** (account deletion, reporting and blocking users, AGPL) are decisions, not tests.

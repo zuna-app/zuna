@@ -1,0 +1,359 @@
+# iOS app: plan
+
+Status: agreed direction, not started. Scope: feature parity with the 0.1 desktop app, **without notifications** (system notifications, sounds, previews and the icon badge). Testing is described in [IOS_TESTING.md](IOS_TESTING.md).
+
+## Summary
+
+- **Native app: SwiftUI, with UIKit where SwiftUI falls short. The protocol is not rewritten:** the existing `@zuna/core` runs unchanged inside JavaScriptCore on iOS. All MLS, envelope, vault, outbox, sync and self-repair logic stays one implementation, covered by the existing end-to-end tests.
+- **Cryptography is the same Rust crate**, compiled natively for iOS and exposed to Swift through UniFFI. JavaScriptCore on iOS has no JIT, so WebAssembly isn't an option, and native code is faster anyway.
+- **The server needs no changes**, apart from two optional environment variables that let tests use a fake 7TV. A phone is one more device on an account: it signs in with the password, joins each group with an external commit and downloads history from the vault.
+- **Changes to existing code are small and backward compatible:**
+  - Rust: target-specific dependencies and a UniFFI module next to the WASM bindings.
+  - Core: a `FileAdapter` instead of `Blob`, plus `suspend()`/`resume()` for the iOS lifecycle.
+  - Nothing changes in the data the server sees.
+- **Conventions:** code, commits, UI text and docs in English. Work happens directly on `main`, one commit per finished, tested feature, never pushed without asking.
+- **Signing:** the paid Apple Developer team `SGKB9R23YT`, automatic signing, bundle ID `chat.zuna.app`, App Group `group.chat.zuna.app`, shared Keychain access group `SGKB9R23YT.chat.zuna.shared`.
+
+## How Zuna works
+
+| Layer | Where | Role |
+|---|---|---|
+| Crypto | `crypto/` (Rust, OpenMLS) | MLS (RFC 9420), Argon2id, HKDF, XChaCha20-Poly1305, STREAM for files, Ed25519, HPKE, the digest for emoji verification. `mls.rs` and `primitives.rs` don't depend on the WASM bindings in `lib.rs`. |
+| Client core | `packages/core` (TypeScript) | The whole protocol: accounts, REST, the socket, one `ServerSession` per server, the encrypted search index, and the RPC boundary to the UI (`rpc.ts`). |
+| Desktop | `apps/desktop` | Electron shell (window, tray, Keychain via `safeStorage`, `zuna://` links, notifications). React UI. The core runs in a Worker with SQLite WASM on OPFS. |
+| Server | `server/` (Go) | Orders commits per group, stores and relays ciphertext, files, 7TV emotes, invites, administration. |
+
+What matters for a new platform:
+
+- **The core needs little from its host:**
+  - a synchronous `LocalDb`, a 32-byte device key, a device name and an event callback;
+  - the globals `fetch`, `WebSocket`, timers, `TextEncoder`/`TextDecoder`, `atob`/`btoa`, `URL` and `AbortSignal.timeout`;
+  - `Blob`, which goes away with the `FileAdapter`.
+- **The UI talks to the core only through RPC calls and `CoreEvent`s.** Swift can be the UI side of that same protocol.
+- **Local data is encrypted by the core**, so the local database format is a private detail of each platform.
+- **Sync works from a feed of current state.** An app woken after a week catches up as quickly as after a minute, which suits iOS, where the socket doesn't survive in the background.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph App["Zuna.app"]
+    UI["SwiftUI + UIKit<br/>main thread"]
+    Model["AppModel<br/>@Observable, mirrors store.ts"]
+    subgraph Host["ZunaHost, core thread"]
+      JSC["JavaScriptCore<br/>@zuna/core bundle"]
+      Bridges["Native bridges<br/>http, ws, timers, db, files, log"]
+    end
+    Crypto["ZunaCrypto<br/>Rust via UniFFI"]
+    DB[("SQLite, pinned<br/>App Group container")]
+    KC["Keychain<br/>device key"]
+  end
+  UI <--> Model
+  Model <-->|"RPC: call, reply, event"| JSC
+  JSC <--> Bridges
+  JSC --> Crypto
+  Bridges --> DB
+  Host --> KC
+  JSC <-->|"HTTPS + WebSocket"| Server["Zuna server"]
+```
+
+### Cryptography: Rust through UniFFI
+
+- **`crypto/Cargo.toml`:**
+  - dependencies used only by WASM (`wasm-bindgen`, `js-sys`, `console_error_panic_hook`, the `js` feature of `openmls` and `getrandom`) move under `[target.'cfg(target_arch = "wasm32")'.dependencies]`;
+  - `lib.rs` bindings go behind `#[cfg(target_arch = "wasm32")]`;
+  - `staticlib` is added to `crate-type`.
+- **New `crypto/src/native.rs`** exposes through UniFFI exactly what `lib.rs` exposes:
+  - `randomBytes`, `argon2id`, `hkdfSha256`, `sha256`;
+  - `aeadSeal`/`aeadOpen`, `streamSeal`/`streamOpen`;
+  - `signingKeygen`, `sign`, `verify`, `hpkeKeygen`, `hpkeSeal`/`hpkeOpen`, `safetyDigest`;
+  - an `MlsClient` object with every method. Its state sits behind a `Mutex`, because UniFFI requires `Send + Sync`.
+  - Errors are `Result`s, so they surface as exceptions: the core relies on those.
+- **`scripts/build-crypto-apple.mjs`** builds an XCFramework for `aarch64-apple-ios`, `aarch64-apple-ios-sim` and `aarch64-apple-darwin`. The macOS slice lets the whole host run headless in tests.
+- **In the core bundle**, `@zuna/crypto` is aliased to a small JavaScript shim with the same exports. It calls native functions through the JavaScriptCore C API, passing typed arrays without copying through JSON. `MlsClient` becomes a JS class wrapping a native handle. `takeChanges()`, `commitChanges()` and the other methods keep their exact return shapes.
+
+### Core runtime: ZunaHost
+
+- **One `JSContext` on a dedicated thread** with its own run loop. Every JS call, timer and network callback is delivered on that thread, so the core keeps the single-threaded behavior it was written for, just like in the desktop Worker.
+- **The core bundle:** `apps/ios/core-bundle/entry.ts`, built with esbuild into a resource of `ZunaHost`. It contains:
+  - the polyfills;
+  - the crypto shim, a `DbProvider` and a `FileAdapter` that call native bridges;
+  - a boot handler that creates `ZunaClient`;
+  - `serveCore` from `rpc.ts`, attached to a native-backed port.
+
+| Needed by the core | Provided by |
+|---|---|
+| `fetch`, `AbortSignal.timeout` | JS wrapper over a native `URLSession` bridge, with binary bodies, a timeout and errors mapped to `ApiError(0)` |
+| `WebSocket` | JS class over `URLSessionWebSocketTask`, with the same events and close codes (4401 included) |
+| timers, `queueMicrotask` | native `DispatchSourceTimer` on the core thread |
+| `TextEncoder`/`TextDecoder`, `atob`/`btoa` | native bridge for speed, JS fallback |
+| `URL`, `URLSearchParams` | bundled polyfill |
+| `console` | `os_log`, subsystem `chat.zuna`, category `core` |
+| `LocalDb` | synchronous native bridge to SQLite |
+| files | `FileAdapter`: range reads from file URLs, decrypted output written to protected files |
+
+- **JavaScriptCore itself provides** what the core uses from the language: `String.prototype.normalize`, Unicode property escapes and lookbehind in regexes, `BigInt` with `DataView`, `Intl`. Golden parity tests check them against V8 (see [IOS_TESTING.md](IOS_TESTING.md)).
+- **Performance:** there is no JIT on iOS, so the core runs interpreted. The core thread is separate from the UI, so this can't cause dropped frames. Sync time is measured in F0.
+
+### Storage
+
+- **SQLite amalgamation** at the same version as the desktop's `@sqlite.org/sqlite-wasm` (3.54), vendored as a C target with FTS5. This avoids depending on the system SQLite version for `contentless_delete`, which needs 3.43 or later.
+- **The `LocalDb` bridge** behaves like `apps/desktop/src/renderer/src/core/sqlite.ts`:
+  - synchronous calls, nested transactions through a depth counter;
+  - BLOBs returned as `Uint8Array`;
+  - multi-statement `run` for migrations.
+- **Files live in the App Group container**, protected with `NSFileProtectionCompleteUntilFirstUserAuthentication` and excluded from backups. Without the device-only key they're useless anyway.
+
+### Device key
+
+- **32 random bytes in the Keychain**, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synced through iCloud, in a shared Keychain access group.
+- **No password on app launch.** The password is needed only to sign in, as on the desktop. Keys are readable once the phone has been unlocked after a restart. That class (`AfterFirstUnlock`) is also what a future Notification Service Extension needs to decrypt a message and show its content while the phone is locked.
+- **Optional app lock:** a setting that requires Face ID, Touch ID or the device passcode (LocalAuthentication) each time the app opens. It locks the UI only. The keys stay available in the background, so notifications can still show content. While locked, the app switcher shows a blurred cover.
+- **Databases present but no key** (a backup restored onto a new phone): local data is erased and onboarding shown, since the account and history live on the server. The desktop shows "Zuna couldn't start" in the equivalent case.
+- **Device name:** "iPhone" or "iPad". It travels encrypted in the vault and shows under Settings → Devices on other devices.
+
+### UI and state
+
+- **`ZunaModels`:** Codable mirrors of `packages/core/src/types.ts`. Drift is caught automatically by the tests.
+- **`CoreConnection`:** the Swift side of `connectCore`, giving async methods for the client and each session, plus a stream of events.
+- **`AppModel`** (`@Observable`) mirrors `apps/desktop/src/renderer/src/state/store.ts`: per-server state, message lists, debounced refreshes, typing expiry, upserts, jump targets, drafts, toasts.
+- **Navigation:**
+  - iPhone: a `NavigationStack` with the conversation list at the root, and a left drawer with the server rail (icons, unread counts, join, settings, own avatar), as in Discord's mobile app.
+  - iPad: a three-column `NavigationSplitView`, as on the desktop, with details in an inspector.
+- **Where UIKit is used:**
+  - the message list: `UICollectionView` with a diffable data source, anchored to the bottom, loading older pages without jumps;
+  - message text: TextKit 2 with attachments for inline emotes (animated, zero-width stacking), spoilers, links and mentions;
+  - the composer: a growing `UITextView` with autocomplete and image paste;
+  - context menus: `UIContextMenuInteraction` with a reaction bar.
+- **Platform features:** PhotosPicker, document picker, QuickLook, AVPlayer, the share sheet, haptics.
+- **Look:**
+  - the desktop's dark theme from `tokens.css`, its five accents and three message sizes, scaled with Dynamic Type;
+  - Inter and JetBrains Mono, taken from the same `@fontsource-variable` packages.
+- **Third-party dependencies:** none planned.
+  - Animated WebP uses ImageIO (frames and delays from `CGImageSource`).
+  - Code blocks use Shiki inside a second JavaScriptCore context, with its JavaScript regex engine and the desktop's themes and languages, so highlighting matches exactly.
+  - Both are proven in F0.
+- **Logic that must match the desktop exactly is ported to Swift and held to the desktop's output by golden tests:**
+  - the markup parser and `jumboSize`;
+  - mention and emote extraction (they decide how a message renders for everyone else);
+  - preview text.
+
+### Files and media
+
+The core gets a `FileAdapter` instead of using `Blob` directly:
+
+```ts
+interface FileAdapter {
+  size(source: unknown): number;
+  type(source: unknown): string;
+  read(source: unknown, start: number, end: number): Promise<Uint8Array>;
+  assemble(parts: Uint8Array[], mime: string): Promise<unknown>;
+}
+```
+
+- **The default implementation uses `Blob`**, so the desktop and existing tests behave exactly as before. `Api.updateIcon` takes bytes.
+- **Decrypted media on iOS** go to `Caches/decrypted/` with `NSFileProtectionComplete`. The cache is capped (LRU, like the desktop's 300 entries) and cleared at launch and on signing out of a server. The desktop keeps them in memory only, but AVPlayer and QuickLook need files. This difference goes into `SECURITY.md`.
+- **Compatibility of media formats with the desktop:**
+  - iPhone photos are HEIC, which Chromium can't show. They're converted to JPEG before sending, keeping `width`, `height` and the 48 px JPEG `thumb` exactly like the desktop's `prepareFile`.
+  - iPhone videos are HEVC in `.mov`. They're exported as H.264 MP4.
+  - WebM, Ogg or Opus sent from a desktop can't be played by AVPlayer. They show as a file card with save and share.
+  - WebP (images, 7TV emotes, desktop avatars) displays through ImageIO.
+  - Avatars and server icons are sent as 256 px JPEG or PNG with the correct `mime`. The desktop renders those.
+
+### Lifecycle and connectivity
+
+- **Going to the background:** a background task gives the outbox and the current upload up to about 30 seconds, then `client.suspend()` closes sockets and stops timers.
+- **Returning:** `resume()` reconnects and runs `syncAll`. "Updating" shows until it's done.
+- **The network coming back** (`NWPathMonitor`) calls `nudge()`, like the desktop's `online` event.
+- **An upload interrupted by the app being killed** shows "Not sent. Try again" through the existing `markStaleSendsFailed`.
+- **Marking messages as read** requires an active app with the chat on screen, the equivalent of `windowFocused`.
+
+### Links
+
+- **`zuna://join?link=…`** is registered in `CFBundleURLTypes`. The server's invite page already produces it, and `parseInviteLink` already reads it. Universal links can't work for arbitrary self-hosted domains.
+- **Links in messages** (`http(s)` only) open in Safari, like `shell.openExternal`.
+- **Development:** the core allows plain HTTP only for loopback addresses, so the simulator reaches a local server at `127.0.0.1`. A physical device needs an HTTPS tunnel; the rule in the core isn't loosened. Debug builds allow local networking in ATS.
+
+## Changes to the repository
+
+| Where | Change | Effect on the desktop |
+|---|---|---|
+| `crypto/` | dependencies per target, `cfg`, `staticlib`, `native.rs` with UniFFI | none; the WASM build is identical |
+| `packages/core` | `FileAdapter`, `suspend()`/`resume()` | none; the `Blob` default keeps behavior, and `npm run test:core` stays green |
+| `server/internal/emotes`, `cmd/zuna-server` | optional `ZUNA_7TV_API`, `ZUNA_7TV_CDN` for tests | none unless set |
+| `apps/ios/` (new) | XcodeGen spec, app, `ZunaKit` package, core bundle, UI tests | – |
+| `tests/e2e/` (new) | cross-client scenarios: desktop core against the iOS host | – |
+| `scripts/` | `build-crypto-apple.mjs`, `ios-e2e.mjs`, `crypto-vectors.mjs`, fixture generation | – |
+| `.github/workflows` | macOS job running the iOS checks | – |
+| `docs/` | this plan, the testing plan; updates to `ROADMAP.md` and `SECURITY.md` | – |
+
+## Project layout
+
+```
+apps/ios/
+  project.yml                 XcodeGen spec; the .xcodeproj is generated and not committed
+  Zuna/                       app: SwiftUI screens, UIKit message list, text and composer
+  ZunaUITests/                XCUITest, TestKit (peers, launcher), A11y identifiers
+  ZunaKit/                    SwiftPM package, iOS 18 and macOS
+    ZunaCryptoFFI             binary target: Rust XCFramework
+    ZunaCrypto                UniFFI Swift bindings
+    CSQLite                   pinned SQLite amalgamation with FTS5
+    ZunaHost                  JavaScriptCore runtime, bridges, RPC, control server (test builds only)
+    ZunaModels                Codable mirrors of types.ts
+    ZunaMarkup                Swift ports checked against the desktop (markup, previews, mentions, emotes)
+    zuna-host                 macOS executable running the host headless, for tests
+  core-bundle/                esbuild entry for JavaScriptCore
+```
+
+Minimum iOS version: 18 (proposed).
+
+## Feature parity
+
+### Accounts and servers
+
+| Desktop | iOS | Phase |
+|---|---|---|
+| Join with an invite link, with a preview (icon, name, member count); join an open server by address | start screen with a Paste button; `zuna://` links | F2 |
+| Set up a new server: owner account, then the server's name (or skip) | same | F2 |
+| Sign up: display name, username suggested and validated (`^[A-Za-z0-9_][A-Za-z0-9_.-]{1,31}$`), password of 10+ characters with the strength meter (score 2+) | same, with iOS password AutoFill | F2 |
+| Recovery key: grouped display, Copy, Save as file, confirmation | Copy, and the share sheet with `zuna-recovery-key.txt` | F2 |
+| Sign in; "Forgot your password?" leads to recovery with the key and a new password | same | F2 |
+| Several servers, switching, unread counts per server (muted excluded) | server drawer | F3 |
+| Sign out of a server and erase its local data | settings | F7 |
+| Signed out by the server (banned, session ended, device revoked): toast and removal | same | F3 |
+| Connection state: "Connecting", "Waiting for network", "Updating" | in the list and chat headers | F3 |
+| Security alerts from the core (new device, changed key, unsigned device) | security toasts, shown longer | F3 |
+
+### Conversation list
+
+| Desktop | iOS | Phase |
+|---|---|---|
+| Everyone on the server as a conversation, groups, "Saved messages" | same | F3 |
+| Order: pinned, activity, title; rows animate to new places | animated diffable updates | F3 |
+| Row: avatar with online dot, group icon, verified or changed-key mark, muted icon, time, preview ("You:", sender's first name in groups, Photo, Video or file name, "Membership changed", "Waiting for keys"), "typing…", pin, unread badge (grey when muted) | same | F3 |
+| Filters All, People, Groups, Unread | segmented control | F3 |
+| Search people and groups by title and username, and messages in the local index (2+ characters), jumping to a hit | searchable list | F3, F4 |
+| Pin, Mute, Hide, synced through the vault | swipe actions and a context menu | F3 |
+| "Hidden (n)" section | same | F3 |
+| Server menu: Invite people, New group, Server settings (admins), Leave this server | header menu | F3, F6, F7 |
+| Empty states with actions | same | F3 |
+
+### Chat: reading
+
+| Desktop | iOS | Phase |
+|---|---|---|
+| Header: title, verified mark, status (who's typing, members and online count, notes to yourself, removed from the server, online, last seen or hidden) | same | F4 |
+| Banner when a contact's key changed, with Verify | same | F4 |
+| List: virtualized, day separators, grouping by sender within 5 minutes, avatar on the last message of a group, name colors, loading older messages, jumping to a message with a highlight, detached view around a target with a way back, scroll-to-bottom button with unread count, scroll position remembered per chat, scrolling to own sent messages, new messages animating in, marking as read at the bottom, bottom anchored while the composer grows | `UICollectionView` | F4 |
+| Markup: inline code, spoilers revealed by a tap, bold, strikethrough, italic with `*` or `_`, http(s) links, @mentions (highlighted, own ones stand out, a tap opens verification), `>` quotes, fenced code with language, highlighting and Copy | Swift parser checked against the desktop, TextKit rendering, Shiki tokens | F4 |
+| 7TV emotes: inline, animated, zero-width stacked on the previous one, large emoji or emote-only messages (up to 6 words and 8 glyphs, two sizes), emote card with name, author and who reacted | ImageIO animation; the card opens on long press instead of hover | F4 |
+| Meta: pin mark, "edited", time, ticks (clock, failed, sent, read from `readBy`) | same | F4 |
+| States: deleted, "Waiting for this message's keys", invalid signature | same | F4 |
+| Reply quote with author; a tap jumps to the original | same | F4 |
+| Attachments: grid of 1 to 4 images with blurred thumbnail and fixed size, upload progress ring, full-screen viewer with Save; video and audio on tap; files downloaded and decrypted | QuickLook, AVPlayer, share sheet | F4 |
+| Reactions: emoji or emote chips, avatars of up to 3 people, otherwise a count; names | same | F4 |
+| System messages: 8 kinds, warnings with an icon | same | F4 |
+
+### Chat: writing and actions
+
+| Desktop | iOS | Phase |
+|---|---|---|
+| Composer: draft per conversation, grows with content, placeholder, disabled when the other person is banned | `UITextView` | F5 |
+| Sending through the outbox: local echo, "sending", retry or discard, survives restarts | from the core | F5 |
+| Reply and edit, with a context bar and cancel | plus swipe to reply | F5 |
+| Autocomplete for `:emote` (2+ characters, prefix matches first, up to 8, author) and `@person` (group members or everyone, not banned) | bar above the keyboard | F5 |
+| Picker: server emotes tab named after the set, emoji by category, search, name and author | bottom sheet | F5 |
+| `emotes` and `mentions` extracted into the message body | Swift port checked against the desktop | F5 |
+| Typing signal (throttled by the core) | same | F5 |
+| Attachments: up to 10 files, preview, size, removal, server size limit, progress; paste and drag files | PhotosPicker, document picker, paste; drag and drop on iPad | F5, F8 |
+| Message actions: quick reactions (👍 ❤️ 😂 🔥 😮 😢) and the full picker, Reply, Copy text, Edit (own text messages), Pin or Unpin, Try again or Discard, Delete for everyone (own messages, or group admins) | native context menu with a reaction bar | F5 |
+| Pinned bar: cycles through pins, "Pinned message X of N", jumps | same | F5 |
+| Search in a chat with a note when history is still downloading; pinned list with unpin | screens pushed from the chat | F5 |
+| Keyboard: Enter, Ctrl+Enter, Esc, Up to edit the last message; "Press Enter to send" | hardware keyboards; on the software keyboard Return inserts a new line | F8 |
+
+### Details, groups and verification
+
+| Desktop | iOS | Phase |
+|---|---|---|
+| DM details: avatar, name, @username, online or last seen, bio; encryption card leading to verification; Notifications (mute), Pin, Hide | details screen. Mute stays even without notifications: it's synced and affects unread counts | F6 |
+| Group details: avatar and name with description (admins edit), what the server can see, members (admins first, crown, verified), adding people (admins), member menu (Message, Verify, Make or remove admin, Remove), "New members can read earlier messages" (admins), Leave group, Delete group for everyone (admins) | same | F6 |
+| New group: name, people with search, history for new members | sheet | F6 |
+| Add members, with history shared when enabled | sheet | F6 |
+| Invites: expiry (1, 7, 30 days, never), uses (1, 5, 25, unlimited), create and copy, active links with copy and revoke, a note when members can't invite | plus the share sheet | F6 |
+| Emoji verification: 12 emoji with names, three states, "They match", "They don't match", "Remove verification", own key | same | F6 |
+
+### Settings and administration
+
+| Desktop | iOS | Phase |
+|---|---|---|
+| Profile: avatar (change, remove), display name, bio | photo picker with a square crop | F7 |
+| Privacy: read receipts (synced), "Show when I'm online" | same | F7 |
+| Appearance: accent (5), message size (S, M, L), reduce motion, Enter sends | stored on the device; reduce motion also follows the system setting | F7 |
+| Security: own key, devices (current first, names, dates, remove), change password, new recovery key | same | F7 |
+| About: version, license, links to the source and the security model, server version | same | F7 |
+| – (new on iOS) | App lock with Face ID, Touch ID or passcode on every launch; privacy cover in the app switcher | F7 |
+| Server administration (owner and admins): icon (256 px square), name, address, version; invites with "Let members create invite links" and "Open sign-ups" (with the community key warning); members with roles, ban and unban; 7TV emote set with a preview; upload limit and retention; signing out with local data erased | same | F7 |
+| Notifications (section, sound, previews, badge) | **left out for now**; the core's `notify` event is ignored | – |
+| Keep running when closed (tray), title bar, resizable sidebar | don't apply on iOS | – |
+
+## Phases
+
+| Phase | Scope | Size |
+|---|---|---|
+| **F0. Spike** | Install the toolchain and get the desktop's `npm test` green on this Mac. XCFramework with UniFFI. The core bundle running in `zuna-host` and in the simulator: sign up, sign in, send and receive with the test server. SQLite bridge with FTS5. Syncing 10,000 messages with the JIT off. Animated WebP through ImageIO. Prototype message list with inline animated emotes in TextKit. Shiki in JavaScriptCore. Ends with a short report and decisions. | M |
+| **F1. Foundations** | Test infrastructure first (see IOS_TESTING.md). `FileAdapter` and `suspend()`/`resume()` in the core. Complete `ZunaHost`, models, `CoreConnection`, `AppModel`, theme and fonts, boot and failure screens, lifecycle, CI job. | L |
+| **F2. Onboarding and accounts** | Accounts and servers, except signing out | S |
+| **F3. Servers and conversation list** | server drawer, list, filters, search, row actions, connection state, alerts | M |
+| **F4. Chat: reading** | message list, markup, emotes, media, reactions, ticks, system messages | L |
+| **F5. Chat: writing and actions** | composer, autocomplete, picker, attachments, message actions, pins, search in a chat | L |
+| **F6. Groups, invites, verification** | details screens, new group, add members, invites, verification | M |
+| **F7. Settings and administration** | every settings section except notifications, server administration | S |
+| **F8. Finishing** | iPad layout and keyboard, accessibility (VoiceOver, Dynamic Type), performance, polish, TestFlight preparation | M |
+
+Each phase is done when its features work **against a desktop client in both directions**, with tests as described in IOS_TESTING.md.
+
+## Prerequisites on this Mac
+
+Installed on 2026-10-31:
+
+- Xcode 27.1 with iOS 27 simulators;
+- Node 26, Go 1.27, XcodeGen 2.46, `webp` (all through Homebrew);
+- Rust 1.99 through Homebrew's `rustup`, with targets `wasm32-unknown-unknown`, `aarch64-apple-ios`, `aarch64-apple-ios-sim` and `aarch64-apple-darwin`;
+- `wasm-bindgen-cli` 0.2.130, matching `crypto/Cargo.lock`.
+
+Homebrew's `rustup` is keg-only and isn't on the default `PATH`. Scripts that call `cargo` should prepend `/opt/homebrew/opt/rustup/bin` and `~/.cargo/bin` themselves.
+
+Baseline, all green:
+
+- `npm run build:crypto`;
+- `npm test`: 15 crypto tests, server tests, 43 core end-to-end tests;
+- `npm run typecheck`;
+- `cargo test` natively on macOS.
+
+The crate already cross-compiles for `aarch64-apple-ios` and `aarch64-apple-ios-sim` without changes. The target-specific dependencies planned for F1 are for cleanliness, not a blocker.
+
+## Risks and open questions
+
+1. **App Store, account deletion (guideline 5.1.1(v)).** Apps that let people create accounts must let them delete them in the app. The server has no such endpoint, so this needs a new server feature. Until then, only internal TestFlight or ad hoc distribution is possible.
+2. **App Store, user-generated content (guideline 1.2).** Reporting content and blocking users are required. The desktop only has bans by admins.
+3. **AGPL-3.0 and the App Store.** Distributing GPL-family code through the App Store is widely considered incompatible with Apple's terms (VLC is the known case). Without a CLA or an extra permission from all contributors, this is a legal risk for the project owner to decide on.
+4. **Export compliance** (`ITSAppUsesNonExemptEncryption`) is a formality when submitting.
+5. **No JIT on iOS.** The core is interpreted. Measured in F0, and kept off the UI thread by design.
+6. **Uncertain until F0:**
+   - whether `JSC_useJIT=0` reproduces the no-JIT condition in tests;
+   - ImageIO's handling of animated WebP;
+   - Shiki's regex engine under JavaScriptCore.
+   - Each has a fallback: device-only measurements, manual frame decoding, highlight.js.
+7. **Decrypted media on disk** rather than in memory. Protected, capped and cleared; documented in `SECURITY.md`.
+8. **Without notifications**, new messages are only seen after opening the app. This is the agreed scope for this stage.
+
+## Preparing for notifications later
+
+Notifications need the server feature described in `ROADMAP.md`: push token registration, a relay to APNs, and a push holding only the group and message IDs. On iOS a Notification Service Extension decrypts them. **Notifications must show the message content**, so the extension has to read the device key, the epoch keys and the sender's signing key while the phone is locked, and while the app itself may be running. To avoid migrations later:
+
+- databases go in the App Group container and the device key in a shared Keychain access group from day one, with `AfterFirstUnlock` protection (not `Complete`), so both stay readable in the background;
+- SQLite runs in WAL mode, so the app and the extension can share the database;
+- the core's `notify` event and mute preferences stay untouched;
+- Settings keep room for a Notifications section.
+
+Whether the extension can run the core within its memory limit is a question for that stage.
