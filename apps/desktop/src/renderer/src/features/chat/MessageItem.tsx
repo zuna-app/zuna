@@ -26,7 +26,7 @@ import { Emote } from "@/components/Emote";
 import { Avatar, PopupMenu, Spinner, Tooltip, useAction, useContextMenu, type MenuEntry } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { formatBytes, formatDuration, formatFull, formatTime, nameColor } from "@/lib/format";
-import { jumboSize, renderMarkup } from "@/lib/markup";
+import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
 import { downloadAttachment, useDecryptedUrl } from "@/lib/media";
 import { useApp } from "@/state/store";
 import { useMarkupContext } from "./use-markup-context";
@@ -317,7 +317,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             .trim()
             .split(/\s+/)
             .map((word, index) => {
-              const emote: EmoteRef | undefined = message.emotes[word];
+              const emote = emoteFor(message.emotes, word);
               return emote ? (
                 <Emote key={index} name={word} emote={emote} serverUrl={context.serverUrl} size="jumbo" stackOnPrevious={emote.zeroWidth} />
               ) : (

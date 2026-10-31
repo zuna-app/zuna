@@ -19,16 +19,23 @@ export interface MarkupContext {
 type Inline = ReactNode;
 
 const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|\s)+$/u;
+// Digits, # and * are emoji components only as part of a keycap, so a word needs a real emoji.
+const HAS_EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/gi;
+
+/** The emote a word stands for in a message. Only the message's own entries count, not built-ins like "toString". */
+export function emoteFor(emotes: Record<string, EmoteRef>, word: string): EmoteRef | undefined {
+  return Object.hasOwn(emotes, word) ? emotes[word] : undefined;
+}
 
 /** Messages that are only emoji or emotes render larger, up to a few of them. */
 export function jumboSize(text: string, emotes: Record<string, EmoteRef>): 0 | 1 | 2 {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0 || words.length > 6) return 0;
-  const onlyEmotes = words.every((word) => emotes[word] || EMOJI_ONLY.test(word));
+  const onlyEmotes = words.every((word) => emoteFor(emotes, word) || (EMOJI_ONLY.test(word) && HAS_EMOJI.test(word)));
   if (!onlyEmotes) return 0;
   const glyphs = words.reduce(
-    (sum, word) => sum + (emotes[word] ? 1 : [...new Intl.Segmenter().segment(word)].length),
+    (sum, word) => sum + (emoteFor(emotes, word) ? 1 : [...new Intl.Segmenter().segment(word)].length),
     0,
   );
   if (glyphs > 8) return 0;
@@ -44,7 +51,7 @@ function renderPlain(text: string, context: MarkupContext, keyPrefix: string): I
     buffer = "";
   };
   tokens.forEach((token, index) => {
-    const emote = context.emotes[token];
+    const emote = emoteFor(context.emotes, token);
     if (emote) {
       flush(index);
       nodes.push(
