@@ -14,6 +14,10 @@ export interface DesktopBridge {
   onDeepLink(listener: (link: string) => void): () => void;
   onOpenConversation(listener: (route: unknown) => void): () => void;
   onFocus(listener: (focused: boolean) => void): () => void;
+  /** "active", "idle" after this many seconds without input anywhere, or "locked". */
+  idleState(seconds: number): Promise<"active" | "idle" | "locked" | "unknown">;
+  /** The screen locking or the computer sleeping ("away"), and coming back ("back"). */
+  onPresence(listener: (state: "away" | "back") => void): () => void;
 }
 
 declare global {

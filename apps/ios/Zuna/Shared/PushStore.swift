@@ -54,11 +54,17 @@ enum PushStore {
         Data(SymmetricKey(size: SymmetricKeySize(bitCount: count * 8)).withUnsafeBytes { Array($0) })
     }
 
-    /// Which message a push is about, opened with the registration's key.
+    /// What a push is about, opened with the registration's key: a new
+    /// message, or, in a silent push, a chat read or a message deleted elsewhere.
     struct Message: Equatable {
+        enum Kind: String {
+            case message, read, delete
+        }
+
+        let kind: Kind
         let serverId: String
         let groupId: String
-        let messageId: String
+        let messageId: String?
     }
 
     static func open(_ userInfo: [AnyHashable: Any]) -> Message? {
@@ -68,9 +74,10 @@ enum PushStore {
               let registration = registrations()[id],
               let box = try? AES.GCM.SealedBox(combined: sealed),
               let plaintext = try? AES.GCM.open(box, using: SymmetricKey(data: registration.key), authenticating: Data("zuna/push/v1|\(id)".utf8)),
-              let ids = try? JSONDecoder().decode([String: String].self, from: plaintext),
-              let groupId = ids["g"], let messageId = ids["m"] else { return nil }
-        return Message(serverId: registration.serverId, groupId: groupId, messageId: messageId)
+              let fields = try? JSONDecoder().decode([String: String].self, from: plaintext),
+              let kind = Message.Kind(rawValue: fields["t"] ?? "message"),
+              let groupId = fields["g"] else { return nil }
+        return Message(kind: kind, serverId: registration.serverId, groupId: groupId, messageId: fields["m"])
     }
 
     /// The badge on the app's icon: the app sets it to the unread count, and

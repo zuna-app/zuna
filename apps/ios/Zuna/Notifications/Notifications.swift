@@ -30,6 +30,9 @@ final class Notifications {
         didSet { if token != oldValue { Task { await refresh() } } }
     }
 
+    /// Fetches and decrypts a message as the extension does, with pictures; set by the core controller.
+    @ObservationIgnored var preview: ((String, String, String) async throws -> PushPreview)?
+
     private let model: AppModel
     private let logger = Logger(subsystem: "chat.zuna", category: "notifications")
     private var refreshing = false
@@ -251,9 +254,58 @@ final class Notifications {
         try? await model.core.session(target.serverId).markRead(groupId, seq: seq)
     }
 
+    // MARK: While the app runs
+
+    /// A new message while the app runs. The server doesn't push to a phone
+    /// that's in use, so the app shows it itself, laid out as the extension
+    /// would; a banner, unless that chat is on screen.
+    @discardableResult
+    func showLive(serverId: String, groupId: String, messageId: String) async -> Bool {
+        guard settings.enabled, allowed, let preview else { return false }
+        do {
+            let message = try await preview(serverId, groupId, messageId)
+            guard !message.hidden, !message.muted else { return false }
+            let base = UNMutableNotificationContent()
+            base.title = "Zuna"
+            base.body = "New message"
+            base.sound = settings.sound ? .default : nil
+            base.categoryIdentifier = Self.messageCategory
+            base.userInfo["groupId"] = groupId
+            base.userInfo["messageId"] = messageId
+            let content = await MessageNotification.content(for: message, settings: settings, base: base)
+            try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: messageId, content: content, trigger: nil))
+            return true
+        } catch {
+            logger.warning("A message's notification couldn't be shown: \(String(describing: error), privacy: .public)")
+            return false
+        }
+    }
+
+    /// A chat read, or a message deleted, on another device: its notifications
+    /// go here too. From a silent push, which needs nothing but the push, or
+    /// from what the app hears itself once it runs.
+    static func clear(_ push: PushStore.Message) async {
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let stale = delivered.filter { notification in
+            let info = notification.request.content.userInfo
+            let opened = PushStore.open(info)
+            guard (info["groupId"] as? String ?? opened?.groupId) == push.groupId else { return false }
+            return push.kind == .read || (info["messageId"] as? String ?? opened?.messageId) == push.messageId
+        }.map(\.request.identifier)
+        Logger(subsystem: "chat.zuna", category: "notifications")
+            .info("A chat was \(push.kind.rawValue, privacy: .public) elsewhere: clearing \(stale.count) of \(delivered.count) notifications")
+        guard !stale.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: stale)
+        if push.kind == .read {
+            PushStore.badge -= stale.count
+            try? await center.setBadgeCount(PushStore.badge)
+        }
+    }
+
     // MARK: Badge and clearing
 
-    /// Keeps the icon's badge at the unread count, and clears the notifications of chats that were read, here or elsewhere.
+    /// Keeps the icon's badge at the unread count.
     private func observeUnread() {
         withObservationTracking {
             _ = model.totalUnread
@@ -271,18 +323,22 @@ final class Notifications {
         let total = model.totalUnread
         PushStore.badge = total
         UNUserNotificationCenter.current().setBadgeCount(total)
-        var read: Set<String> = []
-        for (serverId, server) in model.servers {
-            for conversation in server.conversations where conversation.unread == 0 {
-                read.insert("\(serverId)/\(conversation.key)")
-            }
-        }
-        Task {
-            let center = UNUserNotificationCenter.current()
-            let stale = await center.deliveredNotifications()
-                .filter { read.contains($0.request.content.threadIdentifier) }
-                .map(\.request.identifier)
-            if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
-        }
+    }
+
+    /// Clears the notifications of a server's chats that have nothing unread,
+    /// once its conversations are up to date, so a message the app hasn't
+    /// heard of yet keeps its notification.
+    func clearRead(serverId: String) async {
+        guard let server = model.servers[serverId] else { return }
+        let read = Set(server.conversations.filter { $0.unread == 0 }.compactMap(\.groupId))
+        let center = UNUserNotificationCenter.current()
+        let stale = await center.deliveredNotifications().filter { notification in
+            let info = notification.request.content.userInfo
+            let opened = PushStore.open(info)
+            guard (info["serverId"] as? String ?? opened?.serverId) == serverId,
+                  let groupId = info["groupId"] as? String ?? opened?.groupId else { return false }
+            return read.contains(groupId)
+        }.map(\.request.identifier)
+        if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
     }
 }

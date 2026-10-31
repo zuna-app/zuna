@@ -75,6 +75,7 @@ export interface ZunaClientOptions {
 export class ZunaClient {
   private sessions = new Map<string, ServerSession>();
   private index!: LocalDb;
+  private active = false;
 
   constructor(private readonly options: ZunaClientOptions) {}
 
@@ -95,6 +96,12 @@ export class ZunaClient {
     }
   }
 
+  /** Whether the person is using this device right now, for every server (see ServerSession.setActive). */
+  setActive(active: boolean): void {
+    this.active = active;
+    for (const session of this.sessions.values()) session.setActive(active);
+  }
+
   private serverKey(serverId: string): Uint8Array {
     return serverKeyFor(this.options.deviceKey, serverId);
   }
@@ -112,6 +119,7 @@ export class ZunaClient {
       this.options.files,
     );
     session.onSignedOut = () => void this.forgetServer(serverId);
+    session.setActive(this.active);
     this.sessions.set(serverId, session);
     return session;
   }

@@ -341,7 +341,9 @@ public enum CoreEvent: Sendable, Equatable {
     case preferences(serverId: String)
     case signedOut(serverId: String, reason: String)
     case security(serverId: String, userId: String, message: String)
-    case notify(serverId: String, title: String, body: String, conversationKey: String)
+    case notify(serverId: String, title: String, body: String, conversationKey: String, groupId: String, messageId: String)
+    /// Whether the person is using another of their devices, where notifications go instead.
+    case activity(serverId: String, elsewhere: Bool)
 }
 
 extension CoreEvent {
@@ -352,7 +354,8 @@ extension CoreEvent {
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
              let .settings(serverId, _), let .emotes(serverId), let .preferences(serverId),
-             let .signedOut(serverId, _), let .security(serverId, _, _), let .notify(serverId, _, _, _):
+             let .signedOut(serverId, _), let .security(serverId, _, _), let .notify(serverId, _, _, _, _, _),
+             let .activity(serverId, _):
             serverId
         }
     }
@@ -364,7 +367,7 @@ extension CoreEvent {
 
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
-        case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey
+        case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId
     }
 
     public init(from decoder: Decoder) throws {
@@ -385,7 +388,16 @@ extension CoreEvent: Codable {
         case "preferences": self = .preferences(serverId: serverId)
         case "signed_out": self = .signedOut(serverId: serverId, reason: try c.decode(String.self, forKey: .reason))
         case "security": self = .security(serverId: serverId, userId: try c.decode(String.self, forKey: .userId), message: try c.decode(String.self, forKey: .message))
-        case "notify": self = .notify(serverId: serverId, title: try c.decode(String.self, forKey: .title), body: try c.decode(String.self, forKey: .body), conversationKey: try c.decode(String.self, forKey: .conversationKey))
+        case "notify":
+            self = .notify(
+                serverId: serverId,
+                title: try c.decode(String.self, forKey: .title),
+                body: try c.decode(String.self, forKey: .body),
+                conversationKey: try c.decode(String.self, forKey: .conversationKey),
+                groupId: try c.decode(String.self, forKey: .groupId),
+                messageId: try c.decode(String.self, forKey: .messageId)
+            )
+        case "activity": self = .activity(serverId: serverId, elsewhere: try c.decode(Bool.self, forKey: .elsewhere))
         case let other: throw DecodingError.dataCorruptedError(forKey: .type, in: c, debugDescription: "Unknown core event \(other)")
         }
     }
@@ -421,8 +433,11 @@ extension CoreEvent: Codable {
             try c.encode("signed_out", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(reason, forKey: .reason)
         case let .security(serverId, userId, message):
             try c.encode("security", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(userId, forKey: .userId); try c.encode(message, forKey: .message)
-        case let .notify(serverId, title, body, conversationKey):
+        case let .notify(serverId, title, body, conversationKey, groupId, messageId):
             try c.encode("notify", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(title, forKey: .title); try c.encode(body, forKey: .body); try c.encode(conversationKey, forKey: .conversationKey)
+            try c.encode(groupId, forKey: .groupId); try c.encode(messageId, forKey: .messageId)
+        case let .activity(serverId, elsewhere):
+            try c.encode("activity", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(elsewhere, forKey: .elsewhere)
         }
     }
 }

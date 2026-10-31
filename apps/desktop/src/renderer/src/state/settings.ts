@@ -9,6 +9,8 @@ export interface AppSettings {
   closeToTray: boolean;
   reduceMotion: boolean;
   enterToSend: boolean;
+  /** After this long without input, or right away when the screen locks, the phone gets notifications instead. */
+  awayAfterMinutes: 1 | 3 | 5 | 10;
 }
 
 const KEY = "zuna-settings";
@@ -22,6 +24,7 @@ const DEFAULTS: AppSettings = {
   closeToTray: true,
   reduceMotion: false,
   enterToSend: true,
+  awayAfterMinutes: 3,
 };
 
 const ACCENTS: AppSettings["accent"][] = ["neutral", "blue", "green", "red", "amber"];
@@ -29,6 +32,7 @@ const ACCENTS: AppSettings["accent"][] = ["neutral", "blue", "green", "red", "am
 export function loadSettings(): AppSettings {
   try {
     const stored = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    if (![1, 3, 5, 10].includes(stored.awayAfterMinutes)) stored.awayAfterMinutes = DEFAULTS.awayAfterMinutes;
     return ACCENTS.includes(stored.accent) ? stored : { ...stored, accent: DEFAULTS.accent };
   } catch {
     return DEFAULTS;

@@ -28,7 +28,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         mutable.sound = settings.sound ? .default : nil
         PushStore.badge += 1
         mutable.badge = NSNumber(value: PushStore.badge)
-        guard let push = PushStore.open(request.content.userInfo) else {
+        guard let push = PushStore.open(request.content.userInfo), push.kind == .message, let messageId = push.messageId else {
             finish(mutable)
             return
         }
@@ -36,7 +36,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Only this task touches it until it's delivered.
         nonisolated(unsafe) let content = mutable
         Task {
-            finish(await fill(content, for: push, settings: settings))
+            finish(await fill(content, for: push, messageId: messageId, settings: settings))
         }
     }
 
@@ -53,7 +53,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
 
     /// The message's notification. Empty when it shouldn't show at all, which
     /// only takes effect with Apple's filtering entitlement.
-    private func fill(_ content: UNMutableNotificationContent, for push: PushStore.Message, settings: NotificationSettings) async -> UNNotificationContent {
+    private func fill(_ content: UNMutableNotificationContent, for push: PushStore.Message, messageId: String, settings: NotificationSettings) async -> UNNotificationContent {
         guard let runtime = Self.makeRuntime() else {
             logger.info("The device key is locked; showing the push's own text")
             return content
@@ -63,7 +63,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             let preview = try await runtime.pushPreview(
                 serverId: push.serverId,
                 groupId: push.groupId,
-                messageId: push.messageId,
+                messageId: messageId,
                 pictures: settings.preview != .none
             )
             logger.info("Previewed a push in \(Int(Date().timeIntervalSince(started) * 1000)) ms, using \(Self.footprint(), format: .fixed(precision: 1)) MB")
