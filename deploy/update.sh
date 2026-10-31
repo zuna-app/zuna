@@ -272,7 +272,7 @@ systemctl reload-or-restart caddy
 
 healthy() {
   for _ in $(seq 1 20); do
-    curl -fsS -o /dev/null "http://127.0.0.1:$1/healthz" && return 0
+    if curl -fs -o /dev/null "http://127.0.0.1:$1/healthz"; then return 0; fi
     sleep 0.5
   done
   return 1
