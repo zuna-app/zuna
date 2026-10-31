@@ -34,8 +34,10 @@ jobs:
 
   # The iOS app: its quick checks, the iOS core host against desktop clients,
   # the Release guard and the UI tests in a simulator (docs/IOS_TESTING.md).
+  # It runs on macOS 27 with Xcode 27, like the development Mac; the macos-15
+  # and macos-26 images only have Xcode 26.
   ios:
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -54,8 +56,11 @@ jobs:
           targets: wasm32-unknown-unknown, aarch64-apple-ios, aarch64-apple-ios-sim
       - name: Install wasm-bindgen and XcodeGen
         run: |
+          # rustup comes from Homebrew on macOS runners, so $CARGO_HOME/bin doesn't exist yet.
+          mkdir -p "$CARGO_HOME/bin"
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
           version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
-          curl -fsSL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/wasm-bindgen-$version-aarch64-apple-darwin.tar.gz" | tar xz --strip-components=1 -C "$HOME/.cargo/bin" '*/wasm-bindgen'
+          curl -fsSL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/wasm-bindgen-$version-aarch64-apple-darwin.tar.gz" | tar xz --strip-components=1 -C "$CARGO_HOME/bin" '*/wasm-bindgen'
           brew install xcodegen
       - run: npm ci
       - run: npm run build:crypto
