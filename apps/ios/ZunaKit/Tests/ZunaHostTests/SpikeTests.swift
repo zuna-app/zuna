@@ -5,45 +5,6 @@ import JavaScriptCore
 import UniformTypeIdentifiers
 import XCTest
 
-/// F0 spike: code highlighting with the desktop's Shiki setup in JavaScriptCore.
-/// Run through apps/ios/spikes/highlight.mjs, which builds the bundle and the
-/// golden tokens from Node.
-final class HighlightSpikeTests: XCTestCase {
-    func testHighlightsExactlyLikeTheDesktop() throws {
-        let environment = ProcessInfo.processInfo.environment
-        guard let bundlePath = environment["ZUNA_HIGHLIGHT_BUNDLE"], let goldenPath = environment["ZUNA_HIGHLIGHT_GOLDEN"] else {
-            throw XCTSkip("Run apps/ios/spikes/highlight.mjs")
-        }
-        let context = JSContext()!
-        var failure: String?
-        context.exceptionHandler = { _, exception in failure = exception?.toString() }
-        let log: @convention(block) (JSValue) -> Void = { _ in }
-        context.evaluateScript("var console = {}")
-        for level in ["log", "warn", "error", "info", "debug"] {
-            context.objectForKeyedSubscript("console").setObject(log, forKeyedSubscript: level as NSString)
-        }
-        context.evaluateScript(try String(contentsOfFile: bundlePath, encoding: .utf8))
-        XCTAssertNil(failure)
-
-        struct Sample: Decodable { let language: String; let code: String; let tokens: String }
-        let samples = try JSONDecoder().decode([Sample].self, from: Data(contentsOf: URL(fileURLWithPath: goldenPath)))
-        for sample in samples {
-            var result: String?
-            var error: String?
-            let done: @convention(block) (JSValue, JSValue) -> Void = { value, problem in
-                result = value.isNull ? nil : value.toString()
-                error = problem.isNull ? nil : problem.toString()
-            }
-            let start = Date()
-            context.objectForKeyedSubscript("__zunaHighlight").call(withArguments: [sample.code, sample.language, done as Any])
-            // Shiki's promises settle on JavaScriptCore's microtask queue, drained when the call returns.
-            XCTAssertNil(error, sample.language)
-            XCTAssertEqual(result, sample.tokens, sample.language)
-            print("[spike] highlighted \(sample.language) in \(Int(Date().timeIntervalSince(start) * 1000)) ms")
-        }
-    }
-}
-
 /// F0 spike: 7TV emotes are animated WebP. ImageIO must decode their frames and
 /// timing, so the app needs no third-party image library.
 final class AnimatedWebPSpikeTests: XCTestCase {

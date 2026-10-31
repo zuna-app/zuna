@@ -7,15 +7,7 @@ struct ZunaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            #if DEBUG
-            if UserDefaults.standard.string(forKey: "ZunaSpike") == "emoteText" {
-                EmoteTextSpike()
-            } else {
-                root
-            }
-            #else
             root
-            #endif
         }
     }
 

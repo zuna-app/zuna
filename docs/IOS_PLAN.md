@@ -423,6 +423,26 @@ F3 is done, except the server menu (see below). Each item has tests:
 - **Moved:** the server menu goes to F6, with its first item (Invite people). Its other items come with F6 (New group) and F7 (Server settings, Leave), so a menu now would have nothing in it.
 - **Tests:** 5 UI tests (filters and search, row actions, connection state, removal by the admins, the new-device alert), 16 UI tests in all.
 
+## F4 results (2026-10-31)
+
+F4 is done. Each item has tests:
+
+- **Chat screen:** the title with its status (who's typing, members and online, notes to yourself, removed from the server, online, last seen), the banner when a contact's key changed, empty states, and the tab bar hidden, as in Telegram.
+- **Message list:** a `UICollectionView` turned upside down, as chat apps do, with SwiftUI cells:
+  - day separators, grouping by sender within five minutes, avatars on the last message of a group in groups, name colors;
+  - older pages load out of sight as you scroll up, so nothing jumps; new messages slide in at the bottom;
+  - jumps to a reply's original, a search hit or a message out of range, with a highlight and a detached window with a way back;
+  - the button back to the newest message with the unread count, the position remembered per chat, marking as read at the bottom while the app is active.
+- **Markup:** a Swift parser checked against the desktop's own renderer through a golden corpus, drawn by a TextKit 2 label: inline code, spoilers revealed by a tap, bold, strikethrough, italics, links, @mentions (your own stand out), quotes, and fenced code.
+- **Code blocks:** colored by the desktop's Shiki setup with every desktop language, in a JavaScriptCore context of its own, checked token for token against the desktop; Copy.
+- **7TV emotes:** inline and animated through ImageIO with each frame's own timing, zero-width emotes over the one before, large emoji and emote-only messages, and the emote card on a long press.
+- **Bubbles:** your own on the right in the accent's color; the time tucked into the last line, with the pin mark, "edited" and ticks (sending, failed with "Try again", sent, read); deleted, waiting for keys and invalid signature; reply quotes; the eight kinds of system message.
+- **Attachments:** pictures in a grid of up to four, sized up front, with the blurred thumbnail until the picture is decrypted; videos, recordings and files as cards; everything opens in QuickLook under its own name, with Share and Save.
+- **Reactions:** chips with the emoji or emote, avatars of up to three people or a count, inside the bubble beside the time; a tap toggles yours.
+- **Bugs found on the desktop by the golden corpus, fixed there:** words like "toString" rendered as broken emotes, and a lone digit, "#" or "*" showed as a large emoji.
+- **Tests:** 6 UI tests (markup and emotes with the emote card and a reply, sent and read ticks both ways, a picture from the desktop opened in QuickLook, reactions both ways, history with the saved position, a search hit); golden files for markup and highlighting; 27 `ZunaKit` tests.
+- **For later:** VoiceOver reads the upside-down list newest first; F8 orders it. Tapping a mention and the banner's Verify button open verification, which comes in F6.
+
 ## Prerequisites on this Mac
 
 Installed on 2026-10-31:

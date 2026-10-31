@@ -66,6 +66,23 @@ enum A11y {
         static func messageHit(_ id: String) -> String { "chatList.hit.\(id)" }
     }
 
+    enum Chat {
+        static let screen = "chat.screen"
+        static let list = "chat.list"
+        static let title = "chat.title"
+        static let status = "chat.status"
+        static let banner = "chat.keyBanner"
+        static let toBottom = "chat.toBottom"
+        static let empty = "chat.empty"
+        static let reply = "chat.reply"
+        static let emoteCard = "chat.emoteCard"
+        static func message(_ id: String) -> String { "chat.message.\(id)" }
+        static func text(_ id: String) -> String { "chat.text.\(id)" }
+        static func meta(_ id: String) -> String { "chat.meta.\(id)" }
+        static func reaction(_ key: String) -> String { "chat.reaction.\(key)" }
+        static func attachment(_ name: String) -> String { "chat.attachment.\(name)" }
+    }
+
     enum Toast {
         static let item = "toast"
     }

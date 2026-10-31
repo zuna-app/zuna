@@ -1,4 +1,13 @@
 {
   "extends": "../../packages/core/tsconfig.json",
-  "include": ["src", "test", "*.ts"]
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "paths": {
+      "@/components/Emote": ["./golden/stubs.tsx"],
+      "@/components/CodeBlock": ["./golden/stubs.tsx"],
+      "@/components/Spoiler": ["./golden/stubs.tsx"],
+      "@/*": ["../../apps/desktop/src/renderer/src/*"]
+    }
+  },
+  "include": ["src", "test", "golden", "*.ts"]
 }

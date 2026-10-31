@@ -26,6 +26,38 @@ final class ImageStore {
         }
     }
 
+    /// A picture sent in a message, decrypted by the core.
+    func attachment(_ attachment: Attachment, serverId: String, size: CGFloat) async -> UIImage? {
+        await load("file:\(attachment.fileId)", size: size) { [core] in
+            let file = try await core.session(serverId).downloadFile(attachment)
+            return try Data(contentsOf: URL(fileURLWithPath: file.path))
+        }
+    }
+
+    /// The decrypted file under its own name, for QuickLook and the share sheet.
+    func openable(_ attachment: Attachment, serverId: String) async throws -> URL {
+        let file = try await core.session(serverId).downloadFile(attachment)
+        let folder = URL(fileURLWithPath: file.path).deletingLastPathComponent()
+            .appendingPathComponent("open", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let safeName = attachment.name.replacingOccurrences(of: "/", with: "_")
+        let target = folder.appendingPathComponent(safeName.isEmpty ? URL(fileURLWithPath: file.path).lastPathComponent : safeName)
+        try FileManager.default.linkItem(at: URL(fileURLWithPath: file.path), to: target)
+        return target
+    }
+
+    func cachedAttachment(_ attachment: Attachment) -> UIImage? {
+        cached("file:\(attachment.fileId)")
+    }
+
+    /// The small blurred preview a message carries, as a data URL.
+    static func thumbnail(_ dataURL: String) -> UIImage? {
+        guard let comma = dataURL.firstIndex(of: ","),
+              let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { return nil }
+        return UIImage(data: data)
+    }
+
     /// A server's icon, which servers serve in the clear.
     func serverIcon(url serverUrl: String, size: CGFloat) async -> UIImage? {
         await load("icon:\(serverUrl)", size: size) {

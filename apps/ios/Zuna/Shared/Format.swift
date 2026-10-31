@@ -14,6 +14,63 @@ enum Format {
         return date.formatted(.dateTime.month(.abbreviated).day())
     }
 
+    static func time(_ milliseconds: Int) -> String {
+        Date(milliseconds: milliseconds).formatted(date: .omitted, time: .shortened)
+    }
+
+    static func full(_ milliseconds: Int) -> String {
+        Date(milliseconds: milliseconds).formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// The pill between days: "Today", "Yesterday", or the date.
+    static func daySeparator(_ milliseconds: Int, now: Date = .now) -> String {
+        let date = Date(milliseconds: milliseconds)
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        if days == 0 { return "Today" }
+        if days == 1 { return "Yesterday" }
+        if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            return date.formatted(.dateTime.weekday(.wide).month(.wide).day())
+        }
+        return date.formatted(.dateTime.month(.wide).day().year())
+    }
+
+    static func sameDay(_ a: Int, _ b: Int) -> Bool {
+        Calendar.current.isDate(Date(milliseconds: a), inSameDayAs: Date(milliseconds: b))
+    }
+
+    /// As the desktop words it (lib/format.ts).
+    static func lastSeen(_ milliseconds: Int?, hidden: Bool, now: Date = .now) -> String {
+        guard !hidden, let milliseconds else { return "last seen recently" }
+        let date = Date(milliseconds: milliseconds)
+        let minutes = Int(now.timeIntervalSince(date) / 60)
+        if minutes < 1 { return "last seen just now" }
+        if minutes < 60 { return "last seen \(minutes) min ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "last seen \(hours) hour\(hours == 1 ? "" : "s") ago" }
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        if days == 1 { return "last seen yesterday at \(date.formatted(date: .omitted, time: .shortened))" }
+        return "last seen \(date.formatted(.dateTime.month(.abbreviated).day()))"
+    }
+
+    static func bytes(_ count: Int) -> String {
+        if count < 1024 { return "\(count) B" }
+        let units = ["KB", "MB", "GB", "TB"]
+        var value = Double(count)
+        var unit = -1
+        repeat {
+            value /= 1024
+            unit += 1
+        } while value >= 1024 && unit < units.count - 1
+        return value >= 100 ? "\(Int(value.rounded())) \(units[unit])" : String(format: "%.1f %@", value, units[unit])
+    }
+
+    static func duration(_ seconds: Double) -> String {
+        let total = max(0, Int(seconds.rounded()))
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
     /// Up to two initials, from the first and last word, like the desktop's `initialsOf`.
     static func initials(_ name: String) -> String {
         let words = name.split(whereSeparator: \.isWhitespace)

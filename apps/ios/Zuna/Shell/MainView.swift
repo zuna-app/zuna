@@ -11,7 +11,7 @@ struct MainView: View {
         @Bindable var model = model
         DrawerContainer(
             isOpen: $model.drawerOpen,
-            swipeEnabled: model.tab == .chats,
+            swipeEnabled: model.tab == .chats && model.chatPath.isEmpty,
             reduceMotion: model.settings.reduceMotion
         ) {
             ServerDrawer()

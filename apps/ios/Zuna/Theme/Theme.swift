@@ -56,6 +56,21 @@ enum Accent: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// Your own messages' bubbles take on the accent, as on the desktop.
+    var bubbleOwn: Color {
+        switch self {
+        case .neutral: Theme.bubbleOwn
+        case .blue: Color(hex: 0x24486F)
+        case .green: Color(hex: 0x235240)
+        case .red: Color(hex: 0x6A2C2B)
+        case .amber: Color(hex: 0x5A4318)
+        }
+    }
+
+    var bubbleOwnText: Color {
+        self == .neutral ? Theme.bubbleOwnText : .white
+    }
+
     /// Switches: a near-white track would hide the white thumb, so neutral uses the system's green.
     var switchTint: Color {
         self == .neutral ? Theme.green : color
@@ -102,5 +117,16 @@ extension Color {
             blue: Double(hex & 0xFF) / 255,
             opacity: 1
         )
+    }
+}
+
+extension Color {
+    /// A CSS color as Shiki writes it: `#rrggbb` or `#rrggbbaa`.
+    init?(css: String) {
+        let hex = css.hasPrefix("#") ? String(css.dropFirst()) : css
+        guard hex.count == 6 || hex.count == 8, let value = UInt64(hex, radix: 16) else { return nil }
+        let rgb = hex.count == 8 ? value >> 8 : value
+        let alpha = hex.count == 8 ? Double(value & 0xFF) / 255 : 1
+        self.init(.sRGB, red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255, blue: Double(rgb & 0xFF) / 255, opacity: alpha)
     }
 }
