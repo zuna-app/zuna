@@ -91,6 +91,9 @@ export const avatarColor = (seed: string): string => AVATAR_COLORS[colorIndex(se
 /** A stable color for someone's name in group chats. */
 export const nameColor = (seed: string): string => NAME_COLORS[colorIndex(seed, NAME_COLORS.length)]!;
 
+/** The shortest password allowed when signing up or changing it. */
+export const MIN_PASSWORD = 8;
+
 /** Rates a password from 0 to 4 by estimating how hard it is to guess. */
 export function passwordStrength(password: string): { score: number; label: string } {
   if (!password) return { score: 0, label: "" };
