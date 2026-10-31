@@ -4,6 +4,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "../../../packages/core/test/helpers";
+import { FAKE_EMOTES, FAKE_SET_NAME, emoteFixture, startFake7TV, type Fake7TV } from "../src/fake7tv";
 import { HostApp, phoneTarget } from "../src/host";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,6 +12,7 @@ import { join } from "node:path";
 import { wireBlob, wireFile } from "../src/wire";
 
 let server: TestServer;
+let fake7tv: Fake7TV;
 let alice: TestApp;
 let phone: HostApp;
 let invite: string;
@@ -23,6 +25,9 @@ const pattern = (size: number, seed: number) => Uint8Array.from({ length: size }
 
 beforeAll(async () => {
   loadCrypto();
+  fake7tv = await startFake7TV();
+  process.env.ZUNA_7TV_API = fake7tv.api;
+  process.env.ZUNA_7TV_CDN = fake7tv.cdn;
   server = new TestServer();
   await server.start();
   alice = await new TestApp("alice-laptop").open();
@@ -39,6 +44,7 @@ afterAll(async () => {
   for (const app of [phone, ...others]) await app?.close();
   alice?.client.stop();
   await server?.stop();
+  await fake7tv?.close();
 });
 
 describe("an iOS client with a desktop client", () => {
@@ -96,6 +102,31 @@ describe("an iOS client with a desktop client", () => {
     await waitFor(() => alice.session.getConversations().some((item) => item.key === `group:${fromPhone}` && item.title === "Made on iOS"), "alice to see the group");
     await phone.session.sendMessage(`group:${fromPhone}`, { text: "hello from the phone's group" });
     await waitFor(() => alice.texts(`group:${fromPhone}`).includes("hello from the phone's group"), "alice to read it");
+  });
+
+  it("uses the server's emote set, with images the server serves itself", async () => {
+    await waitFor(async () => {
+      await phone.session.refreshEmotes();
+      return (await phone.session.getEmotes()).emotes.length === FAKE_EMOTES.length;
+    }, "the emote set to arrive");
+    const set = await phone.session.getEmotes();
+    expect(set.set_name).toBe(FAKE_SET_NAME);
+    const dance = set.emotes.find((emote) => emote.name === "zunaDance")!;
+    expect(dance).toMatchObject({ animated: true, zero_width: false, owner: "Zuna", width: 28, height: 28 });
+    expect(set.emotes.find((emote) => emote.name === "zunaRing")?.zero_width).toBe(true);
+
+    // Members fetch the images from their own server, never from 7TV.
+    const image = new Uint8Array(await (await fetch(await phone.session.emoteUrl(dance.id, 2))).arrayBuffer());
+    expect(image).toEqual(new Uint8Array(emoteFixture("animated", 2)));
+
+    // A message records the emotes it uses, so it renders the same for everyone.
+    const text = "zunaDance zunaRing";
+    await phone.session.sendMessage(`user:${aliceId}`, { text, emotes: await phone.session.emotesIn(text) });
+    await waitFor(() => alice.texts(`user:${bobId}`).includes(text), "alice to receive the emotes");
+    const groupId = alice.session.getConversations().find((item) => item.key === `user:${bobId}`)!.groupId!;
+    const received = (await alice.session.loadMessages(groupId)).messages.find((view) => view.text === text)!;
+    expect(received.emotes.zunaDance).toMatchObject({ id: dance.id, animated: true });
+    expect(received.emotes.zunaRing).toMatchObject({ zeroWidth: true });
   });
 
   it("sends and receives files, including ones spanning several chunks", async () => {
