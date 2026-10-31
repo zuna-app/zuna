@@ -24,10 +24,16 @@
 #   --push-relays URLS   the relays the server sends notifications through,
 #                        comma-separated, or "off" (default: the relay on this
 #                        machine, or else the project's)
-#   --listen ADDRESS     where the proxy reaches them (default 0.0.0.0, every
-#                        address; 127.0.0.1 for a proxy on this machine)
+#   --listen ADDRESS     where the proxy reaches them (default 127.0.0.1, for a
+#                        proxy on this machine; this machine's private address,
+#                        or 0.0.0.0 for every address, for a proxy on another)
+#   --trusted-proxies L  the proxies to believe about who's calling, as addresses
+#                        or CIDR ranges, comma-separated (default: this machine
+#                        and private networks)
 #   --server-port PORT   the server's port (default 8080)
 #   --relay-port PORT    the relay's port (default 8090)
+#   --signed-tags        build the newest release tag, only if its signature
+#                        checks out, instead of the branch's newest commit
 #   --no-pull            build what's checked out, without pulling
 #   --test               run the server's tests before installing
 set -euo pipefail
@@ -52,7 +58,9 @@ SERVER_DOMAIN=""
 RELAY_DOMAIN=""
 PUSH_RELAYS=""
 APNS_KEY_ID=""
-LISTEN=0.0.0.0
+LISTEN=127.0.0.1
+TRUSTED_PROXIES=""
+SIGNED_TAGS=0
 SERVER_PORT=8080
 RELAY_PORT=8090
 # shellcheck source=/dev/null
@@ -72,11 +80,13 @@ while [ $# -gt 0 ]; do
     --apns-key-id) APNS_KEY_ID="${2:?--apns-key-id needs an ID}"; RELAY_CHANGED=1; shift 2 ;;
     --push-relays) PUSH_RELAYS="${2:?--push-relays needs a list}"; RELAYS_GIVEN=1; SERVER_CHANGED=1; shift 2 ;;
     --listen) LISTEN="${2:?--listen needs an address}"; SERVER_CHANGED=1; RELAY_CHANGED=1; shift 2 ;;
+    --trusted-proxies) TRUSTED_PROXIES="${2:?--trusted-proxies needs a list}"; SERVER_CHANGED=1; RELAY_CHANGED=1; shift 2 ;;
     --server-port) SERVER_PORT="${2:?--server-port needs a port}"; SERVER_CHANGED=1; shift 2 ;;
     --relay-port) RELAY_PORT="${2:?--relay-port needs a port}"; RELAY_CHANGED=1; shift 2 ;;
+    --signed-tags) SIGNED_TAGS=1; shift ;;
     --no-pull) PULL=0; shift ;;
     --test) TEST=1; shift ;;
-    -h | --help) sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h | --help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) fail "unknown option $1 (see --help)" ;;
   esac
 done
@@ -91,6 +101,13 @@ if [ "$RELAYS_GIVEN" = 0 ] && [ -z "$PUSH_RELAYS" ] && [ -n "$RELAY_DOMAIN" ]; t
   PUSH_RELAYS="https://$RELAY_DOMAIN"
   SERVER_CHANGED=1
 fi
+case "$LISTEN" in
+  0.0.0.0 | ::)
+    echo "Warning: listening on every address, with plain HTTP. Anyone who can reach this machine"
+    echo "can reach the services directly and read what passes between them and your proxy, so let"
+    echo "only the proxy reach these ports, and keep it on a private network (docs/LINUX.md)."
+    ;;
+esac
 
 case "$(uname -m)" in
   x86_64 | amd64) ARCH=amd64 ;;
@@ -107,6 +124,19 @@ as_owner() {
   else
     runuser -u "$OWNER" -- env HOME="$OWNER_HOME" PATH="$PATH" "$@"
   fi
+}
+# Building runs code from the repository, and from what it depends on, so it
+# never runs as root. A checkout owned by root is built by a user just for that.
+BUILDER="$OWNER"
+BUILDER_HOME="$OWNER_HOME"
+if [ "$OWNER" = root ]; then
+  BUILDER=zuna-build
+  BUILDER_HOME=/var/cache/zuna-build
+  id "$BUILDER" >/dev/null 2>&1 || useradd --system --home-dir "$BUILDER_HOME" --shell /usr/sbin/nologin "$BUILDER"
+  install -d -o "$BUILDER" -g "$BUILDER" -m 0750 "$BUILDER_HOME"
+fi
+as_builder() {
+  runuser -u "$BUILDER" -- env HOME="$BUILDER_HOME" PATH="$PATH" "$@"
 }
 
 # An address and port, as Go and curl write them.
@@ -165,7 +195,17 @@ echo "Go: $(go version)"
 if [ "$PULL" = 1 ]; then
   step "Pulling updates"
   before="$(sha256sum "$SRC/deploy/update.sh")"
-  as_owner git -C "$SRC" pull --ff-only
+  if [ "$SIGNED_TAGS" = 1 ]; then
+    # Nothing is built or run until its signature checks out. See docs/LINUX.md.
+    as_owner git -C "$SRC" fetch --tags --force
+    tag="$(as_owner git -C "$SRC" tag --list 'v*' --sort=-v:refname | head -n1)"
+    [ -n "$tag" ] || fail "there's no release tag to update to."
+    as_owner git -C "$SRC" verify-tag "$tag" || fail "the signature of $tag doesn't check out, so nothing was changed."
+    as_owner git -C "$SRC" checkout --quiet --detach "$tag"
+    echo "Verified $tag"
+  else
+    as_owner git -C "$SRC" pull --ff-only
+  fi
   # A newer version of this script finishes the job.
   if [ "$(sha256sum "$SRC/deploy/update.sh")" != "$before" ]; then
     echo "This script changed; running the new version"
@@ -176,15 +216,16 @@ VERSION="$(as_owner git -C "$SRC" describe --tags --always --dirty)"
 
 if [ "$TEST" = 1 ]; then
   step "Testing"
-  (cd "$SRC/server" && as_owner go test ./...)
+  (cd "$SRC/server" && as_builder go test ./...)
 fi
 
 step "Building $VERSION"
 BUILD="$(mktemp -d)"
 trap 'rm -rf "$BUILD"' EXIT
-chown "$OWNER" "$BUILD"
+chown "$BUILDER" "$BUILD"
 build() {
-  (cd "$SRC/server" && as_owner env CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$BUILD/$1" "./cmd/$1")
+  # -buildvcs=false: the builder may not own the checkout, which git would refuse to read.
+  (cd "$SRC/server" && as_builder env CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$VERSION" -o "$BUILD/$1" "./cmd/$1")
   echo "Built $1"
 }
 if [ -n "$SERVER_DOMAIN" ]; then build zuna-server; fi
@@ -201,6 +242,8 @@ RELAY_DOMAIN="$RELAY_DOMAIN"
 PUSH_RELAYS="$PUSH_RELAYS"
 APNS_KEY_ID="$APNS_KEY_ID"
 LISTEN="$LISTEN"
+TRUSTED_PROXIES="$TRUSTED_PROXIES"
+SIGNED_TAGS="$SIGNED_TAGS"
 SERVER_PORT="$SERVER_PORT"
 RELAY_PORT="$RELAY_PORT"
 EOF
@@ -230,7 +273,9 @@ if [ -n "$SERVER_DOMAIN" ]; then
 ZUNA_DATA=/var/lib/zuna
 ZUNA_LISTEN=$(address "$LISTEN" "$SERVER_PORT")
 ZUNA_PUBLIC_URL=https://$SERVER_DOMAIN
+# Believes X-Forwarded-For from this machine and private networks, or else from these proxies.
 ZUNA_TRUST_PROXY=true
+ZUNA_TRUSTED_PROXIES=$TRUSTED_PROXIES
 # Empty is the project's relay, and "off" is none.
 ZUNA_PUSH_RELAYS=$PUSH_RELAYS
 EOF
@@ -251,6 +296,7 @@ if [ -n "$RELAY_DOMAIN" ]; then
       echo "ZUNA_PUSH_DATA=/var/lib/zuna-push"
       echo "ZUNA_PUSH_LISTEN=$(address "$LISTEN" "$RELAY_PORT")"
       echo "ZUNA_PUSH_TRUST_PROXY=true"
+      echo "ZUNA_PUSH_TRUSTED_PROXIES=$TRUSTED_PROXIES"
       if [ -f /etc/zuna/apns.p8 ]; then
         echo "ZUNA_PUSH_APNS_KEY=/etc/zuna/apns.p8"
         echo "ZUNA_PUSH_APNS_KEY_ID=$APNS_KEY_ID"
