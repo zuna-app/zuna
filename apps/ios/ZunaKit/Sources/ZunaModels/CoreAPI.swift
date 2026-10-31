@@ -88,14 +88,16 @@ public struct SessionCalls: Sendable {
     }
     public func searchCoverage() async throws -> SearchCoverage { try await call("searchCoverage") }
 
+    /// Sends a message. `previewUrl` is a link whose preview is still being made:
+    /// the message waits a moment for it, so a link pasted and sent at once gets one.
     @discardableResult
-    public func sendMessage(_ conversationKey: String, _ body: MessageBody) async throws -> MessageView {
-        try await call("sendMessage", [conversationKey, body])
+    public func sendMessage(_ conversationKey: String, _ body: MessageBody, previewUrl: String? = nil) async throws -> MessageView {
+        try await call("sendMessage", [conversationKey, body, SendOptions(previewUrl: previewUrl)])
     }
 
     /// Uploads the files, encrypted, then sends the message. Progress shows on the local echo.
-    public func sendWithAttachments(_ conversationKey: String, files: [OutgoingFile], body: MessageBody) async throws {
-        try await run("sendWithAttachments", [conversationKey, files, body])
+    public func sendWithAttachments(_ conversationKey: String, files: [OutgoingFile], body: MessageBody, previewUrl: String? = nil) async throws {
+        try await run("sendWithAttachments", [conversationKey, files, body, SendOptions(previewUrl: previewUrl)])
     }
 
     public func emotesIn(_ text: String) async throws -> [String: EmoteRef] { try await call("emotesIn", [text]) }

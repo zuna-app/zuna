@@ -1,3 +1,5 @@
+
+import AVFoundation
 import SwiftUI
 import UIKit
 import ZunaModels
@@ -34,6 +36,25 @@ final class ImageStore {
             let file = try await core.session(serverId).downloadFile(attachment)
             return try Data(contentsOf: URL(fileURLWithPath: file.path))
         }
+    }
+
+    /// A frame from a video sent in a message, taken once the core has decrypted it.
+    func videoFrame(_ attachment: Attachment, serverId: String, size: CGFloat) async -> UIImage? {
+        await load("frame:\(attachment.fileId)", size: size) { [core] in
+            let file = try await core.session(serverId).downloadFile(attachment)
+            let asset = AVURLAsset(url: URL(fileURLWithPath: file.path), options: [AVURLAssetOverrideMIMETypeKey: attachment.mime])
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 720, height: 720)
+            // A moment in, since many videos start on a black frame.
+            let at = min(0.5, (attachment.duration ?? 1) / 3)
+            let (frame, _) = try await generator.image(at: CMTime(seconds: at, preferredTimescale: 600))
+            return UIImage(cgImage: frame).jpegData(compressionQuality: 0.85)
+        }
+    }
+
+    func cachedVideoFrame(_ attachment: Attachment) -> UIImage? {
+        attachment.fileId.isEmpty ? nil : cached("frame:\(attachment.fileId)")
     }
 
     /// The decrypted file under its own name, for QuickLook and the share sheet.

@@ -57,7 +57,7 @@ enum OutgoingFiles {
         return StagedFile(file: file, size: size)
     }
 
-    /// A recording's length, which a message shows on its card.
+    /// A recording's length, and a video's size and picture, which a message shows.
     static func withDuration(_ staged: StagedFile) async -> StagedFile {
         guard staged.file.mime.hasPrefix("video/") || staged.file.mime.hasPrefix("audio/") else { return staged }
         var staged = staged
@@ -70,8 +70,33 @@ enum OutgoingFiles {
             let shown = size.applying(transform)
             staged.file.width = Int(abs(shown.width))
             staged.file.height = Int(abs(shown.height))
+            staged.file.thumb = await poster(asset, duration: staged.file.duration)
         }
         return staged
+    }
+
+    /// How big a video's picture is, the frame shown before it loads, from the sharpest
+    /// down, as on the desktop. It travels inside the message, which takes at most 22 KB of it.
+    private static let posterSteps: [(size: CGFloat, quality: CGFloat)] = [(320, 0.65), (240, 0.55), (160, 0.5)]
+    private static let posterLength = 22 << 10
+
+    /// A frame a moment in, since many videos start on a black one, as a JPEG data URL.
+    private static func poster(_ asset: AVURLAsset, duration: Double?) async -> String? {
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        guard let (frame, _) = try? await generator.image(at: CMTime(seconds: min(0.5, (duration ?? 1) / 3), preferredTimescale: 600)) else { return nil }
+        let image = UIImage(cgImage: frame)
+        for step in posterSteps {
+            let scale = min(1, step.size / max(image.size.width, image.size.height))
+            let size = CGSize(width: max(1, (image.size.width * scale).rounded()), height: max(1, (image.size.height * scale).rounded()))
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let scaled = UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
+            guard let jpeg = scaled.jpegData(compressionQuality: step.quality) else { continue }
+            let poster = "data:image/jpeg;base64," + jpeg.base64EncodedString()
+            if poster.count <= posterLength { return poster }
+        }
+        return nil
     }
 
     /// A square picture for a group or profile, as the desktop's prepareAvatar: 256 pixels, WebP where the system can write it.

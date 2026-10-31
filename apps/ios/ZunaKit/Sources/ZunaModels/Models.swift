@@ -181,6 +181,15 @@ public struct MessageBody: Codable, Sendable, Equatable {
     }
 }
 
+/// How a message is sent: `previewUrl` is a link whose preview isn't ready yet. Mirrors the core's send options.
+public struct SendOptions: Codable, Sendable, Equatable {
+    public var previewUrl: String?
+
+    public init(previewUrl: String? = nil) {
+        self.previewUrl = previewUrl
+    }
+}
+
 /// A link's preview, made by the sender's device and sent inside the message. Mirrors `LinkPreview`.
 public struct LinkPreview: Codable, Sendable, Equatable, Hashable {
     public struct Image: Codable, Sendable, Equatable, Hashable {

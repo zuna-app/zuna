@@ -138,8 +138,6 @@ final class ComposerTests: XCTestCase {
         XCTAssertTrue(message(note).waitForExistence(timeout: 20))
 
         menu(note, "Pin")
-        let bar = zuna.element(A11y.Chat.pinnedBar)
-        XCTAssertTrue(bar.waitForExistence(timeout: 10))
         try waitFor("alice to see the pin") {
             try self.aliceMessages(alice).first { $0["id"] as? String == note }?["pinnedAt"] is Int
         }
@@ -164,8 +162,9 @@ final class ComposerTests: XCTestCase {
         result.tap()
         XCTAssertTrue(message(note).waitForExistence(timeout: 10))
 
-        // Unpinned from the list of pins.
-        try chatMenu("Pinned messages")
+        // Unpinned from the screen of pins, opened from the bar as on the desktop.
+        zuna.element(A11y.Chat.pins).tap()
+        XCTAssertTrue(zuna.element(A11y.Chat.result(note)).waitForExistence(timeout: 10))
         let unpin = zuna.app.buttons["Unpin"]
         XCTAssertTrue(unpin.waitForExistence(timeout: 10))
         unpin.tap()

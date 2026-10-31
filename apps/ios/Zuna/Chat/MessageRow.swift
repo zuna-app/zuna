@@ -192,12 +192,13 @@ private struct MessageItem: View {
         !message.text.isEmpty && message.preview == nil && message.reactions.isEmpty && !deleted && message.status != .undecryptable && message.status != .unverified && message.status != .invalid
     }
 
-    private var images: [Attachment] {
-        message.attachments.filter { $0.mime.hasPrefix("image/") && $0.width != nil }
+    /// Pictures and videos, which fill the bubble, with the time over them, when they're all a message has.
+    private var media: [Attachment] {
+        message.attachments.filter { ($0.mime.hasPrefix("image/") && $0.width != nil) || ($0.mime.hasPrefix("video/") && $0.voice != true) }
     }
 
-    private var onlyImages: Bool {
-        message.text.isEmpty && !images.isEmpty && images.count == message.attachments.count && message.reactions.isEmpty
+    private var onlyMedia: Bool {
+        message.text.isEmpty && !media.isEmpty && media.count == message.attachments.count && message.reactions.isEmpty
     }
 
     var body: some View {
@@ -296,12 +297,12 @@ private struct MessageItem: View {
             }
             content
         }
-        .padding(.horizontal, jumbo > 0 || onlyImages ? 0 : 12)
-        .padding(.top, jumbo > 0 || onlyImages ? 0 : 6)
-        .padding(.bottom, jumbo > 0 || onlyImages ? 0 : 7)
+        .padding(.horizontal, jumbo > 0 || onlyMedia ? 0 : 12)
+        .padding(.top, jumbo > 0 || onlyMedia ? 0 : 6)
+        .padding(.bottom, jumbo > 0 || onlyMedia ? 0 : 7)
         .frame(minWidth: jumbo > 0 ? 0 : 64, alignment: .leading)
         .background(jumbo > 0 ? .clear : own ? accent.bubbleOwn : Theme.bubbleOther, in: shape)
-        .clipShape(onlyImages ? AnyShape(shape) : AnyShape(Rectangle()))
+        .clipShape(onlyMedia ? AnyShape(shape) : AnyShape(Rectangle()))
         .overlay {
             if message.status == .failed { shape.stroke(Theme.red) }
         }
@@ -341,19 +342,20 @@ private struct MessageItem: View {
                 ReplyQuote(reply: reply, own: own, server: server) { actions.jump(reply.id) }
             }
             if !message.attachments.isEmpty {
-                AttachmentsView(message: message, serverId: server.entry.id, flush: onlyImages, own: own, open: actions.open)
+                AttachmentsView(message: message, serverId: server.entry.id, flush: onlyMedia, own: own, open: actions.open)
                     .overlay(alignment: .bottomTrailing) {
-                        if onlyImages { meta.padding(.horizontal, 6).padding(.vertical, 1).background(.black.opacity(0.55), in: .capsule).padding(7) }
+                        if onlyMedia { meta.padding(.horizontal, 6).padding(.vertical, 1).background(.black.opacity(0.55), in: .capsule).padding(7) }
                     }
             }
             if !message.text.isEmpty, jumbo > 0 {
-                // Large emoji have the time beside them, at the bottom.
-                HStack(alignment: .bottom, spacing: 6) {
+                // Large emoji have the time below them, at their right edge, as under a sticker.
+                VStack(alignment: .trailing, spacing: 1) {
                     MessageBody(message: message, style: style, server: server, reserveMeta: nil, revealed: revealed, actions: actions) {
                         revealed.insert($0)
                     }
-                    if metaInText { meta.padding(.bottom, 4) }
+                    if metaInText { meta }
                 }
+                .fixedSize(horizontal: true, vertical: false)
             } else if !message.text.isEmpty {
                 MessageBody(message: message, style: style, server: server, reserveMeta: metaInText ? metaWidth : nil, revealed: revealed, actions: actions) {
                     revealed.insert($0)
@@ -369,7 +371,7 @@ private struct MessageItem: View {
                 ReactionsView(message: message, own: own, server: server, react: { actions.react(message.id, $0, $1) }, card: actions.emoteCard) {
                     meta
                 }
-            } else if !metaInText && !onlyImages {
+            } else if !metaInText && !onlyMedia {
                 meta.frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
@@ -393,28 +395,27 @@ private struct MessageItem: View {
         }
         .font(.system(size: 11))
         .monospacedDigit()
-        .foregroundStyle(onlyImages ? .white : own ? Color.white.opacity(0.55) : Theme.text3)
+        .foregroundStyle(onlyMedia ? .white : own ? Color.white.opacity(0.55) : Theme.text3)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(A11y.Chat.meta(message.id))
     }
 
+    /// The desktop's marks: a clock while sending, a tick once sent, two once read.
     @ViewBuilder
     private var ticks: some View {
         switch message.status {
         case .sending:
-            Image(systemName: "clock").font(.system(size: 10)).accessibilityLabel("Sending")
+            DesktopIcon.clock.view(size: 11).accessibilityLabel("Sending")
         case .failed:
             Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(Color(hex: 0xF4BCBE)).accessibilityLabel("Not sent")
         default:
             if let seq = message.seq {
                 if context.readUpTo >= seq {
-                    Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold))
-                        .overlay(Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold)).offset(x: 4))
-                        .padding(.trailing, 4)
+                    DesktopIcon.checkCheck.view(size: 14)
                         .foregroundStyle(own ? model.settings.accent.bubbleOwnText : Theme.text1)
                         .accessibilityLabel("Read")
                 } else {
-                    Image(systemName: "checkmark").font(.system(size: 10, weight: .semibold)).accessibilityLabel("Sent")
+                    DesktopIcon.check.view(size: 14).accessibilityLabel("Sent")
                 }
             }
         }

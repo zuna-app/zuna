@@ -564,6 +564,7 @@ struct ChatRouteView: View {
         case .server: ChatListView()
         case let .chat(key): ChatScreen(conversationKey: key)
         case let .details(key): ConversationDetails(conversationKey: key)
+        case let .pins(key): PinnedMessagesView(conversationKey: key)
         }
     }
 }

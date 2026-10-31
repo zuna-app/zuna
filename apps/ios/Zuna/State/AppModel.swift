@@ -475,4 +475,5 @@ enum ChatRoute: Hashable {
     case server(String)
     case chat(String)
     case details(String)
+    case pins(String)
 }

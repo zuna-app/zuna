@@ -234,7 +234,7 @@ struct ConversationDetails: View {
                 if !isSelf {
                     Text(peer.online ? "online" : Format.lastSeen(peer.lastSeenAt, hidden: peer.hidesLastSeen))
                         .font(.footnote)
-                        .foregroundStyle(peer.online ? model.settings.accent.text : Theme.text3)
+                        .foregroundStyle(peer.online ? Theme.green : Theme.text3)
                 }
                 if !peer.bio.isEmpty {
                     Text(peer.bio).font(.subheadline).foregroundStyle(Theme.text1).multilineTextAlignment(.center).padding(.top, 4).textSelection(.enabled)

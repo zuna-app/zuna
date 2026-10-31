@@ -2,8 +2,8 @@ import SwiftUI
 import ZunaModels
 
 /// A chat, laid out like Telegram's: who it's with and their status in the
-/// bar, the pinned message, the messages with a button back to the newest one,
-/// and the composer.
+/// bar, the messages with a button back to the newest one, and the composer.
+/// Pinned messages have a screen of their own, as on the desktop.
 struct ChatScreen: View {
     let conversationKey: String
 
@@ -20,7 +20,7 @@ struct ChatScreen: View {
     @State private var confirmingDelete = false
 
     private enum ChatSheet: Identifiable {
-        case search, pins
+        case search
         case react(messageId: String)
         case verify(userId: String)
         case forward([MessageView])
@@ -28,7 +28,6 @@ struct ChatScreen: View {
         var id: String {
             switch self {
             case .search: "search"
-            case .pins: "pins"
             case let .react(id): "react-\(id)"
             case let .verify(userId): "verify-\(userId)"
             case let .forward(messages): "forward-\(messages.map(\.id).joined(separator: ","))"
@@ -79,7 +78,6 @@ struct ChatScreen: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(A11y.Chat.banner)
             }
-            PinnedBar(serverId: serverId, conversation: conversation) { sheet = .pins }
             ZStack(alignment: .bottomTrailing) {
                 if let list, list.loaded || !list.items.isEmpty {
                     if list.items.isEmpty {
@@ -140,13 +138,24 @@ struct ChatScreen: View {
                 .buttonStyle(.plain)
             }
             ToolbarItem(placement: .topBarTrailing) {
+                // As the desktop's header button: pinned messages have a screen of their own.
+                Button {
+                    model.chatPath.append(.pins(conversation.key))
+                } label: {
+                    Image(systemName: "pin")
+                }
+                .disabled(conversation.groupId == nil)
+                .accessibilityLabel("Pinned messages")
+                .accessibilityIdentifier(A11y.Chat.pins)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button(conversation.kind == .group ? "Group details" : "Details", systemImage: "info.circle") {
                         model.chatPath.append(.details(conversation.key))
                     }
                     Button("Search", systemImage: "magnifyingglass") { sheet = .search }
                         .disabled(conversation.groupId == nil)
-                    Button("Pinned messages", systemImage: "pin") { sheet = .pins }
+                    Button("Pinned messages", systemImage: "pin") { model.chatPath.append(.pins(conversation.key)) }
                         .disabled(conversation.groupId == nil)
                 } label: {
                     if isSaved {
@@ -160,6 +169,8 @@ struct ChatScreen: View {
                 .accessibilityLabel("Chat options")
                 .accessibilityIdentifier(A11y.Chat.menu)
             }
+            // The avatar is a picture of its own, without the bar's gray glass behind it.
+            .withoutSharedBackground()
         }
         .task(id: listId) {
             await model.loadList(serverId, listId, groupId: conversation.groupId)
@@ -179,9 +190,6 @@ struct ChatScreen: View {
             switch sheet {
             case .search:
                 ChatSearchSheet(serverId: serverId, conversation: conversation, server: server)
-            case .pins:
-                PinsSheet(serverId: serverId, conversation: conversation, server: server)
-                    .presentationDetents([.medium, .large])
             case let .verify(userId):
                 VerifyView(serverId: serverId, userId: userId)
             case let .forward(messages):
@@ -215,7 +223,9 @@ struct ChatScreen: View {
             open: { attachment in
                 Task {
                     do {
-                        FilePreview.show(try await images.openable(attachment, serverId: serverId))
+                        let file = try await images.openable(attachment, serverId: serverId)
+                        // Pictures open in a viewer that closes with a drag, as in Telegram; other files in QuickLook.
+                        if attachment.mime.hasPrefix("image/") { PhotoViewer.show(file) } else { FilePreview.show(file) }
                     } catch {
                         model.toast("Couldn't open \(attachment.name): \(OnboardingText.describe(error))", .error)
                     }
@@ -425,7 +435,7 @@ private struct ChatHeader: View {
             .accessibilityIdentifier(A11y.Chat.title)
             Text(status)
                 .font(.caption)
-                .foregroundStyle(online ? model.settings.accent.text : Theme.text2)
+                .foregroundStyle(online ? Theme.green : Theme.text2)
                 .lineLimit(1)
                 .accessibilityIdentifier(A11y.Chat.status)
         }
@@ -487,5 +497,17 @@ private struct EmptyChat: View {
         return conversation.kind == .group
             ? "Messages here are end-to-end encrypted. Only members can read them."
             : "Your messages are end-to-end encrypted. Not even this server can read them."
+    }
+}
+
+private extension ToolbarContent {
+    /// Without the glass iOS 26 puts behind items in the navigation bar.
+    @ToolbarContentBuilder
+    func withoutSharedBackground() -> some ToolbarContent {
+        if #available(iOS 26, *) {
+            sharedBackgroundVisibility(.hidden)
+        } else {
+            self
+        }
     }
 }

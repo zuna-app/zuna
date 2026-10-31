@@ -118,21 +118,16 @@ final class ChatReadingTests: XCTestCase {
         XCTAssertTrue(tile.waitForExistence(timeout: 30))
         zuna.screenshot("62-chat-picture")
 
-        // It opens decrypted in QuickLook, which hides its bars over pictures after a moment.
+        // It opens decrypted on the whole screen, and a drag down closes it, as in Telegram.
         try waitFor("the picture to load") { tile.value as? String == "Loaded" }
         tile.tap()
-        let quickLook = zuna.element("QLPreviewControllerView")
-        XCTAssertTrue(quickLook.waitForExistence(timeout: 10))
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        let viewer = zuna.element(A11y.Chat.photoViewer)
+        XCTAssertTrue(viewer.waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.app.buttons["Share"].exists)
         zuna.screenshot("63-picture-preview")
-        // A tap brings its bars back, with Done.
-        let done = zuna.app.buttons["QLOverlayDoneButtonAccessibilityIdentifier"]
-        try waitFor("QuickLook's Done button") {
-            if !done.exists { quickLook.tap() }
-            return done.waitForExistence(timeout: 1.5)
-        }
-        done.tap()
-        try waitFor("the preview to close") { !quickLook.exists }
+        let start = viewer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        start.press(forDuration: 0.05, thenDragTo: viewer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+        try waitFor("the viewer to close") { !viewer.exists }
     }
 
     func testShowsReactionsAndTogglesThemBothWays() throws {

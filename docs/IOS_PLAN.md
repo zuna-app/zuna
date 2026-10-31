@@ -263,7 +263,7 @@ Minimum iOS version: 18 (proposed).
 | Reply quote with author; a tap jumps to the original | same | F4 |
 | "Forwarded from" with the author on the same server, a tap opens them; only "Forwarded" from another server | same | Later |
 | Link preview card: site, title, description, picture beside the text or below it when wide; opens the link | same | Later |
-| Attachments: grid of 1 to 4 images with blurred thumbnail and fixed size, upload progress ring, full-screen viewer with Save; video and audio on tap; files downloaded and decrypted | QuickLook, AVPlayer, share sheet | F4 |
+| Attachments: grid of 1 to 4 images with blurred thumbnail and fixed size, upload progress ring, full-screen viewer that zooms and pans, with Save; videos with the frame the sender took (or their first frame, up to 20 MB) and never playing by themselves; audio on tap; files downloaded and decrypted, with a progress bar while they go up | pictures in a viewer that zooms and closes with a drag, as in Telegram; videos and files in QuickLook; share sheet | F4 |
 | Voice messages: play and pause, a waveform that fills as it plays and seeks on a click, the time; one plays at a time | AVAudioPlayer, playing even with the phone set to silent | Later |
 | Reactions: emoji or emote chips, avatars of up to 3 people, otherwise a count; names | same | F4 |
 | System messages: 8 kinds, warnings with an icon | same | F4 |
@@ -285,8 +285,8 @@ Minimum iOS version: 18 (proposed).
 | Picking several messages from the menu ("Select"), with a bar in place of the composer: Copy (with authors and times), Forward (in the chat's order), Delete for everyone (when all are yours, or you're a group admin) | a tap picks; deleting asks first | Later |
 | Recording voice messages: the microphone in place of Send when the composer is empty, a click to start, Send or Enter to send, Delete or Escape to throw away, a live level; AAC in MP4 | hold to record and let go to send, slide left to throw it away, as in Telegram | Later |
 | Link previews while writing: the first link's page fetched on this device after a pause, a bar with the title and picture and a way to remove it; edits keep theirs | pages fetched natively without cookies, pictures shrunk with ImageIO | Later |
-| Pinned bar: cycles through pins, "Pinned message X of N", jumps | same | F5 |
-| Search in a chat with a note when history is still downloading; pinned list with unpin | screens pushed from the chat | F5 |
+| Pinned messages: nothing above the chat; a button in the header opens the list, with Unpin, and a pin jumps to its message | a pin button in the bar pushes the list | F5 |
+| Search in a chat with a note when history is still downloading | a sheet over the chat | F5 |
 | Keyboard: Enter, Ctrl+Enter, Esc, Up to edit the last message; "Press Enter to send" | hardware keyboards; on the software keyboard Return inserts a new line | F8 |
 
 ### Details, groups and verification

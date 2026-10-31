@@ -5,12 +5,13 @@ import ZunaModels
 
 // MARK: Attachments
 
-/// Pictures in a grid of up to four, then videos, audio and other files as cards.
-/// Everything opens in QuickLook, decrypted into the protected cache.
+/// Pictures in a grid of up to four, videos with their picture, then audio and
+/// other files as cards. Pictures open in the photo viewer, everything else in
+/// QuickLook, decrypted into the protected cache.
 struct AttachmentsView: View {
     let message: MessageView
     let serverId: String
-    /// No text around the pictures: they fill the bubble.
+    /// No text around the pictures and videos: they fill the bubble.
     let flush: Bool
     var own = false
     let open: (Attachment) -> Void
@@ -24,13 +25,100 @@ struct AttachmentsView: View {
                     .clipShape(.rect(cornerRadius: flush ? 0 : 10))
             }
             ForEach(Array(others.enumerated()), id: \.offset) { _, attachment in
+                let progress = progress(of: attachment)
                 if attachment.voice == true {
-                    VoiceCard(attachment: attachment, serverId: serverId, own: own, messageId: message.id, uploadProgress: message.uploadProgress)
+                    VoiceCard(attachment: attachment, serverId: serverId, own: own, messageId: message.id, uploadProgress: progress)
+                } else if attachment.mime.hasPrefix("video/") {
+                    VideoTile(attachment: attachment, serverId: serverId, uploadProgress: progress, flush: flush) { open(attachment) }
                 } else {
-                    FileCard(attachment: attachment, uploadProgress: message.uploadProgress) { open(attachment) }
+                    FileCard(attachment: attachment, uploadProgress: progress) { open(attachment) }
                 }
             }
         }
+    }
+
+    /// How far one file is, from how far the whole message is: its files go up one after another.
+    private func progress(of attachment: Attachment) -> Double? {
+        guard let overall = message.uploadProgress else { return nil }
+        let total = message.attachments.reduce(0) { $0 + $1.size }
+        let before = message.attachments.prefix { $0 != attachment }.reduce(0) { $0 + $1.size }
+        guard attachment.size > 0 else { return overall }
+        return min(1, max(0, (overall * Double(total) - Double(before)) / Double(attachment.size)))
+    }
+}
+
+private extension Attachment {
+    /// Small enough to download and decrypt with no tap, as on the desktop. The file's
+    /// chunks, unlike its stated size, can't be lied about: decrypting checks them.
+    var loadsByItself: Bool { size <= 20 << 20 && chunks <= 21 }
+}
+
+/// A video with its picture straight away, as on the desktop: the frame the
+/// sender's device took, or, for one small enough, a frame taken here once it's
+/// decrypted. A tap plays it.
+private struct VideoTile: View {
+    @Environment(ImageStore.self) private var images
+    let attachment: Attachment
+    let serverId: String
+    let uploadProgress: Double?
+    /// Fills the bubble, which rounds it.
+    let flush: Bool
+    let open: () -> Void
+    @State private var frame: UIImage?
+
+    var body: some View {
+        let uploading = attachment.fileId.isEmpty
+        let width = CGFloat(attachment.width ?? 16), height = CGFloat(attachment.height ?? 9)
+        let scale = min(1, 260 / width, 300 / height)
+        let shownWidth = max(160, width * scale)
+        Button(action: open) {
+            ZStack {
+                Color.black
+                if let poster = frame ?? images.cachedVideoFrame(attachment) ?? attachment.thumb.flatMap(ImageStore.thumbnail) {
+                    Image(uiImage: poster).resizable().scaledToFill()
+                }
+                if uploading {
+                    UploadRing(progress: uploadProgress ?? 0)
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .background(.black.opacity(0.5), in: .circle)
+                }
+            }
+            .frame(width: shownWidth, height: shownWidth * height / width)
+            .clipped()
+            .overlay(alignment: .topLeading) {
+                Text(badge(uploading: uploading))
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(.black.opacity(0.55), in: .capsule)
+                    .padding(7)
+            }
+            .clipShape(.rect(cornerRadius: flush ? 0 : 10))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .disabled(uploading)
+        .accessibilityLabel("Play \(attachment.name)")
+        .accessibilityIdentifier(A11y.Chat.attachment(attachment.name))
+        .task(id: attachment.fileId) {
+            // Only one small enough to download with no tap, as for pictures.
+            guard !uploading, frame == nil, attachment.loadsByItself else { return }
+            frame = await images.videoFrame(attachment, serverId: serverId, size: 260)
+        }
+    }
+
+    private func badge(uploading: Bool) -> String {
+        if uploading {
+            let done = Int(Double(attachment.size) * (uploadProgress ?? 0))
+            return "\(Format.bytes(done)) of \(Format.bytes(attachment.size))"
+        }
+        return [attachment.duration.map(Format.duration), Format.bytes(attachment.size)].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -73,12 +161,9 @@ private struct ImageTile: View {
     /// A very large picture waits for a tap, as a video does.
     @State private var tapped = false
 
-    /// The file's chunks, unlike its stated size, can't be lied about: decrypting checks them.
-    private var loadsByItself: Bool { attachment.size <= 20 << 20 && attachment.chunks <= 21 }
-
     var body: some View {
         let uploading = attachment.fileId.isEmpty
-        let wanted = loadsByItself || tapped
+        let wanted = attachment.loadsByItself || tapped
         Button {
             if image != nil { open(attachment) } else { tapped = true }
         } label: {
@@ -141,8 +226,14 @@ private struct FileCard: View {
                 .frame(width: 40, height: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(attachment.name).font(.subheadline.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                    Text(uploading ? "Encrypting and uploading, \(Int((uploadProgress ?? 0) * 100))%" : details)
+                    if uploading {
+                        ProgressView(value: uploadProgress ?? 0)
+                            .tint(.white)
+                            .frame(maxWidth: 160)
+                    }
+                    Text(uploading ? "\(Format.bytes(Int(Double(attachment.size) * (uploadProgress ?? 0)))) of \(Format.bytes(attachment.size))" : details)
                         .font(.caption)
+                        .monospacedDigit()
                         .opacity(0.6)
                 }
             }

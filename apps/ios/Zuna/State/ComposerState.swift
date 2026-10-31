@@ -80,9 +80,9 @@ extension AppModel {
             return
         }
 
-        // Only a preview that's ready: sending doesn't wait for a slow page.
         let preview = state.link.flatMap { value.contains($0.url) ? $0.preview : nil }
         let body = MessageBody(text: value.isEmpty ? nil : value, replyTo: state.replyTo?.id, emotes: emotes, mentions: mentions, preview: preview)
+        let draft = state.link, dismissed = state.dismissedLink, previews = settings.linkPreviews
         let files = state.files
         updateComposer(serverId, conversation.key) {
             $0.text = ""
@@ -93,10 +93,17 @@ extension AppModel {
         }
         Task {
             do {
+                // A preview that isn't ready yet, as when a link is pasted and sent at once, goes
+                // with the message if it's ready within a few seconds; the message shows straight away.
+                var pendingLink: String?
+                if previews, preview == nil, let link = (try? await core.findLink(value)) ?? nil, link != dismissed,
+                   !(draft?.url == link && draft?.loading == false) {
+                    pendingLink = link
+                }
                 if files.isEmpty {
-                    try await session.sendMessage(conversation.key, body)
+                    try await session.sendMessage(conversation.key, body, previewUrl: pendingLink)
                 } else {
-                    try await session.sendWithAttachments(conversation.key, files: files.map(\.file), body: body)
+                    try await session.sendWithAttachments(conversation.key, files: files.map(\.file), body: body, previewUrl: pendingLink)
                     files.forEach(OutgoingFiles.discard)
                 }
             } catch {
