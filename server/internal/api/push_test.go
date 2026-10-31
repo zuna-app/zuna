@@ -145,6 +145,19 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 	bob.registerPush(relay.URL, "bob-phone", key, registration, []string{group.ID})
 	owner.send(group.ID, 1, store.NewID())
 	relay.none(t)
+	// So are groups muted for a while, until the time is up, even if the phone never says so.
+	muteUntil := func(until time.Time) {
+		h.mustDo("PUT", "/api/push", bob.token, map[string]any{
+			"relay": relay.URL, "handle": "bob-phone", "key": key, "registration": registration,
+			"muted_until": map[string]int64{group.ID: until.UnixMilli()},
+		}, nil)
+	}
+	muteUntil(time.Now().Add(time.Hour))
+	owner.send(group.ID, 1, store.NewID())
+	relay.none(t)
+	muteUntil(time.Now().Add(-time.Second))
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
 	bob.registerPush(relay.URL, "bob-phone", key, registration, nil)
 
 	// A phone the relay says is gone is forgotten.

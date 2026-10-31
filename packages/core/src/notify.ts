@@ -17,6 +17,7 @@ export function previewText(view: Preview): string {
   if (!first) return "";
   if (first.mime.startsWith("image/")) return "📷 Photo";
   if (first.mime.startsWith("video/")) return "🎬 Video";
+  if (first.voice) return "🎤 Voice message";
   if (first.mime.startsWith("audio/")) return "🎵 Audio";
   return `📎 ${first.name}`;
 }

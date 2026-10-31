@@ -82,6 +82,10 @@ export interface Attachment {
   /** Tiny inline preview shown while the full image loads (data URL). */
   thumb?: string;
   duration?: number;
+  /** Recorded in the app, so it plays as a voice message. */
+  voice?: boolean;
+  /** A voice message's loudness over time: one byte (0 to 255) per bar, base64. */
+  waveform?: string;
 }
 
 export interface EmoteRef {
@@ -216,6 +220,8 @@ export interface ConversationView {
   mentioned: boolean;
   pinned: boolean;
   muted: boolean;
+  /** When a chat muted for a while is heard again (ms), or null. */
+  mutedUntil: number | null;
   hidden: boolean;
   /** The group's membership: empty for a DM that has no group yet. */
   members: GroupMemberView[];
@@ -245,8 +251,16 @@ export interface EmoteSet {
 export interface Preferences {
   pinned: string[];
   hidden: string[];
+  /** Chats muted until they're unmuted, by conversation key. */
   muted: string[];
+  /** Chats muted for a while: conversation key -> when it ends (ms). */
+  mutedUntil?: Record<string, number>;
   sendReadReceipts: boolean;
+}
+
+/** Whether a chat is muted now. */
+export function isMuted(prefs: Partial<Pick<Preferences, "muted" | "mutedUntil">>, key: string, now = Date.now()): boolean {
+  return (prefs.muted ?? []).includes(key) || (prefs.mutedUntil?.[key] ?? 0) > now;
 }
 
 export interface DeviceView {

@@ -40,11 +40,12 @@ func pushLabel(registration string) []byte { return []byte("zuna/push/v1|" + reg
 
 func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
-		Relay        string   `json:"relay"`
-		Handle       string   `json:"handle"`
-		Key          []byte   `json:"key"`
-		Registration string   `json:"registration"`
-		Muted        []string `json:"muted"`
+		Relay        string           `json:"relay"`
+		Handle       string           `json:"handle"`
+		Key          []byte           `json:"key"`
+		Registration string           `json:"registration"`
+		Muted        []string         `json:"muted"`
+		MutedUntil   map[string]int64 `json:"muted_until"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -55,9 +56,18 @@ func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *sto
 		return
 	}
 	valid := body.Handle != "" && len(body.Handle) <= maxPushHandle && len(body.Key) == 32 &&
-		store.ValidID(body.Registration) && len(body.Muted) <= maxMutedGroups
+		store.ValidID(body.Registration) && len(body.Muted)+len(body.MutedUntil) <= maxMutedGroups
+	muted := map[string]int64{}
 	for _, groupID := range body.Muted {
 		valid = valid && store.ValidID(groupID)
+		muted[groupID] = 0
+	}
+	// Chats muted for a while, until a time in ms.
+	for groupID, until := range body.MutedUntil {
+		valid = valid && store.ValidID(groupID) && until > 0
+		if _, forever := muted[groupID]; !forever {
+			muted[groupID] = until
+		}
 	}
 	if !valid {
 		writeError(w, http.StatusBadRequest, "bad_request", "The notification registration isn't valid.")
@@ -70,7 +80,7 @@ func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *sto
 		Handle:       body.Handle,
 		Key:          body.Key,
 		Registration: body.Registration,
-		Muted:        body.Muted,
+		Muted:        muted,
 	})
 	if err != nil {
 		writeFailure(w, err)

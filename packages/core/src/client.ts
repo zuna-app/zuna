@@ -240,29 +240,32 @@ export class ZunaClient {
   }
 
   /**
-   * Forwards a message to a conversation on any server. On the same server it
-   * says whose it was and shares its files. On another server it only says
-   * it's forwarded, since its author isn't known there, and its files are
-   * uploaded there again.
+   * Forwards messages to a conversation on any server, in the order given. On
+   * the same server each says whose it was and shares its files. On another
+   * server it only says it's forwarded, since its author isn't known there,
+   * and its files are uploaded there again.
    */
-  async forwardMessage(fromServerId: string, groupId: string, id: string, toServerId: string, toKey: string): Promise<void> {
+  async forwardMessages(fromServerId: string, groupId: string, ids: string[], toServerId: string, toKey: string): Promise<void> {
     const source = this.session(fromServerId);
+    // All of them are checked before any is sent.
+    const originals = ids.map((id) => ({ id, ...source.forwardable(groupId, id) }));
     if (fromServerId === toServerId) {
-      source.forwardMessage(groupId, id, toKey);
+      for (const original of originals) source.forwardMessage(groupId, original.id, toKey);
       return;
     }
-    const { senderId: _, attachments, ...original } = source.forwardable(groupId, id);
     const target = this.session(toServerId);
-    const body: MessageBody = { ...original, forwarded: {} };
-    if (!attachments?.length) {
-      target.sendMessage(toKey, body);
-      return;
+    for (const { id: _, senderId: __, attachments, ...original } of originals) {
+      const body: MessageBody = { ...original, forwarded: {} };
+      if (!attachments?.length) {
+        target.sendMessage(toKey, body);
+        continue;
+      }
+      const files = [];
+      for (const { fileId, key, prefix, chunks, ...details } of attachments) {
+        files.push({ ...details, blob: await source.downloadFile({ fileId, key, prefix, chunks, mime: details.mime }) });
+      }
+      await target.sendWithAttachments(toKey, files, body);
     }
-    const files = [];
-    for (const { fileId, key, prefix, chunks, ...details } of attachments) {
-      files.push({ ...details, blob: await source.downloadFile({ fileId, key, prefix, chunks, mime: details.mime }) });
-    }
-    await target.sendWithAttachments(toKey, files, body);
   }
 
   /** Signs out of a server and erases everything stored for it on this device. */
