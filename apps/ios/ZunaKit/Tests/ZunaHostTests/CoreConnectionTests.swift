@@ -1,0 +1,69 @@
+import Foundation
+import XCTest
+@testable import ZunaHost
+@testable import ZunaModels
+
+/// The Swift RPC client against the real core bundle, in this process.
+final class CoreConnectionTests: XCTestCase {
+    private var directory: URL!
+    private var runtime: CoreRuntime!
+    private var connection: CoreConnection!
+
+    override func setUp() async throws {
+        directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        runtime = try CoreRuntime(options: .init(dataDirectory: directory, deviceKey: Data(repeating: 7, count: 32), deviceName: "Test"))
+        try await runtime.start()
+        connection = CoreConnection(runtime: runtime) { _ in }
+    }
+
+    override func tearDown() async throws {
+        connection = nil
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    func testCallsTheClientAndDecodesResults() async throws {
+        let servers = try await connection.listServers()
+        XCTAssertEqual(servers, [])
+        try await connection.suspend()
+        try await connection.resume()
+        XCTAssertEqual(connection.driftReports, [])
+    }
+
+    func testPassesOnTheCoresErrors() async throws {
+        do {
+            _ = try await connection.previewInvite("not a link at all")
+            XCTFail("expected an error")
+        } catch let error as CoreCallError {
+            XCTAssertEqual(error.message, "That doesn't look like a Zuna invite link.")
+        }
+    }
+
+    func testCallsFromSeveralTasksGetTheirOwnReplies() async throws {
+        let connection = connection!
+        try await withThrowingTaskGroup(of: Int.self) { group in
+            for _ in 0..<20 { group.addTask { try await connection.listServers().count } }
+            for try await count in group { XCTAssertEqual(count, 0) }
+        }
+    }
+}
+
+final class DriftTests: XCTestCase {
+    func testFindsFieldsTheModelsDontHave() throws {
+        let json = #"""
+        {"id":"m1","groupId":"g1","seq":3,"senderId":"u1","createdAt":1,"editedAt":null,"deletedAt":null,"pinnedAt":null,
+         "pinnedBy":null,"status":"sent","text":"hi","emotes":{"KEKW":{"id":"e1","animated":true}},"attachments":[],"mentions":[],
+         "reply":null,"reactions":[{"key":"👍","userIds":["u2"],"brandNew":1}],"system":null,"forwardedFrom":"u3"}
+        """#
+        let data = Data(json.utf8)
+        let message = try CoreConnection.decoder.decode(MessageView.self, from: data)
+        XCTAssertEqual(message.emotes["KEKW"]?.animated, true)
+        XCTAssertEqual(Set(Drift.missing(in: data, decodedAs: message)), ["forwardedFrom", "reactions[].brandNew"])
+    }
+
+    func testCarriesBytesAndFilesTagged() throws {
+        let encoded = String(decoding: try CoreConnection.encoder.encode([Data([1, 2, 3])]), as: UTF8.self)
+        XCTAssertEqual(encoded, #"[{"$bytes":"AQID"}]"#)
+        let file = try CoreConnection.decoder.decode(WireFile.self, from: Data(#"{"$file":{"path":"/tmp/a.jpg","type":"image/jpeg"}}"#.utf8))
+        XCTAssertEqual(file, WireFile(path: "/tmp/a.jpg", type: "image/jpeg"))
+    }
+}

@@ -18,6 +18,10 @@ declare const __zunaHost: {
   wsOpen(id: number, url: string): void;
   wsSend(id: number, text: string): void;
   wsClose(id: number, code: number): void;
+  fileSize(path: string): number;
+  fileRead(path: string, start: number, end: number): Uint8Array;
+  /** Writes the parts to a new file in the protected cache and returns its path. */
+  fileAssemble(parts: Uint8Array[], extension: string): string;
 };
 
 declare const __zunaCrypto: {

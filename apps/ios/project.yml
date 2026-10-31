@@ -33,6 +33,8 @@ targets:
     dependencies:
       - package: ZunaKit
         product: ZunaHost
+      - package: ZunaKit
+        product: ZunaModels
       # Only started in Debug builds, by a launch argument; see CoreController.
       - package: ZunaKit
         product: ZunaControl

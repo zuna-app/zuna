@@ -1,7 +1,9 @@
 import Foundation
+import Network
 import Observation
 import UIKit
 import ZunaHost
+import ZunaModels
 #if DEBUG
 import ZunaControl
 #endif
@@ -24,7 +26,13 @@ final class CoreController {
     private(set) var phase: Phase = .booting
     private(set) var lockedAccounts: [DeviceLock.Entry] = []
     private(set) var runtime: CoreRuntime?
+    private(set) var connection: CoreConnection?
     private var directory: URL?
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    private var suspendTask: Task<Void, Never>?
+    private let network = NWPathMonitor()
+    /// How long the core keeps running after the app goes to the background, so sends can finish.
+    private var suspendDelay: Duration = .seconds(20)
     /// Lock file updates run one at a time, off the main thread (Argon2id is slow on purpose).
     private let lockQueue = DispatchQueue(label: "chat.zuna.device-lock")
     #if DEBUG
@@ -90,8 +98,10 @@ final class CoreController {
 
     private func run(key: Data) async throws {
         guard let directory else { return }
+        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         var options = CoreRuntime.Options(
             dataDirectory: directory,
+            cacheDirectory: caches.appendingPathComponent("decrypted", isDirectory: true),
             deviceKey: key,
             deviceName: UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
         )
@@ -105,10 +115,67 @@ final class CoreController {
         let runtime = try CoreRuntime(options: options)
         try await runtime.start()
         self.runtime = runtime
+        connection = CoreConnection(runtime: runtime) { _ in }
+        watchNetwork()
         #if DEBUG
         control?.attach(runtime)
         #endif
         phase = .ready
+    }
+
+    // MARK: Lifecycle
+
+    /// iOS stops the app soon after it leaves the screen. The core gets a
+    /// background task to finish sending, then closes its connections cleanly.
+    func didEnterBackground() {
+        guard connection != nil, suspendTask == nil else { return }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish sending") { [weak self] in
+            MainActor.assumeIsolated { self?.suspendNow() }
+        }
+        let delay = suspendDelay
+        suspendTask = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.suspendNow()
+        }
+    }
+
+    /// Back on screen: reconnect right away and catch up.
+    func didBecomeActive() {
+        suspendTask?.cancel()
+        suspendTask = nil
+        endBackgroundTask()
+        guard let connection else { return }
+        Task {
+            try? await connection.resume()
+            try? await connection.nudge()
+        }
+    }
+
+    private func suspendNow() {
+        suspendTask?.cancel()
+        suspendTask = nil
+        let connection = connection
+        Task { try? await connection?.suspend() }
+        endBackgroundTask()
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
+    }
+
+    /// Reconnects as soon as the network comes back, like the desktop's "online" event.
+    private func watchNetwork() {
+        network.pathUpdateHandler = { [weak self] path in
+            guard path.status == .satisfied else { return }
+            Task { @MainActor in
+                guard let connection = self?.connection else { return }
+                try? await connection.nudge()
+            }
+        }
+        network.start(queue: DispatchQueue(label: "chat.zuna.network"))
     }
 
     /// Keeps the device lock in step with the accounts on this device: each
@@ -157,6 +224,8 @@ final class CoreController {
     private func startControl() async {
         let port = UserDefaults.standard.integer(forKey: "ZunaControlPort")
         guard port > 0, control == nil else { return }
+        let delay = UserDefaults.standard.double(forKey: "ZunaSuspendDelay")
+        if delay > 0 { suspendDelay = .milliseconds(Int(delay * 1000)) }
         let server = ControlServer()
         server.commandHandler = { [weak self] command in
             let name = command["command"] as? String
@@ -183,6 +252,14 @@ final class CoreController {
             return await unlock(lockedAccounts[account ?? 0], password: password) ? "ready" : "wrong-password"
         case "lockedAccounts":
             return lockedAccounts.map(\.id).joined(separator: ",")
+        case "background":
+            didEnterBackground()
+            return "background"
+        case "foreground":
+            didBecomeActive()
+            return "active"
+        case "drift":
+            return connection?.driftReports.joined(separator: "\n") ?? ""
         default:
             return "unknown"
         }

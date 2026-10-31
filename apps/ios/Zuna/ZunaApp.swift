@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct ZunaApp: App {
     @State private var core = CoreController()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -23,6 +24,13 @@ struct ZunaApp: App {
             .environment(core)
             .task { await core.start() }
             .preferredColorScheme(.dark)
+            .onChange(of: scenePhase) { _, phase in
+                switch phase {
+                case .background: core.didEnterBackground()
+                case .active: core.didBecomeActive()
+                default: break
+                }
+            }
     }
 }
 

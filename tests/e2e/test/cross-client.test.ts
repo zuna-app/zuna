@@ -5,7 +5,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "../../../packages/core/test/helpers";
 import { HostApp, phoneTarget } from "../src/host";
-import { wireBlob } from "../src/wire";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { wireBlob, wireFile } from "../src/wire";
 
 let server: TestServer;
 let alice: TestApp;
@@ -115,6 +118,21 @@ describe("an iOS client with a desktop client", () => {
     expect(await bytesOf(downloaded)).toEqual(large);
   });
 
+  it("sends a file straight from disk, a chunk at a time", async () => {
+    const dm = `user:${aliceId}`;
+    const content = pattern(1_500_000, 3);
+    const path = join(tmpdir(), `zuna-e2e-${Date.now()}.pdf`);
+    writeFileSync(path, content);
+    await phone.session.sendWithAttachments(dm, [{ blob: wireFile(path, "application/pdf") as never, name: "report.pdf", mime: "application/pdf" }], {
+      text: "a file from disk",
+    });
+    await waitFor(() => alice.texts(`user:${bobId}`).includes("a file from disk"), "alice to receive it");
+    const page = await alice.session.loadMessages(alice.session.getConversations().find((item) => item.key === `user:${bobId}`)!.groupId!);
+    const attachment = page.messages.find((view) => view.text === "a file from disk")!.attachments[0]!;
+    expect(attachment).toMatchObject({ name: "report.pdf", mime: "application/pdf", size: content.length, chunks: 2 });
+    expect(await bytesOf(await alice.session.downloadFile(attachment))).toEqual(content);
+  });
+
   it("brings the whole history to a second iOS device", async () => {
     const tablet = await new HostApp("bob-ipad", { deviceName: "iPad" }).open();
     others.push(tablet);
@@ -146,6 +164,47 @@ describe("an iOS client with a desktop client", () => {
     await waitFor(() => alice.texts(`user:${bobId}`).includes("sent while offline"), "the queued message to arrive", 60_000);
     await sleep(500);
     expect(alice.texts(`user:${bobId}`).filter((text) => text === "sent while offline")).toHaveLength(1);
+  });
+
+  it("suspends in the background and catches up when it's back", async () => {
+    const dm = `user:${aliceId}`;
+    await phone.background();
+    await waitFor(async () => (await phone.session.getConnectionState()) === "offline", "the phone to go offline");
+    alice.session.sendMessage(`user:${bobId}`, { text: "while in the background" });
+    await waitFor(() => alice.texts(`user:${bobId}`).includes("while in the background"), "alice to send");
+    await sleep(500);
+    expect(await phone.texts(dm)).not.toContain("while in the background");
+    await phone.foreground();
+    await waitFor(async () => (await phone.texts(dm)).includes("while in the background"), "the phone to catch up");
+  });
+
+  it("recovers when it dies right after the server accepts a new group", async () => {
+    // The server has the group's first commit, but the app never merged it locally.
+    await phone.crashOn("POST", "/api/groups/[^/]+/commit$");
+    const gone = phone.waitUntilGone();
+    void phone.session.createGroup("Survives a crash", [aliceId], false).catch(() => undefined);
+    await gone;
+    await phone.open();
+    await phone.online();
+    await waitFor(
+      async () => (await phone.session.getConversations()).some((item) => item.title === "Survives a crash" && item.ready),
+      "the group to come back after the crash",
+    );
+    const key = (await phone.session.getConversations()).find((item) => item.title === "Survives a crash")!.key;
+    await phone.session.sendMessage(key, { text: "made it through" });
+    await waitFor(() => alice.texts(key).includes("made it through"), "alice to read the group after the crash");
+    alice.session.sendMessage(key, { text: "glad to hear" });
+    await waitFor(async () => (await phone.texts(key)).includes("glad to hear"), "the phone to read alice");
+  });
+
+  it("keeps no readable message text, group names or file names in its databases", async () => {
+    const secrets = ["hi from the desktop", "count me in", "Weekend", "Made on iOS", "report.pdf", "while in the background"];
+    const files = phone.databaseFiles();
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const bytes = readFileSync(file);
+      for (const secret of secrets) expect(bytes.includes(Buffer.from(secret)), `${secret} in ${file}`).toBe(false);
+    }
   });
 
   it("derives the same keys from passwords with diacritics on both platforms", async () => {
