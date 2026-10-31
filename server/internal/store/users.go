@@ -357,6 +357,10 @@ func (d *DB) BanUser(ctx context.Context, userID string) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM push_registrations WHERE user_id = ?`, userID); err != nil {
 			return err
 		}
+		// An invite they made shouldn't be their way back in.
+		if _, err := tx.ExecContext(ctx, `UPDATE invites SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL`, now, userID); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM group_members WHERE user_id = ?`, userID)
 		return err
 	})
@@ -677,11 +681,13 @@ func (d *DB) ValidInvite(ctx context.Context, code string) (*Invite, error) {
 	return &inv, nil
 }
 
-func (d *DB) Invites(ctx context.Context) ([]Invite, error) {
+// Invites lists the invites that can still be used. With createdBy set, only that person's.
+func (d *DB) Invites(ctx context.Context, createdBy string) ([]Invite, error) {
 	rows, err := d.sql.QueryContext(ctx, `SELECT code, created_by, grants_role, max_uses, uses, expires_at, created_at
 		FROM invites WHERE revoked_at IS NULL AND grants_role != 'owner'
-		AND (expires_at IS NULL OR expires_at > ?) AND (max_uses = 0 OR uses < max_uses)
-		ORDER BY created_at DESC`, Now())
+		AND (expires_at IS NULL OR expires_at > ?1) AND (max_uses = 0 OR uses < max_uses)
+		AND (?2 = '' OR created_by = ?2)
+		ORDER BY created_at DESC`, Now(), createdBy)
 	if err != nil {
 		return nil, err
 	}
@@ -701,9 +707,16 @@ func (d *DB) Invites(ctx context.Context) ([]Invite, error) {
 	return invites, rows.Err()
 }
 
-func (d *DB) RevokeInvite(ctx context.Context, code string) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE invites SET revoked_at = ? WHERE code = ?`, Now(), code)
-	return err
+// RevokeInvite stops an invite working. With createdBy set, only if it's theirs.
+func (d *DB) RevokeInvite(ctx context.Context, code, createdBy string) error {
+	res, err := d.sql.ExecContext(ctx, `UPDATE invites SET revoked_at = ?1 WHERE code = ?2 AND (?3 = '' OR created_by = ?3)`, Now(), code, createdBy)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SetupInvite returns the unused owner invite, if the server is still unclaimed.

@@ -569,6 +569,23 @@ func TestOutsidersLearnLittle(t *testing.T) {
 	}
 }
 
+// Z-25: an invite someone made isn't their way back after a ban.
+func TestABanEndsTheInvitesTheyMade(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	h.mustDo("PATCH", "/api/admin/settings", owner.token, map[string]any{"allow_member_invites": true}, nil)
+	bob := h.register("bob", owner.newInvite())
+	spare := bob.newInvite()
+	theirs := owner.newInvite()
+	h.mustDo("POST", "/api/admin/users/"+bob.userID+"/ban", owner.token, nil, nil)
+	if status, _ := h.do("GET", "/api/invites/"+spare, "", nil, nil); status != http.StatusNotFound {
+		t.Fatalf("a banned member's invite gave %d", status)
+	}
+	if status, _ := h.do("GET", "/api/invites/"+theirs, "", nil, nil); status != http.StatusOK {
+		t.Fatalf("someone else's invite gave %d", status)
+	}
+}
+
 // Z-10: an account from before sign-in keys were bound to a server moves to a
 // new key by proving it knows the old one, which is no use for any other server.
 func TestUpgradingASignInKeyProvesItWithoutSendingIt(t *testing.T) {
