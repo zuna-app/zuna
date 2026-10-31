@@ -12,7 +12,8 @@ import { openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
-import { isMuted, type AvatarRef, type MessageBody, type Preferences, type Profile } from "./types";
+import { isMuted, type AvatarRef, type Preferences, type Profile } from "./types";
+import { parseMessageBody } from "./validate";
 
 export interface PushPreview {
   serverId: string;
@@ -97,7 +98,7 @@ export async function previewPush(
   const epochRow = db.get<{ key: Uint8Array }>("SELECT key FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, message.epoch]);
   if (!group || !sender || !device || !epochRow) return preview({});
   const epochKey = wasm.aeadOpen(key, epochRow.key, label("epoch"));
-  const opened = openEnvelope<MessageBody>(
+  const opened = openEnvelope<unknown>(
     epochKey,
     fromBase64(device.signatureKey),
     "message",
@@ -107,11 +108,13 @@ export async function previewPush(
     decode(message.envelope),
   );
   if (!opened.ok) return preview({});
+  const body = parseMessageBody(opened.value);
+  if (!body) return preview({});
 
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
-  const mentioned = (opened.value.mentions ?? []).includes(account.userId);
-  const content = { text: opened.value.text ?? "", attachments: opened.value.attachments ?? [] };
+  const mentioned = (body.mentions ?? []).includes(account.userId);
+  const content = { text: body.text ?? "", attachments: body.attachments ?? [] };
   const picture = async (avatar: AvatarRef | null | undefined) => {
     if (!pictures || !avatar || avatar.chunks > MAX_PICTURE_CHUNKS) return undefined;
     try {

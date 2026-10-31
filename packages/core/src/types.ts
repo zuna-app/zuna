@@ -119,6 +119,8 @@ export interface MessageBody {
   /** The preview of the first link in the text, made by the sender's device. */
   preview?: LinkPreview;
   forwarded?: ForwardInfo;
+  /** When the sender's device sent it (ms), signed with the rest, unlike the server's time. */
+  sentAt?: number;
 }
 
 /**
@@ -148,7 +150,11 @@ export interface ReactionView {
   userIds: string[];
 }
 
-export type MessageStatus = "sending" | "sent" | "failed" | "undecryptable" | "unverified";
+/**
+ * "unverified": its signature failed, or it couldn't have been sent when it claims.
+ * "invalid": it opened, but what's inside isn't a message this app can show.
+ */
+export type MessageStatus = "sending" | "sent" | "failed" | "undecryptable" | "unverified" | "invalid";
 
 export interface SystemEvent {
   type:
@@ -193,6 +199,8 @@ export interface MessageView {
   preview: LinkPreview | null;
   forwarded: ForwardInfo | null;
   uploadProgress?: number;
+  /** The time the sender's device signed is far from the server's. */
+  timeDiffers?: boolean;
 }
 
 export interface GroupMemberView {

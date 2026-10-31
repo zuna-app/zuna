@@ -36,10 +36,21 @@ import {
 import { equalBytes, fromBase64, fromUtf8, toBase64, toBase64Url, u64Bytes, utf8 } from "./encoding";
 import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
-import { checkPreview } from "./links";
+import { linkInText } from "./links";
 import { notificationText, previewText } from "./notify";
 import { indexTokens, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
+import {
+  MAX_TEXT_LENGTH,
+  parseEmoteRef,
+  parseMessageBody,
+  parsePreferences,
+  parseProfile,
+  parseReaction,
+  parseReadState,
+  parseSystemEvent,
+  type GroupDetails,
+} from "./validate";
 import type {
   Attachment,
   AvatarRef,
@@ -50,7 +61,6 @@ import type {
   Emote,
   EmoteRef,
   EmoteSet,
-  ForwardInfo,
   GroupMemberView,
   GroupRole,
   Invite,
@@ -107,11 +117,7 @@ interface CachedUser {
   devices: Map<string, CachedDevice>;
 }
 
-interface GroupMeta {
-  name?: string;
-  description?: string;
-  avatar?: AvatarRef | null;
-}
+type GroupMeta = GroupDetails;
 
 interface CachedGroup {
   id: string;
@@ -163,7 +169,40 @@ type Mutex = Promise<unknown>;
 
 const emptyProfile = (username: string): Profile => ({ displayName: username });
 
-const forwardInfo = (value: ForwardInfo): ForwardInfo => (typeof value.userId === "string" ? { userId: value.userId } : {});
+const MESSAGE_ID = /^[0-9a-f]{32}$/;
+
+/** What the server says about a message, which has to at least have the right shape. */
+const validApiMessage = (message: ApiMessage): boolean =>
+  MESSAGE_ID.test(message?.id ?? "") &&
+  Number.isSafeInteger(message.seq) &&
+  Number.isSafeInteger(message.updated_seq) &&
+  Number.isSafeInteger(message.epoch) &&
+  Number.isSafeInteger(message.created_at) &&
+  typeof message.sender_user === "string" &&
+  typeof message.sender_device === "string" &&
+  Array.isArray(message.reactions);
+
+/** A message as this device stored it: what can be shown, or null if that's nothing. */
+function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody): StoredBody | null {
+  const body: StoredBody | null = parseMessageBody(stored);
+  if (!body) return null;
+  // Only this device writes notices, and it gives them their own kind of ID.
+  if (row.id.startsWith("sys-")) {
+    const system = parseSystemEvent(stored.system);
+    if (system) body.system = system;
+  }
+  if (Array.isArray(stored.reactions)) {
+    body.reactions = stored.reactions.flatMap((item) => {
+      const reaction = parseReaction(item);
+      return reaction && Array.isArray(item.userIds) ? [{ ...reaction, userIds: item.userIds.filter((id) => typeof id === "string") }] : [];
+    });
+  }
+  return body;
+}
+
+function assertSendable(body: MessageBody): void {
+  if ((body.text?.length ?? 0) > MAX_TEXT_LENGTH) throw new Error("That message is too long. Try sending it as a file.");
+}
 
 export class ServerSession {
   readonly api: Api;
@@ -507,7 +546,7 @@ export class ServerSession {
     }
 
     const opened = api.profile
-      ? openProfile<Profile>(this.account.core.communityKey, trustedKey, api.username, decode(api.profile))
+      ? parseProfile(openProfile<unknown>(this.account.core.communityKey, trustedKey, api.username, decode(api.profile)))
       : null;
     const user: CachedUser = {
       id: api.id,
@@ -608,7 +647,12 @@ export class ServerSession {
           this.saveEpochKey(groupId!, Number(epoch), data, true);
           touchedGroups.add(groupId!);
         } else if (item.id === "prefs") {
-          this.prefs = { ...this.prefs, ...JSON.parse(fromUtf8(data)) };
+          try {
+            this.prefs = { ...this.prefs, ...parsePreferences(JSON.parse(fromUtf8(data))) };
+          } catch {
+            console.warn("[zuna] saved preferences could not be read");
+            continue;
+          }
           this.setKv("prefs", this.prefs);
           this.emit({ type: "preferences", serverId: this.serverId });
           this.watchMutes();
@@ -830,12 +874,12 @@ export class ServerSession {
     const body = sealed.subarray(1);
     const key = accountSealed ? this.account.accountKey : this.epochKey(group.id, signalEpoch(body));
     if (!key) return;
-    const opened = openSignal<{ seq: number }>(key, "read", group.id, body);
-    if (!opened) return;
+    const seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
+    if (seq === null) return;
     if (userId === this.account.userId) {
-      group.ownRead = Math.max(group.ownRead, opened.seq);
+      group.ownRead = Math.max(group.ownRead, seq);
     } else {
-      group.readBy[userId] = Math.max(group.readBy[userId] ?? 0, opened.seq);
+      group.readBy[userId] = Math.max(group.readBy[userId] ?? 0, seq);
     }
   }
 
@@ -1600,7 +1644,7 @@ export class ServerSession {
     for (const reaction of raw) {
       const key = this.epochKey(groupId, reaction.epoch);
       if (!key) continue;
-      const opened = openSignal<{ key: string; emote?: EmoteRef }>(key, "reaction", groupId, decode(reaction.data));
+      const opened = parseReaction(openSignal<unknown>(key, "reaction", groupId, decode(reaction.data)));
       if (!opened) continue;
       // The ID commits to the reacting user, so reactions can't be reattributed.
       if (reactionId(reaction.user_id, messageId, opened.key) !== reaction.id) continue;
@@ -1613,6 +1657,10 @@ export class ServerSession {
 
   /** Stores a message's current state, decrypting it if the keys are available. */
   private ingest(message: ApiMessage, live: boolean): void {
+    if (!validApiMessage(message)) {
+      console.warn("[zuna] the server sent something that isn't a message");
+      return;
+    }
     const existing = this.messageRow(message.group_id, message.id);
     if (existing && existing.updated_seq >= message.updated_seq && existing.status !== "undecryptable" && existing.status !== "unverified") {
       return;
@@ -1628,9 +1676,15 @@ export class ServerSession {
         status = "undecryptable";
         raw = envelope;
       } else {
-        const opened = openEnvelope<MessageBody>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, envelope);
+        const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, envelope);
         if (opened.ok) {
-          body = { ...opened.value, rawReactions: message.reactions };
+          const parsed = parseMessageBody(opened.value);
+          if (parsed) {
+            body = { ...parsed, rawReactions: message.reactions };
+          } else {
+            status = "invalid";
+            raw = envelope;
+          }
         } else if (opened.reason === "signature") {
           status = "unverified";
           raw = envelope;
@@ -1762,9 +1816,15 @@ export class ServerSession {
     return previewText(view);
   }
 
+  /** What a row holds, as far as it can be shown. Stored before these checks, it may be anything. */
+  private storedBody(row: MessageRow): StoredBody | null {
+    return row.body ? readStoredBody(row, this.openJson<StoredBody>("message", row.body)) : {};
+  }
+
   private toMessageView(row: MessageRow): MessageView {
-    const body: StoredBody = row.body ? this.openJson<StoredBody>("message", row.body) : {};
-    return {
+    const stored = this.storedBody(row);
+    const body: StoredBody = stored ?? {};
+    const view: MessageView = {
       id: row.id,
       groupId: row.group_id,
       seq: row.seq,
@@ -1774,7 +1834,7 @@ export class ServerSession {
       deletedAt: row.deleted_at,
       pinnedAt: row.pinned_at,
       pinnedBy: row.pinned_by,
-      status: row.status,
+      status: stored ? row.status : "invalid",
       text: body.text ?? "",
       emotes: body.emotes ?? {},
       attachments: body.attachments ?? [],
@@ -1782,21 +1842,22 @@ export class ServerSession {
       reply: body.replyTo ? this.replyPreview(row.group_id, body.replyTo) : null,
       reactions: body.reactions ?? [],
       system: body.system ?? null,
-      preview: checkPreview(body.preview, body.text ?? ""),
-      forwarded: body.forwarded && typeof body.forwarded === "object" ? forwardInfo(body.forwarded) : null,
+      preview: body.preview ?? null,
+      forwarded: body.forwarded ?? null,
     };
+    return view;
   }
 
   private replyPreview(groupId: string, id: string): ReplyPreview {
     const row = this.messageRow(groupId, id);
     if (!row) return { id, senderId: "", text: "", hasAttachment: false, deleted: false };
     if (!row.body) return { id, senderId: row.sender_user, text: "", hasAttachment: false, deleted: row.deleted_at !== null };
-    const body = this.openJson<StoredBody>("message", row.body);
+    const body = this.storedBody(row);
     return {
       id,
       senderId: row.sender_user,
-      text: body.text?.slice(0, 200) ?? "",
-      hasAttachment: (body.attachments?.length ?? 0) > 0,
+      text: body?.text?.slice(0, 200) ?? "",
+      hasAttachment: (body?.attachments?.length ?? 0) > 0,
       deleted: false,
     };
   }
@@ -2168,14 +2229,14 @@ export class ServerSession {
   /** What a message says, to forward it: its text, emotes, files and preview, and whose it was. */
   forwardable(groupId: string, id: string): MessageBody & { senderId: string } {
     const row = this.messageRow(groupId, id);
-    if (!row?.body || row.status !== "sent" || row.deleted_at !== null) throw new Error("That message can't be forwarded.");
-    const body = this.openJson<StoredBody>("message", row.body);
+    const body = row ? this.storedBody(row) : null;
+    if (!row?.body || !body || row.status !== "sent" || row.deleted_at !== null) throw new Error("That message can't be forwarded.");
     return {
       text: body.text,
       emotes: body.emotes,
       attachments: body.attachments,
-      preview: checkPreview(body.preview, body.text ?? "") ?? undefined,
-      forwarded: body.forwarded ? forwardInfo(body.forwarded) : undefined,
+      preview: body.preview,
+      forwarded: body.forwarded,
       senderId: row.sender_user,
     };
   }
@@ -2195,6 +2256,7 @@ export class ServerSession {
 
   /** Sends a message. It appears immediately and survives restarts until delivered. */
   sendMessage(groupKey: string, body: MessageBody): MessageView {
+    assertSendable(body);
     const id = randomId();
     const view = this.ensureLocalEcho(groupKey, id, body);
     this.enqueue(groupKey, { kind: "message", id, body });
@@ -2330,8 +2392,8 @@ export class ServerSession {
 
   retryMessage(groupId: string, id: string): void {
     const row = this.messageRow(groupId, id);
-    if (!row || row.status !== "failed" || !row.body) return;
-    const body = this.openJson<StoredBody>("message", row.body);
+    const body = row ? this.storedBody(row) : null;
+    if (!row || row.status !== "failed" || !row.body || !body) return;
     const group = this.groups.get(groupId);
     const key = group ? this.conversationKey(group) : groupId.replace(/^pending:/, "");
     this.db.run("UPDATE messages SET status = 'sending' WHERE group_id = ? AND id = ?", [groupId, id]);
@@ -2352,8 +2414,8 @@ export class ServerSession {
 
   editMessage(groupId: string, id: string, text: string, emotes: Record<string, EmoteRef>, mentions: string[]): void {
     const row = this.messageRow(groupId, id);
-    if (!row?.body) return;
-    const previous = this.openJson<StoredBody>("message", row.body);
+    const previous = row ? this.storedBody(row) : null;
+    if (!row?.body || !previous) return;
     const body: MessageBody = {
       text,
       emotes,
@@ -2361,9 +2423,10 @@ export class ServerSession {
       replyTo: previous.replyTo,
       attachments: previous.attachments,
       // The preview stays while its link does; an edit doesn't fetch a new one.
-      preview: previous.preview && text.includes(previous.preview.url) ? previous.preview : undefined,
+      preview: previous.preview && linkInText(previous.preview.url, text) ? previous.preview : undefined,
       forwarded: previous.forwarded,
     };
+    assertSendable(body);
     this.db.run("UPDATE messages SET body = ?, edited_at = ? WHERE group_id = ? AND id = ?", [
       this.sealJson("message", { ...previous, ...body }),
       Date.now(),
@@ -2393,7 +2456,7 @@ export class ServerSession {
   async toggleReaction(groupId: string, messageId: string, key: string, emote?: EmoteRef): Promise<void> {
     const id = reactionId(this.account.userId, messageId, key);
     const row = this.messageRow(groupId, messageId);
-    const current = row?.body ? this.openJson<StoredBody>("message", row.body).reactions ?? [] : [];
+    const current = row ? (this.storedBody(row)?.reactions ?? []) : [];
     const already = current.some((item) => item.key === key && item.userIds.includes(this.account.userId));
     await this.withLock(groupId, async () => {
       if (already) {
@@ -2477,6 +2540,8 @@ export class ServerSession {
       while (next < ref.chunks) {
         const index = next++;
         const sealed = await this.api.downloadChunk(ref.fileId, index);
+        // The server's limit plus a little: this is all held in memory.
+        if (sealed.length > CHUNK_SIZE + 256) throw new Error("This file isn't what it should be.");
         parts[index] = wasm.streamOpen(key, prefix, index, index === ref.chunks - 1, sealed);
         done++;
         onProgress?.(done, ref.chunks);
@@ -2492,6 +2557,7 @@ export class ServerSession {
     files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string }[],
     body: MessageBody,
   ): Promise<void> {
+    assertSendable(body);
     const id = randomId();
     const totalBytes = files.reduce((sum, file) => sum + this.files.size(file.blob), 0);
     const placeholders: Attachment[] = files.map((file) => ({
@@ -2752,6 +2818,8 @@ export class ServerSession {
 
   async refreshEmotes(): Promise<void> {
     const set = await this.api.emotes();
+    // Only ones with an ID that can go in an address, as the app asks the server for each picture.
+    set.emotes = (Array.isArray(set.emotes) ? set.emotes : []).filter((emote) => parseEmoteRef(emote) && typeof emote.name === "string");
     this.emoteSet = set;
     this.setKv("emotes", set);
     this.emit({ type: "emotes", serverId: this.serverId });
