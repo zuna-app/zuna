@@ -428,8 +428,11 @@ export class ServerSession {
   private async syncAll(): Promise<void> {
     this.info = await this.api.info();
     this.emit({ type: "settings", serverId: this.serverId, info: this.info });
-    await this.syncUsers();
+    // The vault comes first: it holds the keys this account already trusts,
+    // which a new device must have before believing what the server says.
     await this.syncVault();
+    await this.syncUsers();
+    await this.uploadPins();
     await this.refreshEmotes();
     await this.processWelcomes();
     // A group that arrives while the list is on its way won't be in it, so only
@@ -504,6 +507,8 @@ export class ServerSession {
       const group = this.openJson<CachedGroup>("group", row.data);
       this.groups.set(group.id, group);
     }
+    // This account's own key comes from its vault, never from what the server says.
+    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [this.account.userId, this.account.core.identityPublic]);
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
     this.watchMutes();
     const push = this.getKv<(Omit<PushSettings, "key"> & { key: string }) | "off">("push");
@@ -562,24 +567,34 @@ export class ServerSession {
     return row?.identity_key ?? null;
   }
 
+  /** The key this account verified for someone, if it has. Clearing it leaves an empty one. */
+  private verifiedIdentity(userId: string): Uint8Array | null {
+    const key = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId])?.identity_key;
+    return key && key.length > 0 ? key : null;
+  }
+
   private trustOf(userId: string, current: Uint8Array): TrustState {
     const pinned = this.pinnedIdentity(userId);
     if (pinned && !equalBytes(pinned, current)) return "changed";
-    const verified = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId]);
-    return verified && equalBytes(verified.identity_key, current) ? "verified" : "unverified";
+    const verified = this.verifiedIdentity(userId);
+    if (!verified) return "unverified";
+    return equalBytes(verified, current) ? "verified" : "changed";
   }
 
   /**
    * Trust on first use: the first identity key seen for a user is pinned. Zuna
    * accounts keep one identity key for life, so a later change means the server
-   * is lying or the account was replaced. That gets a loud warning.
+   * is lying or the account was replaced. That gets a loud warning. Pins and
+   * verifications are shared through the vault, so a new device already knows what
+   * this account's other devices do.
    */
   private applyUser(api: ApiUser): CachedUser {
     const identityKey = decode(api.identity_key);
-    const pinned = this.pinnedIdentity(api.id);
     const isSelf = api.id === this.account.userId;
-    if (!pinned) {
-      this.db.run("INSERT INTO pinned_identities(user_id, identity_key) VALUES(?, ?)", [api.id, identityKey]);
+    // Someone this account has verified is pinned to that key, whatever the server says now.
+    const pinned = isSelf ? this.account.core.identityPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id));
+    if (!this.pinnedIdentity(api.id)) {
+      this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 0)", [api.id, pinned ?? identityKey]);
     }
     const previous = this.users.get(api.id);
     const changedNow = !!pinned && !equalBytes(pinned, identityKey) && previous?.trust !== "changed";
@@ -728,11 +743,13 @@ export class ServerSession {
         } else if (item.id.startsWith("verified:")) {
           const userId = item.id.slice("verified:".length);
           this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, data]);
-          const user = this.users.get(userId);
-          if (user) {
-            user.trust = this.trustOf(userId, user.identityKey);
-            this.persistUser(user);
-          }
+          // The person accepted this key on another device, so it's the one to expect here too.
+          if (data.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, data]);
+          this.refreshTrust(userId);
+        } else if (item.id.startsWith("pin:")) {
+          const userId = item.id.slice("pin:".length);
+          this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, data]);
+          this.refreshTrust(userId);
         } else if (item.id.startsWith("device:")) {
           this.deviceNames.set(item.id.slice("device:".length), fromUtf8(data));
           this.setKv("device_names", Object.fromEntries(this.deviceNames));
@@ -743,8 +760,44 @@ export class ServerSession {
     for (const groupId of touchedGroups) this.retryUndecryptable(groupId);
   }
 
+  private refreshTrust(userId: string): void {
+    const user = this.users.get(userId);
+    if (!user) return;
+    const trust = this.trustOf(userId, user.identityKey);
+    if (trust === "changed" && user.trust !== "changed") {
+      this.emit({
+        type: "security",
+        serverId: this.serverId,
+        userId,
+        message: `The security key of ${user.profile.displayName} doesn't match the one your account knows. Their messages can't be trusted until you verify them again.`,
+      });
+    }
+    user.trust = trust;
+    this.persistUser(user);
+  }
+
   private async putVault(id: string, data: Uint8Array): Promise<void> {
     await this.api.putVaultItems([{ id, data: sealVaultItem(this.account.accountKey, id, data) }]);
+  }
+
+  /** Shares the keys pinned here with this account's other devices, a batch at a time. */
+  private async uploadPins(): Promise<void> {
+    for (;;) {
+      const rows = this.db.all<{ user_id: string; identity_key: Uint8Array }>(
+        "SELECT user_id, identity_key FROM pinned_identities WHERE uploaded = 0 LIMIT ?",
+        [VAULT_BATCH],
+      );
+      if (rows.length === 0) return;
+      await this.api.putVaultItems(
+        rows.map((row) => {
+          const id = `pin:${row.user_id}`;
+          return { id, data: sealVaultItem(this.account.accountKey, id, row.identity_key) };
+        }),
+      );
+      this.db.transaction(() => {
+        for (const row of rows) this.db.run("UPDATE pinned_identities SET uploaded = 1 WHERE user_id = ?", [row.user_id]);
+      });
+    }
   }
 
   private async saveDeviceName(): Promise<void> {
@@ -2063,6 +2116,7 @@ export class ServerSession {
         break;
       case "user":
         this.applyUser(data as ApiUser);
+        void this.uploadPins().catch(() => undefined);
         this.emit({ type: "users", serverId: this.serverId });
         this.emitConversations();
         this.rescheduleAffectedByDeviceChange((data as ApiUser).id);
@@ -3253,13 +3307,14 @@ export class ServerSession {
     const user = this.users.get(userId);
     if (!user) return;
     if (user.trust === "changed") {
-      this.db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [user.identityKey, userId]);
+      this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [user.identityKey, userId]);
     }
     this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, user.identityKey]);
     user.trust = "verified";
     this.persistUser(user);
     this.emit({ type: "users", serverId: this.serverId });
     await this.putVault(`verified:${userId}`, user.identityKey).catch((error) => console.warn("[zuna] saving verification", error));
+    await this.uploadPins().catch((error) => console.warn("[zuna] saving a known key", error));
   }
 
   async clearVerification(userId: string): Promise<void> {
