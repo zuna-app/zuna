@@ -62,7 +62,8 @@ final class Notifications {
     /// The relay the app registers with: the build's, or a test's.
     static var relay: String? {
         #if DEBUG
-        if let relay = UserDefaults.standard.string(forKey: "ZunaPushRelay") { return relay }
+        // UI tests name the test relay, or none, so they never reach the real one.
+        if let relay = UserDefaults.standard.string(forKey: "ZunaPushRelay") { return relay.isEmpty ? nil : relay }
         #endif
         let relay = Bundle.main.object(forInfoDictionaryKey: "ZunaPushRelay") as? String ?? ""
         return relay.isEmpty ? nil : relay

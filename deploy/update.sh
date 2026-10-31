@@ -22,7 +22,8 @@
 #   --apns-key FILE      the relay's APNs key (.p8), kept in /etc/zuna/apns.p8
 #   --apns-key-id ID     that key's ID
 #   --push-relays URLS   the relays the server sends notifications through,
-#                        comma-separated (default: the relay on this machine)
+#                        comma-separated, or "off" (default: the relay on this
+#                        machine, or else the project's)
 #   --listen ADDRESS     where the proxy reaches them (default 0.0.0.0, every
 #                        address; 127.0.0.1 for a proxy on this machine)
 #   --server-port PORT   the server's port (default 8080)
@@ -230,6 +231,7 @@ ZUNA_DATA=/var/lib/zuna
 ZUNA_LISTEN=$(address "$LISTEN" "$SERVER_PORT")
 ZUNA_PUBLIC_URL=https://$SERVER_DOMAIN
 ZUNA_TRUST_PROXY=true
+# Empty is the project's relay, and "off" is none.
 ZUNA_PUSH_RELAYS=$PUSH_RELAYS
 EOF
   fi

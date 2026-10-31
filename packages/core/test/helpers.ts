@@ -140,7 +140,8 @@ export class TestServer {
     const port = 20000 + Math.floor(Math.random() * 20000);
     this.url = `http://127.0.0.1:${port}`;
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
-    if (this.options.pushRelays) args.push("--push-relays", this.options.pushRelays.join(","));
+    // Never the project's real relay, which is the default.
+    args.push("--push-relays", this.options.pushRelays?.join(",") || "off");
     this.process = spawn(binary, args, {
       stdio: ["ignore", "pipe", "pipe"],
     });

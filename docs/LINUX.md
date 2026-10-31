@@ -130,6 +130,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Add the relay to a machine that runs the server | `--relay push.example.com --apns-key … --apns-key-id …` |
 | Add or replace the APNs key | `--apns-key AuthKey_….p8 --apns-key-id …` |
 | Let the server use a relay on another machine | `--push-relays https://push.example.com` |
+| Turn phone notifications off | `--push-relays off` |
 | Listen on one address only | `--listen 10.0.0.5`, or `--listen 127.0.0.1` for a proxy on this machine |
 | Use other ports | `--server-port 9080`, `--relay-port 9090` |
 | Build what's checked out, without pulling | `--no-pull` |
@@ -165,6 +166,6 @@ journalctl -u zuna-push -f
 - **The app can't connect:** check that the proxy forwards WebSockets, and that `https://chat.example.com/healthz` answers through it.
 - **The build runs out of memory:** add swap, or build on a bigger machine.
 - **Phones don't get notifications:**
-  - the server's `ZUNA_PUSH_RELAYS` must list the relay's public address, such as `https://push.example.com`;
+  - the server's `ZUNA_PUSH_RELAYS` must list the relay's public address. By default it lists the project's relay, `https://relay.mgalazka.pl`, and the script sets it to the relay on the same machine;
   - the relay needs an APNs key;
   - the app must be built with that address in its `ZUNA_PUSH_RELAY` setting.
