@@ -733,6 +733,33 @@ describe("notifications from a push", () => {
     expect(relay.pushes.length).toBe(quiet);
   });
 
+  it("keeps notifications where the person is, as Telegram does", async () => {
+    const phone = await new TestApp("bob-phone").open();
+    await phone.login(server.url, "bob");
+    const fromAlice = `user:${alice.userId}`;
+    const notified = () => bob.events.filter((event) => event.type === "notify").length;
+
+    // Bob on his phone: the laptop keeps quiet.
+    phone.client.setActive(true);
+    await waitFor(() => bob.session.isActiveElsewhere(), "the laptop to hear the phone is in use");
+    expect(bob.events.at(-1)).toMatchObject({ type: "activity", elsewhere: true });
+    const before = notified();
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "where are you?" });
+    await waitFor(() => bob.texts(fromAlice).includes("where are you?"), "delivery to the laptop");
+    await sleep(100);
+    expect(notified()).toBe(before);
+
+    // At the laptop too: it notifies.
+    bob.client.setActive(true);
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "hello?" });
+    await waitFor(() => notified() > before, "a notification on the laptop");
+
+    bob.client.setActive(false);
+    phone.client.setActive(false);
+    await waitFor(() => !bob.session.isActiveElsewhere(), "the phone to be put away");
+    phone.client.stop();
+  });
+
   it("hides your own messages, and names the chat when the message can't be read", async () => {
     bob.session.sendMessage(`user:${alice.userId}`, { text: "my own words" });
     await waitFor(() => alice.texts(`user:${bob.userId}`).includes("my own words"), "delivery to alice");

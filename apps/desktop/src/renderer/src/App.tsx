@@ -8,6 +8,7 @@ import { Shell } from "@/features/shell/Shell";
 import { Overlays } from "@/features/overlays/Overlays";
 import { applySettings, saveSettings } from "@/state/settings";
 import { useApp } from "@/state/store";
+import { watchActivity } from "@/state/activity";
 
 function TitleBar() {
   const [platform, setPlatform] = useState<string | null>(null);
@@ -104,6 +105,9 @@ export function App() {
       window.removeEventListener("blur", onBlur);
     };
   }, [phase, setOverlay]);
+
+  // Where notifications go: here while the person is at the computer, their phone otherwise.
+  useEffect(() => (phase === "ready" ? watchActivity() : undefined), [phase]);
 
   // A dropped connection comes back as soon as the network does.
   useEffect(() => {

@@ -144,7 +144,21 @@ final class CoreController {
         images = ImageStore(core: connection)
         let notifications = Notifications(model: model)
         if let pushToken { notifications.token = pushToken }
+        notifications.preview = { serverId, groupId, messageId in
+            try await runtime.pushPreview(serverId: serverId, groupId: groupId, messageId: messageId, pictures: true)
+        }
         model.onServersChanged = { Task { await notifications.refresh() } }
+        model.onNotify = { serverId, groupId, messageId in
+            Task { await notifications.showLive(serverId: serverId, groupId: groupId, messageId: messageId) }
+        }
+        // What a silent push would clear, when the app hears of it itself.
+        model.onCaughtUp = { serverId in
+            Task { await notifications.clearRead(serverId: serverId) }
+        }
+        model.onMessageGone = { serverId, groupId, messageId in
+            Task { await Notifications.clear(PushStore.Message(kind: .delete, serverId: serverId, groupId: groupId, messageId: messageId)) }
+        }
+        reportActivity()
         self.notifications = notifications
         Task { await notifications.updateAuthorization() }
         watchNetwork()
@@ -169,6 +183,7 @@ final class CoreController {
     /// iOS stops the app soon after it leaves the screen. The core gets a
     /// background task to finish sending, then closes its connections cleanly.
     func didEnterBackground() {
+        reportActivity()
         guard connection != nil, suspendTask == nil else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish sending") { [weak self] in
             MainActor.assumeIsolated { self?.suspendNow() }
@@ -203,11 +218,20 @@ final class CoreController {
         suspendTask?.cancel()
         suspendTask = nil
         endBackgroundTask()
+        reportActivity()
         guard let connection else { return }
         Task {
             try? await connection.resume()
             try? await connection.nudge()
         }
+    }
+
+    /// On screen, the person is using this device: their other devices keep
+    /// quiet, and nothing is pushed here. Each report sends the state at the
+    /// time it goes out, so a late one can't contradict a newer one.
+    private func reportActivity() {
+        guard let connection else { return }
+        Task { try? await connection.setActive(UIApplication.shared.applicationState == .active) }
     }
 
     private func suspendNow() {
@@ -271,15 +295,14 @@ final class CoreController {
             let password = command["password"] as? String
             let account = command["account"] as? Int
             let path = command["path"] as? String
-            let message = (command["group"] as? String).flatMap { group in (command["message"] as? String).map { (group, $0) } }
-            return await self?.handleControl(name: name, password: password, account: account, path: path, message: message)
+            return await self?.handleControl(name: name, password: password, account: account, path: path)
         }
         control = server
         guard let bound = try? await server.start(port: UInt16(port)) else { return }
         print("ZUNA_HOST_READY port=\(bound)")
     }
 
-    private func handleControl(name: String?, password: String?, account: Int?, path: String?, message: (group: String, id: String)?) async -> String {
+    private func handleControl(name: String?, password: String?, account: Int?, path: String?) async -> String {
         switch name {
         case "state":
             switch phase {
@@ -309,22 +332,12 @@ final class CoreController {
             return "attached"
         case "drift":
             return connection?.driftReports.joined(separator: "\n") ?? ""
-        case "showNotification":
-            // What the extension does for a push, done here, since simctl push skips the extension.
-            guard let runtime, let serverId = model?.activeServerId, let message else { return "not-ready" }
-            do {
-                let preview = try await runtime.pushPreview(serverId: serverId, groupId: message.group, messageId: message.id, pictures: true)
-                let base = UNMutableNotificationContent()
-                base.title = "Zuna"
-                base.body = "New message"
-                base.sound = .default
-                base.categoryIdentifier = Notifications.messageCategory
-                let content = await MessageNotification.content(for: preview, settings: NotificationSettings.load(), base: base)
-                try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
-                return "shown"
-            } catch {
-                return "error: \(error)"
-            }
+        case "clearNotifications":
+            // So a test sees only its own notifications.
+            UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+            return "cleared"
+        case "deliveredNotifications":
+            return String(await UNUserNotificationCenter.current().deliveredNotifications().count)
         default:
             return "unknown"
         }

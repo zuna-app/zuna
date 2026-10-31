@@ -138,6 +138,13 @@ final class AppModel {
     let core: CoreConnection
     /// Called when servers are added or removed, so notifications can follow.
     @ObservationIgnored var onServersChanged: (() -> Void)?
+    /// Called for a new message the person should hear about while the app runs: server, group and message.
+    @ObservationIgnored var onNotify: ((String, String, String) -> Void)?
+    /// Called when a message was deleted, so its notification goes too: server, group and message.
+    @ObservationIgnored var onMessageGone: ((String, String, String) -> Void)?
+    /// Called when a server's conversations are up to date: caught up with the server, and no refresh on its way.
+    @ObservationIgnored var onCaughtUp: ((String) -> Void)?
+    @ObservationIgnored private var refreshesInFlight: Set<String> = []
     private var pendingRefreshes: Set<String> = []
     private var nextToast = 1
 
@@ -279,6 +286,7 @@ final class AppModel {
         switch event {
         case let .connection(serverId, state):
             servers[serverId]?.connection = state
+            if state == .online { checkCaughtUp(serverId) }
         case let .conversations(serverId), let .read(serverId, _, _, _):
             refresh("conversations", serverId)
         case let .users(serverId):
@@ -286,8 +294,10 @@ final class AppModel {
             refresh("conversations", serverId)
         case let .message(serverId, message, _):
             upsert(serverId, message)
+            if message.deletedAt != nil { onMessageGone?(serverId, message.groupId, message.id) }
         case let .messageRemoved(serverId, groupId, id):
             remove(serverId, groupId: groupId, id: id)
+            onMessageGone?(serverId, groupId, id)
         case let .messageMoved(serverId, fromGroupId, message):
             move(serverId, from: fromGroupId, message)
         case let .presence(serverId, userId, online, lastSeenAt):
@@ -313,8 +323,10 @@ final class AppModel {
             toast(reason == "banned" ? "You were removed from a server by its admins." : "You've been signed out of a server.")
         case let .security(_, _, message):
             toast(message, .security)
-        case .notify:
-            // Notifications come in a later stage.
+        case let .notify(serverId, _, _, _, groupId, messageId):
+            onNotify?(serverId, groupId, messageId)
+        case .activity:
+            // The core already keeps notifications where the person is.
             break
         }
     }
@@ -353,6 +365,11 @@ final class AppModel {
             try? await Task.sleep(for: .milliseconds(60))
             guard let self else { return }
             pendingRefreshes.remove(key)
+            refreshesInFlight.insert(key)
+            defer {
+                refreshesInFlight.remove(key)
+                if what == "conversations" { checkCaughtUp(serverId) }
+            }
             let session = core.session(serverId)
             do {
                 switch what {
@@ -377,6 +394,13 @@ final class AppModel {
                 // The server may have just been removed.
             }
         }
+    }
+
+    /// Tells `onCaughtUp` once a server's conversations reflect everything it said, and not before.
+    private func checkCaughtUp(_ serverId: String) {
+        let key = "conversations:\(serverId)"
+        guard servers[serverId]?.connection == .online, !pendingRefreshes.contains(key), !refreshesInFlight.contains(key) else { return }
+        onCaughtUp?(serverId)
     }
 
     // MARK: Conversation preferences

@@ -611,4 +611,13 @@ Real APNs and the relay's deployment wait for the domain and the APNs key; every
 - **Extension (N5):** opens the sealed push, previews it with the core, follows the preview setting and sound, groups notifications by chat, and adds one to the badge. Muted and hidden messages keep the push's generic text until the filtering entitlement arrives; then they're dropped.
 - **Sender pictures:** notifications are laid out as conversations (Communication Notifications, `INSendMessageIntent`), as in Messages and Telegram: the sender's picture with Zuna's icon in its corner, and in a group the group's name and picture, with the message itself below. The core downloads and decrypts the pictures with the preview, unless notifications show nothing. A Debug-only command has the app build the same notification, since `simctl push` skips the extension, and a UI test looks at a DM's and a group's.
 - **Tests (N6):** UI tests through the stand-in relay (a push opens the chat; Reply reaches the desktop; turning notifications off stops pushes) and of the conversation layout with pictures, the cross-client test of the extension's preview and memory (about 12 MB), core and Go tests.
-- **Not done yet:** clearing notifications read on another device while the app is asleep, which needs a silent push. An improvement for later.
+
+### Several devices, as in Telegram (2026-10-31)
+
+Decided with the owner: notifications go where the person is.
+
+- **In use** means the desktop without input for the chosen time (1, 3, 5 or 10 minutes, 3 by default, in the desktop's notification settings) and with the screen unlocked, or the phone app on screen. The desktop also counts as away while its notifications are off. Devices tell the server over their socket, and it tells each person's other devices.
+- **While someone uses a device,** the server pushes to none of theirs, since that one shows the message itself, and their other live clients keep quiet. Using two at once, both notify.
+- **The phone app on screen** shows new messages itself, as banners laid out as the extension would, except for the chat on screen.
+- **Read or deleted elsewhere:** the server sends a silent push, sealed like the others, to the phones that showed a notification for that chat, and they clear it. iOS delivers silent pushes when it can, so the app also clears notifications of chats with nothing unread, and of deleted messages, once it has caught up with the server.
+- **Tests:** Go tests for the server's choices; a core test that a live client keeps quiet while another device is in use; UI tests that the phone stays quiet while the desktop is in use, shows messages while open, and loses notifications read or deleted elsewhere. `simctl push` turns a silent push into a background fetch without the push, so on the simulator the clearing is seen through the app catching up; a real device gets the push itself.

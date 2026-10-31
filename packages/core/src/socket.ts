@@ -26,6 +26,7 @@ export class Socket {
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private pingTimer: ReturnType<typeof setInterval> | undefined;
   private lastFrameAt = 0;
+  private active = false;
 
   constructor(
     private readonly baseUrl: string,
@@ -58,6 +59,12 @@ export class Socket {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  /** Whether the person is using this device: sent now, and again after every reconnect. */
+  setActive(active: boolean): void {
+    this.active = active;
+    if (this.connected) this.ws!.send(JSON.stringify({ t: "active", active }));
+  }
+
   sendTyping(groupId: string, data: Uint8Array): void {
     if (this.connected) {
       this.ws!.send(JSON.stringify({ t: "typing", group_id: groupId, data: toBase64(data) }));
@@ -87,6 +94,7 @@ export class Socket {
       if (frame.t === "ready") {
         this.attempts = 0;
         this.startPinging(ws);
+        if (this.active) ws.send(JSON.stringify({ t: "active", active: true }));
         this.handlers.onReady();
       } else if (frame.t !== "pong") {
         this.handlers.onFrame(frame);

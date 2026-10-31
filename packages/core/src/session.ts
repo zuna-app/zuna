@@ -167,6 +167,9 @@ export class ServerSession {
   private groups = new Map<string, CachedGroup>();
   private online = new Set<string>();
   private prefs: Preferences = { pinned: [], hidden: [], muted: [], sendReadReceipts: true };
+  /** Whether the person is using this device, and another of theirs, as the server last said. */
+  private active = false;
+  private activeElsewhere = false;
   /** What the app asked for notifications: where to push, "off" to stop them, or null if it never said. */
   private push: PushSettings | "off" | null = null;
   private deviceNames = new Map<string, string>();
@@ -210,7 +213,14 @@ export class ServerSession {
     this.socket = new Socket(account.serverUrl, () => this.account.token, {
       onReady: () => void this.onConnected(),
       onFrame: (frame) => this.onFrame(frame),
-      onDisconnect: () => this.setConnection("offline"),
+      onDisconnect: () => {
+        this.setConnection("offline");
+        // Unknown until the server says again; better to notify than to miss something.
+        if (this.activeElsewhere) {
+          this.activeElsewhere = false;
+          this.emit({ type: "activity", serverId: this.serverId, elsewhere: false });
+        }
+      },
       onUnauthorized: () => this.signedOut("session_ended"),
     });
     this.loadCache();
@@ -1460,6 +1470,14 @@ export class ServerSession {
       case "typing":
         this.onLiveTyping(data);
         break;
+      case "activity": {
+        const elsewhere = (data.active_devices as string[]).some((id) => id !== this.account.deviceId);
+        if (elsewhere !== this.activeElsewhere) {
+          this.activeElsewhere = elsewhere;
+          this.emit({ type: "activity", serverId: this.serverId, elsewhere });
+        }
+        break;
+      }
       case "presence":
         this.onPresence(data);
         break;
@@ -1704,6 +1722,8 @@ export class ServerSession {
   }
 
   private maybeNotify(view: MessageView): void {
+    // As in Telegram, notifications go where the person is.
+    if (this.activeElsewhere && !this.active) return;
     const group = this.groups.get(view.groupId);
     if (!group) return;
     const key = this.conversationKey(group);
@@ -1712,7 +1732,7 @@ export class ServerSession {
     const sender = this.users.get(view.senderId);
     const senderName = sender?.profile.displayName || sender?.username || "Someone";
     const { title, body } = notificationText(group.kind, group.meta.name, senderName, view);
-    this.emit({ type: "notify", serverId: this.serverId, title, body, conversationKey: key });
+    this.emit({ type: "notify", serverId: this.serverId, title, body, conversationKey: key, groupId: view.groupId, messageId: view.id });
   }
 
   previewText(view: Pick<MessageView, "text" | "attachments">): string {
@@ -1875,6 +1895,21 @@ export class ServerSession {
   }
 
   // --- Notifications ---
+
+  /**
+   * Whether the person is using this device right now: the desktop without
+   * being idle, the phone app on screen. While they are, their other devices
+   * keep quiet and nothing is pushed to them.
+   */
+  setActive(active: boolean): void {
+    this.active = active;
+    this.socket.setActive(active);
+  }
+
+  /** Whether the person is using another of their devices, as the server last said. */
+  isActiveElsewhere(): boolean {
+    return this.activeElsewhere;
+  }
 
   /**
    * Has the server wake this device through a push relay for new messages, or

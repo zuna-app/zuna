@@ -211,6 +211,23 @@ function NotificationsSection() {
       <SettingRow title="Sound">
         <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label="Notification sound" />
       </SettingRow>
+      <SettingRow
+        title="Away from the computer after"
+        hint="Until then, notifications show here and your phone keeps quiet. Locking the screen counts as away right away."
+      >
+        <select
+          className="select"
+          style={{ width: 180 }}
+          value={settings.awayAfterMinutes}
+          onChange={(event) => update({ awayAfterMinutes: Number(event.target.value) as AppSettings["awayAfterMinutes"] })}
+        >
+          {([1, 3, 5, 10] as const).map((minutes) => (
+            <option key={minutes} value={minutes}>
+              {minutes === 1 ? "1 minute" : `${minutes} minutes`}
+            </option>
+          ))}
+        </select>
+      </SettingRow>
       <SettingRow title="What notifications show" hint="Choose less if others can see your screen.">
         <select className="select" style={{ width: 180 }} value={settings.notificationPreview} onChange={(event) => update({ notificationPreview: event.target.value as AppSettings["notificationPreview"] })}>
           <option value="full">Sender and message</option>

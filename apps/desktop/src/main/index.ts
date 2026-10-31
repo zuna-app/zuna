@@ -13,6 +13,7 @@ import {
   nativeImage,
   net,
   Notification,
+  powerMonitor,
   protocol,
   safeStorage,
   session,
@@ -220,6 +221,12 @@ function registerIpc(): void {
     return { key: new Uint8Array(key), protected: isProtected, deviceName: `${deviceLabel()}` };
   });
   handle("zuna:platform", () => process.platform);
+  // Whether the person is at the computer, for where notifications go: "active",
+  // "idle" after this many seconds without input anywhere, or "locked".
+  handle("zuna:idle-state", (_event, seconds: number) => powerMonitor.getSystemIdleState(Math.max(1, Math.round(seconds))));
+  for (const [event, state] of [["lock-screen", "away"], ["suspend", "away"], ["unlock-screen", "back"], ["resume", "back"]] as const) {
+    powerMonitor.on(event as "lock-screen", () => mainWindow?.webContents.send("zuna:presence", state));
+  }
   handle("zuna:notify", (_event, payload: { title: string; body: string; route: unknown }) => {
     if (!Notification.isSupported()) return;
     const notification = new Notification({ title: payload.title, body: payload.body, silent: true, icon: iconPath() });

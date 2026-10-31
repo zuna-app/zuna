@@ -59,7 +59,7 @@ process.env.ZUNA_7TV_CDN = fake7tv.cdn;
 // A stand-in for zuna-push: it hands pushes to the simulator, as APNs would.
 // Each registration gets a new handle, and older ones are gone, as after an
 // app is reinstalled, so a test's fresh device is the only one notified.
-const relay = { registrations: 0, pushes: 0, latest: "" };
+const relay = { registrations: 0, pushes: 0, silent: 0, latest: "" };
 const relayServer = createServer((request, response) => {
   let body = "";
   request.on("data", (chunk) => (body += chunk));
@@ -79,11 +79,13 @@ const relayServer = createServer((request, response) => {
         return;
       }
       relay.pushes += 1;
+      if (json.type === "background") relay.silent += 1;
       const file = join(runDir, `push-${Date.now()}-${relay.pushes}.json`);
-      writeFileSync(file, JSON.stringify({
-        aps: { alert: { title: "Zuna", body: "New message" }, "mutable-content": 1, sound: "default", category: "message" },
-        zuna: json.data,
-      }));
+      const aps =
+        json.type === "background"
+          ? { "content-available": 1 }
+          : { alert: { title: "Zuna", body: "New message" }, "mutable-content": 1, sound: "default", category: "message" };
+      writeFileSync(file, JSON.stringify({ aps, zuna: json.data }));
       execFile("xcrun", ["simctl", "push", udid, BUNDLE_ID, file], () => undefined);
       response.end("{}");
       return;
@@ -132,7 +134,7 @@ const worldMethods: Record<string, (...args: any[]) => Promise<unknown>> = {
   },
   /** How many times the app registered with the relay, and how many pushes the relay passed on. */
   async relayCounts() {
-    return { registrations: relay.registrations, pushes: relay.pushes };
+    return { registrations: relay.registrations, pushes: relay.pushes, silent: relay.silent };
   },
   /** Delivers a push to the app as APNs would, with the payload a relay sends. */
   async push(payload: unknown) {

@@ -19,4 +19,6 @@ contextBridge.exposeInMainWorld("zunaDesktop", {
   onDeepLink: (listener: (link: string) => void) => on("zuna:deep-link", listener),
   onOpenConversation: (listener: (route: unknown) => void) => on("zuna:open-conversation", listener),
   onFocus: (listener: (focused: boolean) => void) => on("zuna:focus", listener),
+  idleState: (seconds: number) => ipcRenderer.invoke("zuna:idle-state", seconds),
+  onPresence: (listener: (state: string) => void) => on("zuna:presence", listener),
 });

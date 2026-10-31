@@ -35,8 +35,10 @@ final class NotificationTests: XCTestCase {
 
     private func leaveTheApp() throws {
         XCUIDevice.shared.press(.home)
-        // A push that arrives while the app is in front shows as a banner too, but not here.
         try waitFor("the app to leave the screen") { self.zuna.app.state != .runningForeground }
+        // While bob uses the phone, nothing is pushed to it; his laptop hears when he stops.
+        let laptop = try Peer("bobLaptop")
+        try waitFor("the server to hear bob left the phone") { try laptop.call("isActiveElsewhere") as? Bool == false }
     }
 
     private var banner: XCUIElement {
@@ -76,7 +78,7 @@ final class NotificationTests: XCTestCase {
         try waitFor("alice to get the reply", timeout: 30) { try alice.texts(with: self.bob).contains("Sure, at noon") }
     }
 
-    func testShowsTheSenderWithTheirPicture() throws {
+    func testShowsMessagesWhileTheAppIsOpenWithTheSendersPicture() throws {
         try start()
         let alice = try Peer("alice")
         let format = UIGraphicsImageRendererFormat()
@@ -98,14 +100,12 @@ final class NotificationTests: XCTestCase {
             }
         }
 
-        // A DM: the sender's name and picture, and the message.
+        // While the app is open, it shows a new message itself, as the extension would:
+        // the sender's name and picture, and the message.
         let text = "Here's my new picture"
-        let messageId = try alice.send(to: "user:\(bob)", ["text": text])
-        let groupId = try XCTUnwrap(try alice.conversation("user:\(bob)")?["groupId"] as? String)
-        try waitFor("bob's phone to get it") { try self.zuna.texts(with: World.current["alice"].userId).contains(text) }
-        XCTAssertEqual(try zuna.showNotification(group: groupId, message: messageId), "shown")
+        try alice.send(to: "user:\(bob)", ["text": text])
         let banner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
-        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        XCTAssertTrue(banner.waitForExistence(timeout: 15))
         XCTAssertTrue(banner.label.contains("alice"), banner.label)
         zuna.screenshotScreen("105-notification-with-picture")
 
@@ -113,14 +113,69 @@ final class NotificationTests: XCTestCase {
         let conversations = try alice.call("getConversations") as? [[String: Any]] ?? []
         let weekend = try XCTUnwrap(conversations.first { $0["title"] as? String == "Weekend" }?["groupId"] as? String)
         let plans = "Bring the board games"
-        let planId = try alice.send(to: "group:\(weekend)", ["text": plans])
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
-        XCTAssertEqual(try zuna.showNotification(group: weekend, message: planId), "shown")
+        try alice.send(to: "group:\(weekend)", ["text": plans])
         let groupBanner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", plans)).firstMatch
-        XCTAssertTrue(groupBanner.waitForExistence(timeout: 10))
+        XCTAssertTrue(groupBanner.waitForExistence(timeout: 15))
         XCTAssertTrue(groupBanner.label.contains("Weekend"), groupBanner.label)
         XCTAssertFalse(groupBanner.label.contains("alice: \(plans)"), groupBanner.label)
         zuna.screenshotScreen("106-group-notification")
+    }
+
+    func testThePhoneKeepsQuietWhileTheDesktopIsInUse() throws {
+        try start()
+        try leaveTheApp()
+        let alice = try Peer("alice"), laptop = try Peer("bobLaptop"), aliceId = World.current["alice"].userId
+
+        // Bob at his laptop: nothing is pushed to the phone.
+        _ = try laptop.callClient("setActive", [true])
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        let pushes = try WorldControl.relayCounts().pushes
+        try alice.send(to: "user:\(bob)", ["text": "Are you at your desk?"])
+        try waitFor("the laptop to get it") { try laptop.texts(with: aliceId).contains("Are you at your desk?") }
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertEqual(try WorldControl.relayCounts().pushes, pushes)
+
+        // Away from it: the phone gets them again.
+        _ = try laptop.callClient("setActive", [false])
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        try alice.send(to: "user:\(bob)", ["text": "Now?"])
+        XCTAssertTrue(banner.waitForExistence(timeout: 20))
+    }
+
+    func testClearsWhatWasReadOrDeletedElsewhere() throws {
+        try start()
+        try zuna.clearNotifications()
+        try leaveTheApp()
+        let alice = try Peer("alice"), laptop = try Peer("bobLaptop"), aliceId = World.current["alice"].userId
+        let before = try WorldControl.relayCounts()
+        let first = try alice.send(to: "user:\(bob)", ["text": "Take one"])
+        try alice.send(to: "user:\(bob)", ["text": "Take two"])
+        try waitFor("both pushes") { try WorldControl.relayCounts().pushes >= before.pushes + 2 }
+        XCTAssertTrue(banner.waitForExistence(timeout: 20))
+        XCTAssertTrue(openNotificationCenter().waitForExistence(timeout: 5))
+        zuna.screenshotScreen("107-notification-center")
+        XCUIDevice.shared.press(.home)
+
+        // Alice deletes one, and bob reads the chat on his laptop: each sends the phone a silent push.
+        let groupId = try XCTUnwrap(try alice.conversation("user:\(bob)")?["groupId"] as? String)
+        _ = try alice.call("deleteMessage", [groupId, first])
+        try waitFor("the laptop to have the rest") { try laptop.texts(with: aliceId).contains("Take two") }
+        let chat = try XCTUnwrap(try laptop.conversation("user:\(aliceId)"))
+        let seq = try XCTUnwrap((chat["lastMessage"] as? [String: Any])?["seq"] as? Int)
+        _ = try laptop.call("markRead", [groupId, seq])
+        try waitFor("two silent pushes to the phone", timeout: 15) { try WorldControl.relayCounts().silent >= before.silent + 2 }
+
+        // simctl turns a silent push into a background fetch without the push, so the
+        // phone clears them once the app catches up, with the same code the push runs.
+        zuna.app.activate()
+        try waitFor("the notifications to go", timeout: 20) { try self.zuna.deliveredNotifications() == 0 }
+    }
+
+    /// Pulls down the notification center and finds Zuna's notification in it.
+    private func openNotificationCenter() -> XCUIElement {
+        let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.0))
+        top.press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.7)))
+        return springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "New message")).firstMatch
     }
 
     func testTurningNotificationsOffStopsPushes() throws {
@@ -134,14 +189,18 @@ final class NotificationTests: XCTestCase {
         try waitFor("notifications to be off") { toggle.value as? String == "0" }
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
 
+        // Away from the app, which would otherwise be pushed to.
+        try leaveTheApp()
         let pushes = try WorldControl.relayCounts().pushes
-        let alice = try Peer("alice")
+        let alice = try Peer("alice"), laptop = try Peer("bobLaptop")
         try alice.send(to: "user:\(bob)", ["text": "Quiet now?"])
-        try waitFor("bob's phone to get it") { try self.zuna.texts(with: World.current["alice"].userId).contains("Quiet now?") }
+        try waitFor("the server to have it") { try laptop.texts(with: World.current["alice"].userId).contains("Quiet now?") }
         RunLoop.current.run(until: Date().addingTimeInterval(2))
         XCTAssertEqual(try WorldControl.relayCounts().pushes, pushes)
 
         // On again, for the other tests.
+        zuna.app.activate()
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
         zuna.toggle(A11y.Settings.notificationsToggle)
         try waitFor("notifications to be on") { toggle.value as? String == "1" }
     }

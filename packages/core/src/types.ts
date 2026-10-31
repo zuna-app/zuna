@@ -269,10 +269,12 @@ export type CoreEvent =
   | { type: "users"; serverId: string }
   | { type: "presence"; serverId: string; userId: string; online: boolean; lastSeenAt: number | null }
   | { type: "typing"; serverId: string; groupId: string; userId: string }
+  /** Whether the person is using another of their devices, where notifications go instead. */
+  | { type: "activity"; serverId: string; elsewhere: boolean }
   | { type: "read"; serverId: string; groupId: string; userId: string; seq: number }
   | { type: "settings"; serverId: string; info: ServerInfo }
   | { type: "emotes"; serverId: string }
   | { type: "preferences"; serverId: string }
   | { type: "signed_out"; serverId: string; reason: string }
   | { type: "security"; serverId: string; userId: string; message: string }
-  | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string };
+  | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string };

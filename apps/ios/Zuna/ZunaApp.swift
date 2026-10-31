@@ -49,6 +49,22 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // The simulator, or a build without the push entitlement: notifications wait for a token.
     }
+
+    /// Silent pushes: what was read or deleted on another device is cleared here.
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        guard let push = PushStore.open(userInfo), push.kind != .message else {
+            completionHandler(.noData)
+            return
+        }
+        Task {
+            await Notifications.clear(push)
+            completionHandler(.newData)
+        }
+    }
 }
 
 extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {

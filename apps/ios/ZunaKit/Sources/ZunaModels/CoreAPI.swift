@@ -30,6 +30,8 @@ extension CoreConnection {
     public func suspend() async throws { try await call("suspend") }
     /// Reconnects after `suspend()` and catches up.
     public func resume() async throws { try await call("resume") }
+    /// Whether the person is using this device: while they are, their other devices keep quiet and nothing is pushed.
+    public func setActive(_ active: Bool) async throws { try await call("setActive", [active]) }
 
     public func session(_ serverId: String) -> SessionCalls { SessionCalls(connection: self, serverId: serverId) }
 }

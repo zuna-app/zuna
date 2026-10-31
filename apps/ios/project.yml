@@ -78,6 +78,9 @@ targets:
         ZunaPushRelay: $(ZUNA_PUSH_RELAY)
         NSUserActivityTypes:
           - INSendMessageIntent
+        # Silent pushes that clear notifications read or deleted elsewhere.
+        UIBackgroundModes:
+          - remote-notification
     entitlements:
       path: Zuna/Zuna.entitlements
       properties:

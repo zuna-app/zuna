@@ -5,7 +5,7 @@ Phones can't keep a connection open in the background, so a Zuna server wakes th
 ## What the relay sees
 
 - **Phones** register their Apple push token and get back a handle: the token sealed with the relay's own key. The relay keeps no list of devices, and servers never see tokens.
-- **Servers** post a handle and a payload that the server already sealed for the phone. The payload holds only the group and message IDs. The relay passes it to Apple unchanged.
+- **Servers** post a handle and a payload that the server already sealed for the phone. The payload holds only the group and message IDs. The relay passes it to Apple unchanged, as an alert, or as a silent push that tells the phone to clear a chat read or a message deleted elsewhere.
 - **So the relay learns** which server addresses send pushes, when they send them, and how big the sealed payloads are. It never learns who uses which server, who wrote what, or anything about a message. The phone fetches the message from its server and decrypts it.
 
 ## What it needs
