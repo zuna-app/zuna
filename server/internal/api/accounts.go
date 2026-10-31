@@ -545,16 +545,35 @@ func (s *Server) broadcastUser(r *http.Request, userID string) {
 	if err != nil {
 		return
 	}
-	s.hub.ToAll(Event{Type: "user", Data: user})
+	s.hub.ToUsers([]string{userID}, Event{Type: "user", Data: user})
+	s.hub.ToAllExcept(userID, Event{Type: "user", Data: seenByOthers(user)})
+}
+
+// seenByOthers is what other people get to know about a user. When each of
+// their devices was last used is for them alone: it would give away the last
+// seen time they may have chosen to hide.
+func seenByOthers(user *store.PublicUser) *store.PublicUser {
+	view := *user
+	view.Devices = slices.Clone(user.Devices)
+	for i := range view.Devices {
+		view.Devices[i].CreatedAt = 0
+		view.Devices[i].LastSeenAt = 0
+	}
+	return &view
 }
 
 // --- Users and devices ---
 
-func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	users, err := s.db.Users(r.Context(), queryInt(r, "since", 0))
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	for i, user := range users {
+		if user.ID != sess.UserID {
+			users[i] = seenByOthers(user)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"users":  users,
@@ -563,11 +582,14 @@ func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request, _ *store.Se
 	})
 }
 
-func (s *Server) handleUser(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleUser(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	user, err := s.db.User(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	if user.ID != sess.UserID {
+		user = seenByOthers(user)
 	}
 	writeJSON(w, http.StatusOK, user)
 }

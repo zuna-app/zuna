@@ -515,6 +515,34 @@ func TestWrongPasswordsSlowDownForOneAccount(t *testing.T) {
 	}
 }
 
+// Z-23: last seen stays hidden, including through a person's devices.
+func TestDeviceTimesAreOnlyForTheirOwner(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	h.mustDo("PATCH", "/api/me", bob.token, map[string]any{"hide_last_seen": true}, nil)
+	seen := func(c *client) store.Device {
+		var one store.PublicUser
+		h.mustDo("GET", "/api/users/"+bob.userID, c.token, nil, &one)
+		var all struct {
+			Users []store.PublicUser `json:"users"`
+		}
+		h.mustDo("GET", "/api/users", c.token, nil, &all)
+		for _, user := range all.Users {
+			if user.ID == bob.userID && user.Devices[0].LastSeenAt != one.Devices[0].LastSeenAt {
+				t.Fatal("the two ways of asking disagree")
+			}
+		}
+		return one.Devices[0]
+	}
+	if device := seen(owner); device.LastSeenAt != 0 || device.CreatedAt != 0 {
+		t.Fatalf("someone else sees device times: %+v", device)
+	}
+	if device := seen(bob); device.LastSeenAt == 0 {
+		t.Fatal("people should still see their own devices' times")
+	}
+}
+
 // Z-24: nothing tells an outsider which usernames exist, or what's running here.
 func TestOutsidersLearnLittle(t *testing.T) {
 	h := newHarness(t)
