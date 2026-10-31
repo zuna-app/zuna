@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"golang.org/x/time/rate"
 
 	"zuna/server/internal/store"
 )
@@ -21,6 +22,11 @@ const (
 	pingInterval   = 25 * time.Second
 	offlineGrace   = 5 * time.Second
 	maxClientFrame = 64 << 10
+	// More than anyone has devices, even with a few reconnecting at once.
+	maxConnsPerUser = 32
+	// What a client sends is mostly pings and typing, a frame every few seconds.
+	clientFramesPerSecond = 5
+	clientFrameBurst      = 30
 )
 
 // Event is one frame pushed to clients.
@@ -124,6 +130,31 @@ func (h *Hub) ToAll(event Event) {
 			c.deliver(frame)
 		}
 	}
+}
+
+// ToAllExcept sends an event to everyone connected apart from one user.
+func (h *Hub) ToAllExcept(exceptUser string, event Event) {
+	frame := encodeEvent(event)
+	if frame == nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for user, conns := range h.conns {
+		if user == exceptUser {
+			continue
+		}
+		for c := range conns {
+			c.deliver(frame)
+		}
+	}
+}
+
+// Connections is how many live connections a user has.
+func (h *Hub) Connections(userID string) int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.conns[userID])
 }
 
 // Disconnect closes every connection of a user or, if deviceID is set, of one device.
@@ -295,6 +326,10 @@ type clientFrame struct {
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if !s.socketLimiter.Allow(s.callerKey(r)) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many connections. Please wait a moment.")
+		return
+	}
 	// Authentication uses a bearer token in the first frame, not cookies, so
 	// cross-origin requests carry no ambient authority. The desktop app's
 	// origin can't be listed here because any server may be joined by any client.
@@ -313,6 +348,10 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := s.db.User(ctx, sess.UserID)
 	if err != nil {
+		return
+	}
+	if s.hub.Connections(sess.UserID) >= maxConnsPerUser {
+		ws.Close(websocket.StatusTryAgainLater, "too many connections")
 		return
 	}
 	c := &conn{
@@ -384,10 +423,15 @@ func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 }
 
 func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
+	limiter := rate.NewLimiter(clientFramesPerSecond, clientFrameBurst)
 	for {
 		_, data, err := ws.Read(ctx)
 		if err != nil {
 			return
+		}
+		// Nothing here is worth keeping when there's too much of it.
+		if !limiter.Allow() {
+			continue
 		}
 		var frame clientFrame
 		if err := json.Unmarshal(data, &frame); err != nil {

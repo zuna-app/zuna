@@ -539,7 +539,12 @@ func (s *Server) handleAddKeyPackages(w http.ResponseWriter, r *http.Request, se
 	writeOK(w)
 }
 
-func (s *Server) handleClaimKeyPackages(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleClaimKeyPackages(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	// Using up someone's one-time packages would leave only their reusable one.
+	if !s.claimLimiter.Allow(sess.UserID) || !s.targetLimiter.Allow(sess.UserID+"/"+r.PathValue("id")) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many requests at once. Please wait a moment.")
+		return
+	}
 	claimed, err := s.db.ClaimKeyPackages(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)

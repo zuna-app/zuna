@@ -244,11 +244,11 @@ func (s *Server) Handler() http.Handler {
 
 	// Public
 	mux.HandleFunc("GET /{$}", s.handleHome)
-	mux.HandleFunc("GET /invite/{code}", s.handleInvitePage)
+	mux.HandleFunc("GET /invite/{code}", s.publicLimited(s.handleInvitePage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 	mux.HandleFunc("GET /api/info", s.handleInfo)
 	mux.HandleFunc("GET /api/icon", s.handleIcon)
-	mux.HandleFunc("GET /api/invites/{code}", s.handleInviteInfo)
+	mux.HandleFunc("GET /api/invites/{code}", s.publicLimited(s.handleInviteInfo))
 	mux.HandleFunc("GET /api/emotes/{id}/{file}", func(w http.ResponseWriter, r *http.Request) {
 		s.emotes.ServeImage(w, r, r.PathValue("id"), r.PathValue("file"))
 	})
@@ -381,6 +381,10 @@ func (s *Server) authed(next authedHandler) http.HandlerFunc {
 		sess, err := s.db.SessionByToken(r.Context(), hashToken(bearerToken(r)))
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "unauthorized", "Please sign in again.")
+			return
+		}
+		if r.Method != http.MethodGet && !s.writeLimiter.Allow(sess.UserID) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes at once. Please wait a moment.")
 			return
 		}
 		next(w, r, sess)
