@@ -1,6 +1,6 @@
 # Roadmap
 
-Zuna 0.1 is text chat, with desktop apps for Windows, Linux and macOS and a native app for the iPhone and iPad. The design already allows for Android and calls. This page describes what's left and how they fit.
+Zuna 1.0 is text chat, with desktop apps for Windows, Linux and macOS and a native app for the iPhone and iPad. The design already allows for Android and calls. This page describes what's left and how they fit.
 
 ## Phones
 
