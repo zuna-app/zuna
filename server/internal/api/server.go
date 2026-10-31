@@ -357,6 +357,9 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		headers.Set("Access-Control-Max-Age", "86400")
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("Referrer-Policy", "no-referrer")
+		if r.TLS != nil {
+			headers.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

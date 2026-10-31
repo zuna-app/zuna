@@ -222,6 +222,10 @@ func printBanner(ctx context.Context, srv *api.Server, cfg config, listenAddress
 	fmt.Printf("\n  Zuna server %s\n", version)
 	fmt.Printf("  Listening on %s, reachable at %s\n", listenAddress, cfg.publicURL)
 	fmt.Printf("  Data folder: %s\n", cfg.dataDir)
+	if relays := splitList(cfg.pushRelays); len(relays) > 0 {
+		fmt.Printf("  Phone notifications go through: %s\n", strings.Join(relays, ", "))
+		fmt.Printf("  They only see sealed pushes. To change this, set --push-relays or ZUNA_PUSH_RELAYS (\"off\" for none).\n")
+	}
 	code, err := srv.EnsureSetupInvite(ctx)
 	if err != nil {
 		slog.Error("creating the setup link", "error", err)
