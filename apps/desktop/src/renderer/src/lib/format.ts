@@ -1,9 +1,11 @@
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+// Times follow the system's clock, 12 or 24 hours, rather than the interface's language.
+const hour12 = window.zunaDesktop?.hour12;
+const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12 });
 const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const fullDayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
 const fullDayYearFormat = new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" });
-const fullFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+const fullFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", hour12 });
 
 export const formatTime = (at: number) => timeFormat.format(at);
 export const formatFull = (at: number) => fullFormat.format(at);

@@ -10,7 +10,7 @@
 .chat-names { min-width: 0; display: flex; flex-direction: column; }
 .chat-title { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 14.5px; line-height: 1.3; }
 .chat-status { font-size: 12.5px; line-height: 1.3; color: var(--text-3); display: inline-flex; align-items: center; gap: 5px; }
-.chat-status.is-online { color: var(--text-2); }
+.chat-status.is-online { color: var(--green); }
 .chat-status.is-typing { color: var(--text-1); }
 .chat-status.is-changing { animation: fade-in 0.14s; }
 .chat-actions { display: flex; align-items: center; gap: 2px; flex: none; }
@@ -76,7 +76,9 @@
 .msg.is-highlighted { background: var(--hover-strong); transition: none; }
 /* The list glides up to make room, so a new message only has to fade in. */
 .msg.is-fresh { animation: fade-in 0.12s; }
-.msg-avatar { width: 32px; flex: none; align-self: flex-end; margin-right: 3px; }
+/* A flex box, not a line of text: a picture would sit on the text's baseline with room
+   below it, making the last message of a run taller than its bubble. */
+.msg-avatar { width: 32px; flex: none; align-self: flex-end; margin-right: 3px; display: flex; }
 .msg-stack { display: flex; flex-direction: column; min-width: 0; max-width: min(74%, 600px); }
 .msg.is-own .msg-stack { align-items: flex-end; }
 
@@ -104,7 +106,8 @@
 .msg.is-jumbo .bubble { background: none; padding: 0; }
 .msg.is-jumbo .msg-text { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 2px; }
 .msg.is-jumbo .msg-meta { float: none; display: inline-flex; color: var(--text-3); }
-.msg.is-jumbo .msg-text .msg-meta { margin: 0 0 4px 6px; }
+/* Below the emote, at its right edge, as under a sticker in Telegram. */
+.msg.is-jumbo .bubble > .msg-meta { display: flex; width: fit-content; margin: 1px 0 0 auto; }
 .jumbo-emoji { font-size: 42px; line-height: 1.15; }
 
 .msg-author { display: block; font-size: 13px; font-weight: 600; margin-bottom: 1px; }
@@ -248,9 +251,23 @@
 .media-full { animation: fade-in 0.12s; }
 .media-state { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; }
 .media-load { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); font-size: 12.5px; }
-.media-video { display: block; max-width: 100%; width: 420px; border-radius: var(--radius-m); margin: 2px 0 4px; background: #000; }
+button.media-load { color: #fff; transition: background 0.1s; }
+button.media-load:hover { background: rgba(0, 0, 0, 0.7); }
+.media-video { display: block; max-width: 100%; border-radius: var(--radius-m); margin: 2px 0 4px; background: #000; }
+/* Before the video itself is ready: the sender's frame of it, and what's happening. */
+.media-video.is-waiting { position: relative; overflow: hidden; background: var(--bg-3); }
+.media-poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.media-badge {
+  position: absolute; left: 7px; top: 7px; padding: 1px 6px; height: 18px; border-radius: 9px; font-size: 11px; line-height: 16px;
+  font-variant-numeric: tabular-nums; background: rgba(0, 0, 0, 0.55); color: #fff;
+}
+.media-badge:empty { display: none; }
 .media-audio { display: block; width: 300px; max-width: 100%; margin: 3px 0; }
 .upload-ring { display: block; }
+.upload-ring-done { transition: stroke-dashoffset 0.25s linear; }
+.upload-bar { display: block; height: 3px; margin: 4px 0 3px; border-radius: 2px; overflow: hidden; background: rgba(255, 255, 255, 0.14); }
+.upload-bar span { display: block; height: 100%; border-radius: inherit; background: currentColor; transform-origin: left; transition: transform 0.25s linear; }
+.file-size { font-variant-numeric: tabular-nums; }
 
 .file-card { display: flex; align-items: center; gap: 10px; width: 280px; max-width: 100%; padding: 3px 0; text-align: left; }
 .file-icon { width: 38px; height: 38px; flex: none; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, 0.09); color: inherit; transition: background 0.1s; }
@@ -370,8 +387,24 @@
 .drop-card svg { color: var(--text-2); margin-bottom: 4px; }
 .drop-card span { color: var(--text-2); font-size: 13px; }
 
-.image-viewer { position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; padding: 40px; background: rgba(0, 0, 0, 0.92); cursor: zoom-out; animation: fade-in 0.1s; }
-.image-viewer img { max-width: 100%; max-height: 100%; border-radius: var(--radius-s); cursor: default; }
-.image-save { position: absolute; bottom: 18px; right: 18px; text-decoration: none !important; color: var(--text-1) !important; }
+.image-viewer {
+  position: fixed; inset: 0; z-index: 75; display: grid; place-items: center; overflow: hidden; touch-action: none;
+  background: rgba(0, 0, 0, 0.92); cursor: zoom-out; animation: fade-in 0.1s;
+}
+/* Fitted to the window at first; zooming scales it from there. */
+.image-viewer img {
+  max-width: calc(100vw - 80px); max-height: calc(100vh - 80px); border-radius: var(--radius-s); cursor: zoom-in;
+  transition: transform 0.12s var(--ease-out); will-change: transform; user-select: none;
+}
+.image-viewer.is-zoomed img { border-radius: 0; cursor: grab; }
+.image-viewer.is-dragging img { cursor: grabbing; }
+.image-tools {
+  position: absolute; bottom: 18px; right: 18px; display: flex; align-items: center; gap: 4px; padding: 4px;
+  border-radius: var(--radius-l); background: rgba(24, 24, 27, 0.85); cursor: default;
+}
+.image-tools .icon-btn:disabled { opacity: 0.4; }
+.image-zoom { min-width: 50px; height: 30px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text-2); border-radius: var(--radius-m); }
+.image-zoom:hover:not(:disabled) { background: var(--hover-strong); color: var(--text-1); }
+.image-save { margin-left: 4px; text-decoration: none !important; color: var(--text-1) !important; }
 .image-close { position: absolute; top: 44px; right: 18px; background: var(--bg-3); cursor: pointer; }
 .image-close:hover { background: var(--bg-4); }

@@ -11,9 +11,11 @@ import {
   Trash2,
   UsersRound,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Avatar, Field, Modal, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
@@ -51,24 +53,164 @@ export function Overlays() {
   );
 }
 
+const MAX_ZOOM = 8;
+
+interface View {
+  scale: number;
+  /** Where the picture's center is, from the middle of the window. */
+  x: number;
+  y: number;
+}
+
+const FITTED: View = { scale: 1, x: 0, y: 0 };
+
+/** A mouse wheel moves in steps; a trackpad scrolls smoothly, and pans instead. */
+const isMouseWheel = (event: WheelEvent) => event.deltaX === 0 && event.deltaY !== 0 && Math.abs((event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY ?? 1) % 120 === 0;
+
+/**
+ * A picture, fitted to the window. It zooms with a pinch, the mouse wheel, a
+ * double click or the buttons, towards where the pointer is, and once it's
+ * bigger than the window it can be dragged and scrolled around.
+ */
 function ImageViewer({ url, name, onClose }: { url: string; name: string; onClose: () => void }) {
   useReturnFocus();
+  const [view, setView] = useState<View>(FITTED);
+  const [dragging, setDragging] = useState(false);
+  // Steps glide; pinching, scrolling and dragging follow the fingers exactly.
+  const [gliding, setGliding] = useState(true);
+  // How big the fitted picture is next to its own size, for the zoom shown.
+  const [fitted, setFitted] = useState(1);
+  const measure = () => {
+    const element = image.current;
+    if (element?.naturalWidth) setFitted(element.offsetWidth / element.naturalWidth);
+  };
+  const image = useRef<HTMLImageElement>(null);
+  const viewer = useRef<HTMLDivElement>(null);
+  // Wheel and pointer events can come faster than the view is drawn, so each builds on the last.
+  const latest = useRef<View>(FITTED);
+  const drag = useRef<{ pointerX: number; pointerY: number; x: number; y: number } | null>(null);
+
+  // The picture can't be moved further than its edges reach past the window.
+  const show = useCallback((next: View, glide = true) => {
+    const element = image.current;
+    const scale = Math.min(MAX_ZOOM, Math.max(1, next.scale));
+    let limited = FITTED;
+    if (element && scale > 1) {
+      const spareX = Math.max(0, (element.offsetWidth * scale - window.innerWidth) / 2);
+      const spareY = Math.max(0, (element.offsetHeight * scale - window.innerHeight) / 2);
+      limited = { scale, x: Math.min(spareX, Math.max(-spareX, next.x)), y: Math.min(spareY, Math.max(-spareY, next.y)) };
+    }
+    latest.current = limited;
+    setView(limited);
+    setGliding(glide);
+  }, []);
+
+  // The point under the pointer stays where it is.
+  const zoomTo = useCallback(
+    (scale: number, clientX = window.innerWidth / 2, clientY = window.innerHeight / 2, glide = true) => {
+      const current = latest.current;
+      const target = Math.min(MAX_ZOOM, Math.max(1, scale));
+      const pointX = clientX - window.innerWidth / 2;
+      const pointY = clientY - window.innerHeight / 2;
+      const ratio = target / current.scale;
+      show({ scale: target, x: pointX - (pointX - current.x) * ratio, y: pointY - (pointY - current.y) * ratio }, glide);
+    },
+    [show],
+  );
+
+  // Double clicking shows the picture at its own size, or twice as big if it already fits.
+  const closerScale = () => {
+    const element = image.current;
+    if (!element?.offsetWidth) return 2;
+    return Math.max(2, Math.min(MAX_ZOOM, element.naturalWidth / element.offsetWidth));
+  };
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
+      else if (event.key === "+" || event.key === "=") zoomTo(latest.current.scale * 1.5);
+      else if (event.key === "-") zoomTo(latest.current.scale / 1.5);
+      else if (event.key === "0") show(FITTED);
     };
+    const onResize = () => {
+      measure();
+      show(latest.current, false);
+    };
+    // Handled here rather than through React, whose wheel events can't stop the page from scrolling.
+    const onWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const current = latest.current;
+      if (event.ctrlKey || event.metaKey || isMouseWheel(event)) {
+        // A pinch comes as small steps with ctrlKey set, a mouse wheel as big ones.
+        const pinch = event.ctrlKey && !isMouseWheel(event);
+        zoomTo(current.scale * (pinch ? Math.exp(-event.deltaY / 100) : event.deltaY < 0 ? 1.25 : 0.8), event.clientX, event.clientY, !pinch);
+      } else {
+        show({ ...current, x: current.x - event.deltaX, y: current.y - event.deltaY }, false);
+      }
+    };
+    const element = viewer.current!;
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    window.addEventListener("resize", onResize);
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onResize);
+      element.removeEventListener("wheel", onWheel);
+    };
+  }, [onClose, zoomTo, show]);
+
+  const endDrag = () => {
+    drag.current = null;
+    setDragging(false);
+  };
+
+  const zoomed = view.scale > 1;
   return createPortal(
-    <div className="image-viewer" onClick={onClose}>
-      <img src={url} alt={name} onClick={(event) => event.stopPropagation()} draggable={false} />
+    <div
+      ref={viewer}
+      className={`image-viewer${zoomed ? " is-zoomed" : ""}${dragging ? " is-dragging" : ""}`}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <img
+        ref={image}
+        src={url}
+        alt={name}
+        draggable={false}
+        onLoad={measure}
+        style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`, transition: gliding ? undefined : "none" }}
+        onDoubleClick={(event) => (zoomed ? show(FITTED) : zoomTo(closerScale(), event.clientX, event.clientY))}
+        onPointerDown={(event) => {
+          if (!zoomed || event.button !== 0) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          drag.current = { pointerX: event.clientX, pointerY: event.clientY, x: view.x, y: view.y };
+          setDragging(true);
+        }}
+        onPointerMove={(event) => {
+          const start = drag.current;
+          if (start) show({ ...latest.current, x: start.x + event.clientX - start.pointerX, y: start.y + event.clientY - start.pointerY }, false);
+        }}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      />
+      <div className="image-tools" onClick={(event) => event.stopPropagation()}>
+        <button className="icon-btn" onClick={() => zoomTo(view.scale / 1.5)} disabled={!zoomed} aria-label="Zoom out">
+          <ZoomOut size={17} />
+        </button>
+        <button className="image-zoom" onClick={() => show(FITTED)} disabled={!zoomed} aria-label="Fit to the window">
+          {Math.round(view.scale * fitted * 100)}%
+        </button>
+        <button className="icon-btn" onClick={() => zoomTo(view.scale * 1.5)} disabled={view.scale >= MAX_ZOOM} aria-label="Zoom in">
+          <ZoomIn size={17} />
+        </button>
+        <a className="btn image-save" href={url} download={name}>
+          Save
+        </a>
+      </div>
       <button className="icon-btn image-close" onClick={onClose} aria-label="Close">
         <X size={18} />
       </button>
-      <a className="btn image-save" href={url} download={name} onClick={(event) => event.stopPropagation()}>
-        Save
-      </a>
     </div>,
     document.body,
   );

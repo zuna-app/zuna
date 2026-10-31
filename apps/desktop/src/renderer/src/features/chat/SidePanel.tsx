@@ -115,7 +115,11 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
         <Avatar name={conversation.title} seed={conversation.peerId ?? ""} avatar={conversation.avatar} size={80} online={peer?.online} />
         <h2>{isSelf ? peer?.displayName : conversation.title}</h2>
         {peer && <p className="muted">@{peer.username}</p>}
-        {peer && !isSelf && <p className="faint" style={{ fontSize: 12.5 }}>{peer.online ? "online" : formatLastSeen(peer.lastSeenAt, peer.hidesLastSeen)}</p>}
+        {peer && !isSelf && (
+          <p className={peer.online ? "profile-online" : "faint"} style={{ fontSize: 12.5 }}>
+            {peer.online ? "online" : formatLastSeen(peer.lastSeenAt, peer.hidesLastSeen)}
+          </p>
+        )}
         {peer?.bio && <p className="profile-bio selectable">{peer.bio}</p>}
       </div>
       {peer && !isSelf && (

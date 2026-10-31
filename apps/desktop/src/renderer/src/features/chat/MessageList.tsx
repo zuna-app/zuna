@@ -23,8 +23,14 @@ function UndisplayableMessage() {
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 /** How near the newest message still counts as being at it. */
 const AT_BOTTOM_PX = 64;
-/** How far before the top of what's loaded the next older messages are fetched. */
-const LOAD_AHEAD_PX = 800;
+/** How far past the screen rows are drawn, above and below. */
+const DRAWN_AHEAD_PX = 800;
+/**
+ * How far before the top of what's loaded the next older messages are fetched:
+ * well before the oldest row is drawn, since the list doesn't keep its place
+ * when that one's height turns out different, and it would jump.
+ */
+const LOAD_AHEAD_PX = DRAWN_AHEAD_PX * 3;
 
 /** The message at the top of the list, and how far into it the list starts. */
 interface Place {
@@ -247,11 +253,14 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         const place = anchor.current;
         anchor.current = null;
         const row = place && element.querySelector(`[data-id="${CSS.escape(place.id)}"]`);
-        if (row) element.scrollTop += row.getBoundingClientRect().top - element.getBoundingClientRect().top + place.offset;
-        else element.scrollTop -= grownBy;
+        // Only an actual change is written: setting the position, even to where it
+        // is, stops a scroll that's still gliding, so the wheel would barely move it.
+        const by = row ? row.getBoundingClientRect().top - element.getBoundingClientRect().top + place.offset : -grownBy;
+        if (by) element.scrollTop += by;
         return;
       }
-      element.scrollTop = contentEnd() - element.clientHeight;
+      const end = contentEnd() - element.clientHeight;
+      if (element.scrollTop !== end) element.scrollTop = end;
       const added = glideFor.current && fresh.current.has(glideFor.current) ? (list?.lastElementChild?.getBoundingClientRect().height ?? 0) : 0;
       glideFor.current = null;
       startGlide(added - (windowResized ? 0 : grownBy));
@@ -299,6 +308,19 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       useApp.setState({ jumpTarget: null });
       scrolledByHand.current = true;
       virtuoso.current?.scrollToIndex({ index, align: "center", behavior: "auto" });
+      // Rows measured on the way there can move it, so it's put in the middle again once they're drawn.
+      const id = jumpTarget.messageId;
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const element = scroller.current;
+          const row = element?.querySelector(`[data-id="${CSS.escape(id)}"]`);
+          if (!element || !row) return;
+          const view = element.getBoundingClientRect();
+          const box = row.getBoundingClientRect();
+          const by = Math.round(box.top + box.height / 2 - (view.top + view.height / 2));
+          if (by) element.scrollTop += by;
+        }),
+      );
       setHighlightId(jumpTarget.messageId);
       setTimeout(() => setHighlightId(null), 1200);
     }, 30);
@@ -374,7 +396,10 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         initialTopMostItemIndex={list.detached ? { index: "LAST", align: "end" } : undefined}
         computeItemKey={(_index, message) => message.id}
         alignToBottom
-        increaseViewportBy={{ top: 800, bottom: 400 }}
+        increaseViewportBy={{ top: DRAWN_AHEAD_PX, bottom: DRAWN_AHEAD_PX / 2 }}
+        // Rows measured above the screen while scrolling up are made up for before
+        // the frame is drawn, rather than a frame later, which made the list jitter.
+        skipAnimationFrameInResizeObserver
         itemContent={itemContent}
         context={{ loading: list.loading }}
         components={{ Header, Footer: ListFooter }}

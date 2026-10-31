@@ -216,6 +216,23 @@ function loadDeviceKey(): { key: Buffer; protected: boolean } {
   return { key, protected: strong };
 }
 
+/**
+ * Whether the system shows times with AM and PM. The interface is in English,
+ * whose own default is the 12-hour clock, so the system's choice is passed on.
+ */
+function uses12HourClock(): boolean {
+  if (process.platform === "darwin") {
+    if (systemPreferences.getUserDefault("AppleICUForce24HourTime", "boolean")) return false;
+    if (systemPreferences.getUserDefault("AppleICUForce12HourTime", "boolean")) return true;
+  }
+  try {
+    const cycle = new Intl.DateTimeFormat(app.getSystemLocale() || undefined, { hour: "numeric" }).resolvedOptions().hourCycle;
+    return cycle === "h11" || cycle === "h12";
+  } catch {
+    return false;
+  }
+}
+
 function iconPath(): string {
   return join(__dirname, "../../resources/icon.png");
 }
@@ -243,6 +260,7 @@ function createWindow(): void {
       // Keeps the connection alive so messages and notifications arrive while hidden.
       backgroundThrottling: false,
       spellcheck: true,
+      additionalArguments: [`--zuna-clock=${uses12HourClock() ? 12 : 24}`],
     },
   });
 

@@ -130,6 +130,7 @@ function UploadRing({ progress }: { progress: number }) {
     <svg width="36" height="36" viewBox="0 0 36 36" className="upload-ring" aria-label={`Uploading ${Math.round(progress * 100)}%`}>
       <circle cx="18" cy="18" r="14" fill="rgba(0,0,0,.45)" stroke="rgba(255,255,255,.2)" strokeWidth="2.5" />
       <circle
+        className="upload-ring-done"
         cx="18"
         cy="18"
         r="14"
@@ -145,25 +146,88 @@ function UploadRing({ progress }: { progress: number }) {
   );
 }
 
-function MediaAttachment({ attachment, serverId }: { attachment: Attachment; serverId: string }) {
-  const [load, setLoad] = useState(false);
-  const { url, failed } = useDecryptedUrl(serverId, attachment, load && !!attachment.fileId);
-  const isVideo = attachment.mime.startsWith("video/");
-  if (url) {
-    return isVideo ? (
-      <video className="media-video" src={url} controls autoPlay style={{ aspectRatio: attachment.width && attachment.height ? `${attachment.width} / ${attachment.height}` : undefined }} />
-    ) : (
-      <audio className="media-audio" src={url} controls autoPlay />
-    );
+/** How far one file is, from how far the whole message is: its files go up one after another. */
+function fileProgress(message: MessageView, attachment: Attachment): number {
+  const total = message.attachments.reduce((sum, item) => sum + item.size, 0);
+  let before = 0;
+  for (const item of message.attachments) {
+    if (item === attachment) break;
+    before += item.size;
   }
+  const done = (message.uploadProgress ?? 0) * total - before;
+  return Math.min(1, Math.max(0, attachment.size ? done / attachment.size : 0));
+}
+
+/** A thin bar under a file's name while it goes up, as in Telegram. */
+function UploadBar({ progress }: { progress: number }) {
   return (
-    <button className="file-card" onClick={() => setLoad(true)} disabled={!attachment.fileId}>
-      <span className="file-icon">{load && !failed ? <Spinner size={16} /> : <Play size={16} fill="currentColor" />}</span>
+    <span className="upload-bar" role="progressbar" aria-label="Uploading" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}>
+      <span style={{ transform: `scaleX(${progress})` }} />
+    </span>
+  );
+}
+
+const uploadedOf = (attachment: Attachment, progress: number) => `${formatBytes(attachment.size * progress)} of ${formatBytes(attachment.size)}`;
+
+/**
+ * A video, with its picture straight away: the frame the sender's device took,
+ * then the video itself, which only plays when someone presses play.
+ */
+function VideoAttachment({ attachment, serverId, uploadProgress }: { attachment: Attachment; serverId: string; uploadProgress?: number }) {
+  const uploading = !attachment.fileId;
+  // Those small enough load by themselves, so their first frame shows without pressing anything.
+  const [load, setLoad] = useState(() => loadsByItself(attachment));
+  const { url, failed } = useDecryptedUrl(serverId, attachment, load && !uploading);
+  const width = attachment.width ?? 16;
+  const height = attachment.height ?? 9;
+  const scale = Math.min(1, 420 / width, 380 / height);
+  // The box is sized up front, so the list doesn't jump when the video arrives.
+  const style = { width: Math.max(200, width * scale), aspectRatio: `${width} / ${height}` };
+  if (url) return <video className="media-video" src={url} controls preload="metadata" playsInline style={style} />;
+  return (
+    <div className="media-video is-waiting" style={style}>
+      {attachment.thumb && <img className="media-poster" src={attachment.thumb} alt="" draggable={false} />}
+      <span className="media-state">
+        {uploading ? (
+          <UploadRing progress={uploadProgress ?? 0} />
+        ) : failed ? (
+          <AlertCircle size={22} />
+        ) : load ? (
+          <Spinner delayed />
+        ) : (
+          <button className="media-load" onClick={() => setLoad(true)} aria-label={`Load ${attachment.name}, ${formatBytes(attachment.size)}`}>
+            <Download size={15} /> {formatBytes(attachment.size)}
+          </button>
+        )}
+      </span>
+      <span className="media-badge">
+        {uploading
+          ? uploadedOf(attachment, uploadProgress ?? 0)
+          : failed
+            ? "Couldn't load"
+            : attachment.duration
+              ? formatDuration(attachment.duration)
+              : ""}
+      </span>
+    </div>
+  );
+}
+
+/** A sound file, which plays once it's pressed. */
+function AudioAttachment({ attachment, serverId, uploadProgress }: { attachment: Attachment; serverId: string; uploadProgress?: number }) {
+  const [load, setLoad] = useState(false);
+  const uploading = !attachment.fileId;
+  const { url, failed } = useDecryptedUrl(serverId, attachment, load && !uploading);
+  if (url) return <audio className="media-audio" src={url} controls autoPlay />;
+  return (
+    <button className="file-card" onClick={() => setLoad(true)} disabled={uploading}>
+      <span className="file-icon">{uploading ? <UploadRing progress={uploadProgress ?? 0} /> : load && !failed ? <Spinner size={16} /> : <Play size={16} fill="currentColor" />}</span>
       <span className="file-info">
         <span className="file-name truncate">{attachment.name}</span>
+        {uploading && <UploadBar progress={uploadProgress ?? 0} />}
         <span className="file-size">
-          {failed ? "Couldn't load" : formatBytes(attachment.size)}
-          {attachment.duration ? ` · ${formatDuration(attachment.duration)}` : ""}
+          {uploading ? uploadedOf(attachment, uploadProgress ?? 0) : failed ? "Couldn't load" : formatBytes(attachment.size)}
+          {!uploading && attachment.duration ? ` · ${formatDuration(attachment.duration)}` : ""}
         </span>
       </span>
     </button>
@@ -267,7 +331,8 @@ function FileAttachment({ attachment, serverId, uploadProgress }: { attachment: 
       <span className="file-icon">{busy ? <Spinner size={16} /> : uploading ? <UploadRing progress={uploadProgress ?? 0} /> : <FileIcon size={17} />}</span>
       <span className="file-info">
         <span className="file-name truncate">{attachment.name}</span>
-        <span className="file-size">{uploading ? `Encrypting and uploading, ${Math.round((uploadProgress ?? 0) * 100)}%` : formatBytes(attachment.size)}</span>
+        {uploading && <UploadBar progress={uploadProgress ?? 0} />}
+        <span className="file-size">{uploading ? uploadedOf(attachment, uploadProgress ?? 0) : formatBytes(attachment.size)}</span>
       </span>
       {!uploading && !busy && <Download size={15} className="file-download" />}
     </button>
@@ -282,19 +347,18 @@ function Attachments({ message, serverId, flush, own }: { message: MessageView; 
       {images.length > 0 && (
         <div className={`media-grid media-count-${Math.min(images.length, 4)}${flush ? " has-no-text" : ""}`}>
           {images.map((attachment, index) => (
-            <ImageAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} single={images.length === 1} uploadProgress={message.uploadProgress} />
+            <ImageAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} single={images.length === 1} uploadProgress={fileProgress(message, attachment)} />
           ))}
         </div>
       )}
-      {others.map((attachment, index) =>
-        attachment.voice ? (
-          <VoiceAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} own={own} uploadProgress={message.uploadProgress} />
-        ) : attachment.mime.startsWith("video/") || attachment.mime.startsWith("audio/") ? (
-          <MediaAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} />
-        ) : (
-          <FileAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} uploadProgress={message.uploadProgress} />
-        ),
-      )}
+      {others.map((attachment, index) => {
+        const key = attachment.fileId || `file-${index}`;
+        const progress = fileProgress(message, attachment);
+        if (attachment.voice) return <VoiceAttachment key={key} attachment={attachment} serverId={serverId} own={own} uploadProgress={progress} />;
+        if (attachment.mime.startsWith("video/")) return <VideoAttachment key={key} attachment={attachment} serverId={serverId} uploadProgress={progress} />;
+        if (attachment.mime.startsWith("audio/")) return <AudioAttachment key={key} attachment={attachment} serverId={serverId} uploadProgress={progress} />;
+        return <FileAttachment key={key} attachment={attachment} serverId={serverId} uploadProgress={progress} />;
+      })}
     </>
   );
 }
@@ -457,8 +521,9 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const jumbo = useMemo(() => (message.attachments.length === 0 ? jumboSize(message.text, message.emotes) : 0), [message.text, message.emotes, message.attachments.length]);
 
   const hasReactions = message.reactions.length > 0;
-  // The time goes at the end of the text, or below a link's preview.
-  const metaInText = !!message.text && !message.preview && !hasReactions && !isDeleted && message.status !== "undecryptable" && message.status !== "unverified" && message.status !== "invalid";
+  // The time goes at the end of the text, or below a link's preview, or below a big emote.
+  const metaInText =
+    !!message.text && !jumbo && !message.preview && !hasReactions && !isDeleted && message.status !== "undecryptable" && message.status !== "unverified" && message.status !== "invalid";
   const images = message.attachments.filter((item) => item.mime.startsWith("image/") && item.width);
   const onlyImages = !message.text && images.length > 0 && images.length === message.attachments.length && !hasReactions;
 
@@ -497,7 +562,6 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                 </span>
               );
             })}
-          {metaInText && meta}
         </>
       );
     }

@@ -118,7 +118,7 @@ export function useRemoteImage(address: string | null | undefined, enabled = tru
   return { url, failed };
 }
 
-/** Pictures bigger than this wait for a click: this is what downloads with no click, and it all goes in memory. */
+/** Pictures and videos bigger than this wait for a click: this is what downloads with no click, and it all goes in memory. */
 const AUTO_LOAD_BYTES = 20 << 20;
 const AUTO_LOAD_CHUNKS = 21;
 
@@ -220,24 +220,71 @@ export async function prepareFile(file: File): Promise<PreparedFile> {
   return prepared;
 }
 
+/**
+ * How big a video's picture is, the frame shown before it loads, from the
+ * sharpest down. It travels inside the message, which takes at most 22 KB of it.
+ */
+const POSTER_STEPS = [
+  { size: 320, quality: 0.65 },
+  { size: 240, quality: 0.55 },
+  { size: 160, quality: 0.5 },
+];
+const POSTER_LENGTH = 22 << 10;
+
 function readMediaDetails(file: File): Promise<Partial<PreparedFile>> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
-    const element = document.createElement(file.type.startsWith("video/") ? "video" : "audio");
-    const finish = (details: Partial<PreparedFile>) => {
+    const isVideo = file.type.startsWith("video/");
+    const element = document.createElement(isVideo ? "video" : "audio");
+    let details: Partial<PreparedFile> = {};
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      element.removeAttribute("src");
+      element.load();
       URL.revokeObjectURL(url);
       resolve(details);
     };
-    element.preload = "metadata";
+    // A video the system can't decode still goes, only without its picture.
+    const timer = setTimeout(finish, 4000);
+    element.preload = "auto";
+    element.muted = true;
     element.onloadedmetadata = () => {
       const video = element as HTMLVideoElement;
-      finish({
+      details = {
         duration: Number.isFinite(element.duration) ? element.duration : undefined,
         width: video.videoWidth || undefined,
         height: video.videoHeight || undefined,
-      });
+      };
+      if (!isVideo || !video.videoWidth) finish();
+      // A moment in, since many videos start on a black frame.
+      else video.currentTime = Math.min(0.5, (details.duration ?? 0) / 3);
     };
-    element.onerror = () => finish({});
+    element.onseeked = () => {
+      const video = element as HTMLVideoElement;
+      try {
+        for (const { size, quality } of POSTER_STEPS) {
+          const ratio = Math.min(1, size / Math.max(video.videoWidth, video.videoHeight));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(video.videoWidth * ratio));
+          canvas.height = Math.max(1, Math.round(video.videoHeight * ratio));
+          const context = canvas.getContext("2d")!;
+          context.imageSmoothingQuality = "high";
+          context.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const poster = canvas.toDataURL("image/jpeg", quality);
+          if (poster.length <= POSTER_LENGTH) {
+            details.thumb = poster;
+            break;
+          }
+        }
+      } catch {
+        // No picture, then.
+      }
+      finish();
+    };
+    element.onerror = finish;
     element.src = url;
   });
 }

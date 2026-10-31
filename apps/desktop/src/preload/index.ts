@@ -9,6 +9,7 @@ const on = (channel: string, listener: (value: any) => void) => {
 };
 
 contextBridge.exposeInMainWorld("zunaDesktop", {
+  hour12: process.argv.includes("--zuna-clock=12"),
   deviceKey: () => ipcRenderer.invoke("zuna:device-key"),
   platform: () => ipcRenderer.invoke("zuna:platform"),
   microphone: () => ipcRenderer.invoke("zuna:microphone"),

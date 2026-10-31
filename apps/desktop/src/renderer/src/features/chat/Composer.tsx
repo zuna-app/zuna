@@ -223,9 +223,12 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
       replyTo: replyTo?.id,
       emotes: emotesInText(value),
       mentions: mentionsIn(value, users),
-      // Only if it's ready: sending doesn't wait for a slow page.
       preview: linkPreview?.preview && value.includes(linkPreview.url) ? linkPreview.preview : undefined,
     };
+    // A preview that isn't ready yet, as when a link is pasted and sent at once, goes
+    // with the message if it's ready within a few seconds; the message shows straight away.
+    const settled = linkPreview?.url === link && !linkPreview.loading;
+    const options = { previewUrl: link && link !== dismissedLink && !body.preview && !settled ? link : undefined };
     if (files.length > 0) {
       const sending = files;
       setFiles([]);
@@ -234,11 +237,12 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
           conversation.key,
           sending.map(({ blob, name, mime, width, height, thumb, duration }) => ({ blob, name, mime, width, height, thumb, duration })),
           body,
+          options,
         )
         .catch((error: Error) => toast(error.message, "error"));
     } else {
       void session()
-        .sendMessage(conversation.key, body)
+        .sendMessage(conversation.key, body, options)
         .catch((error: Error) => toast(error.message, "error"));
     }
     // From a window of older messages, sending goes back to the newest.

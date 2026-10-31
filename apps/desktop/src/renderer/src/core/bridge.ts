@@ -5,6 +5,8 @@ import { connectCore, type CoreConnection } from "@zuna/core/rpc";
 import type { CoreEvent } from "@zuna/core";
 
 export interface DesktopBridge {
+  /** Whether the system shows times with AM and PM. */
+  hour12: boolean;
   deviceKey(): Promise<{ key: Uint8Array; protected: boolean; deviceName: string; localLinks: boolean }>;
   platform(): Promise<string>;
   /** Whether the operating system lets Zuna record, asking the person the first time. */

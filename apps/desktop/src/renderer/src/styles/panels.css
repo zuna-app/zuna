@@ -7,6 +7,7 @@
 .side-body { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 .profile-card { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding: 10px 4px 6px; }
 .profile-card h2 { font-size: 16px; margin-top: 8px; }
+.profile-online { color: var(--green); }
 .profile-bio { margin-top: 8px; font-size: 13.5px; color: var(--text-2); white-space: pre-wrap; }
 .side-section { display: flex; flex-direction: column; gap: 1px; padding: 4px; border-radius: var(--radius-l); background: var(--bg-2); }
 .side-section h4 { font-size: 12px; font-weight: 500; color: var(--text-3); padding: 5px 8px; }
