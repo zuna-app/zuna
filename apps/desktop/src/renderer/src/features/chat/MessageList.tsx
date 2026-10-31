@@ -23,6 +23,8 @@ function UndisplayableMessage() {
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 /** How near the newest message still counts as being at it. */
 const AT_BOTTOM_PX = 64;
+/** How long rows wait before moving down as the message box shrinks, in case a sent message is on its way. */
+const SEND_WAIT_MS = 50;
 /** How far past the screen rows are drawn, above and below. */
 const DRAWN_AHEAD_PX = 800;
 /**
@@ -230,13 +232,18 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     let height = element.clientHeight;
     let windowHeight = window.innerHeight;
     let lastTop = element.scrollTop;
+    // Where the list last left itself, by moving or by the browser cutting it short as
+    // the list grew taller. That scroll event comes a frame later, when a new message
+    // may already be below, and would otherwise look like scrolling away from it.
+    let ownTop: number | null = null;
 
-    // Rows stay where they were on screen and glide to their new place from there.
-    const startGlide = (travel: number) => {
+    // Rows stay where they were on screen and glide to their new place from there,
+    // after `wait` milliseconds if asked.
+    const startGlide = (travel: number, wait = 0) => {
       if (!list || travel === 0 || motionReduced()) return;
       const from = glideOffset(list, glide) + travel;
       glide?.cancel();
-      glide = list.animate({ transform: [`translateY(${from}px)`, "none"] }, { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" });
+      glide = list.animate({ transform: [`translateY(${from}px)`, "none"] }, { duration: 180, delay: wait, fill: "backwards", easing: "cubic-bezier(0.2, 0, 0, 1)" });
     };
     // A glide counts towards the scroll height, so during one the end comes from the layout.
     const contentEnd = () => {
@@ -257,19 +264,26 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         // is, stops a scroll that's still gliding, so the wheel would barely move it.
         const by = row ? row.getBoundingClientRect().top - element.getBoundingClientRect().top + place.offset : -grownBy;
         if (by) element.scrollTop += by;
+        ownTop = element.scrollTop;
         return;
       }
       const end = contentEnd() - element.clientHeight;
       if (element.scrollTop !== end) element.scrollTop = end;
+      ownTop = element.scrollTop;
       const added = glideFor.current && fresh.current.has(glideFor.current) ? (list?.lastElementChild?.getBoundingClientRect().height ?? 0) : 0;
       glideFor.current = null;
-      startGlide(added - (windowResized ? 0 : grownBy));
+      const travel = added - (windowResized ? 0 : grownBy);
+      // The message box empties a frame or two before the sent message comes from the
+      // core. Waiting that long to move rows down lets the two meet, so rows only go up.
+      startGlide(travel, travel < 0 && !added ? SEND_WAIT_MS : 0);
       // With no way to scroll towards them, older messages come in by themselves.
       if (element.scrollHeight <= element.clientHeight) loadMore.current();
     };
     const onScroll = () => {
       const top = element.scrollTop;
-      if (scrolledByHand.current) {
+      const own = ownTop !== null && Math.abs(top - ownTop) < 1;
+      ownTop = null;
+      if (scrolledByHand.current && !own) {
         const away = contentEnd() - element.clientHeight - top;
         if (away <= AT_BOTTOM_PX) stuck.current = true;
         else if (top < lastTop) stuck.current = false;
