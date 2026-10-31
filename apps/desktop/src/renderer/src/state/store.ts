@@ -115,7 +115,8 @@ export const BASE_INDEX = 1_000_000;
 
 function sortMessages(items: MessageView[]): MessageView[] {
   return items.sort((a, b) => {
-    if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
+    // A notice shares its number with the message before it, and goes after it.
+    if (a.seq !== null && b.seq !== null) return a.seq - b.seq || Number(!!a.system) - Number(!!b.system) || a.createdAt - b.createdAt;
     if (a.seq === null && b.seq === null) return a.createdAt - b.createdAt;
     return a.seq === null ? 1 : -1;
   });
@@ -216,6 +217,14 @@ export const useApp = create<AppState>((set, get) => {
         break;
       case "message":
         upsertMessage(event.message);
+        // A message from someone ends their typing, instead of leaving it up for seconds.
+        if (event.isNew && get().servers[event.serverId]?.typing[event.message.groupId]?.[event.message.senderId]) {
+          patchServer(event.serverId, (server) => {
+            const next = { ...server.typing[event.message.groupId] };
+            delete next[event.message.senderId];
+            return { typing: { ...server.typing, [event.message.groupId]: next } };
+          });
+        }
         break;
       case "message_removed":
         set((state) => {
@@ -232,9 +241,14 @@ export const useApp = create<AppState>((set, get) => {
           const lists = { ...state.lists };
           const from = lists[event.fromGroupId];
           if (from) lists[event.fromGroupId] = { ...from, items: from.items.filter((item) => item.id !== event.message.id) };
-          const target = lists[event.message.groupId] ?? emptyList();
+          const target = lists[event.message.groupId] ?? { ...emptyList(), hasMore: from?.hasMore ?? true };
           lists[event.message.groupId] = { ...target, items: sortMessages([...target.items.filter((item) => item.id !== event.message.id), event.message]) };
-          return { lists };
+          // The chat follows it in the same update, so it never shows an empty list in between.
+          const server = state.servers[event.serverId];
+          if (!server) return { lists };
+          const key = event.fromGroupId.replace(/^pending:/, "");
+          const conversations = server.conversations.map((item) => (item.key === key ? { ...item, groupId: event.message.groupId } : item));
+          return { lists, servers: { ...state.servers, [event.serverId]: { ...server, conversations } } };
         });
         break;
       case "presence":

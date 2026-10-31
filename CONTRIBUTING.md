@@ -73,6 +73,12 @@ To walk through the whole interface with a real server and live bots, which chec
 node apps/desktop/test/ui-check.mjs
 ```
 
+To check what each painted frame shows while messages are sent, after changing the message list or the message box:
+
+```bash
+node apps/desktop/test/send-check.mjs
+```
+
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
 ## Packaging

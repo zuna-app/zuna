@@ -125,14 +125,6 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     };
   }, [link, dismissedLink]);
 
-  // Grow with the content up to a limit.
-  useEffect(() => {
-    const element = input.current;
-    if (!element) return;
-    element.style.height = "auto";
-    element.style.height = `${Math.min(element.scrollHeight, 220)}px`;
-  }, [text]);
-
   const addFiles = useCallback(async (incoming: File[]) => {
     const prepared = await Promise.all(incoming.map(prepareFile));
     setFiles((current) => [...current, ...prepared].slice(0, 10));
@@ -242,6 +234,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     } else {
       void session().sendMessage(conversation.key, body);
     }
+    // From a window of older messages, sending goes back to the newest.
+    if (useApp.getState().lists[listId]?.detached) void useApp.getState().returnToLatest(listId);
     setText("");
     setReply(listId, null);
     setLinkPreview(null);

@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
+import { Avatar, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
 import { refocusComposer } from "@/lib/focus";
 import { formatListTime } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
@@ -98,7 +98,13 @@ const ConversationRow = memo(function ConversationRow({
         </span>
         <span className="conv-line">
           <span className={`conv-preview truncate${typing ? " is-typing" : ""}`}>
-            {typing ? "typing…" : preview || <span className="faint">{fallback}</span>}
+            {typing ? (
+              <>
+                typing <TypingDots />
+              </>
+            ) : (
+              preview || <span className="faint">{fallback}</span>
+            )}
           </span>
           {item.pinned && !item.unread && <Pin size={13} className="conv-pin" />}
           {item.unread > 0 && <span className={`conv-badge${item.muted ? " is-muted" : ""}`}>{item.unread > 99 ? "99+" : item.unread}</span>}
