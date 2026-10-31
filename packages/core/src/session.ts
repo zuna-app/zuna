@@ -93,7 +93,13 @@ const PAGE_SIZE = 50;
 const TYPING_THROTTLE_MS = 3000;
 const RECONCILE_JITTER_MS = 2500;
 const MAX_COMMIT_ATTEMPTS = 6;
+const VAULT_BATCH = 200;
 const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
+
+/** Values of `epoch_keys.uploaded`. A granted key waits until it has proved itself. */
+const KEY_NOT_UPLOADED = 0;
+const KEY_UPLOADED = 1;
+const KEY_UNPROVEN = 2;
 
 interface CachedDevice {
   id: string;
@@ -235,6 +241,8 @@ export class ServerSession {
   private muteTimer: ReturnType<typeof setTimeout> | undefined;
   private reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private stopped = false;
+  /** The epoch each group's key was last checked against MLS at. */
+  private confirmedEpochs = new Map<string, number>();
   /** Called when the server told us this session is over (banned, revoked). */
   onSignedOut: ((reason: string) => void) | null = null;
 
@@ -365,7 +373,6 @@ export class ServerSession {
     this.emit({ type: "settings", serverId: this.serverId, info: this.info });
     await this.syncUsers();
     await this.syncVault();
-    await this.processHistoryGrants();
     await this.refreshEmotes();
     await this.processWelcomes();
     // A group that arrives while the list is on its way won't be in it, so only
@@ -379,6 +386,8 @@ export class ServerSession {
     }
     this.emitConversations();
     for (const group of groups) await this.syncGroup(group.id);
+    // After joining, since a grant is only good for epochs before this device came in.
+    await this.processHistoryGrants();
     await this.topUpKeyPackages();
     await this.uploadEpochKeys();
     void this.flushOutbox();
@@ -644,8 +653,10 @@ export class ServerSession {
         }
         if (item.id.startsWith("ek:")) {
           const [, groupId, epoch] = item.id.split(":");
-          this.saveEpochKey(groupId!, Number(epoch), data, true);
-          touchedGroups.add(groupId!);
+          if (Number.isSafeInteger(Number(epoch)) && data.length === 32) {
+            this.saveEpochKey(groupId!, Number(epoch), data, "vault");
+            touchedGroups.add(groupId!);
+          }
         } else if (item.id === "prefs") {
           try {
             this.prefs = { ...this.prefs, ...parsePreferences(JSON.parse(fromUtf8(data))) };
@@ -687,7 +698,8 @@ export class ServerSession {
 
   private async uploadEpochKeys(): Promise<void> {
     const rows = this.db.all<{ group_id: string; epoch: number; key: Uint8Array }>(
-      "SELECT group_id, epoch, key FROM epoch_keys WHERE uploaded = 0 LIMIT 200",
+      "SELECT group_id, epoch, key FROM epoch_keys WHERE uploaded = ? LIMIT ?",
+      [KEY_NOT_UPLOADED, VAULT_BATCH],
     );
     if (rows.length === 0) return;
     const items = rows.map((row) => {
@@ -697,20 +709,41 @@ export class ServerSession {
     await this.api.putVaultItems(items);
     this.db.transaction(() => {
       for (const row of rows) {
-        this.db.run("UPDATE epoch_keys SET uploaded = 1 WHERE group_id = ? AND epoch = ?", [row.group_id, row.epoch]);
+        this.db.run("UPDATE epoch_keys SET uploaded = ? WHERE group_id = ? AND epoch = ?", [KEY_UPLOADED, row.group_id, row.epoch]);
       }
     });
   }
 
+  /**
+   * Keys for older messages, from an admin adding this person with history. They
+   * only ever fill in epochs from before this device came into the group: for
+   * later ones, the only key that counts is the one MLS gives (see
+   * rememberCurrentEpochKey).
+   */
   private async processHistoryGrants(): Promise<void> {
     const grants = await this.api.historyGrants();
     for (const grant of grants) {
+      const joined = this.joinedEpoch(grant.group_id);
+      // Kept until this device is in the group and can tell what it may fill in.
+      if (joined === null) continue;
       try {
-        const keys = openHistoryGrant(this.account.core.hpkeSecret, grant.group_id, decode(grant.data));
-        for (const [epoch, key] of Object.entries(keys)) {
-          this.saveEpochKey(grant.group_id, Number(epoch), fromBase64(key), false);
+        const opened = openHistoryGrant(this.account.core.hpkeSecret, grant.group_id, this.account.userId, decode(grant.data));
+        if (await this.grantAuthentic(grant.group_id, opened)) {
+          for (const [epoch, key] of Object.entries(opened.keys)) {
+            const number = Number(epoch);
+            if (!Number.isSafeInteger(number) || number < 0 || number >= joined || typeof key !== "string") continue;
+            const bytes = fromBase64(key);
+            if (bytes.length === 32) this.saveEpochKey(grant.group_id, number, bytes, "grant");
+          }
+          this.retryUndecryptable(grant.group_id);
+        } else {
+          this.emit({
+            type: "security",
+            serverId: this.serverId,
+            userId: opened.signer.userId,
+            message: "Keys for a conversation's history weren't signed by one of its admins, so they were ignored.",
+          });
         }
-        this.retryUndecryptable(grant.group_id);
       } catch (error) {
         console.warn("[zuna] a history grant could not be opened", error);
       }
@@ -719,19 +752,51 @@ export class ServerSession {
     if (grants.length > 0) await this.uploadEpochKeys();
   }
 
+  private async grantAuthentic(groupId: string, grant: ReturnType<typeof openHistoryGrant>): Promise<boolean> {
+    const group = await this.api.group(groupId);
+    this.applyGroup(group);
+    if (group.members.find((member) => member.user_id === grant.signer.userId)?.role !== "admin") return false;
+    const device = (await this.ensureUser(grant.signer.userId, true))?.devices.get(grant.signer.deviceId);
+    return !!device && grant.signedBy(device.signatureKey);
+  }
+
   // --- Epoch keys ---
 
   private epochCacheKey(groupId: string, epoch: number): string {
     return `${groupId}:${epoch}`;
   }
 
-  private saveEpochKey(groupId: string, epoch: number, key: Uint8Array, uploaded: boolean): void {
-    this.epochKeys.set(this.epochCacheKey(groupId, epoch), key);
+  /**
+   * Stores an epoch's key. What MLS itself gives is always right. A key from this
+   * account's vault or from a grant only fills a gap, and a granted one isn't
+   * passed on to the vault until it has opened a properly signed message.
+   */
+  private saveEpochKey(groupId: string, epoch: number, key: Uint8Array, source: "mls" | "vault" | "grant"): void {
+    if (source === "mls") {
+      this.epochKeys.set(this.epochCacheKey(groupId, epoch), key);
+      this.db.run(
+        `INSERT OR REPLACE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`,
+        [groupId, epoch, this.sealLocal("epoch", key), KEY_NOT_UPLOADED, Date.now()],
+      );
+      return;
+    }
     this.db.run(
-      `INSERT INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)
-       ON CONFLICT(group_id, epoch) DO UPDATE SET uploaded = MAX(uploaded, excluded.uploaded)`,
-      [groupId, epoch, this.sealLocal("epoch", key), uploaded ? 1 : 0, Date.now()],
+      `INSERT OR IGNORE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`,
+      [groupId, epoch, this.sealLocal("epoch", key), source === "vault" ? KEY_UPLOADED : KEY_UNPROVEN, Date.now()],
     );
+  }
+
+  /** A granted key opened a properly signed message, so it's real enough to keep for other devices. */
+  private keyProvedItself(groupId: string, epoch: number): void {
+    this.db.run("UPDATE epoch_keys SET uploaded = ? WHERE group_id = ? AND epoch = ? AND uploaded = ?", [KEY_NOT_UPLOADED, groupId, epoch, KEY_UNPROVEN]);
+  }
+
+  private joinedEpoch(groupId: string): number | null {
+    return this.db.get<{ epoch: number }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId])?.epoch ?? null;
+  }
+
+  private setJoinedEpoch(groupId: string, epoch: number): void {
+    this.db.run("INSERT OR REPLACE INTO joined_epochs(group_id, epoch) VALUES(?, ?)", [groupId, epoch]);
   }
 
   private epochKey(groupId: string, epoch: number): Uint8Array | null {
@@ -745,13 +810,29 @@ export class ServerSession {
     return key;
   }
 
+  /**
+   * Makes sure the key held for the current epoch is the one MLS gives. Nothing
+   * is ever encrypted under a key from anywhere else, so a key someone planted
+   * in advance is found out as soon as its epoch arrives, instead of being used.
+   */
   private rememberCurrentEpochKey(groupId: string): number {
     const groupBytes = utf8(groupId);
     const epoch = this.mls.epoch(groupBytes);
-    if (!this.epochKey(groupId, epoch)) {
-      const key = this.mls.exportSecret(groupBytes, CONTENT_LABEL, u64Bytes(epoch), 32);
-      this.saveEpochKey(groupId, epoch, key, false);
+    if (this.confirmedEpochs.get(groupId) === epoch) return epoch;
+    const real = this.mls.exportSecret(groupBytes, CONTENT_LABEL, u64Bytes(epoch), 32);
+    const stored = this.epochKey(groupId, epoch);
+    if (!stored || !equalBytes(stored, real)) {
+      this.saveEpochKey(groupId, epoch, real, "mls");
+      if (stored) {
+        this.emit({
+          type: "security",
+          serverId: this.serverId,
+          userId: "",
+          message: "A wrong key had been planted for one of your conversations. It was replaced with the real one.",
+        });
+      }
     }
+    this.confirmedEpochs.set(groupId, epoch);
     return epoch;
   }
 
@@ -959,6 +1040,7 @@ export class ServerSession {
           throw new Error("the welcome was for a different conversation");
         }
         this.saveMls();
+        this.setJoinedEpoch(welcome.group_id, result.epoch);
         this.rememberCurrentEpochKey(welcome.group_id);
         this.auditTree(welcome.group_id);
         joined = true;
@@ -1046,6 +1128,7 @@ export class ServerSession {
         throw error;
       }
       this.saveMls();
+      this.setJoinedEpoch(groupId, result.epoch);
       this.rememberCurrentEpochKey(groupId);
       this.auditTree(groupId);
       const known = this.knownMembers(groupId);
@@ -1121,7 +1204,8 @@ export class ServerSession {
     }
     this.mls.mergePending(groupBytes);
     this.saveMls();
-    this.saveEpochKey(group.id, newEpoch, key, false);
+    this.setJoinedEpoch(group.id, newEpoch);
+    this.saveEpochKey(group.id, newEpoch, key, "mls");
     this.setKnownMembers(group.id, targets);
     void this.uploadEpochKeys().catch(() => undefined);
     this.applyGroup(await this.api.group(group.id));
@@ -1182,7 +1266,8 @@ export class ServerSession {
       }
       this.mls.mergePending(groupBytes);
       this.saveMls();
-      this.saveEpochKey(groupId, newEpoch, key, false);
+      this.saveEpochKey(groupId, newEpoch, key, "mls");
+      this.confirmedEpochs.set(groupId, newEpoch);
       void this.uploadEpochKeys().catch(() => undefined);
       return;
     }
@@ -1678,6 +1763,7 @@ export class ServerSession {
       } else {
         const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, envelope);
         if (opened.ok) {
+          this.keyProvedItself(message.group_id, message.epoch);
           const parsed = parseMessageBody(opened.value);
           if (parsed) {
             body = { ...parsed, rawReactions: message.reactions };
@@ -2475,7 +2561,7 @@ export class ServerSession {
     if (now - (this.lastTypingSent.get(groupId) ?? 0) < TYPING_THROTTLE_MS) return;
     if (!this.hasMlsGroup(groupId)) return;
     this.lastTypingSent.set(groupId, now);
-    const epoch = this.mlsEpoch(groupId);
+    const epoch = this.rememberCurrentEpochKey(groupId);
     const key = this.epochKey(groupId, epoch);
     if (key) this.socket.sendTyping(groupId, sealSignal(key, "typing", groupId, epoch, {}));
   }
@@ -2486,7 +2572,7 @@ export class ServerSession {
     group.ownRead = seq;
     this.persistGroup(group);
     this.emitConversations();
-    const epoch = this.mlsEpoch(groupId);
+    const epoch = this.rememberCurrentEpochKey(groupId);
     // When receipts are off the position is sealed to our own account key, so
     // our other devices stay in sync while nobody else can read it.
     const receipts = this.prefs.sendReadReceipts;
@@ -2742,7 +2828,8 @@ export class ServerSession {
             if (!user) continue;
             const apiUser = await this.api.user(userId);
             if (!verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;
-            grants.push({ user_id: userId, data: sealHistoryGrant(user.hpkeKey, groupId, keys) });
+            const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
+            grants.push({ user_id: userId, data: sealHistoryGrant(user.hpkeKey, groupId, userId, signer, this.account.deviceSecret, keys) });
           }
         }
         return { kind: "members", keyPackages: packages, addUsers: missing, grants };

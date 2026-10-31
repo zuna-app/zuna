@@ -313,11 +313,95 @@ export function openSignal<T>(key: Uint8Array, kind: ContentKind, groupId: strin
 
 // --- History sharing ---
 
-export const sealHistoryGrant = (recipientHpke: Uint8Array, groupId: string, keys: Record<number, string>) =>
-  wasm.hpkeSeal(recipientHpke, label("zuna/history-grant/v1"), label(groupId), utf8(JSON.stringify(keys)));
+/** A device, for saying who signed something. */
+export interface Signer {
+  userId: string;
+  deviceId: string;
+}
 
-export function openHistoryGrant(hpkeSecret: Uint8Array, groupId: string, sealed: Uint8Array): Record<string, string> {
-  return JSON.parse(fromUtf8(wasm.hpkeOpen(hpkeSecret, label("zuna/history-grant/v1"), label(groupId), sealed)));
+const grantSignatureInput = (groupId: string, recipient: string, signer: Signer, keys: string) =>
+  concat(label(`zuna/history-grant-sig/v2|${groupId}|${recipient}|${signer.userId}|${signer.deviceId}|`), wasm.sha256(utf8(keys)));
+
+/**
+ * Hands older epoch keys to someone joining. Anyone can seal to a public key, so
+ * the granting device signs what it's handing over, and to whom.
+ */
+export function sealHistoryGrant(
+  recipientHpke: Uint8Array,
+  groupId: string,
+  recipient: string,
+  signer: Signer,
+  deviceSecret: Uint8Array,
+  keys: Record<number, string>,
+): Uint8Array {
+  const text = JSON.stringify(keys);
+  const signature = wasm.sign(deviceSecret, grantSignatureInput(groupId, recipient, signer, text));
+  const grant = { v: 2, keys: text, user: signer.userId, device: signer.deviceId, signature: toBase64(signature) };
+  return wasm.hpkeSeal(recipientHpke, label("zuna/history-grant/v2"), label(groupId), utf8(JSON.stringify(grant)));
+}
+
+export interface OpenedHistoryGrant {
+  signer: Signer;
+  keys: Record<string, string>;
+  /** Whether a device key really signed this grant, for this recipient. */
+  signedBy(devicePublic: Uint8Array): boolean;
+}
+
+export function openHistoryGrant(hpkeSecret: Uint8Array, groupId: string, recipient: string, sealed: Uint8Array): OpenedHistoryGrant {
+  const grant = JSON.parse(fromUtf8(wasm.hpkeOpen(hpkeSecret, label("zuna/history-grant/v2"), label(groupId), sealed)));
+  if (grant?.v !== 2 || typeof grant.keys !== "string" || typeof grant.user !== "string" || typeof grant.device !== "string" || typeof grant.signature !== "string") {
+    throw new Error("That history grant isn't valid.");
+  }
+  const signer = { userId: grant.user, deviceId: grant.device };
+  const keys = JSON.parse(grant.keys);
+  if (!keys || typeof keys !== "object") throw new Error("That history grant isn't valid.");
+  return {
+    signer,
+    keys,
+    signedBy: (devicePublic) => wasm.verify(devicePublic, grantSignatureInput(groupId, recipient, signer, grant.keys), fromBase64(grant.signature)),
+  };
+}
+
+// --- Group details ---
+
+const detailsSignatureInput = (groupId: string, version: number, signer: Signer, details: string) =>
+  concat(label(`zuna/group-details-sig/v1|${groupId}|${version}|${signer.userId}|${signer.deviceId}|`), wasm.sha256(utf8(details)));
+
+/**
+ * A group's details, signed by the admin's device that set them, with a version
+ * so an older copy can't be served again. The details are readable outside the
+ * signed part too, for clients from before they were signed.
+ */
+export function signGroupDetails(groupId: string, details: object, version: number, signer: Signer, deviceSecret: Uint8Array): object {
+  const text = JSON.stringify(details);
+  const signature = wasm.sign(deviceSecret, detailsSignatureInput(groupId, version, signer, text));
+  return { ...details, signed: { details: text, version, user: signer.userId, device: signer.deviceId, signature: toBase64(signature) } };
+}
+
+export interface SignedGroupDetails {
+  details: unknown;
+  version: number;
+  signer: Signer;
+  signedBy(devicePublic: Uint8Array): boolean;
+}
+
+/** The signed part of a group's details, or null if there's none or it's malformed. */
+export function readSignedGroupDetails(groupId: string, value: unknown): SignedGroupDetails | null {
+  const signed = (value as { signed?: Record<string, unknown> } | null)?.signed;
+  if (!signed || typeof signed !== "object") return null;
+  const { details, version, user, device, signature } = signed;
+  if (typeof details !== "string" || typeof version !== "number" || typeof user !== "string" || typeof device !== "string" || typeof signature !== "string") return null;
+  try {
+    const signer = { userId: user, deviceId: device };
+    return {
+      details: JSON.parse(details),
+      version,
+      signer,
+      signedBy: (devicePublic) => wasm.verify(devicePublic, detailsSignatureInput(groupId, version, signer, details), fromBase64(signature)),
+    };
+  } catch {
+    return null;
+  }
 }
 
 // --- Reactions ---

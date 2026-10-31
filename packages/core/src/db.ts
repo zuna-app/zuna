@@ -79,6 +79,18 @@ const MIGRATIONS: string[] = [
     0
   ) WHERE seq IS NULL AND id LIKE 'sys-%';
   `,
+  // joined_epochs: where this device last came into each group. Keys for later
+  // epochs only ever come from MLS itself.
+  // epoch_starts: which commit began each epoch, so a message can't claim one long over.
+  // device_departures: when each device left each group's tree.
+  // Pins are shared between an account's devices through its vault.
+  `
+  CREATE TABLE joined_epochs (group_id TEXT PRIMARY KEY, epoch INTEGER NOT NULL);
+  CREATE TABLE epoch_starts (group_id TEXT NOT NULL, epoch INTEGER NOT NULL, seq INTEGER NOT NULL, PRIMARY KEY (group_id, epoch));
+  CREATE TABLE device_departures (group_id TEXT NOT NULL, device_id TEXT NOT NULL, epoch INTEGER NOT NULL, PRIMARY KEY (group_id, device_id));
+  ALTER TABLE pinned_identities ADD COLUMN uploaded INTEGER NOT NULL DEFAULT 0;
+  INSERT OR IGNORE INTO joined_epochs(group_id, epoch) SELECT group_id, MIN(epoch) FROM epoch_keys GROUP BY group_id;
+  `,
 ];
 
 export function migrate(db: LocalDb): void {
