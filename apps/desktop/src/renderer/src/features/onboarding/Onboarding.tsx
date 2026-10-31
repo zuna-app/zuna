@@ -35,8 +35,8 @@ export function Onboarding() {
 }
 
 /** Join, sign in or recover. `onDone` runs after the account is ready. */
-export function JoinFlow({ initialLink, onDone, embedded }: { initialLink?: string; onDone?: () => void; embedded?: boolean }) {
-  const [step, setStep] = useState<Step>({ name: "start" });
+export function JoinFlow({ initialLink, initialSignInUrl, onDone, embedded }: { initialLink?: string; initialSignInUrl?: string; onDone?: () => void; embedded?: boolean }) {
+  const [step, setStep] = useState<Step>(initialSignInUrl ? { name: "signin", url: initialSignInUrl } : { name: "start" });
   const addServer = useApp((state) => state.addServer);
   const core = useApp((state) => state.core)!;
 

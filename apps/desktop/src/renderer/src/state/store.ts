@@ -54,7 +54,7 @@ export interface MessageList {
 export type Toast = { id: number; kind: "info" | "error" | "security"; message: string };
 
 export type Overlay =
-  | { type: "add-server"; link?: string }
+  | { type: "add-server"; link?: string; signInUrl?: string }
   | { type: "settings"; section?: string }
   | { type: "server-settings"; section?: string }
   | { type: "new-group" }
@@ -203,6 +203,11 @@ export const useApp = create<AppState>((set, get) => {
     });
   };
 
+  const patchEntry = (serverId: string, signedOut: string | null) => {
+    const server = get().servers[serverId];
+    if (server) patchServer(serverId, { entry: { ...server.entry, signedOut } });
+  };
+
   const handleEvent = (event: CoreEvent) => {
     switch (event.type) {
       case "connection":
@@ -301,13 +306,16 @@ export const useApp = create<AppState>((set, get) => {
           .catch(() => undefined);
         break;
       case "signed_out":
-        get().removeServer(event.serverId);
+        patchEntry(event.serverId, event.reason);
         get().toast(
           event.reason === "banned"
             ? "You were removed from a server by its admins."
             : "You've been signed out of a server.",
           "info",
         );
+        break;
+      case "signed_in":
+        patchEntry(event.serverId, null);
         break;
       case "security":
         get().toast(event.message, "security");

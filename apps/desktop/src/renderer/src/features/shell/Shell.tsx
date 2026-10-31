@@ -1,5 +1,6 @@
-import { Lock, MessageCircle } from "lucide-react";
+import { Lock, LogOut, MessageCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Spinner, useAction } from "@/components/ui";
 import { installStickyFocus } from "@/lib/focus";
 import { useActiveConversation, useActiveServer, useApp } from "@/state/store";
 import { ChatView } from "@/features/chat/ChatView";
@@ -26,6 +27,54 @@ function NoConversation() {
         <p className="row faint" style={{ gap: 6, fontSize: 12.5, marginTop: 4 }}>
           <Lock size={12} /> Everything here is end-to-end encrypted
         </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The server ended this device's session. Nothing is erased on its word: what's
+ * here stays until the person signs in again or clears it, or after a month.
+ */
+function SignedOut({ server }: { server: NonNullable<ReturnType<typeof useActiveServer>> }) {
+  const core = useApp((state) => state.core);
+  const setOverlay = useApp((state) => state.setOverlay);
+  const removeServer = useApp((state) => state.removeServer);
+  const { busy, run } = useAction();
+  const reason = server.entry.signedOut;
+  return (
+    <div className="no-chat">
+      <div className="empty-state" style={{ maxWidth: 460 }}>
+        <LogOut size={28} className="empty-icon" />
+        <h3>{reason === "banned" ? `You were removed from ${server.entry.name}` : `You're signed out of ${server.entry.name}`}</h3>
+        <p>
+          {reason === "device_revoked"
+            ? "This device was removed from your account."
+            : reason === "banned"
+              ? "Its admins ended your access."
+              : "The server ended this device's session."}{" "}
+          What's on this device stays here for 30 days, or until you sign in again or remove it.
+        </p>
+        <div className="row" style={{ gap: 8, justifyContent: "center" }}>
+          {reason !== "banned" && (
+            <button className="btn btn-primary" onClick={() => setOverlay({ type: "add-server", signInUrl: server.entry.url })}>
+              Sign in again
+            </button>
+          )}
+          <button
+            className="btn"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                const id = server.entry.id;
+                await core!.client.leaveServer(id);
+                removeServer(id);
+              })
+            }
+          >
+            {busy ? <Spinner /> : "Remove from this device"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -60,7 +109,8 @@ function useShortcuts() {
 export function Shell() {
   const conversation = useActiveConversation();
   const activeServerId = useApp((state) => state.activeServerId);
-  const activeKey = useActiveServer()?.activeKey;
+  const activeServer = useActiveServer();
+  const activeKey = activeServer?.activeKey;
   const [width, setWidth] = useState(loadWidth);
   const dragging = useRef(false);
 
@@ -105,7 +155,13 @@ export function Shell() {
       <main className="main">
         <div className="main-inner">
           {/* Switching chats is instant: messages are already in memory or a few milliseconds away. */}
-          {conversation ? <ChatView key={`${activeServerId}:${activeKey}`} conversation={conversation} /> : <NoConversation />}
+          {activeServer?.entry.signedOut ? (
+            <SignedOut server={activeServer} />
+          ) : conversation ? (
+            <ChatView key={`${activeServerId}:${activeKey}`} conversation={conversation} />
+          ) : (
+            <NoConversation />
+          )}
         </div>
       </main>
     </div>

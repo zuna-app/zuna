@@ -211,6 +211,8 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
 
         {selecting ? (
           <SelectionBar conversation={conversation} listId={listId} />
+        ) : conversation.removed ? (
+          <RemovedFromChat conversation={conversation} />
         ) : peer?.banned && !isSaved ? (
           <div className="composer-disabled">
             <X size={15} /> This person was removed from the server.
@@ -238,6 +240,26 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** The messages here stay on this device until the person clears them, or for a while. */
+function RemovedFromChat({ conversation }: { conversation: ConversationView }) {
+  const session = useApp((state) => state.session);
+  const selectConversation = useApp((state) => state.selectConversation);
+  return (
+    <div className="composer-disabled">
+      <X size={15} /> You're no longer in this conversation. Its messages stay on this device for 30 days.
+      <button
+        className="btn btn-small"
+        onClick={() => {
+          selectConversation(null);
+          void session().forgetConversation(conversation.groupId!);
+        }}
+      >
+        Remove now
+      </button>
     </div>
   );
 }

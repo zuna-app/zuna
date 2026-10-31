@@ -35,7 +35,7 @@ export function Overlays() {
             <button className="icon-btn is-small modal-close" onClick={close} aria-label="Close">
               <X size={17} />
             </button>
-            <JoinFlow initialLink={overlay.link} onDone={close} embedded />
+            <JoinFlow initialLink={overlay.link} initialSignInUrl={overlay.signInUrl} onDone={close} embedded />
           </div>
         </Modal>
       )}
