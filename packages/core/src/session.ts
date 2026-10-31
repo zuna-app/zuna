@@ -1030,8 +1030,8 @@ export class ServerSession {
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       const latest = await this.api.groupInfo(groupId);
       if (!latest.group_info) return false;
-      const result = this.mls.joinExternal(groupBytes, decode(latest.group_info)) as { commit: Uint8Array; epoch: number };
       this.saveMls();
+      const result = this.mls.joinExternal(groupBytes, decode(latest.group_info)) as { commit: Uint8Array; epoch: number };
       const groupInfo = this.mls.exportGroupInfo(groupBytes);
       try {
         await this.api.commit(groupId, {
@@ -1041,11 +1041,11 @@ export class ServerSession {
           kind: "external",
         });
       } catch (error) {
-        this.mls.deleteGroup(groupBytes);
-        this.saveMls();
+        this.mls.rollback();
         if (error instanceof ApiError && error.code === "stale_epoch") continue;
         throw error;
       }
+      this.saveMls();
       this.rememberCurrentEpochKey(groupId);
       this.auditTree(groupId);
       const known = this.knownMembers(groupId);
