@@ -139,9 +139,10 @@ g.__zunaPreviewPush = (
   serverId: string,
   groupId: string,
   messageId: string,
+  pictures: boolean,
   done: (error: string | null, json: string | null) => void,
 ) => {
-  previewPush({ db: nativeDbProvider, deviceKey }, serverId, groupId, messageId).then(
+  previewPush({ db: nativeDbProvider, deviceKey }, serverId, groupId, messageId, pictures).then(
     (preview) => done(null, JSON.stringify(preview)),
     (error: Error) => done(error?.stack ?? String(error), null),
   );

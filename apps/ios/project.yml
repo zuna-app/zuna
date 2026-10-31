@@ -76,10 +76,14 @@ targets:
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
         ITSAppUsesNonExemptEncryption: true
         ZunaPushRelay: $(ZUNA_PUSH_RELAY)
+        NSUserActivityTypes:
+          - INSendMessageIntent
     entitlements:
       path: Zuna/Zuna.entitlements
       properties:
         aps-environment: development
+        # Notifications laid out as conversations, with the sender's picture.
+        com.apple.developer.usernotifications.communication: true
         com.apple.security.application-groups:
           - group.chat.zuna.app
         keychain-access-groups:
@@ -92,6 +96,7 @@ targets:
     sources:
       - path: ZunaNotifications
       - path: Zuna/Shared/DeviceKeyStore.swift
+      - path: Zuna/Shared/MessageNotification.swift
       - path: Zuna/Shared/PushStore.swift
       - path: Zuna/Shared/SharedStorage.swift
     dependencies:
@@ -119,6 +124,7 @@ targets:
     entitlements:
       path: ZunaNotifications/ZunaNotifications.entitlements
       properties:
+        com.apple.developer.usernotifications.communication: true
         com.apple.security.application-groups:
           - group.chat.zuna.app
         keychain-access-groups:

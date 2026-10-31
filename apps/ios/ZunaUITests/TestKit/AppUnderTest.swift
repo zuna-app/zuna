@@ -125,6 +125,13 @@ final class AppUnderTest {
         try blocking { _ = try await control.host("attachFile", ["path": path]) }
     }
 
+    /// Shows a message's notification as the extension would make it, which
+    /// `simctl push` skips: the app does the same work in Debug builds.
+    func showNotification(group: String, message: String) throws -> String {
+        let control = control!
+        return try blocking { try await control.host("showNotification", ["group": group, "message": message]) as? String ?? "" }
+    }
+
     /// A yes-or-no preference of the signed-in server, such as sendReadReceipts.
     func preferencesFlag(_ name: String) throws -> Bool? {
         let control = control!

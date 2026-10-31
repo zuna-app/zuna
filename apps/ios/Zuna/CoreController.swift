@@ -271,14 +271,15 @@ final class CoreController {
             let password = command["password"] as? String
             let account = command["account"] as? Int
             let path = command["path"] as? String
-            return await self?.handleControl(name: name, password: password, account: account, path: path)
+            let message = (command["group"] as? String).flatMap { group in (command["message"] as? String).map { (group, $0) } }
+            return await self?.handleControl(name: name, password: password, account: account, path: path, message: message)
         }
         control = server
         guard let bound = try? await server.start(port: UInt16(port)) else { return }
         print("ZUNA_HOST_READY port=\(bound)")
     }
 
-    private func handleControl(name: String?, password: String?, account: Int?, path: String?) async -> String {
+    private func handleControl(name: String?, password: String?, account: Int?, path: String?, message: (group: String, id: String)?) async -> String {
         switch name {
         case "state":
             switch phase {
@@ -308,6 +309,22 @@ final class CoreController {
             return "attached"
         case "drift":
             return connection?.driftReports.joined(separator: "\n") ?? ""
+        case "showNotification":
+            // What the extension does for a push, done here, since simctl push skips the extension.
+            guard let runtime, let serverId = model?.activeServerId, let message else { return "not-ready" }
+            do {
+                let preview = try await runtime.pushPreview(serverId: serverId, groupId: message.group, messageId: message.id, pictures: true)
+                let base = UNMutableNotificationContent()
+                base.title = "Zuna"
+                base.body = "New message"
+                base.sound = .default
+                base.categoryIdentifier = Notifications.messageCategory
+                let content = await MessageNotification.content(for: preview, settings: NotificationSettings.load(), base: base)
+                try await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
+                return "shown"
+            } catch {
+                return "error: \(error)"
+            }
         default:
             return "unknown"
         }

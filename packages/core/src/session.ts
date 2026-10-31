@@ -1887,7 +1887,12 @@ export class ServerSession {
     await this.sendPush();
   }
 
-  private async sendPush(): Promise<void> {
+  /** One update at a time, each sending what's current then, so a late one can't undo a newer one. */
+  private sendPush(): Promise<void> {
+    return this.withLock("push", () => this.sendPushNow());
+  }
+
+  private async sendPushNow(): Promise<void> {
     const push = this.push;
     if (push === null) return;
     if (push === "off") {

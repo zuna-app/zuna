@@ -94,7 +94,8 @@ public final class CoreRuntime: @unchecked Sendable {
     /// What a notification shows for a pushed message, as JSON (`PushPreview`
     /// in the core). For the notification extension, which loads the bundle
     /// without booting a client: nothing connects, and nothing is written.
-    public func previewPush(serverId: String, groupId: String, messageId: String) async throws -> String {
+    /// With `pictures`, the sender's and the group's pictures come along, as base64.
+    public func previewPush(serverId: String, groupId: String, messageId: String, pictures: Bool = false) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             queue.async { [self] in
                 do {
@@ -110,7 +111,7 @@ public final class CoreRuntime: @unchecked Sendable {
                         continuation.resume(throwing: CoreError(description: error.toString() ?? "The message couldn't be read."))
                     }
                 }
-                call("__zunaPreviewPush", [options.deviceKey, serverId, groupId, messageId, JSValue(object: done, in: context) as Any])
+                call("__zunaPreviewPush", [options.deviceKey, serverId, groupId, messageId, pictures, JSValue(object: done, in: context) as Any])
             }
         }
     }

@@ -42,6 +42,10 @@
 	</dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Zuna uses Face ID to unlock the app when App Lock is on.</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

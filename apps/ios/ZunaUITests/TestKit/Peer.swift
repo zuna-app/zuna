@@ -67,6 +67,12 @@ final class Peer: @unchecked Sendable {
         try call("sendWithAttachments", [key, [file], ["text": text]])
     }
 
+    /// Sets or removes this person's picture, as the desktop's profile settings do.
+    func setPicture(_ png: Data?) throws {
+        let blob: Any = png.map { ["$blob": ["bytes": $0.base64EncodedString(), "type": "image/png"]] } ?? NSNull()
+        _ = try call("updateProfile", [png == nil ? ["avatar": NSNull()] : [:], blob])
+    }
+
     func conversation(_ key: String) throws -> [String: Any]? {
         let conversations = try call("getConversations") as? [[String: Any]] ?? []
         return conversations.first { $0["key"] as? String == key }
