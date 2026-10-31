@@ -5,6 +5,9 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    define: {
+      __ZUNA_SIGNED_BUILD__: JSON.stringify(process.env.ZUNA_SIGNED_BUILD === "1"),
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

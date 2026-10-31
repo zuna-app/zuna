@@ -13,6 +13,10 @@ protocols:
   - name: Zuna invite link
     schemes:
       - zuna
+publish:
+  provider: github
+  owner: SocketByte
+  repo: zuna-chat
 # Closes the ways of running this app as something else, or with changed code.
 electronFuses:
   runAsNode: false
@@ -35,6 +39,9 @@ nsis:
 mac:
   target:
     - target: dmg
+      arch: [x64, arm64]
+    # Automatic updates on macOS come from this one.
+    - target: zip
       arch: [x64, arm64]
   icon: resources/icon.png
   category: public.app-category.social-networking

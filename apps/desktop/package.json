@@ -14,7 +14,7 @@
     "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dist": "electron-vite build && electron-builder",
+    "dist": "electron-vite build && electron-builder --publish never",
     "icons": "node scripts/make-icons.mjs"
   },
   "devDependencies": {

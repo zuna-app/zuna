@@ -23,6 +23,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { allowLocalLinks, previewable, privateAddress } from "@zuna/core/links";
+import { startUpdates } from "./updates";
 
 const APP_SCHEME = "zuna-app";
 const WEB_SCHEME = "zuna-web";
@@ -475,6 +476,7 @@ if (!app.requestSingleInstanceLock()) {
     if (initial) pendingDeepLink = initial;
     createWindow();
     createTray();
+    startUpdates();
     app.on("activate", showWindow);
   });
 
