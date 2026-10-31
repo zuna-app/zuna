@@ -59,6 +59,8 @@ The key enabler. The app's core already sits behind an RPC boundary (`packages/c
 | `test.sql(query)` | read-only database queries, for checks of data at rest |
 | `test.logs(since)` | recent console and host log lines |
 
+Implemented in F0 as host commands (`{"kind": "host", "command": …}`): `offline`, `exit`, and `evaluate`, which runs a script in the core's context and is compiled only into Debug builds. The rest follow in F1.
+
 ## Test layers
 
 | Layer | What | Runs in | Time |
@@ -157,7 +159,7 @@ XCTest metrics with stored baselines, failing on regressions:
 - signing in and syncing 10,000 messages (time and peak memory);
 - Argon2id time.
 
-The simulator runs on Mac hardware, so these catch regressions only, not absolute device performance. JavaScriptCore on iOS runs without a JIT. The tests try to reproduce that with `JSC_useJIT=0` (passed as `SIMCTL_CHILD_JSC_useJIT=0`); whether JavaScriptCore honors it is checked in the spike.
+The simulator runs on Mac hardware, so these catch regressions only, not absolute device performance. JavaScriptCore on iOS runs without a JIT. F0 found that a plain `JSContext` on macOS also runs at interpreter speed, with or without `JSC_useJIT=0`: about 85 ms for a loop V8 runs in 15 ms. So `zuna-host` on macOS is a fair stand-in for a device's core performance with no extra setup. `npm run test:ios:perf` measures it.
 
 ### L7. Manual, at milestones only
 
@@ -187,15 +189,17 @@ On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minut
 
 ## Commands and results
 
-| Command | Runs |
-|---|---|
-| `npm run ios:check` | L0, L1, L2 |
-| `npm run ios:e2e:host` | L3 |
-| `npm run ios:e2e:sim` | L4 |
-| `npm run ios:e2e:ui -- [--only Composer]` | L5 |
-| `npm run ios:screens` | the screen tour |
-| `npm run ios:perf` | L6 |
-| `npm run ios:all` | everything, plus the desktop's `npm test` |
+| Command | Runs | Status |
+|---|---|---|
+| `npm run build:ios` | builds the Rust XCFramework, SQLite and the core bundle | since F0 |
+| `npm run test:ios` | L3: cross-client scenarios against `zuna-host` | since F0 |
+| `npm run test:ios:sim` | L4: the same scenarios with the real app in the E2E simulator | since F0 |
+| `npm run test:ios:perf` | L6 for the core: sign-in and sync of 10,000 messages | since F0 |
+| `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests | since F0 |
+| `npm run test:ios:check` | L0, L1, L2 together | F1 |
+| `npm run test:ios:ui -- [--only Composer]` | L5 | F1 |
+| `npm run test:ios:screens` | the screen tour | F1 |
+| `npm run test:ios:all` | everything, plus the desktop's `npm test` | F1 |
 
 Each run writes `apps/ios/.e2e/<run>/` (and `latest/`) containing:
 
