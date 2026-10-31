@@ -265,6 +265,11 @@ impl MlsClient {
         }
     }
 
+    /// Undoes everything since the last `take_changes`.
+    pub fn rollback(&self) {
+        self.client().rollback();
+    }
+
     pub fn has_group(&self, group_id: Vec<u8>) -> NativeResult<bool> {
         native(self.client().has_group(&group_id))
     }

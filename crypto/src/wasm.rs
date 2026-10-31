@@ -218,6 +218,11 @@ impl MlsClient {
         object
     }
 
+    /// Undoes everything since the last `takeChanges`.
+    pub fn rollback(&self) {
+        self.inner.rollback();
+    }
+
     #[wasm_bindgen(js_name = hasGroup)]
     pub fn has_group(&self, group_id: &[u8]) -> JsResult<bool> {
         to_js(self.inner.has_group(group_id))

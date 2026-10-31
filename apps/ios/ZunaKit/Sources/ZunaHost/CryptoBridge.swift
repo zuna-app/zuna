@@ -167,6 +167,9 @@ final class CryptoBridge {
                 ("set", array(changes.set.map { array([b($0.key), b($0.value)]) })),
                 ("deleted", array(changes.deleted.map(b))),
             ])
+        case "rollback":
+            client.rollback()
+            return JSValue(undefinedIn: context)
         case "hasGroup":
             return JSValue(bool: try client.hasGroup(groupId: groupId()), in: context)
         case "generateKeyPackage":

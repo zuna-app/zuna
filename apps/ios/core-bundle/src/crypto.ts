@@ -57,6 +57,9 @@ export class MlsClient {
   takeChanges(): { set: [Uint8Array, Uint8Array][]; deleted: Uint8Array[] } {
     return this.call("takeChanges");
   }
+  rollback(): void {
+    this.call("rollback");
+  }
   hasGroup(groupId: Uint8Array): boolean {
     return this.call("hasGroup", groupId);
   }

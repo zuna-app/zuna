@@ -112,6 +112,12 @@ impl MlsClient {
         changes
     }
 
+    /// Goes back to the state of the last `take_changes`, undoing whatever
+    /// happened since, such as a join the server then refused.
+    pub fn rollback(&self) {
+        *self.provider.storage().values.write().unwrap() = self.checkpoint.clone();
+    }
+
     fn create_config() -> MlsGroupCreateConfig {
         MlsGroupCreateConfig::builder()
             .ciphersuite(CIPHERSUITE)
@@ -308,8 +314,18 @@ impl MlsClient {
     }
 
     /// Joins via an external commit, used for new devices and for repairing a
-    /// device whose group state was lost. The old state is replaced if present.
+    /// device whose group state was lost. The old state is replaced if present,
+    /// and kept if the group info turns out to be unusable.
     pub fn join_external(&self, group_id: &[u8], group_info: &[u8]) -> Result<(Vec<u8>, u64)> {
+        let before = self.provider.storage().values.read().unwrap().clone();
+        let joined = self.replace_by_external_join(group_id, group_info);
+        if joined.is_err() {
+            *self.provider.storage().values.write().unwrap() = before;
+        }
+        joined
+    }
+
+    fn replace_by_external_join(&self, group_id: &[u8], group_info: &[u8]) -> Result<(Vec<u8>, u64)> {
         let message = MlsMessageIn::tls_deserialize_exact(group_info)
             .map_err(err("group info decode"))?;
         let MlsMessageBodyIn::GroupInfo(info) = message.extract() else {
