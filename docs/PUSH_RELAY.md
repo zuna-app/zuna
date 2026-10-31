@@ -16,7 +16,7 @@ Phones can't keep a connection open in the background, so a Zuna server wakes th
 
 ## Running it
 
-**Without Docker,** on Linux with systemd, `deploy/update.sh` builds and runs the relay, alone or next to a chat server, with Caddy for HTTPS. See [LINUX.md](LINUX.md):
+**Without Docker,** on Linux with systemd, `deploy/update.sh` builds and runs the relay, alone or next to a chat server, for your own reverse proxy to put HTTPS in front. See [LINUX.md](LINUX.md):
 
 ```bash
 sudo /opt/zuna/deploy/update.sh --relay push.example.com --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
