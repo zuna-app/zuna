@@ -5,7 +5,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,13 +56,14 @@ let bots;
 try {
   const link = await setupLink();
   electronApp = await electron.launch({
-    args: [app, `--user-data-dir=${userData}`],
+    // Chromium's fake microphone plays a tone, for voice messages.
+    args: [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"],
     env: { ...process.env, ELECTRON_RENDERER_URL: "" },
   });
   const page = await electronApp.firstWindow();
-  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("pageerror", (error) => errors.push(`${error.message} ${error.stack?.split("\n")[1]?.trim() ?? ""}`));
   page.on("console", (message) => {
-    if (message.type() === "error" && !message.text().includes("WebSocket")) errors.push(message.text());
+    if (message.type() === "error" && !message.text().includes("WebSocket")) errors.push(`${message.text()} (${message.location().url.split("/").pop()}:${message.location().lineNumber})`);
   });
   await electronApp.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
@@ -376,6 +377,115 @@ try {
   check("a forwarded message opens its chat and names its author", true);
   await sleep(300);
   await shot("19e-forwarded");
+
+  // Voice messages
+  await page.getByLabel("Record a voice message").click();
+  await page.locator(".recording-row").waitFor();
+  await sleep(1800);
+  check("recording shows the time and the microphone's level", (await page.locator(".recording-levels i").count()) > 10);
+  await shot("19f-recording");
+  await page.getByLabel("Send voice message").click();
+  const voice = page.locator(".msg.is-own .voice").last();
+  await voice.locator(".voice-play[aria-label='Play voice message']").waitFor({ timeout: 15_000 });
+  check("a voice message shows its length", /^0:0[1-3]$/.test(await voice.locator(".voice-time").innerText()), await voice.locator(".voice-time").innerText());
+  await voice.locator(".voice-play").click();
+  await voice.locator(".voice-play[aria-label='Pause']").waitFor({ timeout: 10_000 });
+  await voice.locator(".voice-wave i.is-played").first().waitFor({ timeout: 5000 });
+  check("a voice message plays, filling its waveform", true);
+  await shot("19g-voice");
+  await voice.locator(".voice-play").click();
+
+  // The desktop records AAC in MP4, which Apple's decoder (and so the iPhone app) reads,
+  // and plays what the iPhone app records, AAC made by Apple's encoder.
+  const recorded = await page.evaluate(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream, { mimeType: "audio/mp4;codecs=mp4a.40.2" });
+    const chunks = [];
+    recorder.ondataavailable = (event) => chunks.push(event.data);
+    const done = new Promise((resolve) => (recorder.onstop = resolve));
+    // In pieces, as the app records (lib/voice.ts).
+    recorder.start(250);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    recorder.stop();
+    await done;
+    stream.getTracks().forEach((track) => track.stop());
+    const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  });
+  if (process.platform === "darwin") {
+    const desktopFile = join(shots, "desktop-voice.m4a");
+    writeFileSync(desktopFile, Buffer.from(recorded, "base64"));
+    const info = execFileSync("afinfo", [desktopFile], { encoding: "utf8" });
+    const decoded = join(shots, "desktop-voice.wav");
+    execFileSync("afconvert", ["-f", "WAVE", "-d", "LEI16", desktopFile, decoded]);
+    const decodedSeconds = (readFileSync(decoded).length - 44) / 2 / 48_000;
+    check(
+      "Apple's decoder reads the desktop's recording",
+      /aac/i.test(info) && decodedSeconds > 0.8 && decodedSeconds < 1.3,
+      `${info.match(/Data format:.*/)?.[0]}, ${decodedSeconds.toFixed(2)} s decoded`,
+    );
+    const wav = join(shots, "tone.wav");
+    const appleFile = join(shots, "apple-voice.m4a");
+    const samples = 16_000;
+    const pcm = Buffer.alloc(44 + samples * 2);
+    pcm.write("RIFF", 0); pcm.writeUInt32LE(36 + samples * 2, 4); pcm.write("WAVEfmt ", 8); pcm.writeUInt32LE(16, 16); pcm.writeUInt16LE(1, 20); pcm.writeUInt16LE(1, 22);
+    pcm.writeUInt32LE(16_000, 24); pcm.writeUInt32LE(32_000, 28); pcm.writeUInt16LE(2, 32); pcm.writeUInt16LE(16, 34); pcm.write("data", 36); pcm.writeUInt32LE(samples * 2, 40);
+    for (let i = 0; i < samples; i++) pcm.writeInt16LE(Math.round(Math.sin((i / 16_000) * 2 * Math.PI * 440) * 8000), 44 + i * 2);
+    writeFileSync(wav, pcm);
+    execFileSync("afconvert", ["-f", "m4af", "-d", "aac", wav, appleFile]);
+    const played = await page.evaluate(async (base64) => {
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      const audio = new Audio(URL.createObjectURL(new Blob([bytes], { type: "audio/mp4" })));
+      return new Promise((resolve) => {
+        audio.onloadedmetadata = () => resolve(audio.duration);
+        audio.onerror = () => resolve(-1);
+      });
+    }, readFileSync(appleFile).toString("base64"));
+    check("the desktop plays AAC from Apple's encoder", played > 0.9 && played < 1.2, `${played} s`);
+  }
+
+  // Picking several messages
+  await page.locator(".msg", { hasText: "Perfect. Booking" }).first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Select" }).click();
+  await page.locator(".selection-bar").waitFor();
+  await page.locator(".msg", { hasText: "The one by the lake" }).first().click();
+  check("clicking messages picks them", (await page.locator(".selection-count").innerText()).startsWith("2 messages"), await page.locator(".selection-count").innerText());
+  await shot("19h-selecting");
+  await page.getByRole("button", { name: "Copy" }).click();
+  await page.locator(".toast", { hasText: "Copied 2 messages" }).waitFor({ timeout: 5000 });
+  check("copying several messages names their authors", (await electronApp.evaluate(({ clipboard }) => clipboard.readText())).includes("Sam Chen, ["));
+  check("copying ends the selection", (await page.locator(".selection-bar").count()) === 0);
+  await page.locator(".msg", { hasText: "Perfect. Booking" }).first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Select" }).click();
+  await page.locator(".msg", { hasText: "The one by the lake" }).first().click();
+  await page.getByRole("button", { name: "Forward" }).click();
+  await page.locator(".forward-list .person-row", { hasText: "Saved messages" }).click();
+  await page.locator(".chat-title", { hasText: "Saved messages" }).waitFor();
+  await page.locator(".msg.is-own", { hasText: "The one by the lake" }).waitFor({ timeout: 10_000 });
+  const savedTexts = await page.locator(".msg.is-own .msg-text").allInnerTexts();
+  const booking = savedTexts.findIndex((text) => text.includes("Perfect. Booking"));
+  check("forwarding several keeps their order", booking >= 0 && savedTexts[booking + 1]?.includes("The one by the lake"), savedTexts.slice(-3).join(" | "));
+  await shot("19i-forwarded-several");
+
+  // Muting for a while
+  await page.locator(".conv-row").filter({ has: page.locator(".conv-title", { hasText: "Jordan Blake" }) }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Mute" }).click();
+  await shot("19j-mute-menu");
+  await page.getByRole("menuitem", { name: "For 1 hour" }).click();
+  const jordan = page.locator(".conv-row").filter({ has: page.locator(".conv-title", { hasText: "Jordan Blake" }) });
+  await jordan.locator(".conv-muted").waitFor({ timeout: 5000 });
+  await openChat("Jordan Blake");
+  await page.getByLabel("Details", { exact: true }).click();
+  const until = page.locator(".side-row-hint", { hasText: "Muted until" });
+  await until.waitFor({ timeout: 5000 });
+  check("a chat muted for an hour says until when", true, await until.innerText());
+  await shot("19k-muted-until");
+  await page.locator(".side-row").filter({ hasText: "Notifications" }).getByRole("switch").click();
+  await until.waitFor({ state: "detached", timeout: 5000 });
+  check("turning notifications back on unmutes it", (await jordan.locator(".conv-muted").count()) === 0);
+  await page.getByLabel("Details", { exact: true }).click();
 
   // Search
   await page.locator("#conversation-search").fill("campsite");

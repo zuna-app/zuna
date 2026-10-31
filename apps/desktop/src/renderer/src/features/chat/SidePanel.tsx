@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar, Field, PopupMenu, Switch, Tooltip, useAction } from "@/components/ui";
 import { formatFull, formatLastSeen, formatListTime, nameColor } from "@/lib/format";
 import { prepareAvatar } from "@/lib/media";
+import { muteEntries, mutedUntilText } from "@/lib/mute";
 import { useActiveServer, useApp } from "@/state/store";
 
 export function SidePanel({ conversation }: { conversation: ConversationView }) {
@@ -52,7 +53,8 @@ export function SidePanel({ conversation }: { conversation: ConversationView }) 
 function PreferenceRows({ conversation }: { conversation: ConversationView }) {
   const server = useActiveServer();
   const session = useApp((state) => state.session);
-  const toggle = (list: "pinned" | "hidden" | "muted") => {
+  const [muteMenu, setMuteMenu] = useState<{ x: number; y: number } | null>(null);
+  const toggle = (list: "pinned" | "hidden") => {
     const current = server!.prefs[list];
     void session().updatePreferences({
       [list]: current.includes(conversation.key) ? current.filter((item) => item !== conversation.key) : [...current, conversation.key],
@@ -62,8 +64,30 @@ function PreferenceRows({ conversation }: { conversation: ConversationView }) {
     <div className="side-section">
       <div className="side-row">
         {conversation.muted ? <BellOff size={17} /> : <Bell size={17} />}
-        <span className="grow">Notifications</span>
-        <Switch on={!conversation.muted} onChange={() => toggle("muted")} label="Notifications" />
+        <span className="grow">
+          Notifications
+          {conversation.mutedUntil && <span className="side-row-hint">{mutedUntilText(conversation.mutedUntil)}</span>}
+        </span>
+        <span
+          onClickCapture={(event) => {
+            // Turning them off asks for how long.
+            if (conversation.muted) return;
+            event.stopPropagation();
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMuteMenu({ x: rect.right, y: rect.bottom + 4 });
+          }}
+        >
+          <Switch on={!conversation.muted} onChange={() => void session().unmute(conversation.key)} label="Notifications" />
+        </span>
+        {muteMenu && (
+          <PopupMenu
+            x={muteMenu.x}
+            y={muteMenu.y}
+            alignRight
+            entries={muteEntries((until) => void session().mute(conversation.key, until))}
+            onClose={() => setMuteMenu(null)}
+          />
+        )}
       </div>
       <button className="side-row is-button" onClick={() => toggle("pinned")}>
         {conversation.pinned ? <PinOff size={17} /> : <Pin size={17} />}

@@ -6,6 +6,8 @@ import type { CoreEvent } from "@zuna/core";
 export interface DesktopBridge {
   deviceKey(): Promise<{ key: Uint8Array; protected: boolean; deviceName: string }>;
   platform(): Promise<string>;
+  /** Whether the operating system lets Zuna record, asking the person the first time. */
+  microphone(): Promise<boolean>;
   notify(payload: { title: string; body: string; route: unknown }): Promise<void>;
   setBadge(count: number): Promise<void>;
   setCloseToTray(enabled: boolean): Promise<void>;

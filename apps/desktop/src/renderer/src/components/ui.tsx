@@ -1,7 +1,7 @@
 // Small shared building blocks.
 
 import type { AvatarRef } from "@zuna/core";
-import { Eye, EyeOff, X } from "lucide-react";
+import { ChevronRight, Eye, EyeOff, X } from "lucide-react";
 import { motion } from "motion/react";
 import {
   useEffect,
@@ -194,6 +194,8 @@ export interface MenuEntry {
   danger?: boolean;
   separator?: boolean;
   onSelect?: () => void;
+  /** Choices that replace the menu's entries when this one is picked. */
+  submenu?: MenuEntry[];
 }
 
 /** A popup menu at a screen position, kept inside the window. */
@@ -214,6 +216,7 @@ export function PopupMenu({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: x, top: y });
+  const [submenu, setSubmenu] = useState<MenuEntry[] | null>(null);
   useReturnFocus();
 
   useLayoutEffect(() => {
@@ -224,7 +227,7 @@ export function PopupMenu({
     if (left < 8) left = 8;
     if (top + rect.height > window.innerHeight - 8) top = Math.max(8, y - rect.height);
     setPosition({ left, top });
-  }, [x, y, alignRight]);
+  }, [x, y, alignRight, submenu]);
 
   const latestClose = useRef(onClose);
   latestClose.current = onClose;
@@ -262,8 +265,8 @@ export function PopupMenu({
       exit={{ opacity: 0, transition: { duration: 0.06 } }}
       transition={{ duration: 0.08, ease: [0.2, 0, 0, 1] }}
     >
-      {header}
-      {entries.map((entry, index) =>
+      {!submenu && header}
+      {(submenu ?? entries).map((entry, index) =>
         entry.separator ? (
           <div key={index} className="menu-sep" />
         ) : (
@@ -272,12 +275,17 @@ export function PopupMenu({
             role="menuitem"
             className={`menu-item${entry.danger ? " is-danger" : ""}`}
             onClick={() => {
+              if (entry.submenu) {
+                setSubmenu(entry.submenu);
+                return;
+              }
               onClose();
               entry.onSelect?.();
             }}
           >
             {entry.icon}
-            {entry.label}
+            <span className="grow">{entry.label}</span>
+            {entry.submenu && <ChevronRight size={14} className="menu-more" />}
           </button>
         ),
       )}

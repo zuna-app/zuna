@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Check,
   CheckCheck,
+  CircleCheck,
   Clock,
   Copy,
   CornerUpLeft,
@@ -10,6 +11,7 @@ import {
   File as FileIcon,
   Forward,
   MoreHorizontal,
+  Pause,
   Pencil,
   Pin,
   PinOff,
@@ -21,7 +23,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { plainText } from "@zuna/core/plain-text";
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Emote } from "@/components/Emote";
 import { Avatar, PopupMenu, Spinner, Tooltip, useAction, useContextMenu, type MenuEntry } from "@/components/ui";
@@ -29,6 +31,7 @@ import { copyText } from "@/lib/clipboard";
 import { formatBytes, formatDuration, formatFull, formatTime, nameColor } from "@/lib/format";
 import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
 import { downloadAttachment, useDecryptedUrl } from "@/lib/media";
+import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
 import { useMarkupContext } from "./use-markup-context";
 import { EmotePicker } from "./EmotePicker";
@@ -158,6 +161,95 @@ function MediaAttachment({ attachment, serverId }: { attachment: Attachment; ser
   );
 }
 
+/** A voice message, as in Telegram: play, a waveform that fills as it plays and seeks on a click, and the time. */
+function VoiceAttachment({ attachment, serverId, own, uploadProgress }: { attachment: Attachment; serverId: string; own: boolean; uploadProgress?: number }) {
+  const [load, setLoad] = useState(false);
+  const { url, failed } = useDecryptedUrl(serverId, attachment, load && !!attachment.fileId);
+  const audio = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [position, setPosition] = useState(0);
+  /** Where to start once the file is ready, after a press of Play or a click on the waveform. */
+  const pending = useRef<number | null>(null);
+  const bars = useMemo(() => decodeWaveform(attachment.waveform), [attachment.waveform]);
+  const duration = attachment.duration ?? 0;
+  const uploading = !attachment.fileId;
+
+  const start = (source: string, at: number) => {
+    let element = audio.current;
+    if (!element) {
+      element = new Audio(source);
+      element.ontimeupdate = () => setPosition(element!.currentTime);
+      element.onplay = () => setPlaying(true);
+      element.onpause = () => setPlaying(false);
+      element.onended = () => {
+        setPlaying(false);
+        setPosition(0);
+      };
+      audio.current = element;
+    }
+    element.currentTime = at;
+    playOnly(element);
+    element.play().catch(() => setPlaying(false));
+  };
+
+  // The file is decrypted on the first play, which starts once it's ready.
+  useEffect(() => {
+    if (url && pending.current !== null && !audio.current) {
+      start(url, pending.current);
+      pending.current = null;
+    }
+  }, [url]);
+  useEffect(() => () => audio.current?.pause(), []);
+
+  const play = (at: number) => {
+    if (url) start(url, at);
+    else {
+      pending.current = at;
+      setLoad(true);
+    }
+  };
+
+  const toggle = () => {
+    if (audio.current && !audio.current.paused) audio.current.pause();
+    else play(audio.current?.currentTime ?? position);
+  };
+
+  const seek = (event: React.MouseEvent<HTMLSpanElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const time = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)) * duration;
+    setPosition(time);
+    if (audio.current && !audio.current.paused) audio.current.currentTime = time;
+    else play(time);
+  };
+
+  const progress = duration ? position / duration : 0;
+  return (
+    <div className={`voice${own ? " is-own" : ""}`}>
+      <button className="voice-play" onClick={toggle} disabled={uploading || failed} aria-label={playing ? "Pause" : "Play voice message"}>
+        {uploading ? (
+          <UploadRing progress={uploadProgress ?? 0} />
+        ) : load && !url && !failed ? (
+          <Spinner size={16} />
+        ) : failed ? (
+          <AlertCircle size={18} />
+        ) : playing ? (
+          <Pause size={18} fill="currentColor" />
+        ) : (
+          <Play size={18} fill="currentColor" />
+        )}
+      </button>
+      <span className="voice-body">
+        <span className="voice-wave" onClick={seek} role="slider" aria-label="Position" aria-valuemin={0} aria-valuemax={Math.round(duration)} aria-valuenow={Math.round(position)}>
+          {bars.map((height, index) => (
+            <i key={index} className={index / bars.length < progress ? "is-played" : ""} style={{ height: `${Math.max(12, height * 100)}%` }} />
+          ))}
+        </span>
+        <span className="voice-time">{formatDuration(playing || position ? position : duration)}</span>
+      </span>
+    </div>
+  );
+}
+
 function FileAttachment({ attachment, serverId, uploadProgress }: { attachment: Attachment; serverId: string; uploadProgress?: number }) {
   const { busy, run } = useAction();
   const uploading = !attachment.fileId;
@@ -173,7 +265,7 @@ function FileAttachment({ attachment, serverId, uploadProgress }: { attachment: 
   );
 }
 
-function Attachments({ message, serverId, flush }: { message: MessageView; serverId: string; flush: boolean }) {
+function Attachments({ message, serverId, flush, own }: { message: MessageView; serverId: string; flush: boolean; own: boolean }) {
   const images = message.attachments.filter((item) => item.mime.startsWith("image/") && item.width);
   const others = message.attachments.filter((item) => !images.includes(item));
   return (
@@ -186,7 +278,9 @@ function Attachments({ message, serverId, flush }: { message: MessageView; serve
         </div>
       )}
       {others.map((attachment, index) =>
-        attachment.mime.startsWith("video/") || attachment.mime.startsWith("audio/") ? (
+        attachment.voice ? (
+          <VoiceAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} own={own} uploadProgress={message.uploadProgress} />
+        ) : attachment.mime.startsWith("video/") || attachment.mime.startsWith("audio/") ? (
           <MediaAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} />
         ) : (
           <FileAttachment key={attachment.fileId || index} attachment={attachment} serverId={serverId} uploadProgress={message.uploadProgress} />
@@ -319,6 +413,8 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const menu = useContextMenu();
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
   const { run } = useAction();
+  const selecting = useApp((state) => state.selection?.listId === listId);
+  const selected = useApp((state) => state.selection?.listId === listId && state.selection.ids.includes(message.id));
 
   const selfId = baseContext.selfId;
   const canDelete = own || (isGroup && isGroupAdmin);
@@ -384,7 +480,12 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
 
   const entries: MenuEntry[] = [
     ...(canAct ? [{ label: "Reply", icon: <CornerUpLeft size={15} />, onSelect: () => setReply(listId, message) }] : []),
-    ...(canAct ? [{ label: "Forward", icon: <Forward size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "forward", serverId, message }) }] : []),
+    ...(canAct
+      ? [
+          { label: "Forward", icon: <Forward size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "forward", serverId, groupId: message.groupId, ids: [message.id] }) },
+          { label: "Select", icon: <CircleCheck size={15} />, onSelect: () => useApp.getState().toggleSelected(listId, message.id) },
+        ]
+      : []),
     ...(message.text && !isDeleted
       ? [
           {
@@ -432,13 +533,41 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     </div>
   ) : undefined;
 
-  const className = ["msg", own ? "is-own" : "is-other", grouped ? "is-grouped" : "", lastInGroup ? "is-last" : "", highlighted ? "is-highlighted" : "", jumbo ? "is-jumbo" : "", fresh ? "is-fresh" : ""]
+  const className = [
+    "msg",
+    own ? "is-own" : "is-other",
+    grouped ? "is-grouped" : "",
+    lastInGroup ? "is-last" : "",
+    highlighted ? "is-highlighted" : "",
+    jumbo ? "is-jumbo" : "",
+    fresh ? "is-fresh" : "",
+    selecting ? "is-selecting" : "",
+    selected ? "is-selected" : "",
+  ]
     .filter(Boolean)
     .join(" ");
   const totalReactors = message.reactions.reduce((sum, reaction) => sum + reaction.userIds.length, 0);
 
   return (
-    <div className={className} onContextMenu={(event) => entries.length > 0 && menu.open(event)}>
+    <div
+      className={className}
+      onContextMenu={(event) => !selecting && entries.length > 0 && menu.open(event)}
+      // While picking messages, a click picks this one instead of opening links or pictures.
+      onClickCapture={
+        selecting
+          ? (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (canAct) useApp.getState().toggleSelected(listId, message.id);
+            }
+          : undefined
+      }
+    >
+      {selecting && (
+        <span className={`msg-check${selected ? " is-on" : ""}${canAct ? "" : " is-disabled"}`} role="checkbox" aria-checked={selected} aria-label="Select message">
+          {selected && <Check size={13} strokeWidth={3} />}
+        </span>
+      )}
       {!own && isGroup && <span className="msg-avatar">{lastInGroup && <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={32} />}</span>}
       <div className="msg-stack">
         <div className={`bubble${message.status === "sending" ? " is-sending" : ""}${message.status === "failed" ? " is-failed" : ""}`}>
@@ -468,7 +597,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                   <span className="msg-reply-text truncate">{message.reply.deleted ? "Message deleted" : plainText(message.reply.text) || (message.reply.hasAttachment ? "Attachment" : "Tap to view")}</span>
                 </button>
               )}
-              {message.attachments.length > 0 && <Attachments message={message} serverId={serverId} flush={onlyImages} />}
+              {message.attachments.length > 0 && <Attachments message={message} serverId={serverId} flush={onlyImages} own={own} />}
               {body && (
                 <div className="msg-text selectable">
                   {body}
@@ -494,7 +623,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
           </button>
         )}
       </div>
-      {canAct && (
+      {canAct && !selecting && (
         <div className="msg-actions">
           <Tooltip text="React" side="top">
             <button

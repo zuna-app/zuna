@@ -1,13 +1,14 @@
 import type { ConversationView, EmoteRef, LinkPreview, MessageView } from "@zuna/core";
 import { findLink } from "@zuna/core/links";
 import { plainText } from "@zuna/core/plain-text";
-import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, Paperclip, Pencil, SendHorizontal, Smile, X } from "lucide-react";
+import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, Mic, Paperclip, Pencil, SendHorizontal, Smile, Trash2, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
 import { Avatar, Tooltip } from "@/components/ui";
 import { focusComposer, registerComposer } from "@/lib/focus";
-import { formatBytes } from "@/lib/format";
+import { formatBytes, formatDuration } from "@/lib/format";
+import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
 import { prepareFile, type PreparedFile } from "@/lib/media";
 import { useActiveServer, useApp } from "@/state/store";
 import { EmotePicker, type Pick } from "./EmotePicker";
@@ -67,6 +68,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const [selected, setSelected] = useState(0);
   const [linkPreview, setLinkPreview] = useState<{ url: string; preview: LinkPreview | null; loading: boolean } | null>(null);
   const [dismissedLink, setDismissedLink] = useState<string | null>(null);
+  const [recording, setRecording] = useState<{ recorder: VoiceRecorder; levels: number[]; elapsed: number } | null>(null);
+  const recorder = useRef<VoiceRecorder | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -246,6 +249,67 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     focusComposer();
   };
 
+  // --- Voice messages ---
+
+  const startRecording = async () => {
+    try {
+      const started = await VoiceRecorder.start((level) =>
+        setRecording((current) => current && { ...current, levels: [...current.levels.slice(-59), level], elapsed: current.recorder.elapsed }),
+      );
+      recorder.current = started;
+      setRecording({ recorder: started, levels: [], elapsed: 0 });
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  };
+
+  const cancelRecording = () => {
+    recorder.current?.cancel();
+    recorder.current = null;
+    setRecording(null);
+    focusComposer();
+  };
+
+  const sendRecording = async () => {
+    const active = recorder.current;
+    if (!active) return;
+    recorder.current = null;
+    setRecording(null);
+    const voice = await active.stop();
+    focusComposer();
+    // A click on the microphone and straight back isn't a message.
+    if (voice.duration < 0.5) return;
+    const extension = voice.mime === "audio/mp4" ? "m4a" : "webm";
+    void session()
+      .sendWithAttachments(
+        conversation.key,
+        [{ blob: voice.blob, name: `Voice message.${extension}`, mime: voice.mime, duration: voice.duration, voice: true, waveform: voice.waveform }],
+        { replyTo: replyTo?.id },
+      )
+      .catch((error: Error) => toast(error.message, "error"));
+    setReply(listId, null);
+  };
+
+  // Enter sends a recording and Escape throws it away; a very long one is sent when it reaches the limit.
+  useEffect(() => {
+    if (!recording) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void sendRecording();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        cancelRecording();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    if (recording.elapsed >= MAX_VOICE_SECONDS) void sendRecording();
+    return () => window.removeEventListener("keydown", onKey, true);
+  });
+
+  // Leaving the chat throws an unsent recording away.
+  useEffect(() => () => recorder.current?.cancel(), []);
+
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (suggestions.length > 0) {
       if (event.key === "ArrowDown") {
@@ -413,54 +477,82 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
           </div>
         )}
 
-        <div className="composer-row">
-          <input
-            ref={fileInput}
-            type="file"
-            multiple
-            hidden
-            onChange={(event) => {
-              if (event.target.files) void addFiles([...event.target.files]);
-              event.target.value = "";
-            }}
-          />
-          {!editing && (
-            <Tooltip text="Attach files" side="top">
-              <button className="icon-btn" onClick={() => fileInput.current?.click()} aria-label="Attach files">
-                <Paperclip size={18} />
+        {recording ? (
+          <div className="composer-row recording-row">
+            <Tooltip text="Delete recording" side="top">
+              <button className="icon-btn" onClick={cancelRecording} aria-label="Delete recording">
+                <Trash2 size={18} />
               </button>
             </Tooltip>
-          )}
-          <textarea
-            ref={input}
-            className="composer-input"
-            rows={1}
-            placeholder={conversation.peerId && conversation.peerId === server?.self?.userId ? "Write a note to yourself" : `Message ${conversation.title}`}
-            value={text}
-            onChange={onInput}
-            onKeyDown={onKeyDown}
-            onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
-            onClick={(event) => setCaret(event.currentTarget.selectionStart)}
-            onPaste={onPaste}
-            aria-label="Message"
-            spellCheck
-          />
-          <Tooltip text="Emoji and emotes" side="top">
-            <button
-              className={`icon-btn${pickerAt ? " is-active" : ""}`}
-              aria-label="Emoji and emotes"
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setPickerAt(pickerAt ? null : { x: rect.right - 330, y: rect.top });
-              }}
-            >
-              <Smile size={18} />
+            <span className="recording-dot" />
+            <span className="recording-time">{formatDuration(recording.elapsed)}</span>
+            <span className="recording-levels" aria-hidden>
+              {recording.levels.map((level, index) => (
+                <i key={index} style={{ height: `${Math.max(8, level * 100)}%` }} />
+              ))}
+            </span>
+            <button className="send-button is-ready" onClick={() => void sendRecording()} aria-label="Send voice message">
+              <SendHorizontal size={18} />
             </button>
-          </Tooltip>
-          <button className={`send-button${canSend ? " is-ready" : ""}`} disabled={!canSend} onClick={send} aria-label={editing ? "Save edit" : "Send"}>
-            {editing ? <Check size={18} /> : <SendHorizontal size={18} />}
-          </button>
-        </div>
+          </div>
+        ) : (
+          <div className="composer-row">
+            <input
+              ref={fileInput}
+              type="file"
+              multiple
+              hidden
+              onChange={(event) => {
+                if (event.target.files) void addFiles([...event.target.files]);
+                event.target.value = "";
+              }}
+            />
+            {!editing && (
+              <Tooltip text="Attach files" side="top">
+                <button className="icon-btn" onClick={() => fileInput.current?.click()} aria-label="Attach files">
+                  <Paperclip size={18} />
+                </button>
+              </Tooltip>
+            )}
+            <textarea
+              ref={input}
+              className="composer-input"
+              rows={1}
+              placeholder={conversation.peerId && conversation.peerId === server?.self?.userId ? "Write a note to yourself" : `Message ${conversation.title}`}
+              value={text}
+              onChange={onInput}
+              onKeyDown={onKeyDown}
+              onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
+              onClick={(event) => setCaret(event.currentTarget.selectionStart)}
+              onPaste={onPaste}
+              aria-label="Message"
+              spellCheck
+            />
+            <Tooltip text="Emoji and emotes" side="top">
+              <button
+                className={`icon-btn${pickerAt ? " is-active" : ""}`}
+                aria-label="Emoji and emotes"
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  setPickerAt(pickerAt ? null : { x: rect.right - 330, y: rect.top });
+                }}
+              >
+                <Smile size={18} />
+              </button>
+            </Tooltip>
+            {!canSend && !editing ? (
+              <Tooltip text="Record a voice message" side="top">
+                <button className="send-button is-ready" onClick={() => void startRecording()} aria-label="Record a voice message">
+                  <Mic size={18} />
+                </button>
+              </Tooltip>
+            ) : (
+              <button className={`send-button${canSend ? " is-ready" : ""}`} disabled={!canSend} onClick={send} aria-label={editing ? "Save edit" : "Send"}>
+                {editing ? <Check size={18} /> : <SendHorizontal size={18} />}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <AnimatePresence>

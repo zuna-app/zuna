@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   SquarePen,
   UsersRound,
+  Volume2,
   VolumeX,
   X,
 } from "lucide-react";
@@ -25,6 +26,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
 import { refocusComposer } from "@/lib/focus";
 import { formatListTime } from "@/lib/format";
+import { muteEntries } from "@/lib/mute";
 import { useActiveServer, useApp } from "@/state/store";
 
 type Filter = "all" | "people" | "groups" | "unread";
@@ -37,7 +39,9 @@ function previewFor(message: MessageView | null, users: Record<string, UserView>
   const body = message.text
     ? plainText(message.text).slice(0, 80)
     : message.attachments[0]
-      ? message.attachments[0].mime.startsWith("image/")
+      ? message.attachments[0].voice
+        ? "Voice message"
+        : message.attachments[0].mime.startsWith("image/")
         ? "Photo"
         : message.attachments[0].mime.startsWith("video/")
           ? "Video"
@@ -193,7 +197,7 @@ export function ConversationList() {
 
   if (!server) return null;
 
-  const toggle = (list: "pinned" | "hidden" | "muted", key: string) => {
+  const toggle = (list: "pinned" | "hidden", key: string) => {
     const current = server.prefs[list];
     void session().updatePreferences({
       [list]: current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
@@ -206,11 +210,9 @@ export function ConversationList() {
       icon: item.pinned ? <PinOff size={15} /> : <Pin size={15} />,
       onSelect: () => toggle("pinned", item.key),
     },
-    {
-      label: item.muted ? "Unmute" : "Mute",
-      icon: <VolumeX size={15} />,
-      onSelect: () => toggle("muted", item.key),
-    },
+    item.muted
+      ? { label: "Unmute", icon: <Volume2 size={15} />, onSelect: () => void session().unmute(item.key) }
+      : { label: "Mute", icon: <VolumeX size={15} />, submenu: muteEntries((until) => void session().mute(item.key, until)) },
     {
       label: item.hidden ? "Show in list" : "Hide from list",
       icon: item.hidden ? <Eye size={15} /> : <EyeOff size={15} />,

@@ -1,4 +1,4 @@
-import type { Invite, MessageView, UserView } from "@zuna/core";
+import type { Invite, UserView } from "@zuna/core";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -46,7 +46,7 @@ export function Overlays() {
       {overlay?.type === "verify" && <VerifyIdentity key="verify" userId={overlay.userId} onClose={close} />}
       {overlay?.type === "add-members" && <AddMembers key="add-members" groupId={overlay.groupId} onClose={close} />}
       {overlay?.type === "image" && <ImageViewer key="image" url={overlay.url} name={overlay.name} onClose={close} />}
-      {overlay?.type === "forward" && <ForwardPicker key="forward" serverId={overlay.serverId} message={overlay.message} onClose={close} />}
+      {overlay?.type === "forward" && <ForwardPicker key="forward" serverId={overlay.serverId} groupId={overlay.groupId} ids={overlay.ids} onClose={close} />}
     </AnimatePresence>
   );
 }
@@ -78,7 +78,7 @@ function ImageViewer({ url, name, onClose }: { url: string; name: string; onClos
  * Where to forward a message: any chat on any server, this one first. Picking
  * one sends it there and opens it, as Telegram's desktop app does.
  */
-function ForwardPicker({ serverId, message, onClose }: { serverId: string; message: MessageView; onClose: () => void }) {
+function ForwardPicker({ serverId, groupId, ids, onClose }: { serverId: string; groupId: string; ids: string[]; onClose: () => void }) {
   const servers = useApp((state) => state.servers);
   const order = useApp((state) => state.order);
   const toast = useApp((state) => state.toast);
@@ -97,8 +97,9 @@ function ForwardPicker({ serverId, message, onClose }: { serverId: string; messa
   const forward = async (toServerId: string, key: string) => {
     setSending(`${toServerId}/${key}`);
     try {
-      await useApp.getState().core!.client.forwardMessage(serverId, message.groupId, message.id, toServerId, key);
+      await useApp.getState().core!.client.forwardMessages(serverId, groupId, ids, toServerId, key);
       const state = useApp.getState();
+      state.toggleSelected("", null);
       if (state.activeServerId !== toServerId) state.selectServer(toServerId);
       useApp.getState().selectConversation(key);
       onClose();
