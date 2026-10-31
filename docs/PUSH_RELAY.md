@@ -73,7 +73,7 @@ Then run `docker compose up -d`.
 
 ## The notification filtering entitlement
 
-Muted chats shouldn't notify, but an extension can hide a notification only with Apple's notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). Until Apple grants it, the app tells each server which chats are muted, and the server skips them. Mentions in muted chats then don't notify.
+Muted chats shouldn't notify, but an extension can hide a notification only with Apple's notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). Until Apple grants it, the app tells each server which chats are muted, and until when for a chat muted for a while, and the server skips them until then. Mentions in muted chats then don't notify.
 
 The Account Holder applies at developer.apple.com/contact/request/notification-filtering. A description along these lines fits:
 

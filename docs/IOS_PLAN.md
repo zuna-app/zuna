@@ -240,7 +240,8 @@ Minimum iOS version: 18 (proposed).
 |---|---|---|
 | Everyone on the server as a conversation, groups, "Saved messages" | same | F3 |
 | Order: pinned, activity, title; rows animate to new places | animated diffable updates | F3 |
-| Row: avatar with online dot, group icon, verified or changed-key mark, muted icon, time, preview ("You:", sender's first name in groups, Photo, Video or file name, "Membership changed", "Waiting for keys"), "typing…", pin, unread badge (grey when muted) | same | F3 |
+| Row: avatar with online dot, group icon, verified or changed-key mark, muted icon, time, preview ("You:", sender's first name in groups, Photo, Video, Voice message or file name, "Membership changed", "Waiting for keys"), "typing…", pin, unread badge (grey when muted) | same | F3 |
+| Muting for 1 hour, 8 hours, 1 day or until unmuted, from the chat's menu and its details; "Muted until …" | a menu, and a dialog from the swipe action and the details' switch | Later |
 | Filters All, People, Groups, Unread | segmented control | F3 |
 | Search people and groups by title and username, and messages in the local index (2+ characters), jumping to a hit | searchable list | F3, F4 |
 | Pin, Mute, Hide, synced through the vault | swipe actions and a context menu | F3 |
@@ -263,6 +264,7 @@ Minimum iOS version: 18 (proposed).
 | "Forwarded from" with the author on the same server, a tap opens them; only "Forwarded" from another server | same | Later |
 | Link preview card: site, title, description, picture beside the text or below it when wide; opens the link | same | Later |
 | Attachments: grid of 1 to 4 images with blurred thumbnail and fixed size, upload progress ring, full-screen viewer with Save; video and audio on tap; files downloaded and decrypted | QuickLook, AVPlayer, share sheet | F4 |
+| Voice messages: play and pause, a waveform that fills as it plays and seeks on a click, the time; one plays at a time | AVAudioPlayer, playing even with the phone set to silent | Later |
 | Reactions: emoji or emote chips, avatars of up to 3 people, otherwise a count; names | same | F4 |
 | System messages: 8 kinds, warnings with an icon | same | F4 |
 
@@ -280,6 +282,8 @@ Minimum iOS version: 18 (proposed).
 | Attachments: up to 10 files, preview, size, removal, server size limit, progress; paste and drag files | PhotosPicker, document picker, paste; drag and drop on iPad | F5, F8 |
 | Message actions: quick reactions (👍 ❤️ 😂 🔥 😮 😢) and the full picker, Reply, Forward, Copy text, Edit (own text messages that weren't forwarded), Pin or Unpin, Try again or Discard, Delete for everyone (own messages, or group admins) | native context menu with a reaction bar | F5 |
 | Forwarding: chats on every server, this one first, with search; sends at once and opens the chat | sheet; sends at once and says where it went, as Telegram does on the phone | Later |
+| Picking several messages from the menu ("Select"), with a bar in place of the composer: Copy (with authors and times), Forward (in the chat's order), Delete for everyone (when all are yours, or you're a group admin) | a tap picks; deleting asks first | Later |
+| Recording voice messages: the microphone in place of Send when the composer is empty, a click to start, Send or Enter to send, Delete or Escape to throw away, a live level; AAC in MP4 | hold to record and let go to send, slide left to throw it away, as in Telegram | Later |
 | Link previews while writing: the first link's page fetched on this device after a pause, a bar with the title and picture and a way to remove it; edits keep theirs | pages fetched natively without cookies, pictures shrunk with ImageIO | Later |
 | Pinned bar: cycles through pins, "Pinned message X of N", jumps | same | F5 |
 | Search in a chat with a note when history is still downloading; pinned list with unpin | screens pushed from the chat | F5 |
