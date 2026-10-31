@@ -321,7 +321,7 @@ export class Api {
     this.request<{ code: string }>("POST", "/api/invites", { max_uses: maxUses, expires_in_seconds: expiresInSeconds });
   revokeInvite = (code: string) => this.request("DELETE", `/api/invites/${encodeURIComponent(code)}`);
   updateSettings = (body: Record<string, unknown>) => this.request("PATCH", "/api/admin/settings", body);
-  updateIcon = (image: Blob) => this.request("PUT", "/api/admin/icon", undefined, image);
+  updateIcon = (image: Uint8Array | Blob) => this.request("PUT", "/api/admin/icon", undefined, image);
   setEmoteSet = (set: string) =>
     this.request<{ set_id: string; set_name: string; count: number }>("PUT", "/api/admin/emote-set", { set });
   setRole = (userId: string, role: "admin" | "member") => this.request("PUT", `/api/admin/users/${userId}/role`, { role });

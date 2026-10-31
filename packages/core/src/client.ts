@@ -12,6 +12,7 @@ import { normalizeServerUrl, Api } from "./api";
 import { randomId, type VaultCore } from "./crypto";
 import { fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 import { migrate, type DbProvider, type LocalDb } from "./db";
+import type { FileAdapter } from "./files";
 import { ServerSession } from "./session";
 import type { CoreEvent, InvitePreview, Profile, ServerEntry, ServerInfo } from "./types";
 
@@ -60,6 +61,8 @@ export interface ZunaClientOptions {
   deviceKey: Uint8Array;
   deviceName: string;
   onEvent: (event: CoreEvent) => void;
+  /** How files are read and returned. Blobs by default. */
+  files?: FileAdapter;
 }
 
 export class ZunaClient {
@@ -92,7 +95,15 @@ export class ZunaClient {
   private async createSession(serverId: string, account: AccountState): Promise<ServerSession> {
     const db = await this.options.db.open(`zuna-server-${serverId}`);
     migrate(db);
-    const session = new ServerSession(serverId, account, db, this.serverKey(serverId), (event) => this.handle(event), this.options.deviceName);
+    const session = new ServerSession(
+      serverId,
+      account,
+      db,
+      this.serverKey(serverId),
+      (event) => this.handle(event),
+      this.options.deviceName,
+      this.options.files,
+    );
     session.onSignedOut = () => void this.forgetServer(serverId);
     this.sessions.set(serverId, session);
     return session;
@@ -199,6 +210,16 @@ export class ZunaClient {
 
   nudge(): void {
     for (const session of this.sessions.values()) session.nudge();
+  }
+
+  /** Closes every connection while the app can't run (an iOS app in the background). */
+  suspend(): void {
+    for (const session of this.sessions.values()) session.suspend();
+  }
+
+  /** Reconnects after `suspend()` and catches up on what happened meanwhile. */
+  resume(): void {
+    for (const session of this.sessions.values()) session.resume();
   }
 
   stop(): void {
