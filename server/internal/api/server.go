@@ -20,12 +20,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
 
 	"zuna/server/internal/emotes"
+	"zuna/server/internal/ratelimit"
 	"zuna/server/internal/store"
 )
 
@@ -62,8 +62,8 @@ type Server struct {
 	files  string
 	emotes *emotes.Service
 
-	authLimiter    *keyedLimiter
-	messageLimiter *keyedLimiter
+	authLimiter    *ratelimit.Keyed
+	messageLimiter *ratelimit.Keyed
 
 	pushClient *http.Client
 	pushSlots  chan struct{}
@@ -79,8 +79,8 @@ func New(cfg Config, db *store.DB) *Server {
 		hub:            newHub(db),
 		files:          filepath.Join(cfg.DataDir, "files"),
 		emotes:         emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
-		authLimiter:    newKeyedLimiter(rate.Every(6*time.Second), cfg.AuthBurst),
-		messageLimiter: newKeyedLimiter(rate.Limit(15), 60),
+		authLimiter:    ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
+		messageLimiter: ratelimit.NewKeyed(rate.Limit(15), 60),
 		pushClient:     &http.Client{Timeout: pushTimeout},
 		pushSlots:      make(chan struct{}, pushConcurrency),
 	}
@@ -395,44 +395,6 @@ func (s *Server) clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
-}
-
-// --- Rate limiting ---
-
-type keyedLimiter struct {
-	mu       sync.Mutex
-	limiters map[string]*limiterEntry
-	limit    rate.Limit
-	burst    int
-}
-
-type limiterEntry struct {
-	limiter *rate.Limiter
-	seen    time.Time
-}
-
-func newKeyedLimiter(limit rate.Limit, burst int) *keyedLimiter {
-	return &keyedLimiter{limiters: map[string]*limiterEntry{}, limit: limit, burst: burst}
-}
-
-func (l *keyedLimiter) Allow(key string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
-	if len(l.limiters) > 10000 {
-		for k, entry := range l.limiters {
-			if now.Sub(entry.seen) > 10*time.Minute {
-				delete(l.limiters, k)
-			}
-		}
-	}
-	entry, ok := l.limiters[key]
-	if !ok {
-		entry = &limiterEntry{limiter: rate.NewLimiter(l.limit, l.burst)}
-		l.limiters[key] = entry
-	}
-	entry.seen = now
-	return entry.limiter.Allow()
 }
 
 // --- Helpers ---
