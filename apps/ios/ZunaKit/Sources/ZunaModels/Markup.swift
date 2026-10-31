@@ -113,20 +113,28 @@ public enum Markup {
         let ns = text as NSString
         var nodes: [Inline] = []
         var searched = [Bool](repeating: false, count: inlineRules.count)
-        var found = [NSTextCheckingResult?](repeating: nil, count: inlineRules.count)
+        // Where each rule next matches, and its inside, counted from the start of the text.
+        var found = [(range: NSRange, inner: NSRange)?](repeating: nil, count: inlineRules.count)
         var position = 0
         while true {
-            // A search range acts as the whole text: what came before a span no longer counts.
-            let rest = NSRange(location: position, length: ns.length - position)
+            // What came before a span no longer counts, so the rest is searched on its own,
+            // as the desktop slices it: a search range would still let lookbehinds see it.
+            let rest = ns.substring(from: position)
+            let restRange = NSRange(location: 0, length: (rest as NSString).length)
+            let start = position
+            let placed = { (match: NSTextCheckingResult) -> (range: NSRange, inner: NSRange) in
+                let inner = match.range(at: 1)
+                return (NSRange(location: match.range.location + start, length: match.range.length), NSRange(location: inner.location + start, length: inner.length))
+            }
             var earliest: Int?
             for (index, rule) in inlineRules.enumerated() {
                 let known = found[index]
                 if !searched[index] || (known.map { $0.range.location < position } ?? false) {
-                    found[index] = rule.firstMatch(in: text, range: rest)
+                    found[index] = rule.firstMatch(in: rest, range: restRange).map(placed)
                     searched[index] = true
                 } else if known == nil || known!.range.location > position {
                     // Further on, everything reads the same as before. Only the very start can differ.
-                    if let match = rule.firstMatch(in: text, options: .anchored, range: rest) { found[index] = match }
+                    if let match = rule.firstMatch(in: rest, options: .anchored, range: restRange) { found[index] = placed(match) }
                 }
                 if let current = found[index], earliest == nil || current.range.location < found[earliest!]!.range.location {
                     earliest = index
@@ -134,7 +142,7 @@ public enum Markup {
             }
             guard let earliest, let match = found[earliest] else { break }
             nodes += links(ns.substring(with: NSRange(location: position, length: match.range.location - position)), context)
-            let inner = ns.substring(with: match.range(at: 1))
+            let inner = ns.substring(with: match.inner)
             let node: Inline = switch earliest {
             case 0: .code(inner)
             case 1: .spoiler(renderInline(inner, context, depth: depth + 1))
