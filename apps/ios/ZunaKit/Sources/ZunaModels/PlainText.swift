@@ -7,7 +7,8 @@ import Foundation
 /// JavaScript's `\w` only covers ASCII, so it's spelled out as `[A-Za-z0-9_]`
 /// for the results to match the desktop's.
 public func plainText(_ text: String) -> String {
-    var result = text
+    // Only ever shown as one short line, however long the message is.
+    var result = String(decoding: text.utf16.prefix(4096), as: UTF16.self)
     for (pattern, template) in plainTextRules {
         result = pattern.stringByReplacingMatches(in: result, range: NSRange(result.startIndex..., in: result), withTemplate: template)
     }

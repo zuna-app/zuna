@@ -101,27 +101,51 @@ public enum Markup {
         merged(renderInline(text, context))
     }
 
+    /// Formatting inside formatting, this deep. Further in, it's just text.
+    private static let maxInlineDepth = 8
+
     /// The earliest match of any rule wins; on a tie, the rule listed first.
-    private static func renderInline(_ text: String, _ context: Context) -> [Inline] {
+    /// It's a loop, so a message with thousands of spans can't run out of stack,
+    /// and each rule's next match is kept, so a long one isn't searched from
+    /// scratch for every span.
+    private static func renderInline(_ text: String, _ context: Context, depth: Int = 0) -> [Inline] {
+        guard depth < maxInlineDepth else { return links(text, context) }
         let ns = text as NSString
-        var earliest: (range: NSRange, inner: String, rule: Int)?
-        for (index, rule) in inlineRules.enumerated() {
-            guard let match = rule.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else { continue }
-            if earliest == nil || match.range.location < earliest!.range.location {
-                earliest = (match.range, ns.substring(with: match.range(at: 1)), index)
+        var nodes: [Inline] = []
+        var searched = [Bool](repeating: false, count: inlineRules.count)
+        var found = [NSTextCheckingResult?](repeating: nil, count: inlineRules.count)
+        var position = 0
+        while true {
+            // A search range acts as the whole text: what came before a span no longer counts.
+            let rest = NSRange(location: position, length: ns.length - position)
+            var earliest: Int?
+            for (index, rule) in inlineRules.enumerated() {
+                let known = found[index]
+                if !searched[index] || (known.map { $0.range.location < position } ?? false) {
+                    found[index] = rule.firstMatch(in: text, range: rest)
+                    searched[index] = true
+                } else if known == nil || known!.range.location > position {
+                    // Further on, everything reads the same as before. Only the very start can differ.
+                    if let match = rule.firstMatch(in: text, options: .anchored, range: rest) { found[index] = match }
+                }
+                if let current = found[index], earliest == nil || current.range.location < found[earliest!]!.range.location {
+                    earliest = index
+                }
             }
+            guard let earliest, let match = found[earliest] else { break }
+            nodes += links(ns.substring(with: NSRange(location: position, length: match.range.location - position)), context)
+            let inner = ns.substring(with: match.range(at: 1))
+            let node: Inline = switch earliest {
+            case 0: .code(inner)
+            case 1: .spoiler(renderInline(inner, context, depth: depth + 1))
+            case 2: .bold(renderInline(inner, context, depth: depth + 1))
+            case 3: .strike(renderInline(inner, context, depth: depth + 1))
+            default: .italic(renderInline(inner, context, depth: depth + 1))
+            }
+            nodes.append(node)
+            position = match.range.location + match.range.length
         }
-        guard let earliest else { return links(text, context) }
-        let before = ns.substring(to: earliest.range.location)
-        let after = ns.substring(from: earliest.range.location + earliest.range.length)
-        let node: Inline = switch earliest.rule {
-        case 0: .code(earliest.inner)
-        case 1: .spoiler(renderInline(earliest.inner, context))
-        case 2: .bold(renderInline(earliest.inner, context))
-        case 3: .strike(renderInline(earliest.inner, context))
-        default: .italic(renderInline(earliest.inner, context))
-        }
-        return links(before, context) + [node] + renderInline(after, context)
+        return nodes + links(ns.substring(from: position), context)
     }
 
     private static func links(_ text: String, _ context: Context) -> [Inline] {

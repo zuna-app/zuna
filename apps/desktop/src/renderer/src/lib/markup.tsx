@@ -99,29 +99,59 @@ function renderLinks(text: string, context: MarkupContext, keyPrefix: string): I
   return nodes;
 }
 
-const INLINE_RULES: { pattern: RegExp; render: (inner: string, key: string, context: MarkupContext) => Inline }[] = [
+/** Formatting inside formatting, this deep. Further in, it's just text. */
+const MAX_INLINE_DEPTH = 8;
+
+const RULES: { pattern: RegExp; render: (inner: string, key: string, context: MarkupContext, depth: number) => Inline }[] = [
   { pattern: /`([^`\n]+)`/, render: (inner, key) => <code key={key} className="inline-code">{inner}</code> },
-  { pattern: /\|\|([^\n]+?)\|\|/, render: (inner, key, context) => <Spoiler key={key}>{renderInline(inner, context, key)}</Spoiler> },
-  { pattern: /\*\*([^\n]+?)\*\*/, render: (inner, key, context) => <strong key={key}>{renderInline(inner, context, key)}</strong> },
-  { pattern: /~~([^\n]+?)~~/, render: (inner, key, context) => <del key={key}>{renderInline(inner, context, key)}</del> },
-  { pattern: /(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/, render: (inner, key, context) => <em key={key}>{renderInline(inner, context, key)}</em> },
-  { pattern: /(?<![\w_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![\w_])/, render: (inner, key, context) => <em key={key}>{renderInline(inner, context, key)}</em> },
+  { pattern: /\|\|([^\n]+?)\|\|/, render: (inner, key, context, depth) => <Spoiler key={key}>{renderInline(inner, context, key, depth)}</Spoiler> },
+  { pattern: /\*\*([^\n]+?)\*\*/, render: (inner, key, context, depth) => <strong key={key}>{renderInline(inner, context, key, depth)}</strong> },
+  { pattern: /~~([^\n]+?)~~/, render: (inner, key, context, depth) => <del key={key}>{renderInline(inner, context, key, depth)}</del> },
+  { pattern: /(?<![\w*])\*([^\s*](?:[^\n*]*[^\s*])?)\*(?![\w*])/, render: (inner, key, context, depth) => <em key={key}>{renderInline(inner, context, key, depth)}</em> },
+  { pattern: /(?<![\w_])_([^\s_](?:[^\n_]*[^\s_])?)_(?![\w_])/, render: (inner, key, context, depth) => <em key={key}>{renderInline(inner, context, key, depth)}</em> },
 ];
 
-function renderInline(text: string, context: MarkupContext, keyPrefix: string): Inline[] {
-  let earliest: { index: number; length: number; rule: (typeof INLINE_RULES)[number]; inner: string } | null = null;
-  for (const rule of INLINE_RULES) {
-    const match = rule.pattern.exec(text);
-    if (match && (!earliest || match.index < earliest.index)) {
-      earliest = { index: match.index, length: match[0].length, rule, inner: match[1]! };
-    }
+const INLINE_RULES = RULES.map((rule) => ({ ...rule, atStart: new RegExp(rule.pattern.source, "y") }));
+
+/**
+ * Finds formatted spans from left to right. Each rule's next match is kept, so a
+ * long message isn't searched from scratch for every span, and it's a loop, so
+ * one with thousands of spans can't run out of stack.
+ */
+function renderInline(text: string, context: MarkupContext, keyPrefix: string, depth = 0): Inline[] {
+  if (depth >= MAX_INLINE_DEPTH) return renderLinks(text, context, keyPrefix);
+  const nodes: Inline[] = [];
+  // Where each rule next matches, counted from the start of the text. Null is nowhere.
+  const found: ({ index: number; length: number; inner: string } | null | undefined)[] = INLINE_RULES.map(() => undefined);
+  let position = 0;
+  let span = 0;
+  for (;;) {
+    const rest = text.slice(position);
+    let earliest: number | null = null;
+    INLINE_RULES.forEach((rule, index) => {
+      const known = found[index];
+      if (known === undefined || (known && known.index < position)) {
+        const match = rule.pattern.exec(rest);
+        found[index] = match ? { index: position + match.index, length: match[0].length, inner: match[1]! } : null;
+      } else if (!known || known.index > position) {
+        // Everything further on reads the same as before. Only the very start can
+        // differ, since what came before a span no longer counts once it's gone.
+        rule.atStart.lastIndex = 0;
+        const match = rule.atStart.exec(rest);
+        if (match) found[index] = { index: position, length: match[0].length, inner: match[1]! };
+      }
+      const current = found[index];
+      if (current && (earliest === null || current.index < found[earliest]!.index)) earliest = index;
+    });
+    if (earliest === null) break;
+    const match = found[earliest]!;
+    nodes.push(...renderLinks(text.slice(position, match.index), context, `${keyPrefix}-${span}a`));
+    nodes.push(INLINE_RULES[earliest]!.render(match.inner, `${keyPrefix}-${span}r`, context, depth + 1));
+    position = match.index + match.length;
+    span++;
   }
-  if (!earliest) return renderLinks(text, context, keyPrefix);
-  return [
-    ...renderLinks(text.slice(0, earliest.index), context, `${keyPrefix}-a`),
-    earliest.rule.render(earliest.inner, `${keyPrefix}-r`, context),
-    ...renderInline(text.slice(earliest.index + earliest.length), context, `${keyPrefix}-b`),
-  ];
+  nodes.push(...renderLinks(text.slice(position), context, `${keyPrefix}-${span}b`));
+  return nodes;
 }
 
 interface Block {

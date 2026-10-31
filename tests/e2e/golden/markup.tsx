@@ -77,6 +77,17 @@ export const corpus: MarkupCase[] = [
   { text: "emoji 👋🏽 *wave* 👨‍👩‍👧 family" },
   { text: "zażółć gęślą jaźń **pogrubione**" },
   { text: "\r\nwindows\r\nlines" },
+  // Spans right after one another: what came before one no longer counts for the next.
+  { text: "**a***b* **c**_d_ ~~e~~*f*_g_" },
+  { text: "x*a* *b*x_c_ _d_x" },
+  { text: "`a`**b**`c`~~d~~||e||*f*" },
+  { text: "||**~~_*`deep`*_~~**|| and ||**~~_*deep*_~~**||" },
+  // Many spans in one message, which must neither run out of stack nor take long.
+  { text: "**a** ".repeat(200) },
+  { text: "`a`".repeat(200) },
+  { text: "*a* _b_ ".repeat(100) },
+  { text: "**a".repeat(200) },
+  { text: "||".repeat(201) },
 ];
 
 /** Inputs for the large-emoji check, which uses the message's emotes only. */

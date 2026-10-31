@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { EMOJI_CATEGORIES } from "@/lib/emoji-data";
 import { golden as highlightGolden } from "../golden/highlight";
-import { golden as markupGolden } from "../golden/markup";
+import { golden as markupGolden, renderCase } from "../golden/markup";
 import { root } from "../src/paths";
 
 const fixtures = join(root, "apps", "ios", "ZunaKit", "Tests", "ZunaHostTests", "Fixtures");
@@ -21,6 +21,15 @@ function check(name: string, value: unknown, folder = fixtures) {
 
 it("markup golden file matches the desktop", () => {
   check("markup-golden.json", markupGolden());
+});
+
+it("renders a message of repeated formatting without running out of stack, quickly", () => {
+  const started = Date.now();
+  // The largest message anyone may send, all of it spans.
+  const html = renderCase({ text: "**a** ".repeat(16_000) });
+  expect(html.match(/<strong>/g)).toHaveLength(16_000);
+  expect(Date.now() - started).toBeLessThan(5000);
+  expect(renderCase({ text: "|| **x ".repeat(16_000) }).length).toBeGreaterThan(0);
 });
 
 it("highlighting golden file matches the desktop", async () => {

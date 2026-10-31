@@ -1,9 +1,13 @@
+const MAX_INPUT = 4096;
+
 /**
  * A message as one line of plain text, for previews and notifications. Spoilers
  * stay hidden here, since a preview is often seen without the reader choosing to.
  */
 export function plainText(text: string): string {
+  // Only ever shown as one short line, however long the message is.
   return text
+    .slice(0, MAX_INPUT)
     .replace(/```[\s\S]*?```/g, "[code]")
     .replace(/\|\|[^\n]+?\|\|/g, "[spoiler]")
     .replace(/`([^`\n]+)`/g, "$1")
