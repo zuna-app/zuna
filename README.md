@@ -16,7 +16,9 @@ Everyone on a server can message each other straight away. Group chats are invit
 **Conversations**
 - Direct messages with anyone on the server, plus invite-only groups
 - Replies, editing, deleting, reactions and pinned messages
-- Forwarding to any chat, on any of your servers
+- Forwarding to any chat, on any of your servers, one message or several picked together
+- Voice messages, recorded in the app, with a waveform
+- Muting a chat for an hour, eight hours, a day, or until you turn it back on
 - Link previews, made by the sender's device and sent encrypted, so neither recipients nor the server contact the site
 - Markdown formatting, spoilers, and code blocks with syntax highlighting
 - Photos, video, audio and any other file, encrypted before upload
