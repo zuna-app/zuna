@@ -132,7 +132,7 @@ Decided on 2026-10-31: **the Zuna password is asked for once after every restart
 - **Look:**
   - the desktop's dark theme from `tokens.css`, with its five accents and three message sizes, scaled with Dynamic Type;
   - system fonts (SF Pro, SF Mono) rather than the desktop's Inter, as Telegram does on iOS;
-  - a light theme and chat wallpapers are open questions.
+  - no light theme (decided with the user on 2026-10-31); chat wallpapers are an open question.
 - **Where UIKit is used:**
   - the message list: `UICollectionView` with a diffable data source, anchored to the bottom, loading older pages without jumps;
   - message text: TextKit 2 with attachments for inline emotes (animated, zero-width stacking), spoilers, links and mentions;
@@ -533,16 +533,16 @@ The crate already cross-compiles for `aarch64-apple-ios` and `aarch64-apple-ios-
 Work that needs a decision was set aside, as agreed, so the rest could go on:
 
 1. **App Store requirements that need new server features:** deleting an account from the app (guideline 5.1.1(v)), and reporting content and blocking people (guideline 1.2). Until then, TestFlight with internal testers or ad hoc builds only.
-2. **AGPL-3.0 on the App Store** (see risk 3): a decision on licensing, such as an extra permission for App Store distribution.
+2. **GPL-3.0 on the App Store** (see risk 3): the project moved from AGPL-3.0 to GPL-3.0 on 2026-10-31, at the owner's decision. Distributing through the App Store still needs an extra permission under section 7 of the GPL, or another decision.
 3. **Signing and TestFlight:** archiving and uploading needs certificates and profiles created in the owner's Apple Developer account (Xcode's automatic signing with `-allowProvisioningUpdates` does it), so it waits for a go-ahead.
-4. **Look:** a light theme, and chat wallpapers, left open since F1.
+4. **Look:** chat wallpapers, left open since F1. A light theme was ruled out on 2026-10-31.
 5. **Notifications:** the next stage, as agreed; the plan for it is below.
 
 ## Risks and open questions
 
 1. **App Store, account deletion (guideline 5.1.1(v)).** Apps that let people create accounts must let them delete them in the app. The server has no such endpoint, so this needs a new server feature. Until then, only internal TestFlight or ad hoc distribution is possible.
 2. **App Store, user-generated content (guideline 1.2).** Reporting content and blocking users are required. The desktop only has bans by admins.
-3. **AGPL-3.0 and the App Store.** Distributing GPL-family code through the App Store is widely considered incompatible with Apple's terms (VLC is the known case). Without a CLA or an extra permission from all contributors, this is a legal risk for the project owner to decide on.
+3. **GPL-3.0 and the App Store.** The project moved from AGPL-3.0 to GPL-3.0 on 2026-10-31. That drops the network clause, but GPL-family code distributed through the App Store is still widely considered incompatible with Apple's terms (VLC is the known case): the App Store's usage rules count as further restrictions, which section 10 of the GPL forbids. The usual fix is an extra permission for app stores under section 7, granted by every copyright holder. Without it, this is a legal risk for the project owner to decide on.
 4. **Export compliance** (`ITSAppUsesNonExemptEncryption`) is a formality when submitting.
 5. **No JIT on iOS.** The core is interpreted. F0 measured about 1 ms per synced message on a Mac running at interpreter speed. A first check on an iPhone is still due.
 6. **Settled in F0:** reproducing the no-JIT condition, animated WebP in ImageIO, and Shiki under JavaScriptCore. See "F0 results".

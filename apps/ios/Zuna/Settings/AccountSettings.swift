@@ -339,7 +339,7 @@ struct AboutView: View {
                 VStack(spacing: 10) {
                     ZunaLogo(size: 64)
                     Text("Zuna").font(.title.weight(.bold)).foregroundStyle(Theme.text1)
-                    Text("Version \(SettingsView.version) · Free software under the AGPL-3.0 license")
+                    Text("Version \(SettingsView.version) · Free software under the GPL-3.0 license")
                         .font(.footnote)
                         .foregroundStyle(Theme.text2)
                         .multilineTextAlignment(.center)

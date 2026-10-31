@@ -2,7 +2,7 @@
   "name": "@zuna/e2e",
   "version": "0.1.0",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "GPL-3.0-only",
   "description": "Cross-client end-to-end tests: the desktop's client core against the iOS app's host, through a real server.",
   "type": "module",
   "scripts": {
