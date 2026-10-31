@@ -62,5 +62,7 @@
 	</array>
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
+	<key>ZunaPushRelay</key>
+	<string>$(ZUNA_PUSH_RELAY)</string>
 </dict>
 </plist>

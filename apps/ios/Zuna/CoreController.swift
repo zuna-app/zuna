@@ -2,6 +2,7 @@ import Foundation
 import Network
 import Observation
 import UIKit
+import UserNotifications
 import ZunaHost
 import ZunaModels
 #if DEBUG
@@ -30,6 +31,12 @@ final class CoreController {
     /// The UI's state, from the moment the core is running.
     private(set) var model: AppModel?
     private(set) var images: ImageStore?
+    /// Notifications, from the moment the core is running.
+    private(set) var notifications: Notifications?
+    /// The APNs token, which may arrive before the core is running.
+    var pushToken: String? {
+        didSet { notifications?.token = pushToken }
+    }
     /// A link opened before the app was ready, such as while it waits to be unlocked.
     private var pendingLink: String?
     private var directory: URL?
@@ -52,6 +59,7 @@ final class CoreController {
                 DeviceKeyStore.forget()
                 Self.erase(directory)
                 AppSettings.reset()
+                NotificationSettings.reset()
             }
             await startControl()
             #endif
@@ -134,6 +142,11 @@ final class CoreController {
         self.connection = connection
         self.model = model
         images = ImageStore(core: connection)
+        let notifications = Notifications(model: model)
+        if let pushToken { notifications.token = pushToken }
+        model.onServersChanged = { Task { await notifications.refresh() } }
+        self.notifications = notifications
+        Task { await notifications.updateAuthorization() }
         watchNetwork()
         #if DEBUG
         control?.attach(runtime)
@@ -168,8 +181,25 @@ final class CoreController {
         }
     }
 
+    /// Acts on a notification once the core is running: the app may have just
+    /// been launched in the background for it, and keeps running until it's done.
+    func respond(to response: UNNotificationResponse) async {
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Act on a notification")
+        defer { UIApplication.shared.endBackgroundTask(task) }
+        for _ in 0..<100 where notifications == nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        // The core may have closed its connections when the app left the screen.
+        suspendTask?.cancel()
+        suspendTask = nil
+        try? await connection?.resume()
+        await notifications?.respond(to: response)
+        if UIApplication.shared.applicationState != .active { suspendNow() }
+    }
+
     /// Back on screen: reconnect right away and catch up.
     func didBecomeActive() {
+        Task { await notifications?.updateAuthorization() }
         suspendTask?.cancel()
         suspendTask = nil
         endBackgroundTask()

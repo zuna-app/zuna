@@ -19,6 +19,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     DEAD_CODE_STRIPPING: YES
+    # The push relay the app registers with (docs/PUSH_RELAY.md); none until it's deployed.
+    ZUNA_PUSH_RELAY: ""
 
 packages:
   ZunaKit:
@@ -73,9 +75,11 @@ targets:
           NSAllowsLocalNetworking: true
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
         ITSAppUsesNonExemptEncryption: true
+        ZunaPushRelay: $(ZUNA_PUSH_RELAY)
     entitlements:
       path: Zuna/Zuna.entitlements
       properties:
+        aps-environment: development
         com.apple.security.application-groups:
           - group.chat.zuna.app
         keychain-access-groups:
@@ -88,6 +92,7 @@ targets:
     sources:
       - path: ZunaNotifications
       - path: Zuna/Shared/DeviceKeyStore.swift
+      - path: Zuna/Shared/PushStore.swift
       - path: Zuna/Shared/SharedStorage.swift
     dependencies:
       - package: ZunaKit

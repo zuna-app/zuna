@@ -136,6 +136,8 @@ final class AppModel {
     var appLocked = AppSettings.load().appLock
 
     let core: CoreConnection
+    /// Called when servers are added or removed, so notifications can follow.
+    @ObservationIgnored var onServersChanged: (() -> Void)?
     private var pendingRefreshes: Set<String> = []
     private var nextToast = 1
 
@@ -166,7 +168,9 @@ final class AppModel {
                 loaded[entry.id] = await loadServer(entry)
             }
             servers = loaded
+            let previous = order
             order = entries.map(\.id).filter { loaded[$0] != nil }
+            if order != previous { onServersChanged?() }
             if activeServerId.map({ servers[$0] == nil }) ?? true {
                 activeServerId = AppSettings.lastServer.flatMap { servers[$0] == nil ? nil : $0 } ?? order.first
             }
@@ -328,6 +332,7 @@ final class AppModel {
     }
 
     private func removeServer(_ serverId: String) {
+        defer { onServersChanged?() }
         servers[serverId] = nil
         lists = lists.filter { !$0.key.hasPrefix("\(serverId)/") }
         order.removeAll { $0 == serverId }

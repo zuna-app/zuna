@@ -98,6 +98,8 @@ public struct SessionCalls: Sendable {
     }
     public func sendTyping(_ groupId: String) async throws { try await run("sendTyping", [groupId]) }
     public func markRead(_ groupId: String, seq: Int) async throws { try await run("markRead", [groupId, seq]) }
+    /// Has the server wake this device through a push relay for new messages, or stops it with nil.
+    public func setPush(_ push: PushSettings?) async throws { try await run("setPush", [push]) }
 
     // MARK: Groups
 
@@ -194,6 +196,24 @@ public struct ServerSettingsChanges: Codable, Sendable, Equatable {
         case allowMemberInvites = "allow_member_invites"
         case maxUploadMb = "max_upload_mb"
         case retentionDays = "retention_days"
+    }
+}
+
+/// Where a server wakes this device for new messages (`PushSettings` in the core).
+public struct PushSettings: Encodable, Sendable, Equatable {
+    public var relay: String
+    public var handle: String
+    public var key: Data
+    public var registration: String
+    /// Tell the server which chats are muted, for an app that can't hide notifications itself.
+    public var sendMuted: Bool
+
+    public init(relay: String, handle: String, key: Data, registration: String, sendMuted: Bool) {
+        self.relay = relay
+        self.handle = handle
+        self.key = key
+        self.registration = registration
+        self.sendMuted = sendMuted
     }
 }
 

@@ -49,6 +49,10 @@ struct SettingsView: View {
                     .listRowBackground(Theme.bg2)
                 }
                 Section {
+                    NavigationLink { NotificationSettingsView() } label: {
+                        SettingsLabel("Notifications", systemImage: "bell.badge.fill", color: Color(hex: 0xD9534A))
+                    }
+                    .accessibilityIdentifier(A11y.Settings.notifications)
                     NavigationLink { AppearanceView() } label: {
                         SettingsLabel("Appearance", systemImage: "paintpalette.fill", color: Color(hex: 0x4B8FE0))
                     }

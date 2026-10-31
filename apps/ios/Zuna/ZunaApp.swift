@@ -1,9 +1,12 @@
 import SwiftUI
+import UserNotifications
 
 @main
 struct ZunaApp: App {
-    @State private var core = CoreController()
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @Environment(\.scenePhase) private var scenePhase
+
+    private var core: CoreController { delegate.core }
 
     var body: some Scene {
         WindowGroup {
@@ -14,7 +17,6 @@ struct ZunaApp: App {
     private var root: some View {
         RootView()
             .environment(core)
-            .task { await core.start() }
             .onOpenURL { core.open($0) }
             .preferredColorScheme(.dark)
             .onChange(of: scenePhase) { _, phase in
@@ -27,6 +29,49 @@ struct ZunaApp: App {
     }
 }
 
+/// Starts the core as the app launches, which may be in the background to act
+/// on a notification, and answers the system's questions about notifications.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    let core = CoreController()
+
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+        center.setNotificationCategories(Notifications.categories)
+        Task { await core.start() }
+        return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        core.pushToken = deviceToken.map { String(format: "%02x", $0) }.joined()
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // The simulator, or a build without the push entitlement: notifications wait for a token.
+    }
+}
+
+extension AppDelegate: @preconcurrency UNUserNotificationCenterDelegate {
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler(core.notifications?.presentation(for: notification) ?? [.banner, .list, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        Task {
+            await core.respond(to: response)
+            completionHandler()
+        }
+    }
+}
+
 /// Starting up, unlocking after a restart, and then the app itself.
 struct RootView: View {
     @Environment(CoreController.self) private var core
@@ -36,7 +81,7 @@ struct RootView: View {
             Theme.bg0.ignoresSafeArea()
             if core.phase == .locked {
                 UnlockView()
-            } else if core.phase == .ready, let model = core.model, let images = core.images {
+            } else if core.phase == .ready, let model = core.model, let images = core.images, let notifications = core.notifications {
                 Group {
                     if model.appLocked {
                         // Nothing under App lock's cover, so VoiceOver can't read the chats either.
@@ -51,6 +96,7 @@ struct RootView: View {
                 .overlay { AppLockGate() }
                 .environment(model)
                 .environment(images)
+                .environment(notifications)
                 .tint(model.settings.accent.color)
             } else {
                 status

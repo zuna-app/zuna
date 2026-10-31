@@ -100,6 +100,17 @@ enum WorldControl {
     }
 
     /// Signs in to an account on another new device, as if on a new laptop.
+    /// How many times the app registered with the test relay, and how many pushes it passed on.
+    static func relayCounts() throws -> (registrations: Int, pushes: Int) {
+        let url = URL(string: "\(World.current.peersUrl)/world")!
+        let data = try blocking {
+            let socket = try await RPCSocket.connect(to: url)
+            return try JSONSerialization.data(withJSONObject: try await socket.call("relayCounts", []))
+        }
+        let counts = try JSONSerialization.jsonObject(with: data) as? [String: Int] ?? [:]
+        return (counts["registrations"] ?? 0, counts["pushes"] ?? 0)
+    }
+
     /// Delivers a push to the app, as APNs would.
     static func push(_ payload: [String: Any]) throws {
         let url = URL(string: "\(World.current.peersUrl)/world")!

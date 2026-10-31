@@ -11,7 +11,8 @@
 // 4. Runs the tests on the dedicated simulator, recording its log.
 // 5. Writes apps/ios/.e2e/<run>/summary.md, with screenshots next to it.
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { join, relative } from "node:path";
@@ -55,7 +56,46 @@ loadCrypto();
 const fake7tv = await startFake7TV();
 process.env.ZUNA_7TV_API = fake7tv.api;
 process.env.ZUNA_7TV_CDN = fake7tv.cdn;
-const server = new TestServer();
+// A stand-in for zuna-push: it hands pushes to the simulator, as APNs would.
+// Each registration gets a new handle, and older ones are gone, as after an
+// app is reinstalled, so a test's fresh device is the only one notified.
+const relay = { registrations: 0, pushes: 0, latest: "" };
+const relayServer = createServer((request, response) => {
+  let body = "";
+  request.on("data", (chunk) => (body += chunk));
+  request.on("end", () => {
+    const json = JSON.parse(body || "{}");
+    if (request.url === "/v1/register") {
+      relay.registrations += 1;
+      relay.latest = `test-${relay.registrations}-${json.token}`;
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ handle: relay.latest }));
+      return;
+    }
+    if (request.url === "/v1/push") {
+      if (json.handle !== relay.latest) {
+        response.statusCode = 410;
+        response.end(JSON.stringify({ error: "gone" }));
+        return;
+      }
+      relay.pushes += 1;
+      const file = join(runDir, `push-${Date.now()}-${relay.pushes}.json`);
+      writeFileSync(file, JSON.stringify({
+        aps: { alert: { title: "Zuna", body: "New message" }, "mutable-content": 1, sound: "default", category: "message" },
+        zuna: json.data,
+      }));
+      execFile("xcrun", ["simctl", "push", udid, BUNDLE_ID, file], () => undefined);
+      response.end("{}");
+      return;
+    }
+    response.statusCode = 404;
+    response.end();
+  });
+});
+await new Promise<void>((resolve) => relayServer.listen(0, "127.0.0.1", resolve));
+const relayUrl = `http://127.0.0.1:${(relayServer.address() as AddressInfo).port}`;
+
+const server = new TestServer({ pushRelays: [relayUrl] });
 await server.start();
 // Servers nobody has set up yet: for the owner's flow, and for the iPad's list of servers.
 const spare = new TestServer();
@@ -89,6 +129,10 @@ const worldMethods: Record<string, (...args: any[]) => Promise<unknown>> = {
   async faceId(match: boolean) {
     execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-p", `com.apple.BiometricKit_Sim.pearl.${match ? "match" : "nomatch"}`]);
     return true;
+  },
+  /** How many times the app registered with the relay, and how many pushes the relay passed on. */
+  async relayCounts() {
+    return { registrations: relay.registrations, pushes: relay.pushes };
   },
   /** Delivers a push to the app as APNs would, with the payload a relay sends. */
   async push(payload: unknown) {
@@ -141,6 +185,7 @@ const world = {
   invite,
   setupLink: spare.setupLink,
   padSetupLink: padSpare.setupLink,
+  pushRelay: relayUrl,
   peersUrl,
   accounts: { alice: account("alice", alice), bob: account("bob", bobLaptop), bobLaptop: account("bob", bobLaptop), carol: account("carol", carol) },
 };
@@ -192,6 +237,7 @@ peerServer.close();
 await server.stop();
 await spare.stop();
 await padSpare.stop();
+relayServer.close();
 await fake7tv.close();
 
 // --- 5. Summary ---

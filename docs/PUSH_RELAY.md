@@ -63,3 +63,13 @@ Then run `docker compose up -d`.
 
 - **Servers** list the relays that may wake their members' phones in `ZUNA_PUSH_RELAYS`, such as `https://push.example.com`. Once the project's relay runs, the server's default can name it, so self-hosters get notifications without setting anything.
 - **The app** registers with the relay named in its `ZunaPushRelay` build setting. Debug builds use Apple's sandbox, and TestFlight and App Store builds use production. The relay handles both with one key.
+
+## The notification filtering entitlement
+
+Muted chats shouldn't notify, but an extension can hide a notification only with Apple's notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). Until Apple grants it, the app tells each server which chats are muted, and the server skips them. Mentions in muted chats then don't notify.
+
+The Account Holder applies at developer.apple.com/contact/request/notification-filtering. A description along these lines fits:
+
+> Zuna is an end-to-end encrypted messenger. Our servers can't read messages, so a push only says that a message arrived, and our Notification Service Extension fetches and decrypts it on the device. Whether to show it depends on things only the device knows, such as chats the person muted (unless the message mentions them), messages deleted before the push arrived, and messages the person already read on another device. Without filtering, we would have to tell our servers which chats each person muted.
+
+Once it's granted, add the entitlement to `ZunaNotifications` in `apps/ios/project.yml` and set `PushStore.canFilter` to `true`. The extension then drops what shouldn't show, and the app stops sending muted chats to servers.
