@@ -5,6 +5,9 @@ package api_test
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -509,5 +512,70 @@ func TestWrongPasswordsSlowDownForOneAccount(t *testing.T) {
 	}
 	if status, _ := h.do("POST", "/api/auth/login", "", map[string]any{"username": "someone-else", "auth_key": bytesOf(32, 0xff)}, nil); status != http.StatusUnauthorized {
 		t.Fatalf("another account gave %d", status)
+	}
+}
+
+// Z-10: an account from before sign-in keys were bound to a server moves to a
+// new key by proving it knows the old one, which is no use for any other server.
+func TestUpgradingASignInKeyProvesItWithoutSendingIt(t *testing.T) {
+	h := newHarness(t)
+	h.owner()
+	oldKey := bytesOf(32, 'o')
+	newKey := bytesOf(32, 0x42)
+	authSalt := func() ([]byte, []byte) {
+		var out struct {
+			Salt      []byte `json:"salt"`
+			Challenge []byte `json:"challenge"`
+		}
+		h.mustDo("POST", "/api/auth/upgrade-challenge", "", map[string]any{"username": "owner", "kind": "password"}, &out)
+		return out.Salt, out.Challenge
+	}
+	proof := func(salt, challenge []byte, origin string) []byte {
+		stored := sha256.Sum256(append(append([]byte{}, salt...), oldKey...))
+		info := "zuna/auth-upgrade/v1|password|" + origin + "|owner|" + base64.StdEncoding.EncodeToString(challenge)
+		out, err := hkdf.Key(sha256.New, stored[:], nil, info, 32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	upgrade := func(origin string, challenge, proved []byte) int {
+		status, _ := h.do("POST", "/api/auth/upgrade", "", map[string]any{
+			"username": "owner", "kind": "password", "origin": origin, "challenge": challenge, "proof": proved, "auth_key": newKey,
+		}, nil)
+		return status
+	}
+	salt, challenge := authSalt()
+
+	// What a malicious server would pass on: a proof made for its own address.
+	if status := upgrade("https://evil.example", challenge, proof(salt, challenge, "https://evil.example")); status != http.StatusUnauthorized {
+		t.Fatalf("a proof made for another address gave %d", status)
+	}
+	if status := upgrade("http://test", challenge, proof(salt, challenge, "https://evil.example")); status != http.StatusUnauthorized {
+		t.Fatalf("relabelling that proof gave %d", status)
+	}
+	if status := upgrade("http://test", challenge, bytesOf(32, 1)); status != http.StatusUnauthorized {
+		t.Fatalf("a wrong proof gave %d", status)
+	}
+	if status := upgrade("http://test", bytesOf(32, 1), proof(salt, bytesOf(32, 1), "http://test")); status != http.StatusUnauthorized {
+		t.Fatalf("a challenge this server never made gave %d", status)
+	}
+	if status := upgrade("http://test", challenge, proof(salt, challenge, "http://test")); status != http.StatusOK {
+		t.Fatalf("a good proof gave %d", status)
+	}
+
+	if status, _ := h.do("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": oldKey}, nil); status != http.StatusUnauthorized {
+		t.Fatalf("the old key still signs in: %d", status)
+	}
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": newKey}, nil)
+
+	// Someone who doesn't exist looks the same.
+	var first, second struct {
+		Salt []byte `json:"salt"`
+	}
+	h.mustDo("POST", "/api/auth/upgrade-challenge", "", map[string]any{"username": "ghost", "kind": "password"}, &first)
+	h.mustDo("POST", "/api/auth/upgrade-challenge", "", map[string]any{"username": "GHOST", "kind": "password"}, &second)
+	if len(first.Salt) != 16 || string(first.Salt) != string(second.Salt) {
+		t.Fatal("an unknown name should get a stable salt")
 	}
 }

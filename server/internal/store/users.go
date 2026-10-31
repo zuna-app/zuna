@@ -158,6 +158,18 @@ func (d *DB) UpdateRecovery(ctx context.Context, userID string, recoveryHash, re
 	return err
 }
 
+// ReplaceAuthKey swaps the sign-in key's hash, leaving what it unlocks alone.
+func (d *DB) ReplaceAuthKey(ctx context.Context, userID string, hash, salt []byte) error {
+	_, err := d.sql.ExecContext(ctx, `UPDATE users SET auth_hash = ?, auth_salt = ? WHERE id = ?`, hash, salt, userID)
+	return err
+}
+
+// ReplaceRecoveryAuthKey does the same for the recovery key's sign-in key.
+func (d *DB) ReplaceRecoveryAuthKey(ctx context.Context, userID string, hash, salt []byte) error {
+	_, err := d.sql.ExecContext(ctx, `UPDATE users SET recovery_hash = ?, recovery_salt = ? WHERE id = ?`, hash, salt, userID)
+	return err
+}
+
 const publicUserColumns = `id, username, role, identity_key, hpke_key, hpke_key_sig, profile,
 	last_seen_at, hide_last_seen, banned_at, created_at, updated_at`
 

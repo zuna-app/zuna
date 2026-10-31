@@ -1,10 +1,13 @@
 package api
 
 import (
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"net/http"
 	"regexp"
@@ -33,6 +36,9 @@ const (
 	signInFreeFailures = 12
 	signInFirstWait    = 2 * time.Second
 	signInLongestWait  = 5 * time.Minute
+
+	// How long a proof of an older sign-in key may take to come back.
+	upgradeChallengeLife = 5 * time.Minute
 )
 
 // What a device and an account may keep here. Generous: real use stays far below.
@@ -59,21 +65,41 @@ func newSalt() []byte {
 	return salt
 }
 
-// fakeKDF gives unknown usernames stable, realistic-looking parameters, so that
-// prelogin can't be used to check whether an account exists.
-func (s *Server) fakeKDF(r *http.Request, username string) (store.KDFParams, error) {
+// serverSecret is a random value only this server knows, for answers it has to
+// be able to give again without storing them.
+func (s *Server) serverSecret(r *http.Request) ([]byte, error) {
 	secret, err := s.db.Setting(r.Context(), "prelogin_secret", "")
 	if err != nil {
-		return store.KDFParams{}, err
+		return nil, err
 	}
 	if secret == "" {
 		secret = randomToken(32)
 		if err := s.db.SetSetting(r.Context(), "prelogin_secret", secret); err != nil {
-			return store.KDFParams{}, err
+			return nil, err
 		}
 	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(username))
+	return []byte(secret), nil
+}
+
+func keyedHash(secret []byte, parts ...string) []byte {
+	mac := hmac.New(sha256.New, secret)
+	for _, part := range parts {
+		mac.Write([]byte(part))
+		mac.Write([]byte{0})
+	}
+	return mac.Sum(nil)
+}
+
+// fakeKDF gives unknown usernames stable, realistic-looking parameters, so that
+// prelogin can't be used to check whether an account exists. Names are compared
+// without case, as real lookups are, so that doesn't give it away either.
+func (s *Server) fakeKDF(r *http.Request, username string) (store.KDFParams, error) {
+	secret, err := s.serverSecret(r)
+	if err != nil {
+		return store.KDFParams{}, err
+	}
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(strings.ToLower(username)))
 	return store.KDFParams{
 		Salt:        mac.Sum(nil)[:16],
 		Memory:      defaultKDFMemory,
@@ -295,6 +321,127 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		"wrapped_key": creds.WrappedKeyRecovery,
 		"vault_core":  creds.VaultCore,
 	})
+}
+
+// Sign-in keys are bound to this server's address, so one a person's app gives
+// to another server is no use here. Accounts made before that have a hash of an
+// older key that isn't bound to anything, which an updated app never sends:
+// it proves it knows the key instead, in a way only good for this server, and
+// replaces it.
+
+func challengeFor(secret []byte, username string, at int64) []byte {
+	stamp := binary.BigEndian.AppendUint64(nil, uint64(at))
+	return append(stamp, keyedHash(secret, "upgrade-challenge", strings.ToLower(username), string(stamp))[:24]...)
+}
+
+func (s *Server) handleUpgradeChallenge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+		Kind     string `json:"kind"`
+	}
+	if !readJSONUpTo(w, r, maxSignInBody, &body) {
+		return
+	}
+	secret, err := s.serverSecret(r)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	// Someone who doesn't exist gets an answer that looks the same.
+	salt := keyedHash(secret, "upgrade-salt", body.Kind, strings.ToLower(body.Username))[:16]
+	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeFailure(w, err)
+		return
+	}
+	if err == nil {
+		if body.Kind == "recovery" {
+			salt = creds.RecoverySalt
+		} else {
+			salt = creds.AuthSalt
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"salt": salt, "challenge": challengeFor(secret, body.Username, store.Now())})
+}
+
+func (s *Server) handleUpgradeKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username  string `json:"username"`
+		Kind      string `json:"kind"`
+		Origin    string `json:"origin"`
+		Challenge []byte `json:"challenge"`
+		Proof     []byte `json:"proof"`
+		AuthKey   []byte `json:"auth_key"`
+	}
+	if !readJSONUpTo(w, r, maxSignInBody, &body) {
+		return
+	}
+	if len(body.AuthKey) != 32 || (body.Kind != "password" && body.Kind != "recovery") {
+		writeError(w, http.StatusBadRequest, "bad_request", "The sign-in key isn't valid.")
+		return
+	}
+	refuse := func() {
+		s.signInFailures.Fail(strings.ToLower(body.Username))
+		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
+	}
+	if !s.signInFailures.Allowed(strings.ToLower(body.Username)) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+		return
+	}
+	// A proof made for another address is no good, even if it's passed on here.
+	if strings.TrimRight(body.Origin, "/") != strings.TrimRight(s.cfg.PublicURL, "/") {
+		refuse()
+		return
+	}
+	secret, err := s.serverSecret(r)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if len(body.Challenge) != 32 {
+		refuse()
+		return
+	}
+	at := int64(binary.BigEndian.Uint64(body.Challenge[:8]))
+	age := store.Now() - at
+	if age < 0 || age > upgradeChallengeLife.Milliseconds() || !hmac.Equal(body.Challenge, challengeFor(secret, body.Username, at)) {
+		refuse()
+		return
+	}
+	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
+	if errors.Is(err, store.ErrNotFound) {
+		refuse()
+		return
+	}
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	stored := creds.AuthHash
+	if body.Kind == "recovery" {
+		stored = creds.RecoveryHash
+	}
+	info := "zuna/auth-upgrade/v1|" + body.Kind + "|" + body.Origin + "|" + strings.ToLower(body.Username) + "|" + base64.StdEncoding.EncodeToString(body.Challenge)
+	expected, err := hkdf.Key(sha256.New, stored, nil, info, 32)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if subtle.ConstantTimeCompare(body.Proof, expected) != 1 {
+		refuse()
+		return
+	}
+	salt := newSalt()
+	if body.Kind == "recovery" {
+		err = s.db.ReplaceRecoveryAuthKey(r.Context(), creds.UserID, saltedHash(salt, body.AuthKey), salt)
+	} else {
+		err = s.db.ReplaceAuthKey(r.Context(), creds.UserID, saltedHash(salt, body.AuthKey), salt)
+	}
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeOK(w)
 }
 
 func (s *Server) credentialsOf(r *http.Request, sess *store.Session) (*store.Credentials, error) {
