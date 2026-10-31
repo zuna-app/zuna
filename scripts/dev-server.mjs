@@ -72,7 +72,10 @@ for (let i = 0; !serverReady; i++) {
 
 console.log(firstRun ? "Setting up the server and its people. This only happens once..." : "Bringing everyone back online...");
 
-const bots = spawn(process.execPath, [join(root, "node_modules", "vite-node", "vite-node.mjs"), "test/dev-bots.ts"], {
+// vite-node's own command, wherever its version keeps it.
+const viteNodeDir = join(root, "node_modules", "vite-node");
+const viteNode = join(viteNodeDir, JSON.parse(readFileSync(join(viteNodeDir, "package.json"), "utf8")).bin["vite-node"]);
+const bots = spawn(process.execPath, [viteNode, "test/dev-bots.ts"], {
   cwd: join(root, "packages", "core"),
   env: { ...env, ZUNA_DEV_WORLD: devWorld, ZUNA_DEV_SETUP_LINK: setupLink() ?? "" },
   stdio: ["ignore", "pipe", "pipe"],
