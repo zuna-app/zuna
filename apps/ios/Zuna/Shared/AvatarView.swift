@@ -9,6 +9,8 @@ final class ImageStore {
     @ObservationIgnored private let cache = NSCache<NSString, UIImage>()
     @ObservationIgnored private var loading: [String: Task<UIImage?, Never>] = [:]
     @ObservationIgnored private let core: CoreConnection
+    /// Bumped when a server's icon changes, so the views showing it load it again.
+    private(set) var iconVersion = 0
 
     init(core: CoreConnection) {
         self.core = core
@@ -45,6 +47,12 @@ final class ImageStore {
         let target = folder.appendingPathComponent(safeName.isEmpty ? URL(fileURLWithPath: file.path).lastPathComponent : safeName)
         try FileManager.default.linkItem(at: URL(fileURLWithPath: file.path), to: target)
         return target
+    }
+
+    /// After an admin changes the server's picture, the next look fetches it again.
+    func forgetServerIcon(_ entry: ServerEntry) {
+        cache.removeObject(forKey: "icon:\(entry.url)" as NSString)
+        iconVersion += 1
     }
 
     func cachedAttachment(_ attachment: Attachment) -> UIImage? {
@@ -134,9 +142,14 @@ struct AvatarView: View {
             }
         }
         .accessibilityHidden(true)
-        .task(id: source) {
+        .task(id: SourceKey(source: source, version: images?.iconVersion ?? 0)) {
             image = await load()
         }
+    }
+
+    private struct SourceKey: Equatable {
+        let source: Source
+        let version: Int
     }
 
     private var cacheKey: String? {

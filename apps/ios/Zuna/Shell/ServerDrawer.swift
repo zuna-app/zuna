@@ -20,6 +20,25 @@ struct ServerDrawer: View {
     }
 
     private var rail: some View {
+        ServerRail {
+            model.drawerOpen = false
+            model.tab = .settings
+        }
+    }
+
+}
+
+/// The column of server icons with unread counts, joining another server, and
+/// your own picture at the bottom: in the drawer on a phone, always beside the
+/// chats on an iPad, as on the desktop.
+struct ServerRail: View {
+    @Environment(AppModel.self) private var model
+    /// Opens your profile and settings.
+    let onProfile: () -> Void
+    /// The settings button the desktop's rail has, for the iPad, which has no tab bar.
+    var showsSettings = false
+
+    var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(spacing: 10) {
@@ -47,12 +66,17 @@ struct ServerDrawer: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
+            if showsSettings {
+                Button(action: onProfile) {
+                    Image(systemName: "gearshape").font(.system(size: 20)).foregroundStyle(Theme.text2).frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Settings")
+                .accessibilityIdentifier(A11y.Shell.settingsTab)
+            }
             if let me = model.activeServer?.selfUser {
-                Button {
-                    model.drawerOpen = false
-                    model.tab = .settings
-                } label: {
-                    AvatarView(name: me.displayName, seed: me.id, source: avatarSource(me), size: 40)
+                Button(action: onProfile) {
+                    AvatarView(name: me.displayName, seed: me.id, source: me.avatar.map { .avatar($0, serverId: model.activeServerId ?? "") } ?? .none, size: 40)
                 }
                 .buttonStyle(.plain)
                 .padding(.vertical, 12)
@@ -62,11 +86,6 @@ struct ServerDrawer: View {
         }
         .frame(width: 72)
         .background(Theme.bg0)
-    }
-
-    private func avatarSource(_ user: UserView) -> AvatarView.Source {
-        guard let avatar = user.avatar, let serverId = model.activeServerId else { return .none }
-        return .avatar(avatar, serverId: serverId)
     }
 }
 

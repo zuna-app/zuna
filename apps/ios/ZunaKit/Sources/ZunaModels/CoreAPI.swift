@@ -99,7 +99,69 @@ public struct SessionCalls: Sendable {
     public func sendTyping(_ groupId: String) async throws { try await run("sendTyping", [groupId]) }
     public func markRead(_ groupId: String, seq: Int) async throws { try await run("markRead", [groupId, seq]) }
 
+    // MARK: Groups
+
+    /// Creates a group with these people, and returns its ID. With `historyVisible`, people added later can read earlier messages.
+    public func createGroup(_ name: String, memberIds: [String], historyVisible: Bool) async throws -> String {
+        try await call("createGroup", [name, memberIds, historyVisible])
+    }
+
+    public func addMembers(_ groupId: String, userIds: [String]) async throws { try await run("addMembers", [groupId, userIds]) }
+    public func removeMember(_ groupId: String, userId: String) async throws { try await run("removeMember", [groupId, userId]) }
+    public func leaveGroup(_ groupId: String) async throws { try await run("leaveGroup", [groupId]) }
+    public func deleteGroup(_ groupId: String) async throws { try await run("deleteGroup", [groupId]) }
+    public func setGroupRole(_ groupId: String, userId: String, role: GroupRole) async throws { try await run("setGroupRole", [groupId, userId, role]) }
+
+    /// Changes a group's name or description, its picture, and whether new members see history; what's left out stays.
+    public func updateGroupMeta(_ groupId: String, _ changes: GroupMetaChanges, avatar: AvatarChange = .unchanged, historyVisible: Bool? = nil) async throws {
+        let avatarArgument: any Encodable & Sendable = switch avatar {
+        case .unchanged: Absent()
+        case .removed: Optional<WireFile>.none
+        case let .set(file): file
+        }
+        let history: any Encodable & Sendable = historyVisible.map { $0 as any Encodable & Sendable } ?? Absent()
+        try await run("updateGroupMeta", [groupId, changes, avatarArgument, history])
+    }
+
+    // MARK: Invites and verification
+
+    public func invites() async throws -> [Invite] { try await call("invites") }
+
+    /// Creates an invite link. 0 uses means no limit; 0 seconds means it doesn't expire.
+    public func createInvite(maxUses: Int, expiresInSeconds: Int) async throws -> String { try await call("createInvite", [maxUses, expiresInSeconds]) }
+    public func linkForInvite(_ code: String) async throws -> String { try await call("linkForInvite", [code]) }
+    public func revokeInvite(_ code: String) async throws { try await run("revokeInvite", [code]) }
+
+    /// The twelve emoji to compare with someone, from both people's keys.
+    public func safetyCheck(_ userId: String) async throws -> SafetyCheck? { try await call("safetyCheck", [userId]) }
+    public func markVerified(_ userId: String) async throws { try await run("markVerified", [userId]) }
+    public func clearVerification(_ userId: String) async throws { try await run("clearVerification", [userId]) }
+
+    // MARK: Profile and security
+
+    /// Changes the profile's fields that are set, and its picture.
+    public func updateProfile(_ changes: ProfileChanges, avatar: AvatarChange = .unchanged) async throws {
+        let avatarArgument: any Encodable & Sendable = switch avatar {
+        case .unchanged: Absent()
+        case .removed: Optional<WireFile>.none
+        case let .set(file): file
+        }
+        try await run("updateProfile", [changes, avatarArgument])
+    }
+
+    public func setHideLastSeen(_ hide: Bool) async throws { try await run("setHideLastSeen", [hide]) }
+    public func revokeDevice(_ deviceId: String) async throws { try await run("revokeDevice", [deviceId]) }
+    public func changePassword(current: String, next: String) async throws { try await run("changePassword", [current, next]) }
+    /// A new recovery key; the old one stops working.
+    public func regenerateRecoveryKey(password: String) async throws -> String { try await call("regenerateRecoveryKey", [password]) }
+
     // MARK: Server administration
+
+    public func updateServerIcon(_ image: WireFile) async throws { try await run("updateServerIcon", [image]) }
+    public func setEmoteSet(_ link: String) async throws -> EmoteSetChange { try await call("setEmoteSet", [link]) }
+    public func setServerRole(_ userId: String, role: Role) async throws { try await run("setServerRole", [userId, role]) }
+    public func banUser(_ userId: String) async throws { try await run("banUser", [userId]) }
+    public func unbanUser(_ userId: String) async throws { try await run("unbanUser", [userId]) }
 
     /// Changes only the fields that are set.
     public func updateServerSettings(_ changes: ServerSettingsChanges) async throws { try await run("updateServerSettings", [changes]) }
@@ -169,5 +231,57 @@ public struct OutgoingFile: Codable, Sendable, Equatable {
         self.height = height
         self.thumb = thumb
         self.duration = duration
+    }
+}
+
+/// A group's name and description; nil fields stay as they are.
+public struct GroupMetaChanges: Codable, Sendable, Equatable {
+    public var name: String?
+    public var description: String?
+
+    public init(name: String? = nil, description: String? = nil) {
+        self.name = name
+        self.description = description
+    }
+}
+
+/// What happens to a picture: kept, removed, or replaced by a file.
+public enum AvatarChange: Sendable {
+    case unchanged
+    case removed
+    case set(WireFile)
+}
+
+/// An argument left out of a call, so the core sees `undefined` rather than null.
+struct Absent: Encodable, Sendable {
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Key.self)
+        try container.encode(true, forKey: .undefined)
+    }
+
+    private enum Key: String, CodingKey { case undefined = "$undefined" }
+}
+
+/// Profile fields to change; nil fields stay as they are.
+public struct ProfileChanges: Codable, Sendable, Equatable {
+    public var displayName: String?
+    public var bio: String?
+
+    public init(displayName: String? = nil, bio: String? = nil) {
+        self.displayName = displayName
+        self.bio = bio
+    }
+}
+
+/// The emote set a server switched to.
+public struct EmoteSetChange: Codable, Sendable, Equatable {
+    public var setId: String
+    public var setName: String
+    public var count: Int
+
+    enum CodingKeys: String, CodingKey {
+        case count
+        case setId = "set_id"
+        case setName = "set_name"
     }
 }

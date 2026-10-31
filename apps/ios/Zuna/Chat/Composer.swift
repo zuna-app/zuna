@@ -17,6 +17,8 @@ struct Composer: View {
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
     @State private var picking = false
+    /// The highlighted suggestion, moved with a hardware keyboard's arrows.
+    @State private var selectedSuggestion = 0
 
     private static let maxSuggestions = 8
 
@@ -67,16 +69,7 @@ struct Composer: View {
                         .foregroundStyle(Theme.text1)
                         .focused($focused)
                         .padding(.vertical, 8)
-                        .onKeyPress(.return, phases: .down) { press in
-                            // A hardware keyboard's Return sends; Shift-Return makes a new line.
-                            guard model.settings.enterToSend, !press.modifiers.contains(.shift) else { return .ignored }
-                            if let suggestion = suggestions.first {
-                                apply(suggestion)
-                            } else {
-                                send()
-                            }
-                            return .handled
-                        }
+                        .onKeyPress(phases: .down) { press in handleKey(press) }
                         .accessibilityLabel("Message")
                         .accessibilityIdentifier(A11y.Composer.input)
                     Button {
@@ -129,19 +122,73 @@ struct Composer: View {
             }
             .presentationDetents([.medium, .large])
         }
+        .onChange(of: trigger?.query) { selectedSuggestion = 0 }
         .onChange(of: state.editing?.id) { _, id in
             if id != nil { focused = true }
         }
         .onChange(of: state.replyTo?.id) { _, id in
             if id != nil { focused = true }
         }
-        #if DEBUG
-        .onChange(of: model.testAttachments) { _, urls in
+        .onChange(of: model.pendingAttachments) { _, urls in
             guard !urls.isEmpty else { return }
-            model.testAttachments = []
+            model.pendingAttachments = []
             Task { await stageFiles(urls, scoped: false) }
         }
-        #endif
+    }
+
+    /// A hardware keyboard, as on the desktop: Return sends (Shift-Return makes a new
+    /// line), Command- or Control-Return always sends, Escape cancels an edit or reply,
+    /// Up in an empty message edits your last one, and the arrows and Tab pick a suggestion.
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        let shown = suggestions
+        if !shown.isEmpty {
+            switch press.key {
+            case .downArrow:
+                selectedSuggestion = (selectedSuggestion + 1) % shown.count
+                return .handled
+            case .upArrow:
+                selectedSuggestion = (selectedSuggestion - 1 + shown.count) % shown.count
+                return .handled
+            case .return, .tab:
+                apply(shown[min(selectedSuggestion, shown.count - 1)])
+                return .handled
+            default:
+                break
+            }
+        }
+        switch press.key {
+        case .return:
+            if press.modifiers.contains(.shift) { return .ignored }
+            if model.settings.enterToSend || press.modifiers.contains(.command) || press.modifiers.contains(.control) {
+                send()
+                return .handled
+            }
+            return .ignored
+        case .escape:
+            if state.editing != nil {
+                model.edit(serverId, conversation.key, nil)
+                model.updateComposer(serverId, conversation.key) { $0.text = "" }
+            } else if state.replyTo != nil {
+                model.reply(serverId, conversation.key, to: nil)
+            } else {
+                return .ignored
+            }
+            return .handled
+        case .upArrow:
+            guard state.text.isEmpty, let last = lastOwnMessage else { return .ignored }
+            model.edit(serverId, conversation.key, last)
+            return .handled
+        default:
+            return .ignored
+        }
+    }
+
+    /// Your newest text message here, for Up to edit it.
+    private var lastOwnMessage: MessageView? {
+        let selfId = server.me?.userId
+        return model.list(serverId, AppModel.listId(for: conversation))?.items.last {
+            $0.senderId == selfId && !$0.text.isEmpty && $0.seq != nil && $0.deletedAt == nil && $0.system == nil
+        }
     }
 
     private var placeholder: String {
@@ -342,7 +389,7 @@ struct Composer: View {
         let shown = suggestions
         if !shown.isEmpty {
             VStack(spacing: 0) {
-                ForEach(shown) { suggestion in
+                ForEach(Array(shown.enumerated()), id: \.element.id) { index, suggestion in
                     Button {
                         apply(suggestion)
                     } label: {
@@ -361,6 +408,7 @@ struct Composer: View {
                         .font(.subheadline)
                         .padding(.horizontal, 14)
                         .frame(height: 40)
+                        .background(index == min(selectedSuggestion, shown.count - 1) ? Theme.bg3 : .clear)
                         .contentShape(.rect)
                     }
                     .buttonStyle(.plain)

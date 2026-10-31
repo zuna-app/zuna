@@ -74,6 +74,28 @@ enum OutgoingFiles {
         return staged
     }
 
+    /// A square picture for a group or profile, as the desktop's prepareAvatar: 256 pixels, WebP where the system can write it.
+    static func avatar(from source: URL, size: Int = 256) throws -> WireFile {
+        guard let image = UIImage(contentsOfFile: source.path)?.cgImageOriented() else { throw CocoaError(.fileReadCorruptFile) }
+        let side = min(image.width, image.height)
+        let crop = CGRect(x: (image.width - side) / 2, y: (image.height - side) / 2, width: side, height: side)
+        guard let square = image.cropping(to: crop),
+              let context = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+        context.interpolationQuality = .high
+        context.draw(square, in: CGRect(x: 0, y: 0, width: size, height: size))
+        guard let scaled = context.makeImage() else { throw CocoaError(.fileReadCorruptFile) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
+        for (type, mime, ext) in [(UTType.webP, "image/webp", "webp"), (UTType.jpeg, "image/jpeg", "jpg")] {
+            let target = folder.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+            guard let destination = CGImageDestinationCreateWithURL(target as CFURL, type.identifier as CFString, 1, nil) else { continue }
+            CGImageDestinationAddImage(destination, scaled, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+            if CGImageDestinationFinalize(destination) { return WireFile(path: target.path, type: mime) }
+        }
+        throw CocoaError(.fileWriteUnknown)
+    }
+
     static func discard(_ staged: StagedFile) {
         try? FileManager.default.removeItem(atPath: staged.file.blob.path)
     }
@@ -100,6 +122,21 @@ enum OutgoingFiles {
     }
 }
 
+/// Any file dragged onto a chat on an iPad.
+struct DroppedFile: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .item) { received in
+            let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let target = folder.appendingPathComponent(received.file.lastPathComponent)
+            try FileManager.default.copyItem(at: received.file, to: target)
+            return DroppedFile(url: target)
+        }
+    }
+}
+
 /// A photo or video from the photo picker, received as a file.
 struct PickedMedia: Transferable {
     let url: URL
@@ -120,5 +157,15 @@ struct PickedMedia: Transferable {
         let target = folder.appendingPathComponent(file.lastPathComponent)
         try FileManager.default.copyItem(at: file, to: target)
         return target
+    }
+}
+
+private extension UIImage {
+    /// The bitmap turned the way the picture is meant to be seen.
+    func cgImageOriented() -> CGImage? {
+        guard imageOrientation != .up else { return cgImage }
+        return UIGraphicsImageRenderer(size: size, format: { let format = UIGraphicsImageRendererFormat(); format.scale = 1; return format }()).image { _ in
+            draw(in: CGRect(origin: .zero, size: size))
+        }.cgImage
     }
 }

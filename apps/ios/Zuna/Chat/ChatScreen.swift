@@ -19,12 +19,14 @@ struct ChatScreen: View {
     private enum ChatSheet: Identifiable {
         case search, pins
         case react(messageId: String)
+        case verify(userId: String)
 
         var id: String {
             switch self {
             case .search: "search"
             case .pins: "pins"
             case let .react(id): "react-\(id)"
+            case let .verify(userId): "verify-\(userId)"
             }
         }
     }
@@ -53,17 +55,23 @@ struct ChatScreen: View {
         let peer = conversation.peerId.flatMap { server.users[$0] }
         let isSaved = conversation.peerId != nil && conversation.peerId == server.me?.userId
         return VStack(spacing: 0) {
-            if peer?.trust == .changed, !isSaved {
-                Label {
-                    Text("\(Text("\(conversation.title)'s security key changed.").bold()) This can mean someone is intercepting this chat. Compare keys before sharing anything private.")
-                } icon: {
-                    Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.amber)
+            if let peer, peer.trust == .changed, !isSaved {
+                HStack(spacing: 10) {
+                    Label {
+                        Text("\(Text("\(conversation.title)'s security key changed.").bold()) This can mean someone is intercepting this chat. Compare keys before sharing anything private.")
+                    } icon: {
+                        Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.amber)
+                    }
+                    Button("Verify") { sheet = .verify(userId: peer.id) }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier(A11y.Chat.bannerVerify)
                 }
                 .font(.footnote)
                 .foregroundStyle(Theme.text1)
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Theme.amber.opacity(0.12))
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier(A11y.Chat.banner)
             }
             PinnedBar(serverId: serverId, conversation: conversation) { sheet = .pins }
@@ -101,11 +109,18 @@ struct ChatScreen: View {
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
-                ChatHeader(conversation: conversation, server: server, peer: peer, isSaved: isSaved)
+                Button {
+                    model.chatPath.append(.details(conversation.key))
+                } label: {
+                    ChatHeader(conversation: conversation, server: server, peer: peer, isSaved: isSaved)
+                }
+                .buttonStyle(.plain)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                // Details come with F6; for now the avatar opens search and pins.
                 Menu {
+                    Button(conversation.kind == .group ? "Group details" : "Details", systemImage: "info.circle") {
+                        model.chatPath.append(.details(conversation.key))
+                    }
                     Button("Search", systemImage: "magnifyingglass") { sheet = .search }
                         .disabled(conversation.groupId == nil)
                     Button("Pinned messages", systemImage: "pin") { sheet = .pins }
@@ -126,6 +141,12 @@ struct ChatScreen: View {
         .task(id: listId) {
             await model.loadList(serverId, listId, groupId: conversation.groupId)
         }
+        // Files dragged onto the chat go into the composer, as on the desktop.
+        .dropDestination(for: DroppedFile.self) { files, _ in
+            guard !(peer?.banned == true && !isSaved) else { return false }
+            model.pendingAttachments += files.map(\.url)
+            return true
+        }
         .sheet(item: $emoteCard) { info in
             EmoteCard(info: info, server: server)
                 .presentationDetents([.height(150)])
@@ -138,6 +159,8 @@ struct ChatScreen: View {
             case .pins:
                 PinsSheet(serverId: serverId, conversation: conversation, server: server)
                     .presentationDetents([.medium, .large])
+            case let .verify(userId):
+                VerifyView(serverId: serverId, userId: userId)
             case let .react(messageId):
                 EmojiPicker(server: server) { pick in
                     self.sheet = nil
@@ -184,6 +207,7 @@ struct ChatScreen: View {
                 }
             },
             retry: { id in run { try await model.core.session(serverId).retryMessage(listId, id: id) } },
+            mention: { sheet = .verify(userId: $0) },
             emoteCard: { name, emote, note in emoteCard = EmoteCardInfo(name: name, emote: emote, note: note) },
             reply: { model.reply(serverId, conversation.key, to: $0) },
             edit: { model.edit(serverId, conversation.key, $0) },

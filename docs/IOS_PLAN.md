@@ -459,6 +459,44 @@ F5 is done; the hardware keyboard's shortcuts stay with F8. Each item has tests:
 - **Bugs found and fixed:** none in shared code this time; the tests caught their own ordering assumptions and a SwiftUI task on an empty `Group` that never ran.
 - **Tests:** 4 UI tests (markup, emotes and mentions as the desktop receives them; reply by swipe, edit and delete; pin, react, search and unpin; a picture and a file); a Debug-only hook adds files to the composer, so tests don't go through the system's pickers.
 
+## F6 results (2026-10-31)
+
+F6 is done. Each item has tests that check the desktop's side too:
+
+- **Details**, pushed from the chat's title or its menu, laid out like Telegram's profile pages:
+  - for a person: the picture, name, @username, online or last seen, bio, the encryption card leading to verification, and Notifications (mute), Pin to top, Hide from list;
+  - for a group: the picture (admins change it), name and description (admins edit them), what the server can see, the members with admins first, crowns and verified marks, and each member's menu (Message, Verify security key, Make or remove admin, Remove from group); for admins, adding people and "New members can read earlier messages"; Leave group and Delete group for everyone, both confirmed.
+- **New group** from the button beside the server's name or its menu: the name, people with search, and history for newcomers; the group opens when created.
+- **Invites** from the server's menu: expiry and uses as on the desktop, the new link with Copy and Share, active links with copy and revoke, and the note when members can't invite.
+- **Verification** from the details, a mention or the changed-key banner: the twelve emoji with names, the three states, "They match", "They don't match", "Remove verification", and your own key.
+- **Group pictures** go up as 256-pixel squares, as the desktop's `prepareAvatar` makes them, in WebP when the system can write it and JPEG otherwise.
+- **An argument left out** of a call now travels as `{"$undefined": true}`, since JSON's null can mean something else: in `updateGroupMeta`, null removes the picture, so turning history on must not send it.
+- **Tests:** 4 UI tests (the twelve emoji on the phone match the desktop's and verification is kept; a group created, members added, promoted and removed, renamed and deleted, each seen by the desktop peers; an invite link the desktop can read until it's revoked; muting from the details).
+
+## F7 results (2026-10-31)
+
+F7 is done, except notifications, which come later. Each item has tests:
+
+- **Settings**, laid out like Telegram's: your profile on the active server at the top, then Privacy and Security for that server, Appearance and App lock for the device, Server settings for owners and admins, signing out, and About.
+- **Profile:** the picture (picked and cut to a 256-pixel square, or removed), display name and bio, seen by the desktop.
+- **Privacy:** read receipts (synced) and "Show when I'm online", seen by the desktop.
+- **Appearance:** the accent, message size, Reduce motion (also on when the system's is), and Return sends on a hardware keyboard.
+- **Security:** your key, devices with this one first and removal, changing the password (the device lock follows, so the new password unlocks after a restart and the old one doesn't), and a new recovery key.
+- **App lock** (new on iOS): Face ID, Touch ID or the passcode each time the app opens; turning it on asks first, so nobody locks themselves out; the chats aren't drawn at all while it waits, and a cover hides them in the app switcher.
+- **Server settings:** the picture and name, address and version; invite links, "Let members create invite links" and "Open sign-ups" with its warning; members with roles, ban (confirmed) and unban; the 7TV emote set with a preview; the upload limit and retention.
+- **Sign out** of a server, confirmed, erasing its local data and its entry in the device lock.
+- **Tests:** 5 UI tests (profile and privacy on the desktop; the password change through a restart; signing out; administration as the owner, with a ban; App lock with the simulator's Face ID, which the orchestrator enrolls and drives).
+
+## F8 results (2026-10-31)
+
+F8's technical part is done; TestFlight waits on the decisions below.
+
+- **iPad:** laid out like the desktop: the server rail always there with Settings and your picture at the bottom, the conversations beside it, and the open chat (marked in the list) with its details filling the rest (`NavigationSplitView`). Files dragged onto a chat go into the composer.
+- **Hardware keyboards,** as on the desktop: Return sends and Shift-Return makes a new line (or Return makes lines and Command-Return sends, if "Return sends" is off), Escape cancels an edit or reply, Up in an empty message edits your last one, and the arrows and Tab pick a suggestion.
+- **VoiceOver** reads the upside-down message list top to bottom, as it looks, rather than newest first.
+- **Dynamic Type:** a screen tour at the largest accessibility sizes checks that the list, the chat with its composer, and settings stay usable.
+- **Tests:** an iPad layout test (run with `ZUNA_E2E_SIMULATOR="Zuna E2E iPad"`, and skipped on the iPhone) and a large-text tour; 36 UI tests pass on the iPhone and the iPad test on the iPad.
+
 ## Prerequisites on this Mac
 
 Installed on 2026-10-31:
@@ -478,6 +516,16 @@ Baseline, all green:
 - `cargo test` natively on macOS.
 
 The crate already cross-compiles for `aarch64-apple-ios` and `aarch64-apple-ios-sim` without changes. The target-specific dependencies planned for F1 are for cleanliness, not a blocker.
+
+## Waiting on the owner's decisions
+
+Work that needs a decision was set aside, as agreed, so the rest could go on:
+
+1. **App Store requirements that need new server features:** deleting an account from the app (guideline 5.1.1(v)), and reporting content and blocking people (guideline 1.2). Until then, TestFlight with internal testers or ad hoc builds only.
+2. **AGPL-3.0 on the App Store** (see risk 3): a decision on licensing, such as an extra permission for App Store distribution.
+3. **Signing and TestFlight:** archiving and uploading needs certificates and profiles created in the owner's Apple Developer account (Xcode's automatic signing with `-allowProvisioningUpdates` does it), so it waits for a go-ahead.
+4. **Look:** a light theme, and chat wallpapers, left open since F1.
+5. **Notifications:** the next stage, as agreed; the plan for it is below.
 
 ## Risks and open questions
 

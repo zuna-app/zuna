@@ -6,13 +6,22 @@ import ZunaModels
 /// with calls.
 struct MainView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        if sizeClass == .regular {
+            WideLayout()
+        } else {
+            compact
+        }
+    }
+
+    private var compact: some View {
         @Bindable var model = model
-        DrawerContainer(
+        return DrawerContainer(
             isOpen: $model.drawerOpen,
             swipeEnabled: model.tab == .chats && model.chatPath.isEmpty,
-            reduceMotion: model.settings.reduceMotion
+            reduceMotion: model.reduceMotion
         ) {
             ServerDrawer()
         } content: {
@@ -33,6 +42,41 @@ struct MainView: View {
         .sheet(isPresented: $model.joining) {
             JoinFlow(embedded: true)
         }
+    }
+}
+
+/// The iPad, laid out like the desktop: the server rail always there, the
+/// conversations beside it, and the open chat filling the rest.
+private struct WideLayout: View {
+    @Environment(AppModel.self) private var model
+    @State private var showingSettings = false
+
+    var body: some View {
+        @Bindable var model = model
+        HStack(spacing: 0) {
+            ServerRail(onProfile: { showingSettings = true }, showsSettings: true)
+            Divider().overlay(Theme.line)
+            NavigationSplitView {
+                ChatListView(sidebar: true)
+                    .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 440)
+            } detail: {
+                if let first = model.chatPath.first {
+                    NavigationStack(path: Binding(get: { Array(model.chatPath.dropFirst()) }, set: { model.chatPath = [first] + $0 })) {
+                        ChatRouteView(route: first)
+                            .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+                    }
+                    .id(first)
+                } else {
+                    ContentUnavailableView("Choose a chat", systemImage: "bubble.left.and.bubble.right", description: Text("Messages are end-to-end encrypted."))
+                        .foregroundStyle(Theme.text2)
+                        .background(Theme.bg0)
+                }
+            }
+            .navigationSplitViewStyle(.balanced)
+        }
+        .background(Theme.bg0)
+        .sheet(isPresented: $showingSettings) { SettingsView() }
+        .sheet(isPresented: $model.joining) { JoinFlow(embedded: true) }
     }
 }
 

@@ -28,6 +28,19 @@ final class Peer: @unchecked Sendable {
         return try JSONSerialization.jsonObject(with: result, options: .fragmentsAllowed)
     }
 
+    /// Calls a method of the peer's client, outside any server, such as previewInvite.
+    @discardableResult
+    func callClient(_ method: String, _ arguments: [Any] = []) throws -> Any {
+        let socket = socket
+        let encoded = try JSONSerialization.data(withJSONObject: arguments)
+        let result = try blocking {
+            let arguments = try JSONSerialization.jsonObject(with: encoded) as? [Any] ?? []
+            let value = try await socket.call(method, arguments)
+            return try JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)
+        }
+        return try JSONSerialization.jsonObject(with: result, options: .fragmentsAllowed)
+    }
+
     /// Sends a message with any of the body's fields (text, emotes, mentions, replyTo), and returns its ID.
     @discardableResult
     func send(to key: String, _ body: [String: Any]) throws -> String {
@@ -77,6 +90,15 @@ final class Peer: @unchecked Sendable {
 
 /// The test world itself, for what no single client can do.
 enum WorldControl {
+    /// Shows the simulator's Face ID the enrolled face, or someone else's.
+    static func faceId(match: Bool) throws {
+        let url = URL(string: "\(World.current.peersUrl)/world")!
+        try blocking {
+            let socket = try await RPCSocket.connect(to: url)
+            _ = try await socket.call("faceId", [match])
+        }
+    }
+
     /// Signs in to an account on another new device, as if on a new laptop.
     static func newDevice(for name: String, password: String) throws {
         let url = URL(string: "\(World.current.peersUrl)/world")!

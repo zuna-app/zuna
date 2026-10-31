@@ -49,7 +49,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             let group = NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)])
             return NSCollectionLayoutSection(group: group)
         }
-        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: layout)
+        collectionView = ChatCollectionView(frame: view.bounds, collectionViewLayout: layout)
         collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         collectionView.backgroundColor = .clear
         collectionView.transform = Self.flip
@@ -101,7 +101,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
 
         // New messages at the bottom slide in while you're there; anything else just appears.
         let newAtBottom = oldIds.first.map { ids.first != $0 && ids.contains($0) } ?? false
-        let animate = newAtBottom && atBottom && !model.settings.reduceMotion
+        let animate = newAtBottom && atBottom && !model.reduceMotion
         let anchor = atBottom || oldIds.isEmpty ? nil : visibleAnchor()
         // Coming back to a chat that was scrolled up shows the same messages again.
         let saved = oldIds.isEmpty && !input.detached ? model.savedPositions[input.listKey] : nil
@@ -246,6 +246,27 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         if remaining < 800 {
             DispatchQueue.main.async { [weak self] in self?.onNearOldest() }
         }
+    }
+}
+
+/// Upside down, the cells' order is newest first; VoiceOver reads them top to bottom, as they look.
+private final class ChatCollectionView: UICollectionView {
+    private var cellsOnScreen: [UICollectionViewCell] {
+        visibleCells.sorted { $0.convert($0.bounds, to: nil).minY < $1.convert($1.bounds, to: nil).minY }
+    }
+
+    override func accessibilityElementCount() -> Int {
+        cellsOnScreen.count
+    }
+
+    override func accessibilityElement(at index: Int) -> Any? {
+        let cells = cellsOnScreen
+        return cells.indices.contains(index) ? cells[index] : nil
+    }
+
+    override func index(ofAccessibilityElement element: Any) -> Int {
+        guard let cell = element as? UICollectionViewCell else { return NSNotFound }
+        return cellsOnScreen.firstIndex(of: cell) ?? NSNotFound
     }
 }
 
