@@ -100,6 +100,8 @@ const MAX_COMMIT_ATTEMPTS = 6;
 const REMOVED_KEPT_MS = 30 * 24 * 3600 * 1000;
 /** How often to check whether a session that seemed to end is really over, such as after a proxy's hiccup. */
 const SIGNED_OUT_RETRY_MS = 5 * 60 * 1000;
+/** Past this, the time a device signed and the time the server says it got the message look wrong. */
+const TIME_DIFFERS_MS = 24 * 3600 * 1000;
 const VAULT_BATCH = 200;
 const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
 
@@ -2386,6 +2388,7 @@ export class ServerSession {
       preview: body.preview ?? null,
       forwarded: body.forwarded ?? null,
     };
+    if (body.sentAt !== undefined && Math.abs(body.sentAt - (row.edited_at ?? row.created_at)) > TIME_DIFFERS_MS) view.timeDiffers = true;
     return view;
   }
 
@@ -2888,7 +2891,7 @@ export class ServerSession {
     if (entry.kind === "edit") {
       await this.withLock(entry.groupId, () =>
         this.sealAndRetry(entry.groupId, async (epoch, key) => {
-          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, entry.body);
+          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, { ...entry.body, sentAt: Date.now() });
           this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
         }),
       );
@@ -2900,7 +2903,7 @@ export class ServerSession {
       await this.rotateIfOld(groupId);
       this.moveLocalEcho(groupKey, groupId, entry.id);
       await this.sealAndRetry(groupId, async (epoch, key) => {
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, entry.body);
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, { ...entry.body, sentAt: Date.now() });
         const saved = await this.api.sendMessage(groupId, {
           id: entry.id,
           epoch,
