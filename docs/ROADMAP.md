@@ -1,31 +1,34 @@
 # Roadmap
 
-Zuna 0.1 is desktop-only text chat. The design already allows for mobile apps and calls. This page describes how they fit.
+Zuna 0.1 is text chat, with desktop apps for Windows, Linux and macOS and a native app for the iPhone and iPad. The design already allows for Android and calls. This page describes what's left and how they fit.
 
-## Mobile apps
+## Phones
 
-**What's reusable today**
+**iPhone and iPad: built, not yet released**
 
-- `packages/core` is all protocol logic with no UI or Electron dependency. It already runs headless in Node for tests.
-- The server needs no changes to serve another kind of client.
-- Multi-device support already exists, so a phone is simply another device. It signs in with the password, joins each group with an external commit, and downloads history.
+The app is native: SwiftUI, with the unchanged client core (`packages/core`) running in JavaScriptCore and the Rust crypto through UniFFI. It does everything the desktop does, and stays compatible with it. Notifications show the message, decrypted on the phone, and go where you are, as in Telegram. [IOS_PLAN.md](IOS_PLAN.md) has the design and the decisions behind it, and [IOS_TESTING.md](IOS_TESTING.md) how it's tested.
 
-**The plan: React Native**
+Before it reaches people:
+
+- **App Store requirements that need server features:** deleting an account from the app, and reporting content and blocking people.
+- **Licensing:** distributing GPL code through an app store needs an extra permission under section 7 of the GPL, from everyone who holds copyright.
+- **Notifications in production:** deploying the push relay with the app's APNs key ([PUSH_RELAY.md](PUSH_RELAY.md)), and Apple's notification filtering entitlement, so muted chats and messages read elsewhere are handled on the phone rather than by the server.
+- **Signing and TestFlight,** and testing on real devices.
+
+**Android: the plan**
+
+The iPhone app's approach carries over:
 
 | Concern | Approach |
 |---|---|
-| UI | New React Native screens. The DOM components can't be shared, but state and logic can. |
-| Crypto | Start with the existing WebAssembly build. Move to native OpenMLS through UniFFI if performance requires it; `crypto/src/mls.rs` is already separate from the WASM bindings for this reason. |
-| Storage | Implement the `LocalDb` interface in `packages/core/src/db.ts` with `op-sqlite`. |
-| Keychain | iOS Keychain and Android Keystore supply the device key. |
+| UI | Native screens in Kotlin with Jetpack Compose. |
+| Client core | The same `packages/core` bundle, in an embedded JavaScript engine such as QuickJS or Hermes, with the bridges the iOS host has: storage, crypto, network and files. |
+| Crypto | The Rust crate through UniFFI, which generates Kotlin bindings as it does Swift ones. |
+| Storage | SQLite in the app's private storage, behind the core's `LocalDb` interface. |
+| Keychain | Android Keystore protects the device key. |
+| Notifications | The push relay gains Firebase Cloud Messaging next to APNs; servers can also push through UnifiedPush directly, for phones without Google services. |
 
-**Push notifications are the one new server feature.** Phones can't hold a socket open, so a server needs a way to wake them:
-
-1. The app registers a push token, through UnifiedPush, or through APNs and FCM.
-2. On a new message, the server sends a push holding only the group ID and message ID, sealed with a key the device gave it, never content.
-3. The phone wakes, fetches the message, decrypts it, and shows a local notification.
-
-Apple and Google require credentials tied to a published app, so self-hosted servers use a small relay run by the project (`zuna-push`), which sees only sealed handles, sealed payloads and timing. Android can also use UnifiedPush. The iOS side is planned in [IOS_PLAN.md](IOS_PLAN.md#notifications-decided-2026-10-31).
+**Push notifications are built.** A server pushes only the group and message IDs, sealed with a key the device gave it, through `zuna-push`, a small relay the project runs, since Apple and Google tie push credentials to a published app. The relay sees only sealed handles, sealed payloads and timing, and the phone fetches and decrypts the message itself. Nobody is pushed while they use one of their devices, and silent pushes clear what was read or deleted elsewhere.
 
 ## Voice, video and screen sharing
 
@@ -48,6 +51,7 @@ Membership changes rotate the MLS epoch, which rotates the call key. A removed m
 | Server | Optional `ZUNA_LIVEKIT_URL`, key and secret settings, plus an endpoint that issues a short-lived room token to members of a group. Servers without LiveKit work as they do today. |
 | Client core | Export call keys and rotate them on new epochs. |
 | Desktop | LiveKit's client SDK with its E2EE key provider, a call screen, and microphone and camera permissions. The macOS entitlements are already in place. |
+| iPhone and iPad | LiveKit's Swift SDK with its E2EE key provider, a Calls tab, which the tab bar leaves room for, and CallKit, so calls ring like phone calls. |
 | Signaling | "Call started" and "call ended" as encrypted events in the conversation, so the server doesn't learn more than the LiveKit token request reveals. |
 | Self-hosting | A compose file with LiveKit as an optional second service. |
 
