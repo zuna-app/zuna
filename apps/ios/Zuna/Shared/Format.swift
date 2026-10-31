@@ -84,6 +84,7 @@ enum Format {
         guard let message else { return (nil, "") }
         if message.system != nil { return (nil, "Membership changed") }
         if message.status == .undecryptable { return (nil, "Waiting for keys") }
+        if message.status == .invalid || message.status == .unverified { return (nil, "A message that couldn't be displayed") }
         let author: String? = if message.senderId == selfId {
             "You"
         } else if kind == .group {

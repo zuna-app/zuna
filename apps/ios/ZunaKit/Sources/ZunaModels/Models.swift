@@ -10,7 +10,35 @@ public enum GroupRole: String, Codable, Sendable { case admin, member }
 public enum GroupKind: String, Codable, Sendable { case dm, group }
 public enum TrustState: String, Codable, Sendable { case unverified, verified, changed }
 public enum ConnectionState: String, Codable, Sendable { case connecting, syncing, online, offline }
-public enum MessageStatus: String, Codable, Sendable { case sending, sent, failed, undecryptable, unverified }
+public enum MessageStatus: String, Codable, Sendable { case sending, sent, failed, undecryptable, unverified, invalid }
+
+/// A list that keeps what it can: one row that can't be decoded doesn't lose the
+/// rest. The core checks everything first, so this is the second line of defence.
+public struct LossyList<Element: Codable & Sendable>: Codable, Sendable {
+    public var items: [Element]
+
+    private struct Skipped: Decodable {
+        init(from decoder: Decoder) {}
+    }
+
+    public init(from decoder: Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var items: [Element] = []
+        while !container.isAtEnd {
+            if let item = try? container.decode(Element.self) {
+                items.append(item)
+            } else {
+                _ = try? container.decode(Skipped.self)
+            }
+        }
+        self.items = items
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(contentsOf: items)
+    }
+}
 
 public struct ServerInfo: Codable, Sendable, Hashable {
     public var name: String
@@ -345,6 +373,14 @@ public struct SelfInfo: Codable, Sendable, Equatable {
 public struct MessagePage: Codable, Sendable, Equatable {
     public var messages: [MessageView]
     public var hasMore: Bool
+
+    private enum CodingKeys: String, CodingKey { case messages, hasMore }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        messages = try container.decode(LossyList<MessageView>.self, forKey: .messages).items
+        hasMore = try container.decode(Bool.self, forKey: .hasMore)
+    }
 }
 
 /// `register()`.

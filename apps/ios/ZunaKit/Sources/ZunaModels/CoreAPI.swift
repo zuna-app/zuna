@@ -64,7 +64,10 @@ public struct SessionCalls: Sendable {
     public func getSelf() async throws -> SelfInfo { try await call("getSelf") }
     public func getInfo() async throws -> ServerInfo? { try await call("getInfo") }
     public func getUsers() async throws -> [UserView] { try await call("getUsers") }
-    public func getConversations() async throws -> [ConversationView] { try await call("getConversations") }
+    public func getConversations() async throws -> [ConversationView] {
+        let rows: LossyList<ConversationView> = try await call("getConversations")
+        return rows.items
+    }
     public func getPreferences() async throws -> Preferences { try await call("getPreferences") }
     /// Changes only the lists that are set, so another device's change to the others isn't undone.
     public func updatePreferences(_ changes: PreferenceChanges) async throws { try await run("updatePreferences", [changes]) }

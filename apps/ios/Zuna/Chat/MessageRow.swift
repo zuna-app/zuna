@@ -324,7 +324,12 @@ private struct MessageItem: View {
             .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text2)
             meta.frame(maxWidth: .infinity, alignment: .trailing)
         } else if message.status == .unverified {
-            Label("This message's signature is invalid, so it isn't shown.", systemImage: "exclamationmark.shield")
+            Label("This message couldn't be verified, so it isn't shown.", systemImage: "exclamationmark.shield")
+                .font(.subheadline)
+                .foregroundStyle(Color(hex: 0xF4BCBE))
+            meta.frame(maxWidth: .infinity, alignment: .trailing)
+        } else if message.status == .invalid {
+            Label("This message couldn't be displayed.", systemImage: "exclamationmark.shield")
                 .font(.subheadline)
                 .foregroundStyle(Color(hex: 0xF4BCBE))
             meta.frame(maxWidth: .infinity, alignment: .trailing)
