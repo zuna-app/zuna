@@ -35,8 +35,8 @@ run(
 step("L1: the Rust tests, natively");
 run("cargo", ["test", "--lib"], { cwd: join(root, "crypto") });
 
-step("L1: native against WebAssembly");
-run("npm", ["run", "test", "-w", "@zuna/e2e", "--", "test/crypto.test.ts"]);
+step("L1 and L2: native against WebAssembly, and golden files from the desktop");
+run("npm", ["run", "test", "-w", "@zuna/e2e", "--", "test/crypto.test.ts", "test/golden.test.ts"]);
 
 step("L2: the host's units");
 run("swift", ["test", "--package-path", join(iosDir, "ZunaKit")]);
