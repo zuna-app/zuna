@@ -225,6 +225,10 @@ public final class CoreRuntime: @unchecked Sendable {
 
         installFiles(into: host)
         network.install(into: host)
+        #if DEBUG
+        // Turns on the bundle's test hooks (a movable clock, access to the client). Release builds leave them off.
+        host.setObject(true, forKeyedSubscript: "testHooks" as NSString)
+        #endif
         context.setObject(host, forKeyedSubscript: "__zunaHost" as NSString)
     }
 
@@ -292,8 +296,9 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
-    // MARK: Test hooks
+    // MARK: Test hooks, in Debug builds only
 
+    #if DEBUG
     /// Makes HTTP and WebSocket connections fail, as if the device were offline.
     public func setOffline(_ offline: Bool) {
         queue.async { [self] in
@@ -302,7 +307,6 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
-    #if DEBUG
     /// Exits the process as soon as a response to `method` on a URL matching `urlPattern` arrives.
     public func crashOnResponse(method: String, urlPattern: String) {
         guard let pattern = try? NSRegularExpression(pattern: urlPattern) else { return }

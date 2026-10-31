@@ -41,16 +41,14 @@ let package = Package(
             name: "ZunaHost",
             dependencies: ["ZunaCrypto", "CSQLite"],
             // Built by apps/ios/core-bundle/build.mjs.
-            resources: [.copy("Resources/zuna-core.js")],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            resources: [.copy("Resources/zuna-core.js")]
         ),
         // The core's types in Swift, and the RPC client the UI uses.
         .target(name: "ZunaModels", dependencies: ["ZunaHost"]),
         // Test builds only: drives a host over a local WebSocket.
         .target(
             name: "ZunaControl",
-            dependencies: ["ZunaHost"],
-            swiftSettings: [.swiftLanguageMode(.v5)]
+            dependencies: ["ZunaHost"]
         ),
         .executableTarget(
             name: "ZunaHostCLI",

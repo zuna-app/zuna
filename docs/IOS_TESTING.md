@@ -43,7 +43,10 @@ The key enabler. The app's core already sits behind an RPC boundary (`packages/c
 
 - **Where:** `ZunaHost` starts a `ControlServer` (Network.framework, WebSocket) on `127.0.0.1` when launched with `-ZunaControlPort <port>` (the app) or `--control <port>` (`zuna-host`). The Node peers expose the same protocol, so UI tests drive peers the same way.
 - **Wire format:** JSON frames shaped like `rpc.ts` messages. Binary values are tagged as `{"$bytes": "<base64>"}`. Files are tagged as `{"$file": {"path", "name", "mime"}}` when both sides share the filesystem, and sent as bytes otherwise.
-- **Release builds never contain it.** The code is compiled only under the `ZUNA_TEST_HOOKS` Swift condition, and the JS hooks only under the bundle define `__ZUNA_TEST__`. A CI check builds Release and fails if the binary contains `ControlServer` or `__zunaTest`.
+- **Release builds never contain it.**
+  - The control server and the native hooks are compiled only in Debug.
+  - The bundle's JavaScript hooks (a movable clock, access to the client) stay inert unless a Debug host sets `__zunaHost.testHooks`.
+  - `npm run test:ios:release` builds Release and fails if the binary contains any test-only string literal. It found a leak while being written: a Swift property name kept in reflection metadata.
 - **Test-only methods** (namespace `test.`):
 
 | Method | Purpose |
@@ -144,6 +147,7 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
   3. Seeds the world through the peers: owner account, invite links, peers with avatars, a DM history, a group with pins, reactions and emotes, and a 2,000-message conversation for scrolling.
   4. Prepares the dedicated simulator.
   5. Runs `xcodebuild test-without-building`, passing the server and peer URLs through `TEST_RUNNER_` environment variables.
+- **The tests stay synchronous.** `XCUIApplication` waits for the app by turning the main run loop, and an async test on the main actor blocks it. TestKit runs its network calls in the background and waits for them.
 - **TestKit** in the UI test target:
   - `Peers` client speaking the control protocol: `peers.alice.send(to:text:)`, `waitForMessage`, `react`, `createGroup`, `sendFile(fixture:)` and so on;
   - `AppLauncher` with launch arguments for the control port, a fresh data directory, signing in programmatically (`-ZunaTestLogin`), animations off, `en_US` locale and UTC.
@@ -204,10 +208,10 @@ On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minut
 | `npm run test:ios:sim` | L4: the same scenarios with the real app in the E2E simulator | since F0 |
 | `npm run test:ios:perf` | L6 for the core: sign-in and sync of 10,000 messages | since F0 |
 | `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests | since F0 |
-| `npm run test:ios:check` | L0, L1, L2 together | F1 |
-| `npm run test:ios:ui -- [--only Composer]` | L5 | F1 |
-| `npm run test:ios:screens` | the screen tour | F1 |
-| `npm run test:ios:all` | everything, plus the desktop's `npm test` | F1 |
+| `npm run test:ios:ui -- [--only LaunchAndUnlockTests]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` | since F1 |
+| `npm run test:ios:release` | the Release guard | since F1 |
+| `npm run test:ios:check` | L0, L1, L2 together | later in F1 |
+| `npm run test:ios:all` | everything, plus the desktop's `npm test` | later in F1 |
 
 Each run writes `apps/ios/.e2e/<run>/` (and `latest/`) containing:
 

@@ -349,6 +349,32 @@ Carried into F1:
 
 The message list itself (`UICollectionView`) moves to the start of F4: its riskiest part, the text, is settled.
 
+## F1 progress (2026-10-31)
+
+Done, each with tests:
+
+- **Core:** `FileAdapter`, `suspend()`/`resume()` (desktop unchanged, 44 core tests pass).
+- **iOS host:**
+  - files read from disk and decrypted into the protected cache;
+  - the app lifecycle: background task, then suspend; resume; network watch;
+  - `ZunaModels` and `CoreConnection` with the drift check;
+  - Swift 6 mode throughout `ZunaKit`.
+- **Test infrastructure:**
+  - control channel hooks (offline, crash after a server response, movable clock, access to internals);
+  - fake 7TV with committed emote fixtures;
+  - XCUITest with TestKit, peers and the `ui-run` orchestrator writing summaries with screenshots;
+  - the Release guard.
+- **Results:**
+  - 16 cross-client scenarios pass against the app in the simulator, 15 against `zuna-host`;
+  - 3 UI tests pass.
+- **Bugs found and fixed by these tests:**
+  - a lost unlock entry if the app closed right after a sign-in;
+  - the control channel reading key order;
+  - a leak of a test hook into Release.
+- **App icon:** square, without an alpha channel.
+
+Left for F1: crypto cross-vectors (L1), a CI job, and `AppModel` with the theme and fonts. The last waits on the layout questions, since the iOS layout follows Telegram. The golden corpus for markup moves to F4, where the Swift parser is written.
+
 ## Prerequisites on this Mac
 
 Installed on 2026-10-31:
