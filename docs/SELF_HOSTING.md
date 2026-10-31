@@ -29,17 +29,17 @@ Then get your setup link:
 docker compose logs zuna
 ```
 
-## Option 2: Install script (Linux with systemd)
+## Option 2: From source on Linux with systemd
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/zuna-chat/zuna/main/deploy/install.sh | sudo sh -s -- chat.example.com
+sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
 ```
-
-This downloads the server, verifies its checksum, creates a `zuna` system user and starts a hardened systemd service. Data goes in `/var/lib/zuna`. Find your setup link with:
 
 ```bash
-journalctl -u zuna | grep invite
+sudo /opt/zuna/deploy/update.sh --server chat.example.com
 ```
+
+This builds the server from the repository, creates a `zuna` system user, starts a hardened systemd service and puts Caddy in front for HTTPS. It prints your setup link at the end. Running the same script again updates everything. Data goes in `/var/lib/zuna`. The details, including running the push relay on the same machine, are in [LINUX.md](LINUX.md).
 
 ## Option 3: Run the binary yourself
 

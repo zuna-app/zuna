@@ -16,7 +16,13 @@ Phones can't keep a connection open in the background, so a Zuna server wakes th
 
 ## Running it
 
-Put the `.p8` file next to a `docker-compose.yml` like this one, in a checkout of the repository:
+**Without Docker,** on Linux with systemd, `deploy/update.sh` builds and runs the relay, alone or next to a chat server, with Caddy for HTTPS. See [LINUX.md](LINUX.md):
+
+```bash
+sudo /opt/zuna/deploy/update.sh --relay push.example.com --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
+```
+
+**With Docker,** put the `.p8` file next to a `docker-compose.yml` like this one, in a checkout of the repository:
 
 ```yaml
 services:
