@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Avatar, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
 import { refocusComposer } from "@/lib/focus";
 import { formatListTime } from "@/lib/format";
@@ -35,6 +36,7 @@ function previewFor(message: MessageView | null, users: Record<string, UserView>
   if (!message) return "";
   if (message.system) return "Membership changed";
   if (message.status === "undecryptable") return "Waiting for keys";
+  if (message.status === "invalid" || message.status === "unverified") return "A message that couldn't be displayed";
   const author = message.senderId === selfId ? "You" : kind === "group" ? users[message.senderId]?.displayName.split(" ")[0] : null;
   const body = message.text
     ? plainText(message.text).slice(0, 80)
@@ -247,20 +249,30 @@ export function ConversationList() {
   ];
 
   const renderRow = (item: ConversationView) => (
-    <ConversationRow
+    <ErrorBoundary
       key={item.key}
-      item={item}
-      active={server.activeKey === item.key}
-      peer={item.peerId ? (users[item.peerId] ?? null) : null}
-      typing={!!item.groupId && Object.keys(server.typing[item.groupId] ?? {}).length > 0}
-      preview={previewFor(item.lastMessage, users, selfId, item.kind)}
-      isSaved={item.peerId === selfId}
-      onSelect={selectConversation}
-      onMenu={(event, target) => {
-        setMenuItem(target);
-        rowMenu.open(event);
-      }}
-    />
+      fallback={
+        <button className="conv-row" onClick={() => selectConversation(item.key)}>
+          <span className="conv-body">
+            <span className="conv-title truncate">A conversation that couldn't be displayed</span>
+          </span>
+        </button>
+      }
+    >
+      <ConversationRow
+        item={item}
+        active={server.activeKey === item.key}
+        peer={item.peerId ? (users[item.peerId] ?? null) : null}
+        typing={!!item.groupId && Object.keys(server.typing[item.groupId] ?? {}).length > 0}
+        preview={previewFor(item.lastMessage, users, selfId, item.kind)}
+        isSaved={item.peerId === selfId}
+        onSelect={selectConversation}
+        onMenu={(event, target) => {
+          setMenuItem(target);
+          rowMenu.open(event);
+        }}
+      />
+    </ErrorBoundary>
   );
 
   return (

@@ -2,10 +2,23 @@ import type { ConversationView, MessageView } from "@zuna/core";
 import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
 import { formatDaySeparator, sameDay } from "@/lib/format";
 import { useApp } from "@/state/store";
 import { MessageItem } from "./MessageItem";
+
+function UndisplayableMessage() {
+  return (
+    <div className="msg is-other">
+      <div className="msg-stack">
+        <div className="bubble">
+          <span className="msg-placeholder">This message couldn't be displayed.</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 /** How near the newest message still counts as being at it. */
@@ -315,18 +328,20 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
               <span>{formatDaySeparator(message.createdAt)}</span>
             </div>
           )}
-          <MessageItem
-            message={message}
-            listId={listId}
-            isGroup={isGroup}
-            isGroupAdmin={isAdmin}
-            readUpTo={readUpTo}
-            grouped={grouped}
-            lastInGroup={!continues(message, next)}
-            fresh={fresh.current.has(message.id)}
-            highlighted={highlightId === message.id}
-            own={message.senderId === selfId}
-          />
+          <ErrorBoundary key={message.id} fallback={<UndisplayableMessage />}>
+            <MessageItem
+              message={message}
+              listId={listId}
+              isGroup={isGroup}
+              isGroupAdmin={isAdmin}
+              readUpTo={readUpTo}
+              grouped={grouped}
+              lastInGroup={!continues(message, next)}
+              fresh={fresh.current.has(message.id)}
+              highlighted={highlightId === message.id}
+              own={message.senderId === selfId}
+            />
+          </ErrorBoundary>
         </div>
       );
     },

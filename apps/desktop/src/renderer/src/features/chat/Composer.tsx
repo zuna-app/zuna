@@ -1,5 +1,6 @@
 import type { ConversationView, EmoteRef, LinkPreview, MessageView } from "@zuna/core";
 import { findLink } from "@zuna/core/links";
+import { MAX_TEXT_LENGTH } from "@zuna/core/validate";
 import { plainText } from "@zuna/core/plain-text";
 import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, Mic, Paperclip, Pencil, SendHorizontal, Smile, Trash2, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
@@ -204,6 +205,10 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const send = () => {
     const value = text.trim();
     if (!value && files.length === 0) return;
+    if (value.length > MAX_TEXT_LENGTH) {
+      toast("That message is too long. Try sending it as a file.", "error");
+      return;
+    }
     if (editing) {
       if (value && value !== editing.text) {
         void session().editMessage(editing.groupId, editing.id, value, emotesInText(value), mentionsIn(value, users));
@@ -232,7 +237,9 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         )
         .catch((error: Error) => toast(error.message, "error"));
     } else {
-      void session().sendMessage(conversation.key, body);
+      void session()
+        .sendMessage(conversation.key, body)
+        .catch((error: Error) => toast(error.message, "error"));
     }
     // From a window of older messages, sending goes back to the newest.
     if (useApp.getState().lists[listId]?.detached) void useApp.getState().returnToLatest(listId);

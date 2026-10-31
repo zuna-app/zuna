@@ -606,7 +606,11 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             </span>
           ) : message.status === "unverified" ? (
             <span className="msg-placeholder is-danger">
-              <ShieldAlert size={14} /> This message's signature is invalid, so it isn't shown.
+              <ShieldAlert size={14} /> This message couldn't be verified, so it isn't shown.
+            </span>
+          ) : message.status === "invalid" ? (
+            <span className="msg-placeholder is-danger">
+              <ShieldAlert size={14} /> This message couldn't be displayed.
             </span>
           ) : (
             <>
