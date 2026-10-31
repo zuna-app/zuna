@@ -9,6 +9,8 @@ declare const __zunaHost: {
   utf8Decode(bytes: Uint8Array): string;
   base64Encode(bytes: Uint8Array): string;
   base64Decode(text: string): Uint8Array;
+  /** A sign-in, password change or sign-out, as JSON, for the app's device lock. */
+  accountEvent(json: string): void;
   /** Channel 0 broadcasts to every channel. */
   post(channel: number, json: string): void;
   http(id: number, method: string, url: string, headers: string, body: Uint8Array | string | null, timeoutMs: number): void;

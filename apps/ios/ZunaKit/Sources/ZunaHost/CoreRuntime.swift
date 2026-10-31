@@ -6,6 +6,21 @@ public struct CoreError: Error, CustomStringConvertible {
     public let description: String
 }
 
+/// A sign-in, password change or sign-out, reported by the core bundle so the
+/// app can keep its device lock in step. `password` is set for sign-ins and
+/// password changes.
+public struct AccountEvent: Decodable, Sendable {
+    public enum Kind: String, Decodable, Sendable {
+        case signedIn, passwordChanged, signedOut
+    }
+
+    public let type: Kind
+    public let serverUrl: String
+    public let username: String
+    public let serverName: String
+    public let password: String?
+}
+
 /// Runs the shared TypeScript client core (`@zuna/core`) in JavaScriptCore on a
 /// queue of its own, like the desktop runs it in a Worker. Everything that
 /// touches the JavaScript context happens on that queue, so the core keeps the
@@ -21,6 +36,8 @@ public final class CoreRuntime: @unchecked Sendable {
         public var deviceName: String
         /// Also print the core's log to standard error, for the command-line host.
         public var logToStandardError = false
+        /// Called on the core's queue when an account signs in, changes its password or signs out.
+        public var onAccountEvent: (@Sendable (AccountEvent) -> Void)?
 
         public init(dataDirectory: URL, deviceKey: Data, deviceName: String) {
             self.dataDirectory = dataDirectory
@@ -181,6 +198,15 @@ public final class CoreRuntime: @unchecked Sendable {
             return JSBytes.make(data, in: context)
         }
         define("base64Decode", base64Decode)
+
+        let accountEvent: @convention(block) (String) -> Void = { [unowned self] json in
+            guard let data = json.data(using: .utf8), let event = try? JSONDecoder().decode(AccountEvent.self, from: data) else {
+                self.log("error", "An account event couldn't be read.")
+                return
+            }
+            options.onAccountEvent?(event)
+        }
+        define("accountEvent", accountEvent)
 
         let post: @convention(block) (Double, String) -> Void = { [unowned self] channel, json in
             if channel == 0 {

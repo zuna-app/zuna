@@ -178,4 +178,34 @@ describe("an iOS client with a desktop client", () => {
       throw new Error(`${error.message}\n${tablet.output.slice(-3000)}`);
     });
   });
+
+  it.runIf(phoneTarget === "simulator")("asks for the password once after the phone restarts", async () => {
+    // Restarting only the app keeps it unlocked.
+    await phone.restart();
+    expect(await phone.hostCommand("state")).toBe("ready");
+
+    // A restart of the phone is a new boot session: the key is locked again.
+    await phone.close();
+    phone.bootSession = "after-a-restart";
+    await phone.open();
+    expect(await phone.hostCommand("state")).toBe("locked");
+    expect(await phone.unlock("not my password")).toBe("wrong-password");
+    expect(await phone.unlock("correct horse battery")).toBe("ready");
+    await phone.online();
+    alice.session.sendMessage(`user:${bobId}`, { text: "after the phone restarted" });
+    await waitFor(async () => (await phone.texts(`user:${aliceId}`)).includes("after the phone restarted"), "bob to read it after unlocking");
+
+    // Opening the app again before the next restart doesn't ask.
+    await phone.restart();
+    expect(await phone.hostCommand("state")).toBe("ready");
+
+    // A new password replaces the old one in the lock.
+    await phone.session.changePassword("correct horse battery", "a brand new password 2026");
+    await sleep(1500);
+    await phone.close();
+    phone.bootSession = "after-another-restart";
+    await phone.open();
+    expect(await phone.unlock("correct horse battery")).toBe("wrong-password");
+    expect(await phone.unlock("a brand new password 2026")).toBe("ready");
+  });
 });

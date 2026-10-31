@@ -104,12 +104,19 @@ flowchart LR
   - multi-statement `run` for migrations.
 - **Files live in the App Group container**, protected with `NSFileProtectionCompleteUntilFirstUserAuthentication` and excluded from backups. Without the device-only key they're useless anyway.
 
-### Device key
+### Device key and unlocking
 
-- **32 random bytes in the Keychain**, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, not synced through iCloud, in a shared Keychain access group.
-- **No password on app launch.** The password is needed only to sign in, as on the desktop. Keys are readable once the phone has been unlocked after a restart. That class (`AfterFirstUnlock`) is also what a future Notification Service Extension needs to decrypt a message and show its content while the phone is locked.
-- **Optional app lock:** a setting that requires Face ID, Touch ID or the device passcode (LocalAuthentication) each time the app opens. It locks the UI only. The keys stay available in the background, so notifications can still show content. While locked, the app switcher shows a blurred cover.
-- **Databases present but no key** (a backup restored onto a new phone): local data is erased and onboarding shown, since the account and history live on the server. The desktop shows "Zuna couldn't start" in the equivalent case.
+Decided on 2026-10-31: **the Zuna password is asked for once after every restart of the phone**, and at no other time. Built in `DeviceLock.swift`, `DeviceKeyStore.swift` and `CoreController.swift`.
+
+- **On disk the device key exists only sealed with a password.** Each account signed in on the device gets its own copy, sealed with a key derived from that account's password: Argon2id with 64 MiB and 3 iterations, a local salt, then HKDF and XChaCha20-Poly1305. So any of the accounts' passwords unlocks the app. These copies live in `device-lock.json` in the data directory.
+- **After unlocking**, the key goes into the Keychain (`AfterFirstUnlockThisDeviceOnly`, shared access group), tagged with the current boot session (`kern.bootsessionuuid`, with the boot time as a fallback). Reopening the app during the same boot session doesn't ask. After a restart of the phone, the session no longer matches: the copy is deleted and the unlock screen appears.
+- **The lock follows the accounts automatically.** The core bundle reports every sign-up, sign-in, recovery and password change, with the new password, and every sign-out, including ones the server forces (`AccountEvent`). The app adds, replaces or removes that account's copy. Nothing in the UI has to remember to do it.
+- **Forgot the password:** the unlock screen offers to erase the device's data and sign in again with a new password or the recovery key. The account and its history stay on the server.
+- **No accounts left:** without a lock there's nothing to protect, so the app starts clean with a new key.
+- **Visible before unlocking:** `device-lock.json` holds usernames, server addresses and server names unencrypted, because the unlock screen shows them. Everything else stays encrypted.
+- **Effect on notifications (later):** until the password has been entered after a restart, an extension can't decrypt anything, so notifications in that window can only say that a message arrived. Afterwards they can show content.
+- **Optional app lock** (F7): Face ID, Touch ID or the device passcode each time the app opens, on top of the above. It locks the UI only. While locked, the app switcher shows a blurred cover.
+- **App Store detail:** the boot-time fallback is one of Apple's "required reason" APIs, so the app ships a privacy manifest declaring it.
 - **Device name:** "iPhone" or "iPad". It travels encrypted in the vault and shows under Settings → Devices on other devices.
 
 ### UI and state
@@ -375,7 +382,7 @@ The crate already cross-compiles for `aarch64-apple-ios` and `aarch64-apple-ios-
 
 ## Preparing for notifications later
 
-Notifications need the server feature described in `ROADMAP.md`: push token registration, a relay to APNs, and a push holding only the group and message IDs. On iOS a Notification Service Extension decrypts them. **Notifications must show the message content**, so the extension has to read the device key, the epoch keys and the sender's signing key while the phone is locked, and while the app itself may be running. To avoid migrations later:
+Notifications need the server feature described in `ROADMAP.md`: push token registration, a relay to APNs, and a push holding only the group and message IDs. On iOS a Notification Service Extension decrypts them. **Notifications must show the message content**, so the extension has to read the unlocked device key, the epoch keys and the sender's signing key while the phone is locked, and while the app itself may be running. Until the password has been entered after a restart of the phone, it can only report that a message arrived (see "Device key and unlocking"). To avoid migrations later:
 
 - databases go in the App Group container and the device key in a shared Keychain access group from day one, with `AfterFirstUnlock` protection (not `Complete`), so both stay readable in the background;
 - SQLite runs in WAL mode, so the app and the extension can share the database;

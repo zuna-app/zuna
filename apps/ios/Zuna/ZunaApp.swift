@@ -34,6 +34,16 @@ struct RootView: View {
     var body: some View {
         ZStack {
             Color(red: 15 / 255, green: 15 / 255, blue: 17 / 255).ignoresSafeArea()
+            if core.phase == .locked {
+                UnlockView()
+            } else {
+                status
+            }
+        }
+    }
+
+    private var status: some View {
+        ZStack {
             VStack(spacing: 14) {
                 Text("Zuna")
                     .font(.system(size: 34, weight: .semibold))
@@ -41,6 +51,8 @@ struct RootView: View {
                 switch core.phase {
                 case .booting:
                     ProgressView().tint(.white)
+                case .locked:
+                    EmptyView()
                 case .ready:
                     Label("End-to-end encrypted", systemImage: "lock.fill")
                         .font(.footnote)
