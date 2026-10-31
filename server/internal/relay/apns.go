@@ -69,18 +69,22 @@ func NewAPNs(p8 []byte, keyID, teamID, topic string) (*APNs, error) {
 func (a *APNs) UseClient(client *http.Client) { a.client = client }
 
 // Send shows a generic alert, which the app's notification extension replaces
-// with the message once it has fetched and decrypted it; data rides along for it.
-func (a *APNs) Send(ctx context.Context, token, environment string, data map[string]string, collapseID string) error {
-	body, _ := json.Marshal(map[string]any{
-		"aps": map[string]any{
-			"alert":           map[string]string{"title": "Zuna", "body": "New message"},
-			"mutable-content": 1,
-			"sound":           "default",
-			// The app's Reply and Mark as read actions.
-			"category": "message",
-		},
-		"zuna": data,
-	})
+// with the message once it has fetched and decrypted it; data rides along for
+// it. A silent push (background) only wakes the app, to clear notifications.
+func (a *APNs) Send(ctx context.Context, token, environment string, background bool, data map[string]string, collapseID string) error {
+	aps := map[string]any{
+		"alert":           map[string]string{"title": "Zuna", "body": "New message"},
+		"mutable-content": 1,
+		"sound":           "default",
+		// The app's Reply and Mark as read actions.
+		"category": "message",
+	}
+	pushType, priority := "alert", "10"
+	if background {
+		aps = map[string]any{"content-available": 1}
+		pushType, priority = "background", "5"
+	}
+	body, _ := json.Marshal(map[string]any{"aps": aps, "zuna": data})
 	base := a.Production
 	if environment == "sandbox" {
 		base = a.Sandbox
@@ -96,8 +100,8 @@ func (a *APNs) Send(ctx context.Context, token, environment string, data map[str
 		}
 		request.Header.Set("authorization", "bearer "+bearer)
 		request.Header.Set("apns-topic", a.topic)
-		request.Header.Set("apns-push-type", "alert")
-		request.Header.Set("apns-priority", "10")
+		request.Header.Set("apns-push-type", pushType)
+		request.Header.Set("apns-priority", priority)
 		request.Header.Set("apns-expiration", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
 		if collapseID != "" && len(collapseID) <= 64 {
 			request.Header.Set("apns-collapse-id", collapseID)

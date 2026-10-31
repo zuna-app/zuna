@@ -71,3 +71,33 @@ func (d *DB) PushTargets(ctx context.Context, groupID, senderUserID string) ([]P
 	}
 	return targets, rows.Err()
 }
+
+// PushRegistrationsOf lists the registered devices of these people that are signed in.
+func (d *DB) PushRegistrationsOf(ctx context.Context, userIDs []string) ([]PushRegistration, error) {
+	if len(userIDs) == 0 {
+		return nil, nil
+	}
+	args := make([]any, len(userIDs))
+	for i, id := range userIDs {
+		args[i] = id
+	}
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT p.device_id, p.user_id, p.relay, p.handle, p.push_key, p.registration
+		 FROM push_registrations p
+		 JOIN devices dv ON dv.id = p.device_id AND dv.revoked_at IS NULL
+		 WHERE p.user_id IN (`+placeholders(len(userIDs))+`) AND EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`,
+		args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var registrations []PushRegistration
+	for rows.Next() {
+		var p PushRegistration
+		if err := rows.Scan(&p.DeviceID, &p.UserID, &p.Relay, &p.Handle, &p.Key, &p.Registration); err != nil {
+			return nil, err
+		}
+		registrations = append(registrations, p)
+	}
+	return registrations, rows.Err()
+}

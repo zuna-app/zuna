@@ -67,6 +67,7 @@ type Server struct {
 
 	pushClient *http.Client
 	pushSlots  chan struct{}
+	notified   notifiedChats
 }
 
 func New(cfg Config, db *store.DB) *Server {
