@@ -106,5 +106,6 @@ Clients know emotes by name. A message records the emotes it uses, so it keeps r
 | Desktop | `node apps/desktop/test/smoke.mjs` | The production build in real Electron |
 | Interface | `node apps/desktop/test/ui-check.mjs` | Every screen in real Electron with live bots: chat-open speed, spacing, keyboard focus, plus screenshots for review |
 | Sending | `node apps/desktop/test/send-check.mjs` | What each frame paints while messages are sent in real Electron: no jumps or blanks, notices in place, always all the way down |
+| Attacks | `node apps/desktop/test/attack-check.mjs` | What a modified client could send, against real Electron: the app stays up, contacts nobody and starts again afterwards |
 
 `npm run dev:server` opens a fully set up test server for UI work, using the bots in `packages/core/test/dev-bots.ts`. `CONTRIBUTING.md` describes it.

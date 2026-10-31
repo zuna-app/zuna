@@ -79,6 +79,12 @@ To check what each painted frame shows while messages are sent, after changing t
 node apps/desktop/test/send-check.mjs
 ```
 
+To send the real app what a modified client could, and see that it stays up, contacts nobody and starts again afterwards:
+
+```bash
+node apps/desktop/test/attack-check.mjs
+```
+
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
 ## Packaging
