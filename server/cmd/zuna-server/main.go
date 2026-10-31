@@ -36,6 +36,18 @@ type config struct {
 	trustProxy  bool
 	downloadURL string
 	authBurst   int
+	pushRelays  string
+}
+
+// splitList reads a comma-separated list of addresses.
+func splitList(value string) []string {
+	var items []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.TrimRight(strings.TrimSpace(item), "/"); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func envOr(key, fallback string) string {
@@ -57,6 +69,7 @@ func parseFlags() config {
 	flag.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy, for rate limiting (env ZUNA_TRUST_PROXY)")
 	flag.StringVar(&cfg.downloadURL, "download-url", envOr("ZUNA_DOWNLOAD_URL", ""), "where invite pages link for downloading the app (env ZUNA_DOWNLOAD_URL)")
 	flag.IntVar(&cfg.authBurst, "auth-burst", 0, "sign-in attempts allowed at once per address (default 20)")
+	flag.StringVar(&cfg.pushRelays, "push-relays", os.Getenv("ZUNA_PUSH_RELAYS"), "comma-separated push relays that may wake phones for new messages (env ZUNA_PUSH_RELAYS)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -113,6 +126,7 @@ func run(cfg config) error {
 		TrustProxy:  cfg.trustProxy,
 		DownloadURL: cfg.downloadURL,
 		AuthBurst:   cfg.authBurst,
+		PushRelays:  splitList(cfg.pushRelays),
 	}, db)
 	// For tests only: a stand-in for 7TV, so emote tests don't depend on the internet.
 	if base := os.Getenv("ZUNA_7TV_API"); base != "" {

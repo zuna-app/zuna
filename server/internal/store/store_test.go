@@ -27,7 +27,7 @@ func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
 	}
 	send := func(id, file string) {
 		t.Helper()
-		if _, err := db.CreateMessage(ctx, Message{
+		if _, _, err := db.CreateMessage(ctx, Message{
 			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
 		}, []string{file}); err != nil {
 			t.Fatal(err)

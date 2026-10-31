@@ -323,6 +323,9 @@ func (d *DB) BanUser(ctx context.Context, userID string) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM key_packages WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)`, userID); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM push_registrations WHERE user_id = ?`, userID); err != nil {
+			return err
+		}
 		_, err = tx.ExecContext(ctx, `DELETE FROM group_members WHERE user_id = ?`, userID)
 		return err
 	})
@@ -406,6 +409,9 @@ func (d *DB) RevokeDevice(ctx context.Context, userID, deviceID string) error {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM key_packages WHERE device_id = ?`, deviceID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM push_registrations WHERE device_id = ?`, deviceID); err != nil {
 			return err
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, now, userID)

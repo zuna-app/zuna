@@ -36,14 +36,18 @@ type client struct {
 	device string
 }
 
-func newHarness(t *testing.T) *harness {
+func newHarness(t *testing.T, configure ...func(*api.Config)) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "zuna.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := api.New(api.Config{DataDir: dir, PublicURL: "http://test", Version: "test"}, db)
+	cfg := api.Config{DataDir: dir, PublicURL: "http://test", Version: "test"}
+	for _, change := range configure {
+		change(&cfg)
+	}
+	srv := api.New(cfg, db)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(func() {
 		ts.CloseClientConnections()

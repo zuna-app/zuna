@@ -120,6 +120,7 @@ Everything can be set by flag or environment variable.
 | `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy |
 | `--download-url` | `ZUNA_DOWNLOAD_URL` | | Where invite pages link for downloading the app |
 | `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address |
+| `--push-relays` | `ZUNA_PUSH_RELAYS` | | Comma-separated push relays that may wake phones for new messages. Phones register with one of them; with none, phones aren't notified |
 
 The app only connects over HTTPS, except to `localhost`.
 

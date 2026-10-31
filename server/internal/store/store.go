@@ -317,6 +317,22 @@ INSERT INTO history_grants_new SELECT id, user_id, group_id, data, created_at FR
 DROP TABLE history_grants;
 ALTER TABLE history_grants_new RENAME TO history_grants;
 CREATE INDEX history_grants_user ON history_grants(user_id);
+`, `
+-- Where to wake a phone for new messages: the relay that reaches it, the
+-- relay's handle for it, and the key its pushes are sealed with. Muted holds
+-- the groups not to push for, comma-separated, while the app can't filter
+-- notifications itself.
+CREATE TABLE push_registrations (
+	device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	relay TEXT NOT NULL,
+	handle TEXT NOT NULL,
+	push_key BLOB NOT NULL,
+	registration TEXT NOT NULL,
+	muted TEXT NOT NULL DEFAULT '',
+	updated_at INTEGER NOT NULL
+);
+CREATE INDEX push_registrations_user ON push_registrations(user_id);
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

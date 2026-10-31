@@ -398,7 +398,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 			return
 		}
 	}
-	message, err := s.db.CreateMessage(r.Context(), store.Message{
+	message, created, err := s.db.CreateMessage(r.Context(), store.Message{
 		GroupID:      groupID,
 		ID:           body.ID,
 		SenderUser:   sess.UserID,
@@ -411,6 +411,9 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
+	if created {
+		s.pushMessage(groupID, message)
+	}
 	writeJSON(w, http.StatusCreated, message)
 }
 
