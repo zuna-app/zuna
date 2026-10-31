@@ -388,7 +388,8 @@ describe("an iOS client with a desktop client", () => {
     await phone.session.revokeDevice(tabletDevice);
     await tablet.open();
     // The core may sign out before the control channel connects, so check the outcome, not the event.
-    await waitFor(async () => (await tablet.core.client.listServers()).length === 0, "the iPad to be signed out").catch((error) => {
+    // Nothing is erased on the server's word: the server stays, marked signed out.
+    await waitFor(async () => (await tablet.core.client.listServers()).some((server) => !!server.signedOut), "the iPad to be signed out").catch((error) => {
       throw new Error(`${error.message}\n${tablet.output.slice(-3000)}`);
     });
   });
