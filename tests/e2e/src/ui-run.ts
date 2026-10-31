@@ -127,6 +127,8 @@ const xcodebuild = spawn(
     "-scheme", "Zuna",
     ...destination,
     "-resultBundlePath", resultBundle,
+    // Otherwise a failure makes xcodebuild gather diagnostics for minutes.
+    "-collect-test-diagnostics", "never",
     ...(only ? [`-only-testing:ZunaUITests/${only}`] : []),
     "test-without-building",
   ],

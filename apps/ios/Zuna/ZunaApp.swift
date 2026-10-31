@@ -34,49 +34,52 @@ struct ZunaApp: App {
     }
 }
 
-/// The app's first screen. It shows the core starting up; the real interface
-/// replaces it from phase F2 on.
+/// Starting up, unlocking after a restart, and then the app itself.
 struct RootView: View {
     @Environment(CoreController.self) private var core
 
     var body: some View {
         ZStack {
-            Color(red: 15 / 255, green: 15 / 255, blue: 17 / 255).ignoresSafeArea()
+            Theme.bg0.ignoresSafeArea()
             if core.phase == .locked {
                 UnlockView()
+            } else if core.phase == .ready, let model = core.model, let images = core.images, !model.order.isEmpty {
+                MainView()
+                    .environment(model)
+                    .environment(images)
+                    .tint(model.settings.accent.color)
             } else {
                 status
             }
         }
     }
 
+    /// Starting up, failing to, or no server yet; onboarding takes the last case over in F2.
     private var status: some View {
-        ZStack {
-            VStack(spacing: 14) {
-                Text("Zuna")
-                    .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(.white)
-                switch core.phase {
-                case .booting:
-                    ProgressView().tint(.white)
-                case .locked:
-                    EmptyView()
-                case .ready:
-                    Label("End-to-end encrypted", systemImage: "lock.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier(A11y.Root.ready)
-                case let .failed(message):
-                    Text("Zuna couldn't start")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                        .accessibilityIdentifier(A11y.Root.failed)
-                    Text(message)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
-                }
+        VStack(spacing: 14) {
+            Text("Zuna")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(Theme.text1)
+            switch core.phase {
+            case .booting:
+                ProgressView().tint(Theme.text1)
+            case .locked:
+                EmptyView()
+            case .ready:
+                Label("End-to-end encrypted", systemImage: "lock.fill")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.text2)
+                    .accessibilityIdentifier(A11y.Root.ready)
+            case let .failed(message):
+                Text("Zuna couldn't start")
+                    .font(.headline)
+                    .foregroundStyle(Theme.text1)
+                    .accessibilityIdentifier(A11y.Root.failed)
+                Text(message)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(Theme.text2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
             }
         }
     }

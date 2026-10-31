@@ -1,0 +1,245 @@
+import Foundation
+import Observation
+import ZunaModels
+
+/// All UI state, kept in step with the core through its events. The iOS
+/// counterpart of the desktop's apps/desktop/src/renderer/src/state/store.ts.
+@MainActor
+@Observable
+final class AppModel {
+    struct ServerState: Equatable {
+        var entry: ServerEntry
+        var info: ServerInfo?
+        var connection: ConnectionState
+        var me: SelfInfo?
+        var conversations: [ConversationView] = []
+        var users: [String: UserView] = [:]
+        var emotes: EmoteSet
+        var prefs: Preferences
+        /// groupId -> userId -> when the typing indicator expires.
+        var typing: [String: [String: Date]] = [:]
+
+        /// Unread messages outside muted conversations, for the server rail's badge.
+        var unread: Int {
+            conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread) }
+        }
+
+        var selfUser: UserView? {
+            me.flatMap { users[$0.userId] }
+        }
+    }
+
+    struct Toast: Identifiable, Equatable {
+        enum Kind { case info, error, security }
+        let id: Int
+        let kind: Kind
+        let message: String
+    }
+
+    enum Tab: Hashable { case chats, settings }
+
+    private(set) var servers: [String: ServerState] = [:]
+    private(set) var order: [String] = []
+    var activeServerId: String?
+    var tab: Tab = .chats
+    var drawerOpen = false
+    private(set) var toasts: [Toast] = []
+    var settings = AppSettings.load() {
+        didSet { settings.save() }
+    }
+
+    let core: CoreConnection
+    private var pendingRefreshes: Set<String> = []
+    private var nextToast = 1
+
+    init(core: CoreConnection) {
+        self.core = core
+    }
+
+    var activeServer: ServerState? {
+        activeServerId.flatMap { servers[$0] }
+    }
+
+    /// Unread messages on every server, for the Chats tab, like the desktop's dock badge.
+    var totalUnread: Int {
+        servers.values.reduce(0) { $0 + $1.unread }
+    }
+
+    /// Unread messages on the servers that aren't on screen, for the dot on the server button.
+    var otherServersUnread: Int {
+        servers.values.reduce(0) { $0 + ($1.entry.id == activeServerId ? 0 : $1.unread) }
+    }
+
+    // MARK: Loading
+
+    /// Loads every server's state. Also used when a server appears that the
+    /// model doesn't know yet; a sign-in replaces any earlier account on the
+    /// same server, so servers that are gone are dropped.
+    func load() async {
+        do {
+            let entries = try await core.listServers()
+            var loaded: [String: ServerState] = [:]
+            for entry in entries {
+                loaded[entry.id] = await loadServer(entry)
+            }
+            servers = loaded
+            order = entries.map(\.id).filter { loaded[$0] != nil }
+            if activeServerId.map({ servers[$0] == nil }) ?? true { activeServerId = order.first }
+        } catch {
+            toast("Couldn't load your servers: \(error)", .error)
+        }
+    }
+
+    private func loadServer(_ entry: ServerEntry) async -> ServerState? {
+        let session = core.session(entry.id)
+        do {
+            async let conversations = session.getConversations()
+            async let users = session.getUsers()
+            async let emotes = session.getEmotes()
+            async let prefs = session.getPreferences()
+            async let me = session.getSelf()
+            async let connection = session.getConnectionState()
+            async let info = session.getInfo()
+            return ServerState(
+                entry: entry,
+                info: try await info,
+                connection: try await connection,
+                me: try await me,
+                conversations: try await conversations,
+                users: Dictionary(uniqueKeysWithValues: try await users.map { ($0.id, $0) }),
+                emotes: try await emotes,
+                prefs: try await prefs
+            )
+        } catch {
+            toast("Couldn't load \(entry.name): \(error)", .error)
+            return nil
+        }
+    }
+
+    /// After signing in or joining: the new server becomes the active one.
+    func addServer(_ serverId: String) async {
+        await load()
+        activeServerId = serverId
+    }
+
+    func selectServer(_ serverId: String) {
+        activeServerId = serverId
+        drawerOpen = false
+    }
+
+    // MARK: Events
+
+    func handle(_ event: CoreEvent) {
+        if servers[event.serverId] == nil, !event.isSignedOut {
+            // A server signed in to elsewhere, such as the onboarding screens or a test.
+            reloadSoon()
+            return
+        }
+        switch event {
+        case let .connection(serverId, state):
+            servers[serverId]?.connection = state
+        case let .conversations(serverId), let .read(serverId, _, _, _):
+            refresh("conversations", serverId)
+        case let .users(serverId):
+            refresh("users", serverId)
+            refresh("conversations", serverId)
+        case .message, .messageRemoved, .messageMoved:
+            // Message lists arrive in F4; conversation previews follow the "conversations" event.
+            break
+        case let .presence(serverId, userId, online, lastSeenAt):
+            servers[serverId]?.users[userId]?.online = online
+            servers[serverId]?.users[userId]?.lastSeenAt = lastSeenAt
+        case let .typing(serverId, groupId, userId):
+            servers[serverId]?.typing[groupId, default: [:]][userId] = Date().addingTimeInterval(5)
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(5100))
+                guard let self, let expiry = servers[serverId]?.typing[groupId]?[userId], expiry <= Date() else { return }
+                servers[serverId]?.typing[groupId]?[userId] = nil
+            }
+        case let .settings(serverId, info):
+            servers[serverId]?.info = info
+            servers[serverId]?.entry.name = info.name
+            servers[serverId]?.entry.hasIcon = info.hasIcon
+        case let .emotes(serverId):
+            refresh("emotes", serverId)
+        case let .preferences(serverId):
+            refresh("preferences", serverId)
+        case let .signedOut(serverId, reason):
+            removeServer(serverId)
+            toast(reason == "banned" ? "You were removed from a server by its admins." : "You've been signed out of a server.")
+        case let .security(_, _, message):
+            toast(message, .security)
+        case .notify:
+            // Notifications come in a later stage.
+            break
+        }
+    }
+
+    private var reloading = false
+
+    private func reloadSoon() {
+        guard !reloading else { return }
+        reloading = true
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(60))
+            await self?.load()
+            self?.reloading = false
+        }
+    }
+
+    private func removeServer(_ serverId: String) {
+        servers[serverId] = nil
+        order.removeAll { $0 == serverId }
+        if activeServerId == serverId { activeServerId = order.first }
+    }
+
+    /// Coalesces bursts of events into one refresh, like the desktop's `debounced`.
+    private func refresh(_ what: String, _ serverId: String) {
+        let key = "\(what):\(serverId)"
+        guard pendingRefreshes.insert(key).inserted else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(60))
+            guard let self else { return }
+            pendingRefreshes.remove(key)
+            let session = core.session(serverId)
+            do {
+                switch what {
+                case "conversations":
+                    let conversations = try await session.getConversations()
+                    servers[serverId]?.conversations = conversations
+                case "users":
+                    let users = try await session.getUsers()
+                    let me = try await session.getSelf()
+                    servers[serverId]?.users = Dictionary(uniqueKeysWithValues: users.map { ($0.id, $0) })
+                    servers[serverId]?.me = me
+                case "emotes":
+                    let emotes = try await session.getEmotes()
+                    servers[serverId]?.emotes = emotes
+                case "preferences":
+                    let prefs = try await session.getPreferences()
+                    servers[serverId]?.prefs = prefs
+                default:
+                    break
+                }
+            } catch {
+                // The server may have just been removed.
+            }
+        }
+    }
+
+    // MARK: Toasts
+
+    func toast(_ message: String, _ kind: Toast.Kind = .info) {
+        let toast = Toast(id: nextToast, kind: kind, message: message)
+        nextToast += 1
+        toasts = Array(toasts.suffix(3)) + [toast]
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(kind == .security ? 12 : 4.5))
+            self?.dismissToast(toast.id)
+        }
+    }
+
+    func dismissToast(_ id: Int) {
+        toasts.removeAll { $0.id == id }
+    }
+}

@@ -27,6 +27,9 @@ final class CoreController {
     private(set) var lockedAccounts: [DeviceLock.Entry] = []
     private(set) var runtime: CoreRuntime?
     private(set) var connection: CoreConnection?
+    /// The UI's state, from the moment the core is running.
+    private(set) var model: AppModel?
+    private(set) var images: ImageStore?
     private var directory: URL?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var suspendTask: Task<Void, Never>?
@@ -47,6 +50,7 @@ final class CoreController {
             if UserDefaults.standard.bool(forKey: "ZunaResetData") {
                 DeviceKeyStore.forget()
                 Self.erase(directory)
+                AppSettings.reset()
             }
             await startControl()
             #endif
@@ -114,7 +118,17 @@ final class CoreController {
         let runtime = try CoreRuntime(options: options)
         try await runtime.start()
         self.runtime = runtime
-        connection = CoreConnection(runtime: runtime) { _ in }
+        // Events arrive on the core's queue and are applied on the main actor in the order they were sent.
+        let (events, continuation) = AsyncStream.makeStream(of: CoreEvent.self)
+        let connection = CoreConnection(runtime: runtime) { continuation.yield($0) }
+        let model = AppModel(core: connection)
+        Task {
+            for await event in events { model.handle(event) }
+        }
+        await model.load()
+        self.connection = connection
+        self.model = model
+        images = ImageStore(core: connection)
         watchNetwork()
         #if DEBUG
         control?.attach(runtime)

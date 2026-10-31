@@ -344,6 +344,24 @@ public enum CoreEvent: Sendable, Equatable {
     case notify(serverId: String, title: String, body: String, conversationKey: String)
 }
 
+extension CoreEvent {
+    /// The server the event is about.
+    public var serverId: String {
+        switch self {
+        case let .connection(serverId, _), let .conversations(serverId), let .message(serverId, _, _),
+             let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
+             let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
+             let .settings(serverId, _), let .emotes(serverId), let .preferences(serverId),
+             let .signedOut(serverId, _), let .security(serverId, _, _), let .notify(serverId, _, _, _):
+            serverId
+        }
+    }
+
+    public var isSignedOut: Bool {
+        if case .signedOut = self { true } else { false }
+    }
+}
+
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey
