@@ -36,7 +36,7 @@ final class AppUnderTest {
     private(set) var serverId = ""
 
     /// Launches the app. `fresh` erases its data first; `bootSession` simulates a restart of the phone.
-    func launch(fresh: Bool = true, bootSession: String? = nil) throws {
+    func launch(fresh: Bool = true, bootSession: String? = nil, textSize: String? = nil) throws {
         let port = Int.random(in: 40_000..<50_000)
         app.launchArguments = [
             "-ZunaControlPort", String(port),
@@ -46,6 +46,8 @@ final class AppUnderTest {
         ]
         if fresh { app.launchArguments += ["-ZunaResetData", "YES"] }
         if let bootSession { app.launchArguments += ["-ZunaBootSession", bootSession] }
+        // Dynamic Type, as a UIContentSizeCategory name such as UICTContentSizeCategoryAccessibilityXL.
+        if let textSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", textSize] }
         app.launchEnvironment["TZ"] = "UTC"
         app.launch()
         control = try blocking { try await RPCSocket.connect(to: URL(string: "ws://127.0.0.1:\(port)")!) }
@@ -114,6 +116,13 @@ final class AppUnderTest {
         let control = control!
         let path = url.path
         try blocking { _ = try await control.host("attachFile", ["path": path]) }
+    }
+
+    /// A yes-or-no preference of the signed-in server, such as sendReadReceipts.
+    func preferencesFlag(_ name: String) throws -> Bool? {
+        let control = control!
+        let serverId = serverId
+        return try blocking { (try await control.call("getPreferences", server: serverId) as? [String: Any])?[name] as? Bool }
     }
 
     /// The signed-in account's user ID.
@@ -188,12 +197,14 @@ final class AppUnderTest {
         }
     }
 
-    /// Waits for the conversation list, which shows once a server is signed in.
+    /// Waits for the conversation list, which shows once a server is signed in:
+    /// with the server button on a phone, beside the server rail on an iPad.
     func waitForChats(timeout: TimeInterval = 20) throws {
-        guard element(A11y.Shell.serverButton).waitForExistence(timeout: timeout) else {
-            throw RPCError(description: "The conversation list didn't show")
-        }
+        let button = element(A11y.Shell.serverButton), rail = element(A11y.Drawer.join)
+        try waitFor("the conversation list", timeout: timeout) { button.exists || (self.isPad && rail.exists) }
     }
+
+    var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
 
     /// A tab in the tab bar, by its title.
     func tab(_ title: String) -> XCUIElement {

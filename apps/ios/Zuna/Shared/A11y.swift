@@ -3,6 +3,8 @@
 enum A11y {
     enum Root {
         static let failed = "root.failed"
+        static let appLock = "root.appLock"
+        static let unlockApp = "root.unlockApp"
     }
 
     enum Onboarding {
@@ -47,6 +49,7 @@ enum A11y {
         static let chatsTab = "shell.tab.chats"
         static let settingsTab = "shell.tab.settings"
         static let serverButton = "shell.serverButton"
+        static let newGroup = "shell.newGroup"
         static let title = "shell.title"
     }
 
@@ -72,6 +75,7 @@ enum A11y {
         static let title = "chat.title"
         static let status = "chat.status"
         static let banner = "chat.keyBanner"
+        static let bannerVerify = "chat.keyBanner.verify"
         static let toBottom = "chat.toBottom"
         static let empty = "chat.empty"
         static let reply = "chat.reply"
@@ -103,6 +107,43 @@ enum A11y {
         static func file(_ name: String) -> String { "composer.file.\(name)" }
     }
 
+    enum Details {
+        static let screen = "details.screen"
+        static let header = "details.header"
+        static let trust = "details.trust"
+        static let notifications = "details.notifications"
+        static let history = "details.history"
+        static let edit = "details.edit"
+        static let addMembers = "details.addMembers"
+        static let leave = "details.leave"
+        static func member(_ id: String) -> String { "details.member.\(id)" }
+    }
+
+    enum Verify {
+        static let screen = "verify.screen"
+        static let emoji = "verify.emoji"
+        static let match = "verify.match"
+        static let mismatch = "verify.mismatch"
+        static let remove = "verify.remove"
+    }
+
+    enum Groups {
+        static let name = "groups.name"
+        static let description = "groups.description"
+        static let search = "groups.search"
+        static let create = "groups.create"
+        static let add = "groups.add"
+        static let save = "groups.save"
+        static func person(_ username: String) -> String { "groups.person.\(username)" }
+    }
+
+    enum Invites {
+        static let screen = "invites.screen"
+        static let create = "invites.create"
+        static let link = "invites.link"
+        static func row(_ code: String) -> String { "invites.row.\(code)" }
+    }
+
     enum Toast {
         static let item = "toast"
     }
@@ -110,6 +151,34 @@ enum A11y {
     enum Settings {
         static let screen = "settings.screen"
         static let appearance = "settings.appearance"
+        static let profile = "settings.profile"
+        static let privacy = "settings.privacy"
+        static let security = "settings.security"
+        static let appLock = "settings.appLock"
+        static let server = "settings.server"
+        static let signOut = "settings.signOut"
+        static let about = "settings.about"
+        static let displayName = "settings.displayName"
+        static let bio = "settings.bio"
+        static let save = "settings.save"
+        static let readReceipts = "settings.readReceipts"
+        static let showOnline = "settings.showOnline"
+        static let currentPassword = "settings.currentPassword"
+        static let newPassword = "settings.newPassword"
+        static let changePassword = "settings.changePassword"
+        static let recoveryPassword = "settings.recoveryPassword"
+        static let newRecoveryKey = "settings.newRecoveryKey"
+        static let recoveryKey = "settings.recoveryKey"
+        static let lockToggle = "settings.lockToggle"
+        static let serverName = "settings.serverName"
+        static let memberInvites = "settings.memberInvites"
+        static let openSignUps = "settings.openSignUps"
+        static let emoteLink = "settings.emoteLink"
+        static let useEmotes = "settings.useEmotes"
+        static let maxUpload = "settings.maxUpload"
+        static let retention = "settings.retention"
+        static func device(_ id: String) -> String { "settings.device.\(id)" }
+        static func member(_ username: String) -> String { "settings.member.\(username)" }
         static func accent(_ id: String) -> String { "settings.accent.\(id)" }
     }
 }

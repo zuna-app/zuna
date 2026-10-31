@@ -14,18 +14,29 @@ export const appPath = join(derivedData, "Build", "Products", "Debug-iphonesimul
 
 const simctl = (...args: string[]) => execFileSync("xcrun", ["simctl", ...args], { encoding: "utf8" });
 
-/** The simulator's UDID, creating it (iPhone 17 or the newest plain iPhone, newest iOS runtime) if it doesn't exist. */
+/** The simulator's UDID, creating it (iPhone 17 or the newest plain iPhone, or an iPad Pro, on the newest iOS runtime that runs it) if it doesn't exist. */
 export function simulatorId(): string {
   const devices = JSON.parse(simctl("list", "devices", "--json")).devices as Record<string, { name: string; udid: string }[]>;
   for (const list of Object.values(devices)) {
     const match = list.find((device) => device.name === SIMULATOR_NAME);
     if (match) return match.udid;
   }
-  const runtimes = JSON.parse(simctl("list", "runtimes", "--json")).runtimes as { identifier: string; platform: string; isAvailable: boolean }[];
-  const runtime = runtimes.filter((item) => item.platform === "iOS" && item.isAvailable).at(-1)!;
-  // CI machines may have an older Xcode without the iPhone 17.
+  // CI machines may have an older Xcode without the iPhone 17. A name with "iPad" in it gets an iPad.
   const types = JSON.parse(simctl("list", "devicetypes", "--json")).devicetypes as { identifier: string; name: string }[];
-  const type = types.find((item) => item.identifier.endsWith(".iPhone-17")) ?? types.filter((item) => /^iPhone \d+$/.test(item.name)).at(-1)!;
+  const type = SIMULATOR_NAME.includes("iPad")
+    ? types.filter((item) => /^iPad Pro 11-inch/.test(item.name)).at(-1) ?? types.filter((item) => item.name.startsWith("iPad")).at(-1)!
+    : types.find((item) => item.identifier.endsWith(".iPhone-17")) ?? types.filter((item) => /^iPhone \d+$/.test(item.name)).at(-1)!;
+  // The newest runtime that runs it: a point release may only cover a new device.
+  const runtimes = JSON.parse(simctl("list", "runtimes", "--json")).runtimes as {
+    identifier: string;
+    platform: string;
+    isAvailable: boolean;
+    supportedDeviceTypes?: { identifier: string }[];
+  }[];
+  const runtime = runtimes
+    .filter((item) => item.platform === "iOS" && item.isAvailable)
+    .filter((item) => item.supportedDeviceTypes?.some((supported) => supported.identifier === type.identifier) ?? true)
+    .at(-1)!;
   return simctl("create", SIMULATOR_NAME, type.identifier, runtime.identifier).trim();
 }
 

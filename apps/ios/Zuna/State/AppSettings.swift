@@ -8,6 +8,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var reduceMotion = false
     /// Return sends on a hardware keyboard; the on-screen keyboard always inserts a new line.
     var enterToSend = true
+    /// Face ID, Touch ID or the passcode each time the app opens, and a cover in the app switcher.
+    var appLock = false
 
     private static let key = "zuna-settings"
 
@@ -16,6 +18,18 @@ struct AppSettings: Codable, Equatable, Sendable {
               let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else { return AppSettings() }
         return settings
     }
+
+    // Settings saved by an earlier version lack the newer fields; they take their defaults.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        accent = try container.decodeIfPresent(Accent.self, forKey: .accent) ?? .neutral
+        messageSize = try container.decodeIfPresent(MessageSize.self, forKey: .messageSize) ?? .medium
+        reduceMotion = try container.decodeIfPresent(Bool.self, forKey: .reduceMotion) ?? false
+        enterToSend = try container.decodeIfPresent(Bool.self, forKey: .enterToSend) ?? true
+        appLock = try container.decodeIfPresent(Bool.self, forKey: .appLock) ?? false
+    }
+
+    init() {}
 
     #if DEBUG
     /// For tests that start from a fresh install.

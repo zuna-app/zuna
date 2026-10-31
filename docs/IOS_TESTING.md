@@ -147,7 +147,7 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
   1. Builds the core bundle and the app (`build-for-testing`).
   2. Starts the fake 7TV and two servers: the main one, and a second that nobody has set up yet.
   3. Seeds the main one through desktop clients in Node: alice (the owner), bob's laptop and carol, a DM and a group. More seeding (avatars, pins, reactions, emotes, a 2,000-message conversation) comes with the phases that need it.
-  4. Serves those clients to the tests over WebSockets ("peers"), plus `/world` for what no single client can do, such as signing in to an account on another new device.
+  4. Serves those clients to the tests over WebSockets ("peers"), plus `/world` for what no single client can do: signing in to an account on another new device, or showing the simulator's Face ID a face (enrolled while preparing the simulator).
   5. Prepares the dedicated simulator and runs `xcodebuild test-without-building`, passing the world as JSON in `TEST_RUNNER_ZUNA_WORLD`.
 - **The tests stay synchronous.** `XCUIApplication` waits for the app by turning the main run loop, and an async test on the main actor blocks it. TestKit runs its network calls in the background and waits for them.
 - **TestKit** in the UI test target:
@@ -211,7 +211,8 @@ On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minut
 | `npm run test:ios:sim` | L4: the same scenarios with the real app in the E2E simulator | since F0 |
 | `npm run test:ios:perf` | L6 for the core: sign-in and sync of 10,000 messages | since F0 |
 | `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests | since F0 |
-| `npm run test:ios:ui -- [--only LaunchAndUnlockTests]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` | since F1 |
+| `npm run test:ios:ui -- [--only LaunchAndUnlockTests[/testName][,OtherTests]]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` | since F1 |
+| `ZUNA_E2E_SIMULATOR="Zuna E2E iPad" npm run test:ios:ui -- --only PadTests` | L5 on an iPad simulator, made on first use | since F8 |
 | `npm run test:ios:release` | the Release guard | since F1 |
 | `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors | since F1 |
 | `npm run test:ios:all` | everything, plus the desktop's `npm test` | since F1 |

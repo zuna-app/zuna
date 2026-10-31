@@ -83,6 +83,11 @@ const peerServer = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 // Things a test needs done in the world itself, over the same RPC protocol as the peers.
 const extraDevices: TestApp[] = [];
 const worldMethods: Record<string, (...args: any[]) => Promise<unknown>> = {
+  /** Looks at the simulator's Face ID with an enrolled face, or another one. */
+  async faceId(match: boolean) {
+    execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-p", `com.apple.BiometricKit_Sim.pearl.${match ? "match" : "nomatch"}`]);
+    return true;
+  },
   /** Signs in to an account on another new device, as if on a new laptop. */
   async newDevice(name: string, password: string = PASSWORD) {
     const app = await new TestApp(`${name}-device-${extraDevices.length + 1}`).open();
@@ -141,6 +146,9 @@ try {
   // Not installed.
 }
 execFileSync("xcrun", ["simctl", "keychain", udid, "reset"]);
+// A face enrolled for Face ID, so App lock can be tested; tests look with it through /world.
+execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-s", "com.apple.BiometricKit.enrollmentChanged", "1"]);
+execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-p", "com.apple.BiometricKit.enrollmentChanged"]);
 
 const deviceLog = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--style", "compact", "--level", "debug", "--predicate", 'subsystem == "chat.zuna"'], {
   stdio: ["ignore", "pipe", "ignore"],
@@ -193,7 +201,8 @@ if (existsSync(resultBundle)) {
   const walk = (node: TestNode, suite: string) => {
     if (node.nodeType === "Test Case") {
       const ok = node.result === "Passed";
-      if (!ok) failed = true;
+      // A test that only runs on the other device kind skips itself.
+      if (!ok && node.result !== "Skipped") failed = true;
       rows.push(`- ${ok ? "PASS" : node.result?.toUpperCase() ?? "?"} ${suite}/${node.name} (${node.duration ?? ""})`);
       for (const child of node.children ?? []) {
         if (child.nodeType === "Failure Message") rows.push(`  - ${child.name}`);

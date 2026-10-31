@@ -295,7 +295,7 @@ final class CoreController {
         case "attachFile":
             // The open chat's composer stages it, as it would a picked file.
             guard let path, let model else { return "no-chat" }
-            model.testAttachments.append(URL(fileURLWithPath: path))
+            model.pendingAttachments.append(URL(fileURLWithPath: path))
             return "attached"
         case "drift":
             return connection?.driftReports.joined(separator: "\n") ?? ""

@@ -15,33 +15,67 @@ struct ChatListView: View {
     @State private var filter = Filter.all
     @State private var showHidden = false
     @State private var messageHits: [SearchResult] = []
+    @State private var sheet: ListSheet?
+
+    private enum ListSheet: String, Identifiable {
+        case invite, newGroup
+        var id: String { rawValue }
+    }
+
+    /// On a phone, the list is the root of a stack that chats are pushed on; on
+    /// an iPad, it's the sidebar beside the open chat.
+    var sidebar = false
 
     var body: some View {
         @Bindable var model = model
-        NavigationStack(path: $model.chatPath) {
-            Group {
-                if let server = model.activeServer {
-                    list(server)
-                } else {
-                    Color.clear
+        if sidebar {
+            content
+        } else {
+            NavigationStack(path: $model.chatPath) {
+                content.navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+            }
+        }
+    }
+
+    private var content: some View {
+        Group {
+            if let server = model.activeServer {
+                list(server)
+            } else {
+                Color.clear
+            }
+        }
+        .background(Theme.bg0)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !sidebar {
+                ToolbarItem(placement: .topBarLeading) { serverButton }
+            }
+            ToolbarItem(placement: .principal) { serverMenu }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    sheet = .newGroup
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel("New group")
+                .accessibilityIdentifier(A11y.Shell.newGroup)
+            }
+        }
+        .sheet(item: $sheet) { sheet in
+            if let serverId = model.activeServerId {
+                switch sheet {
+                case .invite: InviteSheet(serverId: serverId)
+                case .newGroup: NewGroupSheet(serverId: serverId)
                 }
             }
-            .background(Theme.bg0)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { serverButton }
-                ToolbarItem(placement: .principal) { title }
-            }
-            .toolbarBackground(Theme.bg1, for: .navigationBar)
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
-            .task(id: SearchKey(serverId: model.activeServerId, query: query)) { await searchMessages() }
-            .onChange(of: model.activeServerId) {
-                query = ""
-                showHidden = false
-            }
-            .navigationDestination(for: String.self) { key in
-                ChatScreen(conversationKey: key)
-            }
+        }
+        .toolbarBackground(Theme.bg1, for: .navigationBar)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+        .task(id: SearchKey(serverId: model.activeServerId, query: query)) { await searchMessages() }
+        .onChange(of: model.activeServerId) {
+            query = ""
+            showHidden = false
         }
     }
 
@@ -105,19 +139,22 @@ struct ChatListView: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.immediately)
-        .animation(model.settings.reduceMotion ? nil : .snappy(duration: 0.25), value: visible.map(\.key))
+        .animation(model.reduceMotion ? nil : .snappy(duration: 0.25), value: visible.map(\.key))
         .accessibilityIdentifier(A11y.ChatList.list)
     }
 
     private func row(_ conversation: ConversationView, _ server: AppModel.ServerState) -> some View {
-        Button {
-            model.chatPath = [conversation.key]
+        // On an iPad the open chat is beside the list, so its row stays marked, as on the desktop.
+        let open = sidebar && model.chatPath.first == .chat(conversation.key)
+        return Button {
+            model.openChat(conversation.key)
         } label: {
             ChatRow(conversation: conversation, server: server)
         }
         .buttonStyle(.plain)
             .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 14))
-            .listRowBackground(Theme.bg0)
+            .listRowBackground(open ? Theme.bg3 : Theme.bg0)
+            .accessibilityAddTraits(open ? .isSelected : [])
             .listRowSeparatorTint(Theme.line)
             .alignmentGuide(.listRowSeparatorLeading) { _ in 76 }
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -218,7 +255,7 @@ struct ChatListView: View {
     private func open(_ hit: SearchResult, serverId: String) {
         Task {
             await model.jumpToMessage(serverId, groupId: hit.message.groupId, messageId: hit.message.id, seq: hit.message.seq)
-            model.chatPath = [hit.conversationKey]
+            model.openChat(hit.conversationKey)
         }
     }
 
@@ -262,6 +299,22 @@ struct ChatListView: View {
         .accessibilityIdentifier(A11y.Shell.serverButton)
     }
 
+    /// The server's menu under its name, as on the desktop. Server settings and leaving come with F7.
+    private var serverMenu: some View {
+        Menu {
+            Button("Invite people", systemImage: "link") { sheet = .invite }
+            Button("New group", systemImage: "person.2") { sheet = .newGroup }
+        } label: {
+            HStack(spacing: 4) {
+                title
+                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(Theme.text3)
+            }
+        }
+        // The title is what the menu says, for VoiceOver and the tests.
+        .accessibilityLabel(titleText(model.activeServer?.connection ?? .online))
+        .accessibilityIdentifier(A11y.Shell.title)
+    }
+
     private var title: some View {
         HStack(spacing: 8) {
             let connection = model.activeServer?.connection ?? .online
@@ -273,8 +326,6 @@ struct ChatListView: View {
                 .foregroundStyle(Theme.text1)
                 .lineLimit(1)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(A11y.Shell.title)
     }
 
     private func titleText(_ connection: ConnectionState) -> String {
@@ -451,5 +502,17 @@ private struct MessageHitRow: View {
         .padding(.vertical, 6)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(A11y.ChatList.messageHit(hit.message.id))
+    }
+}
+
+/// The screen for a route on the chat stack.
+struct ChatRouteView: View {
+    let route: ChatRoute
+
+    var body: some View {
+        switch route {
+        case let .chat(key): ChatScreen(conversationKey: key)
+        case let .details(key): ConversationDetails(conversationKey: key)
+        }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import Observation
 import ZunaModels
 
@@ -72,16 +73,21 @@ final class AppModel {
     var joining = false
     /// An invite link opened from outside the app, for the join screens to pick up.
     var pendingLink: String?
-    /// The chats opened from the conversation list, by conversation key.
-    var chatPath: [String] = []
+    /// The screens opened from the conversation list: chats and their details.
+    var chatPath: [ChatRoute] = []
+
+    /// Opens a conversation from anywhere, like the desktop's selectConversation.
+    func openChat(_ conversationKey: String) {
+        tab = .chats
+        drawerOpen = false
+        chatPath = [.chat(conversationKey)]
+    }
     /// Loaded messages, by `listKey(serverId, listId)` (see MessageLists.swift).
     var lists: [String: MessageList] = [:]
     var jumpTarget: JumpTarget?
     var nextJump = 0
-    #if DEBUG
-    /// Files a UI test adds to the open chat's composer, instead of going through the system's pickers.
-    var testAttachments: [URL] = []
-    #endif
+    /// Files on their way into the open chat's composer: dropped on an iPad, or added by a UI test.
+    var pendingAttachments: [URL] = []
     /// Drafts, replies, edits and files being written, by `composerKey(serverId, conversationKey)`.
     var composers: [String: ComposerState] = [:]
     /// Where each chat was scrolled to, when it wasn't at the newest message: the message at the top of the screen.
@@ -90,6 +96,8 @@ final class AppModel {
     var settings = AppSettings.load() {
         didSet { settings.save() }
     }
+    /// App lock is waiting for Face ID, Touch ID or the passcode; nothing under it shows or is read out.
+    var appLocked = AppSettings.load().appLock
 
     let core: CoreConnection
     private var pendingRefreshes: Set<String> = []
@@ -168,6 +176,21 @@ final class AppModel {
     func addServer(_ serverId: String) async {
         await load()
         activeServerId = serverId
+    }
+
+    /// Signs out of a server on this device and erases its local data, as the desktop's "Sign out" does.
+    func signOut(_ serverId: String) async {
+        do {
+            try await core.leaveServer(serverId)
+            removeServer(serverId)
+        } catch {
+            toast(OnboardingText.describe(error), .error)
+        }
+    }
+
+    /// Fewer animations: the app's own setting, or the system's.
+    var reduceMotion: Bool {
+        settings.reduceMotion || UIAccessibility.isReduceMotionEnabled
     }
 
     /// The join screens are done: the new server opens on its chat list.
@@ -337,4 +360,10 @@ final class AppModel {
     func dismissToast(_ id: Int) {
         toasts.removeAll { $0.id == id }
     }
+}
+
+/// A screen pushed over the conversation list.
+enum ChatRoute: Hashable {
+    case chat(String)
+    case details(String)
 }

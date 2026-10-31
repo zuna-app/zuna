@@ -38,13 +38,17 @@ struct RootView: View {
                 UnlockView()
             } else if core.phase == .ready, let model = core.model, let images = core.images {
                 Group {
-                    if model.onboarding {
+                    if model.appLocked {
+                        // Nothing under App lock's cover, so VoiceOver can't read the chats either.
+                        Theme.bg0.ignoresSafeArea()
+                    } else if model.onboarding {
                         JoinFlow(embedded: false)
                     } else {
                         MainView()
                     }
                 }
                 .overlay(alignment: .top) { ToastStack() }
+                .overlay { AppLockGate() }
                 .environment(model)
                 .environment(images)
                 .tint(model.settings.accent.color)
@@ -76,6 +80,61 @@ struct RootView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
             }
+        }
+    }
+}
+
+/// App lock: with it on, the app asks for Face ID, Touch ID or the passcode
+/// each time it opens, and covers the chats while it isn't in front, so the
+/// app switcher doesn't show them.
+private struct AppLockGate: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var asking = false
+
+    private var locked: Bool { model.appLocked }
+
+    var body: some View {
+        Group {
+            if model.settings.appLock && (locked || scenePhase != .active) {
+                ZStack {
+                    Theme.bg0.ignoresSafeArea()
+                    VStack(spacing: 18) {
+                        ZunaLogo(size: 72)
+                        if locked && scenePhase == .active {
+                            Button {
+                                unlock()
+                            } label: {
+                                Label("Unlock with \(AppLock.methodName)", systemImage: "lock.fill")
+                                    .padding(.horizontal, 18)
+                                    .frame(minHeight: 44)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(model.settings.accent.color)
+                            .foregroundStyle(model.settings.accent.onAccent)
+                            .accessibilityIdentifier(A11y.Root.unlockApp)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(A11y.Root.appLock)
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background, model.settings.appLock { model.appLocked = true }
+            if phase == .active, locked { unlock() }
+        }
+        .onAppear {
+            if locked { unlock() }
+        }
+    }
+
+    private func unlock() {
+        guard !asking else { return }
+        asking = true
+        Task {
+            if await AppLock.authenticate(reason: "Unlock Zuna") { model.appLocked = false }
+            asking = false
         }
     }
 }

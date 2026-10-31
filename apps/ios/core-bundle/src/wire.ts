@@ -1,6 +1,8 @@
 // RPC messages cross into Swift (and over the test control channel) as JSON.
 // Bytes and blobs, which JSON can't hold, travel as tagged base64; files on
-// disk travel as tagged paths.
+// disk travel as tagged paths. An argument left out in the middle of a call
+// travels as {"$undefined": true}, since JSON's null can mean something else
+// (in updateGroupMeta, null removes the picture).
 
 import { NativeFile } from "./files";
 import { BlobPolyfill } from "./polyfills";
@@ -18,6 +20,7 @@ export function encodeWire(value: unknown): string {
 export function decodeWire(json: string): any {
   return JSON.parse(json, (_key, item) => {
     if (item && typeof item === "object") {
+      if (item.$undefined === true) return undefined;
       if (typeof item.$bytes === "string") return __zunaHost.base64Decode(item.$bytes);
       if (item.$file && typeof item.$file.path === "string") return new NativeFile(item.$file.path, item.$file.type ?? "");
       if (item.$blob && typeof item.$blob.bytes === "string") {

@@ -17,8 +17,9 @@ final class ShellTests: XCTestCase {
         let dm = zuna.element(A11y.ChatList.row("user:\(alice.userId)"))
         XCTAssertTrue(dm.waitForExistence(timeout: 20))
         XCTAssertTrue(dm.label.contains("alice"), dm.label)
+        // Other tests may have made more groups.
         let group = zuna.app.descendants(matching: .any)
-            .matching(NSPredicate(format: "identifier BEGINSWITH %@", A11y.ChatList.row("group:")))
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", A11y.ChatList.row("group:"), "Weekend"))
             .firstMatch
         XCTAssertTrue(group.waitForExistence(timeout: 20))
         XCTAssertTrue(group.label.contains("Weekend"), group.label)
