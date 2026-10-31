@@ -294,9 +294,14 @@ if [ -n "$SERVER_DOMAIN" ]; then restart zuna zuna-server "$SERVER_PORT"; fi
 if [ -n "$RELAY_DOMAIN" ]; then restart zuna-push zuna-push "$RELAY_PORT"; fi
 
 echo
+# Where a proxy on another machine finds them: this machine's address, when they listen on all of them.
+HOST="$LISTEN"
+case "$LISTEN" in
+  0.0.0.0 | ::) HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"; HOST="${HOST:-this-machine}" ;;
+esac
 echo "Point your reverse proxy at them, with HTTPS and WebSockets (see docs/LINUX.md):"
-if [ -n "$SERVER_DOMAIN" ]; then echo "  https://$SERVER_DOMAIN -> http://$(address "$LISTEN" "$SERVER_PORT")"; fi
-if [ -n "$RELAY_DOMAIN" ]; then echo "  https://$RELAY_DOMAIN -> http://$(address "$LISTEN" "$RELAY_PORT")"; fi
+if [ -n "$SERVER_DOMAIN" ]; then echo "  https://$SERVER_DOMAIN -> http://$(address "$HOST" "$SERVER_PORT")"; fi
+if [ -n "$RELAY_DOMAIN" ]; then echo "  https://$RELAY_DOMAIN -> http://$(address "$HOST" "$RELAY_PORT")"; fi
 if [ "$FIRST_SERVER" = 1 ]; then
   link="$(journalctl -u zuna --no-pager -n 50 | grep -o "https://[^ ]*/invite/[^ ]*" | tail -n1 || true)"
   echo
