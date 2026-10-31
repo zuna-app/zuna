@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"time"
 
 	"zuna/server/internal/store"
 )
@@ -26,6 +27,11 @@ const (
 	defaultKDFMemory     = 64 << 10
 	defaultKDFIterations = 3
 	defaultKDFParallel   = 1
+
+	// Wrong passwords for one account, however many addresses they come from.
+	signInFreeFailures = 12
+	signInFirstWait    = 2 * time.Second
+	signInLongestWait  = 5 * time.Minute
 )
 
 // What a device and an account may keep here. Generous: real use stays far below.

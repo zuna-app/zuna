@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"zuna/server/internal/api"
+	"zuna/server/internal/clientip"
 	"zuna/server/internal/store"
 )
 
@@ -31,16 +32,18 @@ var version = "dev"
 const defaultPushRelay = "https://relay.mgalazka.pl"
 
 type config struct {
-	dataDir     string
-	domain      string
-	listen      string
-	publicURL   string
-	tlsCert     string
-	tlsKey      string
-	trustProxy  bool
-	downloadURL string
-	authBurst   int
-	pushRelays  string
+	dataDir        string
+	domain         string
+	listen         string
+	publicURL      string
+	tlsCert        string
+	tlsKey         string
+	trustProxy     bool
+	trustedProxies string
+	downloadURL    string
+	authBurst      int
+	userQuotaMB    int
+	pushRelays     string
 }
 
 // splitList reads a comma-separated list of addresses. "off" is none.
@@ -73,9 +76,12 @@ func parseFlags() config {
 	flag.StringVar(&cfg.publicURL, "public-url", os.Getenv("ZUNA_PUBLIC_URL"), "address members use to reach this server, needed behind a reverse proxy (env ZUNA_PUBLIC_URL)")
 	flag.StringVar(&cfg.tlsCert, "tls-cert", os.Getenv("ZUNA_TLS_CERT"), "TLS certificate file, if you manage certificates yourself (env ZUNA_TLS_CERT)")
 	flag.StringVar(&cfg.tlsKey, "tls-key", os.Getenv("ZUNA_TLS_KEY"), "TLS key file (env ZUNA_TLS_KEY)")
-	flag.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy, for rate limiting (env ZUNA_TRUST_PROXY)")
-	flag.StringVar(&cfg.downloadURL, "download-url", envOr("ZUNA_DOWNLOAD_URL", ""), "where invite pages link for downloading the app (env ZUNA_DOWNLOAD_URL)")
+	flag.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy on this machine or a private network, for rate limiting (env ZUNA_TRUST_PROXY)")
+	flag.StringVar(&cfg.trustedProxies, "trusted-proxies", os.Getenv("ZUNA_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_TRUSTED_PROXIES)")
+	flag.StringVar(&cfg.downloadURL, "download-url", envOr("ZUNA_DOWNLOAD_URL", ""), "where invite pages link for downloading the app, as well as the official releases (env ZUNA_DOWNLOAD_URL)")
 	flag.IntVar(&cfg.authBurst, "auth-burst", 0, "sign-in attempts allowed at once per address (default 20)")
+	quota, _ := strconv.Atoi(os.Getenv("ZUNA_USER_QUOTA_MB"))
+	flag.IntVar(&cfg.userQuotaMB, "user-quota-mb", quota, "how many MB of files each person may keep, or -1 for no limit (default 10240) (env ZUNA_USER_QUOTA_MB)")
 	flag.StringVar(&cfg.pushRelays, "push-relays", envOr("ZUNA_PUSH_RELAYS", defaultPushRelay), `comma-separated push relays that may wake phones for new messages, or "off" (env ZUNA_PUSH_RELAYS)`)
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
@@ -126,14 +132,20 @@ func run(cfg config) error {
 	}
 	defer db.Close()
 
+	proxies := splitList(cfg.trustedProxies)
+	if _, err := clientip.New(cfg.trustProxy, proxies); err != nil {
+		return err
+	}
 	srv := api.New(api.Config{
-		DataDir:     cfg.dataDir,
-		PublicURL:   cfg.publicURL,
-		Version:     version,
-		TrustProxy:  cfg.trustProxy,
-		DownloadURL: cfg.downloadURL,
-		AuthBurst:   cfg.authBurst,
-		PushRelays:  splitList(cfg.pushRelays),
+		DataDir:        cfg.dataDir,
+		PublicURL:      cfg.publicURL,
+		Version:        version,
+		TrustProxy:     cfg.trustProxy,
+		TrustedProxies: proxies,
+		DownloadURL:    cfg.downloadURL,
+		AuthBurst:      cfg.authBurst,
+		UserQuotaMB:    cfg.userQuotaMB,
+		PushRelays:     splitList(cfg.pushRelays),
 	}, db)
 	// For tests only: a stand-in for 7TV, so emote tests don't depend on the internet.
 	if base := os.Getenv("ZUNA_7TV_API"); base != "" {

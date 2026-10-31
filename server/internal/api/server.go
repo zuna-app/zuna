@@ -14,7 +14,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,6 +23,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	"zuna/server/internal/clientip"
 	"zuna/server/internal/emotes"
 	"zuna/server/internal/ratelimit"
 	"zuna/server/internal/store"
@@ -59,37 +59,60 @@ const (
 
 // Config is the part of the server's configuration the API needs.
 type Config struct {
-	DataDir    string
-	PublicURL  string
-	Version    string
+	DataDir   string
+	PublicURL string
+	Version   string
+	// TrustProxy takes callers' addresses from X-Forwarded-For when the
+	// connection comes from this machine or a private network.
 	TrustProxy bool
+	// TrustedProxies replaces those networks with exactly these, as addresses or
+	// CIDR ranges, for a reverse proxy elsewhere.
+	TrustedProxies []string
 	// DownloadURL is where invite pages send people who need the app.
 	DownloadURL string
 	// AuthBurst is how many sign-in attempts one address can make at once.
 	AuthBurst int
+	// UserQuotaMB limits one person's files together. Zero is the default, and negative none.
+	UserQuotaMB int
 	// PushRelays are the relays this server sends notifications through, by
 	// address. Phones register with one of them; none turns pushes off.
 	PushRelays []string
 }
 
 type Server struct {
-	cfg    Config
-	db     *store.DB
-	hub    *Hub
-	files  string
-	emotes *emotes.Service
+	cfg     Config
+	db      *store.DB
+	hub     *Hub
+	files   string
+	emotes  *emotes.Service
+	callers *clientip.Resolver
 
 	authLimiter    *ratelimit.Keyed
 	messageLimiter *ratelimit.Keyed
+	writeLimiter   *ratelimit.Keyed
+	socketLimiter  *ratelimit.Keyed
+	publicLimiter  *ratelimit.Keyed
+	claimLimiter   *ratelimit.Keyed
+	targetLimiter  *ratelimit.Keyed
+	signInFailures *ratelimit.Backoff
 
 	pushClient *http.Client
 	pushSlots  chan struct{}
 	notified   notifiedChats
 }
 
+// New makes a server. A trusted proxy that can't be read is a mistake in the
+// configuration, which the caller should have checked with clientip.New.
 func New(cfg Config, db *store.DB) *Server {
 	if cfg.AuthBurst <= 0 {
 		cfg.AuthBurst = defaultAuthBurst
+	}
+	if cfg.UserQuotaMB == 0 {
+		cfg.UserQuotaMB = defaultUserQuotaMB
+	}
+	callers, err := clientip.New(cfg.TrustProxy, cfg.TrustedProxies)
+	if err != nil {
+		panic(err)
 	}
 	return &Server{
 		cfg:            cfg,
@@ -97,8 +120,16 @@ func New(cfg Config, db *store.DB) *Server {
 		hub:            newHub(db),
 		files:          filepath.Join(cfg.DataDir, "files"),
 		emotes:         emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
+		callers:        callers,
 		authLimiter:    ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		messageLimiter: ratelimit.NewKeyed(rate.Limit(15), 60),
+		// Far beyond what using the app needs, even while uploading a large file.
+		writeLimiter:   ratelimit.NewKeyed(rate.Limit(50), 300),
+		socketLimiter:  ratelimit.NewKeyed(rate.Limit(2), 60),
+		publicLimiter:  ratelimit.NewKeyed(rate.Limit(5), 60),
+		claimLimiter:   ratelimit.NewKeyed(rate.Limit(5), 600),
+		targetLimiter:  ratelimit.NewKeyed(rate.Every(2*time.Second), 20),
+		signInFailures: ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
 		pushClient:     &http.Client{Timeout: pushTimeout},
 		pushSlots:      make(chan struct{}, pushConcurrency),
 	}
@@ -394,7 +425,7 @@ func (s *Server) admin(next authedHandler) http.HandlerFunc {
 
 func (s *Server) limited(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.authLimiter.Allow(s.clientIP(r)) {
+		if !s.authLimiter.Allow(s.callerKey(r)) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts. Please wait a minute and try again.")
 			return
 		}
@@ -402,17 +433,21 @@ func (s *Server) limited(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (s *Server) clientIP(r *http.Request) string {
-	if s.cfg.TrustProxy {
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			return strings.TrimSpace(strings.Split(forwarded, ",")[0])
+// publicLimited is for what anyone may ask without an account, often: far looser
+// than signing in, since one invite link may be opened by many people at once.
+func (s *Server) publicLimited(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.publicLimiter.Allow(s.callerKey(r)) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests. Please wait a moment and try again.")
+			return
 		}
+		next(w, r)
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+}
+
+// callerKey is who to count a request against when there's no account to go by.
+func (s *Server) callerKey(r *http.Request) string {
+	return clientip.Key(s.callers.Address(r))
 }
 
 // --- Helpers ---
