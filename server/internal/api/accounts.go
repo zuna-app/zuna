@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"zuna/server/internal/store"
@@ -216,9 +217,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
+	failures := strings.ToLower(body.Username)
+	if !s.signInFailures.Allowed(failures) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+		return
+	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
 	if errors.Is(err, store.ErrNotFound) || (err == nil &&
 		subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.AuthKey), creds.AuthHash) != 1) {
+		s.signInFailures.Fail(failures)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
 		return
 	}
@@ -226,6 +233,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
+	s.signInFailures.Succeed(failures)
 	if creds.Banned {
 		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
 		return
@@ -253,9 +261,15 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
+	failures := strings.ToLower(body.Username)
+	if !s.signInFailures.Allowed(failures) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+		return
+	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
 	if errors.Is(err, store.ErrNotFound) || (err == nil &&
 		subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, body.RecoveryAuthKey), creds.RecoveryHash) != 1) {
+		s.signInFailures.Fail(failures)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and recovery key don't match.")
 		return
 	}
@@ -263,6 +277,7 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
+	s.signInFailures.Succeed(failures)
 	if creds.Banned {
 		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
 		return
