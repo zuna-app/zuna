@@ -312,6 +312,36 @@ Minimum iOS version: 18 (proposed).
 
 Each phase is done when its features work **against a desktop client in both directions**, with tests as described in IOS_TESTING.md.
 
+## F0 results (2026-10-31)
+
+The spike is done; every question it set out to answer has an answer backed by a test.
+
+| Question | Result | Decision |
+|---|---|---|
+| Does the Rust crate build natively? | Yes, for iOS devices, the simulator and macOS, without code changes. The desktop's generated JavaScript bindings are byte for byte the same as before. | UniFFI it is. `npm run build:ios` builds the XCFramework. |
+| Does the unchanged core run in JavaScriptCore? | Yes. The bundle is 328 KB. 10 of 10 cross-client scenarios pass against the desktop's core, both with `zuna-host` and with the real app in the simulator. | Keep the core unchanged behind the RPC boundary. |
+| Bridge pitfalls | `JSObjectGetTypedArrayBytesPtr` points at the start of the buffer, not the view, so the offset has to be added; the core slices buffers constantly. URLSession can't pass on custom WebSocket close codes such as 4401, which signs a removed device out. | Bridge tests cover the offset. WebSockets use Network.framework, and the sign-out test proves 4401 arrives. |
+| Performance without a JIT | A plain `JSContext` on macOS runs at interpreter speed (85 ms for a loop V8 runs in 15 ms; `JSC_useJIT` changes nothing), so it stands in for a device. Signing in and syncing 10,000 messages takes 10.3 s, about 1 ms per message (decrypt, verify, store, index). Opening a chat takes 17 ms, a search 1 ms, Argon2id (64 MiB) 98 ms natively. | No separate worker is needed: the core already runs on its own queue. Show "Updating" during a first sync. Measure on an iPhone at the first L7 check. |
+| Inline animated emotes | `UITextView` with TextKit 2 asks attachments for view providers but never shows their views. A small TextKit 2 view that draws the text itself and places views at `frameForTextAttachment` works, including wrapping, animation and zero-width stacking. | Message text uses that view (`EmoteTextLabel` in the spike). |
+| Animated WebP | ImageIO decodes 7TV-style animated WebP with frames, timing and transparency, and `CGAnimateImageAtURLWithBlock` plays it. | No third-party image library. |
+| Code highlighting | The desktop's Shiki setup runs in JavaScriptCore. With the regex engine targeting ES2018, tokens match the desktop for all six languages tested. The first TypeScript block takes about 190 ms while the grammar compiles. | Shiki in its own `JSContext`, off the main thread, with a cache. |
+| Signing and storage | Built with team `SGKB9R23YT`. In the simulator, the device key is stored in the shared Keychain group and the databases live in the App Group container. | As planned. A physical device still needs a provisioning profile through automatic signing. |
+
+Found along the way:
+
+- The server limits each person to about 15 messages a second (burst of 60). Only test seeding notices this; the benchmark uses ten senders.
+- A new device reads a group's earlier messages only if one of that person's devices filed the group's keys in the vault. That's the protocol's normal behavior, and the benchmark scenario now respects it.
+
+Carried into F1:
+
+- `FileAdapter` and `suspend()`/`resume()` in the core;
+- Swift 6 language mode for `ZunaHost` and `ZunaControl` (they use Swift 5 mode for now);
+- linking `ZunaControl` into Debug builds only, with a CI check on the Release binary;
+- the remaining `test.` hooks, TestKit for XCUITest, the result summaries;
+- an app icon without transparency (App Store requirement).
+
+The message list itself (`UICollectionView`) moves to the start of F4: its riskiest part, the text, is settled.
+
 ## Prerequisites on this Mac
 
 Installed on 2026-10-31:
@@ -338,12 +368,8 @@ The crate already cross-compiles for `aarch64-apple-ios` and `aarch64-apple-ios-
 2. **App Store, user-generated content (guideline 1.2).** Reporting content and blocking users are required. The desktop only has bans by admins.
 3. **AGPL-3.0 and the App Store.** Distributing GPL-family code through the App Store is widely considered incompatible with Apple's terms (VLC is the known case). Without a CLA or an extra permission from all contributors, this is a legal risk for the project owner to decide on.
 4. **Export compliance** (`ITSAppUsesNonExemptEncryption`) is a formality when submitting.
-5. **No JIT on iOS.** The core is interpreted. Measured in F0, and kept off the UI thread by design.
-6. **Uncertain until F0:**
-   - whether `JSC_useJIT=0` reproduces the no-JIT condition in tests;
-   - ImageIO's handling of animated WebP;
-   - Shiki's regex engine under JavaScriptCore.
-   - Each has a fallback: device-only measurements, manual frame decoding, highlight.js.
+5. **No JIT on iOS.** The core is interpreted. F0 measured about 1 ms per synced message on a Mac running at interpreter speed. A first check on an iPhone is still due.
+6. **Settled in F0:** reproducing the no-JIT condition, animated WebP in ImageIO, and Shiki under JavaScriptCore. See "F0 results".
 7. **Decrypted media on disk** rather than in memory. Protected, capped and cleared; documented in `SECURITY.md`.
 8. **Without notifications**, new messages are only seen after opening the app. This is the agreed scope for this stage.
 
