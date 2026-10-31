@@ -52,14 +52,19 @@ export class HostApp {
     socket.onmessage = (event) => {
       const data = decodeWire(String(event.data));
       if (data?.kind === "host-result") {
-        this.evaluations.get(data.id)?.(data.value);
-        this.evaluations.delete(data.id);
+        this.hostRequests.get(data.id)?.(data.value);
+        this.hostRequests.delete(data.id);
         return;
       }
       port_.onmessage?.({ data } as MessageEvent);
     };
     this.core = connectCore(port_, (event) => this.events.push(event));
 
+    // A locked app answers the core's calls only after it's unlocked.
+    if (this.options.target === "simulator") {
+      await waitFor(async () => (await this.hostCommand("state")) !== "booting", `${this.name} to start`, 30_000);
+      if ((await this.hostCommand("state")) === "locked") return this;
+    }
     const servers = await this.core.client.listServers();
     if (servers[0]) this.serverId = servers[0].id;
     return this;
@@ -81,12 +86,15 @@ export class HostApp {
   }
 
   private launchedOnce = false;
+  /** Set to simulate a restart of the phone: the app sees a new boot session. */
+  bootSession: string | null = null;
 
   /** Launches the app in the E2E simulator, with fresh data the first time. */
   private launchInSimulator(): number {
     const port = 40_000 + Math.floor(Math.random() * 10_000);
     const args = ["-ZunaControlPort", String(port)];
     if (!this.launchedOnce) args.push("-ZunaResetData", "YES");
+    if (this.bootSession) args.push("-ZunaBootSession", this.bootSession);
     this.launchedOnce = true;
     launch(simulatorId(), args);
     return port;
@@ -152,16 +160,31 @@ export class HostApp {
     this.socket?.send(JSON.stringify({ kind: "host", command: "offline", value: offline }));
   }
 
-  private evaluations = new Map<number, (value: string) => void>();
-  private nextEvaluation = 1;
+  private hostRequests = new Map<number, (value: any) => void>();
+  private nextHostRequest = 1;
+
+  /** A command for the host or the app rather than the core, such as "state" or "unlock". */
+  hostCommand(command: string, fields: Record<string, unknown> = {}): Promise<any> {
+    const id = this.nextHostRequest++;
+    return new Promise((resolve) => {
+      this.hostRequests.set(id, resolve);
+      this.socket?.send(JSON.stringify({ kind: "host", command, id, ...fields }));
+    });
+  }
 
   /** Runs a script inside the host's JavaScript context (Debug builds only). */
   evaluate(script: string): Promise<string> {
-    const id = this.nextEvaluation++;
-    return new Promise((resolve) => {
-      this.evaluations.set(id, resolve);
-      this.socket?.send(JSON.stringify({ kind: "host", command: "evaluate", id, script }));
-    });
+    return this.hostCommand("evaluate", { script });
+  }
+
+  /** Unlocks the app after a simulated restart of the phone, then connects to the core. */
+  async unlock(password: string): Promise<string> {
+    const result = await this.hostCommand("unlock", { password });
+    if (result === "ready") {
+      const servers = await this.core.client.listServers();
+      if (servers[0]) this.serverId = servers[0].id;
+    }
+    return result;
   }
 
   /** Stops the process, keeping its data for `open()` to pick up again. */

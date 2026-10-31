@@ -4,17 +4,65 @@
 // (apps/desktop/src/renderer/src/core/worker.ts).
 
 import "./polyfills";
-import { ZunaClient } from "@zuna/core";
+import { ZunaClient, type CoreEvent } from "@zuna/core";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
 import { decodeWire, encodeWire } from "./wire";
 
 const g = globalThis as any;
 
+let client: ZunaClient | null = null;
 let resolveClient: (client: ZunaClient) => void;
 const clientReady = new Promise<ZunaClient>((resolve) => {
   resolveClient = resolve;
 });
+
+// --- Accounts, for the app's device lock ---
+//
+// The iOS app keeps its device key sealed with each account's password
+// (DeviceLock.swift), so it needs to hear about every sign-in, password change
+// and sign-out, whichever channel caused it. The password goes to the host
+// and nowhere else.
+
+interface Account {
+  url: string;
+  username: string;
+  name: string;
+}
+
+const accounts = new Map<string, Account>();
+const accountCalls = new Map<number, { method: string; serverId: string | null; args: unknown[] }>();
+const ACCOUNT_METHODS = new Set(["register", "login", "recover", "leaveServer"]);
+
+function rememberAccounts(): void {
+  for (const server of client?.listServers() ?? []) {
+    accounts.set(server.id, { url: server.url, username: server.username, name: server.name });
+  }
+}
+
+function reportAccount(type: "signedIn" | "passwordChanged" | "signedOut", account: Account | undefined, password?: unknown): void {
+  if (!account) return;
+  __zunaHost.accountEvent(
+    JSON.stringify({ type, serverUrl: account.url, username: account.username, serverName: account.name, password: typeof password === "string" ? password : undefined }),
+  );
+}
+
+function afterAccountCall(call: { method: string; serverId: string | null; args: unknown[] }, value: any): void {
+  if (call.method === "leaveServer") {
+    const serverId = call.args[0] as string;
+    reportAccount("signedOut", accounts.get(serverId));
+    accounts.delete(serverId);
+    return;
+  }
+  const serverId = call.method === "register" ? value?.serverId : call.method === "changePassword" ? call.serverId : value;
+  rememberAccounts();
+  const account = accounts.get(serverId);
+  if (call.method === "register" || call.method === "login") reportAccount("signedIn", account, call.args[2]);
+  if (call.method === "recover") reportAccount("signedIn", account, call.args[3]);
+  if (call.method === "changePassword") reportAccount("passwordChanged", account, call.args[1]);
+}
+
+// --- RPC ---
 
 // Several channels share one core, so call IDs are renumbered on the way in
 // and mapped back on the way out. Events go to every channel.
@@ -23,8 +71,13 @@ let nextCall = 1;
 
 const port = {
   onmessage: null as ((event: MessageEvent) => void) | null,
-  postMessage(message: { kind: string; id?: number }) {
+  postMessage(message: { kind: string; id?: number; ok?: boolean; value?: unknown }) {
     if (message.kind === "reply") {
+      const call = accountCalls.get(message.id!);
+      if (call) {
+        accountCalls.delete(message.id!);
+        if (message.ok) afterAccountCall(call, message.value);
+      }
       const route = routes.get(message.id!);
       if (!route) return;
       routes.delete(message.id!);
@@ -42,19 +95,30 @@ g.__zunaReceive = (channel: number, json: string) => {
   if (message?.kind !== "call") return;
   const id = nextCall++;
   routes.set(id, { channel, id: message.id });
+  const isAccountCall = message.serverId === null ? ACCOUNT_METHODS.has(message.method) : message.method === "changePassword";
+  if (isAccountCall) accountCalls.set(id, { method: message.method, serverId: message.serverId, args: message.args });
   port.onmessage?.({ data: { ...message, id } } as MessageEvent);
 };
 
 g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string | null) => void) => {
-  const client = new ZunaClient({
+  const instance = new ZunaClient({
     db: nativeDbProvider,
     deviceKey,
     deviceName,
-    onEvent: (event) => emit(event),
+    onEvent: (event: CoreEvent) => {
+      // A server ending the session removes the account from this device.
+      if (event.type === "signed_out") {
+        reportAccount("signedOut", accounts.get(event.serverId));
+        accounts.delete(event.serverId);
+      }
+      emit(event);
+    },
   });
-  client.open().then(
+  instance.open().then(
     () => {
-      resolveClient(client);
+      client = instance;
+      rememberAccounts();
+      resolveClient(instance);
       done(null);
     },
     (error: Error) => done(error?.stack ?? String(error)),

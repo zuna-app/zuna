@@ -59,7 +59,15 @@ The key enabler. The app's core already sits behind an RPC boundary (`packages/c
 | `test.sql(query)` | read-only database queries, for checks of data at rest |
 | `test.logs(since)` | recent console and host log lines |
 
-Implemented in F0 as host commands (`{"kind": "host", "command": …}`): `offline`, `exit`, and `evaluate`, which runs a script in the core's context and is compiled only into Debug builds. The rest follow in F1.
+Implemented so far as host commands (`{"kind": "host", "command": …}`):
+
+- `offline`, `exit`;
+- `evaluate`, which runs a script in the core's context and is compiled only into Debug builds;
+- for the app: `state` (`booting`, `locked`, `ready`, `failed`), `unlock` (with a password) and `lockedAccounts`.
+
+The control server starts before the core, so a test can also drive the app while it's locked. Messages for the core wait until it's running. Launching with `-ZunaBootSession <name>` simulates a restart of the phone.
+
+The rest follow in F1.
 
 ## Test layers
 

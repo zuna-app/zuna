@@ -5,14 +5,40 @@ import ZunaHost
 /// Exposes a core over a WebSocket on the loopback interface, speaking the
 /// same RPC messages as `packages/core/src/rpc.ts`. End-to-end tests use it to
 /// drive the iOS client exactly as its UI does. Linked into test builds only.
+///
+/// It can start before the core does, so tests can also drive the app while
+/// it's locked: messages for the core wait until `attach(_:)`, and host
+/// commands (`{"kind": "host", ...}`) go to `commandHandler`.
 public final class ControlServer: @unchecked Sendable {
-    private let runtime: CoreRuntime
+    /// Handles a host command the server doesn't know itself, returning the
+    /// reply's value. Runs off the main thread.
+    public var commandHandler: (@Sendable ([String: Any]) async -> Any?)?
+
+    private var runtime: CoreRuntime?
     private let queue = DispatchQueue(label: "chat.zuna.control")
     private var listener: NWListener?
-    private var connections: [ObjectIdentifier: (NWConnection, CoreRuntime.Channel)] = [:]
+    private var connections: [ObjectIdentifier: Client] = [:]
 
-    public init(runtime: CoreRuntime) {
+    private final class Client {
+        let connection: NWConnection
+        var channel: CoreRuntime.Channel?
+        var waiting: [String] = []
+
+        init(connection: NWConnection) {
+            self.connection = connection
+        }
+    }
+
+    public init(runtime: CoreRuntime? = nil) {
         self.runtime = runtime
+    }
+
+    /// Connects the core once it's running; messages that waited for it go through.
+    public func attach(_ runtime: CoreRuntime) {
+        queue.async { [self] in
+            self.runtime = runtime
+            for client in connections.values { open(client) }
+        }
     }
 
     /// Starts listening and returns the port. Pass 0 for any free port.
@@ -50,13 +76,8 @@ public final class ControlServer: @unchecked Sendable {
 
     private func accept(_ connection: NWConnection) {
         let key = ObjectIdentifier(connection)
-        let channel = runtime.connect { [weak connection] json in
-            guard let connection else { return }
-            let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
-            let context = NWConnection.ContentContext(identifier: "text", metadata: [metadata])
-            connection.send(content: Data(json.utf8), contentContext: context, isComplete: true, completion: .idempotent)
-        }
-        connections[key] = (connection, channel)
+        let client = Client(connection: connection)
+        connections[key] = client
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
             case .failed, .cancelled:
@@ -66,26 +87,40 @@ public final class ControlServer: @unchecked Sendable {
             }
         }
         connection.start(queue: queue)
-        receive(on: connection, key: key, channel: channel)
+        if runtime != nil { open(client) }
+        receive(on: client, key: key)
     }
 
-    private func receive(on connection: NWConnection, key: ObjectIdentifier, channel: CoreRuntime.Channel) {
-        connection.receiveMessage { [weak self] content, context, _, error in
+    private func open(_ client: Client) {
+        guard client.channel == nil, let runtime else { return }
+        let channel = runtime.connect { [weak connection = client.connection] json in
+            guard let connection else { return }
+            Self.send(json, on: connection)
+        }
+        client.channel = channel
+        for json in client.waiting { channel.send(json) }
+        client.waiting.removeAll()
+    }
+
+    private func receive(on client: Client, key: ObjectIdentifier) {
+        client.connection.receiveMessage { [weak self] content, context, _, error in
             guard let self else { return }
             let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata
             if error != nil || metadata?.opcode == .close {
-                connection.cancel()
+                client.connection.cancel()
                 drop(key)
                 return
             }
             if metadata?.opcode == .text, let content, let json = String(data: content, encoding: .utf8) {
                 if json.hasPrefix("{\"kind\":\"host\"") {
-                    handleHostCommand(json, from: connection)
-                } else {
+                    handleHostCommand(json, from: client.connection)
+                } else if let channel = client.channel {
                     channel.send(json)
+                } else {
+                    client.waiting.append(json)
                 }
             }
-            receive(on: connection, key: key, channel: channel)
+            receive(on: client, key: key)
         }
     }
 
@@ -93,28 +128,39 @@ public final class ControlServer: @unchecked Sendable {
     private func handleHostCommand(_ json: String, from connection: NWConnection) {
         guard let data = json.data(using: .utf8),
               let command = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        let id = command["id"] as? Int
+        let reply = { (value: Any?) in
+            guard let id else { return }
+            let message: [String: Any] = ["kind": "host-result", "id": id, "value": value ?? NSNull()]
+            guard let body = try? JSONSerialization.data(withJSONObject: message), let text = String(data: body, encoding: .utf8) else { return }
+            Self.send(text, on: connection)
+        }
         switch command["command"] as? String {
         case "offline":
-            runtime.setOffline((command["value"] as? Bool) ?? true)
+            runtime?.setOffline((command["value"] as? Bool) ?? true)
+            reply(true)
         case "exit":
             exit(Int32((command["code"] as? Int) ?? 0))
         case "evaluate":
             #if DEBUG
-            let id = command["id"] as? Int ?? 0
-            runtime.evaluateForTesting(command["script"] as? String ?? "") { value in
-                let reply = ["kind": "host-result", "id": id, "value": value] as [String: Any]
-                guard let body = try? JSONSerialization.data(withJSONObject: reply) else { return }
-                let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
-                let context = NWConnection.ContentContext(identifier: "text", metadata: [metadata])
-                connection.send(content: body, contentContext: context, isComplete: true, completion: .idempotent)
-            }
+            guard let runtime else { return reply("Error: the core isn't running") }
+            runtime.evaluateForTesting(command["script"] as? String ?? "") { value in reply(value) }
+            #else
+            reply(NSNull())
             #endif
         default:
-            break
+            guard let handler = commandHandler else { return reply(NSNull()) }
+            Task { reply(await handler(command)) }
         }
     }
 
+    private static func send(_ text: String, on connection: NWConnection) {
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+        let context = NWConnection.ContentContext(identifier: "text", metadata: [metadata])
+        connection.send(content: Data(text.utf8), contentContext: context, isComplete: true, completion: .idempotent)
+    }
+
     private func drop(_ key: ObjectIdentifier) {
-        connections.removeValue(forKey: key)?.1.close()
+        connections.removeValue(forKey: key)?.channel?.close()
     }
 }
