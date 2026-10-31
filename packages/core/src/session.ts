@@ -23,12 +23,14 @@ import {
   parseCertificate,
   randomId,
   reactionId,
+  readSignedGroupDetails,
   safetyEmoji,
   sealEnvelope,
   sealHistoryGrant,
   sealProfile,
   sealSignal,
   sealVaultItem,
+  signGroupDetails,
   signalEpoch,
   verifyCertificate,
   verifyHpkeKey,
@@ -43,6 +45,7 @@ import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import {
   MAX_TEXT_LENGTH,
   parseEmoteRef,
+  parseGroupDetails,
   parseMessageBody,
   parsePreferences,
   parseProfile,
@@ -138,6 +141,8 @@ interface CachedGroup {
   meta: GroupMeta;
   metaBlob: string | null;
   metaEpoch: number | null;
+  /** The newest version of the group's signed details seen, so an older copy isn't taken for new. */
+  metaVersion?: number;
   historyVisible: boolean;
   createdAt: number;
   members: GroupMemberView[];
@@ -270,6 +275,7 @@ export class ServerSession {
   private treeUsersCache = new Map<string, Set<string>>();
   /** Leaves already warned about, so one ghost makes one warning. */
   private warnedLeaves = new Set<string>();
+  private resealing = new Set<string>();
   /** Called when the server told us this session is over (banned, revoked). */
   onSignedOut: ((reason: string) => void) | null = null;
   /** Called when a session that seemed to be over turns out to be working. */
@@ -968,6 +974,7 @@ export class ServerSession {
       meta: previous?.meta ?? {},
       metaBlob: api.meta,
       metaEpoch: api.meta_epoch,
+      metaVersion: previous?.metaVersion ?? 0,
       historyVisible: api.history_visible,
       createdAt: api.created_at,
       members: api.members.map((member) => ({ userId: member.user_id, role: member.role, joinedAt: member.joined_at })),
@@ -984,18 +991,70 @@ export class ServerSession {
     return group;
   }
 
+  private isGroupAdmin(group: CachedGroup, userId: string): boolean {
+    return group.members.find((member) => member.userId === userId)?.role === "admin";
+  }
+
   /** Decrypts whatever group metadata and read positions the keys held allow. */
   private refreshGroupSecrets(group: CachedGroup): void {
     if (group.metaBlob && group.metaEpoch !== null) {
       const key = this.epochKey(group.id, group.metaEpoch);
-      if (key) {
-        const meta = openSignal<GroupMeta>(key, "meta", group.id, fromBase64(group.metaBlob));
-        if (meta) group.meta = meta;
-      }
+      if (key) this.acceptGroupDetails(group, openSignal<unknown>(key, "meta", group.id, fromBase64(group.metaBlob)));
     }
     for (const [userId, state] of Object.entries(group.readStates)) {
       if (state) this.applyReadState(group, userId, fromBase64(state));
     }
+  }
+
+  /**
+   * Takes on a group's details if an admin's device signed them and they aren't
+   * older than what's held. Anyone with an epoch key could write some, and the
+   * server could serve old ones. Unsigned details, from before these were signed,
+   * count only until signed ones are seen, and an admin's app replaces them.
+   */
+  private acceptGroupDetails(group: CachedGroup, opened: unknown): void {
+    if (opened === null) return;
+    const signed = readSignedGroupDetails(group.id, opened);
+    if (!signed) {
+      const legacy = parseGroupDetails(opened);
+      if (legacy && !group.metaVersion) group.meta = legacy;
+      this.resealIfAdmin(group);
+      return;
+    }
+    if (signed.version < (group.metaVersion ?? 0)) return;
+    const device = this.users.get(signed.signer.userId)?.devices.get(signed.signer.deviceId);
+    if (!device) {
+      // Not known yet. Looked up, and read again once that's done.
+      void this.ensureUser(signed.signer.userId, true)
+        .then((user) => {
+          if (user?.devices.has(signed.signer.deviceId) && this.groups.get(group.id) === group) {
+            this.refreshGroupSecrets(group);
+            this.persistGroup(group);
+            this.emitConversations();
+          }
+        })
+        .catch(() => undefined);
+      return;
+    }
+    const details = parseGroupDetails(signed.details);
+    if (!details || !this.isGroupAdmin(group, signed.signer.userId) || !signed.signedBy(device.signatureKey)) {
+      this.resealIfAdmin(group);
+      return;
+    }
+    group.meta = details;
+    group.metaVersion = signed.version;
+  }
+
+  private resealIfAdmin(group: CachedGroup): void {
+    if (group.kind === "group" && !group.removedAt && this.isGroupAdmin(group, this.account.userId) && this.hasMlsGroup(group.id)) {
+      setTimeout(() => this.resealMeta(group.id), 0);
+    }
+  }
+
+  /** Seals a group's details for an epoch, signed by this device. */
+  private sealGroupDetails(groupId: string, key: Uint8Array, epoch: number, meta: GroupMeta, version: number): Uint8Array {
+    const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
+    return sealSignal(key, "meta", groupId, epoch, signGroupDetails(groupId, meta, version, signer, this.account.deviceSecret));
   }
 
   /**
@@ -1004,11 +1063,18 @@ export class ServerSession {
    */
   private resealMeta(groupId: string): void {
     const group = this.groups.get(groupId);
-    if (!group || Object.keys(group.meta).length === 0) return;
-    if (group.members.find((member) => member.userId === this.account.userId)?.role !== "admin") return;
+    if (!group || Object.keys(group.meta).length === 0 || group.removedAt) return;
+    if (!this.isGroupAdmin(group, this.account.userId) || !this.hasMlsGroup(groupId) || this.resealing.has(groupId)) return;
     const epoch = this.rememberCurrentEpochKey(groupId);
-    const sealed = sealSignal(this.epochKey(groupId, epoch)!, "meta", groupId, epoch, group.meta);
-    void this.api.setGroupMeta(groupId, sealed, epoch).catch((error) => console.warn("[zuna] resealing group details", error));
+    const version = Math.max(group.metaVersion ?? 0, 1);
+    group.metaVersion = version;
+    this.persistGroup(group);
+    const sealed = this.sealGroupDetails(groupId, this.epochKey(groupId, epoch)!, epoch, group.meta, version);
+    this.resealing.add(groupId);
+    void this.api
+      .setGroupMeta(groupId, sealed, epoch)
+      .catch((error) => console.warn("[zuna] resealing group details", error))
+      .finally(() => this.resealing.delete(groupId));
   }
 
   private applyReadState(group: CachedGroup, userId: string, sealed: Uint8Array): void {
@@ -1350,7 +1416,7 @@ export class ServerSession {
         kind: "init",
         add_users: extraUsers,
         welcomes: pending.welcome ? packages.map((item) => ({ device_id: item.deviceId, data: pending.welcome! })) : [],
-        meta: meta ? sealSignal(key, "meta", group.id, newEpoch, meta) : undefined,
+        meta: meta ? this.sealGroupDetails(group.id, key, newEpoch, meta, 1) : undefined,
         meta_epoch: meta ? newEpoch : undefined,
       });
     } catch (error) {
@@ -1372,7 +1438,16 @@ export class ServerSession {
     this.treeUsersCache.delete(group.id);
     this.setKnownMembers(group.id, targets);
     void this.uploadEpochKeys().catch(() => undefined);
-    this.applyGroup(await this.api.group(group.id));
+    const started = await this.api.group(group.id);
+    this.applyGroup(started);
+    if (meta) {
+      const current = this.groups.get(group.id);
+      if (current) {
+        current.meta = meta;
+        current.metaVersion = 1;
+        this.persistGroup(current);
+      }
+    }
   }
 
   /**
@@ -1407,7 +1482,8 @@ export class ServerSession {
       const key = this.mls.exportPendingSecret(groupBytes, CONTENT_LABEL, u64Bytes(newEpoch), 32);
       const group = this.groups.get(groupId);
       const meta = plan.meta ?? group?.meta;
-      const shouldSealMeta = !!meta && Object.keys(meta).length > 0;
+      // Sealing metadata for the new epoch lets newly added members read it. That's for admins, who signed it.
+      const shouldSealMeta = !!group && !!meta && Object.keys(meta).length > 0 && this.isGroupAdmin(group, this.account.userId);
       try {
         await this.api.commit(groupId, {
           expected_epoch: epoch,
@@ -1417,8 +1493,7 @@ export class ServerSession {
           add_users: plan.addUsers,
           remove_users: plan.removeUsers,
           welcomes: pending.welcome ? packages.map((item) => ({ device_id: item.deviceId, data: pending.welcome! })) : [],
-          // Sealing metadata for the new epoch lets newly added members read it.
-          meta: shouldSealMeta ? sealSignal(key, "meta", groupId, newEpoch, meta) : undefined,
+          meta: shouldSealMeta ? this.sealGroupDetails(groupId, key, newEpoch, meta, Math.max(group.metaVersion ?? 0, 1)) : undefined,
           meta_epoch: shouldSealMeta ? newEpoch : undefined,
           history_grants: plan.grants,
         });
@@ -3081,14 +3156,17 @@ export class ServerSession {
     } else if (avatarBlob === null) {
       meta.avatar = null;
     }
+    const version = (group.metaVersion ?? 0) + 1;
     await this.withLock(groupId, async () => {
       await this.ensureTreeClean(groupId);
       const epoch = this.rememberCurrentEpochKey(groupId);
       const key = this.epochKey(groupId, epoch)!;
-      await this.api.setGroupMeta(groupId, sealSignal(key, "meta", groupId, epoch, meta), epoch, historyVisible);
+      await this.api.setGroupMeta(groupId, this.sealGroupDetails(groupId, key, epoch, meta, version), epoch, historyVisible);
     });
-    group.meta = meta;
-    this.persistGroup(group);
+    const current = this.groups.get(groupId) ?? group;
+    current.meta = meta;
+    current.metaVersion = version;
+    this.persistGroup(current);
     this.emitConversations();
   }
 
