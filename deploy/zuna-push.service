@@ -10,6 +10,7 @@ ExecStart=/usr/local/bin/zuna-push
 EnvironmentFile=/etc/zuna/push.env
 Restart=on-failure
 RestartSec=3
+CapabilityBoundingSet=
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

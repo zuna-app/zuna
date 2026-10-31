@@ -10,9 +10,8 @@ ExecStart=/usr/local/bin/zuna-server
 EnvironmentFile=/etc/zuna/zuna.env
 Restart=on-failure
 RestartSec=3
-# Lets the unprivileged service bind ports 80 and 443 for automatic HTTPS.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# Plain HTTP on an unprivileged port, behind a reverse proxy: no capabilities needed.
+CapabilityBoundingSet=
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
