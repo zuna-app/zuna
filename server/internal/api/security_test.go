@@ -4,6 +4,7 @@ package api_test
 // so it can't come back. The findings' numbers are in the audit's report.
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,37 @@ import (
 	"zuna/server/internal/store"
 )
 
+// An MLS vector with a 1 or 2 byte length, as far as these tests need.
+func mlsVector(data []byte) []byte {
+	if len(data) < 64 {
+		return append([]byte{byte(len(data))}, data...)
+	}
+	return append([]byte{byte(len(data)>>8) | 0x40, byte(len(data))}, data...)
+}
+
+func mlsHeader(wire uint16) []byte {
+	return binary.BigEndian.AppendUint16([]byte{0, 1}, wire)
+}
+
+// commitFrame is what an encrypted commit looks like from outside.
+func commitFrame(groupID string, epoch int64) []byte {
+	frame := mlsHeader(2)
+	frame = append(frame, mlsVector([]byte(groupID))...)
+	frame = binary.BigEndian.AppendUint64(frame, uint64(epoch))
+	frame = append(frame, 3)
+	frame = append(frame, mlsVector(nil)...)
+	frame = append(frame, mlsVector([]byte("sender"))...)
+	return append(frame, mlsVector([]byte("ciphertext"))...)
+}
+
+// groupInfoFrame is what a group info looks like from outside.
+func groupInfoFrame(groupID string, epoch int64) []byte {
+	frame := mlsHeader(4)
+	frame = append(frame, 0, 1, 0, 3)
+	frame = append(frame, mlsVector([]byte(groupID))...)
+	frame = binary.BigEndian.AppendUint64(frame, uint64(epoch))
+	return append(frame, []byte("the rest of it, which only clients can check")...)
+}
 
 func (h *harness) raw(method, path, token string, body []byte, headers map[string]string) (int, []byte, http.Header) {
 	h.t.Helper()
@@ -60,6 +92,37 @@ func (c *client) readFile(id string) int {
 	c.h.t.Helper()
 	status, _, _ := c.h.raw("GET", "/api/files/"+id+"/chunks/0", c.token, nil, nil)
 	return status
+}
+
+// Z-07: bytes that aren't a commit or group info for this group and epoch.
+func TestCommitsThatArentCommitsAreRefused(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	other := owner.dm(owner.userID)
+	if status, resp := owner.commit(group.ID, 0, nil); status != http.StatusOK {
+		t.Fatalf("a good commit: %d %v", status, resp)
+	}
+	cases := map[string]map[string]any{
+		"random commit":          {"commit": bytesOf(64, 0xab)},
+		"random group info":      {"group_info": bytesOf(64, 0xab)},
+		"commit for another":     {"commit": commitFrame(other.ID, 1)},
+		"commit for an epoch":    {"commit": commitFrame(group.ID, 7)},
+		"group info for another": {"group_info": groupInfoFrame(other.ID, 2)},
+		"group info for an old":  {"group_info": groupInfoFrame(group.ID, 1)},
+		"not a commit":           {"commit": groupInfoFrame(group.ID, 1)},
+	}
+	for name, extra := range cases {
+		if status, _ := bob.commit(group.ID, 1, extra); status != http.StatusBadRequest {
+			t.Fatalf("%s gave %d", name, status)
+		}
+	}
+	var current store.Group
+	h.mustDo("GET", "/api/groups/"+group.ID, owner.token, nil, &current)
+	if current.Epoch != 1 {
+		t.Fatalf("the group moved to epoch %d", current.Epoch)
+	}
 }
 
 // Z-09: nothing lets one account delete another's file.

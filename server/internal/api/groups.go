@@ -112,6 +112,11 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Those group details are too large.")
 		return
 	}
+	// Advancing the group on anything else would strand every member.
+	if !validCommitFrame(body.Commit, groupID, body.ExpectedEpoch) || !validGroupInfoFrame(body.GroupInfo, groupID, body.ExpectedEpoch+1) {
+		writeError(w, http.StatusBadRequest, "invalid_commit", "That isn't a valid commit for this conversation.")
+		return
+	}
 	before, err := s.db.GroupMemberIDs(r.Context(), groupID)
 	if err != nil {
 		writeFailure(w, err)
