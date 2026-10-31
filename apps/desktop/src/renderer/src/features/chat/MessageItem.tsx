@@ -21,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
+import { linkHost } from "@zuna/core/links";
 import { plainText } from "@zuna/core/plain-text";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -322,14 +323,20 @@ function ForwardedFrom({ userId }: { userId?: string }) {
   );
 }
 
-/** A link's preview, sent by whoever wrote the message. A wide picture goes below, a small one beside the text. */
+/**
+ * A link's preview, sent by whoever wrote the message. What it says about the page
+ * is their claim, so where the link really goes is always shown with it. A wide
+ * picture goes below, a small one beside the text.
+ */
 function LinkCard({ preview }: { preview: LinkPreview }) {
   const image = preview.image;
   const wide = !!image && image.width >= 300 && image.width >= image.height * 1.2;
+  const host = linkHost(preview.url);
+  const site = preview.siteName && preview.siteName.toLowerCase() !== host ? `${host} · ${preview.siteName}` : host;
   return (
     <a className={`link-card${wide ? " is-wide" : ""}`} href={preview.url} target="_blank" rel="noreferrer noopener" title={preview.url} draggable={false}>
       <span className="link-card-text">
-        {preview.siteName && <span className="link-card-site truncate">{preview.siteName}</span>}
+        <span className="link-card-site truncate">{site}</span>
         {preview.title && <span className="link-card-title">{preview.title}</span>}
         {preview.description && <span className="link-card-description">{preview.description}</span>}
       </span>
@@ -451,12 +458,16 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
 
   const hasReactions = message.reactions.length > 0;
   // The time goes at the end of the text, or below a link's preview.
-  const metaInText = !!message.text && !message.preview && !hasReactions && !isDeleted && message.status !== "undecryptable" && message.status !== "unverified";
+  const metaInText = !!message.text && !message.preview && !hasReactions && !isDeleted && message.status !== "undecryptable" && message.status !== "unverified" && message.status !== "invalid";
   const images = message.attachments.filter((item) => item.mime.startsWith("image/") && item.width);
   const onlyImages = !message.text && images.length > 0 && images.length === message.attachments.length && !hasReactions;
 
   const meta = (
-    <span className={`msg-meta${onlyImages ? " is-overlay" : ""}`} title={formatFull(message.createdAt)}>
+    <span
+      className={`msg-meta${onlyImages ? " is-overlay" : ""}`}
+      title={message.timeDiffers ? `${formatFull(message.createdAt)}. The sender's device gives a very different time for this message.` : formatFull(message.createdAt)}
+    >
+      {message.timeDiffers && <ShieldAlert size={11} aria-label="The time of this message may not be right" />}
       {message.pinnedAt && <Pin size={10} className="msg-pinned" />}
       {message.editedAt && !isDeleted && <span>edited</span>}
       <span>{formatTime(message.createdAt)}</span>

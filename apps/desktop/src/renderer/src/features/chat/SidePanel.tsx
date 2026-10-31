@@ -242,8 +242,11 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
                   {name}
                   {member.userId === selfId && <span className="faint"> (you)</span>}
                 </span>
-                <span className="faint truncate" style={{ display: "block", fontSize: 12 }}>@{user?.username}</span>
+                <span className="faint truncate" style={{ display: "block", fontSize: 12 }}>
+                  {member.notOnRoster ? "Has this chat's keys, but isn't listed as a member" : member.noKeys ? "No device in this chat yet" : `@${user?.username}`}
+                </span>
               </span>
+              {member.notOnRoster && <ShieldAlert size={14} className="conv-warning" aria-label="Not listed as a member" />}
               {member.role === "admin" && <Crown size={13} className="faint" aria-label="Admin" />}
               {user?.trust === "verified" && <BadgeCheck size={14} className="conv-verified" aria-label="Verified" />}
             </button>
