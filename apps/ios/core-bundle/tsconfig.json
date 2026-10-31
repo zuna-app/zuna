@@ -1,0 +1,8 @@
+{
+  "extends": "../../../packages/core/tsconfig.json",
+  "compilerOptions": {
+    "types": [],
+    "paths": { "@zuna/crypto": ["./src/crypto.ts"] }
+  },
+  "include": ["src"]
+}

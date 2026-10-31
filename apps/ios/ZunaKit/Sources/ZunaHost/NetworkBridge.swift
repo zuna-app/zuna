@@ -1,0 +1,192 @@
+import Foundation
+import JavaScriptCore
+import Network
+
+/// The native side of `fetch` and `WebSocket` in the core bundle. Results go
+/// back to JavaScript on the core's queue through `__zunaHttpDone` and
+/// `__zunaWsEvent`.
+final class NetworkBridge: NSObject {
+    private let queue: DispatchQueue
+    private let deliver: (_ function: String, _ arguments: [Any]) -> Void
+    private lazy var session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.waitsForConnectivity = false
+        let delegateQueue = OperationQueue()
+        delegateQueue.underlyingQueue = queue
+        delegateQueue.maxConcurrentOperationCount = 1
+        return URLSession(configuration: configuration, delegate: nil, delegateQueue: delegateQueue)
+    }()
+    private var requests: [Int: URLSessionDataTask] = [:]
+    private var sockets: [Int: NWConnection] = [:]
+    /// Set by tests to make the network fail on purpose.
+    var offline = false
+
+    init(queue: DispatchQueue, deliver: @escaping (_ function: String, _ arguments: [Any]) -> Void) {
+        self.queue = queue
+        self.deliver = deliver
+    }
+
+    func cancelAll() {
+        for task in requests.values { task.cancel() }
+        requests.removeAll()
+        for connection in sockets.values { connection.cancel() }
+        sockets.removeAll()
+    }
+
+    func install(into object: JSValue) {
+        let http: @convention(block) (Double, String, String, String, JSValue, Double) -> Void = {
+            [unowned self] id, method, url, headers, body, timeoutMs in
+            request(id: Int(id), method: method, url: url, headers: headers, body: body, timeoutMs: timeoutMs)
+        }
+        object.setObject(http, forKeyedSubscript: "http" as NSString)
+
+        let httpCancel: @convention(block) (Double) -> Void = { [unowned self] id in
+            requests.removeValue(forKey: Int(id))?.cancel()
+        }
+        object.setObject(httpCancel, forKeyedSubscript: "httpCancel" as NSString)
+
+        let wsOpen: @convention(block) (Double, String) -> Void = { [unowned self] id, url in
+            openSocket(id: Int(id), url: url)
+        }
+        object.setObject(wsOpen, forKeyedSubscript: "wsOpen" as NSString)
+
+        let wsSend: @convention(block) (Double, String) -> Void = { [unowned self] id, text in
+            sendText(id: Int(id), text: text)
+        }
+        object.setObject(wsSend, forKeyedSubscript: "wsSend" as NSString)
+
+        let wsClose: @convention(block) (Double, Double) -> Void = { [unowned self] id, code in
+            closeSocket(id: Int(id), code: UInt16(code))
+        }
+        object.setObject(wsClose, forKeyedSubscript: "wsClose" as NSString)
+    }
+
+    // MARK: HTTP
+
+    private func request(id: Int, method: String, url: String, headers: String, body: JSValue, timeoutMs: Double) {
+        guard !offline, let target = URL(string: url) else {
+            deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), offline ? "The network is offline." : "Invalid URL"])
+            return
+        }
+        var request = URLRequest(url: target)
+        request.httpMethod = method
+        if timeoutMs > 0 { request.timeoutInterval = timeoutMs / 1000 }
+        if let data = headers.data(using: .utf8),
+           let fields = try? JSONSerialization.jsonObject(with: data) as? [String: String] {
+            for (name, value) in fields { request.setValue(value, forHTTPHeaderField: name) }
+        }
+        if let bytes = JSBytes.read(body) {
+            request.httpBody = bytes
+        } else if body.isString {
+            request.httpBody = body.toString().data(using: .utf8)
+        }
+        let task = session.dataTask(with: request) { [weak self] data, response, error in
+            guard let self, requests.removeValue(forKey: id) != nil else { return }
+            if let error {
+                deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), error.localizedDescription])
+                return
+            }
+            let http = response as? HTTPURLResponse
+            var fields: [String: String] = [:]
+            for (name, value) in http?.allHeaderFields ?? [:] {
+                fields[String(describing: name).lowercased()] = String(describing: value)
+            }
+            let json = (try? JSONSerialization.data(withJSONObject: fields)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            deliver("__zunaHttpDone", [id, http?.statusCode ?? 0, json, data ?? Data(), NSNull()])
+        }
+        requests[id] = task
+        task.resume()
+    }
+
+    // MARK: WebSocket
+
+    private func openSocket(id: Int, url: String) {
+        guard !offline, let target = URL(string: url) else {
+            queue.async { self.socketClosed(id: id, code: 1006, error: true) }
+            return
+        }
+        let options = NWProtocolWebSocket.Options()
+        options.autoReplyPing = true
+        options.maximumMessageSize = 16 << 20
+        let tcp = NWProtocolTCP.Options()
+        tcp.connectionTimeout = 15
+        let parameters = target.scheme == "wss" ? NWParameters(tls: .init(), tcp: tcp) : NWParameters(tls: nil, tcp: tcp)
+        parameters.defaultProtocolStack.applicationProtocols.insert(options, at: 0)
+        let connection = NWConnection(to: .url(target), using: parameters)
+        sockets[id] = connection
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            guard let self, let connection, sockets[id] === connection else { return }
+            switch state {
+            case .ready:
+                deliver("__zunaWsEvent", [id, "open", NSNull(), 0])
+                receive(id: id, on: connection)
+            case .waiting, .failed:
+                // A browser reports an unreachable server as an error and then a close.
+                socketClosed(id: id, code: 1006, error: true)
+            default:
+                break
+            }
+        }
+        connection.start(queue: queue)
+    }
+
+    private func receive(id: Int, on connection: NWConnection) {
+        connection.receiveMessage { [weak self, weak connection] content, context, _, error in
+            guard let self, let connection, sockets[id] === connection else { return }
+            if error != nil {
+                socketClosed(id: id, code: 1006, error: true)
+                return
+            }
+            if let metadata = context?.protocolMetadata(definition: NWProtocolWebSocket.definition) as? NWProtocolWebSocket.Metadata {
+                switch metadata.opcode {
+                case .text:
+                    let text = content.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                    deliver("__zunaWsEvent", [id, "message", text, 0])
+                case .close:
+                    socketClosed(id: id, code: closeCode(metadata.closeCode), error: false)
+                    return
+                default:
+                    break
+                }
+            }
+            receive(id: id, on: connection)
+        }
+    }
+
+    private func sendText(id: Int, text: String) {
+        guard let connection = sockets[id] else { return }
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
+        let context = NWConnection.ContentContext(identifier: "text", metadata: [metadata])
+        connection.send(content: Data(text.utf8), contentContext: context, isComplete: true, completion: .idempotent)
+    }
+
+    private func closeSocket(id: Int, code: UInt16) {
+        guard let connection = sockets[id] else { return }
+        let metadata = NWProtocolWebSocket.Metadata(opcode: .close)
+        metadata.closeCode = code == 1000 ? .protocolCode(.normalClosure) : .privateCode(code)
+        let context = NWConnection.ContentContext(identifier: "close", metadata: [metadata])
+        connection.send(content: nil, contentContext: context, isComplete: true, completion: .contentProcessed { _ in
+            connection.cancel()
+        })
+        socketClosed(id: id, code: code, error: false)
+    }
+
+    private func socketClosed(id: Int, code: UInt16, error: Bool) {
+        guard let connection = sockets.removeValue(forKey: id) else { return }
+        connection.cancel()
+        if error { deliver("__zunaWsEvent", [id, "error", NSNull(), 0]) }
+        deliver("__zunaWsEvent", [id, "close", NSNull(), Int(code)])
+    }
+
+    private func closeCode(_ code: NWProtocolWebSocket.CloseCode) -> UInt16 {
+        switch code {
+        case let .protocolCode(value): return value.rawValue
+        case let .applicationCode(value): return value
+        case let .privateCode(value): return value
+        @unknown default: return 1006
+        }
+    }
+}
