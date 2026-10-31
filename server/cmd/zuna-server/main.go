@@ -114,6 +114,13 @@ func run(cfg config) error {
 		DownloadURL: cfg.downloadURL,
 		AuthBurst:   cfg.authBurst,
 	}, db)
+	// For tests only: a stand-in for 7TV, so emote tests don't depend on the internet.
+	if base := os.Getenv("ZUNA_7TV_API"); base != "" {
+		srv.Emotes().APIBase = base
+	}
+	if base := os.Getenv("ZUNA_7TV_CDN"); base != "" {
+		srv.Emotes().CDNBase = base
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
