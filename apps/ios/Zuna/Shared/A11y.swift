@@ -82,6 +82,8 @@ enum A11y {
         static let menu = "chat.menu"
         static let search = "chat.search"
         static let pins = "chat.pins"
+        static let forwarded = "chat.forwarded"
+        static func linkPreview(_ id: String) -> String { "chat.linkPreview.\(id)" }
         static func quickReaction(_ emoji: String) -> String { "chat.quickReaction.\(emoji)" }
         static func result(_ id: String) -> String { "chat.result.\(id)" }
         static func message(_ id: String) -> String { "chat.message.\(id)" }
@@ -100,9 +102,16 @@ enum A11y {
         static let cancelContext = "composer.cancelContext"
         static let picker = "composer.picker"
         static let disabled = "composer.disabled"
+        static let linkPreview = "composer.linkPreview"
+        static let removeLinkPreview = "composer.removeLinkPreview"
         static func pickerEmote(_ name: String) -> String { "composer.picker.\(name)" }
         static func suggestion(_ label: String) -> String { "composer.suggestion.\(label)" }
         static func file(_ name: String) -> String { "composer.file.\(name)" }
+    }
+
+    enum Forward {
+        static let sheet = "forward.sheet"
+        static func row(_ title: String) -> String { "forward.row.\(title)" }
     }
 
     enum Details {
@@ -166,6 +175,7 @@ enum A11y {
         static let save = "settings.save"
         static let readReceipts = "settings.readReceipts"
         static let showOnline = "settings.showOnline"
+        static let linkPreviews = "settings.linkPreviews"
         static let currentPassword = "settings.currentPassword"
         static let newPassword = "settings.newPassword"
         static let changePassword = "settings.changePassword"

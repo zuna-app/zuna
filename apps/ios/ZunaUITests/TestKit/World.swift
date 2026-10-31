@@ -20,6 +20,8 @@ struct World: Decodable {
     let padSetupLink: String
     /// The orchestrator's stand-in for zuna-push, which the server allows.
     let pushRelay: String
+    /// A website on the Mac, for link previews.
+    let siteUrl: String
     let peersUrl: String
     /// alice, carol and bob's laptop are peers; the app signs in as bob.
     let accounts: [String: Account]

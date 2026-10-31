@@ -10,6 +10,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var enterToSend = true
     /// Face ID, Touch ID or the passcode each time the app opens, and a cover in the app switcher.
     var appLock = false
+    /// This device fetches a page to preview the first link in a message being written.
+    var linkPreviews = true
 
     private static let key = "zuna-settings"
 
@@ -27,6 +29,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         reduceMotion = try container.decodeIfPresent(Bool.self, forKey: .reduceMotion) ?? false
         enterToSend = try container.decodeIfPresent(Bool.self, forKey: .enterToSend) ?? true
         appLock = try container.decodeIfPresent(Bool.self, forKey: .appLock) ?? false
+        linkPreviews = try container.decodeIfPresent(Bool.self, forKey: .linkPreviews) ?? true
     }
 
     init() {}

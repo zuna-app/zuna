@@ -56,6 +56,7 @@ public final class CoreRuntime: @unchecked Sendable {
     private let crypto = CryptoBridge()
     private let database: DatabaseBridge
     private var network: NetworkBridge!
+    private var web: WebBridge!
     private var timers: [Int: DispatchSourceTimer] = [:]
     private var channels: [Int: Channel] = [:]
     private var nextChannel = 1
@@ -166,6 +167,9 @@ public final class CoreRuntime: @unchecked Sendable {
         network = NetworkBridge(queue: queue) { [unowned self] function, arguments in
             call(function, arguments)
         }
+        web = WebBridge(queue: queue) { [unowned self] function, arguments in
+            call(function, arguments)
+        }
         installHost()
         crypto.install(in: context)
         database.install(in: context)
@@ -250,6 +254,7 @@ public final class CoreRuntime: @unchecked Sendable {
 
         installFiles(into: host)
         network.install(into: host)
+        web.install(into: host)
         #if DEBUG
         // Turns on the bundle's test hooks (a movable clock, access to the client). Release builds leave them off.
         host.setObject(true, forKeyedSubscript: "testHooks" as NSString)

@@ -8,6 +8,7 @@ import { ZunaClient, previewPush, type CoreEvent } from "@zuna/core";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
 import { nativeFiles } from "./files";
+import { nativeWeb } from "./web";
 import { decodeWire, encodeWire } from "./wire";
 
 const g = globalThis as any;
@@ -107,6 +108,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     deviceKey,
     deviceName,
     files: nativeFiles,
+    web: nativeWeb,
     onEvent: (event: CoreEvent) => {
       // A server ending the session removes the account from this device.
       if (event.type === "signed_out") {

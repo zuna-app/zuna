@@ -33,6 +33,15 @@ extension CoreConnection {
     /// Whether the person is using this device: while they are, their other devices keep quiet and nothing is pushed.
     public func setActive(_ active: Bool) async throws { try await call("setActive", [active]) }
 
+    /// The first link in a draft that can have a preview.
+    public func findLink(_ text: String) async throws -> String? { try await call("findLink", [text]) }
+    /// Fetches a link's page on this device and makes its preview. Only when the person allows link previews.
+    public func linkPreview(_ url: String) async throws -> LinkPreview? { try await call("linkPreview", [url]) }
+    /// Forwards a message to a conversation on any server (see ZunaClient.forwardMessage).
+    public func forwardMessage(from serverId: String, groupId: String, id: String, to targetServerId: String, conversationKey: String) async throws {
+        try await call("forwardMessage", [serverId, groupId, id, targetServerId, conversationKey])
+    }
+
     public func session(_ serverId: String) -> SessionCalls { SessionCalls(connection: self, serverId: serverId) }
 }
 

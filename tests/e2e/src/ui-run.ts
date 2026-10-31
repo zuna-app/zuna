@@ -18,7 +18,7 @@ import type { AddressInfo } from "node:net";
 import { join, relative } from "node:path";
 import { WebSocketServer } from "ws";
 import { serveCore } from "@zuna/core/rpc";
-import { TestApp, TestServer, loadCrypto, waitFor } from "../../../packages/core/test/helpers";
+import { TestApp, TestServer, loadCrypto, png, waitFor } from "../../../packages/core/test/helpers";
 import { startFake7TV } from "./fake7tv";
 import { root } from "./paths";
 import { BUNDLE_ID, boot, simulatorId } from "./simulator";
@@ -121,6 +121,20 @@ alice.session.sendMessage(`group:${weekend}`, { text: "Who's up for a hike on Sa
 await waitFor(() => carol.texts(`group:${weekend}`).length > 0, "the group to be ready");
 carol.session.sendMessage(`group:${weekend}`, { text: "Count me in" });
 
+// A website for link previews: any page is an article with a picture.
+const site = createServer((request, response) => {
+  if (request.url?.endsWith(".png")) {
+    response.writeHead(200, { "content-type": "image/png" });
+    response.end(png(1200, 630));
+    return;
+  }
+  response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+  response.end(`<html><head><meta property="og:site_name" content="Harbour Guide"><meta property="og:title" content="The quiet harbour">
+    <meta property="og:description" content="Where the boats come in at dawn, and the best place to watch them."><meta property="og:image" content="/harbour.png"></head></html>`);
+});
+await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
+const siteUrl = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
+
 // --- 3. Peers ---
 
 const peerServer = new WebSocketServer({ host: "127.0.0.1", port: 0 });
@@ -188,6 +202,7 @@ const world = {
   setupLink: spare.setupLink,
   padSetupLink: padSpare.setupLink,
   pushRelay: relayUrl,
+  siteUrl,
   peersUrl,
   accounts: { alice: account("alice", alice), bob: account("bob", bobLaptop), bobLaptop: account("bob", bobLaptop), carol: account("carol", carol) },
 };
@@ -240,6 +255,7 @@ await server.stop();
 await spare.stop();
 await padSpare.stop();
 relayServer.close();
+site.close();
 await fake7tv.close();
 
 // --- 5. Summary ---

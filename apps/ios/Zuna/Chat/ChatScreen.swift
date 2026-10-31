@@ -20,6 +20,7 @@ struct ChatScreen: View {
         case search, pins
         case react(messageId: String)
         case verify(userId: String)
+        case forward(MessageView)
 
         var id: String {
             switch self {
@@ -27,6 +28,7 @@ struct ChatScreen: View {
             case .pins: "pins"
             case let .react(id): "react-\(id)"
             case let .verify(userId): "verify-\(userId)"
+            case let .forward(message): "forward-\(message.id)"
             }
         }
     }
@@ -161,6 +163,8 @@ struct ChatScreen: View {
                     .presentationDetents([.medium, .large])
             case let .verify(userId):
                 VerifyView(serverId: serverId, userId: userId)
+            case let .forward(message):
+                ForwardSheet(serverId: serverId, message: message)
             case let .react(messageId):
                 EmojiPicker(server: server) { pick in
                     self.sheet = nil
@@ -210,6 +214,7 @@ struct ChatScreen: View {
             mention: { sheet = .verify(userId: $0) },
             emoteCard: { name, emote, note in emoteCard = EmoteCardInfo(name: name, emote: emote, note: note) },
             reply: { model.reply(serverId, conversation.key, to: $0) },
+            forward: { sheet = .forward($0) },
             edit: { model.edit(serverId, conversation.key, $0) },
             pin: { message, pinned in run { try await model.core.session(serverId).setPinned(message.groupId, id: message.id, pinned: pinned) } },
             delete: { message in run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) } },

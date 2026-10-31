@@ -3,10 +3,12 @@
 // control channel exactly as its UI would drive it.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "../../../packages/core/test/helpers";
+import { TestApp, TestServer, loadCrypto, png, sleep, waitFor } from "../../../packages/core/test/helpers";
 import { FAKE_EMOTES, FAKE_SET_NAME, emoteFixture, startFake7TV, type Fake7TV } from "../src/fake7tv";
 import { HostApp, phoneTarget } from "../src/host";
 import { readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wireBlob, wireFile } from "../src/wire";
@@ -166,6 +168,84 @@ describe("an iOS client with a desktop client", () => {
     expect(big.chunks).toBe(3);
     const downloaded = (await phone.session.downloadFile(big)) as unknown as Blob;
     expect(await bytesOf(downloaded)).toEqual(large);
+  });
+
+  it("makes link previews on the phone, fetched natively, that the desktop reads, and the other way round", async () => {
+    const requests: { url: string; cookie?: string }[] = [];
+    const site = createServer((request, response) => {
+      requests.push({ url: request.url ?? "", cookie: request.headers.cookie });
+      if (request.url === "/moved") {
+        response.writeHead(302, { location: "/article" });
+        return response.end();
+      }
+      if (request.url === "/harbour.png") {
+        response.writeHead(200, { "content-type": "image/png" });
+        return response.end(png(1200, 630));
+      }
+      // ISO-8859-2, as older Polish sites still are, and a cookie the phone mustn't keep.
+      response.writeHead(200, { "content-type": "text/html; charset=iso-8859-2", "set-cookie": "visitor=1" });
+      response.end(
+        Buffer.concat([
+          Buffer.from('<html><head><meta property="og:site_name" content="Port"><meta property="og:title" content="'),
+          Buffer.from([0x5a, 0x61, 0xbf, 0xf3, 0xb3, 0xe6]),
+          Buffer.from('"><meta property="og:image" content="/harbour.png"></head></html>'),
+        ]),
+      );
+    });
+    await new Promise<void>((resolve) => site.listen(0, "127.0.0.1", resolve));
+    const base = `http://127.0.0.1:${(site.address() as AddressInfo).port}`;
+    try {
+      const dm = `user:${aliceId}`;
+      const link = `${base}/moved`;
+      const preview = (await phone.core.client.linkPreview(link))!;
+      expect(preview).toMatchObject({ url: link, title: "Zażółć", siteName: "Port", image: { width: 600, height: 315 } });
+      expect(preview.image!.data).toMatch(/^data:image\/jpeg;base64,/);
+      await phone.core.client.linkPreview(`${base}/again`);
+      expect(requests.map((item) => item.url)).toEqual(["/moved", "/article", "/harbour.png", "/again", "/harbour.png"]);
+      expect(requests.every((item) => !item.cookie)).toBe(true);
+
+      await phone.session.sendMessage(dm, { text: `the harbour ${link}`, preview });
+      await waitFor(() => alice.texts(`user:${bobId}`).includes(`the harbour ${link}`), "alice to get the link");
+      const groupId = alice.session.getConversations().find((item) => item.key === `user:${bobId}`)!.groupId!;
+      const page = await alice.session.loadMessages(groupId);
+      expect(page.messages.find((view) => view.text === `the harbour ${link}`)!.preview).toEqual(preview);
+
+      alice.session.sendMessage(`user:${bobId}`, { text: `same ${link}`, preview: { ...preview, title: "From the desktop" } });
+      await waitFor(async () => (await phone.messages(dm)).some((view) => view.text === `same ${link}`), "bob to get the desktop's link");
+      expect((await phone.messages(dm)).find((view) => view.text === `same ${link}`)!.preview).toMatchObject({ title: "From the desktop", url: link });
+    } finally {
+      site.close();
+    }
+  });
+
+  it("forwards messages with their files between the clients, naming who wrote them", async () => {
+    const dm = `user:${aliceId}`;
+    const weekend = alice.session.getConversations().find((item) => item.title === "Weekend")!;
+    const content = pattern(90_000, 5);
+    await alice.session.sendWithAttachments(`user:${bobId}`, [{ blob: new Blob([content], { type: "image/png" }), name: "map.png", mime: "image/png", width: 30, height: 20 }], {
+      text: "forward this",
+    });
+    await waitFor(async () => (await phone.messages(dm)).some((view) => view.text === "forward this" && view.status === "sent"), "bob to get the map");
+    const original = (await phone.messages(dm)).find((view) => view.text === "forward this")!;
+
+    // The phone forwards alice's map to the group: the desktop sees whose it was, and the same file.
+    await phone.core.client.forwardMessage(phone.serverId, original.groupId, original.id, phone.serverId, weekend.key);
+    await waitFor(() => alice.texts(weekend.key).includes("forward this"), "alice to see it in the group");
+    const inGroup = (await alice.session.loadMessages(weekend.groupId!)).messages.find((view) => view.text === "forward this")!;
+    expect(inGroup.senderId).toBe(bobId);
+    expect(inGroup.forwarded).toEqual({ userId: aliceId });
+    expect(inGroup.attachments[0]!.fileId).toBe(original.attachments[0]!.fileId);
+    expect(await bytesOf(await alice.session.downloadFile(inGroup.attachments[0]!))).toEqual(content);
+
+    // And the desktop forwards the phone's message back to bob.
+    await phone.session.sendMessage(weekend.key, { text: "from bob's phone" });
+    await waitFor(() => alice.texts(weekend.key).includes("from bob's phone"), "alice to get bob's message");
+    const fromPhone = (await alice.session.loadMessages(weekend.groupId!)).messages.find((view) => view.text === "from bob's phone")!;
+    await alice.client.forwardMessage(alice.serverId, weekend.groupId!, fromPhone.id, alice.serverId, `user:${bobId}`);
+    await waitFor(
+      async () => (await phone.messages(dm)).some((view) => view.text === "from bob's phone" && view.forwarded?.userId === bobId),
+      "bob to get his own message back, forwarded",
+    );
   });
 
   it("sends a file straight from disk, a chunk at a time", async () => {
