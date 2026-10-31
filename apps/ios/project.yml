@@ -1,0 +1,79 @@
+# XcodeGen spec for the iOS app. The .xcodeproj is generated from this file
+# (npm run ios:project) and isn't committed.
+
+name: Zuna
+options:
+  bundleIdPrefix: chat.zuna
+  deploymentTarget:
+    iOS: "18.0"
+  developmentLanguage: en
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: SGKB9R23YT
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+packages:
+  ZunaKit:
+    path: ZunaKit
+
+targets:
+  Zuna:
+    type: application
+    platform: iOS
+    sources:
+      - path: Zuna
+    dependencies:
+      - package: ZunaKit
+        product: ZunaHost
+      # Only started in Debug builds, by a launch argument; see CoreController.
+      - package: ZunaKit
+        product: ZunaControl
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.app
+        PRODUCT_NAME: Zuna
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: Zuna/Info.plist
+      properties:
+        CFBundleDisplayName: Zuna
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIUserInterfaceStyle: Dark
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleURLTypes:
+          - CFBundleURLName: chat.zuna.app
+            CFBundleURLSchemes: [zuna]
+        # Plain HTTP only reaches servers on this device or the local network,
+        # which the client core already limits to loopback addresses.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
+        ITSAppUsesNonExemptEncryption: true
+    entitlements:
+      path: Zuna/Zuna.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.chat.zuna.app
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)chat.zuna.shared
