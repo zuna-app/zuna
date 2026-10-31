@@ -39,6 +39,7 @@ let quitting = false;
 let pendingDeepLink: string | null = null;
 let closeToTray = true;
 let notifications: Notification[] = [];
+let deviceKeyHandedOut = false;
 
 // A secure, standard scheme gives the renderer a real origin, which storage
 // (OPFS) requires and which file:// doesn't provide.
@@ -285,9 +286,12 @@ function createWindow(): void {
     return { action: "deny" };
   });
   mainWindow.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith(APP_ORIGIN) && !url.startsWith(process.env["ELECTRON_RENDERER_URL"] ?? "\0")) {
-      event.preventDefault();
-    }
+    if (!isOwnPage(url)) event.preventDefault();
+  });
+  // The device key goes out once for each page load, to the code that starts the
+  // app. Anything that gets into the page later has nobody to ask for it.
+  mainWindow.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) deviceKeyHandedOut = false;
   });
 
   if (isDev && process.env["ELECTRON_RENDERER_URL"]) {
@@ -325,9 +329,20 @@ function createTray(): void {
   tray.on("click", showWindow);
 }
 
+/** Whether an address is one of the app's own pages, and not just one that starts the same way. */
+function isOwnPage(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol === `${APP_SCHEME}:` && parsed.host === "app") return true;
+    const dev = process.env["ELECTRON_RENDERER_URL"];
+    return isDev && !!dev && parsed.origin === new URL(dev).origin;
+  } catch {
+    return false;
+  }
+}
+
 function isFromApp(event: IpcMainInvokeEvent): boolean {
-  const origin = event.senderFrame?.url ?? "";
-  return origin.startsWith(APP_ORIGIN) || (isDev && origin.startsWith(process.env["ELECTRON_RENDERER_URL"] ?? "\0"));
+  return isOwnPage(event.senderFrame?.url ?? "");
 }
 
 function registerIpc(): void {
@@ -338,6 +353,8 @@ function registerIpc(): void {
     });
 
   handle("zuna:device-key", () => {
+    if (deviceKeyHandedOut) throw new Error("The device key was already handed out.");
+    deviceKeyHandedOut = true;
     const { key, protected: isProtected } = loadDeviceKey();
     return { key: new Uint8Array(key), protected: isProtected, deviceName: `${deviceLabel()}`, localLinks: isDev };
   });

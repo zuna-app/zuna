@@ -3,7 +3,7 @@
 //
 //   npm run build -w @zuna/desktop && node apps/desktop/test/smoke.mjs [screenshot-dir]
 //
-// Set ZUNA_APP to a packaged executable to test an installed build instead.
+// This can't drive a packaged build: its fuses refuse the --inspect flag Playwright needs.
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -44,9 +44,8 @@ async function setupLink() {
   throw new Error(`the server didn't start:\n${output}`);
 }
 
-const packaged = process.env.ZUNA_APP;
 const launchOptions = {
-  ...(packaged ? { executablePath: packaged, args: [`--user-data-dir=${userData}`] } : { args: [app, `--user-data-dir=${userData}`] }),
+  args: [app, `--user-data-dir=${userData}`],
   env: { ...process.env, ELECTRON_RENDERER_URL: "" },
 };
 

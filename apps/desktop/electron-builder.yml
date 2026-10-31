@@ -13,6 +13,15 @@ protocols:
   - name: Zuna invite link
     schemes:
       - zuna
+# Closes the ways of running this app as something else, or with changed code.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
 win:
   target:
     - target: nsis
