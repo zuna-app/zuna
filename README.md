@@ -93,7 +93,7 @@ The [self-hosting guide](docs/SELF_HOSTING.md) covers all of it, with the single
 
 ## Development
 
-You need Node 22.5+, Go 1.25+ and Rust with the `wasm32-unknown-unknown` target. [CONTRIBUTING.md](CONTRIBUTING.md) has the details. The iOS app also needs a Mac with Xcode; [IOS_TESTING.md](docs/IOS_TESTING.md) explains how it's built and tested.
+You need Node 22.5+, Go 1.26+ and Rust with the `wasm32-unknown-unknown` target. [CONTRIBUTING.md](CONTRIBUTING.md) has the details. The iOS app also needs a Mac with Xcode; [IOS_TESTING.md](docs/IOS_TESTING.md) explains how it's built and tested.
 
 ```bash
 npm install

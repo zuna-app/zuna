@@ -3,7 +3,7 @@
 ## What you need
 
 - **Node** 22.5 or newer
-- **Go** 1.25 or newer
+- **Go** 1.26 or newer
 - **Rust** (stable), with `rustup target add wasm32-unknown-unknown`
 - **wasm-bindgen CLI**, the same version as in `crypto/Cargo.lock`. The easiest way to get it is `cargo install wasm-bindgen-cli --version <version>`.
 
