@@ -376,7 +376,7 @@ function ReactionChip({
 }
 
 function ReadTicks({ message, readUpTo }: { message: MessageView; readUpTo: number }) {
-  if (message.status === "sending") return <Clock size={11} className="msg-tick" />;
+  if (message.status === "sending") return <Clock size={11} className="msg-tick is-sending" />;
   if (message.status === "failed") return <AlertCircle size={12} className="msg-tick is-failed" />;
   if (message.seq === null) return null;
   return readUpTo >= message.seq ? <CheckCheck size={14} className="msg-tick is-read" /> : <Check size={14} className="msg-tick" />;
@@ -442,7 +442,11 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       {message.pinnedAt && <Pin size={10} className="msg-pinned" />}
       {message.editedAt && !isDeleted && <span>edited</span>}
       <span>{formatTime(message.createdAt)}</span>
-      {own && !isDeleted && <ReadTicks message={message} readUpTo={readUpTo} />}
+      {own && !isDeleted && (
+        <span className="msg-ticks">
+          <ReadTicks message={message} readUpTo={readUpTo} />
+        </span>
+      )}
     </span>
   );
 

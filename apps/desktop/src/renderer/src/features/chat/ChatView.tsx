@@ -1,31 +1,29 @@
-import type { ConversationView, MessageView } from "@zuna/core";
+import type { ConversationView } from "@zuna/core";
 import { BadgeCheck, Bookmark, Copy, Forward, Lock, PanelRight, Pin, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Tooltip, useAction } from "@/components/ui";
+import { Avatar, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { formatFull, formatLastSeen } from "@/lib/format";
-import { renderMarkup } from "@/lib/markup";
 import { listIdFor, useActiveServer, useApp } from "@/state/store";
 import { Composer, type ComposerHandle } from "./Composer";
 import { MessageList } from "./MessageList";
 import { SidePanel } from "./SidePanel";
-import { useMarkupContext } from "./use-markup-context";
 
 function HeaderStatus({ conversation }: { conversation: ConversationView }) {
   const server = useActiveServer();
   const peer = conversation.peerId ? server?.users[conversation.peerId] : null;
   const typingUsers = Object.keys((conversation.groupId && server?.typing[conversation.groupId]) || {});
+  // The line fades between typing and the usual status, but not on opening a chat.
+  const everTyped = useRef(false);
+  everTyped.current ||= typingUsers.length > 0;
+  const statusClass = `chat-status${everTyped.current ? " is-changing" : ""}`;
   if (typingUsers.length > 0) {
     const names = typingUsers.map((id) => server?.users[id]?.displayName.split(" ")[0] ?? "Someone");
     const label = conversation.kind === "dm" ? "typing" : names.length === 1 ? `${names[0]} is typing` : `${names.length} people are typing`;
     return (
-      <span className="chat-status is-typing">
+      <span key="typing" className={`${statusClass} is-typing`}>
         {label}
-        <span className="typing-dots">
-          <i />
-          <i />
-          <i />
-        </span>
+        <TypingDots />
       </span>
     );
   }
@@ -33,73 +31,16 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
     const online = conversation.members.filter((member) => server?.users[member.userId]?.online).length;
     const count = conversation.members.length;
     return (
-      <span className="chat-status">
+      <span key="status" className={statusClass}>
         {count} {count === 1 ? "member" : "members"}
         {online > 0 ? `, ${online} online` : ""}
       </span>
     );
   }
-  if (conversation.peerId === server?.self?.userId) return <span className="chat-status">Notes to yourself</span>;
-  if (peer?.banned) return <span className="chat-status">Removed from this server</span>;
-  if (peer?.online) return <span className="chat-status is-online">online</span>;
-  return <span className="chat-status">{formatLastSeen(peer?.lastSeenAt ?? null, peer?.hidesLastSeen ?? false)}</span>;
-}
-
-function PinnedBar({ conversation, onOpenAll }: { conversation: ConversationView; onOpenAll: () => void }) {
-  const session = useApp((state) => state.session);
-  const jump = useApp((state) => state.jumpToMessage);
-  const signature = useApp((state) => {
-    const list = conversation.groupId ? state.lists[conversation.groupId] : undefined;
-    return list?.items.filter((item) => item.pinnedAt).map((item) => item.id).join(",") ?? "";
-  });
-  const [pins, setPins] = useState<MessageView[]>([]);
-  const [index, setIndex] = useState(0);
-  const context = useMarkupContext();
-
-  useEffect(() => {
-    if (!conversation.groupId) return;
-    let cancelled = false;
-    void session()
-      .loadPins(conversation.groupId)
-      .then((messages) => {
-        if (!cancelled) setPins(messages);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [conversation.groupId, signature, session]);
-
-  const current = pins[Math.min(index, pins.length - 1)];
-  if (!current) return null;
-  return (
-    <div className="pinned-bar">
-      <button
-        className="pinned-main"
-        onClick={() => {
-          void jump(conversation.groupId!, current.id, current.seq);
-          setIndex((value) => (value + 1) % pins.length);
-        }}
-      >
-        <span className="pinned-rail">
-          {pins.slice(0, 4).map((pin) => (
-            <i key={pin.id} className={pin.id === current.id ? "is-active" : ""} />
-          ))}
-        </span>
-        <span className="grow">
-          <span className="pinned-label">Pinned message{pins.length > 1 ? ` ${Math.min(index, pins.length - 1) + 1} of ${pins.length}` : ""}</span>
-          <span className="pinned-text truncate">
-            {current.text ? renderMarkup(current.text.split("\n")[0]!.slice(0, 120), { ...context, emotes: current.emotes }) : current.attachments[0]?.name ?? "Attachment"}
-          </span>
-        </span>
-      </button>
-      <Tooltip text="All pinned messages">
-        <button className="icon-btn" onClick={onOpenAll} aria-label="All pinned messages">
-          <Pin size={16} />
-        </button>
-      </Tooltip>
-    </div>
-  );
+  if (conversation.peerId === server?.self?.userId) return <span key="status" className={statusClass}>Notes to yourself</span>;
+  if (peer?.banned) return <span key="status" className={statusClass}>Removed from this server</span>;
+  if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>online</span>;
+  return <span key="status" className={statusClass}>{formatLastSeen(peer?.lastSeenAt ?? null, peer?.hidesLastSeen ?? false)}</span>;
 }
 
 /** What can be done with the picked messages, in place of the composer, as in Telegram. */
@@ -263,8 +204,6 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
             </div>
           </div>
         )}
-
-        <PinnedBar conversation={conversation} onOpenAll={() => togglePanel("pins")} />
 
         <div className="chat-scroll">
           <MessageList conversation={conversation} listId={listId} emptyState={<EmptyChat conversation={conversation} />} />

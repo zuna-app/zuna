@@ -22,6 +22,16 @@ import { useApp } from "@/state/store";
 /** The motion used everywhere: quick, with no bounce. */
 export const quick = { duration: 0.12, ease: [0.2, 0, 0, 1] } as const;
 
+export function TypingDots() {
+  return (
+    <span className="typing-dots" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+    </span>
+  );
+}
+
 export function Logo({ size = 28 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
