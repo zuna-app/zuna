@@ -87,6 +87,9 @@ import type {
 import { isMuted } from "./types";
 
 const CHUNK_SIZE = 1 << 20;
+/** How often a claim of someone's key packages is tried while the server says to slow down, and how far apart: it allows one every 2 seconds then. */
+const CLAIM_ATTEMPTS = 6;
+const CLAIM_WAIT_MS = 2100;
 /** How long a message waits for its link's preview before it goes without one. */
 const PREVIEW_WAIT_MS = 4000;
 const UPLOAD_CONCURRENCY = 3;
@@ -971,12 +974,28 @@ export class ServerSession {
     await this.api.addKeyPackages(packages, lastResort);
   }
 
+  /**
+   * The server lets one person take another's key packages only so often, so
+   * that nobody can use up someone's one-time packages. Past that, as when
+   * adding the same person to many groups at once, it waits for the next one.
+   */
+  private async claimWithPatience(userId: string): Promise<{ device_id: string; data: string }[]> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.api.claimKeyPackages(userId);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 429 || attempt >= CLAIM_ATTEMPTS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, CLAIM_WAIT_MS));
+      }
+    }
+  }
+
   /** Claims key packages for a user's devices, keeping only ones their identity key vouches for. */
   private async claimKeyPackages(userId: string, exceptDevice?: string): Promise<{ deviceId: string; data: Uint8Array }[]> {
     const user = await this.ensureUser(userId, true);
     if (!user) return [];
     const pinned = this.pinnedIdentity(userId) ?? user.identityKey;
-    const claimed = await this.api.claimKeyPackages(userId);
+    const claimed = await this.claimWithPatience(userId);
     const valid: { deviceId: string; data: Uint8Array }[] = [];
     for (const item of claimed) {
       if (item.device_id === exceptDevice) continue;
