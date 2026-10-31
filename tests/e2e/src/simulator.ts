@@ -14,7 +14,7 @@ export const appPath = join(derivedData, "Build", "Products", "Debug-iphonesimul
 
 const simctl = (...args: string[]) => execFileSync("xcrun", ["simctl", ...args], { encoding: "utf8" });
 
-/** The simulator's UDID, creating it (iPhone 17, newest iOS runtime) if it doesn't exist. */
+/** The simulator's UDID, creating it (iPhone 17 or the newest plain iPhone, newest iOS runtime) if it doesn't exist. */
 export function simulatorId(): string {
   const devices = JSON.parse(simctl("list", "devices", "--json")).devices as Record<string, { name: string; udid: string }[]>;
   for (const list of Object.values(devices)) {
@@ -23,7 +23,10 @@ export function simulatorId(): string {
   }
   const runtimes = JSON.parse(simctl("list", "runtimes", "--json")).runtimes as { identifier: string; platform: string; isAvailable: boolean }[];
   const runtime = runtimes.filter((item) => item.platform === "iOS" && item.isAvailable).at(-1)!;
-  return simctl("create", SIMULATOR_NAME, "com.apple.CoreSimulator.SimDeviceType.iPhone-17", runtime.identifier).trim();
+  // CI machines may have an older Xcode without the iPhone 17.
+  const types = JSON.parse(simctl("list", "devicetypes", "--json")).devicetypes as { identifier: string; name: string }[];
+  const type = types.find((item) => item.identifier.endsWith(".iPhone-17")) ?? types.filter((item) => /^iPhone \d+$/.test(item.name)).at(-1)!;
+  return simctl("create", SIMULATOR_NAME, type.identifier, runtime.identifier).trim();
 }
 
 export function boot(udid: string): void {

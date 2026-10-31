@@ -4,6 +4,7 @@ import XCTest
 /// test. UI tests stay synchronous on purpose: XCUIApplication waits for the
 /// app by spinning the main run loop, which an async test on the main actor
 /// would block.
+@discardableResult
 func blocking<Value: Sendable>(_ body: @escaping @Sendable () async throws -> Value) throws -> Value {
     let semaphore = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var result: Result<Value, Error>!

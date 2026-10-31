@@ -85,15 +85,17 @@ The rest follow in F1.
 | L6 Performance | XCTest metrics, with thresholds for regressions | simulator | 5 min |
 | L7 Manual | short checklist on a physical iPhone at milestones | your device | – |
 
-### L1. Crypto: cross vectors
+### L1. Crypto: native against WebAssembly
 
-The Rust code is shared, so this layer catches mistakes in the bindings (byte order, nulls, epoch conversion, errors that don't throw).
+The Rust code is shared, so this layer catches mistakes in what's between it and the core: UniFFI, the Swift bridge and the JavaScript shim (byte order, nulls, epochs as numbers, errors that must throw).
 
-- `scripts/crypto-vectors.mjs` produces `fixtures/crypto-vectors.json` with the WASM build. It covers:
-  - deterministic outputs: Argon2id, HKDF, SHA-256, `safetyDigest`;
-  - data sealed by WASM: AEAD, STREAM chunks, HPKE, signatures;
-  - an MLS group created in WASM with a Welcome for a native key package, plus commits in both directions with matching `exportSecret` values.
-- A Swift test (`ZunaCryptoTests`) opens and verifies everything, then writes its own sealed data, which the Node script verifies.
+- `cargo test --lib` runs the Rust tests natively, next to the existing WebAssembly run.
+- `tests/e2e/test/crypto.test.ts` runs the native build where the core calls it: inside `zuna-host`'s JavaScript context, through its `evaluate` hook. The WebAssembly build runs next to it in Node, and the two exchange data live:
+  - derived keys and digests: Argon2id, HKDF, SHA-256, `safetyDigest`;
+  - sealed data both ways, with tampering refused: AEAD, STREAM chunks, HPKE, signatures;
+  - MLS between a desktop (WebAssembly) and a phone (native): a Welcome, commits both ways with the same `exportSecret`, a third device added from the phone, an external join, the phone's state restored from what it persisted, and its removal.
+
+This replaces the planned fixture file: exchanging data live covers both directions in one run, with nothing to regenerate.
 
 ### L2. Host units: golden parity
 
@@ -210,8 +212,10 @@ On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minut
 | `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests | since F0 |
 | `npm run test:ios:ui -- [--only LaunchAndUnlockTests]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` | since F1 |
 | `npm run test:ios:release` | the Release guard | since F1 |
-| `npm run test:ios:check` | L0, L1, L2 together | later in F1 |
-| `npm run test:ios:all` | everything, plus the desktop's `npm test` | later in F1 |
+| `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors | since F1 |
+| `npm run test:ios:all` | everything, plus the desktop's `npm test` | since F1 |
+
+The `ios` job in `.github/workflows/ci.yml` runs `test:ios:check`, `test:ios`, the Release guard and the UI tests on a macOS runner. It keeps each run's summary, screenshots and logs as an artifact.
 
 Each run writes `apps/ios/.e2e/<run>/` (and `latest/`) containing:
 

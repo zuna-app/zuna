@@ -352,9 +352,9 @@ Carried into F1:
 
 The message list itself (`UICollectionView`) moves to the start of F4: its riskiest part, the text, is settled.
 
-## F1 progress (2026-10-31)
+## F1 results (2026-10-31)
 
-Done, each with tests:
+F1 is done. Each item has tests:
 
 - **Core:** `FileAdapter`, `suspend()`/`resume()` (desktop unchanged, 44 core tests pass).
 - **iOS host:**
@@ -367,16 +367,27 @@ Done, each with tests:
   - fake 7TV with committed emote fixtures;
   - XCUITest with TestKit, peers and the `ui-run` orchestrator writing summaries with screenshots;
   - the Release guard.
+- **App state and frame:**
+  - `AppModel`, the counterpart of the desktop's store, applying the core's events in order on the main actor;
+  - the theme from the desktop's tokens, with system fonts; appearance settings kept on the device;
+  - Chats and Settings tabs, the server drawer, and a chat list with live data, as decided under "UI and state";
+  - `plainText` in Swift for previews, checked against the core.
+- **Crypto (L1):** the native build against WebAssembly, run where the core calls it: in the host's JavaScript context, through the Swift bridge and UniFFI. It covers derived keys and digests, sealed data both ways, tampering, signatures, HPKE, and MLS between a desktop and a phone (Welcome, commits both ways, an external join, restoring persisted state, removal).
+- **Checks and CI:**
+  - `npm run test:ios:check` runs L0 to L2 in about a minute, with the app built with warnings as errors;
+  - `npm run test:ios:all` runs everything;
+  - an `ios` job in `.github/workflows/ci.yml` runs on macOS. It hasn't run on GitHub yet, since nothing is pushed.
 - **Results:**
   - 16 cross-client scenarios pass against the app in the simulator, 15 against `zuna-host`;
-  - 3 UI tests pass.
+  - 11 crypto cross tests, 20 `ZunaKit` tests and 6 UI tests pass.
 - **Bugs found and fixed by these tests:**
   - a lost unlock entry if the app closed right after a sign-in;
   - the control channel reading key order;
-  - a leak of a test hook into Release.
+  - a leak of a test hook into Release;
+  - a deprecated API and two other warnings, found by building with warnings as errors.
 - **App icon:** square, without an alpha channel.
 
-Left for F1: crypto cross-vectors (L1), a CI job, and `AppModel` with the theme and fonts. The last waits on the layout questions, since the iOS layout follows Telegram. The golden corpus for markup moves to F4, where the Swift parser is written.
+The golden corpus for markup moves to F4, where the Swift parser is written.
 
 ## Prerequisites on this Mac
 
