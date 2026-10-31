@@ -4,44 +4,56 @@ on:
   push:
     tags: ["v*"]
 
+# Nothing runs with more than it needs. Files are built and signed by jobs that
+# can't publish anything, and the job that publishes runs no build. Third-party
+# actions are pinned to full commits, since a tag can be moved.
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   server:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
-          go-version: "1.25"
-      - uses: actions/setup-node@v4
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
       - run: ZUNA_VERSION="${GITHUB_REF_NAME#v}" node scripts/build-server.mjs
-      - name: Create checksums
-        working-directory: dist/server
-        run: sha256sum * > SHA256SUMS
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          files: dist/server/*
-      - uses: docker/login-action@v3
+          name: server
+          path: dist/server/*
+          if-no-files-found: error
+
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      # Image names can't have capitals.
+      - id: owner
+        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: server
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: VERSION=${{ github.ref_name }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/zuna-server:latest
-            ghcr.io/${{ github.repository_owner }}/zuna-server:${{ github.ref_name }}
+            ghcr.io/${{ steps.owner.outputs.name }}/zuna-server:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/zuna-server:${{ github.ref_name }}
 
   desktop:
     strategy:
@@ -50,12 +62,12 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: wasm32-unknown-unknown
       - name: Install wasm-bindgen
@@ -63,20 +75,76 @@ jobs:
         run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)"
       - run: npm ci
       - run: npm run build:crypto
-      - name: Package
+      # A build people install has to be able to prove where it came from. To publish
+      # unsigned builds anyway, say so by setting the repository variable
+      # ALLOW_UNSIGNED_RELEASE to true. Those builds won't update themselves.
+      - name: Refuse to build without signing keys
+        if: matrix.os != 'ubuntu-latest' && vars.ALLOW_UNSIGNED_RELEASE != 'true'
+        shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional. Without these the app still builds, but is unsigned.
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          [ -n "$CSC_LINK" ] || missing="$missing CSC_LINK"
+          [ -n "$CSC_KEY_PASSWORD" ] || missing="$missing CSC_KEY_PASSWORD"
+          if [ "$RUNNER_OS" = macOS ]; then
+            [ -n "$APPLE_ID" ] || missing="$missing APPLE_ID"
+            [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] || missing="$missing APPLE_APP_SPECIFIC_PASSWORD"
+            [ -n "$APPLE_TEAM_ID" ] || missing="$missing APPLE_TEAM_ID"
+          fi
+          if [ -n "$missing" ]; then
+            echo "::error::These signing secrets are missing:$missing. Set them, or set the variable ALLOW_UNSIGNED_RELEASE to true."
+            exit 1
+          fi
+      - name: Package
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Only a signed build updates itself: an update must carry the same signature.
+          ZUNA_SIGNED_BUILD: ${{ secrets.CSC_LINK != '' && '1' || '0' }}
         run: npm run dist
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          files: |
+          name: desktop-${{ matrix.os }}
+          path: |
             apps/desktop/release/*.exe
             apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+          if-no-files-found: error
+
+  publish:
+    needs: [server, image, desktop]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: artifacts
+        run: sha256sum * > SHA256SUMS
+      # Says which workflow run built each file; check one with `gh attestation verify`.
+      # GitHub only offers this for public repositories on most plans.
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        if: ${{ !github.event.repository.private }}
+        with:
+          subject-path: artifacts/*
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: artifacts/*
