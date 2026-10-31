@@ -6,7 +6,7 @@ on:
     tags: ["v*"]
   pull_request:
 
-# Third-party actions are pinned to full commits, since a tag can be moved. Dependabot proposes updates.
+# Third-party actions are pinned to full commits, since a tag can be moved.
 permissions:
   contents: read
 
@@ -41,7 +41,7 @@ jobs:
       - run: npm run test:core
       - run: npm run build -w @zuna/desktop
 
-  # Known advisories in what's shipped. Test and packaging tools are left to Dependabot.
+  # Known advisories in what's shipped.
   advisories:
     runs-on: ubuntu-latest
     steps:
