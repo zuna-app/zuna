@@ -23,6 +23,7 @@ struct ZunaApp: App {
         RootView()
             .environment(core)
             .task { await core.start() }
+            .onOpenURL { core.open($0) }
             .preferredColorScheme(.dark)
             .onChange(of: scenePhase) { _, phase in
                 switch phase {
@@ -43,18 +44,24 @@ struct RootView: View {
             Theme.bg0.ignoresSafeArea()
             if core.phase == .locked {
                 UnlockView()
-            } else if core.phase == .ready, let model = core.model, let images = core.images, !model.order.isEmpty {
-                MainView()
-                    .environment(model)
-                    .environment(images)
-                    .tint(model.settings.accent.color)
+            } else if core.phase == .ready, let model = core.model, let images = core.images {
+                Group {
+                    if model.onboarding {
+                        JoinFlow(embedded: false)
+                    } else {
+                        MainView()
+                    }
+                }
+                .environment(model)
+                .environment(images)
+                .tint(model.settings.accent.color)
             } else {
                 status
             }
         }
     }
 
-    /// Starting up, failing to, or no server yet; onboarding takes the last case over in F2.
+    /// Starting up, or failing to.
     private var status: some View {
         VStack(spacing: 14) {
             Text("Zuna")
@@ -63,13 +70,8 @@ struct RootView: View {
             switch core.phase {
             case .booting:
                 ProgressView().tint(Theme.text1)
-            case .locked:
+            case .locked, .ready:
                 EmptyView()
-            case .ready:
-                Label("End-to-end encrypted", systemImage: "lock.fill")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.text2)
-                    .accessibilityIdentifier(A11y.Root.ready)
             case let .failed(message):
                 Text("Zuna couldn't start")
                     .font(.headline)

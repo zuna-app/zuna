@@ -31,6 +31,9 @@ struct MainView: View {
         }
         .background(Theme.bg0)
         .overlay(alignment: .top) { ToastStack() }
+        .sheet(isPresented: $model.joining) {
+            JoinFlow(embedded: true)
+        }
     }
 }
 

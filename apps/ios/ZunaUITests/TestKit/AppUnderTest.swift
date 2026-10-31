@@ -76,6 +76,56 @@ final class AppUnderTest {
         }
     }
 
+    /// Creates an account through the app's core, as the join screens would, and returns its recovery key.
+    func register(_ username: String, password: String) throws -> String {
+        let control = control!
+        let result = try blocking {
+            let preview = try await control.call("previewInvite", [World.current.invite]) as? [String: Any] ?? [:]
+            return try await control.call("register", [preview, username, password, ["displayName": username.capitalized]]) as? [String: Any] ?? [:]
+        }
+        serverId = result["serverId"] as? String ?? ""
+        return result["recoveryKey"] as? String ?? ""
+    }
+
+    /// How many servers the app's core has accounts on.
+    func serverCount() throws -> Int {
+        let control = control!
+        return try blocking { (try await control.call("listServers") as? [Any])?.count ?? 0 }
+    }
+
+    /// Types into a field after tapping it, replacing what was there.
+    func type(_ text: String, into identifier: String, clearing: Bool = false) {
+        let field = element(identifier)
+        field.tap()
+        if field.elementType == .secureTextField { declineStrongPassword(for: field) }
+        if clearing, let current = field.value as? String, !current.isEmpty {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 4))
+        }
+        field.typeText(text)
+    }
+
+    /// New-password fields bring up the system's offer of a strong password,
+    /// which takes the keyboard's place. A person can type their own instead.
+    private func declineStrongPassword(for field: XCUIElement) {
+        guard app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 1.5) else { return }
+        app.buttons["xmark"].firstMatch.tap()
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 1) { field.tap() }
+    }
+
+    /// After a sign-up the system offers to save the password, over the app.
+    /// Its first button declines, whatever language the simulator is in.
+    func declineSavingPassword() {
+        let sheet = app.sheets.firstMatch
+        guard sheet.waitForExistence(timeout: 3), sheet.buttons.count >= 2 else { return }
+        sheet.buttons.element(boundBy: 0).tap()
+        _ = sheet.waitForNonExistence(timeout: 5)
+    }
+
+    /// Turns a switch on or off by tapping the switch itself, not its label.
+    func toggle(_ identifier: String) {
+        app.switches[identifier].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+    }
+
     /// The messages of a conversation, as the app's core sees them.
     func texts(with userId: String) throws -> [String] {
         let control = control!

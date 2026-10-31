@@ -5,7 +5,8 @@
 //
 // 1. Builds the core bundle and the app for testing.
 // 2. Starts a fake 7TV and a server, and fills it: desktop clients (the
-//    desktop's core in this process) with accounts, a DM and a group.
+//    desktop's core in this process) with accounts, a DM and a group. A
+//    second server waits to be set up.
 // 3. Serves those clients to the tests over WebSockets ("peers").
 // 4. Runs the tests on the dedicated simulator, recording its log.
 // 5. Writes apps/ios/.e2e/<run>/summary.md, with screenshots next to it.
@@ -56,6 +57,9 @@ process.env.ZUNA_7TV_API = fake7tv.api;
 process.env.ZUNA_7TV_CDN = fake7tv.cdn;
 const server = new TestServer();
 await server.start();
+// A second server nobody has set up yet, for the owner's flow.
+const spare = new TestServer();
+await spare.start();
 
 const alice = await new TestApp("alice-laptop").open();
 await alice.register(server.setupLink, "alice", PASSWORD);
@@ -97,6 +101,7 @@ const world = {
   serverUrl: server.url,
   serverName: (await alice.client.serverInfo(server.url)).name,
   invite,
+  setupLink: spare.setupLink,
   peersUrl,
   accounts: { alice: account("alice", alice), bob: account("bob", bobLaptop), bobLaptop: account("bob", bobLaptop), carol: account("carol", carol) },
 };
@@ -143,6 +148,7 @@ deviceLog.kill();
 for (const peer of Object.values(peers)) peer.client.stop();
 peerServer.close();
 await server.stop();
+await spare.stop();
 await fake7tv.close();
 
 // --- 5. Summary ---

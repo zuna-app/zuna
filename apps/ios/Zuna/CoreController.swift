@@ -30,6 +30,8 @@ final class CoreController {
     /// The UI's state, from the moment the core is running.
     private(set) var model: AppModel?
     private(set) var images: ImageStore?
+    /// A link opened before the app was ready, such as while it waits to be unlocked.
+    private var pendingLink: String?
     private var directory: URL?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var suspendTask: Task<Void, Never>?
@@ -126,6 +128,10 @@ final class CoreController {
             for await event in events { model.handle(event) }
         }
         await model.load()
+        if let pendingLink {
+            model.open(link: pendingLink)
+            self.pendingLink = nil
+        }
         self.connection = connection
         self.model = model
         images = ImageStore(core: connection)
@@ -134,6 +140,16 @@ final class CoreController {
         control?.attach(runtime)
         #endif
         phase = .ready
+    }
+
+    /// An invite link opened from outside the app (`zuna://join?link=…`).
+    func open(_ url: URL) {
+        guard url.scheme == "zuna" else { return }
+        if let model {
+            model.open(link: url.absoluteString)
+        } else {
+            pendingLink = url.absoluteString
+        }
     }
 
     // MARK: Lifecycle

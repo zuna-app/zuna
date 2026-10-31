@@ -2,8 +2,8 @@ import SwiftUI
 import ZunaModels
 
 /// The servers, as in Discord: a rail of icons with unread counts on the left,
-/// and the active server beside it. Joining another server and the server's
-/// menu come with onboarding (F2) and the conversation list (F3).
+/// and the active server beside it. The server's menu comes with the
+/// conversation list (F3).
 struct ServerDrawer: View {
     @Environment(AppModel.self) private var model
 
@@ -31,7 +31,7 @@ struct ServerDrawer: View {
                         }
                     }
                     Button {
-                        model.toast("Joining another server comes with onboarding.")
+                        model.joining = true
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 20, weight: .medium))

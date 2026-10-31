@@ -1,0 +1,178 @@
+import SwiftUI
+import ZunaModels
+
+/// The parts the join screens share: a header, fields, the strength meter and the main button.
+
+struct StepHeader<Icon: View>: View {
+    let title: String
+    let message: Text?
+    @ViewBuilder var icon: Icon
+
+    init(_ title: String, message: Text? = nil, @ViewBuilder icon: () -> Icon) {
+        self.title = title
+        self.message = message
+        self.icon = icon()
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            icon
+            Text(title)
+                .font(.title.weight(.bold))
+                .foregroundStyle(Theme.text1)
+                .multilineTextAlignment(.center)
+            if let message {
+                message
+                    .font(.callout)
+                    .foregroundStyle(Theme.text2)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+}
+
+extension StepHeader where Icon == StepIcon {
+    init(_ title: String, message: Text? = nil, systemImage: String) {
+        self.init(title, message: message) { StepIcon(systemImage: systemImage) }
+    }
+}
+
+struct StepIcon: View {
+    let systemImage: String
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 30, weight: .medium))
+            .foregroundStyle(Theme.text1)
+            .frame(width: 72, height: 72)
+            .background(Theme.bg3, in: .rect(cornerRadius: 22, style: .continuous))
+    }
+}
+
+/// A labeled field on a rounded background, as in Telegram's sign-in screens.
+struct FormField<Field: View>: View {
+    let label: String?
+    var hint: String?
+    var error: String?
+    @ViewBuilder var field: Field
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let label {
+                Text(label)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.text2)
+                    .padding(.leading, 4)
+            }
+            field
+                .font(.body)
+                .foregroundStyle(Theme.text1)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 50)
+                .background(Theme.bg2, in: .rect(cornerRadius: 12, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(error == nil ? Theme.line : Theme.red.opacity(0.7))
+                }
+            if let message = error ?? hint {
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(error == nil ? Theme.text3 : Theme.red)
+                    .padding(.leading, 4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+/// How hard a new password is to guess, as on the desktop: four bars and a word.
+struct StrengthMeter: View {
+    let password: String
+
+    var body: some View {
+        let strength = AccountRules.passwordStrength(password)
+        let colors = [Theme.bg5, Theme.red, Theme.amber, Theme.text2, Theme.green]
+        HStack(spacing: 10) {
+            HStack(spacing: 4) {
+                ForEach(1...4, id: \.self) { bar in
+                    Capsule()
+                        .fill(strength.score >= bar ? colors[strength.score] : Theme.bg4)
+                        .frame(height: 4)
+                }
+            }
+            .frame(width: 120)
+            Text(strength.label.isEmpty ? "At least \(AccountRules.minimumPasswordLength) characters" : strength.label)
+                .font(.footnote)
+                .foregroundStyle(strength.score > 0 ? colors[strength.score] : Theme.text3)
+        }
+        .padding(.leading, 4)
+        .animation(.easeOut(duration: 0.15), value: strength.score)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Password strength")
+        .accessibilityValue(strength.label.isEmpty ? "At least \(AccountRules.minimumPasswordLength) characters" : strength.label)
+        .accessibilityIdentifier(A11y.Onboarding.strength)
+    }
+}
+
+/// The screen's main action: full width, in the accent color, with a spinner while busy.
+struct PrimaryButton: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.isEnabled) private var isEnabled
+    let title: String
+    var busyTitle: String?
+    var busy = false
+    let action: () -> Void
+
+    var body: some View {
+        let accent = model.settings.accent
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if busy {
+                    ProgressView().tint(accent.onAccent)
+                }
+                Text(busy ? busyTitle ?? title : title)
+                    .font(.body.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .foregroundStyle(accent.onAccent)
+            .background(accent.color.opacity(isEnabled ? 1 : 0.35), in: .rect(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+    }
+}
+
+/// A screen of the join flow: scrolls with the keyboard, on the app's background.
+struct StepScreen<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                content
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+            .frame(maxWidth: 480)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Theme.bg0)
+    }
+}
+
+enum OnboardingText {
+    /// Network failures read better without the core's wording, as on the desktop.
+    static func describe(_ error: Error) -> String {
+        let message = (error as? CoreCallError)?.message ?? error.localizedDescription
+        if message.range(of: "Couldn't reach|fetch", options: [.regularExpression, .caseInsensitive]) != nil {
+            return "Couldn't reach that server. Check the address and your connection."
+        }
+        return message.isEmpty ? "Something went wrong. Please try again." : message
+    }
+
+    static let projectURL = URL(string: "https://github.com/zuna-chat/zuna")!
+    static let selfHostingURL = projectURL.appending(path: "blob/main/docs/SELF_HOSTING.md")
+}

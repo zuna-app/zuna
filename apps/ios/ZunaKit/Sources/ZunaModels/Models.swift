@@ -12,7 +12,7 @@ public enum TrustState: String, Codable, Sendable { case unverified, verified, c
 public enum ConnectionState: String, Codable, Sendable { case connecting, syncing, online, offline }
 public enum MessageStatus: String, Codable, Sendable { case sending, sent, failed, undecryptable, unverified }
 
-public struct ServerInfo: Codable, Sendable, Equatable {
+public struct ServerInfo: Codable, Sendable, Hashable {
     public var name: String
     public var version: String
     public var hasIcon: Bool
@@ -39,7 +39,7 @@ public struct ServerInfo: Codable, Sendable, Equatable {
     }
 }
 
-public struct InvitePreview: Codable, Sendable, Equatable {
+public struct InvitePreview: Codable, Sendable, Hashable {
     public var url: String
     public var code: String
     public var communityKey: String?
