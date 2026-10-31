@@ -31,7 +31,10 @@
 
 .chat-scroll { flex: 1; min-height: 0; position: relative; display: flex; }
 .message-list { flex: 1; min-width: 0; position: relative; }
-.virtuoso { height: 100% !important; }
+/* A thin scrollbar that always has its place, so messages sit the same distance from both edges. */
+.virtuoso { height: 100% !important; scrollbar-gutter: stable; }
+.virtuoso::-webkit-scrollbar { width: 4px; }
+.virtuoso::-webkit-scrollbar-thumb, .virtuoso::-webkit-scrollbar-thumb:hover { border: 0; }
 .list-center { flex: 1; display: grid; place-items: center; padding: 20px; color: var(--text-2); }
 .list-top { position: relative; height: 8px; }
 .list-loading { position: absolute; z-index: 1; top: 4px; left: 0; right: 0; height: 28px; display: grid; place-items: center; color: var(--text-3); pointer-events: none; }
@@ -43,19 +46,19 @@
 .chat-empty-card .btn { margin-top: 8px; }
 
 .to-bottom {
-  position: absolute; right: 16px; bottom: 12px; width: 38px; height: 38px; border-radius: 50%; z-index: 4;
-  display: grid; place-items: center; color: var(--text-2);
-  background: var(--bg-3); border: 1px solid var(--line-strong); box-shadow: var(--shadow-s);
-  transition: background 0.1s, color 0.1s; animation: fade-in 0.1s;
+  position: absolute; right: 14px; bottom: 16px; width: 40px; height: 40px; border-radius: 50%; z-index: 4;
+  display: grid; place-items: center; color: var(--text-1);
+  background: var(--bg-5); box-shadow: var(--shadow-s);
+  transition: background 0.1s; animation: fade-in 0.1s;
 }
-.to-bottom:hover { background: var(--bg-4); color: var(--text-1); }
+.to-bottom:hover { background: #45454b; }
 .to-bottom-badge {
   position: absolute; top: -7px; left: 50%; transform: translateX(-50%); min-width: 18px; height: 18px; padding: 0 5px;
   border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 600; line-height: 18px;
 }
 
 /* Messages. flow-root keeps margins inside each item so the virtual list measures it correctly. */
-.list-item { display: flow-root; padding: 0 max(16px, calc((100% - 800px) / 2)); }
+.list-item { display: flow-root; padding: 0 10px 0 14px; }
 .day-sep { display: flex; justify-content: center; padding: 14px 0 8px; }
 .day-sep span { padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; color: var(--text-2); background: var(--bg-2); }
 .system-row { display: flex; justify-content: center; padding: 5px 0; border-radius: var(--radius-m); transition: background 0.3s; }
@@ -67,26 +70,32 @@
 .system-pill.is-warning { background: var(--amber-soft); color: #e8d3a2; }
 .system-pill.is-warning svg { color: var(--amber); flex: none; }
 
-.msg { position: relative; display: flex; align-items: flex-end; gap: 8px; margin-top: 7px; border-radius: var(--radius-l); transition: background 0.4s; }
+.msg { position: relative; display: flex; align-items: flex-end; gap: 8px; margin-top: 8px; border-radius: var(--radius-l); transition: background 0.4s; }
 .msg.is-grouped { margin-top: 2px; }
 .msg.is-own { flex-direction: row-reverse; }
 .msg.is-highlighted { background: var(--hover-strong); transition: none; }
 /* The list glides up to make room, so a new message only has to fade in. */
 .msg.is-fresh { animation: fade-in 0.12s; }
-.msg-avatar { width: 32px; flex: none; align-self: flex-end; }
+.msg-avatar { width: 32px; flex: none; align-self: flex-end; margin-right: 3px; }
 .msg-stack { display: flex; flex-direction: column; min-width: 0; max-width: min(74%, 600px); }
 .msg.is-own .msg-stack { align-items: flex-end; }
 
 .bubble {
-  position: relative; display: flow-root; min-width: 64px; max-width: 100%; padding: 6px 12px 7px; border-radius: var(--radius-xl);
-  background: var(--bubble-other); color: var(--text-1); font-size: var(--message-size); line-height: 1.4; overflow-wrap: anywhere;
+  position: relative; display: flow-root; min-width: 64px; max-width: 100%; padding: 7px 11px; border-radius: 15px;
+  background: var(--bubble-other); color: var(--text-1); font-size: var(--message-size); line-height: 1.38; overflow-wrap: anywhere;
   transition: opacity 0.15s;
 }
 .msg.is-own .bubble { background: var(--bubble-own); color: var(--bubble-own-text); }
-.msg.is-other.is-last .bubble { border-bottom-left-radius: 4px; }
-.msg.is-own.is-last .bubble { border-bottom-right-radius: 4px; }
+/* As in Telegram: one person's messages share a tighter inner edge, and the last of them ends in a tail. */
+.msg.is-other .bubble { border-bottom-left-radius: 5px; }
+.msg.is-own .bubble { border-bottom-right-radius: 5px; }
 .msg.is-other.is-grouped .bubble { border-top-left-radius: 5px; }
 .msg.is-own.is-grouped .bubble { border-top-right-radius: 5px; }
+/* It reaches over the bubble's corner, so no gap can show between the two. */
+.msg.is-last .bubble::before { content: ""; position: absolute; bottom: 0; width: 11px; height: 10px; background: inherit; }
+.msg.is-other.is-last .bubble::before { right: calc(100% - 5px); clip-path: path("M6 0C5 4 3 8 0 10H11V0Z"); }
+.msg.is-own.is-last .bubble::before { left: calc(100% - 5px); clip-path: path("M5 0C6 4 8 8 11 10H0V0Z"); }
+.bubble.is-failed::before, .bubble:has(> .media-grid.has-no-text)::before { display: none; }
 /* A message only looks unsent once it's taking a while, so a quick send doesn't blink. */
 .bubble.is-sending { opacity: 0.7; transition: opacity 0.2s 0.5s; }
 @starting-style { .bubble.is-sending { opacity: 1; } }
@@ -108,20 +117,22 @@
 
 /* The time sits at the end of the last line, as in Telegram, and wraps below it if there's no room. */
 .msg-meta {
-  float: right; display: inline-flex; align-items: center; gap: 3px; margin: 5px 0 -2px 10px; height: 16px;
-  font-size: 11px; line-height: 16px; color: var(--text-3); white-space: nowrap; user-select: none;
+  float: right; display: inline-flex; align-items: center; gap: 3px; margin: 5px -2px -2px 12px; height: 16px;
+  font-size: 11.5px; line-height: 16px; color: var(--bubble-meta); white-space: nowrap; user-select: none;
 }
-.msg.is-own .msg-meta { color: var(--bubble-own-faint); }
+/* Beside the text it sits a little below the line, and takes up exactly one line if it wraps. */
+.msg-text .msg-meta { margin-top: 8px; margin-bottom: -4px; }
 .msg-meta.is-overlay {
   float: none; position: absolute; right: 7px; bottom: 7px; margin: 0; padding: 1px 6px; height: 18px; border-radius: 9px;
   background: rgba(0, 0, 0, 0.55); color: #fff !important;
 }
 /* Always the same width, so the bubble doesn't change size as a message goes through. */
-.msg-ticks { flex: none; display: inline-grid; place-items: center; width: 14px; height: 14px; }
+.msg-ticks { flex: none; display: inline-grid; place-items: center; width: 18px; height: 14px; margin: 0 -3px 2px 6px; }
+.msg-meta.is-overlay .msg-ticks { margin: 0 -1px 2px 3px; }
 .msg-tick { flex: none; }
 .msg-tick.is-sending { animation: fade-in 0.12s 0.35s both; }
 .msg.is-fresh .msg-tick:not(.is-sending) { animation: pop-in 0.12s var(--ease-out); }
-.msg-tick.is-read { color: var(--bubble-own-text); }
+.msg-tick.is-read { color: var(--accent-text); }
 .msg-tick.is-failed { color: #f4bcbe; }
 .msg-pinned { transform: rotate(35deg); }
 
@@ -225,10 +236,8 @@
 .msg.is-jumbo .reaction.is-mine { background: var(--text-1); }
 
 /* Media */
-.media-grid { position: relative; display: grid; gap: 2px; margin: -6px -12px 6px; border-radius: var(--radius-xl) var(--radius-xl) 0 0; overflow: hidden; }
-.media-grid.has-no-text { margin-bottom: -7px; border-radius: var(--radius-xl); }
-.msg.is-other.is-last .media-grid.has-no-text { border-bottom-left-radius: 4px; }
-.msg.is-own.is-last .media-grid.has-no-text { border-bottom-right-radius: 4px; }
+.media-grid { position: relative; display: grid; gap: 2px; margin: -7px -11px 6px; border-radius: inherit; border-bottom-left-radius: 0; border-bottom-right-radius: 0; overflow: hidden; }
+.media-grid.has-no-text { margin-bottom: -7px; border-radius: inherit; }
 .msg-author + .media-grid { margin-top: 4px; border-radius: 0; }
 .media-count-2, .media-count-3, .media-count-4 { grid-template-columns: 1fr 1fr; width: min(420px, 100%); }
 .media-tile { position: relative; display: block; overflow: hidden; background: var(--bg-3); aspect-ratio: 1; }
@@ -271,18 +280,16 @@
 .voice-play:disabled { opacity: 0.7; }
 .voice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .voice-wave { height: 24px; display: flex; align-items: center; gap: 2px; cursor: pointer; }
-.voice-wave i { flex: 1; max-width: 3px; min-width: 2px; border-radius: 2px; background: var(--text-3); }
+.voice-wave i { flex: 1; max-width: 3px; min-width: 2px; border-radius: 2px; background: var(--bubble-meta); }
 .voice-wave i.is-played { background: var(--text-1); }
-.voice.is-own .voice-wave i { background: var(--bubble-own-faint); }
 .voice.is-own .voice-wave i.is-played { background: var(--bubble-own-text); }
-.voice-time { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--text-3); }
-.voice.is-own .voice-time { color: var(--bubble-own-faint); }
+.voice-time { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--bubble-meta); }
 
-.selection-bar { display: flex; align-items: center; gap: 8px; max-width: 832px; width: 100%; margin: 0 auto; padding: 10px 12px 12px 8px; }
+.selection-bar { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px 12px 8px; }
 .selection-count { font-size: 13.5px; font-weight: 500; }
 
 /* Picking messages, as in Telegram: a circle on the left, and the row highlighted. */
-.msg.is-selecting { padding-left: 34px; cursor: pointer; }
+.msg.is-selecting { padding-left: 34px; padding-right: 8px; cursor: pointer; }
 .msg.is-selected { background: var(--accent-soft); }
 .msg-check {
   position: absolute; left: 6px; bottom: 6px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
@@ -292,7 +299,6 @@
 .msg-check.is-disabled { opacity: 0.3; }
 
 .composer-disabled { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; color: var(--text-2); font-size: 13.5px; }
-.composer { max-width: 832px; margin: 0 auto; }
 .composer-row { display: flex; align-items: flex-end; gap: 2px; padding: 8px 10px; }
 /* Grows with its text in the same frame, without measuring it on every key. */
 .composer-input {
@@ -325,7 +331,7 @@
   background: var(--bg-5); color: var(--text-1);
 }
 .suggestions {
-  position: absolute; left: max(16px, calc((100% - 800px) / 2)); bottom: calc(100% + 6px); width: min(320px, 90%); max-height: 300px; overflow-y: auto;
+  position: absolute; left: 14px; bottom: calc(100% + 6px); width: min(320px, 90%); max-height: 300px; overflow-y: auto;
   background: var(--bg-3); border: 1px solid var(--line-strong); border-radius: var(--radius-l); padding: 4px; box-shadow: var(--shadow-m); z-index: 5;
   animation: rise-in 0.1s var(--ease-out);
 }

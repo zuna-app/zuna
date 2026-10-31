@@ -1,5 +1,5 @@
 import type { ConversationView, MessageView } from "@zuna/core";
-import { ArrowDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { Spinner } from "@/components/ui";
@@ -306,6 +306,8 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       const next = items[position + 1];
       // With older messages still to load, the day may well have started before this one.
       const showDay = previous ? !sameDay(previous.createdAt, message.createdAt) : !hasMore;
+      // And it most likely follows on from them, so it keeps its size when they arrive.
+      const grouped = !showDay && (previous ? continues(previous, message) : hasMore && !detached);
       return (
         <div className="list-item" data-id={message.id}>
           {showDay && (
@@ -319,7 +321,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
             isGroup={isGroup}
             isGroupAdmin={isAdmin}
             readUpTo={readUpTo}
-            grouped={!showDay && continues(previous, message)}
+            grouped={grouped}
             lastInGroup={!continues(message, next)}
             fresh={fresh.current.has(message.id)}
             highlighted={highlightId === message.id}
@@ -328,7 +330,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         </div>
       );
     },
-    [items, firstIndex, hasMore, listId, isGroup, isAdmin, readUpTo, highlightId, selfId],
+    [items, firstIndex, hasMore, detached, listId, isGroup, isAdmin, readUpTo, highlightId, selfId],
   );
 
   if (!list?.loaded && items.length === 0) {
@@ -365,7 +367,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       />
       {(!atBottom || list.detached) && (
         <button className="to-bottom" onClick={scrollToBottom} aria-label="Go to the newest messages">
-          <ArrowDown size={18} />
+          <ChevronDown size={30} strokeWidth={1.5} />
           {unreadBelow > 0 && <span className="to-bottom-badge">{unreadBelow > 99 ? "99+" : unreadBelow}</span>}
         </button>
       )}
