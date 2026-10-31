@@ -175,6 +175,8 @@ export class ServerSession {
   private deviceNames = new Map<string, string>();
   private locks = new Map<string, Mutex>();
   private epochKeys = new Map<string, Uint8Array>();
+  /** Messages that arrived live before their keys did, notified once they open. */
+  private awaitingKeys = new Set<string>();
   private syncing = new Map<string, { again: boolean; done: Promise<void> }>();
   private socket: Socket;
   private connection: ConnectionState = "connecting";
@@ -1672,7 +1674,11 @@ export class ServerSession {
     const row = this.messageRow(message.group_id, message.id)!;
     const view = this.toMessageView(row);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: live && isNew });
-    if (live && isNew && status === "sent" && message.sender_user !== this.account.userId) this.maybeNotify(view);
+    // The first message in a new chat often beats its welcome, and only opens once that's in.
+    const ref = `${message.group_id}/${message.id}`;
+    if (live && isNew && status !== "sent") this.awaitingKeys.add(ref);
+    const fresh = live ? isNew : status === "sent" && this.awaitingKeys.delete(ref);
+    if (fresh && status === "sent" && message.sender_user !== this.account.userId) this.maybeNotify(view);
   }
 
   private retryUndecryptable(groupId: string): void {
