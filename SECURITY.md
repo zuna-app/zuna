@@ -14,9 +14,9 @@ Please report security issues privately through GitHub's "Report a vulnerability
 |---|---|---|
 | **Accounts** | Username, role, sign-up date, which devices exist | Password, display name, avatar, bio |
 | **Conversations** | Who is in each conversation | Group names, pictures and descriptions |
-| **Messages** | Who sent one, when, to which conversation, and its rough size (padded to 256-byte blocks) | Text, replies, mentions, formatting, emotes used |
+| **Messages** | Who sent one, when, to which conversation, and its rough size (padded to 256-byte blocks) | Text, replies, mentions, formatting, emotes used, links and their previews, whether and from whom it was forwarded |
 | **Reactions** | Who reacted to which message | Which reaction it was |
-| **Files** | Size and uploader | Name, type, content |
+| **Files** | Size and uploader, and which messages share a file, so it knows a forwarded file is the same one | Name, type, content |
 | **Pins and deletes** | Which message was pinned or deleted | The message's content |
 | **Read state** | That someone's read position changed | The position itself |
 | **Typing** | That someone sent a typing signal | Nothing further; it's encrypted but has no other content |
@@ -75,6 +75,16 @@ If an admin turns on open sign-ups, there's no invite link to carry that key, so
 ### Files
 
 Each file gets its own random key. It's split into 1 MiB chunks encrypted with XChaCha20-Poly1305 in the STREAM construction, which detects reordered, missing or truncated chunks. The key travels inside the encrypted message.
+
+### Link previews
+
+The sender's device makes a link's preview while they write: it fetches the page, and the title, description and a small picture travel encrypted inside the message. Recipients never contact the site, and the server never sees the link. The site sees the sender's IP address, as it would if they opened the link. Pages are fetched without cookies, only over HTTPS, and redirects are checked one at a time. Previews can be turned off on each device.
+
+A preview is the sender's claim about the page, like the message's text. The app only shows a preview for a link that's in the message's own text, so a preview can't present one site as another, and its picture must be inline: a preview can't make your device load anything.
+
+### Forwarding
+
+A forwarded message is a new message from whoever forwarded it. On the same server it names the original author, and its files aren't uploaded again: the copy refers to the same encrypted file, so the server can tell that a file was forwarded, though not what's in it. The file stays until the last message using it is deleted. Forwarded to another server, a message only says it's forwarded, and its files are uploaded there again. The "forwarded from" label is the forwarder's claim, as in other messengers.
 
 ### Data on your device
 

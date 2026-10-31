@@ -260,6 +260,8 @@ Minimum iOS version: 18 (proposed).
 | Meta: pin mark, "edited", time, ticks (clock, failed, sent, read from `readBy`) | same | F4 |
 | States: deleted, "Waiting for this message's keys", invalid signature | same | F4 |
 | Reply quote with author; a tap jumps to the original | same | F4 |
+| "Forwarded from" with the author on the same server, a tap opens them; only "Forwarded" from another server | same | Later |
+| Link preview card: site, title, description, picture beside the text or below it when wide; opens the link | same | Later |
 | Attachments: grid of 1 to 4 images with blurred thumbnail and fixed size, upload progress ring, full-screen viewer with Save; video and audio on tap; files downloaded and decrypted | QuickLook, AVPlayer, share sheet | F4 |
 | Reactions: emoji or emote chips, avatars of up to 3 people, otherwise a count; names | same | F4 |
 | System messages: 8 kinds, warnings with an icon | same | F4 |
@@ -276,7 +278,9 @@ Minimum iOS version: 18 (proposed).
 | `emotes` and `mentions` extracted into the message body | Swift port checked against the desktop | F5 |
 | Typing signal (throttled by the core) | same | F5 |
 | Attachments: up to 10 files, preview, size, removal, server size limit, progress; paste and drag files | PhotosPicker, document picker, paste; drag and drop on iPad | F5, F8 |
-| Message actions: quick reactions (👍 ❤️ 😂 🔥 😮 😢) and the full picker, Reply, Copy text, Edit (own text messages), Pin or Unpin, Try again or Discard, Delete for everyone (own messages, or group admins) | native context menu with a reaction bar | F5 |
+| Message actions: quick reactions (👍 ❤️ 😂 🔥 😮 😢) and the full picker, Reply, Forward, Copy text, Edit (own text messages that weren't forwarded), Pin or Unpin, Try again or Discard, Delete for everyone (own messages, or group admins) | native context menu with a reaction bar | F5 |
+| Forwarding: chats on every server, this one first, with search; sends at once and opens the chat | sheet; sends at once and says where it went, as Telegram does on the phone | Later |
+| Link previews while writing: the first link's page fetched on this device after a pause, a bar with the title and picture and a way to remove it; edits keep theirs | pages fetched natively without cookies, pictures shrunk with ImageIO | Later |
 | Pinned bar: cycles through pins, "Pinned message X of N", jumps | same | F5 |
 | Search in a chat with a note when history is still downloading; pinned list with unpin | screens pushed from the chat | F5 |
 | Keyboard: Enter, Ctrl+Enter, Esc, Up to edit the last message; "Press Enter to send" | hardware keyboards; on the software keyboard Return inserts a new line | F8 |
@@ -297,7 +301,7 @@ Minimum iOS version: 18 (proposed).
 | Desktop | iOS | Phase |
 |---|---|---|
 | Profile: avatar (change, remove), display name, bio | photo picker with a square crop | F7 |
-| Privacy: read receipts (synced), "Show when I'm online" | same | F7 |
+| Privacy: read receipts (synced), "Show when I'm online"; link previews, on this device | same | F7 |
 | Appearance: accent (5), message size (S, M, L), reduce motion, Enter sends | stored on the device; reduce motion also follows the system setting | F7 |
 | Security: own key, devices (current first, names, dates, remove), change password, new recovery key | same | F7 |
 | About: version, license, links to the source and the security model, server version | same | F7 |
