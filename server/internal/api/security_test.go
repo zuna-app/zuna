@@ -182,6 +182,58 @@ func TestAnAdminCanVoidACommitNobodyCanApply(t *testing.T) {
 	}
 }
 
+// Z-08: what a commit carries is held to the same rules as the rest of the API.
+func TestACommitCantDoWhatTheAPIForbids(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	carol := h.register("carol", owner.newInvite())
+	var created struct {
+		Group *store.Group `json:"group"`
+	}
+	h.mustDo("POST", "/api/groups", owner.token, map[string]any{"kind": "group"}, &created)
+	group := created.Group.ID
+	epoch := int64(1)
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}, "meta": []byte("real name"), "meta_epoch": 1}); status != http.StatusOK {
+		t.Fatalf("the admin's commit: %d %v", status, resp)
+	}
+
+	// A member's copy of the details is dropped, whatever else the commit does.
+	if status, resp := bob.commit(group, epoch, map[string]any{"meta": []byte("renamed"), "meta_epoch": 2}); status != http.StatusOK {
+		t.Fatalf("a member's commit: %d %v", status, resp)
+	}
+	epoch++
+	var current store.Group
+	h.mustDo("GET", "/api/groups/"+group, owner.token, nil, &current)
+	if string(current.Meta) != "real name" {
+		t.Fatalf("a member renamed the group to %q", current.Meta)
+	}
+
+	// Welcomes go to people joining, not to whoever a member likes.
+	if status, _ := bob.commit(group, epoch, map[string]any{"welcomes": []map[string]any{{"device_id": carol.device, "data": []byte("w")}}}); status != http.StatusForbidden {
+		t.Fatalf("a welcome for someone not joining gave %d", status)
+	}
+	if status, _ := owner.commit(group, epoch, map[string]any{"welcomes": []map[string]any{{"device_id": store.NewID(), "data": []byte("w")}}}); status != http.StatusForbidden {
+		t.Fatalf("a welcome for a device that doesn't exist gave %d", status)
+	}
+
+	// History grants come from admins, for people joining.
+	grant := []map[string]any{{"user_id": owner.userID, "data": []byte("forged keys")}}
+	if status, _ := bob.commit(group, epoch, map[string]any{"history_grants": grant}); status != http.StatusForbidden {
+		t.Fatalf("a member's grant gave %d", status)
+	}
+	if status, _ := owner.commit(group, epoch, map[string]any{"history_grants": grant}); status != http.StatusForbidden {
+		t.Fatalf("a grant for someone not joining gave %d", status)
+	}
+	if status, resp := owner.commit(group, epoch, map[string]any{
+		"add_users":      []string{carol.userID},
+		"history_grants": []map[string]any{{"user_id": carol.userID, "data": []byte("keys")}},
+		"welcomes":       []map[string]any{{"device_id": carol.device, "data": []byte("w")}},
+	}); status != http.StatusOK {
+		t.Fatalf("adding carol: %d %v", status, resp)
+	}
+}
+
 // Z-09: nothing lets one account delete another's file.
 func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	h := newHarness(t)

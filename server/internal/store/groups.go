@@ -302,6 +302,14 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		if kind == "dm" && (len(c.AddUsers) > 0 || len(c.RemoveUsers) > 0) {
 			return ErrForbidden
 		}
+		// Older clients seal the details again with every commit, whoever makes
+		// it, so a member's copy is left out instead of refusing the commit.
+		if role != "admin" {
+			c.Meta = nil
+		}
+		if err := checkCommitExtras(ctx, tx, c, role); err != nil {
+			return err
+		}
 
 		seq, err := nextSeq(ctx, tx, c.GroupID)
 		if err != nil {
@@ -382,6 +390,49 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		return nil, err
 	}
 	return &event, nil
+}
+
+// checkCommitExtras holds a commit's welcomes and history grants to what the
+// commit is doing: welcomes go to the devices of people joining (and, when a
+// group starts, of its members), and only admins hand history to people joining.
+func checkCommitExtras(ctx context.Context, tx *sql.Tx, c Commit, role string) error {
+	joining := map[string]bool{}
+	for _, user := range c.AddUsers {
+		joining[user] = true
+	}
+	for _, grant := range c.HistoryGrants {
+		if role != "admin" || !joining[grant.UserID] {
+			return ErrForbidden
+		}
+	}
+	if c.ExpectedEpoch == 0 {
+		rows, err := tx.QueryContext(ctx, `SELECT user_id FROM group_members WHERE group_id = ?`, c.GroupID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var user string
+			if err := rows.Scan(&user); err != nil {
+				return err
+			}
+			joining[user] = true
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	for _, welcome := range c.Welcomes {
+		var owner string
+		err := tx.QueryRowContext(ctx, `SELECT user_id FROM devices WHERE id = ? AND revoked_at IS NULL`, welcome.DeviceID).Scan(&owner)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && !joining[owner]) {
+			return ErrForbidden
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // VoidCommits takes a group back to an earlier epoch, after a commit nobody can
