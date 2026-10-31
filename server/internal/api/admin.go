@@ -111,13 +111,48 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, info)
 }
 
+// iconType reads which kind of picture a file is from its first bytes, or
+// nothing if it's none of the kinds a server icon can be.
+func iconType(start []byte) string {
+	switch {
+	case len(start) >= 8 && string(start[:8]) == "\x89PNG\r\n\x1a\n":
+		return "image/png"
+	case len(start) >= 3 && string(start[:3]) == "\xff\xd8\xff":
+		return "image/jpeg"
+	case len(start) >= 12 && string(start[:4]) == "RIFF" && string(start[8:12]) == "WEBP":
+		return "image/webp"
+	}
+	return ""
+}
+
 func (s *Server) handleIcon(w http.ResponseWriter, r *http.Request) {
-	if _, err := os.Stat(s.iconPath()); err != nil {
+	file, err := os.Open(s.iconPath())
+	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
+	defer file.Close()
+	start := make([]byte, 12)
+	n, _ := io.ReadFull(file, start)
+	kind := iconType(start[:n])
+	// An icon uploaded before these were checked may be anything.
+	if kind == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	info, err := file.Stat()
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", kind)
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	w.Header().Set("Cache-Control", "public, max-age=300")
-	http.ServeFile(w, r, s.iconPath())
+	http.ServeContent(w, r, "", info.ModTime(), file)
 }
 
 func (s *Server) handleUpdateIcon(w http.ResponseWriter, r *http.Request, _ *store.Session) {
@@ -128,6 +163,14 @@ func (s *Server) handleUpdateIcon(w http.ResponseWriter, r *http.Request, _ *sto
 	}
 	defer os.Remove(tmp.Name())
 	_, err = io.Copy(tmp, http.MaxBytesReader(w, r.Body, maxIconBytes))
+	if err == nil {
+		start := make([]byte, 12)
+		if n, _ := tmp.ReadAt(start, 0); iconType(start[:n]) == "" {
+			tmp.Close()
+			writeError(w, http.StatusBadRequest, "bad_request", "Server icons must be PNG, JPEG or WebP pictures.")
+			return
+		}
+	}
 	if closeErr := tmp.Close(); err == nil {
 		err = closeErr
 	}

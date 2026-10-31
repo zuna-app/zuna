@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -583,6 +585,33 @@ func TestABanEndsTheInvitesTheyMade(t *testing.T) {
 	}
 	if status, _ := h.do("GET", "/api/invites/"+theirs, "", nil, nil); status != http.StatusOK {
 		t.Fatalf("someone else's invite gave %d", status)
+	}
+}
+
+// Z-26: a server icon is a picture, and only ever served as one.
+func TestAServerIconIsOnlyEverAPicture(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	page := []byte("<html><script>alert(1)</script></html>")
+	if status, _ := h.do("PUT", "/api/admin/icon", owner.token, page, nil); status != http.StatusBadRequest {
+		t.Fatalf("an HTML icon gave %d", status)
+	}
+	png := append([]byte("\x89PNG\r\n\x1a\n"), bytesOf(32, 0)...)
+	h.mustDo("PUT", "/api/admin/icon", owner.token, png, nil)
+	status, body, headers := h.raw("GET", "/api/icon", "", nil, nil)
+	if status != http.StatusOK || string(body) != string(png) {
+		t.Fatalf("the icon: %d", status)
+	}
+	if headers.Get("Content-Type") != "image/png" || !strings.Contains(headers.Get("Content-Security-Policy"), "sandbox") {
+		t.Fatalf("the icon's headers: %v", headers)
+	}
+
+	// One from before this was checked isn't served at all.
+	if err := os.WriteFile(filepath.Join(h.dir, "icon"), page, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if status, _, _ := h.raw("GET", "/api/icon", "", nil, nil); status != http.StatusNotFound {
+		t.Fatalf("an old HTML icon gave %d", status)
 	}
 }
 
