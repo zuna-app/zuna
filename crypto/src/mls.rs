@@ -257,7 +257,7 @@ impl MlsClient {
         let processed = group
             .process_message(&self.provider, protocol)
             .map_err(err("commit process"))?;
-        let sender_credential = credential_bytes(processed.credential())?;
+        let sender_credential = credential_or_empty(processed.credential());
         let is_external = matches!(processed.sender(), Sender::NewMemberCommit);
         let ProcessedMessageContent::StagedCommitMessage(staged) = processed.into_content() else {
             return Err("expected a commit".into());
@@ -265,12 +265,12 @@ impl MlsClient {
 
         let added_credentials = staged
             .add_proposals()
-            .map(|p| credential_bytes(p.add_proposal().key_package().leaf_node().credential()))
-            .collect::<Result<Vec<_>>>()?;
+            .map(|p| credential_or_empty(p.add_proposal().key_package().leaf_node().credential()))
+            .collect::<Vec<_>>();
         let mut removed_credentials = Vec::new();
         for remove in staged.remove_proposals() {
             if let Some(credential) = group.member(remove.remove_proposal().removed()) {
-                removed_credentials.push(credential_bytes(credential)?);
+                removed_credentials.push(credential_or_empty(credential));
             }
         }
         let self_removed = staged.self_removed();
@@ -370,7 +370,7 @@ impl MlsClient {
             .map(|m| {
                 Ok(MemberInfo {
                     leaf_index: m.index.u32(),
-                    credential: credential_bytes(&m.credential)?,
+                    credential: credential_or_empty(&m.credential),
                     signature_key: m.signature_key,
                 })
             })
@@ -426,6 +426,12 @@ fn encode(message: &MlsMessageOut) -> Result<Vec<u8>> {
     message
         .tls_serialize_detached()
         .map_err(err("message encode"))
+}
+
+/// A credential of another type carries no certificate. It reads as empty, which
+/// fails every check on it, so one odd leaf can't make a whole group unreadable.
+fn credential_or_empty(credential: &Credential) -> Vec<u8> {
+    credential_bytes(credential).unwrap_or_default()
 }
 
 fn credential_bytes(credential: &Credential) -> Result<Vec<u8>> {
