@@ -162,8 +162,9 @@ export interface DeviceCertificate {
 
 /**
  * A device certificate is the MLS credential of each device. It is signed by the
- * user's identity key, so a device can't be added to a group on someone's behalf
- * without that key, including by the server.
+ * user's identity key and names the key that device signs with. Certificates are
+ * public, so holding one proves nothing: a leaf only belongs to a device if it
+ * really uses the signing key its certificate names.
  */
 export function createCertificate(identitySecret: Uint8Array, cert: DeviceCertificate): Uint8Array {
   const payload = utf8(
@@ -178,7 +179,7 @@ export function parseCertificate(bytes: Uint8Array): (DeviceCertificate & { payl
     const outer = JSON.parse(fromUtf8(bytes));
     const payload = fromBase64(outer.p);
     const inner = JSON.parse(fromUtf8(payload));
-    if (inner.v !== 1 || typeof inner.user !== "string" || typeof inner.device !== "string") return null;
+    if (inner.v !== 1 || typeof inner.user !== "string" || typeof inner.device !== "string" || typeof inner.key !== "string") return null;
     return {
       userId: inner.user,
       deviceId: inner.device,

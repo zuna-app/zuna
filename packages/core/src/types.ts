@@ -207,6 +207,10 @@ export interface GroupMemberView {
   userId: string;
   role: GroupRole;
   joinedAt: number;
+  /** The server says they're a member, but no device of theirs holds this group's keys. */
+  noKeys?: boolean;
+  /** A device of theirs holds this group's keys, but the server doesn't list them. */
+  notOnRoster?: boolean;
 }
 
 /**

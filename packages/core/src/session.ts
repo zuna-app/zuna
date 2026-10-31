@@ -150,6 +150,16 @@ interface CachedGroup {
   pendingRemovals?: Record<string, { actor: string; seq: number; at: number }>;
 }
 
+/** One leaf of a group's MLS tree, and whether it really is the device it says. */
+interface TreeMember {
+  leaf: number;
+  /** Who its certificate names, which proves nothing unless `genuine`. */
+  userId: string;
+  deviceId: string;
+  /** Its certificate is signed by that person's identity key, for the signing key it really uses. */
+  genuine: boolean;
+}
+
 interface MessageRow {
   row_id: number;
   group_id: string;
@@ -258,6 +268,8 @@ export class ServerSession {
   private cleanEpochs = new Map<string, number>();
   /** Who holds each group's keys now, for showing its members. */
   private treeUsersCache = new Map<string, Set<string>>();
+  /** Leaves already warned about, so one ghost makes one warning. */
+  private warnedLeaves = new Set<string>();
   /** Called when the server told us this session is over (banned, revoked). */
   onSignedOut: ((reason: string) => void) | null = null;
   /** Called when a session that seemed to be over turns out to be working. */
@@ -908,13 +920,23 @@ export class ServerSession {
       } catch {
         continue;
       }
+      // Certificates are public, so one in a package proves nothing unless the
+      // package really signs with the key that certificate names.
       const cert = verifyCertificate(pinned, credential);
-      if (!cert || cert.userId !== userId || cert.deviceId !== item.device_id) {
+      const known = user.devices.get(item.device_id);
+      const genuine =
+        !!cert &&
+        cert.userId === userId &&
+        cert.deviceId === item.device_id &&
+        !!known &&
+        !known.revoked &&
+        equalBytes(this.mls.keyPackageSignatureKey(data), cert.signatureKey);
+      if (!genuine) {
         this.emit({
           type: "security",
           serverId: this.serverId,
           userId,
-          message: `The server offered a device for ${user.profile.displayName} that isn't signed by their security key. It was not added.`,
+          message: `The server offered a device for ${user.profile.displayName} that isn't really theirs. It was not added.`,
         });
         continue;
       }
@@ -1085,7 +1107,7 @@ export class ServerSession {
     }
     for (const groupId of joined) {
       this.applyGroup(await this.api.group(groupId));
-      this.setKnownMembers(groupId, this.treeUsers(groupId));
+      await this.withLock(groupId, async () => this.afterJoining(groupId));
       this.retryUndecryptable(groupId);
       this.backgroundSync(groupId);
     }
@@ -1103,10 +1125,17 @@ export class ServerSession {
       if (welcome.group_id === groupId && (await this.consumeWelcome(welcome))) joined = true;
     }
     if (joined) {
-      this.setKnownMembers(groupId, this.treeUsers(groupId));
+      await this.afterJoining(groupId);
       this.retryUndecryptable(groupId);
       void this.uploadEpochKeys().catch(() => undefined);
     }
+  }
+
+  /** Whoever else is in a group just joined by Welcome is checked before trusting it. */
+  private async afterJoining(groupId: string): Promise<void> {
+    await this.checkTree(groupId);
+    this.setKnownMembers(groupId, this.treeUsers(groupId));
+    this.scheduleReconcile(groupId);
   }
 
   /** Joins from a welcome and removes it. Returns whether this device joined. */
@@ -1122,7 +1151,6 @@ export class ServerSession {
         this.saveMls();
         this.setJoinedEpoch(welcome.group_id, result.epoch);
         this.rememberCurrentEpochKey(welcome.group_id);
-        this.auditTree(welcome.group_id);
         joined = true;
       } catch (error) {
         // Likely a stale welcome. The group is still reachable by an external join.
@@ -1134,18 +1162,75 @@ export class ServerSession {
     return joined;
   }
 
-  private treeMembers(groupId: string): { leaf: number; userId: string; deviceId: string }[] {
-    const members = this.mls.members(utf8(groupId)) as { leafIndex: number; credential: Uint8Array }[];
-    const out: { leaf: number; userId: string; deviceId: string }[] = [];
-    for (const member of members) {
+  /**
+   * Every leaf of a group's tree, and whether it is what it claims. This is the
+   * one check on who holds a group's keys: its certificate has to be signed by the
+   * identity key known for that person, for the very signing key the leaf uses, and
+   * each device has one leaf. Certificates are public, so without that last part
+   * anyone could use a real person's certificate with keys of their own.
+   */
+  private treeMembers(groupId: string): TreeMember[] {
+    const members = this.mls.members(utf8(groupId)) as { leafIndex: number; credential: Uint8Array; signatureKey: Uint8Array }[];
+    const out: TreeMember[] = members.map((member) => {
       const cert = parseCertificate(member.credential);
-      if (cert) out.push({ leaf: member.leafIndex, userId: cert.userId, deviceId: cert.deviceId });
+      if (!cert) return { leaf: member.leafIndex, userId: "", deviceId: "", genuine: false };
+      // Someone not known yet is looked up by checkTree, which runs on any change to the tree.
+      const pinned = this.pinnedIdentity(cert.userId);
+      const verified = pinned ? verifyCertificate(pinned, member.credential) : cert;
+      const genuine = !!verified && equalBytes(verified.signatureKey, member.signatureKey);
+      return { leaf: member.leafIndex, userId: cert.userId, deviceId: cert.deviceId, genuine };
+    });
+    const seen = new Set<string>();
+    for (const member of [...out].reverse()) {
+      if (!member.genuine) continue;
+      if (seen.has(member.deviceId)) member.genuine = false;
+      seen.add(member.deviceId);
     }
     return out;
   }
 
   private treeUsers(groupId: string): string[] {
-    return [...new Set(this.treeMembers(groupId).map((member) => member.userId))];
+    return [...new Set(this.treeMembers(groupId).filter((member) => member.genuine).map((member) => member.userId))];
+  }
+
+  /** Looks up anyone in a group's tree not known yet, so they can be checked. */
+  private async learnTreeUsers(groupId: string): Promise<void> {
+    const members = this.mls.members(utf8(groupId)) as { credential: Uint8Array }[];
+    for (const member of members) {
+      const cert = parseCertificate(member.credential);
+      if (cert && !this.pinnedIdentity(cert.userId)) await this.ensureUser(cert.userId, true);
+    }
+  }
+
+  /**
+   * Checks a group's tree after anything that may have changed it, and warns about
+   * any leaf that isn't what it claims. Those get removed by the next reconcile,
+   * and at the latest before this device encrypts anything else (ensureTreeClean).
+   */
+  private async checkTree(groupId: string): Promise<TreeMember[]> {
+    this.treeUsersCache.delete(groupId);
+    this.cleanEpochs.delete(groupId);
+    await this.learnTreeUsers(groupId);
+    const bad = this.treeMembers(groupId).filter((member) => !member.genuine && member.leaf !== this.mls.ownLeafIndex(utf8(groupId)));
+    for (const member of bad) {
+      const warned = `${groupId}/${member.leaf}/${this.mlsEpoch(groupId)}`;
+      if (this.warnedLeaves.has(warned)) continue;
+      this.warnedLeaves.add(warned);
+      const owner = member.userId ? this.users.get(member.userId)?.profile.displayName : null;
+      this.emit({
+        type: "security",
+        serverId: this.serverId,
+        userId: member.userId,
+        message: owner
+          ? `A device claiming to be ${owner}'s isn't really theirs, and it tried to join one of your conversations. It's being removed.`
+          : "A device with an invalid certificate tried to join one of your conversations. It's being removed.",
+      });
+      if (member.userId) {
+        this.addSystemRow(groupId, Date.now(), member.userId, { type: "unexpected_join", actorId: member.userId });
+      }
+    }
+    if (bad.length > 0) this.scheduleReconcile(groupId);
+    return bad;
   }
 
   private knownMembers(groupId: string): Set<string> {
@@ -1157,36 +1242,11 @@ export class ServerSession {
     this.db.run("UPDATE groups SET known_members = ? WHERE id = ?", [JSON.stringify([...members]), groupId]);
   }
 
-  /** Checks each member's certificate against the identity key we pinned for them. */
-  private auditTree(groupId: string): void {
-    const members = this.mls.members(utf8(groupId)) as { credential: Uint8Array }[];
-    for (const member of members) this.auditCredential(groupId, member.credential);
-  }
-
-  private auditCredential(groupId: string, credential: Uint8Array): void {
-    const cert = parseCertificate(credential);
-    if (!cert) {
-      this.emit({
-        type: "security",
-        serverId: this.serverId,
-        userId: "",
-        message: "A device with an invalid certificate is in one of your conversations.",
-      });
-      return;
-    }
-    const pinned = this.pinnedIdentity(cert.userId);
-    if (pinned && !verifyCertificate(pinned, credential)) {
-      this.addSystemRow(groupId, Date.now(), cert.userId, { type: "identity_changed", actorId: cert.userId, targetIds: [cert.userId] });
-      this.emit({
-        type: "security",
-        serverId: this.serverId,
-        userId: cert.userId,
-        message: "A device in one of your conversations isn't signed by the security key you know for its owner.",
-      });
-    }
-  }
-
-  /** Joins a group without help from any member, for new or repaired devices. */
+  /**
+   * Joins a group without help from any member, for new or repaired devices.
+   * Whatever state this device had stays until the server accepts the join, so
+   * group info nobody can use, or a join that's refused, costs nothing.
+   */
   private async joinExternal(groupId: string): Promise<boolean> {
     const groupBytes = utf8(groupId);
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
@@ -1210,7 +1270,7 @@ export class ServerSession {
       this.saveMls();
       this.setJoinedEpoch(groupId, result.epoch);
       this.rememberCurrentEpochKey(groupId);
-      this.auditTree(groupId);
+      await this.checkTree(groupId);
       const known = this.knownMembers(groupId);
       if (known.size === 0) this.setKnownMembers(groupId, this.treeUsers(groupId));
       void this.uploadEpochKeys().catch(() => undefined);
@@ -1233,6 +1293,29 @@ export class ServerSession {
     } else if (this.mlsEpoch(groupId) !== group.epoch) {
       await this.pullChanges(groupId);
     }
+  }
+
+  /**
+   * Removes anyone from the tree who shouldn't be in it, before this device
+   * encrypts anything else: someone who just left or was banned, and any leaf that
+   * isn't what it claims. What's sent next is under a key they don't have. A check
+   * is remembered for its epoch, so sending stays quick.
+   */
+  private async ensureTreeClean(groupId: string): Promise<void> {
+    if (!this.hasMlsGroup(groupId)) return;
+    for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
+      if (this.cleanEpochs.get(groupId) === this.mlsEpoch(groupId)) return;
+      await this.learnTreeUsers(groupId);
+      if ((await this.staleLeaves(groupId)).length === 0) {
+        this.cleanEpochs.set(groupId, this.mlsEpoch(groupId));
+        return;
+      }
+      // What's known about the roster may be behind, so ask before removing anyone.
+      this.applyGroup(await this.api.group(groupId));
+      if ((await this.staleLeaves(groupId)).length === 0) continue;
+      await this.commitWithRetry(groupId, async () => ({ kind: "update", removeLeaves: await this.staleLeaves(groupId) }));
+    }
+    throw new Error("Couldn't secure this conversation right now. Please try again.");
   }
 
   /**
@@ -1286,6 +1369,7 @@ export class ServerSession {
     this.saveMls();
     this.setJoinedEpoch(group.id, newEpoch);
     this.saveEpochKey(group.id, newEpoch, key, "mls");
+    this.treeUsersCache.delete(group.id);
     this.setKnownMembers(group.id, targets);
     void this.uploadEpochKeys().catch(() => undefined);
     this.applyGroup(await this.api.group(group.id));
@@ -1347,6 +1431,7 @@ export class ServerSession {
       this.mls.mergePending(groupBytes);
       this.saveMls();
       this.saveEpochKey(groupId, newEpoch, key, "mls");
+      this.treeUsersCache.delete(groupId);
       this.confirmedEpochs.set(groupId, newEpoch);
       void this.uploadEpochKeys().catch(() => undefined);
       return;
@@ -1516,6 +1601,7 @@ export class ServerSession {
     }
     this.rememberCurrentEpochKey(groupId);
     void this.uploadEpochKeys().catch(() => undefined);
+    await this.checkTree(groupId);
     this.describeCommit(event, processed, usersBefore);
     this.retryUndecryptable(groupId);
   }
@@ -1534,8 +1620,6 @@ export class ServerSession {
     const senderCert = parseCertificate(processed.senderCredential);
     const inTree = new Set(this.treeUsers(groupId));
 
-    for (const credential of processed.addedCredentials) this.auditCredential(groupId, credential);
-
     const addedUsers = new Set<string>();
     for (const credential of processed.addedCredentials) {
       const cert = parseCertificate(credential);
@@ -1550,7 +1634,6 @@ export class ServerSession {
     }
 
     if (processed.isExternal && senderCert) {
-      this.auditCredential(groupId, processed.senderCredential);
       // Someone's extra device joining needs no notice, but a person arriving
       // with no device in the group does, so a rejoin can never go unnoticed.
       if (!usersBefore.has(senderCert.userId)) {
@@ -1637,10 +1720,11 @@ export class ServerSession {
     const group = this.groups.get(groupId);
     if (!group || !this.hasMlsGroup(groupId)) return [];
     const roster = new Set(group.members.map((member) => member.userId));
+    const own = this.mls.ownLeafIndex(utf8(groupId));
     const stale: number[] = [];
     for (const member of this.treeMembers(groupId)) {
-      if (member.deviceId === this.account.deviceId) continue;
-      if (!roster.has(member.userId)) {
+      if (member.leaf === own) continue;
+      if (!member.genuine || !roster.has(member.userId)) {
         stale.push(member.leaf);
         continue;
       }
@@ -1655,7 +1739,12 @@ export class ServerSession {
   }
 
   private async reconcile(groupId: string): Promise<void> {
-    if (this.stopped || (await this.staleLeaves(groupId)).length === 0) return;
+    if (this.stopped || this.groups.get(groupId)?.removedAt || !this.hasMlsGroup(groupId)) return;
+    await this.learnTreeUsers(groupId);
+    if ((await this.staleLeaves(groupId)).length === 0) return;
+    // What's known about the roster may be behind, so ask before removing anyone.
+    this.applyGroup(await this.api.group(groupId));
+    if ((await this.staleLeaves(groupId)).length === 0) return;
     await this.commitWithRetry(groupId, async () => ({
       kind: "update",
       removeLeaves: await this.staleLeaves(groupId),
@@ -2092,7 +2181,7 @@ export class ServerSession {
         muted: isMuted(this.prefs, key, now),
         mutedUntil: this.mutedUntil(key, now),
         hidden: this.prefs.hidden.includes(key),
-        members: group.members,
+        members: this.membersWithKeys(group),
         historyVisible: group.historyVisible,
         readBy: group.readBy,
         ownRead: group.ownRead,
@@ -2135,6 +2224,27 @@ export class ServerSession {
         b.lastActivityAt - a.lastActivityAt ||
         a.title.localeCompare(b.title),
     );
+  }
+
+  /**
+   * A group's members, as the server lists them and as its keys say. Who holds
+   * the keys is what MLS proves, so a difference is shown, not hidden.
+   */
+  private membersWithKeys(group: CachedGroup): GroupMemberView[] {
+    if (group.kind !== "group" || group.removedAt || group.epoch === 0) return group.members;
+    let inTree = this.treeUsersCache.get(group.id);
+    if (!inTree) {
+      if (!this.hasMlsGroup(group.id)) return group.members;
+      inTree = new Set(this.treeUsers(group.id));
+      this.treeUsersCache.set(group.id, inTree);
+    }
+    const members = group.members.map((member) => (inTree.has(member.userId) ? member : { ...member, noKeys: true }));
+    for (const userId of inTree) {
+      if (!group.members.some((member) => member.userId === userId)) {
+        members.push({ userId, role: "member", joinedAt: 0, notOnRoster: true });
+      }
+    }
+    return members;
   }
 
   getPreferences(): Preferences {
@@ -2536,6 +2646,7 @@ export class ServerSession {
   private async sealAndRetry(groupId: string, send: (epoch: number, key: Uint8Array) => Promise<void>): Promise<void> {
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       if (!this.hasMlsGroup(groupId)) await this.ensureReady(groupId);
+      await this.ensureTreeClean(groupId);
       const epoch = this.rememberCurrentEpochKey(groupId);
       const key = this.epochKey(groupId, epoch)!;
       try {
@@ -2971,6 +3082,7 @@ export class ServerSession {
       meta.avatar = null;
     }
     await this.withLock(groupId, async () => {
+      await this.ensureTreeClean(groupId);
       const epoch = this.rememberCurrentEpochKey(groupId);
       const key = this.epochKey(groupId, epoch)!;
       await this.api.setGroupMeta(groupId, sealSignal(key, "meta", groupId, epoch, meta), epoch, historyVisible);
