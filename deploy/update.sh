@@ -27,6 +27,7 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
+ARGS=("$@")
 CONF=/etc/zuna/update.conf
 SERVER_PORT=8080
 RELAY_PORT=8090
@@ -156,7 +157,13 @@ echo "Caddy: $(caddy version | head -n1)"
 
 if [ "$PULL" = 1 ]; then
   step "Pulling updates"
+  before="$(sha256sum "$SRC/deploy/update.sh")"
   as_owner git -C "$SRC" pull --ff-only
+  # A newer version of this script finishes the job.
+  if [ "$(sha256sum "$SRC/deploy/update.sh")" != "$before" ]; then
+    echo "This script changed; running the new version"
+    exec "$SRC/deploy/update.sh" "${ARGS[@]}" --no-pull
+  fi
 fi
 VERSION="$(as_owner git -C "$SRC" describe --tags --always --dirty)"
 
