@@ -31,10 +31,19 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     init() {}
 
+    /// The server that was open last, to open it again at launch.
+    static var lastServer: String? {
+        get { UserDefaults.standard.string(forKey: lastServerKey) }
+        set { UserDefaults.standard.set(newValue, forKey: lastServerKey) }
+    }
+
+    private static let lastServerKey = "zuna-last-server"
+
     #if DEBUG
     /// For tests that start from a fresh install.
     static func reset() {
         UserDefaults.standard.removeObject(forKey: key)
+        UserDefaults.standard.removeObject(forKey: lastServerKey)
     }
     #endif
 

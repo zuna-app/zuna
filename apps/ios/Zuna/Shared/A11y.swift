@@ -48,16 +48,14 @@ enum A11y {
     enum Shell {
         static let chatsTab = "shell.tab.chats"
         static let settingsTab = "shell.tab.settings"
-        static let serverButton = "shell.serverButton"
         static let newGroup = "shell.newGroup"
         static let title = "shell.title"
     }
 
-    enum Drawer {
-        static let screen = "drawer.screen"
-        static let join = "drawer.join"
-        static let profile = "drawer.profile"
-        static func server(_ id: String) -> String { "drawer.server.\(id)" }
+    enum Servers {
+        static let list = "servers.list"
+        static let join = "servers.join"
+        static func row(_ id: String) -> String { "servers.row.\(id)" }
     }
 
     enum ChatList {
@@ -150,6 +148,7 @@ enum A11y {
 
     enum Settings {
         static let screen = "settings.screen"
+        static let serverPicker = "settings.serverPicker"
         static let appearance = "settings.appearance"
         static let profile = "settings.profile"
         static let privacy = "settings.privacy"

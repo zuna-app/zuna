@@ -165,7 +165,7 @@ final class SettingsTests: XCTestCase {
         try zuna.launch(fresh: false)
         let lock = zuna.element(A11y.Root.appLock)
         XCTAssertTrue(lock.waitForExistence(timeout: 15))
-        XCTAssertFalse(zuna.element(A11y.Shell.serverButton).exists)
+        XCTAssertFalse(zuna.element(A11y.Shell.title).exists)
         zuna.screenshot("94-app-lock")
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
         try WorldControl.faceId(match: true)

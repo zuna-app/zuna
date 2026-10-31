@@ -156,19 +156,27 @@ final class AppUnderTest {
     func type(_ text: String, into identifier: String, clearing: Bool = false) {
         let field = element(identifier)
         field.tap()
-        if field.elementType == .secureTextField { declineStrongPassword(for: field) }
+        let secure = field.elementType == .secureTextField
+        if secure { declineStrongPassword(for: field) }
         if clearing, let current = field.value as? String, !current.isEmpty {
             field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 4))
         }
         field.typeText(text)
+        // On an iPad the offer may only come up once typing starts, and take the rest of it.
+        if secure, declineStrongPassword(for: field) {
+            let typed = (field.value as? String)?.count ?? 0
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: typed + 4) + text)
+        }
     }
 
     /// New-password fields bring up the system's offer of a strong password,
     /// which takes the keyboard's place. A person can type their own instead.
-    private func declineStrongPassword(for field: XCUIElement) {
-        guard app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 1.5) else { return }
+    @discardableResult
+    private func declineStrongPassword(for field: XCUIElement) -> Bool {
+        guard app.buttons["GenerateStrongPasswordButton"].waitForExistence(timeout: 1.5) else { return false }
         app.buttons["xmark"].firstMatch.tap()
         if !app.keyboards.firstMatch.waitForExistence(timeout: 1) { field.tap() }
+        return true
     }
 
     /// After a sign-up the system offers to save the password, over the app.
@@ -197,11 +205,42 @@ final class AppUnderTest {
         }
     }
 
-    /// Waits for the conversation list, which shows once a server is signed in:
-    /// with the server button on a phone, beside the server rail on an iPad.
+    /// Waits for a server's conversation list, which shows once a server is
+    /// signed in, under the server's name.
     func waitForChats(timeout: TimeInterval = 20) throws {
-        let button = element(A11y.Shell.serverButton), rail = element(A11y.Drawer.join)
-        try waitFor("the conversation list", timeout: timeout) { button.exists || (self.isPad && rail.exists) }
+        let title = element(A11y.Shell.title)
+        try waitFor("the conversation list", timeout: timeout) { title.exists }
+    }
+
+    /// Sets up a new server from its setup link, as its owner, from the
+    /// conversation list's menu, which offers it while there's one server.
+    func setUpServer(_ link: String, name: String, password: String, screenshots: Bool = false) throws {
+        element(A11y.Shell.title).tap()
+        app.buttons["Join a server"].tap()
+        let field = element(A11y.Onboarding.link)
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        type(link, into: A11y.Onboarding.link)
+        element(A11y.Onboarding.continue).tap()
+        XCTAssertTrue(app.staticTexts["Set up your server"].waitForExistence(timeout: 15))
+
+        type("Fox Mulder", into: A11y.Onboarding.displayName)
+        type(password, into: A11y.Onboarding.password)
+        element(A11y.Onboarding.create).tap()
+        XCTAssertTrue(element(A11y.Onboarding.recoveryKey).waitForExistence(timeout: 30))
+        declineSavingPassword()
+        toggle(A11y.Onboarding.keyStored)
+        element(A11y.Onboarding.keyContinue).tap()
+
+        let serverName = element(A11y.Onboarding.serverName)
+        XCTAssertTrue(serverName.waitForExistence(timeout: 5))
+        type(name, into: A11y.Onboarding.serverName)
+        if screenshots { screenshot("47-name-server") }
+        element(A11y.Onboarding.nameDone).tap()
+    }
+
+    /// The back button to the list of servers, over a server's conversations.
+    var serversButton: XCUIElement {
+        app.navigationBars.buttons["Servers"]
     }
 
     var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }

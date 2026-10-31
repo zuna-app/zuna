@@ -22,22 +22,13 @@ struct ChatListView: View {
         var id: String { rawValue }
     }
 
-    /// On a phone, the list is the root of a stack that chats are pushed on; on
-    /// an iPad, it's the sidebar beside the open chat.
+    /// On a phone, the list is on the Chats tab's stack and chats are pushed
+    /// over it; on an iPad, it's the column beside the open chat.
     var sidebar = false
+    /// Opens Settings, on an iPad, which has no tab bar.
+    var onSettings: (() -> Void)?
 
     var body: some View {
-        @Bindable var model = model
-        if sidebar {
-            content
-        } else {
-            NavigationStack(path: $model.chatPath) {
-                content.navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
-            }
-        }
-    }
-
-    private var content: some View {
         Group {
             if let server = model.activeServer {
                 list(server)
@@ -48,8 +39,14 @@ struct ChatListView: View {
         .background(Theme.bg0)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if !sidebar {
-                ToolbarItem(placement: .topBarLeading) { serverButton }
+            if let onSettings {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onSettings) {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                    .accessibilityIdentifier(A11y.Shell.settingsTab)
+                }
             }
             ToolbarItem(placement: .principal) { serverMenu }
             ToolbarItem(placement: .topBarTrailing) {
@@ -280,30 +277,16 @@ struct ChatListView: View {
 
     // MARK: Navigation bar
 
-    private var serverButton: some View {
-        Button {
-            model.drawerOpen = true
-        } label: {
-            if let server = model.activeServer {
-                AvatarView(name: server.entry.name, seed: server.entry.url, source: .serverIcon(server.entry), size: 30, rounded: true)
-                    .overlay(alignment: .topTrailing) {
-                        if model.otherServersUnread > 0 {
-                            Circle().fill(model.settings.accent.color).frame(width: 10, height: 10)
-                                .overlay(Circle().stroke(Theme.bg1, lineWidth: 2))
-                                .offset(x: 3, y: -3)
-                        }
-                    }
-            }
-        }
-        .accessibilityLabel("Servers")
-        .accessibilityIdentifier(A11y.Shell.serverButton)
-    }
-
-    /// The server's menu under its name, as on the desktop. Server settings and leaving come with F7.
+    /// The server's menu under its name, as on the desktop. With one server,
+    /// joining another starts here; with more, from the list of servers.
     private var serverMenu: some View {
         Menu {
             Button("Invite people", systemImage: "link") { sheet = .invite }
             Button("New group", systemImage: "person.2") { sheet = .newGroup }
+            if !model.hasServerList {
+                Divider()
+                Button("Join a server", systemImage: "plus") { model.joining = true }
+            }
         } label: {
             HStack(spacing: 4) {
                 title
@@ -511,6 +494,8 @@ struct ChatRouteView: View {
 
     var body: some View {
         switch route {
+        // Always the active server's, since opening a server makes it the active one.
+        case .server: ChatListView()
         case let .chat(key): ChatScreen(conversationKey: key)
         case let .details(key): ConversationDetails(conversationKey: key)
         }

@@ -40,7 +40,7 @@ final class AppModel {
             Dictionary(users.values.map { ($0.username.lowercased(), $0.id) }, uniquingKeysWith: { first, _ in first })
         }
 
-        /// Unread messages outside muted conversations, for the server rail's badge.
+        /// Unread messages outside muted conversations, for the list of servers.
         var unread: Int {
             conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread) }
         }
@@ -61,9 +61,14 @@ final class AppModel {
 
     private(set) var servers: [String: ServerState] = [:]
     private(set) var order: [String] = []
-    var activeServerId: String?
+    /// The server whose chats are open, remembered for the next launch, as Mail remembers its mailbox.
+    var activeServerId: String? {
+        didSet { AppSettings.lastServer = activeServerId }
+    }
     var tab: Tab = .chats
-    var drawerOpen = false
+    /// The list of servers is on screen rather than a server's chats. Only
+    /// with more than one server; with one, the Chats tab opens on its chats.
+    var showingServers = false
     /// The welcome screens: until the first server is joined, and again if none are left.
     private(set) var onboarding = false
     /// While the join screens are signing up or in. They decide when they're
@@ -79,8 +84,39 @@ final class AppModel {
     /// Opens a conversation from anywhere, like the desktop's selectConversation.
     func openChat(_ conversationKey: String) {
         tab = .chats
-        drawerOpen = false
+        showingServers = false
         chatPath = [.chat(conversationKey)]
+    }
+
+    /// With more than one server, the Chats tab starts at the list of them, as
+    /// Mail starts at its mailboxes.
+    var hasServerList: Bool {
+        order.count > 1
+    }
+
+    /// The Chats tab's stack on a phone: the active server's chats over the
+    /// list of servers, when there is one, then the chats opened from them.
+    var chatsStack: [ChatRoute] {
+        get {
+            guard hasServerList else { return chatPath }
+            guard !showingServers, let activeServerId else { return [] }
+            return [.server(activeServerId)] + chatPath
+        }
+        set {
+            guard hasServerList else {
+                chatPath = newValue
+                return
+            }
+            guard case let .server(serverId)? = newValue.first else {
+                // Back at the list of servers.
+                showingServers = true
+                chatPath = []
+                return
+            }
+            selectServer(serverId)
+            showingServers = false
+            chatPath = Array(newValue.dropFirst())
+        }
     }
     /// Loaded messages, by `listKey(serverId, listId)` (see MessageLists.swift).
     var lists: [String: MessageList] = [:]
@@ -116,10 +152,6 @@ final class AppModel {
         servers.values.reduce(0) { $0 + $1.unread }
     }
 
-    /// Unread messages on the servers that aren't on screen, for the dot on the server button.
-    var otherServersUnread: Int {
-        servers.values.reduce(0) { $0 + ($1.entry.id == activeServerId ? 0 : $1.unread) }
-    }
 
     // MARK: Loading
 
@@ -135,7 +167,9 @@ final class AppModel {
             }
             servers = loaded
             order = entries.map(\.id).filter { loaded[$0] != nil }
-            if activeServerId.map({ servers[$0] == nil }) ?? true { activeServerId = order.first }
+            if activeServerId.map({ servers[$0] == nil }) ?? true {
+                activeServerId = AppSettings.lastServer.flatMap { servers[$0] == nil ? nil : $0 } ?? order.first
+            }
             if order.isEmpty {
                 onboarding = true
             } else if !accountFlowActive {
@@ -175,7 +209,7 @@ final class AppModel {
     /// After signing in or joining: the new server becomes the active one.
     func addServer(_ serverId: String) async {
         await load()
-        activeServerId = serverId
+        selectServer(serverId)
     }
 
     /// Signs out of a server on this device and erases its local data, as the desktop's "Sign out" does.
@@ -199,7 +233,7 @@ final class AppModel {
         accountFlowActive = false
         onboarding = order.isEmpty
         joining = false
-        drawerOpen = false
+        showingServers = false
         tab = .chats
     }
 
@@ -209,10 +243,25 @@ final class AppModel {
         if !onboarding { joining = true }
     }
 
+    /// Makes a server the active one, for its chats and its settings.
     func selectServer(_ serverId: String) {
         if serverId != activeServerId { chatPath = [] }
         activeServerId = serverId
-        drawerOpen = false
+    }
+
+    /// Opens a server's chats from the list of servers.
+    func openServer(_ serverId: String) {
+        selectServer(serverId)
+        showingServers = false
+    }
+
+    /// Reorders the list of servers, as dragging them on the desktop's rail does.
+    func moveServers(from source: IndexSet, to destination: Int) {
+        order.move(fromOffsets: source, toOffset: destination)
+        let ids = order
+        Task {
+            do { try await core.reorderServers(ids) } catch { toast(OnboardingText.describe(error), .error) }
+        }
     }
 
     // MARK: Events
@@ -281,9 +330,13 @@ final class AppModel {
     private func removeServer(_ serverId: String) {
         servers[serverId] = nil
         lists = lists.filter { !$0.key.hasPrefix("\(serverId)/") }
-        if activeServerId == serverId { chatPath = [] }
         order.removeAll { $0 == serverId }
-        if activeServerId == serverId { activeServerId = order.first }
+        if activeServerId == serverId {
+            chatPath = []
+            activeServerId = order.first
+            // Back to the servers that are left, rather than into one of them.
+            showingServers = hasServerList
+        }
         if order.isEmpty { onboarding = true }
     }
 
@@ -362,8 +415,10 @@ final class AppModel {
     }
 }
 
-/// A screen pushed over the conversation list.
+/// A screen on the Chats tab's stack: a server's chats, over the list of
+/// servers, and the chats and details opened from them.
 enum ChatRoute: Hashable {
+    case server(String)
     case chat(String)
     case details(String)
 }

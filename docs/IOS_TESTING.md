@@ -159,7 +159,7 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 - **Every test checks both sides:** what the UI shows, and what the desktop peer received. For example:
   - type `**hi** @alice KEKW` and send: alice receives text, `emotes` and `mentions` identical to what the desktop composer would produce;
   - alice reacts with an emote: the chip appears on iOS with the right image.
-- **One test file per matrix area:** Onboarding, ServerRail, ConversationList, ChatReading, Composer, MessageActions, Attachments, Groups, Invites, Verification, Settings, ServerAdmin, Lifecycle, iPad.
+- **One test file per matrix area:** Onboarding, Servers, ConversationList, ChatReading, Composer, MessageActions, Attachments, Groups, Invites, Verification, Settings, ServerAdmin, Lifecycle, iPad.
 - **Media:** `xcrun simctl addmedia` seeds the photo library with HEIC and HEVC fixtures. One test goes through the real PhotosPicker. The other attachment tests inject files through a Debug-only path, so they don't depend on an out-of-process picker.
 - **Lifecycle in the UI:** Home button and reactivation, `terminate` and relaunch with an unsent draft and a queued message, network faults through `test.network` showing "Waiting for network".
 - **Screen tour:** one test visits every screen with seeded data and attaches screenshots. They are exported to `apps/ios/.e2e/<run>/screens/*.png` for visual review against the desktop design tokens, also with large Dynamic Type and on iPad. On any failure, the test attaches a screenshot and `app.debugDescription`, a text dump of the element tree.

@@ -41,7 +41,7 @@ final class OnboardingTests: XCTestCase {
         zuna.declineSavingPassword()
         XCTAssertEqual((key.value as? String)?.split(separator: "-").count, 10)
         XCTAssertEqual(try zuna.serverCount(), 1)
-        XCTAssertFalse(zuna.element(A11y.Shell.serverButton).exists)
+        XCTAssertFalse(zuna.element(A11y.Shell.title).exists)
         let next = zuna.element(A11y.Onboarding.keyContinue)
         XCTAssertFalse(next.isEnabled)
         zuna.element(A11y.Onboarding.copyKey).tap()
@@ -117,41 +117,39 @@ final class OnboardingTests: XCTestCase {
         zuna.screenshot("46-link-while-signed-in")
     }
 
-    func testSetsUpANewServerFromTheDrawer() throws {
+    func testSetsUpASecondServerAndListsThemLikeMailboxes() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
+        // With one server, its chats are the first screen.
+        XCTAssertFalse(zuna.serversButton.exists)
+        try zuna.setUpServer(World.current.setupLink, name: "Book club", password: password, screenshots: true)
 
-        zuna.element(A11y.Shell.serverButton).tap()
-        zuna.element(A11y.Drawer.join).tap()
-        let link = zuna.element(A11y.Onboarding.link)
-        XCTAssertTrue(link.waitForExistence(timeout: 5))
-        zuna.type(World.current.setupLink, into: A11y.Onboarding.link)
-        zuna.element(A11y.Onboarding.continue).tap()
-        XCTAssertTrue(zuna.app.staticTexts["Set up your server"].waitForExistence(timeout: 15))
-
-        zuna.type("Fox Mulder", into: A11y.Onboarding.displayName)
-        zuna.type(password, into: A11y.Onboarding.password)
-        zuna.element(A11y.Onboarding.create).tap()
-        XCTAssertTrue(zuna.element(A11y.Onboarding.recoveryKey).waitForExistence(timeout: 30))
-        zuna.declineSavingPassword()
-        zuna.toggle(A11y.Onboarding.keyStored)
-        zuna.element(A11y.Onboarding.keyContinue).tap()
-
-        let name = zuna.element(A11y.Onboarding.serverName)
-        XCTAssertTrue(name.waitForExistence(timeout: 5))
-        zuna.type("Book club", into: A11y.Onboarding.serverName)
-        zuna.screenshot("47-name-server")
-        zuna.element(A11y.Onboarding.nameDone).tap()
-
-        // The new server opens, and both are in the drawer.
+        // The new server opens, over the list of both.
         let title = zuna.element(A11y.Shell.title)
         try waitFor("the new server to open") { title.label == "Book club" }
         XCTAssertEqual(try zuna.serverCount(), 2)
-        zuna.element(A11y.Shell.serverButton).tap()
-        let servers = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", A11y.Drawer.server("")))
-        try waitFor("both servers in the drawer") { servers.count == 2 }
+        XCTAssertTrue(zuna.serversButton.waitForExistence(timeout: 5))
+        zuna.serversButton.tap()
+        let servers = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", A11y.Servers.row("")))
+        try waitFor("both servers in the list") { servers.count == 2 }
+        let first = zuna.element(A11y.Servers.row(zuna.serverId))
+        XCTAssertTrue(first.label.contains(World.current.serverName), first.label)
         zuna.screenshot("48-two-servers")
+
+        // The one opened last opens again with the app.
+        first.tap()
+        try waitFor("the first server to open") { title.label == World.current.serverName }
+        zuna.app.terminate()
+        try zuna.launch(fresh: false)
+        try zuna.waitForChats()
+        XCTAssertEqual(title.label, World.current.serverName)
+        XCTAssertTrue(zuna.serversButton.exists)
+
+        // Settings say which server the account's sections are for.
+        zuna.tab("Settings").tap()
+        XCTAssertTrue(zuna.element(A11y.Settings.serverPicker).waitForExistence(timeout: 5))
+        XCTAssertTrue(zuna.app.staticTexts["@bob · \(World.current.serverName)"].exists)
     }
 
     /// Opens a link the way another app would, as `zuna://join?link=…`.
