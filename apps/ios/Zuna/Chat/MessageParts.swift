@@ -70,11 +70,17 @@ private struct ImageTile: View {
     let open: (Attachment) -> Void
     @State private var image: UIImage?
     @State private var failed = false
+    /// A very large picture waits for a tap, as a video does.
+    @State private var tapped = false
+
+    /// The file's chunks, unlike its stated size, can't be lied about: decrypting checks them.
+    private var loadsByItself: Bool { attachment.size <= 20 << 20 && attachment.chunks <= 21 }
 
     var body: some View {
         let uploading = attachment.fileId.isEmpty
+        let wanted = loadsByItself || tapped
         Button {
-            if image != nil { open(attachment) }
+            if image != nil { open(attachment) } else { tapped = true }
         } label: {
             ZStack {
                 Theme.bg3
@@ -83,6 +89,13 @@ private struct ImageTile: View {
                 }
                 if let image = image ?? images.cachedAttachment(attachment) {
                     Image(uiImage: image).resizable().scaledToFill()
+                } else if !wanted && !uploading {
+                    Label(ByteCountFormatter.string(fromByteCount: Int64(attachment.size), countStyle: .file), systemImage: "arrow.down.circle")
+                        .font(.caption)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.55), in: .capsule)
                 } else if uploading {
                     UploadRing(progress: uploadProgress ?? 0)
                 } else if failed {
@@ -98,8 +111,8 @@ private struct ImageTile: View {
         .accessibilityLabel("Open \(attachment.name)")
         .accessibilityValue(image != nil ? "Loaded" : failed ? "Couldn't load" : "Loading")
         .accessibilityIdentifier(A11y.Chat.attachment(attachment.name))
-        .task(id: attachment.fileId) {
-            guard !uploading, image == nil else { return }
+        .task(id: "\(attachment.fileId)/\(wanted)") {
+            guard !uploading, wanted, image == nil else { return }
             image = await images.attachment(attachment, serverId: serverId, size: 260)
             failed = image == nil
         }
