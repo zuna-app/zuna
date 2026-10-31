@@ -1,0 +1,18 @@
+# The UniFFI command-line tool, pinned to the same version as the crate, which
+# generates the Swift bindings from the compiled library.
+[package]
+name = "zuna-uniffi-bindgen"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+publish = false
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "main.rs"
+
+[dependencies]
+uniffi = { version = "0.32", features = ["cli"] }
+
+# Its own workspace, so building the crypto crate never builds this tool.
+[workspace]
