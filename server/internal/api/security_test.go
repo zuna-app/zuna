@@ -234,6 +234,28 @@ func TestACommitCantDoWhatTheAPIForbids(t *testing.T) {
 	}
 }
 
+// Z-21: both people in a DM are its admins, and neither may erase it for the other.
+func TestADirectMessageIsntAnyonesToDelete(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	path := "/api/groups/" + group.ID
+	if status, _ := h.do("DELETE", path, bob.token, nil, nil); status != http.StatusBadRequest {
+		t.Fatalf("deleting a DM gave %d", status)
+	}
+	if status, _ := h.do("PUT", path+"/meta", bob.token, map[string]any{"meta": []byte("x"), "epoch": 1}, nil); status != http.StatusBadRequest {
+		t.Fatalf("changing a DM's details gave %d", status)
+	}
+	if status, _ := h.do("PUT", path+"/members/"+owner.userID+"/role", bob.token, map[string]any{"role": "member"}, nil); status != http.StatusBadRequest {
+		t.Fatalf("changing a role in a DM gave %d", status)
+	}
+	if status, _ := h.do("GET", path, owner.token, nil, nil); status != http.StatusOK {
+		t.Fatalf("the DM should still be there: %d", status)
+	}
+}
+
 // Z-09: nothing lets one account delete another's file.
 func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	h := newHarness(t)

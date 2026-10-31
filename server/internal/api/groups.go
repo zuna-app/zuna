@@ -73,6 +73,11 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request, sess 
 		writeFailure(w, err)
 		return
 	}
+	// Both people in a DM are its admins, but neither may erase it for the other.
+	if group.Kind == "dm" {
+		writeError(w, http.StatusBadRequest, "bad_request", "A direct message can't be deleted. You can hide it instead.")
+		return
+	}
 	if member.Role != "admin" && sess.Role != "owner" {
 		writeError(w, http.StatusForbidden, "forbidden", "Only an admin of this conversation can delete it.")
 		return
@@ -225,6 +230,13 @@ func (s *Server) handleGroupMeta(w http.ResponseWriter, r *http.Request, _ *stor
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Those group details are too large.")
 		return
 	}
+	if group, err := s.db.Group(r.Context(), groupID); err != nil {
+		writeFailure(w, err)
+		return
+	} else if group.Kind == "dm" {
+		writeError(w, http.StatusBadRequest, "bad_request", "A direct message has no details to change.")
+		return
+	}
 	if err := s.db.SetGroupMeta(r.Context(), groupID, body.Meta, body.Epoch, body.HistoryVisible); err != nil {
 		writeFailure(w, err)
 		return
@@ -307,6 +319,13 @@ func (s *Server) handleGroupRole(w http.ResponseWriter, r *http.Request, _ *stor
 	}
 	if body.Role != "admin" && body.Role != "member" {
 		writeError(w, http.StatusBadRequest, "bad_request", "Unknown role.")
+		return
+	}
+	if group, err := s.db.Group(r.Context(), groupID); err != nil {
+		writeFailure(w, err)
+		return
+	} else if group.Kind == "dm" {
+		writeError(w, http.StatusBadRequest, "bad_request", "A direct message has no roles to change.")
 		return
 	}
 	if err := s.db.SetGroupMemberRole(r.Context(), groupID, r.PathValue("user"), body.Role); err != nil {
