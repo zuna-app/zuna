@@ -107,7 +107,7 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
                 while let entry = current {
                     var name = [CChar](repeating: 0, count: Int(NI_MAXHOST))
                     if getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &name, socklen_t(name.count), nil, 0, NI_NUMERICHOST) != 0
-                        || Self.privateAddress(String(cString: name)) {
+                        || Self.privateAddress(String(decoding: name.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)) {
                         safe = false
                     }
                     current = entry.pointee.ai_next
