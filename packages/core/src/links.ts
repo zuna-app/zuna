@@ -24,14 +24,94 @@ const SITE_LENGTH = 100;
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/gi;
 const IMAGE_DATA = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
 
-/** Whether a link may be fetched: HTTPS, or plain HTTP on this machine, as for servers. */
+let localLinksAllowed = false;
+
+/**
+ * Lets previews reach this machine, for development and tests only. A released
+ * app never does this: a page could otherwise redirect it to a local service, and
+ * what it found would go into the message.
+ */
+export function allowLocalLinks(allowed: boolean): void {
+  localLinksAllowed = allowed;
+}
+
+function privateIpv4(host: string): boolean {
+  const match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) return false;
+  const [a, b] = [Number(match[1]), Number(match[2])];
+  return (
+    a === 0 ||
+    a === 10 ||
+    a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) ||
+    a >= 224
+  );
+}
+
+function privateIpv6(host: string): boolean {
+  const address = host.toLowerCase();
+  // Written with an IPv4 address inside, in the two ways URLs and resolvers do it.
+  const dotted = address.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
+  if (dotted) return privateIpv4(dotted[1]!);
+  const mapped = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (mapped) {
+    const [high, low] = [parseInt(mapped[1]!, 16), parseInt(mapped[2]!, 16)];
+    return privateIpv4(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+  }
+  return address === "::" || address === "::1" || /^f[cd]/.test(address) || /^fe[89ab]/.test(address) || /^ff/.test(address);
+}
+
+/** Whether an address, as a resolver gives it, is on this machine or a private network. */
+export function privateAddress(address: string): boolean {
+  return address.includes(":") ? privateIpv6(address) : privateIpv4(address);
+}
+
+/** Names that only mean something on this machine or its network. */
+function localName(host: string): boolean {
+  const name = host.replace(/\.$/, "").toLowerCase();
+  return !name.includes(".") || /\.(?:localhost|local|internal|intranet|lan|home|corp|home\.arpa)$/.test(name);
+}
+
+/**
+ * Whether a link may be fetched for a preview: HTTPS to somewhere public. Pages
+ * can redirect anywhere, so this is checked again for every address along the way.
+ */
 export function previewable(url: string): boolean {
   try {
     const parsed = new URL(url);
-    const local = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname) || parsed.hostname.endsWith(".localhost");
-    return parsed.protocol === "https:" || (parsed.protocol === "http:" && local);
+    const host = parsed.hostname;
+    if (localLinksAllowed) {
+      const local = ["localhost", "127.0.0.1", "[::1]"].includes(host) || host.endsWith(".localhost");
+      if (local) return parsed.protocol === "https:" || parsed.protocol === "http:";
+    }
+    if (parsed.protocol !== "https:") return false;
+    if (host.startsWith("[")) return !privateIpv6(host.slice(1, -1));
+    return !privateIpv4(host) && !localName(host);
   } catch {
     return false;
+  }
+}
+
+/** The links in a text, written as the message's text shows them. */
+function linksIn(text: string): string[] {
+  return text.match(URL_PATTERN) ?? [];
+}
+
+/** Whether a link is one of those in a text, in full, not just the start of one. */
+export function linkInText(url: string, text: string): boolean {
+  return linksIn(text).includes(url);
+}
+
+/** The site a link really goes to, to show beside whatever its preview claims. */
+export function linkHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
   }
 }
 
@@ -140,14 +220,15 @@ export async function makeLinkPreview(web: WebAdapter, url: string): Promise<Lin
 }
 
 /**
- * A received preview, if it holds up. It must be for a link in the message's
- * own text, so a preview can't pass one site off as another, and anything
- * that isn't plain text or a small inline picture is dropped.
+ * A received preview, if it holds up. It must be for a whole link in the
+ * message's own text, and anything that isn't plain text or a small inline
+ * picture is dropped. What it says about the page is the sender's claim, so the
+ * apps show the link's real site beside it.
  */
 export function checkPreview(preview: unknown, text: string): LinkPreview | null {
   if (!preview || typeof preview !== "object") return null;
   const { url, title, description, siteName, image } = preview as Record<string, unknown>;
-  if (typeof url !== "string" || !/^https?:\/\//i.test(url) || !text.includes(url)) return null;
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url) || !linkInText(url, text)) return null;
   const textOf = (value: unknown, max: number) => (typeof value === "string" ? clean(value, max) : undefined);
   const picture = image as Record<string, unknown> | undefined;
   const validImage =

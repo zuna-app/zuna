@@ -13,7 +13,7 @@ import { initCryptoSync, randomBytes } from "@zuna/crypto";
 import { ZunaClient } from "../src/client";
 import type { DbProvider, LocalDb, SqlValue } from "../src/db";
 import { toBase64 } from "../src/encoding";
-import type { WebAdapter } from "../src/links";
+import { allowLocalLinks, type WebAdapter } from "../src/links";
 import type { CoreEvent } from "../src/types";
 
 const require = createRequire(import.meta.url);
@@ -23,6 +23,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 export function loadCrypto(): void {
   initCryptoSync({ module: readFileSync(join(root, "packages", "crypto", "pkg", "zuna_crypto_bg.wasm")) });
+  // Tests serve their pages from this machine, which a released app won't fetch.
+  allowLocalLinks(true);
 }
 
 class MemoryDb implements LocalDb {
