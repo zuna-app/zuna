@@ -71,6 +71,9 @@ public final class CoreRuntime: @unchecked Sendable {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             queue.async { [self] in
                 do {
+                    // Decrypted files from an earlier run aren't needed any more.
+                    try? FileManager.default.removeItem(at: options.cacheDirectory)
+                    try FileManager.default.createDirectory(at: options.cacheDirectory, withIntermediateDirectories: true)
                     try load()
                 } catch {
                     continuation.resume(throwing: error)
@@ -84,6 +87,30 @@ public final class CoreRuntime: @unchecked Sendable {
                     }
                 }
                 call("__zunaBoot", [options.deviceKey, options.deviceName, JSValue(object: done, in: context) as Any])
+            }
+        }
+    }
+
+    /// What a notification shows for a pushed message, as JSON (`PushPreview`
+    /// in the core). For the notification extension, which loads the bundle
+    /// without booting a client: nothing connects, and nothing is written.
+    public func previewPush(serverId: String, groupId: String, messageId: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            queue.async { [self] in
+                do {
+                    if context == nil { try load() }
+                } catch {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                let done: @convention(block) (JSValue, JSValue) -> Void = { error, json in
+                    if error.isNull || error.isUndefined {
+                        continuation.resume(returning: json.toString() ?? "")
+                    } else {
+                        continuation.resume(throwing: CoreError(description: error.toString() ?? "The message couldn't be read."))
+                    }
+                }
+                call("__zunaPreviewPush", [options.deviceKey, serverId, groupId, messageId, JSValue(object: done, in: context) as Any])
             }
         }
     }
@@ -129,9 +156,6 @@ public final class CoreRuntime: @unchecked Sendable {
               let source = try? String(contentsOf: url, encoding: .utf8) else {
             throw CoreError(description: "The core bundle is missing. Run apps/ios/core-bundle/build.mjs.")
         }
-        // Decrypted files from an earlier run aren't needed any more.
-        try? FileManager.default.removeItem(at: options.cacheDirectory)
-        try FileManager.default.createDirectory(at: options.cacheDirectory, withIntermediateDirectories: true)
         context = JSContext(virtualMachine: JSVirtualMachine())!
         context.name = "Zuna core"
         context.exceptionHandler = { [weak self] _, exception in

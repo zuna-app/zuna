@@ -100,6 +100,16 @@ enum WorldControl {
     }
 
     /// Signs in to an account on another new device, as if on a new laptop.
+    /// Delivers a push to the app, as APNs would.
+    static func push(_ payload: [String: Any]) throws {
+        let url = URL(string: "\(World.current.peersUrl)/world")!
+        let encoded = try JSONSerialization.data(withJSONObject: payload)
+        try blocking {
+            let socket = try await RPCSocket.connect(to: url)
+            _ = try await socket.call("push", [try JSONSerialization.jsonObject(with: encoded)])
+        }
+    }
+
     static func newDevice(for name: String, password: String) throws {
         let url = URL(string: "\(World.current.peersUrl)/world")!
         try blocking {

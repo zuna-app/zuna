@@ -55,6 +55,25 @@ describe("an iOS client with a desktop client", () => {
     expect(alice.session.getUsers().find((user) => user.id === bobId)?.displayName).toBe("bob");
   });
 
+  it.skipIf(phoneTarget === "simulator")("previews a pushed message as the notification extension does, within its memory", async () => {
+    const text = "push for the **phone**";
+    alice.session.sendMessage(`user:${bobId}`, { text });
+    await waitFor(async () => (await phone.messages(`user:${aliceId}`)).some((view) => view.text === text), "bob to receive");
+    const message = (await phone.messages(`user:${aliceId}`)).find((view) => view.text === text)!;
+    const { preview, footprint } = await phone.previewPush(message.groupId, message.id);
+    expect(preview).toMatchObject({
+      title: "alice",
+      body: "push for the phone",
+      conversationKey: `user:${aliceId}`,
+      decrypted: true,
+      muted: false,
+      hidden: false,
+    });
+    // iOS gives a notification extension about 24 MB.
+    console.log(`notification extension footprint: ${footprint.toFixed(1)} MB`);
+    expect(footprint).toBeLessThan(24);
+  });
+
   it("exchanges direct messages both ways", async () => {
     await phone.session.sendMessage(`user:${aliceId}`, { text: "hi from iOS" });
     await waitFor(() => alice.texts(`user:${bobId}`).includes("hi from iOS"), "alice to receive");

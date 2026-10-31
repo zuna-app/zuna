@@ -38,6 +38,7 @@ targets:
       # Only started in Debug builds, by a launch argument; see CoreController.
       - package: ZunaKit
         product: ZunaControl
+      - target: ZunaNotifications
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.app
@@ -74,6 +75,44 @@ targets:
         ITSAppUsesNonExemptEncryption: true
     entitlements:
       path: Zuna/Zuna.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.chat.zuna.app
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)chat.zuna.shared
+
+  # Decrypts pushed messages so notifications show their text; see NotificationService.
+  ZunaNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ZunaNotifications
+      - path: Zuna/Shared/DeviceKeyStore.swift
+      - path: Zuna/Shared/SharedStorage.swift
+    dependencies:
+      - package: ZunaKit
+        product: ZunaHost
+      - package: ZunaKit
+        product: ZunaModels
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.app.notifications
+        PRODUCT_NAME: ZunaNotifications
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: ZunaNotifications/Info.plist
+      properties:
+        CFBundleDisplayName: Zuna
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: ZunaNotifications/ZunaNotifications.entitlements
       properties:
         com.apple.security.application-groups:
           - group.chat.zuna.app

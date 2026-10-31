@@ -42,11 +42,10 @@ final class CoreController {
     private var control: ControlServer?
     #endif
 
-    static let appGroup = "group.chat.zuna.app"
 
     func start() async {
         do {
-            let directory = try Self.dataDirectory()
+            let directory = try SharedStorage.dataDirectory()
             self.directory = directory
             #if DEBUG
             if UserDefaults.standard.bool(forKey: "ZunaResetData") {
@@ -219,26 +218,6 @@ final class CoreController {
             lock.remove(serverUrl: event.serverUrl, username: event.username)
         }
         try? lock.save(to: directory)
-    }
-
-    /// Where the databases live: the App Group container, so a notification
-    /// extension can read them later. Protected until the first unlock after a
-    /// restart, and kept out of backups, since they're useless without the
-    /// device key.
-    static func dataDirectory() throws -> URL {
-        let fileManager = FileManager.default
-        let base = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroup)
-            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        var directory = base.appendingPathComponent("Zuna", isDirectory: true)
-        try fileManager.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true,
-            attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]
-        )
-        var values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try directory.setResourceValues(values)
-        return directory
     }
 
     private static func erase(_ directory: URL) {
