@@ -36,7 +36,7 @@ type GroupMember struct {
 type GroupEvent struct {
 	GroupID      string `json:"group_id"`
 	Seq          int64  `json:"seq"`
-	Kind         string `json:"kind"` // "commit" or "member_left"
+	Kind         string `json:"kind"` // "commit", "member_left" or "commit_voided"
 	Epoch        int64  `json:"epoch"`
 	Data         []byte `json:"data,omitempty"`
 	SenderUser   string `json:"sender_user"`
@@ -376,6 +376,49 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, data, sender_user, sender_device, created_at)
 			VALUES(?,?,?,?,?,?,?,?)`, c.GroupID, seq, "commit", newEpoch, c.Data, c.SenderUser, c.SenderDevice, now)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
+}
+
+// VoidCommits takes a group back to an earlier epoch, after a commit nobody can
+// apply. Members who never got past that epoch simply carry on from it; one who
+// did rejoins. Only `from`, the epoch the group is at, can be voided, so an admin
+// acting on old information changes nothing.
+func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice string, from, to int64, groupInfo []byte) (*GroupEvent, error) {
+	var event GroupEvent
+	err := d.tx(ctx, func(tx *sql.Tx) error {
+		current, err := currentEpoch(ctx, tx, groupID)
+		if err != nil {
+			return err
+		}
+		if current != from {
+			return &EpochConflictError{Current: current}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch > ?`, groupID, to); err != nil {
+			return err
+		}
+		// With nothing to go back to, the group starts again from nothing.
+		var info any
+		if len(groupInfo) > 0 {
+			info = groupInfo
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE groups SET epoch = ?, group_info = ? WHERE id = ?`, to, info, groupID); err != nil {
+			return err
+		}
+		seq, err := nextSeq(ctx, tx, groupID)
+		if err != nil {
+			return err
+		}
+		event = GroupEvent{
+			GroupID: groupID, Seq: seq, Kind: "commit_voided", Epoch: to,
+			SenderUser: sender, SenderDevice: senderDevice, CreatedAt: Now(),
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, sender_user, sender_device, created_at)
+			VALUES(?,?,?,?,?,?,?)`, groupID, seq, "commit_voided", to, sender, senderDevice, event.CreatedAt)
 		return err
 	})
 	if err != nil {

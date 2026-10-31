@@ -125,6 +125,63 @@ func TestCommitsThatArentCommitsAreRefused(t *testing.T) {
 	}
 }
 
+// Z-07: a well-formed commit nobody's MLS state can follow.
+func TestAnAdminCanVoidACommitNobodyCanApply(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	var created struct {
+		Group *store.Group `json:"group"`
+	}
+	h.mustDo("POST", "/api/groups", owner.token, map[string]any{"kind": "group"}, &created)
+	group := created.Group.ID
+	owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}})
+	bob.commit(group, 1, nil)
+
+	void := func(c *client, from, to int64, info []byte) int {
+		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to, "group_info": info}, nil)
+		return status
+	}
+	if status := void(bob, 2, 1, groupInfoFrame(group, 1)); status != http.StatusForbidden {
+		t.Fatalf("a plain member gave %d", status)
+	}
+	if status := void(owner, 2, 1, bytesOf(32, 1)); status != http.StatusBadRequest {
+		t.Fatalf("garbage to go back to gave %d", status)
+	}
+	if status := void(owner, 2, 1, groupInfoFrame(group, 2)); status != http.StatusBadRequest {
+		t.Fatalf("group info for the wrong epoch gave %d", status)
+	}
+	if status := void(owner, 5, 1, groupInfoFrame(group, 1)); status != http.StatusConflict {
+		t.Fatalf("acting on old information gave %d", status)
+	}
+	if status := void(owner, 2, 1, groupInfoFrame(group, 1)); status != http.StatusOK {
+		t.Fatalf("an admin gave %d", status)
+	}
+
+	var info struct {
+		Epoch int64 `json:"epoch"`
+	}
+	h.mustDo("GET", "/api/groups/"+group+"/group-info", bob.token, nil, &info)
+	if info.Epoch != 1 {
+		t.Fatalf("the group is at epoch %d", info.Epoch)
+	}
+	var feed store.Changes
+	h.mustDo("GET", "/api/groups/"+group+"/changes?after=0", bob.token, nil, &feed)
+	last := feed.Events[len(feed.Events)-1]
+	if last.Kind != "commit_voided" || last.Epoch != 1 {
+		t.Fatalf("last event: %+v", last)
+	}
+	for _, event := range feed.Events {
+		if event.Kind == "commit" && event.Epoch == 2 {
+			t.Fatal("the voided commit is still in the feed")
+		}
+	}
+	// And the group goes on from there.
+	if status, resp := bob.commit(group, 1, nil); status != http.StatusOK {
+		t.Fatalf("the next commit: %d %v", status, resp)
+	}
+}
+
 // Z-09: nothing lets one account delete another's file.
 func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	h := newHarness(t)

@@ -158,6 +158,46 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 	writeJSON(w, http.StatusOK, map[string]any{"seq": event.Seq, "epoch": event.Epoch})
 }
 
+// handleVoidCommits undoes a commit nobody can apply: well formed, so it got past
+// the check above, but no member's MLS state can follow it. An admin whose device
+// still holds the last good epoch brings the group back to it, and everyone who
+// never left that epoch carries on.
+func (s *Server) handleVoidCommits(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
+	groupID := r.PathValue("id")
+	if member.Role != "admin" {
+		writeError(w, http.StatusForbidden, "forbidden", "Only an admin of this conversation can do this.")
+		return
+	}
+	var body struct {
+		From      int64  `json:"from_epoch"`
+		To        int64  `json:"to_epoch"`
+		GroupInfo []byte `json:"group_info"`
+	}
+	if !readJSONUpTo(w, r, maxCommitBody, &body) {
+		return
+	}
+	// Only the very start has no group info to go back to.
+	valid := body.To >= 0 && body.To < body.From &&
+		((body.To == 0 && len(body.GroupInfo) == 0) || validGroupInfoFrame(body.GroupInfo, groupID, body.To))
+	if !valid {
+		writeError(w, http.StatusBadRequest, "bad_request", "That isn't a valid state for this conversation.")
+		return
+	}
+	event, err := s.db.VoidCommits(r.Context(), groupID, sess.UserID, sess.DeviceID, body.From, body.To, body.GroupInfo)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	group, err := s.db.Group(r.Context(), groupID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	s.hub.ToUsers(memberIDs(group), Event{Type: "event", Data: event})
+	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: group})
+	writeOK(w)
+}
+
 func (s *Server) handleGroupInfo(w http.ResponseWriter, r *http.Request, _ *store.Session, _ *store.GroupMember) {
 	info, epoch, err := s.db.GroupInfo(r.Context(), r.PathValue("id"))
 	if err != nil {

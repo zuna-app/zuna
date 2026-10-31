@@ -293,6 +293,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/groups/{id}", s.member(s.handleGroup))
 	mux.HandleFunc("DELETE /api/groups/{id}", s.member(s.handleDeleteGroup))
 	mux.HandleFunc("POST /api/groups/{id}/commit", s.member(s.handleCommit))
+	mux.HandleFunc("POST /api/groups/{id}/void-commits", s.member(s.handleVoidCommits))
 	mux.HandleFunc("GET /api/groups/{id}/group-info", s.member(s.handleGroupInfo))
 	mux.HandleFunc("PUT /api/groups/{id}/meta", s.member(s.handleGroupMeta))
 	mux.HandleFunc("POST /api/groups/{id}/leave", s.member(s.handleLeave))
