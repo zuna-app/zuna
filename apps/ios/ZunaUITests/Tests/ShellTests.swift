@@ -1,6 +1,6 @@
 import XCTest
 
-/// The app's frame: the conversation list with live data, the server drawer and the tabs.
+/// The app's frame: the conversation list with live data, its menu and the tabs.
 final class ShellTests: XCTestCase {
     private let zuna = AppUnderTest()
 
@@ -34,31 +34,23 @@ final class ShellTests: XCTestCase {
         zuna.screenshot("11-chat-list-new-message")
     }
 
-    func testTheServerDrawerOpensFromTheButtonAndTheEdge() throws {
+    func testOneServerOpensOnItsChatsWithItsMenuInTheTitle() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
-        let drawer = zuna.element(A11y.Drawer.screen)
-        let server = zuna.element(A11y.Drawer.server(zuna.serverId))
+        // No list of servers to go back to while there's only one.
+        XCTAssertFalse(zuna.serversButton.exists)
+        XCTAssertFalse(zuna.element(A11y.Servers.list).exists)
 
-        zuna.element(A11y.Shell.serverButton).tap()
-        XCTAssertTrue(server.waitForExistence(timeout: 5))
-        zuna.screenshot("20-server-drawer")
-        XCTAssertTrue(server.isSelected)
-        XCTAssertTrue(zuna.element(A11y.Drawer.join).exists)
-        XCTAssertTrue(zuna.element(A11y.Drawer.profile).exists, zuna.app.debugDescription)
-
-        // Choosing the server closes the drawer.
-        server.tap()
-        try waitFor("the drawer to close") { !drawer.exists }
-
-        // A swipe from the left edge opens it, a tap on the content closes it.
-        let window = zuna.app.windows.firstMatch
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.005, dy: 0.5))
-            .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5)))
-        XCTAssertTrue(drawer.waitForExistence(timeout: 5))
-        window.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        try waitFor("the drawer to close") { !drawer.exists }
+        zuna.element(A11y.Shell.title).tap()
+        for item in ["Invite people", "New group", "Join a server"] {
+            XCTAssertTrue(zuna.app.buttons[item].waitForExistence(timeout: 5), item)
+        }
+        zuna.screenshot("20-server-menu")
+        zuna.app.buttons["Join a server"].tap()
+        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 5))
+        zuna.app.buttons["Cancel"].tap()
+        try waitFor("the join screens to close") { !self.zuna.element(A11y.Onboarding.link).exists }
     }
 
     func testSettingsShowTheAccountAndKeepTheAccent() throws {

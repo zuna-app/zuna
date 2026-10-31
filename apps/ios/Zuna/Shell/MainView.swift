@@ -1,9 +1,10 @@
 import SwiftUI
 import ZunaModels
 
-/// The app once it has a server: Chats and Settings tabs, as in Telegram, with
-/// the servers in a drawer from the left, as in Discord. A Calls tab comes
-/// with calls.
+/// The app once it has a server: Chats and Settings tabs, as in Telegram.
+/// The Chats tab starts at the list of servers, as Mail starts at its
+/// mailboxes, or at the chats when there's only one. A Calls tab comes with
+/// calls.
 struct MainView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -18,25 +19,17 @@ struct MainView: View {
 
     private var compact: some View {
         @Bindable var model = model
-        return DrawerContainer(
-            isOpen: $model.drawerOpen,
-            swipeEnabled: model.tab == .chats && model.chatPath.isEmpty,
-            reduceMotion: model.reduceMotion
-        ) {
-            ServerDrawer()
-        } content: {
-            TabView(selection: $model.tab) {
-                Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
-                    ChatListView()
-                }
-                .badge(model.totalUnread)
-                .accessibilityIdentifier(A11y.Shell.chatsTab)
-
-                Tab("Settings", systemImage: "gearshape.fill", value: AppModel.Tab.settings) {
-                    SettingsView()
-                }
-                .accessibilityIdentifier(A11y.Shell.settingsTab)
+        return TabView(selection: $model.tab) {
+            Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
+                ChatsTab()
             }
+            .badge(model.totalUnread)
+            .accessibilityIdentifier(A11y.Shell.chatsTab)
+
+            Tab("Settings", systemImage: "gearshape.fill", value: AppModel.Tab.settings) {
+                SettingsView()
+            }
+            .accessibilityIdentifier(A11y.Shell.settingsTab)
         }
         .background(Theme.bg0)
         .sheet(isPresented: $model.joining) {
@@ -45,38 +38,81 @@ struct MainView: View {
     }
 }
 
-/// The iPad, laid out like the desktop: the server rail always there, the
-/// conversations beside it, and the open chat filling the rest.
-private struct WideLayout: View {
+/// The Chats tab on a phone: the servers, then a server's chats pushed over
+/// them, then its chats and their details.
+private struct ChatsTab: View {
     @Environment(AppModel.self) private var model
-    @State private var showingSettings = false
 
     var body: some View {
         @Bindable var model = model
-        HStack(spacing: 0) {
-            ServerRail(onProfile: { showingSettings = true }, showsSettings: true)
-            Divider().overlay(Theme.line)
-            NavigationSplitView {
-                ChatListView(sidebar: true)
-                    .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 440)
-            } detail: {
-                if let first = model.chatPath.first {
-                    NavigationStack(path: Binding(get: { Array(model.chatPath.dropFirst()) }, set: { model.chatPath = [first] + $0 })) {
-                        ChatRouteView(route: first)
-                            .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
-                    }
-                    .id(first)
+        NavigationStack(path: $model.chatsStack) {
+            Group {
+                if model.hasServerList {
+                    ServerListView()
                 } else {
-                    ContentUnavailableView("Choose a chat", systemImage: "bubble.left.and.bubble.right", description: Text("Messages are end-to-end encrypted."))
-                        .foregroundStyle(Theme.text2)
-                        .background(Theme.bg0)
+                    ChatListView()
                 }
             }
-            .navigationSplitViewStyle(.balanced)
+            .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+        }
+    }
+}
+
+/// The iPad, laid out like Mail: the servers in the sidebar when there's more
+/// than one, the conversations beside them, and the open chat filling the rest.
+private struct WideLayout: View {
+    @Environment(AppModel.self) private var model
+    @State private var showingSettings = false
+    @State private var columns = NavigationSplitViewVisibility.automatic
+
+    var body: some View {
+        @Bindable var model = model
+        GeometryReader { proxy in
+            if model.hasServerList {
+                NavigationSplitView(columnVisibility: $columns) {
+                    ServerListView(sidebar: true)
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+                } content: {
+                    chats
+                } detail: {
+                    detail
+                }
+                .onChange(of: model.activeServerId) {
+                    // In portrait the servers cover the chats, as Mail's mailboxes do; choosing one uncovers them.
+                    if proxy.size.width < 1000 { columns = .doubleColumn }
+                }
+            } else {
+                NavigationSplitView {
+                    chats
+                } detail: {
+                    detail
+                }
+                .navigationSplitViewStyle(.balanced)
+            }
         }
         .background(Theme.bg0)
         .sheet(isPresented: $showingSettings) { SettingsView() }
         .sheet(isPresented: $model.joining) { JoinFlow(embedded: true) }
+    }
+
+    private var chats: some View {
+        ChatListView(sidebar: true, onSettings: { showingSettings = true })
+            .navigationSplitViewColumnWidth(min: 300, ideal: 350, max: 440)
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        if let first = model.chatPath.first {
+            NavigationStack(path: Binding(get: { Array(model.chatPath.dropFirst()) }, set: { model.chatPath = [first] + $0 })) {
+                ChatRouteView(route: first)
+                    .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+            }
+            .id(first)
+        } else {
+            ContentUnavailableView("Choose a chat", systemImage: "bubble.left.and.bubble.right", description: Text("Messages are end-to-end encrypted."))
+                .foregroundStyle(Theme.text2)
+                .background(Theme.bg0)
+        }
     }
 }
 

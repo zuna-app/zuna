@@ -126,9 +126,9 @@ Decided on 2026-10-31: **the Zuna password is asked for once after every restart
 - **`AppModel`** (`@Observable`) mirrors `apps/desktop/src/renderer/src/state/store.ts`: per-server state, message lists, debounced refreshes, typing expiry, upserts, jump targets, drafts, toasts.
 - **Navigation** (decided with the user on 2026-10-31):
   - The layout follows Telegram for iOS: the chat list, chat screen, bubbles, input bar, context menus and settings lists.
-  - Servers work like Discord: a drawer from the left holds the server icons (with unread counts), joining a server, and the own avatar. It opens with a swipe from the edge or the server button in the chat list.
+  - Servers are listed like Mail's mailboxes (changed from a Discord-like drawer on 2026-10-31, at the user's request for something more native to iOS). With more than one server, the Chats tab starts at the list of servers, with the newest message and unread count on each, and a server's chats are pushed over it; the server opened last opens again at launch. With one server, the Chats tab opens on its chats, and joining another is in the menu under the server's name.
   - The bottom tab bar has "Chats" and "Settings". "Calls" comes later, when calls exist.
-  - iPad: the same structure in a `NavigationSplitView`, with the server rail always visible, as on the desktop.
+  - iPad: the same structure in a `NavigationSplitView`: the servers in the sidebar when there's more than one, the conversations beside them, and the open chat.
 - **Look:**
   - the desktop's dark theme from `tokens.css`, with its five accents and three message sizes, scaled with Dynamic Type;
   - system fonts (SF Pro, SF Mono) rather than the desktop's Inter, as Telegram does on iOS;
@@ -228,7 +228,7 @@ Minimum iOS version: 18 (proposed).
 | Sign up: display name, username suggested and validated (`^[A-Za-z0-9_][A-Za-z0-9_.-]{1,31}$`), password of 10+ characters with the strength meter (score 2+) | same, with iOS password AutoFill | F2 |
 | Recovery key: grouped display, Copy, Save as file, confirmation | Copy, and the share sheet with `zuna-recovery-key.txt` | F2 |
 | Sign in; "Forgot your password?" leads to recovery with the key and a new password | same | F2 |
-| Several servers, switching, unread counts per server (muted excluded) | server drawer | F3 |
+| Several servers, switching, unread counts per server (muted excluded) | list of servers | F3 |
 | Sign out of a server and erase its local data | settings | F7 |
 | Signed out by the server (banned, session ended, device revoked): toast and removal | same | F3 |
 | Connection state: "Connecting", "Waiting for network", "Updating" | in the list and chat headers | F3 |
@@ -491,11 +491,22 @@ F7 is done, except notifications, which come later. Each item has tests:
 
 F8's technical part is done; TestFlight waits on the decisions below.
 
-- **iPad:** laid out like the desktop: the server rail always there with Settings and your picture at the bottom, the conversations beside it, and the open chat (marked in the list) with its details filling the rest (`NavigationSplitView`). Files dragged onto a chat go into the composer.
+- **iPad:** the conversations beside the open chat (marked in the list) with its details filling the rest (`NavigationSplitView`), and Settings from the list's toolbar. Files dragged onto a chat go into the composer.
 - **Hardware keyboards,** as on the desktop: Return sends and Shift-Return makes a new line (or Return makes lines and Command-Return sends, if "Return sends" is off), Escape cancels an edit or reply, Up in an empty message edits your last one, and the arrows and Tab pick a suggestion.
 - **VoiceOver** reads the upside-down message list top to bottom, as it looks, rather than newest first.
 - **Dynamic Type:** a screen tour at the largest accessibility sizes checks that the list, the chat with its composer, and settings stay usable.
 - **Tests:** an iPad layout test (run with `ZUNA_E2E_SIMULATOR="Zuna E2E iPad"`, and skipped on the iPhone) and a large-text tour; 36 UI tests pass on the iPhone and the iPad test on the iPad.
+
+## Servers like Mail's mailboxes (2026-10-31)
+
+The Discord-like drawer gave way to something more native to iOS, as the user asked:
+
+- **The list of servers** is the Chats tab's first screen once there are two or more: each server's picture, name, newest message and unread count, or how it's connecting while it isn't. Edit reorders them (synced to the core's order, as dragging on the desktop's rail is), "+" joins another, and a long press offers Invite people and Sign out.
+- **One server** opens straight on its chats; "Join a server" is in the menu under its name.
+- **The server opened last** opens again at launch, with "Servers" as the way back. Signing out of the open server goes back to the list.
+- **Settings** has a picker for the server the account's sections are for, when there's more than one.
+- **iPad:** the servers in the sidebar of a three-column `NavigationSplitView` when there's more than one, two columns otherwise.
+- **Tests:** a one-server test (no list, the menu with "Join a server"), the second-server test now checks the list, reopening the last server and the Settings picker, and an iPad test of the sidebar with a third server from the test world.
 
 ## Prerequisites on this Mac
 

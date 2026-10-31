@@ -57,9 +57,11 @@ process.env.ZUNA_7TV_API = fake7tv.api;
 process.env.ZUNA_7TV_CDN = fake7tv.cdn;
 const server = new TestServer();
 await server.start();
-// A second server nobody has set up yet, for the owner's flow.
+// Servers nobody has set up yet: for the owner's flow, and for the iPad's list of servers.
 const spare = new TestServer();
 await spare.start();
+const padSpare = new TestServer();
+await padSpare.start();
 
 const alice = await new TestApp("alice-laptop").open();
 await alice.register(server.setupLink, "alice", PASSWORD);
@@ -131,6 +133,7 @@ const world = {
   serverName: (await alice.client.serverInfo(server.url)).name,
   invite,
   setupLink: spare.setupLink,
+  padSetupLink: padSpare.setupLink,
   peersUrl,
   accounts: { alice: account("alice", alice), bob: account("bob", bobLaptop), bobLaptop: account("bob", bobLaptop), carol: account("carol", carol) },
 };
@@ -181,6 +184,7 @@ for (const peer of [...Object.values(peers), ...extraDevices]) peer.client.stop(
 peerServer.close();
 await server.stop();
 await spare.stop();
+await padSpare.stop();
 await fake7tv.close();
 
 // --- 5. Summary ---

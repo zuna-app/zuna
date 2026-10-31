@@ -3,7 +3,8 @@ import ZunaModels
 
 /// Settings, laid out like Telegram's: your profile on the active server at
 /// the top, then grouped sections, as the desktop's settings and server
-/// settings have them. Notifications come later.
+/// settings have them. With more than one server, a picker says which one the
+/// account's sections are for. Notifications come later.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var confirmingSignOut = false
@@ -11,6 +12,18 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                if model.hasServerList {
+                    Section {
+                        Picker("Server", selection: Binding(get: { model.activeServerId ?? "" }, set: { model.selectServer($0) })) {
+                            ForEach(model.order, id: \.self) { id in
+                                Text(model.servers[id]?.entry.name ?? "").tag(id)
+                            }
+                        }
+                        .tint(Theme.text2)
+                        .accessibilityIdentifier(A11y.Settings.serverPicker)
+                    }
+                    .listRowBackground(Theme.bg2)
+                }
                 if let server = model.activeServer {
                     Section {
                         NavigationLink {
@@ -63,7 +76,7 @@ struct SettingsView: View {
                     }
                     .listRowBackground(Theme.bg2)
                     .confirmationDialog(
-                        "This signs you out of \(server.entry.name) on this device and erases its local copy of your messages. Your account and history stay on the server, and you can sign back in with your password.",
+                        Self.signOutWarning(server.entry.name),
                         isPresented: $confirmingSignOut,
                         titleVisibility: .visible
                     ) {
@@ -111,6 +124,11 @@ struct SettingsView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// What signing out of a server does, before it's confirmed.
+    static func signOutWarning(_ serverName: String) -> String {
+        "This signs you out of \(serverName) on this device and erases its local copy of your messages. Your account and history stay on the server, and you can sign back in with your password."
     }
 
     static var version: String {
