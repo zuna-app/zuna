@@ -33,8 +33,6 @@ final class CoreController {
     private let network = NWPathMonitor()
     /// How long the core keeps running after the app goes to the background, so sends can finish.
     private var suspendDelay: Duration = .seconds(20)
-    /// Lock file updates run one at a time, off the main thread (Argon2id is slow on purpose).
-    private let lockQueue = DispatchQueue(label: "chat.zuna.device-lock")
     #if DEBUG
     private var control: ControlServer?
     #endif
@@ -105,9 +103,10 @@ final class CoreController {
             deviceKey: key,
             deviceName: UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
         )
-        let lockQueue = lockQueue
+        // Runs on the core's queue before the core answers the sign-in or
+        // password change, so the lock is saved before anyone can close the app.
         options.onAccountEvent = { event in
-            lockQueue.async { Self.updateLock(in: directory, deviceKey: key, with: event) }
+            Self.updateLock(in: directory, deviceKey: key, with: event)
         }
         #if DEBUG
         options.logToStandardError = true
@@ -252,6 +251,9 @@ final class CoreController {
             return await unlock(lockedAccounts[account ?? 0], password: password) ? "ready" : "wrong-password"
         case "lockedAccounts":
             return lockedAccounts.map(\.id).joined(separator: ",")
+        case "lockEntries":
+            guard let directory else { return "0" }
+            return String(DeviceLock.load(from: directory)?.entries.count ?? 0)
         case "background":
             didEnterBackground()
             return "background"

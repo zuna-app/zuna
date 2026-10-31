@@ -1,5 +1,6 @@
 import Foundation
 import Network
+import os
 import ZunaHost
 
 /// Exposes a core over a WebSocket on the loopback interface, speaking the
@@ -16,6 +17,7 @@ public final class ControlServer: @unchecked Sendable {
 
     private var runtime: CoreRuntime?
     private let queue = DispatchQueue(label: "chat.zuna.control")
+    private let logger = Logger(subsystem: "chat.zuna", category: "control")
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: Client] = [:]
 
@@ -62,9 +64,11 @@ public final class ControlServer: @unchecked Sendable {
                 switch state {
                 case .ready:
                     once.done = true
+                    self.logger.info("Control server listening on \(listener.port?.rawValue ?? port)")
                     continuation.resume(returning: listener.port?.rawValue ?? port)
                 case let .failed(error):
                     once.done = true
+                    self.logger.error("Control server failed: \(String(describing: error), privacy: .public)")
                     continuation.resume(throwing: error)
                 default:
                     break
@@ -75,6 +79,7 @@ public final class ControlServer: @unchecked Sendable {
     }
 
     private func accept(_ connection: NWConnection) {
+        logger.info("Control connection from \(String(describing: connection.endpoint), privacy: .public)")
         let key = ObjectIdentifier(connection)
         let client = Client(connection: connection)
         connections[key] = client
@@ -112,8 +117,10 @@ public final class ControlServer: @unchecked Sendable {
                 return
             }
             if metadata?.opcode == .text, let content, let json = String(data: content, encoding: .utf8) {
-                if json.hasPrefix("{\"kind\":\"host\"") {
-                    handleHostCommand(json, from: client.connection)
+                // JSON objects have no key order, so look at "kind" properly.
+                let object = try? JSONSerialization.jsonObject(with: content) as? [String: Any]
+                if let object, object["kind"] as? String == "host" {
+                    handleHostCommand(object, from: client.connection)
                 } else if let channel = client.channel {
                     channel.send(json)
                 } else {
@@ -125,9 +132,7 @@ public final class ControlServer: @unchecked Sendable {
     }
 
     /// Commands for the host itself rather than the core, such as going offline.
-    private func handleHostCommand(_ json: String, from connection: NWConnection) {
-        guard let data = json.data(using: .utf8),
-              let command = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+    private func handleHostCommand(_ command: [String: Any], from connection: NWConnection) {
         let id = command["id"] as? Int
         let reply = { (value: Any?) in
             guard let id else { return }

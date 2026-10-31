@@ -65,11 +65,12 @@ struct RootView: View {
                     Label("End-to-end encrypted", systemImage: "lock.fill")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("root.ready")
+                        .accessibilityIdentifier(A11y.Root.ready)
                 case let .failed(message):
                     Text("Zuna couldn't start")
                         .font(.headline)
                         .foregroundStyle(.white)
+                        .accessibilityIdentifier(A11y.Root.failed)
                     Text(message)
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)

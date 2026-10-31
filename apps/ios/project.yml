@@ -79,3 +79,31 @@ targets:
           - group.chat.zuna.app
         keychain-access-groups:
           - $(AppIdentifierPrefix)chat.zuna.shared
+
+  ZunaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ZunaUITests
+      - path: Zuna/Shared
+    dependencies:
+      - target: Zuna
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "5.0"
+        TEST_TARGET_NAME: Zuna
+
+schemes:
+  Zuna:
+    build:
+      targets:
+        Zuna: all
+        ZunaUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ZunaUITests
