@@ -40,7 +40,7 @@ import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
 import { linkInText } from "./links";
 import { notificationText, previewText } from "./notify";
-import { indexTokens, queryTokens } from "./search";
+import { SEARCH_INDEX_VERSION, indexTokens, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import {
   MAX_TEXT_LENGTH,
@@ -102,6 +102,7 @@ const REMOVED_KEPT_MS = 30 * 24 * 3600 * 1000;
 const SIGNED_OUT_RETRY_MS = 5 * 60 * 1000;
 /** Past this, the time a device signed and the time the server says it got the message look wrong. */
 const TIME_DIFFERS_MS = 24 * 3600 * 1000;
+const SEARCH_REBUILD_BATCH = 200;
 const VAULT_BATCH = 200;
 const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
 
@@ -324,6 +325,7 @@ export class ServerSession {
   start(): void {
     this.markStaleSendsFailed();
     this.forgetOldRemovedGroups();
+    void this.rebuildSearchIndex();
     this.connect();
   }
 
@@ -3522,5 +3524,34 @@ export class ServerSession {
 
   serverUrl(): string {
     return this.account.serverUrl;
+  }
+
+  // --- Search index ---
+
+  /** Builds the search index again after the way it's hashed changed, a little at a time. */
+  private async rebuildSearchIndex(): Promise<void> {
+    if (this.getKv<number>("search_version") === SEARCH_INDEX_VERSION) return;
+    try {
+      this.db.run("DELETE FROM search");
+      let after = 0;
+      for (;;) {
+        const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE row_id > ? AND body IS NOT NULL ORDER BY row_id LIMIT ?", [after, SEARCH_REBUILD_BATCH]);
+        if (rows.length === 0) break;
+        this.db.transaction(() => {
+          for (const row of rows) {
+            after = row.row_id;
+            const body = this.storedBody(row);
+            if (!body) continue;
+            const words = [body.text ?? "", ...(body.attachments ?? []).map((item) => item.name)].join(" ");
+            const tokens = indexTokens(this.searchKey, words);
+            if (tokens) this.db.run("INSERT OR REPLACE INTO search(rowid, tokens) VALUES(?, ?)", [row.row_id, tokens]);
+          }
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      this.setKv("search_version", SEARCH_INDEX_VERSION);
+    } catch (error) {
+      console.warn("[zuna] rebuilding the search index", error);
+    }
   }
 }

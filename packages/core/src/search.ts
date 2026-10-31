@@ -24,7 +24,10 @@ export function tokenize(text: string): string[] {
 }
 
 const hashToken = (searchKey: Uint8Array, token: string) =>
-  `h${toHex(wasm.hkdfSha256(utf8(token), NO_SALT, searchKey, 8))}`;
+  `h${toHex(wasm.hkdfSha256(searchKey, NO_SALT, utf8(`zuna/search/v2|${token}`), 8))}`;
+
+/** Which way of hashing the local index was built with. A new one means building it again. */
+export const SEARCH_INDEX_VERSION = 2;
 
 /** The tokens to store for a text: every word plus its prefixes. */
 export function indexTokens(searchKey: Uint8Array, text: string): string {
