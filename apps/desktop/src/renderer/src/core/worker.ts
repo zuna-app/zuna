@@ -1,6 +1,6 @@
 // The client core's home: a dedicated worker that owns all keys and the database.
 
-import { ZunaClient, type CoreEvent } from "@zuna/core";
+import { ZunaClient, type CoreEvent, type WebAdapter } from "@zuna/core";
 import { serveCore } from "@zuna/core/rpc";
 import { initCrypto } from "@zuna/crypto";
 import wasmUrl from "@zuna/crypto/wasm?url";
@@ -18,6 +18,45 @@ const clientReady = new Promise<ZunaClient>((resolve) => {
 });
 
 let emit: (event: CoreEvent) => void = () => undefined;
+
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
+// Link previews: a worker can't read other sites, so pages come through the
+// main process (zuna-web:), and pictures are shrunk here.
+const web: WebAdapter = {
+  async fetch(url, maxBytes) {
+    const response = await fetch(`zuna-web://fetch/?url=${encodeURIComponent(url)}&max=${maxBytes}`);
+    if (!response.ok) throw new Error("The page isn't available.");
+    return {
+      url: response.headers.get("x-zuna-url") ?? url,
+      type: response.headers.get("content-type") ?? "",
+      body: new Uint8Array(await response.arrayBuffer()),
+    };
+  },
+  async shrinkImage(body, maxSize) {
+    try {
+      const bitmap = await createImageBitmap(new Blob([body as BlobPart]));
+      const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = new OffscreenCanvas(width, height);
+      const context = canvas.getContext("2d")!;
+      // JPEG has no transparency; logos are usually drawn for a light page.
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(bitmap, 0, 0, width, height);
+      bitmap.close();
+      const jpeg = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.8 });
+      return { data: `data:image/jpeg;base64,${base64(new Uint8Array(await jpeg.arrayBuffer()))}`, width, height };
+    } catch {
+      return null;
+    }
+  },
+};
 
 const port = self as unknown as { postMessage(message: unknown): void; onmessage: ((event: MessageEvent) => void) | null };
 emit = serveCore(port, () => clientReady);
@@ -38,6 +77,7 @@ port.onmessage = async (event: MessageEvent) => {
       deviceKey: boot.deviceKey,
       deviceName: boot.deviceName,
       onEvent: (coreEvent) => emit(coreEvent),
+      web,
     });
     await client.open();
     resolveClient(client);

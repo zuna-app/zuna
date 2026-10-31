@@ -138,6 +138,30 @@
 .msg-reply-text { display: block; font-size: 12.5px; color: var(--text-2); max-width: 340px; }
 .msg.is-own .msg-reply-text { color: var(--bubble-own-faint); }
 
+.msg-forwarded { display: flex; align-items: center; gap: 5px; margin: 1px 0 3px; font-size: 12.5px; color: var(--text-2); }
+.msg.is-own .msg-forwarded { color: var(--bubble-own-faint); }
+.msg-forwarded-name { font-weight: 600; color: var(--text-1); }
+.msg.is-own .msg-forwarded-name { color: var(--bubble-own-text); }
+.msg-forwarded-name:hover { text-decoration: underline; }
+
+/* A link's preview, as in Telegram: a bar on the left, the site, title and description, and a picture. */
+.link-card {
+  display: flex; gap: 10px; margin: 5px 0 2px; padding: 5px 8px 6px; border-radius: 4px; max-width: 420px;
+  border-left: 2px solid var(--text-3); background: var(--hover); color: inherit; text-decoration: none;
+}
+.link-card:hover { background: var(--hover-strong); }
+.msg.is-own .link-card { border-left-color: var(--bubble-own-faint); background: rgba(255, 255, 255, 0.07); }
+.link-card.is-wide { flex-direction: column; gap: 6px; }
+.link-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.link-card-site { font-size: 12.5px; font-weight: 600; color: var(--text-1); }
+.msg.is-own .link-card-site { color: var(--bubble-own-text); }
+.link-card-title { font-size: 13px; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.link-card-description { font-size: 12.5px; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.msg.is-own .link-card-description { color: var(--bubble-own-faint); }
+.link-card-image { flex: none; width: 56px; height: 56px; border-radius: var(--radius-s); object-fit: cover; }
+.link-card.is-wide .link-card-image { width: 100%; height: auto; max-height: 260px; }
+.link-draft-image { width: 36px; height: 36px; border-radius: var(--radius-s); object-fit: cover; flex: none; }
+
 /* Quiet icons beside the bubble on hover, as in Messenger. */
 .msg-actions {
   flex: none; align-self: center; display: flex; gap: 0; opacity: 0; pointer-events: none;
@@ -152,6 +176,7 @@
 .quote { display: block; margin: 2px 0; padding: 0 0 0 9px; border-left: 2px solid var(--text-3); color: var(--text-2); white-space: pre-wrap; }
 .msg.is-own .quote { color: var(--bubble-own-faint); border-left-color: var(--bubble-own-faint); }
 .msg.is-own a { color: var(--bubble-own-text); text-decoration: underline; }
+.msg a.link-card { color: inherit; text-decoration: none; }
 .mention { font-weight: 500; color: inherit; border-radius: 3px; padding: 0 2px; background: rgba(255, 255, 255, 0.09); }
 .mention.is-self { background: rgba(255, 255, 255, 0.18); }
 

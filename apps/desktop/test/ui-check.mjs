@@ -4,6 +4,7 @@
 //   npm run build -w @zuna/desktop && node apps/desktop/test/ui-check.mjs [screenshot-dir]
 
 import { execFileSync, spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
@@ -332,6 +333,49 @@ try {
   await page.keyboard.press("Escape");
   await sleep(150);
   check("focus returns after closing the image viewer", await composerFocused());
+
+  // Link previews, fetched by this device through the main process
+  const siteHits = [];
+  const site = createServer((request, response) => {
+    siteHits.push(request.url);
+    if (request.url === "/lake.png") {
+      response.writeHead(200, { "content-type": "image/png" });
+      response.end(Buffer.from(pngBase64, "base64"));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8", "set-cookie": "tracker=1" });
+    response.end(`<html><head><meta property="og:site_name" content="Lake Guide"><meta property="og:title" content="The quiet side of the lake">
+      <meta property="og:description" content="Where to camp, swim and watch the sunset, away from the crowds."><meta property="og:image" content="/lake.png"></head></html>`);
+  });
+  await new Promise((resolve) => site.listen(0, "127.0.0.1", resolve));
+  const article = `http://127.0.0.1:${site.address().port}/guide`;
+  await page.keyboard.type(`This is the spot ${article}`);
+  await page.locator(".link-draft", { hasText: "The quiet side of the lake" }).waitFor({ timeout: 10_000 });
+  check("writing a link shows its preview", siteHits.includes("/lake.png"), siteHits.join(", "));
+  await shot("19b-link-draft");
+  await page.keyboard.press("Enter");
+  const linkCard = page.locator(".msg.is-own .link-card", { hasText: "The quiet side of the lake" });
+  await linkCard.waitFor({ timeout: 10_000 });
+  check("the sent message shows the link's preview with its picture", (await linkCard.locator(".link-card-image").count()) === 1);
+  check("the message box is ready for the next message", (await page.locator(".link-draft").count()) === 0 && (await composerFocused()));
+  site.close();
+  await sleep(300);
+  await shot("19c-link-preview");
+
+  // Forwarding
+  await page.locator(".msg.is-other", { hasText: "You said" }).last().click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Forward" }).click();
+  await page.locator(".forward-list").waitFor();
+  await page.getByLabel("Search chats").fill("week");
+  await sleep(150);
+  await shot("19d-forward");
+  await page.locator(".forward-list .person-row", { hasText: "Weekend trip" }).click();
+  await page.locator(".chat-title", { hasText: "Weekend trip" }).waitFor();
+  const forwarded = page.locator(".msg.is-own", { hasText: "You said" }).last();
+  await forwarded.locator(".msg-forwarded", { hasText: "Forwarded from Priya" }).waitFor({ timeout: 10_000 });
+  check("a forwarded message opens its chat and names its author", true);
+  await sleep(300);
+  await shot("19e-forwarded");
 
   // Search
   await page.locator("#conversation-search").fill("campsite");

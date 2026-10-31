@@ -62,6 +62,7 @@ export type Overlay =
   | { type: "verify"; userId: string }
   | { type: "add-members"; groupId: string }
   | { type: "image"; url: string; name: string }
+  | { type: "forward"; serverId: string; message: MessageView }
   | null;
 
 export type Panel = { type: "info" } | { type: "search" } | { type: "pins" } | null;

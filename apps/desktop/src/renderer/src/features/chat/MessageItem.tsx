@@ -1,4 +1,4 @@
-import type { Attachment, EmoteRef, MessageView, ReactionView } from "@zuna/core";
+import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView } from "@zuna/core";
 import {
   AlertCircle,
   Check,
@@ -8,6 +8,7 @@ import {
   CornerUpLeft,
   Download,
   File as FileIcon,
+  Forward,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -195,6 +196,46 @@ function Attachments({ message, serverId, flush }: { message: MessageView; serve
   );
 }
 
+/** Whose message this was, as in Telegram. Forwarded from another server, it only says it's forwarded. */
+function ForwardedFrom({ userId }: { userId?: string }) {
+  const name = useServerField((server) => {
+    if (!userId) return null;
+    if (userId === server.self?.userId) return "You";
+    return server.users[userId]?.displayName ?? null;
+  }, null);
+  return (
+    <span className="msg-forwarded">
+      <Forward size={13} />
+      {name && userId ? (
+        <>
+          Forwarded from{" "}
+          <button className="msg-forwarded-name" onClick={() => useApp.getState().setOverlay({ type: "verify", userId })}>
+            {name}
+          </button>
+        </>
+      ) : (
+        "Forwarded"
+      )}
+    </span>
+  );
+}
+
+/** A link's preview, sent by whoever wrote the message. A wide picture goes below, a small one beside the text. */
+function LinkCard({ preview }: { preview: LinkPreview }) {
+  const image = preview.image;
+  const wide = !!image && image.width >= 300 && image.width >= image.height * 1.2;
+  return (
+    <a className={`link-card${wide ? " is-wide" : ""}`} href={preview.url} target="_blank" rel="noreferrer noopener" title={preview.url} draggable={false}>
+      <span className="link-card-text">
+        {preview.siteName && <span className="link-card-site truncate">{preview.siteName}</span>}
+        {preview.title && <span className="link-card-title">{preview.title}</span>}
+        {preview.description && <span className="link-card-description">{preview.description}</span>}
+      </span>
+      {image && <img className="link-card-image" src={image.data} alt="" draggable={false} style={wide ? { aspectRatio: `${image.width} / ${image.height}` } : undefined} />}
+    </a>
+  );
+}
+
 /** A reaction, as in Telegram: emoji with the people who reacted, or a count once there are many. */
 function ReactionChip({
   reaction,
@@ -295,7 +336,8 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const jumbo = useMemo(() => (message.attachments.length === 0 ? jumboSize(message.text, message.emotes) : 0), [message.text, message.emotes, message.attachments.length]);
 
   const hasReactions = message.reactions.length > 0;
-  const metaInText = !!message.text && !hasReactions && !isDeleted && message.status !== "undecryptable" && message.status !== "unverified";
+  // The time goes at the end of the text, or below a link's preview.
+  const metaInText = !!message.text && !message.preview && !hasReactions && !isDeleted && message.status !== "undecryptable" && message.status !== "unverified";
   const images = message.attachments.filter((item) => item.mime.startsWith("image/") && item.width);
   const onlyImages = !message.text && images.length > 0 && images.length === message.attachments.length && !hasReactions;
 
@@ -342,6 +384,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
 
   const entries: MenuEntry[] = [
     ...(canAct ? [{ label: "Reply", icon: <CornerUpLeft size={15} />, onSelect: () => setReply(listId, message) }] : []),
+    ...(canAct ? [{ label: "Forward", icon: <Forward size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "forward", serverId, message }) }] : []),
     ...(message.text && !isDeleted
       ? [
           {
@@ -351,7 +394,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
           },
         ]
       : []),
-    ...(canAct && own && message.text ? [{ label: "Edit", icon: <Pencil size={15} />, onSelect: () => setEditing(listId, message) }] : []),
+    ...(canAct && own && message.text && !message.forwarded ? [{ label: "Edit", icon: <Pencil size={15} />, onSelect: () => setEditing(listId, message) }] : []),
     ...(canAct
       ? [
           {
@@ -416,6 +459,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             </span>
           ) : (
             <>
+              {message.forwarded && <ForwardedFrom userId={message.forwarded.userId} />}
               {message.reply && (
                 <button className="msg-reply" onClick={() => jump(message.groupId, message.reply!.id)}>
                   <span className="msg-reply-author" style={{ color: nameColor(message.reply.senderId || "x") }}>
@@ -430,6 +474,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                   {body}
                 </div>
               )}
+              {message.preview && <LinkCard preview={message.preview} />}
             </>
           )}
           {hasReactions ? (

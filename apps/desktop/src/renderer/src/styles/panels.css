@@ -47,6 +47,11 @@
 .person-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: var(--radius-m); text-align: left; font-size: 13.5px; --dot-border: var(--bg-1); }
 .person-row:hover { background: var(--hover); }
 .person-row.is-selected { background: var(--bg-3); --dot-border: var(--bg-3); }
+.person-row:disabled { opacity: 1; cursor: default; }
+.forward-list { max-height: 380px; margin-top: 10px; }
+.forward-section { display: flex; flex-direction: column; gap: 1px; }
+.forward-section + .forward-section { margin-top: 8px; }
+.forward-server { padding: 4px 8px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); }
 .person-check { width: 18px; height: 18px; border-radius: 4px; flex: none; display: grid; place-items: center; border: 1px solid var(--line-strong); color: var(--on-accent); }
 .person-row.is-selected .person-check { background: var(--accent); border-color: var(--accent); }
 
