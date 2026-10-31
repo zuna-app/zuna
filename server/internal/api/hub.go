@@ -128,8 +128,19 @@ func (h *Hub) Disconnect(userID, deviceID string) {
 	defer h.mu.RUnlock()
 	for c := range h.conns[userID] {
 		if deviceID == "" || c.deviceID == deviceID {
-			c.close()
+			c.closeAfterQueued()
 		}
+	}
+}
+
+// closeAfterQueued closes the connection once the frames already queued are
+// written, so an event that explains why (force_logout, device_revoked)
+// arrives before the close instead of racing it.
+func (c *conn) closeAfterQueued() {
+	select {
+	case c.send <- nil:
+	default:
+		c.close()
 	}
 }
 
@@ -295,6 +306,11 @@ func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 		case <-ctx.Done():
 			return
 		case frame := <-c.send:
+			if frame == nil {
+				// Disconnect: what was queued before it is written, and the session is over.
+				ws.Close(4401, "session ended")
+				return
+			}
 			writeCtx, cancel := context.WithTimeout(ctx, writeTimeout)
 			err := ws.Write(writeCtx, websocket.MessageText, frame)
 			cancel()
