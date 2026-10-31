@@ -1,0 +1,24 @@
+[Unit]
+Description=Zuna push relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=zuna-push
+Group=zuna-push
+ExecStart=/usr/local/bin/zuna-push
+EnvironmentFile=/etc/zuna/push.env
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+ReadWritePaths=/var/lib/zuna-push
+
+[Install]
+WantedBy=multi-user.target
