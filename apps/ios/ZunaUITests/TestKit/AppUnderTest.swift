@@ -51,6 +51,9 @@ final class AppUnderTest {
         if notifications {
             // The test relay and a made-up token stand in for APNs, which the simulator can't use without the app's key.
             app.launchArguments += ["-ZunaPushRelay", World.current.pushRelay, "-ZunaPushToken", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"]
+        } else {
+            // Never the real relay the app is built with.
+            app.launchArguments += ["-ZunaPushRelay", ""]
         }
         if let bootSession { app.launchArguments += ["-ZunaBootSession", bootSession] }
         // Dynamic Type, as a UIContentSizeCategory name such as UICTContentSizeCategoryAccessibilityXL.

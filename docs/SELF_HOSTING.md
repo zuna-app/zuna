@@ -131,7 +131,7 @@ Everything can be set by flag or environment variable.
 | `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy |
 | `--download-url` | `ZUNA_DOWNLOAD_URL` | | Where invite pages link for downloading the app |
 | `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address |
-| `--push-relays` | `ZUNA_PUSH_RELAYS` | | Comma-separated push relays that may wake phones for new messages. Phones register with one of them; with none, phones aren't notified |
+| `--push-relays` | `ZUNA_PUSH_RELAYS` | `https://relay.mgalazka.pl` | Comma-separated push relays that may wake phones for new messages, or `off` for none. Phones register with one of them |
 
 The app only connects over HTTPS, except to `localhost`.
 
@@ -141,9 +141,9 @@ Everything else is in the app under **Server settings**: name and picture, invit
 
 Phones can't keep a connection open in the background, so the server wakes them through a push relay when a message arrives. The relay sees only that something arrived for some phone: the message stays encrypted on the server, and the phone fetches and decrypts it itself. [PUSH_RELAY.md](PUSH_RELAY.md) explains how it works and how to run one.
 
-- **To turn notifications on,** set `ZUNA_PUSH_RELAYS` to the relay the Zuna app registers with, such as `https://push.example.com`. With Docker, pass it like `ZUNA_DOMAIN`. From source on Linux, use the script's `--push-relays` option.
-- **To run your own relay** next to the server, `deploy/update.sh --relay` sets it up and points the server at it. See [LINUX.md](LINUX.md).
-- **Without a relay,** everything else works, and phones see new messages when they open the app.
+- **They're on by default.** Servers send notifications through the project's relay, `https://relay.mgalazka.pl`, which the Zuna app registers with. There's nothing to set.
+- **To use another relay,** set `ZUNA_PUSH_RELAYS` to it, such as `https://push.example.com`. With Docker, pass it like `ZUNA_DOMAIN`. From source on Linux, use the script's `--push-relays` option, or `--relay` to run your own next to the server, which points the server at it ([LINUX.md](LINUX.md)). Phones only register with a relay their app was built for.
+- **To turn them off,** set `ZUNA_PUSH_RELAYS=off`. Everything else works, and phones see new messages when they open the app.
 - **Several devices:** notifications go where you are, as in Telegram. While you use the desktop app, your phone stays quiet. After the desktop's away time, or when its screen locks, your phone gets them instead. What you read on one device disappears from the others.
 
 ## Choosing emotes
@@ -211,7 +211,7 @@ Database migrations run automatically on start. Back up first. Zuna doesn't keep
 **Messages show "Waiting for this message's keys".** This resolves by itself once one of your devices that was online at the time has synced. It usually means a new device signed in before an older one caught up.
 
 **Phones don't get notifications.**
-- `ZUNA_PUSH_RELAYS` must list the relay the app registers with.
+- `ZUNA_PUSH_RELAYS` must list the relay the app registers with: by default it does, unless it's set to something else or `off`.
 - In the app, Settings → Notifications says when a server doesn't send notifications through it.
 - If you run the relay yourself, see [PUSH_RELAY.md](PUSH_RELAY.md).
 

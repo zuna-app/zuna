@@ -536,7 +536,7 @@ Work that needs a decision was set aside, as agreed, so the rest could go on:
 2. **GPL-3.0 on the App Store** (see risk 3): the project moved from AGPL-3.0 to GPL-3.0 on 2026-10-31, at the owner's decision. Distributing through the App Store still needs an extra permission under section 7 of the GPL, or another decision.
 3. **Signing and TestFlight:** archiving and uploading needs certificates and profiles created in the owner's Apple Developer account (Xcode's automatic signing with `-allowProvisioningUpdates` does it), so it waits for a go-ahead.
 4. **Look:** chat wallpapers, left open since F1. A light theme was ruled out on 2026-10-31.
-5. **Notifications:** built and tested on the simulator; see "Notifications" below. What's left needs the owner: applying for the notification filtering entitlement, creating an APNs key, deploying the relay on a domain ([PUSH_RELAY.md](PUSH_RELAY.md)), then setting the app's `ZUNA_PUSH_RELAY` and the servers' default relay to it.
+5. **Notifications:** built and tested on the simulator; see "Notifications" below. The relay runs at `https://relay.mgalazka.pl`, and both the app and the servers' default point at it. What's left needs the owner: the APNs key on the relay, and applying for the notification filtering entitlement.
 
 ## Risks and open questions
 
@@ -555,7 +555,7 @@ Notifications show the message content, as the owner asked from the start, witho
 
 ### Decisions
 
-- **The relay** (`zuna-push`, a small Go service in this repository) runs on the owner's server, under a domain chosen when it's deployed. It holds the APNs key of the owner's Apple Developer account. Self-hosted servers use it by default. How to run it: [PUSH_RELAY.md](PUSH_RELAY.md).
+- **The relay** (`zuna-push`, a small Go service in this repository) runs on the owner's server, at `https://relay.mgalazka.pl`. It holds the APNs key of the owner's Apple Developer account. Self-hosted servers use it by default. How to run it: [PUSH_RELAY.md](PUSH_RELAY.md).
 - **A push carries only identifiers,** encrypted: the group and message IDs, sealed with a key the device gave the server. The phone fetches the message itself.
 - **Muted chats:** the owner applies to Apple for the notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). It's needed for development, TestFlight and App Store builds alike. Until Apple grants it, the phone gives each server the list of its muted chats, and the server skips them, so mentions in muted chats don't notify. Once it's granted, the list goes, and the extension decides, as the desktop does.
 - **Quick reply and "Mark as read"** from a notification are part of this stage.

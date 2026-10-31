@@ -19,8 +19,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     DEAD_CODE_STRIPPING: YES
-    # The push relay the app registers with (docs/PUSH_RELAY.md); none until it's deployed.
-    ZUNA_PUSH_RELAY: ""
+    # The push relay the app registers with (docs/PUSH_RELAY.md).
+    ZUNA_PUSH_RELAY: "https://relay.mgalazka.pl"
 
 packages:
   ZunaKit:
