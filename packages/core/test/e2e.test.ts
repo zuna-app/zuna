@@ -4,10 +4,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api } from "../src/api";
 import { parseInviteLink } from "../src/account";
+import { migrate, type LocalDb } from "../src/db";
 import { previewPush } from "../src/push";
 import type { CoreEvent, MessageView } from "../src/types";
 import { createDecipheriv } from "node:crypto";
+import { createRequire } from "node:module";
 import { FakeRelay, TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
+
+const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 
 let server: TestServer;
 let relay: FakeRelay;
@@ -266,6 +270,78 @@ describe("groups", () => {
       const { messages } = await carol.session.loadMessages(shared);
       return messages.some((item) => item.text === "old news");
     }, "carol to read older messages");
+  });
+});
+
+describe("notices", () => {
+  const order = (messages: MessageView[]) => messages.map((item) => item.system?.type ?? item.text);
+
+  it("stay where they happened as messages are sent", async () => {
+    const groupId = await alice.session.createGroup("Notices", [bob.userId], false);
+    const key = `group:${groupId}`;
+    for (const text of ["one", "two", "three"]) alice.session.sendMessage(key, { text });
+    await waitFor(async () => (await alice.session.loadMessages(groupId)).messages.every((item) => item.status === "sent" && item.seq !== null), "the messages to send");
+    expect(order((await alice.session.loadMessages(groupId)).messages)).toEqual(["group_created", "one", "two", "three"]);
+    expect(alice.session.getConversations().find((item) => item.groupId === groupId)?.lastMessage?.text).toBe("three");
+  });
+
+  it("go after everything seen so far when one happens later", async () => {
+    const groupId = await alice.session.createGroup("Later notices", [bob.userId], false);
+    const key = `group:${groupId}`;
+    alice.session.sendMessage(key, { text: "before" });
+    await waitFor(async () => (await alice.session.loadMessages(groupId)).messages.some((item) => item.text === "before" && item.seq !== null), "the message to send");
+    await alice.session.addMembers(groupId, [carol.userId]);
+    alice.session.sendMessage(key, { text: "after" });
+    await waitFor(async () => (await alice.session.loadMessages(groupId)).messages.some((item) => item.text === "after" && item.seq !== null), "the message to send");
+    expect(order((await alice.session.loadMessages(groupId)).messages)).toEqual(["group_created", "before", "member_added", "after"]);
+  });
+
+  it("are never split from their message by a page of history", async () => {
+    const groupId = await alice.session.createGroup("Paging", [bob.userId], false);
+    const key = `group:${groupId}`;
+    alice.session.sendMessage(key, { text: "first" });
+    await waitFor(async () => (await alice.session.loadMessages(groupId)).messages.some((item) => item.text === "first" && item.seq !== null), "the message to send");
+    (alice.session as any).addSystemRow(groupId, Date.now(), alice.userId, { type: "identity_changed", actorId: alice.userId });
+    const [first, notice] = (await alice.session.loadMessages(groupId)).messages.slice(-2);
+    expect(notice!.seq).toBe(first!.seq);
+    // One short of a page, so its boundary falls between the two.
+    const fillers = 49;
+    for (let i = 0; i < fillers; i++) alice.session.sendMessage(key, { text: `filler ${i}` });
+    await waitFor(async () => (await alice.session.loadMessages(groupId)).messages.every((item) => item.seq !== null), "the messages to send", 30_000);
+    const seen: MessageView[] = [];
+    let page = await alice.session.loadMessages(groupId);
+    seen.unshift(...page.messages);
+    while (page.hasMore) {
+      page = await alice.session.loadMessages(groupId, seen.find((item) => item.seq !== null)!.seq!);
+      seen.unshift(...page.messages);
+    }
+    const texts = order(seen);
+    expect(texts.slice(0, 3)).toEqual(["group_created", "first", "identity_changed"]);
+    expect(texts).toHaveLength(fillers + 3);
+  });
+
+  it("move out of the way of sent messages in a database from before the fix", () => {
+    const db = new DatabaseSync(":memory:");
+    const local = {
+      run: (sql: string, params: never[] = []) => void (params.length ? db.prepare(sql).run(...params) : db.exec(sql)),
+      all: (sql: string) => db.prepare(sql).all(),
+      get: (sql: string) => db.prepare(sql).get(),
+      transaction: <T,>(fn: () => T) => fn(),
+      close: () => db.close(),
+    } as unknown as LocalDb;
+    migrate(local);
+    const add = (id: string, seq: number | null, createdAt: number) =>
+      db.prepare("INSERT INTO messages(group_id, id, seq, sender_user, created_at, status) VALUES('g', ?, ?, 'u', ?, 'sent')").run(id, seq, createdAt);
+    add("sys-created", null, 100);
+    add("m1", 1, 200);
+    add("sys-added", null, 300);
+    add("m2", 2, 400);
+    add("still-sending", null, 500);
+    db.exec("PRAGMA user_version = 1");
+    migrate(local);
+    const rows = db.prepare("SELECT id, seq FROM messages ORDER BY row_id").all() as { id: string; seq: number | null }[];
+    expect(Object.fromEntries(rows.map((row) => [row.id, row.seq]))).toEqual({ "sys-created": 0, m1: 1, "sys-added": 1, m2: 2, "still-sending": null });
+    db.close();
   });
 });
 

@@ -72,6 +72,13 @@ const MIGRATIONS: string[] = [
   CREATE TABLE verified (user_id TEXT PRIMARY KEY, identity_key BLOB NOT NULL);
   CREATE VIRTUAL TABLE search USING fts5(tokens, content='', contentless_delete=1);
   `,
+  // Notices only one device knows about had no place in the order, so they sank below every sent message.
+  `
+  UPDATE messages SET seq = COALESCE(
+    (SELECT MAX(m.seq) FROM messages AS m WHERE m.group_id = messages.group_id AND m.created_at <= messages.created_at),
+    0
+  ) WHERE seq IS NULL AND id LIKE 'sys-%';
+  `,
 ];
 
 export function migrate(db: LocalDb): void {
