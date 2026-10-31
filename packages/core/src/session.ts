@@ -1577,8 +1577,8 @@ export class ServerSession {
       if (group.epoch === 0) return false;
       await this.processWelcomesFor(groupId);
       if (!this.hasMlsGroup(groupId)) {
-        const joined = await this.joinExternal(groupId);
-        if (!joined) return false;
+        await this.repair(groupId);
+        if (!this.hasMlsGroup(groupId)) return false;
       }
     }
     const after = this.syncedSeq(groupId);
@@ -1602,6 +1602,11 @@ export class ServerSession {
       this.persistGroup(group);
     }
     if (items.length > 0) this.emitConversations();
+    // Caught up, and still behind: a commit this device couldn't apply. If it's
+    // been waiting for someone able to deal with that, this may be them.
+    if (!page.has_more && group && !group.removedAt && this.hasMlsGroup(groupId) && group.epoch > this.mlsEpoch(groupId)) {
+      await this.repair(groupId);
+    }
     return page.has_more;
   }
 
@@ -1622,7 +1627,40 @@ export class ServerSession {
       this.scheduleReconcile(event.group_id);
       return;
     }
+    if (event.kind === "commit_voided") {
+      this.db.run("DELETE FROM epoch_starts WHERE group_id = ? AND epoch > ?", [event.group_id, event.epoch]);
+      // A device that got past that epoch has gone somewhere nobody else will follow.
+      if (this.hasMlsGroup(event.group_id) && this.mlsEpoch(event.group_id) > event.epoch) await this.repair(event.group_id);
+      return;
+    }
     await this.applyCommit(event);
+  }
+
+  /**
+   * A commit nobody can apply: it reached the server well formed, but no member's
+   * MLS state can follow it, and neither can anyone rejoin past it. An admin whose
+   * device still has the last good state brings the group back to it, and everyone
+   * who never got past that epoch simply carries on. Nobody has to accept anything
+   * new, since they keep the keys they already trust.
+   */
+  private async voidBrokenCommit(groupId: string, cause: unknown): Promise<void> {
+    const group = await this.api.group(groupId);
+    this.applyGroup(group);
+    if (group.members.find((member) => member.user_id === this.account.userId)?.role !== "admin") return;
+    const groupBytes = utf8(groupId);
+    const held = this.hasMlsGroup(groupId);
+    const local = held ? this.mlsEpoch(groupId) : 0;
+    // With nothing held, only the start of a group can be undone.
+    if (group.epoch <= local || (!held && group.epoch > 1)) return;
+    console.warn("[zuna] undoing a commit nobody can apply", cause);
+    await this.api.voidCommits(groupId, group.epoch, local, held ? this.mls.exportGroupInfo(groupBytes) : new Uint8Array(0));
+    this.emit({
+      type: "security",
+      serverId: this.serverId,
+      userId: "",
+      message: "Someone sent one of your conversations a broken update. It was undone, and the conversation carries on.",
+    });
+    this.applyGroup(await this.api.group(groupId));
   }
 
   private async applyCommit(event: ApiEvent): Promise<void> {
@@ -1670,15 +1708,102 @@ export class ServerSession {
       await this.repair(groupId);
       return;
     }
+    this.treeUsersCache.delete(groupId);
     if (processed.selfRemoved) {
-      this.removeGroupLocally(groupId);
+      await this.afterBeingRemoved(groupId);
       return;
     }
     this.rememberCurrentEpochKey(groupId);
     void this.uploadEpochKeys().catch(() => undefined);
     await this.checkTree(groupId);
+    await this.checkCommitAuthority(event, processed);
     this.describeCommit(event, processed, usersBefore);
     this.retryUndecryptable(groupId);
+  }
+
+  /**
+   * This device was taken out of a group's tree. If the server says this person
+   * has left, so be it. If they're still a member, someone with no right to has
+   * removed them: this device goes straight back in, and says so.
+   */
+  private async afterBeingRemoved(groupId: string): Promise<void> {
+    let stillMember = false;
+    try {
+      const group = await this.api.group(groupId);
+      this.applyGroup(group);
+      stillMember = group.members.some((member) => member.user_id === this.account.userId);
+    } catch (error) {
+      if (!(error instanceof ApiError) || (error.status !== 403 && error.status !== 404)) throw error;
+    }
+    if (!stillMember) {
+      this.markRemoved(groupId);
+      return;
+    }
+    this.emit({
+      type: "security",
+      serverId: this.serverId,
+      userId: this.account.userId,
+      message: "A member removed this device from one of your conversations without permission. It has rejoined.",
+    });
+    await this.repair(groupId);
+  }
+
+  /**
+   * MLS proves who made a commit, not whether they may. Only admins add people
+   * or remove anyone who hasn't already left. A commit can't be taken back once
+   * everyone has applied it, so this says what happened and the group heals: someone
+   * added against the rules is removed as stale, and someone removed rejoins.
+   */
+  private async checkCommitAuthority(
+    event: ApiEvent,
+    processed: { senderCredential: Uint8Array; isExternal: boolean; addedCredentials: Uint8Array[]; removedCredentials: Uint8Array[] },
+  ): Promise<void> {
+    const groupId = event.group_id;
+    if (processed.addedCredentials.length === 0 && processed.removedCredentials.length === 0) return;
+    const sender = parseCertificate(processed.senderCredential);
+    const look = () => {
+      const group = this.groups.get(groupId);
+      const present = new Set(this.treeMembers(groupId).filter((member) => member.genuine).map((member) => member.deviceId));
+      const senderIsAdmin = !!group && !!sender && this.isGroupAdmin(group, sender.userId);
+      const addedWithoutRight = !senderIsAdmin && processed.addedCredentials.length > 0;
+      const removedWithoutRight =
+        !senderIsAdmin &&
+        processed.removedCredentials.some((credential) => {
+          const cert = parseCertificate(credential);
+          if (!cert || !group) return false;
+          // Rejoining replaces a device's own old leaf.
+          if (processed.isExternal && cert.deviceId === sender?.deviceId) return false;
+          // A real device still here means what went wasn't really it.
+          if (present.has(cert.deviceId)) return false;
+          const onRoster = group.members.some((member) => member.userId === cert.userId);
+          const revoked = this.users.get(cert.userId)?.devices.get(cert.deviceId)?.revoked;
+          return onRoster && !revoked;
+        });
+      return { addedWithoutRight, removedWithoutRight };
+    };
+    let found = look();
+    if (!found.addedWithoutRight && !found.removedWithoutRight) return;
+    // What's known here may be behind. Only what the server says now counts.
+    try {
+      this.applyGroup(await this.api.group(groupId));
+      if (sender) await this.ensureUser(sender.userId, true);
+      for (const credential of processed.removedCredentials) {
+        const cert = parseCertificate(credential);
+        if (cert) await this.ensureUser(cert.userId, true);
+      }
+    } catch (error) {
+      console.warn("[zuna] checking a commit", error);
+    }
+    found = look();
+    if (!found.addedWithoutRight && !found.removedWithoutRight) return;
+    const name = sender ? (this.users.get(sender.userId)?.profile.displayName ?? "A member") : "A member";
+    this.emit({
+      type: "security",
+      serverId: this.serverId,
+      userId: sender?.userId ?? "",
+      message: `${name} changed who's in one of your conversations without permission. Zuna is putting it right.`,
+    });
+    this.scheduleReconcile(groupId);
   }
 
   /**
@@ -1771,8 +1896,29 @@ export class ServerSession {
     });
   }
 
+  /**
+   * Gets this device back in step with a group. Rejoining fixes anything that went
+   * wrong on this device. If nobody can rejoin either, because what the group moved
+   * on to doesn't hold together, it's undone if this person is able to do that, and
+   * otherwise waits for someone who is. What this device has isn't lost either way.
+   */
   private async repair(groupId: string): Promise<void> {
-    await this.joinExternal(groupId);
+    try {
+      await this.joinExternal(groupId);
+    } catch (error) {
+      if (error instanceof ApiError && (error.status === 403 || error.status === 404)) throw error;
+      console.warn("[zuna] couldn't rejoin a conversation", error);
+      try {
+        await this.voidBrokenCommit(groupId, error);
+        if (!this.hasMlsGroup(groupId) && this.groups.get(groupId)?.epoch === 0) {
+          const group = await this.api.group(groupId);
+          await this.initGroup(group, []);
+        }
+      } catch (voidError) {
+        if (voidError instanceof ApiError && (voidError.status === 403 || voidError.status === 404)) throw voidError;
+        console.warn("[zuna] couldn't undo a broken update", voidError);
+      }
+    }
     this.retryUndecryptable(groupId);
   }
 

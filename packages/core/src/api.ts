@@ -94,7 +94,7 @@ export interface ApiMessage {
 export interface ApiEvent {
   group_id: string;
   seq: number;
-  kind: "commit" | "member_left";
+  kind: "commit" | "member_left" | "commit_voided";
   epoch: number;
   data?: string;
   sender_user: string;
@@ -261,6 +261,8 @@ export class Api {
   deleteGroup = (id: string) => this.request("DELETE", `/api/groups/${id}`);
   commit = (groupId: string, body: CommitRequest) =>
     this.request<{ seq: number; epoch: number }>("POST", `/api/groups/${groupId}/commit`, body);
+  voidCommits = (groupId: string, fromEpoch: number, toEpoch: number, groupInfo: Uint8Array) =>
+    this.request("POST", `/api/groups/${groupId}/void-commits`, { from_epoch: fromEpoch, to_epoch: toEpoch, group_info: groupInfo });
   groupInfo = (groupId: string) =>
     this.request<{ group_info: string | null; epoch: number }>("GET", `/api/groups/${groupId}/group-info`);
   setGroupMeta = (groupId: string, meta: Uint8Array, epoch: number, historyVisible?: boolean) =>
