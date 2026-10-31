@@ -27,9 +27,9 @@ final class ImageStore {
     }
 
     /// A server's icon, which servers serve in the clear.
-    func serverIcon(_ entry: ServerEntry, size: CGFloat) async -> UIImage? {
-        await load("icon:\(entry.id)", size: size) {
-            guard let url = URL(string: "\(entry.url)/api/icon") else { return nil }
+    func serverIcon(url serverUrl: String, size: CGFloat) async -> UIImage? {
+        await load("icon:\(serverUrl)", size: size) {
+            guard let url = URL(string: "\(serverUrl)/api/icon") else { return nil }
             let (data, response) = try await URLSession.shared.data(from: url)
             return (response as? HTTPURLResponse)?.statusCode == 200 ? data : nil
         }
@@ -62,6 +62,8 @@ struct AvatarView: View {
         case none
         case avatar(AvatarRef, serverId: String)
         case serverIcon(ServerEntry)
+        /// A server not joined yet, from an invite's preview.
+        case serverAt(url: String, hasIcon: Bool)
     }
 
     let name: String
@@ -109,7 +111,8 @@ struct AvatarView: View {
         switch source {
         case .none: nil
         case let .avatar(avatar, _): avatar.fileId
-        case let .serverIcon(entry): "icon:\(entry.id)"
+        case let .serverIcon(entry): "icon:\(entry.url)"
+        case let .serverAt(url, _): "icon:\(url)"
         }
     }
 
@@ -122,7 +125,8 @@ struct AvatarView: View {
         switch source {
         case .none: return nil
         case let .avatar(avatar, serverId): return await images.avatar(avatar, serverId: serverId, size: size)
-        case let .serverIcon(entry): return entry.hasIcon ? await images.serverIcon(entry, size: size) : nil
+        case let .serverIcon(entry): return entry.hasIcon ? await images.serverIcon(url: entry.url, size: size) : nil
+        case let .serverAt(url, hasIcon): return hasIcon ? await images.serverIcon(url: url, size: size) : nil
         }
     }
 }

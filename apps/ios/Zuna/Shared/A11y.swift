@@ -2,8 +2,36 @@
 /// find elements without depending on their wording.
 enum A11y {
     enum Root {
-        static let ready = "root.ready"
         static let failed = "root.failed"
+    }
+
+    enum Onboarding {
+        static let welcome = "onboarding.welcome"
+        static let link = "onboarding.link"
+        static let paste = "onboarding.paste"
+        static let `continue` = "onboarding.continue"
+        static let error = "onboarding.error"
+        static let signIn = "onboarding.signIn"
+        static let cancel = "onboarding.cancel"
+        static let joinScreen = "onboarding.join"
+        static let displayName = "onboarding.displayName"
+        static let username = "onboarding.username"
+        static let password = "onboarding.password"
+        static let strength = "onboarding.strength"
+        static let create = "onboarding.create"
+        static let recoveryKey = "onboarding.recoveryKey"
+        static let copyKey = "onboarding.copyKey"
+        static let saveKey = "onboarding.saveKey"
+        static let keyStored = "onboarding.keyStored"
+        static let keyContinue = "onboarding.keyContinue"
+        static let serverName = "onboarding.serverName"
+        static let nameDone = "onboarding.nameDone"
+        static let serverAddress = "onboarding.serverAddress"
+        static let signInSubmit = "onboarding.signInSubmit"
+        static let forgot = "onboarding.forgot"
+        static let recoveryInput = "onboarding.recoveryInput"
+        static let newPassword = "onboarding.newPassword"
+        static let recover = "onboarding.recover"
     }
 
     enum Unlock {

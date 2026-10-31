@@ -56,6 +56,11 @@ enum Accent: String, CaseIterable, Codable, Sendable {
         }
     }
 
+    /// Switches: a near-white track would hide the white thumb, so neutral uses the system's green.
+    var switchTint: Color {
+        self == .neutral ? Theme.green : color
+    }
+
     /// Text and icons drawn on top of the accent.
     var onAccent: Color {
         switch self {

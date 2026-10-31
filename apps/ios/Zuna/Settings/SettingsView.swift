@@ -137,6 +137,7 @@ struct AppearanceView: View {
             }
             Section {
                 Toggle("Reduce motion", isOn: $model.settings.reduceMotion)
+                    .tint(model.settings.accent.switchTint)
             } footer: {
                 Text("Fewer animations when opening chats and the server drawer.")
             }

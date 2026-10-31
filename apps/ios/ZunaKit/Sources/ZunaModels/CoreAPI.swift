@@ -91,9 +91,38 @@ public struct SessionCalls: Sendable {
     public func sendTyping(_ groupId: String) async throws { try await run("sendTyping", [groupId]) }
     public func markRead(_ groupId: String, seq: Int) async throws { try await run("markRead", [groupId, seq]) }
 
+    // MARK: Server administration
+
+    /// Changes only the fields that are set.
+    public func updateServerSettings(_ changes: ServerSettingsChanges) async throws { try await run("updateServerSettings", [changes]) }
+
     // MARK: Files
 
     /// Decrypts an attachment or avatar into the app's protected cache.
     public func downloadFile(_ attachment: Attachment) async throws -> WireFile { try await call("downloadFile", [attachment]) }
     public func downloadFile(_ avatar: AvatarRef) async throws -> WireFile { try await call("downloadFile", [avatar]) }
+}
+
+/// Server settings an admin can change, named as the server's API names them.
+public struct ServerSettingsChanges: Codable, Sendable, Equatable {
+    public var name: String?
+    public var registration: String?
+    public var allowMemberInvites: Bool?
+    public var maxUploadMb: Int?
+    public var retentionDays: Int?
+
+    public init(name: String? = nil, registration: String? = nil, allowMemberInvites: Bool? = nil, maxUploadMb: Int? = nil, retentionDays: Int? = nil) {
+        self.name = name
+        self.registration = registration
+        self.allowMemberInvites = allowMemberInvites
+        self.maxUploadMb = maxUploadMb
+        self.retentionDays = retentionDays
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, registration
+        case allowMemberInvites = "allow_member_invites"
+        case maxUploadMb = "max_upload_mb"
+        case retentionDays = "retention_days"
+    }
 }

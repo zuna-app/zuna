@@ -389,6 +389,21 @@ F1 is done. Each item has tests:
 
 The golden corpus for markup moves to F4, where the Swift parser is written.
 
+## F2 results (2026-10-31)
+
+F2 is done. Each item has tests:
+
+- **Join flow:** the same steps as the desktop, laid out like Telegram's sign-in. They're the first screens, and a sheet from the drawer's "+" for another server:
+  - the welcome screen with the invite link field and a Paste button;
+  - joining with a preview (icon, name, member count), or setting up an unclaimed server as its owner;
+  - the recovery key in groups, with Copy (kept off Universal Clipboard, cleared after 5 minutes), Save as file through the share sheet, and the confirmation;
+  - naming a new server, or skipping;
+  - sign in, and "Forgot your password?" leading to recovery with the key and a new password.
+- **Rules ported to Swift:** the username suggestion, its validation and the password strength meter, checked against the desktop's functions.
+- **AutoFill:** fields carry their content types, so iOS offers a strong password and to save it.
+- **Links:** `zuna://join?link=…` opens the join screens, also while the app is locked (the link waits for the unlock) or already signed in.
+- **Tests:** 5 UI tests (join, sign in with a wrong password first, recover, links, set up a second server from the drawer); the world now has a second, unclaimed server. 23 `ZunaKit` tests.
+
 ## Prerequisites on this Mac
 
 Installed on 2026-10-31:

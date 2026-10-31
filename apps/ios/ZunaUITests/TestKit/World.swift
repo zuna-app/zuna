@@ -14,6 +14,8 @@ struct World: Decodable {
     let serverUrl: String
     let serverName: String
     let invite: String
+    /// The setup link of a second server, which nobody owns yet.
+    let setupLink: String
     let peersUrl: String
     /// alice, carol and bob's laptop are peers; the app signs in as bob.
     let accounts: [String: Account]

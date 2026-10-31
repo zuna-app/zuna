@@ -43,6 +43,15 @@ final class AppModel {
     var activeServerId: String?
     var tab: Tab = .chats
     var drawerOpen = false
+    /// The welcome screens: until the first server is joined, and again if none are left.
+    private(set) var onboarding = false
+    /// While the join screens are signing up or in. They decide when they're
+    /// done, since a new account still has its recovery key to show.
+    var accountFlowActive = false
+    /// The join screens over the app, for another server.
+    var joining = false
+    /// An invite link opened from outside the app, for the join screens to pick up.
+    var pendingLink: String?
     private(set) var toasts: [Toast] = []
     var settings = AppSettings.load() {
         didSet { settings.save() }
@@ -85,6 +94,11 @@ final class AppModel {
             servers = loaded
             order = entries.map(\.id).filter { loaded[$0] != nil }
             if activeServerId.map({ servers[$0] == nil }) ?? true { activeServerId = order.first }
+            if order.isEmpty {
+                onboarding = true
+            } else if !accountFlowActive {
+                onboarding = false
+            }
         } catch {
             toast("Couldn't load your servers: \(error)", .error)
         }
@@ -120,6 +134,22 @@ final class AppModel {
     func addServer(_ serverId: String) async {
         await load()
         activeServerId = serverId
+    }
+
+    /// The join screens are done: the new server opens on its chat list.
+    func finishJoining(_ serverId: String) async {
+        await addServer(serverId)
+        accountFlowActive = false
+        onboarding = order.isEmpty
+        joining = false
+        drawerOpen = false
+        tab = .chats
+    }
+
+    /// A `zuna://join?link=…` link, or an invite link shared to the app.
+    func open(link: String) {
+        pendingLink = link
+        if !onboarding { joining = true }
     }
 
     func selectServer(_ serverId: String) {
@@ -191,6 +221,7 @@ final class AppModel {
         servers[serverId] = nil
         order.removeAll { $0 == serverId }
         if activeServerId == serverId { activeServerId = order.first }
+        if order.isEmpty { onboarding = true }
     }
 
     /// Coalesces bursts of events into one refresh, like the desktop's `debounced`.
