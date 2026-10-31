@@ -75,7 +75,10 @@ targets:
           NSAllowsLocalNetworking: true
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
         NSMicrophoneUsageDescription: Zuna uses the microphone to record voice messages.
-        ITSAppUsesNonExemptEncryption: true
+        # No export documentation needed: only standard, published algorithms (MLS, AES-GCM,
+        # XChaCha20-Poly1305 and the like), and the app isn't offered in France, where they'd
+        # need a declaration to ANSSI. Offering it there means YES and the code Apple gives.
+        ITSAppUsesNonExemptEncryption: false
         ZunaPushRelay: $(ZUNA_PUSH_RELAY)
         NSUserActivityTypes:
           - INSendMessageIntent
