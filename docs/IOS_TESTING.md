@@ -218,7 +218,7 @@ On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minut
 | `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors | since F1 |
 | `npm run test:ios:all` | everything, plus the desktop's `npm test` | since F1 |
 
-The `ios` job in `.github/workflows/ci.yml` runs `test:ios:check`, `test:ios`, the Release guard and the UI tests on a macOS runner. It keeps each run's summary, screenshots and logs as an artifact.
+On each release (a `v*` tag), the `ios` job in `.github/workflows/ci.yml` runs `test:ios:check`, `test:ios`, the Release guard and the UI tests on a macOS runner. It keeps each run's summary, screenshots and logs as an artifact.
 
 Each run writes `apps/ios/.e2e/<run>/` (and `latest/`) containing:
 

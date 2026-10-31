@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Each release: the same v* tags that start the Release workflow.
   push:
-    branches: [main]
+    tags: ["v*"]
   pull_request:
 
 jobs:
