@@ -87,9 +87,19 @@ Rules the core depends on:
 | `packages/core/src/types.ts` | `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift` |
 | A public `ServerSession` method the UI uses | `ZunaModels/CoreAPI.swift` |
 | Desktop markup (`lib/markup.tsx`) | `ZunaModels/Markup.swift`, and the golden file: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
-| A desktop feature | The iPhone app, which aims to match it (parity matrix in `docs/IOS_PLAN.md`) |
+| A feature people can see | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md` |
 | A database schema | Add to the end of `migrations` in `server/internal/store/store.go` or `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | Anything `SECURITY.md` or the docs claim | Those docs |
+
+## Feature parity
+
+`.agents/FEATURE_PARITY.md` records which features each platform has, where their code is, and the known gaps. It's for agents, so keep it terse, and don't link to it from anything written for people.
+
+- **Read it before working on a feature people can see,** to learn what the other platforms do and where.
+- **Update it in the same commit** as any change that adds, changes or removes such a feature, on any platform.
+- **If you only build it on one platform,** mark the others `no` or `partial` and add it to Known gaps. Remove a gap in the commit that closes it.
+- **Only write what you've checked.** If you couldn't build or run a platform, as with Swift without a Mac, say so in that row's notes.
+- **When it disagrees with the code, the code is right.** Correct the file. `docs/IOS_PLAN.md` records iOS's design and test reports, but its parity tables aren't kept current.
 
 ## Quick reference
 
