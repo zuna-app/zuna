@@ -7,7 +7,7 @@ import { desktop } from "@/core/bridge";
 import { Avatar, Field, Logo, PasswordField, Spinner } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
-import { passwordStrength } from "@/lib/format";
+import { MIN_PASSWORD, passwordStrength } from "@/lib/format";
 import { useApp } from "@/state/store";
 
 type Step =
@@ -17,8 +17,6 @@ type Step =
   | { name: "invite"; preview: InvitePreview }
   | { name: "recovery-key"; serverId: string; recoveryKey: string; setup: boolean }
   | { name: "name-server"; serverId: string };
-
-const MIN_PASSWORD = 10;
 
 function describeError(error: unknown): string {
   const message = (error as Error).message ?? "";

@@ -21,7 +21,7 @@ import { desktop } from "@/core/bridge";
 import { Avatar, Field, Logo, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
-import { formatFull, passwordStrength } from "@/lib/format";
+import { formatFull, MIN_PASSWORD, passwordStrength } from "@/lib/format";
 import { prepareAvatar } from "@/lib/media";
 import type { AppSettings } from "@/state/settings";
 import { useActiveServer, useApp } from "@/state/store";
@@ -354,11 +354,11 @@ function SecuritySection() {
       <div className="settings-divider" />
       <h3>Change password</h3>
       <PasswordField label="Current password" value={current} autoComplete="current-password" onChange={(event) => setCurrent(event.target.value)} />
-      <PasswordField label="New password" value={next} autoComplete="new-password" hint={next ? strength.label : "At least 10 characters."} onChange={(event) => setNext(event.target.value)} />
+      <PasswordField label="New password" value={next} autoComplete="new-password" hint={next ? strength.label : `At least ${MIN_PASSWORD} characters.`} onChange={(event) => setNext(event.target.value)} />
       <div>
         <button
           className="btn"
-          disabled={!current || next.length < 10 || strength.score < 2 || busy}
+          disabled={!current || next.length < MIN_PASSWORD || strength.score < 2 || busy}
           onClick={() =>
             run(async () => {
               await session().changePassword(current, next);

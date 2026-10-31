@@ -3,7 +3,7 @@ import Foundation
 /// The rules for new accounts, the same as the desktop's onboarding
 /// (features/onboarding/Onboarding.tsx and lib/format.ts).
 public enum AccountRules {
-    public static let minimumPasswordLength = 10
+    public static let minimumPasswordLength = 8
 
     /// What the server accepts as a username.
     public static func isValidUsername(_ username: String) -> Bool {
