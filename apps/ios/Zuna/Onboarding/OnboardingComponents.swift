@@ -173,6 +173,6 @@ enum OnboardingText {
         return message.isEmpty ? "Something went wrong. Please try again." : message
     }
 
-    static let projectURL = URL(string: "https://github.com/zuna-chat/zuna")!
+    static let projectURL = URL(string: "https://github.com/SocketByte/zuna-chat")!
     static let selfHostingURL = projectURL.appending(path: "blob/main/docs/SELF_HOSTING.md")
 }

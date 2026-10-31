@@ -5,7 +5,7 @@
   "license": "AGPL-3.0-only",
   "description": "Zuna: private, end-to-end encrypted chat on servers you run.",
   "author": "Zuna contributors",
-  "homepage": "https://github.com/zuna-chat/zuna",
+  "homepage": "https://github.com/SocketByte/zuna-chat",
   "desktopName": "zuna.desktop",
   "main": "./out/main/index.js",
   "type": "module",

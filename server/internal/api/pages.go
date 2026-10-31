@@ -43,8 +43,9 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
   {{if .Invite}}
   <a class="button primary" id="open" href="#">Open in Zuna</a>
   <button class="secondary" id="copy">Copy invite link</button>
-  {{if .DownloadURL}}<a class="button secondary" href="{{.DownloadURL}}">Download Zuna</a>{{end}}
-  <small>Don't have the app yet? Install it, then paste this link into it.</small>
+  <a class="button secondary" href="{{.OfficialURL}}" rel="noreferrer">Download Zuna</a>
+  {{if .DownloadURL}}<a class="button secondary" href="{{.DownloadURL}}" rel="noreferrer">Download from this server's link</a>{{end}}
+  <small>Don't have the app yet? Install it, then paste this link into it. Only the official download is published by the Zuna project.</small>
   <script>
     // The part of the link after # holds the server's community key. Browsers
     // don't send it to the server, and this page only passes it on to the app.
@@ -62,12 +63,17 @@ var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
 </html>
 `))
 
+// officialDownloads is where the project publishes the app, whatever a server's
+// operator chooses to link to as well.
+const officialDownloads = "https://github.com/SocketByte/zuna-chat/releases"
+
 type pageData struct {
 	Title       string
 	Heading     string
 	Body        string
 	HasIcon     bool
 	Invite      bool
+	OfficialURL string
 	DownloadURL string
 }
 
@@ -124,6 +130,7 @@ func (s *Server) handleInvitePage(w http.ResponseWriter, r *http.Request) {
 		Body:        body,
 		HasIcon:     info.HasIcon,
 		Invite:      true,
+		OfficialURL: officialDownloads,
 		DownloadURL: s.cfg.DownloadURL,
 	})
 }
