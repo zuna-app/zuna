@@ -110,14 +110,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     deviceName,
     files: nativeFiles,
     web: nativeWeb,
-    onEvent: (event: CoreEvent) => {
-      // A server ending the session removes the account from this device.
-      if (event.type === "signed_out") {
-        reportAccount("signedOut", accounts.get(event.serverId));
-        accounts.delete(event.serverId);
-      }
-      emit(event);
-    },
+    onEvent: emit,
   });
   // Only test builds' previews may reach this device, for their test pages.
   allowLocalLinks(!!__zunaHost.testHooks);

@@ -1,6 +1,44 @@
 import SwiftUI
 import ZunaModels
 
+/// The server ended this device's session. Nothing is erased on its word: what's
+/// here stays until the person signs in again or clears it, or after a month.
+private struct SignedOutView: View {
+    @Environment(AppModel.self) private var model
+    let server: AppModel.ServerState
+    let reason: String
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Text(reason == "banned" ? "You were removed from \(server.entry.name)" : "You're signed out of \(server.entry.name)")
+                .font(.headline)
+                .foregroundStyle(Theme.text1)
+                .multilineTextAlignment(.center)
+            Text("\(explanation) What's on this device stays here for 30 days, or until you sign in again or remove it.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.text2)
+                .multilineTextAlignment(.center)
+            if reason != "banned" {
+                Button("Sign in again") { model.joining = true }
+                    .buttonStyle(.borderedProminent)
+            }
+            Button("Remove from this device", role: .destructive) {
+                Task { await model.signOut(server.entry.id) }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var explanation: String {
+        switch reason {
+        case "device_revoked": "This device was removed from your account."
+        case "banned": "Its admins ended your access."
+        default: "The server ended this device's session."
+        }
+    }
+}
+
 /// The active server's conversations, laid out like Telegram's chat list: a
 /// search bar, filters, then the rows. The title shows the connection state
 /// while it isn't connected, as Telegram does.
@@ -40,7 +78,11 @@ struct ChatListView: View {
     var body: some View {
         Group {
             if let server = model.activeServer {
-                list(server)
+                if let reason = server.entry.signedOut {
+                    SignedOutView(server: server, reason: reason)
+                } else {
+                    list(server)
+                }
             } else {
                 Color.clear
             }

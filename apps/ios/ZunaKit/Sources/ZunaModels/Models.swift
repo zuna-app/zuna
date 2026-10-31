@@ -288,6 +288,8 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var readBy: [String: Int]
     public var ownRead: Int
     public var ready: Bool
+    /// You're no longer in this conversation. Its messages stay until you clear them, or for a while.
+    public var removed: Bool
 
     public var id: String { key }
 }
@@ -349,6 +351,8 @@ public struct ServerEntry: Codable, Sendable, Equatable, Identifiable {
     public var username: String
     public var userId: String
     public var role: Role
+    /// The server ended this device's session, and why. What's on this device stays until you decide.
+    public var signedOut: String?
 }
 
 public struct SafetyCheck: Codable, Sendable, Equatable {
@@ -410,6 +414,8 @@ public enum CoreEvent: Sendable, Equatable {
     case emotes(serverId: String)
     case preferences(serverId: String)
     case signedOut(serverId: String, reason: String)
+    /// A session that seemed to be over is working after all.
+    case signedIn(serverId: String)
     case security(serverId: String, userId: String, message: String)
     case notify(serverId: String, title: String, body: String, conversationKey: String, groupId: String, messageId: String)
     /// Whether the person is using another of their devices, where notifications go instead.
@@ -424,7 +430,7 @@ extension CoreEvent {
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
              let .settings(serverId, _), let .emotes(serverId), let .preferences(serverId),
-             let .signedOut(serverId, _), let .security(serverId, _, _), let .notify(serverId, _, _, _, _, _),
+             let .signedOut(serverId, _), let .signedIn(serverId), let .security(serverId, _, _), let .notify(serverId, _, _, _, _, _),
              let .activity(serverId, _):
             serverId
         }
@@ -457,6 +463,7 @@ extension CoreEvent: Codable {
         case "emotes": self = .emotes(serverId: serverId)
         case "preferences": self = .preferences(serverId: serverId)
         case "signed_out": self = .signedOut(serverId: serverId, reason: try c.decode(String.self, forKey: .reason))
+        case "signed_in": self = .signedIn(serverId: serverId)
         case "security": self = .security(serverId: serverId, userId: try c.decode(String.self, forKey: .userId), message: try c.decode(String.self, forKey: .message))
         case "notify":
             self = .notify(
@@ -501,6 +508,8 @@ extension CoreEvent: Codable {
             try c.encode("preferences", forKey: .type); try c.encode(serverId, forKey: .serverId)
         case let .signedOut(serverId, reason):
             try c.encode("signed_out", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(reason, forKey: .reason)
+        case let .signedIn(serverId):
+            try c.encode("signed_in", forKey: .type); try c.encode(serverId, forKey: .serverId)
         case let .security(serverId, userId, message):
             try c.encode("security", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(userId, forKey: .userId); try c.encode(message, forKey: .message)
         case let .notify(serverId, title, body, conversationKey, groupId, messageId):

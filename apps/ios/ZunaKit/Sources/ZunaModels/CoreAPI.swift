@@ -132,6 +132,8 @@ public struct SessionCalls: Sendable {
     public func removeMember(_ groupId: String, userId: String) async throws { try await run("removeMember", [groupId, userId]) }
     public func leaveGroup(_ groupId: String) async throws { try await run("leaveGroup", [groupId]) }
     public func deleteGroup(_ groupId: String) async throws { try await run("deleteGroup", [groupId]) }
+    /// Clears a conversation this person was removed from, from this device.
+    public func forgetConversation(_ groupId: String) async throws { try await run("forgetConversation", [groupId]) }
     public func setGroupRole(_ groupId: String, userId: String, role: GroupRole) async throws { try await run("setGroupRole", [groupId, userId, role]) }
 
     /// Changes a group's name or description, its picture, and whether new members see history; what's left out stays.

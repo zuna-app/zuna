@@ -100,7 +100,23 @@ struct ChatScreen: View {
                     }
                 }
             }
-            if peer?.banned == true, !isSaved {
+            if conversation.removed {
+                VStack(spacing: 8) {
+                    Text("You're no longer in this conversation. Its messages stay on this device for 30 days.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.text2)
+                        .multilineTextAlignment(.center)
+                    Button("Remove now", role: .destructive) {
+                        guard let groupId = conversation.groupId else { return }
+                        model.chatPath = []
+                        Task { try? await model.core.session(serverId).forgetConversation(groupId) }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(14)
+                .background(Theme.bg1)
+                .accessibilityIdentifier(A11y.Composer.disabled)
+            } else if peer?.banned == true, !isSaved {
                 Label("This person was removed from the server.", systemImage: "xmark")
                     .font(.subheadline)
                     .foregroundStyle(Theme.text2)
@@ -150,7 +166,7 @@ struct ChatScreen: View {
         }
         // Files dragged onto the chat go into the composer, as on the desktop.
         .dropDestination(for: DroppedFile.self) { files, _ in
-            guard !(peer?.banned == true && !isSaved) else { return false }
+            guard !(peer?.banned == true && !isSaved), !conversation.removed else { return false }
             model.pendingAttachments += files.map(\.url)
             return true
         }

@@ -319,8 +319,11 @@ final class AppModel {
         case let .preferences(serverId):
             refresh("preferences", serverId)
         case let .signedOut(serverId, reason):
-            removeServer(serverId)
+            // Nothing is erased on the server's word: what's here stays until the person decides.
+            servers[serverId]?.entry.signedOut = reason
             toast(reason == "banned" ? "You were removed from a server by its admins." : "You've been signed out of a server.")
+        case let .signedIn(serverId):
+            servers[serverId]?.entry.signedOut = nil
         case let .security(_, _, message):
             toast(message, .security)
         case let .notify(serverId, _, _, _, groupId, messageId):
