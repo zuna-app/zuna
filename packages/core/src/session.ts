@@ -1725,9 +1725,11 @@ export class ServerSession {
   private addSystemRow(groupId: string, createdAt: number, actor: string, system: SystemEvent, seq?: number): void {
     const id = seq !== undefined ? `sys-${seq}` : `sys-${randomId()}`;
     if (!this.groups.has(groupId) || this.messageRow(groupId, id)) return;
+    // A notice only this device knows about goes after everything seen so far.
+    // Having no sequence number means a message is still being sent.
     this.db.run(
       `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, created_at, status, body) VALUES(?,?,?,?,?,?,?,?)`,
-      [groupId, id, seq ?? null, seq ?? 0, actor, createdAt, "sent", this.sealJson("message", { system })],
+      [groupId, id, seq ?? this.latestSeq(groupId), seq ?? 0, actor, createdAt, "sent", this.sealJson("message", { system })],
     );
     this.emit({
       type: "message",
@@ -1735,6 +1737,11 @@ export class ServerSession {
       message: this.toMessageView(this.messageRow(groupId, id)!),
       isNew: false,
     });
+  }
+
+  private latestSeq(groupId: string): number {
+    const newest = this.db.get<{ seq: number | null }>("SELECT MAX(seq) AS seq FROM messages WHERE group_id = ?", [groupId])?.seq ?? 0;
+    return Math.max(newest, this.groups.get(groupId)?.seq ?? 0);
   }
 
   private maybeNotify(view: MessageView): void {
@@ -2024,12 +2031,17 @@ export class ServerSession {
     const rows = this.db
       .all<MessageRow>(
         `SELECT * FROM messages WHERE group_id = ? AND seq IS NOT NULL AND seq < ?
-         ORDER BY seq DESC LIMIT ?`,
+         ORDER BY seq DESC, id LIKE 'sys-%' DESC, row_id DESC LIMIT ?`,
         [groupId, upper, PAGE_SIZE + 1],
       )
       .reverse();
     const hasMore = rows.length > PAGE_SIZE;
-    if (hasMore) rows.shift();
+    if (hasMore) {
+      // A notice can share its number with the message before it. A page never
+      // splits them, since the next page starts below that number.
+      const cut = rows.shift()!.seq;
+      while (rows[0]?.seq === cut) rows.shift();
+    }
     const pendingRows =
       before === undefined
         ? this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND seq IS NULL ORDER BY created_at", [groupId])

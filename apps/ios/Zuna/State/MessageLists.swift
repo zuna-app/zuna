@@ -142,11 +142,12 @@ extension AppModel {
         lists[key] = target
     }
 
-    /// By sequence number; messages still being sent, which have none, go last in the order they were written.
+    /// By sequence number, with a notice after the message it shares its number with; messages
+    /// still being sent, which have none, go last in the order they were written.
     static func sorted(_ items: [MessageView]) -> [MessageView] {
         items.sorted { a, b in
             switch (a.seq, b.seq) {
-            case let (x?, y?): x < y
+            case let (x?, y?): x != y ? x < y : a.system == nil && b.system != nil
             case (nil, nil): a.createdAt < b.createdAt
             case (nil, _?): false
             case (_?, nil): true
