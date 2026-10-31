@@ -39,7 +39,7 @@ sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
 sudo /opt/zuna/deploy/update.sh --server chat.example.com
 ```
 
-This builds the server from the repository, creates a `zuna` system user, starts a hardened systemd service and puts Caddy in front for HTTPS. It prints your setup link at the end. Running the same script again updates everything. Data goes in `/var/lib/zuna`. The details, including running the push relay on the same machine, are in [LINUX.md](LINUX.md).
+This builds the server from the repository, creates a `zuna` system user and starts a hardened systemd service on port 8080, for your own reverse proxy to put HTTPS in front. It prints your setup link at the end. Running the same script again updates everything. Data goes in `/var/lib/zuna`. The details are in [LINUX.md](LINUX.md), including proxy settings and running the push relay on the same machine.
 
 ## Option 3: Run the binary yourself
 
