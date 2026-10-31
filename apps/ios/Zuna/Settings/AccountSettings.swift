@@ -142,6 +142,15 @@ struct PrivacyView: View {
             } footer: {
                 Text("If off, people see \u{201C}last seen recently\u{201D} instead of your status.")
             }
+            Section {
+                Toggle("Link previews", isOn: Binding(get: { model.settings.linkPreviews }, set: { model.settings.linkPreviews = $0 }))
+                    .tint(model.settings.accent.switchTint)
+                    .accessibilityIdentifier(A11y.Settings.linkPreviews)
+            } header: {
+                Text("On this device")
+            } footer: {
+                Text("When you write a link, this device fetches the page to show its title and picture, and sends them encrypted with your message. The site sees your address, as when you open a link. Your server never sees it.")
+            }
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)

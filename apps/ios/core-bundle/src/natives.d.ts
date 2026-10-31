@@ -24,6 +24,10 @@ declare const __zunaHost: {
   fileRead(path: string, start: number, end: number): Uint8Array;
   /** Writes the parts to a new file in the protected cache and returns its path. */
   fileAssemble(parts: Uint8Array[], extension: string): string;
+  /** Fetches a page or picture for a link preview; the result comes back through __zunaWebDone. */
+  webFetch(id: number, url: string, maxBytes: number): void;
+  /** Shrinks a picture to fit within maxSize pixels, as a JPEG data URL. */
+  imageShrink(bytes: Uint8Array, maxSize: number): { data: string; width: number; height: number } | null;
 };
 
 declare const __zunaCrypto: {

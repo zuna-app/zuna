@@ -8,10 +8,20 @@ struct ComposerState: Equatable {
     var replyTo: MessageView?
     var editing: MessageView?
     var files: [StagedFile] = []
+    /// The preview of the draft's first link, made on this device.
+    var link: LinkDraft?
+    /// A link whose preview was removed, so it isn't made again for this draft.
+    var dismissedLink: String?
 
     var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty
     }
+}
+
+struct LinkDraft: Equatable {
+    let url: String
+    var preview: LinkPreview?
+    var loading: Bool
 }
 
 extension AppModel {
@@ -70,12 +80,16 @@ extension AppModel {
             return
         }
 
-        let body = MessageBody(text: value.isEmpty ? nil : value, replyTo: state.replyTo?.id, emotes: emotes, mentions: mentions)
+        // Only a preview that's ready: sending doesn't wait for a slow page.
+        let preview = state.link.flatMap { value.contains($0.url) ? $0.preview : nil }
+        let body = MessageBody(text: value.isEmpty ? nil : value, replyTo: state.replyTo?.id, emotes: emotes, mentions: mentions, preview: preview)
         let files = state.files
         updateComposer(serverId, conversation.key) {
             $0.text = ""
             $0.replyTo = nil
             $0.files = []
+            $0.link = nil
+            $0.dismissedLink = nil
         }
         Task {
             do {
@@ -88,6 +102,40 @@ extension AppModel {
             } catch {
                 toast(OnboardingText.describe(error), .error)
             }
+        }
+    }
+
+    /// Makes the preview of a draft's first link once typing pauses, as the desktop does.
+    /// Edits keep the preview they had.
+    func updateLinkPreview(_ serverId: String, _ conversationKey: String, text: String) async {
+        let state = composer(serverId, conversationKey)
+        guard settings.linkPreviews, state.editing == nil else {
+            if state.link != nil { updateComposer(serverId, conversationKey) { $0.link = nil } }
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(400))
+        guard !Task.isCancelled else { return }
+        let found = (try? await core.findLink(text)) ?? nil
+        guard !Task.isCancelled else { return }
+        guard let link = found, link != composer(serverId, conversationKey).dismissedLink else {
+            updateComposer(serverId, conversationKey) { $0.link = nil }
+            return
+        }
+        if let current = composer(serverId, conversationKey).link, current.url == link, !current.loading { return }
+        updateComposer(serverId, conversationKey) { $0.link = LinkDraft(url: link, preview: $0.link?.url == link ? $0.link?.preview : nil, loading: true) }
+        // The core remembers it, so a later call while typing doesn't fetch the page again.
+        let preview = (try? await core.linkPreview(link)) ?? nil
+        guard !Task.isCancelled else { return }
+        updateComposer(serverId, conversationKey) { $0.link = LinkDraft(url: link, preview: preview, loading: false) }
+    }
+
+    /// Forwards a message to a chat on any server, and says where it went.
+    func forward(_ message: MessageView, from serverId: String, to targetServerId: String, _ conversation: ConversationView) async {
+        do {
+            try await core.forwardMessage(from: serverId, groupId: message.groupId, id: message.id, to: targetServerId, conversationKey: conversation.key)
+            toast("Forwarded to \(conversation.title)")
+        } catch {
+            toast(OnboardingText.describe(error), .error)
         }
     }
 

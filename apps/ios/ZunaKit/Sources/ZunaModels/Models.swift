@@ -137,14 +137,38 @@ public struct MessageBody: Codable, Sendable, Equatable {
     public var emotes: [String: EmoteRef]?
     public var attachments: [Attachment]?
     public var mentions: [String]?
+    public var preview: LinkPreview?
 
-    public init(text: String? = nil, replyTo: String? = nil, emotes: [String: EmoteRef]? = nil, attachments: [Attachment]? = nil, mentions: [String]? = nil) {
+    public init(text: String? = nil, replyTo: String? = nil, emotes: [String: EmoteRef]? = nil, attachments: [Attachment]? = nil, mentions: [String]? = nil, preview: LinkPreview? = nil) {
         self.text = text
         self.replyTo = replyTo
         self.emotes = emotes
         self.attachments = attachments
         self.mentions = mentions
+        self.preview = preview
     }
+}
+
+/// A link's preview, made by the sender's device and sent inside the message. Mirrors `LinkPreview`.
+public struct LinkPreview: Codable, Sendable, Equatable, Hashable {
+    public struct Image: Codable, Sendable, Equatable, Hashable {
+        /// A small JPEG, as a data URL.
+        public var data: String
+        public var width: Double
+        public var height: Double
+    }
+
+    /// The link as it appears in the message's text.
+    public var url: String
+    public var title: String?
+    public var description: String?
+    public var siteName: String?
+    public var image: Image?
+}
+
+/// Marks a forwarded message: whose it was on the same server, or nobody named when it came from another server.
+public struct ForwardInfo: Codable, Sendable, Equatable, Hashable {
+    public var userId: String?
 }
 
 public struct ReactionView: Codable, Sendable, Equatable, Hashable {
@@ -197,6 +221,8 @@ public struct MessageView: Codable, Sendable, Equatable, Hashable, Identifiable 
     public var reply: ReplyPreview?
     public var reactions: [ReactionView]
     public var system: SystemEvent?
+    public var preview: LinkPreview?
+    public var forwarded: ForwardInfo?
     public var uploadProgress: Double?
 }
 

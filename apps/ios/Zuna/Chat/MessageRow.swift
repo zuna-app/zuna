@@ -27,6 +27,7 @@ struct ChatActions {
     /// Shows an emote's card: its name, who made it, and who reacted with it.
     var emoteCard: (_ name: String, _ emote: EmoteRef, _ note: String?) -> Void = { _, _, _ in }
     var reply: (_ message: MessageView) -> Void = { _ in }
+    var forward: (_ message: MessageView) -> Void = { _ in }
     var edit: (_ message: MessageView) -> Void = { _ in }
     var pin: (_ message: MessageView, _ pinned: Bool) -> Void = { _, _ in }
     var delete: (_ message: MessageView) -> Void = { _ in }
@@ -147,8 +148,9 @@ private struct MessageItem: View {
         message.attachments.isEmpty && !deleted ? Markup.jumboSize(message.text, emotes: message.emotes) : 0
     }
 
+    /// The time goes at the end of the text, or below a link's preview.
     private var metaInText: Bool {
-        !message.text.isEmpty && message.reactions.isEmpty && !deleted && message.status != .undecryptable && message.status != .unverified
+        !message.text.isEmpty && message.preview == nil && message.reactions.isEmpty && !deleted && message.status != .undecryptable && message.status != .unverified
     }
 
     private var images: [Attachment] {
@@ -213,11 +215,12 @@ private struct MessageItem: View {
             Button("More reactions", systemImage: "face.smiling") { actions.pickReaction(message.id) }
             Divider()
             Button("Reply", systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
+            Button("Forward", systemImage: "arrowshape.turn.up.right") { actions.forward(message) }
         }
         if !message.text.isEmpty && !deleted {
             Button("Copy text", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
         }
-        if canAct && own && !message.text.isEmpty {
+        if canAct && own && !message.text.isEmpty && message.forwarded == nil {
             Button("Edit", systemImage: "pencil") { actions.edit(message) }
         }
         if canAct {
@@ -286,6 +289,9 @@ private struct MessageItem: View {
                 .foregroundStyle(Color(hex: 0xF4BCBE))
             meta.frame(maxWidth: .infinity, alignment: .trailing)
         } else {
+            if let forwarded = message.forwarded {
+                ForwardedLabel(forwarded: forwarded, own: own, server: server, open: actions.mention)
+            }
             if let reply = message.reply {
                 ReplyQuote(reply: reply, own: own, server: server) { actions.jump(reply.id) }
             }
@@ -310,6 +316,9 @@ private struct MessageItem: View {
                 .overlay(alignment: .bottomTrailing) {
                     if metaInText { meta.offset(y: 2) }
                 }
+            }
+            if let preview = message.preview {
+                LinkCard(preview: preview, own: own, messageId: message.id)
             }
             if !message.reactions.isEmpty {
                 ReactionsView(message: message, own: own, server: server, react: { actions.react(message.id, $0, $1) }, card: actions.emoteCard) {

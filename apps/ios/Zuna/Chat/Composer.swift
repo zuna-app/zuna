@@ -42,6 +42,9 @@ struct Composer: View {
             if let context = state.editing ?? state.replyTo {
                 contextBar(context, editing: state.editing != nil)
             }
+            if let link = state.link, link.loading || link.preview != nil {
+                linkBar(link)
+            }
             if !state.files.isEmpty {
                 filesBar
             }
@@ -123,6 +126,9 @@ struct Composer: View {
             .presentationDetents([.medium, .large])
         }
         .onChange(of: trigger?.query) { selectedSuggestion = 0 }
+        .task(id: "\(model.settings.linkPreviews)|\(state.editing?.id ?? "")|\(state.text)") {
+            await model.updateLinkPreview(serverId, conversation.key, text: state.text)
+        }
         .onChange(of: state.editing?.id) { _, id in
             if id != nil { focused = true }
         }
@@ -187,7 +193,7 @@ struct Composer: View {
     private var lastOwnMessage: MessageView? {
         let selfId = server.me?.userId
         return model.list(serverId, AppModel.listId(for: conversation))?.items.last {
-            $0.senderId == selfId && !$0.text.isEmpty && $0.seq != nil && $0.deletedAt == nil && $0.system == nil
+            $0.senderId == selfId && !$0.text.isEmpty && $0.seq != nil && $0.deletedAt == nil && $0.system == nil && $0.forwarded == nil
         }
     }
 
@@ -236,6 +242,46 @@ struct Composer: View {
         .padding(.top, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Composer.context)
+    }
+
+    // MARK: Link previews
+
+    private func linkBar(_ link: LinkDraft) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "link")
+                .foregroundStyle(model.settings.accent.text)
+                .frame(width: 24)
+            Rectangle().fill(model.settings.accent.text).frame(width: 2, height: 32)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(link.preview?.title ?? link.preview?.siteName ?? "Loading the link's preview…")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(model.settings.accent.text)
+                    .lineLimit(1)
+                Text(link.preview?.description ?? link.url)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if let picture = link.preview?.image.flatMap(PreviewImages.image) {
+                Image(uiImage: picture).resizable().scaledToFill().frame(width: 36, height: 36).clipShape(.rect(cornerRadius: 6))
+            }
+            Button {
+                model.updateComposer(serverId, conversation.key) {
+                    $0.dismissedLink = link.url
+                    $0.link = nil
+                }
+            } label: {
+                Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text2).frame(width: 32, height: 32)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove the link's preview")
+            .accessibilityIdentifier(A11y.Composer.removeLinkPreview)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.Composer.linkPreview)
     }
 
     // MARK: Files
