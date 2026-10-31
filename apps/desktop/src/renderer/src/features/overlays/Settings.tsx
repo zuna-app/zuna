@@ -390,7 +390,7 @@ function AboutSection() {
       <div className="about-hero">
         <Logo size={52} />
         <h1>Zuna</h1>
-        <p className="muted">Version 0.1.0 · Free software under the AGPL-3.0 license</p>
+        <p className="muted">Version 0.1.0 · Free software under the GPL-3.0 license</p>
       </div>
       <div className="notice">
         <ShieldCheck size={15} />

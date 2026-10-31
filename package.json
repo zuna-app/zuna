@@ -2,7 +2,7 @@
   "name": "zuna",
   "version": "0.1.0",
   "private": true,
-  "license": "AGPL-3.0-only",
+  "license": "GPL-3.0-only",
   "description": "Self-hosted, end-to-end encrypted chat with a modern interface.",
   "workspaces": [
     "packages/*",

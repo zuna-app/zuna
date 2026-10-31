@@ -255,4 +255,4 @@ The infrastructure comes first, so everything after it can be verified on its ow
 - **No physical device:** real-device performance, the background behavior of a real OS, the camera (L7).
 - **Signing:** distribution needs your Apple Developer team. Simulator builds need no signing.
 - **The out-of-process photo picker** is tested by one UI test; the rest go through the Debug injection path.
-- **App Store questions** (account deletion, reporting and blocking users, AGPL) are decisions, not tests.
+- **App Store questions** (account deletion, reporting and blocking users, licensing) are decisions, not tests.
