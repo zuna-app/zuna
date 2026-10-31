@@ -400,22 +400,23 @@ private struct MessageItem: View {
         .accessibilityIdentifier(A11y.Chat.meta(message.id))
     }
 
-    /// The desktop's marks: a clock while sending, a tick once sent, two once read.
+    /// The desktop's marks: a clock while sending, a thin tick once sent, and a
+    /// second beside it, in the accent's color, once read.
     @ViewBuilder
     private var ticks: some View {
         switch message.status {
         case .sending:
-            DesktopIcon.clock.view(size: 11).accessibilityLabel("Sending")
+            DesktopIcon.clock.view().accessibilityLabel("Sending")
         case .failed:
             Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(Color(hex: 0xF4BCBE)).accessibilityLabel("Not sent")
         default:
             if let seq = message.seq {
                 if context.readUpTo >= seq {
-                    DesktopIcon.checkCheck.view(size: 14)
-                        .foregroundStyle(own ? model.settings.accent.bubbleOwnText : Theme.text1)
+                    DesktopIcon.read.view()
+                        .foregroundStyle(model.settings.accent.text)
                         .accessibilityLabel("Read")
                 } else {
-                    DesktopIcon.check.view(size: 14).accessibilityLabel("Sent")
+                    DesktopIcon.sent.view().accessibilityLabel("Sent")
                 }
             }
         }
@@ -427,7 +428,7 @@ private struct MessageItem: View {
         var width = (Format.time(message.createdAt) as NSString).size(withAttributes: [.font: font]).width
         if message.editedAt != nil { width += ("edited" as NSString).size(withAttributes: [.font: font]).width + 3 }
         if message.pinnedAt != nil { width += 12 }
-        if own { width += 18 }
+        if own { width += 21 }
         return ceil(width) + 8
     }
 }
