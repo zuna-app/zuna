@@ -16,6 +16,8 @@ Everyone on a server can message each other straight away. Group chats are invit
 **Conversations**
 - Direct messages with anyone on the server, plus invite-only groups
 - Replies, editing, deleting, reactions and pinned messages
+- Forwarding to any chat, on any of your servers
+- Link previews, made by the sender's device and sent encrypted, so neither recipients nor the server contact the site
 - Markdown formatting, spoilers, and code blocks with syntax highlighting
 - Photos, video, audio and any other file, encrypted before upload
 - Search across your history, run entirely on your device
