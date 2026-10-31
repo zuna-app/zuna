@@ -26,9 +26,15 @@ export interface KdfParams {
 }
 
 // Clients refuse to derive keys with less than this, so that a malicious server
-// can't weaken a user's password protection by handing out cheap parameters.
-const MIN_KDF_MEMORY = 32 << 10;
-const MIN_KDF_ITERATIONS = 2;
+// can't weaken a user's password protection by handing out cheap parameters. Every
+// account has used at least these from the start. The most is what servers accept,
+// so a malicious server can't make the app run out of memory either.
+const MIN_KDF_MEMORY = 64 << 10;
+const MIN_KDF_ITERATIONS = 3;
+const MAX_KDF_MEMORY = 1 << 20;
+const MAX_KDF_ITERATIONS = 16;
+const MAX_KDF_PARALLELISM = 8;
+const KDF_SALT_BYTES = 16;
 
 export const DEFAULT_KDF = { memory: 64 << 10, iterations: 3, parallelism: 1 };
 
@@ -37,32 +43,62 @@ const NO_SALT = new Uint8Array(0);
 
 export const randomId = (): string => toHex(wasm.randomBytes(16));
 
+/** Who a sign-in key is for. It's only any use on that server, for that account. */
+export interface SignInTarget {
+  serverUrl: string;
+  username: string;
+}
+
+const signInContext = ({ serverUrl, username }: SignInTarget) => `${serverUrl}|${username.toLowerCase()}`;
+
 export interface PasswordKeys {
+  /** Sent to the server to sign in. Bound to it, so another server can't reuse it. */
   authKey: Uint8Array;
+  /** Accounts from before that have a hash of this, which is never sent. */
+  legacyAuthKey: Uint8Array;
   wrapKey: Uint8Array;
 }
 
-export function derivePasswordKeys(password: string, kdf: KdfParams): PasswordKeys {
-  if (kdf.memory < MIN_KDF_MEMORY || kdf.iterations < MIN_KDF_ITERATIONS || kdf.parallelism < 1) {
-    throw new Error("The server asked for unsafely weak password settings. Not continuing.");
-  }
+export function derivePasswordKeys(password: string, kdf: KdfParams, target: SignInTarget): PasswordKeys {
+  const valid =
+    kdf.memory >= MIN_KDF_MEMORY &&
+    kdf.memory <= MAX_KDF_MEMORY &&
+    kdf.iterations >= MIN_KDF_ITERATIONS &&
+    kdf.iterations <= MAX_KDF_ITERATIONS &&
+    kdf.parallelism >= 1 &&
+    kdf.parallelism <= MAX_KDF_PARALLELISM &&
+    kdf.salt.length === KDF_SALT_BYTES;
+  if (!valid) throw new Error("The server asked for unsafe password settings. Not continuing.");
   const master = wasm.argon2id(utf8(password.normalize("NFKC")), kdf.salt, kdf.memory, kdf.iterations, kdf.parallelism, 32);
   return {
-    authKey: wasm.hkdfSha256(master, NO_SALT, label("zuna/auth/v1"), 32),
+    authKey: wasm.hkdfSha256(master, NO_SALT, label(`zuna/auth/v2|${signInContext(target)}`), 32),
+    legacyAuthKey: wasm.hkdfSha256(master, NO_SALT, label("zuna/auth/v1"), 32),
     wrapKey: wasm.hkdfSha256(master, NO_SALT, label("zuna/wrap/v1"), 32),
   };
 }
 
 export interface RecoveryKeys {
   authKey: Uint8Array;
+  legacyAuthKey: Uint8Array;
   wrapKey: Uint8Array;
 }
 
-export function deriveRecoveryKeys(recoveryKey: Uint8Array): RecoveryKeys {
+export function deriveRecoveryKeys(recoveryKey: Uint8Array, target: SignInTarget): RecoveryKeys {
   return {
-    authKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label("zuna/recovery-auth/v1"), 32),
+    authKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label(`zuna/recovery-auth/v2|${signInContext(target)}`), 32),
+    legacyAuthKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label("zuna/recovery-auth/v1"), 32),
     wrapKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label("zuna/recovery-wrap/v1"), 32),
   };
+}
+
+/**
+ * Proves knowing an older sign-in key without sending it, in a way that's only
+ * good for this server and this challenge, so an account can move to a new key.
+ */
+export function upgradeProof(kind: "password" | "recovery", legacyKey: Uint8Array, salt: Uint8Array, challenge: Uint8Array, target: SignInTarget): Uint8Array {
+  const stored = wasm.sha256(concat(salt, legacyKey));
+  const info = `zuna/auth-upgrade/v1|${kind}|${target.serverUrl}|${target.username.toLowerCase()}|${toBase64(challenge)}`;
+  return wasm.hkdfSha256(stored, NO_SALT, utf8(info), 32);
 }
 
 export const wrapAccountKey = (wrapKey: Uint8Array, accountKey: Uint8Array, kind: "password" | "recovery") =>

@@ -77,7 +77,7 @@ describe("onboarding", () => {
       return original(url, init);
     }) as typeof fetch;
     try {
-      await expect(login(server.url, "alice", "whatever")).rejects.toThrow(/weak/);
+      await expect(login(server.url, "alice", "whatever")).rejects.toThrow(/unsafe/);
     } finally {
       globalThis.fetch = original;
     }

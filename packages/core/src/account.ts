@@ -13,8 +13,10 @@ import {
   sealVaultCore,
   signHpkeKey,
   unwrapAccountKey,
+  upgradeProof,
   wrapAccountKey,
   type KdfParams,
+  type SignInTarget,
   type VaultCore,
 } from "./crypto";
 import { fromBase64, fromBase64Url, fromRecoveryText, toBase64, toBase64Url, toRecoveryText } from "./encoding";
@@ -129,11 +131,12 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   const serverUrl = normalizeServerUrl(input.serverUrl);
   const api = new Api(serverUrl);
 
+  const target = { serverUrl, username: input.username };
   const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
-  const password = derivePasswordKeys(input.password, kdf);
+  const password = derivePasswordKeys(input.password, kdf, target);
   const accountKey = wasm.randomBytes(32);
   const recoveryKey = wasm.randomBytes(RECOVERY_KEY_BYTES);
-  const recovery = deriveRecoveryKeys(recoveryKey);
+  const recovery = deriveRecoveryKeys(recoveryKey, target);
 
   // The community key encrypts profiles. It travels in the invite link's
   // fragment, which never reaches the server; the first user creates it.
@@ -192,17 +195,59 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   };
 }
 
+/**
+ * Does something that proves who you are with a sign-in key. An account from
+ * before those keys were bound to a server won't know the new one yet, so if it's
+ * refused, the account moves to it (without ever sending the old one) and it's
+ * tried again.
+ */
+async function withCurrentKey<T>(
+  api: Api,
+  target: SignInTarget,
+  kind: "password" | "recovery",
+  keys: { authKey: Uint8Array; legacyAuthKey: Uint8Array },
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== "invalid_credentials") throw error;
+    const { salt, challenge } = await api.upgradeChallenge(target.username, kind);
+    const decoded = decode(challenge);
+    try {
+      await api.upgradeKey({
+        username: target.username,
+        kind,
+        origin: target.serverUrl,
+        challenge: decoded,
+        proof: upgradeProof(kind, keys.legacyAuthKey, decode(salt), decoded, target),
+        auth_key: keys.authKey,
+      });
+    } catch (upgradeError) {
+      // The key really was wrong, and that's the message to show.
+      if (upgradeError instanceof ApiError && upgradeError.code === "invalid_credentials") throw error;
+      throw upgradeError;
+    }
+    return action();
+  }
+}
+
 export async function login(serverUrlInput: string, username: string, passwordText: string): Promise<AccountState> {
   const serverUrl = normalizeServerUrl(serverUrlInput);
   const api = new Api(serverUrl);
+  const target = { serverUrl, username };
   const params = await api.prelogin(username);
-  const password = derivePasswordKeys(passwordText, {
-    salt: fromBase64(params.salt),
-    memory: params.memory,
-    iterations: params.iterations,
-    parallelism: params.parallelism,
-  });
-  const session = await api.login(username, password.authKey);
+  const password = derivePasswordKeys(
+    passwordText,
+    {
+      salt: fromBase64(params.salt),
+      memory: params.memory,
+      iterations: params.iterations,
+      parallelism: params.parallelism,
+    },
+    target,
+  );
+  const session = await withCurrentKey(api, target, "password", password, () => api.login(username, password.authKey));
   api.token = session.token;
   const accountKey = unwrapAccountKey(password.wrapKey, decode(session.wrapped_key), "password");
   const core = openVaultCore(accountKey, decode(session.vault_core));
@@ -236,15 +281,16 @@ export async function recover(
   if (!recoveryKey || recoveryKey.length !== RECOVERY_KEY_BYTES) {
     throw new Error("That recovery key isn't complete. Check it and try again.");
   }
-  const recovery = deriveRecoveryKeys(recoveryKey);
+  const target = { serverUrl, username };
+  const recovery = deriveRecoveryKeys(recoveryKey, target);
   const api = new Api(serverUrl);
-  const session = await api.recover(username, recovery.authKey);
+  const session = await withCurrentKey(api, target, "recovery", recovery, () => api.recover(username, recovery.authKey));
   api.token = session.token;
   const accountKey = unwrapAccountKey(recovery.wrapKey, decode(session.wrapped_key), "recovery");
   const core = openVaultCore(accountKey, decode(session.vault_core));
 
   const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
-  const password = derivePasswordKeys(newPassword, kdf);
+  const password = derivePasswordKeys(newPassword, kdf, target);
   await api.changePassword({
     recovery_auth_key: recovery.authKey,
     kdf: { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism },
@@ -267,22 +313,29 @@ export async function recover(
 
 /** Changes the password. Message history isn't re-encrypted: only the wrapper changes. */
 export async function changePassword(api: Api, username: string, accountKey: Uint8Array, current: string, next: string): Promise<void> {
+  const target = { serverUrl: api.baseUrl, username };
   const params = await api.prelogin(username);
-  const currentKeys = derivePasswordKeys(current, {
-    salt: fromBase64(params.salt),
-    memory: params.memory,
-    iterations: params.iterations,
-    parallelism: params.parallelism,
-  });
+  const currentKeys = derivePasswordKeys(
+    current,
+    {
+      salt: fromBase64(params.salt),
+      memory: params.memory,
+      iterations: params.iterations,
+      parallelism: params.parallelism,
+    },
+    target,
+  );
   const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
-  const nextKeys = derivePasswordKeys(next, kdf);
+  const nextKeys = derivePasswordKeys(next, kdf, target);
   try {
-    await api.changePassword({
-      current_auth_key: currentKeys.authKey,
-      kdf: { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism },
-      auth_key: nextKeys.authKey,
-      wrapped_key_password: wrapAccountKey(nextKeys.wrapKey, accountKey, "password"),
-    });
+    await withCurrentKey(api, target, "password", currentKeys, () =>
+      api.changePassword({
+        current_auth_key: currentKeys.authKey,
+        kdf: { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism },
+        auth_key: nextKeys.authKey,
+        wrapped_key_password: wrapAccountKey(nextKeys.wrapKey, accountKey, "password"),
+      }),
+    );
   } catch (error) {
     if (error instanceof ApiError && error.code === "invalid_credentials") {
       throw new Error("Your current password isn't correct.");
@@ -293,19 +346,26 @@ export async function changePassword(api: Api, username: string, accountKey: Uin
 
 /** Replaces the recovery key. The old one stops working immediately. */
 export async function regenerateRecoveryKey(api: Api, username: string, accountKey: Uint8Array, current: string): Promise<string> {
+  const target = { serverUrl: api.baseUrl, username };
   const params = await api.prelogin(username);
-  const currentKeys = derivePasswordKeys(current, {
-    salt: fromBase64(params.salt),
-    memory: params.memory,
-    iterations: params.iterations,
-    parallelism: params.parallelism,
-  });
+  const currentKeys = derivePasswordKeys(
+    current,
+    {
+      salt: fromBase64(params.salt),
+      memory: params.memory,
+      iterations: params.iterations,
+      parallelism: params.parallelism,
+    },
+    target,
+  );
   const recoveryKey = wasm.randomBytes(RECOVERY_KEY_BYTES);
-  const recovery = deriveRecoveryKeys(recoveryKey);
-  await api.changeRecoveryKey({
-    current_auth_key: currentKeys.authKey,
-    recovery_auth_key: recovery.authKey,
-    wrapped_key_recovery: wrapAccountKey(recovery.wrapKey, accountKey, "recovery"),
-  });
+  const recovery = deriveRecoveryKeys(recoveryKey, target);
+  await withCurrentKey(api, target, "password", currentKeys, () =>
+    api.changeRecoveryKey({
+      current_auth_key: currentKeys.authKey,
+      recovery_auth_key: recovery.authKey,
+      wrapped_key_recovery: wrapAccountKey(recovery.wrapKey, accountKey, "recovery"),
+    }),
+  );
   return toRecoveryText(recoveryKey);
 }
