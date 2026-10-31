@@ -3,7 +3,7 @@ import Foundation
 /// What the app shares with its notification extension: the App Group
 /// container, where the databases live.
 enum SharedStorage {
-    static let appGroup = "group.chat.zuna.app"
+    static let appGroup = "group.chat.zuna.mobile"
 
     /// Where the databases live: the App Group container, so the notification
     /// extension can read them. Protected until the first unlock after a

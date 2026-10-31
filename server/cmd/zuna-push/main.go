@@ -32,7 +32,7 @@ func main() {
 	keyFile := flag.String("apns-key", os.Getenv("ZUNA_PUSH_APNS_KEY"), "the APNs token key, a .p8 file (env ZUNA_PUSH_APNS_KEY)")
 	keyID := flag.String("apns-key-id", os.Getenv("ZUNA_PUSH_APNS_KEY_ID"), "the APNs key's ID (env ZUNA_PUSH_APNS_KEY_ID)")
 	teamID := flag.String("apns-team", envOr("ZUNA_PUSH_APNS_TEAM", "SGKB9R23YT"), "the Apple Developer team that publishes the app (env ZUNA_PUSH_APNS_TEAM)")
-	topic := flag.String("apns-topic", envOr("ZUNA_PUSH_APNS_TOPIC", "chat.zuna.app"), "the app's bundle ID (env ZUNA_PUSH_APNS_TOPIC)")
+	topic := flag.String("apns-topic", envOr("ZUNA_PUSH_APNS_TOPIC", "chat.zuna.mobile"), "the app's bundle ID (env ZUNA_PUSH_APNS_TOPIC)")
 	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_PUSH_TRUST_PROXY"))
 	flag.BoolVar(&trustProxy, "trust-proxy", trustProxy, "take callers' addresses from X-Forwarded-For, set by a reverse proxy (env ZUNA_PUSH_TRUST_PROXY)")
 	showVersion := flag.Bool("version", false, "print the version and exit")

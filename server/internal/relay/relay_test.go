@@ -78,7 +78,7 @@ func newHarness(t *testing.T) *harness {
 	der, _ := x509.MarshalPKCS8PrivateKey(key)
 	p8 := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 	fake := newFakeAPNs(t)
-	apns, err := relay.NewAPNs(p8, "KEY123", "TEAM456", "chat.zuna.app")
+	apns, err := relay.NewAPNs(p8, "KEY123", "TEAM456", "chat.zuna.mobile")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func TestRelaysASealedPayloadToApple(t *testing.T) {
 	if sent.Path != "/3/device/"+token || !sent.HTTP2 {
 		t.Fatalf("APNs request: %+v", sent)
 	}
-	for header, want := range map[string]string{"apns-topic": "chat.zuna.app", "apns-push-type": "alert", "apns-priority": "10", "apns-collapse-id": "message-1"} {
+	for header, want := range map[string]string{"apns-topic": "chat.zuna.mobile", "apns-push-type": "alert", "apns-priority": "10", "apns-collapse-id": "message-1"} {
 		if got := sent.Headers.Get(header); got != want {
 			t.Fatalf("%s = %q, want %q", header, got, want)
 		}

@@ -8,7 +8,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.chat.zuna.app</string>
+		<string>group.chat.zuna.mobile</string>
 	</array>
 	<key>keychain-access-groups</key>
 	<array>

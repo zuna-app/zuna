@@ -224,7 +224,7 @@ export class HostApp {
     let directory = this.dir;
     if (this.options.target === "simulator") {
       const udid = simulatorId();
-      const group = execFileSync("xcrun", ["simctl", "get_app_container", udid, BUNDLE_ID, "group.chat.zuna.app"], { encoding: "utf8" }).trim();
+      const group = execFileSync("xcrun", ["simctl", "get_app_container", udid, BUNDLE_ID, "group.chat.zuna.mobile"], { encoding: "utf8" }).trim();
       directory = join(group, "Zuna");
       if (!existsSync(directory)) {
         const data = execFileSync("xcrun", ["simctl", "get_app_container", udid, BUNDLE_ID, "data"], { encoding: "utf8" }).trim();
