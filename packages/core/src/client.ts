@@ -76,6 +76,8 @@ export interface ZunaClientOptions {
 }
 
 const PREVIEWS_KEPT = 50;
+/** How long what's on this device stays after a server ended its session, unless the person clears it first. */
+const SIGNED_OUT_KEPT_MS = 30 * 24 * 3600 * 1000;
 
 export class ZunaClient {
   private sessions = new Map<string, ServerSession>();
@@ -94,8 +96,18 @@ export class ZunaClient {
       name TEXT NOT NULL,
       has_icon INTEGER NOT NULL DEFAULT 0
     )`);
-    const rows = this.index.all<{ id: string; account: Uint8Array }>("SELECT id, account FROM servers ORDER BY position");
+    const columns = this.index.all<{ name: string }>("PRAGMA table_info(servers)").map((column) => column.name);
+    if (!columns.includes("signed_out")) {
+      this.index.run("ALTER TABLE servers ADD COLUMN signed_out TEXT");
+      this.index.run("ALTER TABLE servers ADD COLUMN signed_out_at INTEGER");
+    }
+    const rows = this.index.all<{ id: string; account: Uint8Array; signed_out_at: number | null }>("SELECT id, account, signed_out_at FROM servers ORDER BY position");
     for (const row of rows) {
+      if (row.signed_out_at && Date.now() - row.signed_out_at > SIGNED_OUT_KEPT_MS) {
+        this.index.run("DELETE FROM servers WHERE id = ?", [row.id]);
+        await this.options.db.remove(serverDbName(row.id));
+        continue;
+      }
       const json = fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account")));
       const session = await this.createSession(row.id, decodeAccount(json));
       session.start();
@@ -124,7 +136,13 @@ export class ZunaClient {
       this.options.deviceName,
       this.options.files,
     );
-    session.onSignedOut = () => void this.forgetServer(serverId);
+    // Nothing is erased on the server's word: that's for the person to decide.
+    session.onSignedOut = (reason) => {
+      this.index.run("UPDATE servers SET signed_out = ?, signed_out_at = COALESCE(signed_out_at, ?) WHERE id = ?", [reason, Date.now(), serverId]);
+    };
+    session.onSignedIn = () => {
+      this.index.run("UPDATE servers SET signed_out = NULL, signed_out_at = NULL WHERE id = ?", [serverId]);
+    };
     session.setActive(this.active);
     this.sessions.set(serverId, session);
     return session;
@@ -186,8 +204,8 @@ export class ZunaClient {
   // --- Servers ---
 
   listServers(): ServerEntry[] {
-    const rows = this.index.all<{ id: string; account: Uint8Array; name: string; has_icon: number }>(
-      "SELECT id, account, name, has_icon FROM servers ORDER BY position",
+    const rows = this.index.all<{ id: string; account: Uint8Array; name: string; has_icon: number; signed_out: string | null }>(
+      "SELECT id, account, name, has_icon, signed_out FROM servers ORDER BY position",
     );
     return rows.map((row) => {
       const account = JSON.parse(fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account"))));
@@ -199,6 +217,7 @@ export class ZunaClient {
         username: account.username,
         userId: account.userId,
         role: this.sessions.get(row.id)?.getSelf().role ?? account.role,
+        signedOut: row.signed_out ?? null,
       };
     });
   }
@@ -268,7 +287,11 @@ export class ZunaClient {
     }
   }
 
-  /** Signs out of a server and erases everything stored for it on this device. */
+  /**
+   * Signs out of a server and erases everything stored for it on this device.
+   * This, and signing in again, are the only things that erase it: the person's
+   * own decisions.
+   */
   async leaveServer(serverId: string): Promise<void> {
     await this.sessions.get(serverId)?.signOut();
     await this.forgetServer(serverId);

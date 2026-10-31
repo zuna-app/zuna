@@ -238,6 +238,8 @@ export interface ConversationView {
   readBy: Record<string, number>;
   ownRead: number;
   ready: boolean;
+  /** You're no longer in this conversation. Its messages stay until you clear them, or for a while. */
+  removed: boolean;
 }
 
 export interface Emote {
@@ -292,6 +294,8 @@ export interface ServerEntry {
   username: string;
   userId: string;
   role: Role;
+  /** The server ended this device's session, and why. What's on this device stays until you decide. */
+  signedOut: string | null;
 }
 
 export type ConnectionState = "connecting" | "syncing" | "online" | "offline";
@@ -323,5 +327,7 @@ export type CoreEvent =
   | { type: "emotes"; serverId: string }
   | { type: "preferences"; serverId: string }
   | { type: "signed_out"; serverId: string; reason: string }
+  /** A session that seemed to be over is working after all. */
+  | { type: "signed_in"; serverId: string }
   | { type: "security"; serverId: string; userId: string; message: string }
   | { type: "notify"; serverId: string; title: string; body: string; conversationKey: string; groupId: string; messageId: string };

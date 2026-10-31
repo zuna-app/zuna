@@ -237,7 +237,7 @@ describe("groups", () => {
 
   it("rotates keys when a member is removed, cutting them off", async () => {
     await alice.session.removeMember(groupId, carol.userId);
-    await waitFor(() => !carol.session.getConversations().some((item) => item.groupId === groupId), "carol to lose the group");
+    await waitFor(() => carol.session.getConversations().find((item) => item.groupId === groupId)?.removed === true, "carol to lose the group");
     const session = alice.session as any;
     const epochAfter = session.mlsEpoch(groupId);
     alice.session.sendMessage(`group:${groupId}`, { text: "without carol" });

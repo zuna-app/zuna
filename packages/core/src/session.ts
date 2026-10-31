@@ -93,6 +93,10 @@ const PAGE_SIZE = 50;
 const TYPING_THROTTLE_MS = 3000;
 const RECONCILE_JITTER_MS = 2500;
 const MAX_COMMIT_ATTEMPTS = 6;
+/** How long the messages of a chat you were removed from stay, unless you clear them first. */
+const REMOVED_KEPT_MS = 30 * 24 * 3600 * 1000;
+/** How often to check whether a session that seemed to end is really over, such as after a proxy's hiccup. */
+const SIGNED_OUT_RETRY_MS = 5 * 60 * 1000;
 const VAULT_BATCH = 200;
 const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
 
@@ -140,6 +144,10 @@ interface CachedGroup {
   readStates: Record<string, string | null>;
   readBy: Record<string, number>;
   ownRead: number;
+  /** When the server said this device's person is no longer in this conversation. */
+  removedAt?: number | null;
+  /** People the server says left, not yet shown, until MLS confirms their keys are gone. */
+  pendingRemovals?: Record<string, { actor: string; seq: number; at: number }>;
 }
 
 interface MessageRow {
@@ -241,10 +249,19 @@ export class ServerSession {
   private muteTimer: ReturnType<typeof setTimeout> | undefined;
   private reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private stopped = false;
+  /** Why the server says this session is over, if it has. */
+  private signedOutReason: string | null = null;
+  private signedOutRetry: ReturnType<typeof setTimeout> | undefined;
   /** The epoch each group's key was last checked against MLS at. */
   private confirmedEpochs = new Map<string, number>();
+  /** The epoch each group's tree was last found clean at, so sending needn't check it every time. */
+  private cleanEpochs = new Map<string, number>();
+  /** Who holds each group's keys now, for showing its members. */
+  private treeUsersCache = new Map<string, Set<string>>();
   /** Called when the server told us this session is over (banned, revoked). */
   onSignedOut: ((reason: string) => void) | null = null;
+  /** Called when a session that seemed to be over turns out to be working. */
+  onSignedIn: (() => void) | null = null;
 
   constructor(
     readonly serverId: string,
@@ -286,6 +303,7 @@ export class ServerSession {
 
   start(): void {
     this.markStaleSendsFailed();
+    this.forgetOldRemovedGroups();
     this.connect();
   }
 
@@ -300,6 +318,7 @@ export class ServerSession {
     this.socket.stop();
     clearTimeout(this.flushRetry);
     clearTimeout(this.muteTimer);
+    clearTimeout(this.signedOutRetry);
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
     this.reconcileTimers.clear();
   }
@@ -344,13 +363,31 @@ export class ServerSession {
     return this.connection;
   }
 
+  /**
+   * The server says this session is over. That alone is no reason to erase
+   * anything: a hacked server or a confused proxy can say it too. What's here
+   * stays until the person signs in again or clears it. A session that merely
+   * stopped working is tried again now and then, in case it wasn't really over.
+   */
   private signedOut(reason: string): void {
     this.stop();
-    this.emit({ type: "signed_out", serverId: this.serverId, reason });
-    this.onSignedOut?.(reason);
+    this.setConnection("offline");
+    if (this.signedOutReason !== reason) {
+      this.signedOutReason = reason;
+      this.emit({ type: "signed_out", serverId: this.serverId, reason });
+      this.onSignedOut?.(reason);
+    }
+    if (reason === "session_ended") {
+      this.signedOutRetry = setTimeout(() => this.connect(), SIGNED_OUT_RETRY_MS);
+    }
   }
 
   private async onConnected(): Promise<void> {
+    if (this.signedOutReason) {
+      this.signedOutReason = null;
+      this.emit({ type: "signed_in", serverId: this.serverId });
+      this.onSignedIn?.();
+    }
     this.setConnection("syncing");
     try {
       await this.syncAll();
@@ -382,7 +419,7 @@ export class ServerSession {
     const seen = new Set(groups.map((group) => group.id));
     for (const group of groups) this.applyGroup(group);
     for (const id of known) {
-      if (!seen.has(id)) this.removeGroupLocally(id);
+      if (!seen.has(id)) this.markRemoved(id);
     }
     this.emitConversations();
     for (const group of groups) await this.syncGroup(group.id);
@@ -915,6 +952,9 @@ export class ServerSession {
       readStates: Object.fromEntries(api.members.map((member) => [member.user_id, member.read_state])),
       readBy: previous?.readBy ?? {},
       ownRead: previous?.ownRead ?? 0,
+      // The server listing us as a member means we're in it after all.
+      removedAt: null,
+      pendingRemovals: previous?.pendingRemovals,
     };
     this.groups.set(api.id, group);
     this.refreshGroupSecrets(group);
@@ -964,6 +1004,37 @@ export class ServerSession {
     }
   }
 
+  /**
+   * The server says this person is no longer in a conversation. This device stops
+   * taking part, but keeps what it has: the server's word is no reason to erase
+   * anything, and it may turn out to be wrong. It goes when the person clears it,
+   * or after a while.
+   */
+  private markRemoved(groupId: string): void {
+    const group = this.groups.get(groupId);
+    if (!group || group.removedAt) return;
+    group.removedAt = Date.now();
+    this.persistGroup(group);
+    this.forgetMlsState(groupId);
+    this.emitConversations();
+  }
+
+  private forgetMlsState(groupId: string): void {
+    this.confirmedEpochs.delete(groupId);
+    this.cleanEpochs.delete(groupId);
+    this.treeUsersCache.delete(groupId);
+    const timer = this.reconcileTimers.get(groupId);
+    if (timer) clearTimeout(timer);
+    this.reconcileTimers.delete(groupId);
+    try {
+      this.mls.deleteGroup(utf8(groupId));
+      this.saveMls();
+    } catch (error) {
+      console.warn("[zuna] removing group state", error);
+    }
+  }
+
+  /** Erases a conversation from this device, because the person asked. */
   private removeGroupLocally(groupId: string): void {
     this.groups.delete(groupId);
     this.db.transaction(() => {
@@ -971,14 +1042,23 @@ export class ServerSession {
       this.db.run("DELETE FROM messages WHERE group_id = ?", [groupId]);
       this.db.run("DELETE FROM groups WHERE id = ?", [groupId]);
       this.db.run("DELETE FROM epoch_keys WHERE group_id = ?", [groupId]);
+      this.db.run("DELETE FROM joined_epochs WHERE group_id = ?", [groupId]);
+      this.db.run("DELETE FROM epoch_starts WHERE group_id = ?", [groupId]);
+      this.db.run("DELETE FROM device_departures WHERE group_id = ?", [groupId]);
     });
-    try {
-      this.mls.deleteGroup(utf8(groupId));
-      this.saveMls();
-    } catch (error) {
-      console.warn("[zuna] removing group state", error);
-    }
+    this.forgetMlsState(groupId);
     this.emitConversations();
+  }
+
+  /** Clears a conversation this person was removed from, from this device. */
+  forgetConversation(groupId: string): void {
+    if (this.groups.get(groupId)?.removedAt) this.removeGroupLocally(groupId);
+  }
+
+  private forgetOldRemovedGroups(): void {
+    for (const group of [...this.groups.values()]) {
+      if (group.removedAt && Date.now() - group.removedAt > REMOVED_KEPT_MS) this.removeGroupLocally(group.id);
+    }
   }
 
   private emitConversations(): void {
@@ -1302,11 +1382,11 @@ export class ServerSession {
     this.scheduleReconcile(groupId);
   }
 
-  /** A sync started from an event. A group we were removed from is simply dropped. */
+  /** A sync started from an event. A group we were removed from stops being taken part in. */
   private backgroundSync(groupId: string): void {
     void this.syncGroup(groupId).catch((error) => {
       if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
-        void this.withLock(groupId, async () => this.removeGroupLocally(groupId));
+        void this.withLock(groupId, async () => this.markRemoved(groupId));
       } else {
         console.warn("[zuna] sync failed", error);
       }
@@ -1329,7 +1409,8 @@ export class ServerSession {
   }
 
   private async pullPage(groupId: string): Promise<boolean> {
-    if (!this.groups.has(groupId)) return false;
+    const cached = this.groups.get(groupId);
+    if (!cached || cached.removedAt) return false;
     if (!this.hasMlsGroup(groupId)) {
       const group = await this.api.group(groupId);
       this.applyGroup(group);
@@ -1600,7 +1681,7 @@ export class ServerSession {
         break;
       }
       case "group_removed":
-        void this.withLock(data.group_id, async () => this.removeGroupLocally(data.group_id)).catch(() => undefined);
+        void this.withLock(data.group_id, async () => this.markRemoved(data.group_id)).catch(() => undefined);
         break;
       case "welcome":
         void this.processWelcomes().then(() => this.processHistoryGrants()).catch((error) => console.warn("[zuna] welcome", error));
@@ -2015,7 +2096,8 @@ export class ServerSession {
         historyVisible: group.historyVisible,
         readBy: group.readBy,
         ownRead: group.ownRead,
-        ready: group.epoch > 0,
+        ready: group.epoch > 0 && !group.removedAt,
+        removed: !!group.removedAt,
       });
     }
 
@@ -2044,6 +2126,7 @@ export class ServerSession {
         readBy: {},
         ownRead: 0,
         ready: false,
+        removed: false,
       });
     }
     return out.sort(
@@ -2293,7 +2376,7 @@ export class ServerSession {
     }
     const peerId = key.slice(5);
     const existing = this.dmWith(peerId);
-    if (existing && existing.epoch > 0) return existing.id;
+    if (existing && existing.epoch > 0 && !existing.removedAt) return existing.id;
     const created = await this.api.createDm(peerId);
     this.applyGroup(created.group);
     return created.group.id;
