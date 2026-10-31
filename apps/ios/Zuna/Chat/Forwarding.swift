@@ -111,7 +111,8 @@ struct ForwardSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let serverId: String
-    let message: MessageView
+    let messages: [MessageView]
+    var onForwarded: () -> Void = {}
     @State private var query = ""
 
     var body: some View {
@@ -122,7 +123,8 @@ struct ForwardSheet: View {
                         ForEach(section.chats) { chat in
                             Button {
                                 dismiss()
-                                Task { await model.forward(message, from: serverId, to: section.server.entry.id, chat) }
+                                onForwarded()
+                                Task { await model.forward(messages, from: serverId, to: section.server.entry.id, chat) }
                             } label: {
                                 row(chat, server: section.server)
                             }

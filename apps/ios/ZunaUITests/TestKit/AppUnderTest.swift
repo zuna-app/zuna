@@ -47,6 +47,8 @@ final class AppUnderTest {
             "-AppleLocale", "en_US",
         ]
         if fresh { app.launchArguments += ["-ZunaResetData", "YES"] }
+        // Voice messages record a tone: the simulator's microphone is the Mac's, behind the Mac's own permission.
+        app.launchArguments += ["-ZunaFakeMicrophone", "YES"]
         app.launchArguments += ["-ZunaAskForNotifications", notifications ? "YES" : "NO"]
         if notifications {
             // The test relay and a made-up token stand in for APNs, which the simulator can't use without the app's key.

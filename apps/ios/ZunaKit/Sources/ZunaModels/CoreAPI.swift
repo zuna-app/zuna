@@ -37,9 +37,9 @@ extension CoreConnection {
     public func findLink(_ text: String) async throws -> String? { try await call("findLink", [text]) }
     /// Fetches a link's page on this device and makes its preview. Only when the person allows link previews.
     public func linkPreview(_ url: String) async throws -> LinkPreview? { try await call("linkPreview", [url]) }
-    /// Forwards a message to a conversation on any server (see ZunaClient.forwardMessage).
-    public func forwardMessage(from serverId: String, groupId: String, id: String, to targetServerId: String, conversationKey: String) async throws {
-        try await call("forwardMessage", [serverId, groupId, id, targetServerId, conversationKey])
+    /// Forwards messages, in order, to a conversation on any server (see ZunaClient.forwardMessages).
+    public func forwardMessages(from serverId: String, groupId: String, ids: [String], to targetServerId: String, conversationKey: String) async throws {
+        try await call("forwardMessages", [serverId, groupId, ids, targetServerId, conversationKey])
     }
 
     public func session(_ serverId: String) -> SessionCalls { SessionCalls(connection: self, serverId: serverId) }
@@ -103,6 +103,12 @@ public struct SessionCalls: Sendable {
         try await run("editMessage", [groupId, id, text, emotes, mentions])
     }
     public func deleteMessage(_ groupId: String, id: String) async throws { try await run("deleteMessage", [groupId, id]) }
+    public func deleteMessages(_ groupId: String, ids: [String]) async throws { try await run("deleteMessages", [groupId, ids]) }
+    /// Mutes a chat until `until` (ms since 1970), or without it until it's unmuted.
+    public func mute(_ conversationKey: String, until: Double? = nil) async throws {
+        try await run("mute", until.map { [conversationKey, $0] } ?? [conversationKey])
+    }
+    public func unmute(_ conversationKey: String) async throws { try await run("unmute", [conversationKey]) }
     public func setPinned(_ groupId: String, id: String, pinned: Bool) async throws { try await run("setPinned", [groupId, id, pinned]) }
     public func toggleReaction(_ groupId: String, messageId: String, key: String, emote: EmoteRef? = nil) async throws {
         try await run("toggleReaction", emote.map { [groupId, messageId, key, $0] } ?? [groupId, messageId, key])
@@ -253,8 +259,10 @@ public struct OutgoingFile: Codable, Sendable, Equatable {
     /// A tiny preview as a JPEG data URL, shown blurred until the picture is decrypted.
     public var thumb: String?
     public var duration: Double?
+    public var voice: Bool?
+    public var waveform: String?
 
-    public init(blob: WireFile, name: String, mime: String, width: Int? = nil, height: Int? = nil, thumb: String? = nil, duration: Double? = nil) {
+    public init(blob: WireFile, name: String, mime: String, width: Int? = nil, height: Int? = nil, thumb: String? = nil, duration: Double? = nil, voice: Bool? = nil, waveform: String? = nil) {
         self.blob = blob
         self.name = name
         self.mime = mime
@@ -262,6 +270,8 @@ public struct OutgoingFile: Codable, Sendable, Equatable {
         self.height = height
         self.thumb = thumb
         self.duration = duration
+        self.voice = voice
+        self.waveform = waveform
     }
 }
 

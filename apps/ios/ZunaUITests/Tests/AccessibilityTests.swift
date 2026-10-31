@@ -23,7 +23,8 @@ final class AccessibilityTests: XCTestCase {
         let input = zuna.element(A11y.Composer.input)
         XCTAssertTrue(input.waitForExistence(timeout: 10))
         XCTAssertTrue(input.isHittable)
-        XCTAssertTrue(zuna.element(A11y.Composer.send).isHittable)
+        // With nothing written, the microphone takes Send's place.
+        XCTAssertTrue(zuna.element(A11y.Composer.microphone).isHittable)
         zuna.screenshot("a11y-11-chat")
 
         zuna.app.navigationBars.buttons.element(boundBy: 0).tap()

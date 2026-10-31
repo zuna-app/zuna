@@ -67,9 +67,12 @@ final class ConversationListTests: XCTestCase {
         XCTAssertTrue(carol.label.contains("Pinned"))
         XCTAssertTrue(try zuna.preferences()["pinned"]?.contains(carolKey) ?? false)
 
-        // Muted from the context menu.
+        // Muted from the context menu, until it's unmuted.
         carol.press(forDuration: 1)
         zuna.app.buttons["Mute"].tap()
+        let forever = zuna.app.buttons["Until I turn it back on"]
+        XCTAssertTrue(forever.waitForExistence(timeout: 5))
+        forever.tap()
         try waitFor("the muted mark") { carol.label.contains("Muted") }
         zuna.screenshot("52-pinned-and-muted")
 

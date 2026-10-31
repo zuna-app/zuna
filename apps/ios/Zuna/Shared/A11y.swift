@@ -83,6 +83,10 @@ enum A11y {
         static let search = "chat.search"
         static let pins = "chat.pins"
         static let forwarded = "chat.forwarded"
+        static let selectionBar = "chat.selectionBar"
+        static let selectionCount = "chat.selectionCount"
+        static func selectToggle(_ id: String) -> String { "chat.select.\(id)" }
+        static func voice(_ id: String) -> String { "chat.voice.\(id)" }
         static func linkPreview(_ id: String) -> String { "chat.linkPreview.\(id)" }
         static func quickReaction(_ emoji: String) -> String { "chat.quickReaction.\(emoji)" }
         static func result(_ id: String) -> String { "chat.result.\(id)" }
@@ -104,6 +108,8 @@ enum A11y {
         static let disabled = "composer.disabled"
         static let linkPreview = "composer.linkPreview"
         static let removeLinkPreview = "composer.removeLinkPreview"
+        static let microphone = "composer.microphone"
+        static let recording = "composer.recording"
         static func pickerEmote(_ name: String) -> String { "composer.picker.\(name)" }
         static func suggestion(_ label: String) -> String { "composer.suggestion.\(label)" }
         static func file(_ name: String) -> String { "composer.file.\(name)" }
