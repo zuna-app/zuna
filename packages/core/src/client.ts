@@ -13,8 +13,9 @@ import { randomId, type VaultCore } from "./crypto";
 import { fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 import { migrate, type DbProvider, type LocalDb } from "./db";
 import type { FileAdapter } from "./files";
+import { findLink, makeLinkPreview, type WebAdapter } from "./links";
 import { ServerSession } from "./session";
-import type { CoreEvent, InvitePreview, Profile, ServerEntry, ServerInfo } from "./types";
+import type { CoreEvent, InvitePreview, LinkPreview, MessageBody, Profile, ServerEntry, ServerInfo } from "./types";
 
 export const INDEX_DB = "zuna-index";
 export const label = (text: string) => utf8(`zuna/local/${text}`);
@@ -70,12 +71,17 @@ export interface ZunaClientOptions {
   onEvent: (event: CoreEvent) => void;
   /** How files are read and returned. Blobs by default. */
   files?: FileAdapter;
+  /** How link previews fetch pages. Without it, links have no previews. */
+  web?: WebAdapter;
 }
+
+const PREVIEWS_KEPT = 50;
 
 export class ZunaClient {
   private sessions = new Map<string, ServerSession>();
   private index!: LocalDb;
   private active = false;
+  private previews = new Map<string, Promise<LinkPreview | null>>();
 
   constructor(private readonly options: ZunaClientOptions) {}
 
@@ -207,6 +213,56 @@ export class ZunaClient {
     const session = this.sessions.get(serverId);
     if (!session) throw new Error("That server isn't connected.");
     return session;
+  }
+
+  // --- Messages across servers ---
+
+  /** The first link in a draft that can have a preview. */
+  findLink(text: string): string | null {
+    return findLink(text);
+  }
+
+  /**
+   * Makes a link's preview on this device, which fetches the page, so only
+   * when the person allows link previews. Recent ones are remembered while
+   * someone types.
+   */
+  linkPreview(url: string): Promise<LinkPreview | null> {
+    const web = this.options.web;
+    if (!web) return Promise.resolve(null);
+    let preview = this.previews.get(url);
+    if (!preview) {
+      preview = makeLinkPreview(web, url).catch(() => null);
+      this.previews.set(url, preview);
+      if (this.previews.size > PREVIEWS_KEPT) this.previews.delete(this.previews.keys().next().value!);
+    }
+    return preview;
+  }
+
+  /**
+   * Forwards a message to a conversation on any server. On the same server it
+   * says whose it was and shares its files. On another server it only says
+   * it's forwarded, since its author isn't known there, and its files are
+   * uploaded there again.
+   */
+  async forwardMessage(fromServerId: string, groupId: string, id: string, toServerId: string, toKey: string): Promise<void> {
+    const source = this.session(fromServerId);
+    if (fromServerId === toServerId) {
+      source.forwardMessage(groupId, id, toKey);
+      return;
+    }
+    const { senderId: _, attachments, ...original } = source.forwardable(groupId, id);
+    const target = this.session(toServerId);
+    const body: MessageBody = { ...original, forwarded: {} };
+    if (!attachments?.length) {
+      target.sendMessage(toKey, body);
+      return;
+    }
+    const files = [];
+    for (const { fileId, key, prefix, chunks, ...details } of attachments) {
+      files.push({ ...details, blob: await source.downloadFile({ fileId, key, prefix, chunks, mime: details.mime }) });
+    }
+    await target.sendWithAttachments(toKey, files, body);
   }
 
   /** Signs out of a server and erases everything stored for it on this device. */

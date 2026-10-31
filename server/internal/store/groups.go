@@ -478,7 +478,8 @@ func (d *DB) SetReadState(ctx context.Context, groupID, userID string, state []b
 	return err
 }
 
-// DeleteGroup removes a group and everything in it, returning its files.
+// DeleteGroup removes a group and everything in it, returning the files no
+// other group uses.
 func (d *DB) DeleteGroup(ctx context.Context, groupID string) ([]string, error) {
 	var fileIDs []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
@@ -495,7 +496,10 @@ func (d *DB) DeleteGroup(ctx context.Context, groupID string) ([]string, error) 
 			fileIDs = append(fileIDs, strings.Split(ids, ",")...)
 		}
 		rows.Close()
-		_, err = tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, groupID)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, groupID); err != nil {
+			return err
+		}
+		fileIDs, err = unshared(ctx, tx, fileIDs)
 		return err
 	})
 	return fileIDs, err

@@ -10,6 +10,7 @@
     ".": "./src/index.ts",
     "./rpc": "./src/rpc.ts",
     "./plain-text": "./src/plain-text.ts",
+    "./links": "./src/links.ts",
     "./types": "./src/types.ts"
   },
   "scripts": {

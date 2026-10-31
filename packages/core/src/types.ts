@@ -112,6 +112,29 @@ export interface MessageBody {
   emotes?: Record<string, EmoteRef>;
   attachments?: Attachment[];
   mentions?: string[];
+  /** The preview of the first link in the text, made by the sender's device. */
+  preview?: LinkPreview;
+  forwarded?: ForwardInfo;
+}
+
+/**
+ * A link's preview. The sender's device fetches the page and sends what it
+ * found inside the message, so recipients never contact the site and the
+ * server never sees the link.
+ */
+export interface LinkPreview {
+  /** The link as it appears in the message's text. */
+  url: string;
+  title?: string;
+  description?: string;
+  siteName?: string;
+  /** The page's picture, shrunk to a small JPEG, as a data URL. */
+  image?: { data: string; width: number; height: number };
+}
+
+/** Marks a forwarded message: whose it was on the same server, or nobody named when it came from another server. */
+export interface ForwardInfo {
+  userId?: string;
 }
 
 export interface ReactionView {
@@ -163,6 +186,8 @@ export interface MessageView {
   reply: ReplyPreview | null;
   reactions: ReactionView[];
   system: SystemEvent | null;
+  preview: LinkPreview | null;
+  forwarded: ForwardInfo | null;
   uploadProgress?: number;
 }
 

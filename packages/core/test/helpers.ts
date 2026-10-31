@@ -8,9 +8,12 @@ import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { crc32, deflateSync } from "node:zlib";
 import { initCryptoSync, randomBytes } from "@zuna/crypto";
 import { ZunaClient } from "../src/client";
 import type { DbProvider, LocalDb, SqlValue } from "../src/db";
+import { toBase64 } from "../src/encoding";
+import type { WebAdapter } from "../src/links";
 import type { CoreEvent } from "../src/types";
 
 const require = createRequire(import.meta.url);
@@ -181,6 +184,8 @@ export class TestApp {
   readonly events: CoreEvent[] = [];
   client!: ZunaClient;
   serverId = "";
+  /** How link previews fetch pages, if this app makes them. */
+  web?: WebAdapter;
 
   /** Given a folder, the app keeps its data there and can be reopened by a later process. */
   constructor(
@@ -197,6 +202,7 @@ export class TestApp {
       deviceKey: this.deviceKey,
       deviceName: this.name,
       onEvent: (event) => this.events.push(event),
+      web: this.web,
     });
     await this.client.open();
     const first = this.client.listServers()[0];
@@ -247,6 +253,48 @@ export class TestApp {
       .map((view: { text: string; status: string }) => (view.status === "sent" ? view.text : `<${view.status}>`));
   }
 }
+
+/** A solid PNG, as a page's picture would be. */
+export function png(width: number, height: number): Uint8Array {
+  const chunk = (type: string, data: Uint8Array) => {
+    const out = Buffer.alloc(12 + data.length);
+    out.writeUInt32BE(data.length, 0);
+    out.write(type, 4, "latin1");
+    out.set(data, 8);
+    out.writeUInt32BE(crc32(out.subarray(4, 8 + data.length)), 8 + data.length);
+    return out;
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8);
+  const rows = Buffer.alloc((width * 3 + 1) * height, 0x7a);
+  for (let row = 0; row < height; row++) rows[row * (width * 3 + 1)] = 0;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(rows)),
+    chunk("IEND", new Uint8Array(0)),
+  ]);
+}
+
+/**
+ * Link previews in Node: pages come from fetch, and pictures, which Node can't
+ * shrink, are passed through when they're PNGs, with their size from the header.
+ */
+export const nodeWeb: WebAdapter = {
+  async fetch(url, maxBytes) {
+    const response = await fetch(url, { redirect: "follow" });
+    const body = new Uint8Array(await response.arrayBuffer()).subarray(0, maxBytes);
+    return { url: response.url, type: response.headers.get("content-type") ?? "", body };
+  },
+  async shrinkImage(body) {
+    const png = [0x89, 0x50, 0x4e, 0x47].every((byte, index) => body[index] === byte);
+    if (!png) return null;
+    const view = new DataView(body.buffer, body.byteOffset, body.byteLength);
+    return { data: `data:image/png;base64,${toBase64(body)}`, width: view.getUint32(16), height: view.getUint32(20) };
+  },
+};
 
 export async function waitFor(condition: () => boolean | Promise<boolean>, what: string, timeoutMs = 20_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

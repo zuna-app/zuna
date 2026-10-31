@@ -117,6 +117,49 @@ func TestDeliveredItemIDsAreNeverReused(t *testing.T) {
 	}
 }
 
+func TestForwardedFilesStayUntilTheLastCopyIsGone(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	first, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(group, id string, files ...string) {
+		t.Helper()
+		if _, _, err := db.CreateMessage(ctx, Message{
+			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
+		}, files); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send(first, "original", "photo", "notes")
+	send(first, "forwarded-here", "photo")
+	send(second, "forwarded-there", "photo", "notes")
+
+	_, files, err := db.DeleteMessage(ctx, first, "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 0 {
+		t.Fatalf("removed files = %v, but the forwarded copies still use them", files)
+	}
+	if _, files, err = db.DeleteMessage(ctx, first, "forwarded-here"); err != nil || len(files) != 0 {
+		t.Fatalf("removed files = %v (%v), but the other group still uses the photo", files, err)
+	}
+	files, err = db.DeleteGroup(ctx, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(files)
+	if !slices.Equal(files, []string{"notes", "photo"}) {
+		t.Fatalf("removed files = %v, want both once the last copy is gone", files)
+	}
+}
+
 func TestAttachedFilesAreExemptFromCleanup(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)

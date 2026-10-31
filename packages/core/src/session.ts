@@ -36,6 +36,7 @@ import {
 import { equalBytes, fromBase64, fromUtf8, toBase64, toBase64Url, u64Bytes, utf8 } from "./encoding";
 import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
+import { checkPreview } from "./links";
 import { notificationText, previewText } from "./notify";
 import { indexTokens, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
@@ -49,6 +50,7 @@ import type {
   Emote,
   EmoteRef,
   EmoteSet,
+  ForwardInfo,
   GroupMemberView,
   GroupRole,
   Invite,
@@ -159,6 +161,8 @@ type OutboxEntry =
 type Mutex = Promise<unknown>;
 
 const emptyProfile = (username: string): Profile => ({ displayName: username });
+
+const forwardInfo = (value: ForwardInfo): ForwardInfo => (typeof value.userId === "string" ? { userId: value.userId } : {});
 
 export class ServerSession {
   readonly api: Api;
@@ -1765,6 +1769,8 @@ export class ServerSession {
       reply: body.replyTo ? this.replyPreview(row.group_id, body.replyTo) : null,
       reactions: body.reactions ?? [],
       system: body.system ?? null,
+      preview: checkPreview(body.preview, body.text ?? ""),
+      forwarded: body.forwarded && typeof body.forwarded === "object" ? forwardInfo(body.forwarded) : null,
     };
   }
 
@@ -2101,6 +2107,34 @@ export class ServerSession {
     return view;
   }
 
+  /** What a message says, to forward it: its text, emotes, files and preview, and whose it was. */
+  forwardable(groupId: string, id: string): MessageBody & { senderId: string } {
+    const row = this.messageRow(groupId, id);
+    if (!row?.body || row.status !== "sent" || row.deleted_at !== null) throw new Error("That message can't be forwarded.");
+    const body = this.openJson<StoredBody>("message", row.body);
+    return {
+      text: body.text,
+      emotes: body.emotes,
+      attachments: body.attachments,
+      preview: checkPreview(body.preview, body.text ?? "") ?? undefined,
+      forwarded: body.forwarded ? forwardInfo(body.forwarded) : undefined,
+      senderId: row.sender_user,
+    };
+  }
+
+  /**
+   * Forwards a message to another conversation on this server, saying whose
+   * it was. Its files aren't uploaded again: the copy shares them.
+   */
+  forwardMessage(groupId: string, id: string, toKey: string): MessageView {
+    const { senderId, ...original } = this.forwardable(groupId, id);
+    const body: MessageBody = { ...original, forwarded: original.forwarded ?? { userId: senderId } };
+    const newId = randomId();
+    const view = this.ensureLocalEcho(toKey, newId, body);
+    this.enqueue(toKey, { kind: "message", id: newId, body, fileIds: body.attachments?.map((item) => item.fileId) });
+    return view;
+  }
+
   /** Sends a message. It appears immediately and survives restarts until delivered. */
   sendMessage(groupKey: string, body: MessageBody): MessageView {
     const id = randomId();
@@ -2268,6 +2302,9 @@ export class ServerSession {
       mentions,
       replyTo: previous.replyTo,
       attachments: previous.attachments,
+      // The preview stays while its link does; an edit doesn't fetch a new one.
+      preview: previous.preview && text.includes(previous.preview.url) ? previous.preview : undefined,
+      forwarded: previous.forwarded,
     };
     this.db.run("UPDATE messages SET body = ?, edited_at = ? WHERE group_id = ? AND id = ?", [
       this.sealJson("message", { ...previous, ...body }),
