@@ -176,6 +176,8 @@ final class CryptoBridge {
             return b(try client.generateKeyPackage(lastResort: arg(0)?.toBool() ?? false))
         case "keyPackageCredential":
             return b(try client.keyPackageCredential(keyPackage: groupId()))
+        case "keyPackageSignatureKey":
+            return b(try client.keyPackageSignatureKey(keyPackage: groupId()))
         case "createGroup":
             return number(try client.createGroup(groupId: groupId()))
         case "commitChanges":

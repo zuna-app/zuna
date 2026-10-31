@@ -69,6 +69,9 @@ export class MlsClient {
   keyPackageCredential(keyPackage: Uint8Array): Uint8Array {
     return this.call("keyPackageCredential", keyPackage);
   }
+  keyPackageSignatureKey(keyPackage: Uint8Array): Uint8Array {
+    return this.call("keyPackageSignatureKey", keyPackage);
+  }
   createGroup(groupId: Uint8Array): number {
     return this.call("createGroup", groupId);
   }

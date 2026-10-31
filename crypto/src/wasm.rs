@@ -238,6 +238,11 @@ impl MlsClient {
         to_js(self.inner.key_package_credential(key_package))
     }
 
+    #[wasm_bindgen(js_name = keyPackageSignatureKey)]
+    pub fn key_package_signature_key(&self, key_package: &[u8]) -> JsResult<Vec<u8>> {
+        to_js(self.inner.key_package_signature_key(key_package))
+    }
+
     #[wasm_bindgen(js_name = createGroup)]
     pub fn create_group(&self, group_id: &[u8]) -> JsResult<u32> {
         to_js(self.inner.create_group(group_id)).map(|epoch| epoch as u32)

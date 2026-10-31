@@ -200,6 +200,13 @@ impl MlsClient {
         credential_bytes(parsed[0].leaf_node().credential())
     }
 
+    /// The signing key a key package's leaf really uses. The credential only
+    /// claims one, so the two have to be compared before trusting the device.
+    pub fn key_package_signature_key(&self, key_package: &[u8]) -> Result<Vec<u8>> {
+        let parsed = self.parse_key_packages(&[key_package.to_vec()])?;
+        Ok(parsed[0].leaf_node().signature_key().as_slice().to_vec())
+    }
+
     /// Builds one commit that adds and removes members, then keeps it pending.
     pub fn commit_changes(
         &self,
@@ -603,6 +610,61 @@ mod tests {
         alice.process_commit(GROUP, &commit).unwrap();
         assert_eq!(alice.members(GROUP).unwrap().len(), 2, "old leaf replaced");
         assert_eq!(exported(&alice), exported(&bob));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn a_key_package_reveals_the_signing_key_its_leaf_really_uses() {
+        let (public, secret) = signing_keygen().unwrap();
+        let device = MlsClient::new(public.clone(), secret, b"device".to_vec(), vec![]);
+        let package = device.generate_key_package(false).unwrap();
+        assert_eq!(device.key_package_signature_key(&package).unwrap(), public);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn group_info_that_cant_be_used_leaves_the_old_state_alone() {
+        let (alice, bob) = pair();
+        let before = exported(&bob);
+        assert!(bob.join_external(GROUP, b"garbage").is_err());
+
+        // Well-formed, but its signature no longer matches what it says.
+        let mut forged = alice.export_group_info(GROUP).unwrap();
+        let last = forged.len() - 1;
+        forged[last] ^= 0xff;
+        assert!(bob.join_external(GROUP, &forged).is_err());
+
+        assert!(bob.has_group(GROUP).unwrap());
+        assert_eq!(exported(&bob), before);
+        let next = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        bob.process_commit(GROUP, &next.commit).unwrap();
+        assert_eq!(exported(&alice), exported(&bob));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn rollback_undoes_a_join_the_server_refused() {
+        let (public, secret) = signing_keygen().unwrap();
+        let mut bob = MlsClient::new(public, secret, b"bob".to_vec(), vec![]);
+        let alice = client("alice");
+        alice.create_group(GROUP).unwrap();
+        let kp = bob.generate_key_package(false).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        bob.join_from_welcome(&pending.welcome.unwrap()).unwrap();
+        bob.take_changes();
+        let before = exported(&bob);
+        let epoch = bob.epoch(GROUP).unwrap();
+
+        let info = alice.export_group_info(GROUP).unwrap();
+        bob.join_external(GROUP, &info).unwrap();
+        assert_ne!(bob.epoch(GROUP).unwrap(), epoch);
+
+        bob.rollback();
+        assert_eq!(bob.epoch(GROUP).unwrap(), epoch);
+        assert_eq!(exported(&bob), before);
+        assert!(bob.take_changes().set.is_empty(), "nothing to persist after going back");
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

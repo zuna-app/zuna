@@ -282,6 +282,10 @@ impl MlsClient {
         native(self.client().key_package_credential(&key_package))
     }
 
+    pub fn key_package_signature_key(&self, key_package: Vec<u8>) -> NativeResult<Vec<u8>> {
+        native(self.client().key_package_signature_key(&key_package))
+    }
+
     pub fn create_group(&self, group_id: Vec<u8>) -> NativeResult<u64> {
         native(self.client().create_group(&group_id))
     }
