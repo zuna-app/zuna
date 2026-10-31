@@ -22,7 +22,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.2.0",
     "@resvg/resvg-js": "^2.6.2",
     "@sqlite.org/sqlite-wasm": "3.54.1-build1",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",

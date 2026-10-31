@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
     "@zuna/core": "*",
     "typescript": "^5.9.0",
