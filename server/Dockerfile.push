@@ -1,0 +1,17 @@
+# zuna-push, the push relay, for the project's own deployment; see docs/PUSH_RELAY.md.
+FROM golang:1.25-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG VERSION=docker
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /zuna-push ./cmd/zuna-push
+RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /zuna-push /zuna-push
+COPY --from=build --chown=65532:65532 /out/data /data
+ENV ZUNA_PUSH_DATA=/data ZUNA_PUSH_LISTEN=:8090
+VOLUME /data
+EXPOSE 8090
+ENTRYPOINT ["/zuna-push"]

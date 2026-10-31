@@ -555,7 +555,7 @@ Notifications show the message content, as the owner asked from the start, witho
 
 ### Decisions
 
-- **The relay** (`zuna-push`, a small Go service in this repository) runs on the owner's server, under a domain chosen when it's deployed. It holds the APNs key of the owner's Apple Developer account. Self-hosted servers use it by default.
+- **The relay** (`zuna-push`, a small Go service in this repository) runs on the owner's server, under a domain chosen when it's deployed. It holds the APNs key of the owner's Apple Developer account. Self-hosted servers use it by default. How to run it: [PUSH_RELAY.md](PUSH_RELAY.md).
 - **A push carries only identifiers,** encrypted: the group and message IDs, sealed with a key the device gave the server. The phone fetches the message itself.
 - **Muted chats:** the owner applies to Apple for the notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). It's needed for development, TestFlight and App Store builds alike. Until Apple grants it, the phone gives each server the list of its muted chats, and the server skips them, so mentions in muted chats don't notify. Once it's granted, the list goes, and the extension decides, as the desktop does.
 - **Quick reply and "Mark as read"** from a notification are part of this stage.
