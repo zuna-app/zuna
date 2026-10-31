@@ -4,6 +4,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api } from "../src/api";
 import { parseInviteLink } from "../src/account";
+import { previewPush } from "../src/push";
+import type { CoreEvent, MessageView } from "../src/types";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -619,6 +621,58 @@ describe("preferences", () => {
     await waitFor(() => second.session.getPreferences().pinned.includes(key), "preferences on the second device");
     second.client.stop();
     await bob.session.updatePreferences({ pinned: [], hidden: [] });
+  });
+});
+
+describe("notifications from a push", () => {
+  const extension = (app: TestApp) => ({ db: app.db, deviceKey: app.deviceKey });
+  const received = (app: TestApp, text: string) =>
+    app.events
+      .filter((event): event is Extract<CoreEvent, { type: "message" }> => event.type === "message")
+      .map((event) => event.message)
+      .find((message: MessageView) => message.text === text)!;
+
+  it("words a pushed message as the connected session does", async () => {
+    const text = "push me a **note**";
+    alice.session.sendMessage(`user:${bob.userId}`, { text });
+    await waitFor(() => bob.events.some((event) => event.type === "notify" && event.body === "push me a note"), "bob's notification");
+    const notify = bob.events.filter((event) => event.type === "notify").at(-1) as Extract<CoreEvent, { type: "notify" }>;
+    const message = received(bob, text);
+    const preview = await previewPush(extension(bob), bob.serverId, message.groupId, message.id);
+    expect(preview).toMatchObject({
+      title: notify.title,
+      body: notify.body,
+      conversationKey: notify.conversationKey,
+      decrypted: true,
+      muted: false,
+      hidden: false,
+    });
+  });
+
+  it("knows a muted chat, unless the message mentions you", async () => {
+    const groupId = await alice.session.createGroup("Push club", [bob.userId], false);
+    await waitFor(() => bob.session.getConversations().some((item) => item.groupId === groupId), "bob to join");
+    const key = `group:${groupId}`;
+    await bob.session.updatePreferences({ muted: [key] });
+    alice.session.sendMessage(key, { text: "quiet please" });
+    alice.session.sendMessage(key, { text: "hey @bob", mentions: [bob.userId] });
+    await waitFor(() => bob.texts(key).includes("hey @bob"), "delivery to bob");
+
+    const quiet = await previewPush(extension(bob), bob.serverId, groupId, received(bob, "quiet please").id);
+    expect(quiet).toMatchObject({ title: "Push club", body: "alice: quiet please", conversationKey: key, muted: true });
+    const mention = await previewPush(extension(bob), bob.serverId, groupId, received(bob, "hey @bob").id);
+    expect(mention).toMatchObject({ body: "alice: hey @bob", muted: false });
+    await bob.session.updatePreferences({ muted: [] });
+  });
+
+  it("hides your own messages, and names the chat when the message can't be read", async () => {
+    bob.session.sendMessage(`user:${alice.userId}`, { text: "my own words" });
+    await waitFor(() => alice.texts(`user:${bob.userId}`).includes("my own words"), "delivery to alice");
+    const own = received(bob, "my own words");
+    expect((await previewPush(extension(bob), bob.serverId, own.groupId, own.id)).hidden).toBe(true);
+
+    const missing = await previewPush(extension(bob), bob.serverId, own.groupId, "no-such-message");
+    expect(missing).toMatchObject({ title: "alice", body: "New message", decrypted: false, conversationKey: `user:${alice.userId}` });
   });
 });
 

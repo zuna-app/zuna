@@ -36,7 +36,7 @@ import {
 import { equalBytes, fromBase64, fromUtf8, toBase64, toBase64Url, u64Bytes, utf8 } from "./encoding";
 import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
-import { plainText } from "./plain-text";
+import { notificationText, previewText } from "./notify";
 import { indexTokens, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import type {
@@ -1703,28 +1703,12 @@ export class ServerSession {
     if (this.prefs.muted.includes(key) && !mentioned) return;
     const sender = this.users.get(view.senderId);
     const senderName = sender?.profile.displayName || sender?.username || "Someone";
-    const title = group.kind === "dm" ? senderName : `${group.meta.name || "Group"}`;
-    const prefix = group.kind === "dm" ? "" : `${senderName}: `;
-    this.emit({
-      type: "notify",
-      serverId: this.serverId,
-      title,
-      body: prefix + this.previewText(view),
-      conversationKey: key,
-    });
+    const { title, body } = notificationText(group.kind, group.meta.name, senderName, view);
+    this.emit({ type: "notify", serverId: this.serverId, title, body, conversationKey: key });
   }
 
   previewText(view: Pick<MessageView, "text" | "attachments">): string {
-    if (view.text) {
-      const plain = plainText(view.text);
-      return plain.length > 140 ? `${plain.slice(0, 140)}…` : plain;
-    }
-    const first = view.attachments[0];
-    if (!first) return "";
-    if (first.mime.startsWith("image/")) return "📷 Photo";
-    if (first.mime.startsWith("video/")) return "🎬 Video";
-    if (first.mime.startsWith("audio/")) return "🎵 Audio";
-    return `📎 ${first.name}`;
+    return previewText(view);
   }
 
   private toMessageView(row: MessageRow): MessageView {
