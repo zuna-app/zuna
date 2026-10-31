@@ -6,7 +6,8 @@
   "description": "Self-hosted, end-to-end encrypted chat with a modern interface.",
   "workspaces": [
     "packages/*",
-    "apps/*"
+    "apps/*",
+    "tests/*"
   ],
   "engines": {
     "node": ">=22.5"
@@ -23,6 +24,10 @@
     "dev:server": "node scripts/dev-server.mjs",
     "dev": "node scripts/dev-app.mjs",
     "dev:clean": "node scripts/dev-clean.mjs",
-    "dist": "npm run dist -w @zuna/desktop"
+    "dist": "npm run dist -w @zuna/desktop",
+    "test:ios": "npm run test -w @zuna/e2e",
+    "build:ios": "node scripts/build-crypto-apple.mjs && node scripts/fetch-sqlite.mjs && npm run build:core -w @zuna/ios",
+    "test:ios:sim": "ZUNA_E2E_TARGET=simulator npm run test -w @zuna/e2e",
+    "test:ios:perf": "ZUNA_PERF=1 npm run test -w @zuna/e2e -- test/performance.test.ts"
   }
 }
