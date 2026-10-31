@@ -4,8 +4,9 @@ import Network
 
 /// The native side of `fetch` and `WebSocket` in the core bundle. Results go
 /// back to JavaScript on the core's queue through `__zunaHttpDone` and
-/// `__zunaWsEvent`.
-final class NetworkBridge: NSObject {
+/// `__zunaWsEvent`. Only used on the core's queue, which is what makes it safe
+/// to send between closures.
+final class NetworkBridge: NSObject, @unchecked Sendable {
     private let queue: DispatchQueue
     private let deliver: (_ function: String, _ arguments: [Any]) -> Void
     private lazy var session: URLSession = {
@@ -23,8 +24,10 @@ final class NetworkBridge: NSObject {
     private var sockets: [Int: NWConnection] = [:]
     /// Set by tests to make the network fail on purpose.
     var offline = false
+    #if DEBUG
     /// Set by tests: the process exits the moment a matching response arrives.
     var crashOnResponse: (method: String, url: NSRegularExpression)?
+    #endif
 
     init(queue: DispatchQueue, deliver: @escaping (_ function: String, _ arguments: [Any]) -> Void) {
         self.queue = queue
@@ -87,11 +90,13 @@ final class NetworkBridge: NSObject {
         }
         let task = session.dataTask(with: request) { [weak self] data, response, error in
             guard let self, requests.removeValue(forKey: id) != nil else { return }
+            #if DEBUG
             if let crash = crashOnResponse, error == nil, crash.method == method,
                crash.url.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil {
                 // Like the app being killed after the server acted on a request, before we could.
                 exit(9)
             }
+            #endif
             if let error {
                 deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), error.localizedDescription])
                 return

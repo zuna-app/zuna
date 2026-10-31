@@ -1,3 +1,4 @@
+#if DEBUG
 import Foundation
 import Network
 import os
@@ -11,9 +12,9 @@ import ZunaHost
 /// it's locked: messages for the core wait until `attach(_:)`, and host
 /// commands (`{"kind": "host", ...}`) go to `commandHandler`.
 public final class ControlServer: @unchecked Sendable {
-    /// Handles a host command the server doesn't know itself, returning the
-    /// reply's value. Runs off the main thread.
-    public var commandHandler: (@Sendable ([String: Any]) async -> Any?)?
+    /// Handles a host command the server doesn't know itself, given as JSON,
+    /// returning the reply's value. Runs off the main thread.
+    public var commandHandler: (@Sendable (Data) async -> String?)?
 
     private var runtime: CoreRuntime?
     private let queue = DispatchQueue(label: "chat.zuna.control")
@@ -21,7 +22,8 @@ public final class ControlServer: @unchecked Sendable {
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: Client] = [:]
 
-    private final class Client {
+    /// Only touched on the server's queue.
+    private final class Client: @unchecked Sendable {
         let connection: NWConnection
         var channel: CoreRuntime.Channel?
         var waiting: [String] = []
@@ -120,7 +122,7 @@ public final class ControlServer: @unchecked Sendable {
                 // JSON objects have no key order, so look at "kind" properly.
                 let object = try? JSONSerialization.jsonObject(with: content) as? [String: Any]
                 if let object, object["kind"] as? String == "host" {
-                    handleHostCommand(object, from: client.connection)
+                    handleHostCommand(object, raw: content, from: client.connection)
                 } else if let channel = client.channel {
                     channel.send(json)
                 } else {
@@ -132,9 +134,9 @@ public final class ControlServer: @unchecked Sendable {
     }
 
     /// Commands for the host itself rather than the core, such as going offline.
-    private func handleHostCommand(_ command: [String: Any], from connection: NWConnection) {
+    private func handleHostCommand(_ command: [String: Any], raw: Data, from connection: NWConnection) {
         let id = command["id"] as? Int
-        let reply = { (value: Any?) in
+        let reply: @Sendable (Any?) -> Void = { value in
             guard let id else { return }
             let message: [String: Any] = ["kind": "host-result", "id": id, "value": value ?? NSNull()]
             guard let body = try? JSONSerialization.data(withJSONObject: message), let text = String(data: body, encoding: .utf8) else { return }
@@ -160,7 +162,7 @@ public final class ControlServer: @unchecked Sendable {
             #endif
         default:
             guard let handler = commandHandler else { return reply(NSNull()) }
-            Task { reply(await handler(command)) }
+            Task { reply(await handler(raw)) }
         }
     }
 
@@ -174,3 +176,4 @@ public final class ControlServer: @unchecked Sendable {
         connections.removeValue(forKey: key)?.channel?.close()
     }
 }
+#endif

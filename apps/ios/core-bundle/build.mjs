@@ -18,7 +18,6 @@ await build({
   // The JavaScriptCore in iOS 18 matches Safari 18.
   target: "safari18",
   alias: { "@zuna/crypto": join(here, "src", "crypto.ts") },
-  define: { __ZUNA_TEST__: JSON.stringify(process.env.ZUNA_TEST !== "0") },
   legalComments: "none",
   logLevel: "warning",
 });

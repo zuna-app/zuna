@@ -2,6 +2,8 @@
 // bundle runs. See apps/ios/ZunaKit/Sources/ZunaHost.
 
 declare const __zunaHost: {
+  /** True only in Debug builds of the host, which turn on the test hooks. */
+  testHooks?: boolean;
   log(level: string, message: string): void;
   setTimer(id: number, ms: number, repeats: boolean): void;
   clearTimer(id: number): void;
@@ -39,4 +41,3 @@ declare const __zunaDb: {
   remove(name: string): void;
 };
 
-declare const __ZUNA_TEST__: boolean;

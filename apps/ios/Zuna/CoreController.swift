@@ -226,7 +226,8 @@ final class CoreController {
         let delay = UserDefaults.standard.double(forKey: "ZunaSuspendDelay")
         if delay > 0 { suspendDelay = .milliseconds(Int(delay * 1000)) }
         let server = ControlServer()
-        server.commandHandler = { [weak self] command in
+        server.commandHandler = { [weak self] raw in
+            let command = (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any] ?? [:]
             let name = command["command"] as? String
             let password = command["password"] as? String
             let account = command["account"] as? Int

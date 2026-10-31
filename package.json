@@ -29,6 +29,7 @@
     "build:ios": "node scripts/build-crypto-apple.mjs && node scripts/fetch-sqlite.mjs && npm run build:core -w @zuna/ios",
     "test:ios:sim": "ZUNA_E2E_TARGET=simulator npm run test -w @zuna/e2e",
     "test:ios:perf": "ZUNA_PERF=1 npm run test -w @zuna/e2e -- test/performance.test.ts",
-    "test:ios:ui": "vite-node tests/e2e/src/ui-run.ts --"
+    "test:ios:ui": "vite-node tests/e2e/src/ui-run.ts --",
+    "test:ios:release": "node scripts/check-ios-release.mjs"
   }
 }

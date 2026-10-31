@@ -120,7 +120,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     () => {
       client = instance;
       // Test builds can reach the client's internals, as the desktop's tests do.
-      if (__ZUNA_TEST__) g.__zunaTest.client = () => client;
+      if (__zunaHost.testHooks) g.__zunaTest.client = () => client;
       rememberAccounts();
       resolveClient(instance);
       done(null);

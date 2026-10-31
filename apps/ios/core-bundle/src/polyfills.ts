@@ -9,7 +9,7 @@ const g = globalThis as any;
 
 // --- Test builds: a movable clock ---
 
-if (__ZUNA_TEST__) {
+if (__zunaHost.testHooks) {
   // Lets tests move time forward, for weekly key rotation and similar rules.
   const realNow = Date.now;
   let offset = 0;
