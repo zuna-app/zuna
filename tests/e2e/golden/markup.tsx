@@ -45,6 +45,7 @@ export const corpus: MarkupCase[] = [
   { text: "multi\n**line\nbold**" },
   { text: "https://example.com/path?q=1&r=2" },
   { text: "see https://example.com/a-b_c. and (https://example.org/x)!" },
+  { text: "read https://en.wikipedia.org/wiki/Telegram_(software), (https://example.org/a_(b)) and https://example.org/c(d" },
   { text: "http://127.0.0.1:8787/invite/abc#k=XYZ" },
   { text: "HTTPS://EXAMPLE.COM/UPPER" },
   { text: "ftp://nope.example and www.example.com" },

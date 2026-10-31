@@ -121,6 +121,10 @@
       "html": "<span class=\"text-block\">see <a href=\"https://example.com/a-b_c\" target=\"_blank\" rel=\"noreferrer noopener\">https://example.com/a-b_c</a>. and (<a href=\"https://example.org/x\" target=\"_blank\" rel=\"noreferrer noopener\">https://example.org/x</a>)!<time></time></span>"
     },
     {
+      "text": "read https://en.wikipedia.org/wiki/Telegram_(software), (https://example.org/a_(b)) and https://example.org/c(d",
+      "html": "<span class=\"text-block\">read <a href=\"https://en.wikipedia.org/wiki/Telegram_(software)\" target=\"_blank\" rel=\"noreferrer noopener\">https://en.wikipedia.org/wiki/Telegram_(software)</a>, (<a href=\"https://example.org/a_(b)\" target=\"_blank\" rel=\"noreferrer noopener\">https://example.org/a_(b)</a>) and <a href=\"https://example.org/c\" target=\"_blank\" rel=\"noreferrer noopener\">https://example.org/c</a>(d<time></time></span>"
+    },
+    {
       "text": "http://127.0.0.1:8787/invite/abc#k=XYZ",
       "html": "<span class=\"text-block\"><a href=\"http://127.0.0.1:8787/invite/abc#k=XYZ\" target=\"_blank\" rel=\"noreferrer noopener\">http://127.0.0.1:8787/invite/abc#k=XYZ</a><time></time></span>"
     },

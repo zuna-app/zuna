@@ -224,6 +224,19 @@ describe("link previews", () => {
     expect(received(alice, `and ${link}`)!.preview).toMatchObject({ title: "Ships & harbours", image: undefined });
   });
 
+  it("waits for a preview still being made when a message goes, keeping the order", async () => {
+    const link = `${site.url}/article#pasted`;
+    const session = bob.client.session(bobFirst);
+    session.sendMessage(`user:${alice.userId}`, { text: `just pasted ${link}` }, { previewUrl: link });
+    session.sendMessage(`user:${alice.userId}`, { text: "and then this" });
+    await waitFor(() => !!received(alice, "and then this"), "alice to get both");
+    const pasted = received(alice, `just pasted ${link}`)!;
+    expect(pasted.preview).toMatchObject({ url: link, title: "Ships & harbours" });
+    expect(pasted.seq!).toBeLessThan(received(alice, "and then this")!.seq!);
+    // Bob sees it on his own message as well.
+    expect(received(bob, `just pasted ${link}`, bobFirst)!.preview).toMatchObject({ url: link });
+  });
+
   it("keeps a preview through an edit while its link stays", async () => {
     const link = `${site.url}/article`;
     const original = received(alice, `read ${link} tonight`)!;

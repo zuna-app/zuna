@@ -239,7 +239,11 @@ public enum Markup {
     private static let edgeNewlines = regex(#"\A\n+|\n+\z"#)
     private static let quoteMarker = regex("^>[\(space)]?")
     private static let fence = regex("```([^\(space)`]*)\\n?([\\s\\S]*?)```")
-    private static let url = regex("(?<![\(word)])https?://[^\(space)<>\"']+[^\(space)<>\"'.,;:!?)\\]}]", options: .caseInsensitive)
+    // Brackets that pair up stay in a link, as in Wikipedia's addresses; one around it doesn't.
+    private static let url = regex(
+        "(?<![\(word)])https?://(?:[^\(space)<>\"'()]|\\([^\(space)<>\"'()]*\\))*(?:[^\(space)<>\"'.,;:!?()\\]}]|\\([^\(space)<>\"'()]*\\))",
+        options: .caseInsensitive
+    )
     private static let mention = regex(#"^@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})([.,:;!?]*)$"#)
     private static let emojiOnly = regex("^(?:\\p{Extended_Pictographic}|\\p{Emoji_Component}|\\x{200D}|\\x{FE0F}|[\(space)])+$")
     /// Digits, # and * are emoji components only as part of a keycap, so a word needs a real emoji.

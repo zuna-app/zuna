@@ -21,7 +21,8 @@ type Inline = ReactNode;
 const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Component}|‍|️|\s)+$/u;
 // Digits, # and * are emoji components only as part of a keycap, so a word needs a real emoji.
 const HAS_EMOJI = /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u20e3/u;
-const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/gi;
+// Brackets that pair up stay in a link, as in Wikipedia's addresses; one around it doesn't.
+const URL_PATTERN = /\bhttps?:\/\/(?:[^\s<>"'()]|\([^\s<>"'()]*\))*(?:[^\s<>"'.,;:!?()\]}]|\([^\s<>"'()]*\))/gi;
 
 /** The emote a word stands for in a message. Only the message's own entries count, not built-ins like "toString". */
 export function emoteFor(emotes: Record<string, EmoteRef>, word: string): EmoteRef | undefined {

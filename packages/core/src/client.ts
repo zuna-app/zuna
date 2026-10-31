@@ -143,6 +143,7 @@ export class ZunaClient {
     session.onSignedIn = () => {
       this.index.run("UPDATE servers SET signed_out = NULL, signed_out_at = NULL WHERE id = ?", [serverId]);
     };
+    if (this.options.web) session.linkPreview = (url) => this.linkPreview(url);
     session.setActive(this.active);
     this.sessions.set(serverId, session);
     return session;

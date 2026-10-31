@@ -13,7 +13,8 @@ export interface WebAdapter {
   shrinkImage(body: Uint8Array, maxSize: number): Promise<{ data: string; width: number; height: number } | null>;
 }
 
-const PAGE_BYTES = 512 << 10;
+// Some pages, YouTube's among them, put their meta tags most of a megabyte in.
+const PAGE_BYTES = 2 << 20;
 const IMAGE_BYTES = 5 << 20;
 const IMAGE_SIZE = 600;
 const TITLE_LENGTH = 200;
@@ -21,7 +22,8 @@ const DESCRIPTION_LENGTH = 400;
 const SITE_LENGTH = 100;
 
 // The same links the message text shows as links, on the desktop (lib/markup.tsx) and the phone (Markup.swift).
-const URL_PATTERN = /\bhttps?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]}]/gi;
+// Brackets that pair up stay in a link, as in Wikipedia's addresses; one around it doesn't.
+const URL_PATTERN = /\bhttps?:\/\/(?:[^\s<>"'()]|\([^\s<>"'()]*\))*(?:[^\s<>"'.,;:!?()\]}]|\([^\s<>"'()]*\))/gi;
 const IMAGE_DATA = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
 
 let localLinksAllowed = false;

@@ -67,6 +67,7 @@ import type {
   GroupMemberView,
   GroupRole,
   Invite,
+  LinkPreview,
   MessageBody,
   MessageStatus,
   MessageView,
@@ -86,6 +87,8 @@ import type {
 import { isMuted } from "./types";
 
 const CHUNK_SIZE = 1 << 20;
+/** How long a message waits for its link's preview before it goes without one. */
+const PREVIEW_WAIT_MS = 4000;
 const UPLOAD_CONCURRENCY = 3;
 const KEY_PACKAGE_TARGET = 40;
 const KEY_PACKAGE_LOW = 15;
@@ -194,7 +197,8 @@ interface StoredBody extends MessageBody {
 }
 
 type OutboxEntry =
-  | { kind: "message"; id: string; body: MessageBody; fileIds?: string[] }
+  /** `previewUrl`: the link whose preview was still being made when the message was sent. */
+  | { kind: "message"; id: string; body: MessageBody; fileIds?: string[]; previewUrl?: string }
   | { kind: "edit"; id: string; groupId: string; body: MessageBody };
 
 type Mutex = Promise<unknown>;
@@ -2877,13 +2881,37 @@ export class ServerSession {
     return view;
   }
 
-  /** Sends a message. It appears immediately and survives restarts until delivered. */
-  sendMessage(groupKey: string, body: MessageBody): MessageView {
+  /**
+   * Sends a message. It appears immediately and survives restarts until delivered.
+   * With `previewUrl`, a link whose preview isn't made yet, it waits a moment for
+   * that preview, so a link pasted and sent at once still gets one.
+   */
+  sendMessage(groupKey: string, body: MessageBody, options: { previewUrl?: string } = {}): MessageView {
     assertSendable(body);
     const id = randomId();
     const view = this.ensureLocalEcho(groupKey, id, body);
-    this.enqueue(groupKey, { kind: "message", id, body });
+    this.enqueue(groupKey, { kind: "message", id, body, previewUrl: this.pendingPreview(body, options.previewUrl) });
     return view;
+  }
+
+  /** How link previews are made on this device, if they are. */
+  linkPreview: ((url: string) => Promise<LinkPreview | null>) | null = null;
+
+  private pendingPreview(body: MessageBody, url: string | undefined): string | undefined {
+    return url && !body.preview && this.linkPreview && body.text?.includes(url) ? url : undefined;
+  }
+
+  /** Adds a preview that's ready within a few seconds to a message about to go, and shows it here too. */
+  private async withPreview(groupKey: string, id: string, body: MessageBody, url: string): Promise<MessageBody> {
+    const made = this.linkPreview?.(url).catch(() => null) ?? Promise.resolve(null);
+    const preview = await Promise.race([made, new Promise<null>((resolve) => setTimeout(() => resolve(null), PREVIEW_WAIT_MS))]);
+    if (!preview || !body.text?.includes(preview.url)) return body;
+    const withPreview: MessageBody = { ...body, preview };
+    const groupId = this.groupForKey(groupKey)?.id ?? `pending:${groupKey}`;
+    this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", withPreview), groupId, id]);
+    const row = this.messageRow(groupId, id);
+    if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
+    return withPreview;
   }
 
   private enqueue(groupKey: string, entry: OutboxEntry): void {
@@ -2953,13 +2981,15 @@ export class ServerSession {
       );
       return;
     }
+    // Messages go in order, so the ones after it wait for its preview too.
+    const body = entry.previewUrl ? await this.withPreview(groupKey, entry.id, entry.body, entry.previewUrl) : entry.body;
     const groupId = await this.groupIdForKey(groupKey);
     await this.withLock(groupId, async () => {
       await this.ensureReady(groupId);
       await this.rotateIfOld(groupId);
       this.moveLocalEcho(groupKey, groupId, entry.id);
       await this.sealAndRetry(groupId, async (epoch, key) => {
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, { ...entry.body, sentAt: Date.now() });
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, { ...body, sentAt: Date.now() });
         const saved = await this.api.sendMessage(groupId, {
           id: entry.id,
           epoch,
@@ -3180,6 +3210,7 @@ export class ServerSession {
     groupKey: string,
     files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string }[],
     body: MessageBody,
+    options: { previewUrl?: string } = {},
   ): Promise<void> {
     assertSendable(body);
     const id = randomId();
@@ -3228,7 +3259,13 @@ export class ServerSession {
       }
       const finalBody: MessageBody = { ...body, attachments };
       this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", finalBody), groupId, id]);
-      this.enqueue(groupKey, { kind: "message", id, body: finalBody, fileIds: attachments.map((item) => item.fileId) });
+      this.enqueue(groupKey, {
+        kind: "message",
+        id,
+        body: finalBody,
+        fileIds: attachments.map((item) => item.fileId),
+        previewUrl: this.pendingPreview(finalBody, options.previewUrl),
+      });
     } catch (error) {
       this.markFailed(groupKey, id);
       throw error;
