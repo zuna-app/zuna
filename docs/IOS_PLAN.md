@@ -245,7 +245,7 @@ Minimum iOS version: 18 (proposed).
 | Search people and groups by title and username, and messages in the local index (2+ characters), jumping to a hit | searchable list | F3, F4 |
 | Pin, Mute, Hide, synced through the vault | swipe actions and a context menu | F3 |
 | "Hidden (n)" section | same | F3 |
-| Server menu: Invite people, New group, Server settings (admins), Leave this server | header menu | F3, F6, F7 |
+| Server menu: Invite people, New group, Server settings (admins), Leave this server | header menu | F6, F7 |
 | Empty states with actions | same | F3 |
 
 ### Chat: reading
@@ -403,6 +403,25 @@ F2 is done. Each item has tests:
 - **AutoFill:** fields carry their content types, so iOS offers a strong password and to save it.
 - **Links:** `zuna://join?link=…` opens the join screens, also while the app is locked (the link waits for the unlock) or already signed in.
 - **Tests:** 5 UI tests (join, sign in with a wrong password first, recover, links, set up a second server from the drawer); the world now has a second, unclaimed server. 23 `ZunaKit` tests.
+
+## F3 results (2026-10-31)
+
+F3 is done, except the server menu (see below). Each item has tests:
+
+- **Conversation list:**
+  - search by title and username, with message hits from the local index from two characters on (opening a hit comes with the chat in F4);
+  - the All, People, Groups and Unread filters, as a segmented control;
+  - Pin from a leading swipe, Mute and Hide from a trailing swipe, all three in the context menu, synced through the vault; only the changed list is sent, so another device's change to the others isn't undone;
+  - the "Hidden (n)" section, and empty states;
+  - rows move to their new places with an animation, unless Reduce motion is on.
+- **Connection state** in the title ("Connecting…", "Updating…", "Waiting for network…").
+- **Signed out by the server:** a toast and the server's removal, back to the welcome screens when it was the last one. Toasts now show over every screen.
+- **Security alerts:** shown as security toasts, which stay 12 seconds instead of 4.5.
+- **Bugs found and fixed by these tests:**
+  - the server could close a banned or revoked device's connection before sending the reason, so the client reported a plain sign-out (fixed in the server, with a Go test);
+  - the host's offline test hook dropped requests and sockets without telling the core, which then believed it was still online.
+- **Moved:** the server menu goes to F6, with its first item (Invite people). Its other items come with F6 (New group) and F7 (Server settings, Leave), so a menu now would have nothing in it.
+- **Tests:** 5 UI tests (filters and search, row actions, connection state, removal by the admins, the new-device alert), 16 UI tests in all.
 
 ## Prerequisites on this Mac
 

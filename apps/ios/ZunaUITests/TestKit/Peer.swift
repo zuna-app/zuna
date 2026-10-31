@@ -14,6 +14,12 @@ final class Peer: @unchecked Sendable {
         socket = try blocking { try await RPCSocket.connect(to: url) }
     }
 
+    /// Calls a method of the peer's session whose result isn't needed. Arguments are JSON values.
+    func call(_ method: String, _ arguments: [String]) throws {
+        let socket = socket, serverId = account.serverId
+        try blocking { _ = try await socket.call(method, server: serverId, arguments) }
+    }
+
     func send(to userId: String, _ text: String) throws {
         let socket = socket, serverId = account.serverId
         try blocking { try await socket.call("sendMessage", server: serverId, ["user:\(userId)", ["text": text]]) }
@@ -26,6 +32,18 @@ final class Peer: @unchecked Sendable {
             guard let groupId = conversations.first(where: { $0["key"] as? String == "user:\(userId)" })?["groupId"] as? String else { return [] }
             let page = try await socket.call("loadMessages", server: serverId, [groupId]) as? [String: Any]
             return (page?["messages"] as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }
+        }
+    }
+}
+
+/// The test world itself, for what no single client can do.
+enum WorldControl {
+    /// Signs in to an account on another new device, as if on a new laptop.
+    static func newDevice(for name: String, password: String) throws {
+        let url = URL(string: "\(World.current.peersUrl)/world")!
+        try blocking {
+            let socket = try await RPCSocket.connect(to: url)
+            _ = try await socket.call("newDevice", [name, password])
         }
     }
 }

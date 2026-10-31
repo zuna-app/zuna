@@ -143,17 +143,18 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 
 ### L5. UI end to end (XCUITest)
 
-- **Orchestration:** `scripts/ios-e2e.mjs`:
-  1. Builds the server, the core bundle and the app (`build-for-testing`).
-  2. Starts the server and the fake 7TV.
-  3. Seeds the world through the peers: owner account, invite links, peers with avatars, a DM history, a group with pins, reactions and emotes, and a 2,000-message conversation for scrolling.
-  4. Prepares the dedicated simulator.
-  5. Runs `xcodebuild test-without-building`, passing the server and peer URLs through `TEST_RUNNER_` environment variables.
+- **Orchestration:** `tests/e2e/src/ui-run.ts` (`npm run test:ios:ui`):
+  1. Builds the core bundle and the app (`build-for-testing`).
+  2. Starts the fake 7TV and two servers: the main one, and a second that nobody has set up yet.
+  3. Seeds the main one through desktop clients in Node: alice (the owner), bob's laptop and carol, a DM and a group. More seeding (avatars, pins, reactions, emotes, a 2,000-message conversation) comes with the phases that need it.
+  4. Serves those clients to the tests over WebSockets ("peers"), plus `/world` for what no single client can do, such as signing in to an account on another new device.
+  5. Prepares the dedicated simulator and runs `xcodebuild test-without-building`, passing the world as JSON in `TEST_RUNNER_ZUNA_WORLD`.
 - **The tests stay synchronous.** `XCUIApplication` waits for the app by turning the main run loop, and an async test on the main actor blocks it. TestKit runs its network calls in the background and waits for them.
 - **TestKit** in the UI test target:
-  - `Peers` client speaking the control protocol: `peers.alice.send(to:text:)`, `waitForMessage`, `react`, `createGroup`, `sendFile(fixture:)` and so on;
-  - `AppLauncher` with launch arguments for the control port, a fresh data directory, signing in programmatically (`-ZunaTestLogin`), animations off, `en_US` locale and UTC.
-  - Onboarding itself is tested through the real UI, in its own tests.
+  - `Peer` speaks the control protocol to a desktop client: `send(to:_:)`, `texts(with:)`, and `call` for any session method (a ban, for instance); `WorldControl.newDevice(for:)` signs in elsewhere;
+  - `AppUnderTest` launches the app with a control port, fresh data, `en_US` and UTC, and sets up accounts through the app's own core (`signIn(as:)`, `register(_:password:)`), so tests start where they need to;
+  - onboarding itself is tested through the real UI, in its own tests;
+  - system sheets over the app (the strong password offer, "Save password?") are declined by position, since the simulator may run in another language.
 - **Accessibility identifiers** come from one `A11y` enum compiled into both the app and the tests, for example `conversation.row.<key>`, `message.bubble.<id>`, `composer.input`, `composer.send`. Every interactive element and every asserted text gets one.
 - **Every test checks both sides:** what the UI shows, and what the desktop peer received. For example:
   - type `**hi** @alice KEKW` and send: alice receives text, `emotes` and `mentions` identical to what the desktop composer would produce;

@@ -87,6 +87,42 @@ final class AppUnderTest {
         return result["recoveryKey"] as? String ?? ""
     }
 
+    /// The conversation preferences of the signed-in server: pinned, muted and hidden keys.
+    func preferences() throws -> [String: [String]] {
+        let control = control!
+        let serverId = serverId
+        let prefs = try blocking { try await control.call("getPreferences", server: serverId) as? [String: Any] ?? [:] }
+        return prefs.compactMapValues { $0 as? [String] }
+    }
+
+    /// The core's connection state for the signed-in server.
+    func connectionState() throws -> String {
+        let control = control!
+        let serverId = serverId
+        return try blocking { try await control.call("getConnectionState", server: serverId) as? String ?? "" }
+    }
+
+    /// The signed-in account's user ID.
+    func selfId() throws -> String {
+        let control = control!
+        let serverId = serverId
+        return try blocking { (try await control.call("getSelf", server: serverId) as? [String: Any])?["userId"] as? String ?? "" }
+    }
+
+    /// Cuts the core off the network, or reconnects it.
+    func setOffline(_ offline: Bool) throws {
+        let control = control!
+        try blocking { _ = try await control.host("offline", ["value": offline]) }
+    }
+
+    /// A toast whose text starts with these words.
+    func toast(startingWith text: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: A11y.Toast.item)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", text))
+            .firstMatch
+    }
+
     /// How many servers the app's core has accounts on.
     func serverCount() throws -> Int {
         let control = control!

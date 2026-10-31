@@ -34,11 +34,16 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         self.deliver = deliver
     }
 
+    /// Fails everything in flight the way losing the network would, so the core notices and reconnects later.
     func cancelAll() {
-        for task in requests.values { task.cancel() }
+        for (id, task) in requests {
+            task.cancel()
+            deliver("__zunaHttpDone", [id, 0, "{}", NSNull(), "The network connection was lost."])
+        }
         requests.removeAll()
-        for connection in sockets.values { connection.cancel() }
-        sockets.removeAll()
+        for id in Array(sockets.keys) {
+            socketClosed(id: id, code: 1006, error: true)
+        }
     }
 
     func install(into object: JSValue) {

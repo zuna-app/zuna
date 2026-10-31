@@ -55,7 +55,8 @@ public struct SessionCalls: Sendable {
     public func getUsers() async throws -> [UserView] { try await call("getUsers") }
     public func getConversations() async throws -> [ConversationView] { try await call("getConversations") }
     public func getPreferences() async throws -> Preferences { try await call("getPreferences") }
-    public func updatePreferences(_ changes: Preferences) async throws { try await run("updatePreferences", [changes]) }
+    /// Changes only the lists that are set, so another device's change to the others isn't undone.
+    public func updatePreferences(_ changes: PreferenceChanges) async throws { try await run("updatePreferences", [changes]) }
     public func getEmotes() async throws -> EmoteSet { try await call("getEmotes") }
     public func getDevices() async throws -> [DeviceView] { try await call("getDevices") }
 
@@ -124,5 +125,20 @@ public struct ServerSettingsChanges: Codable, Sendable, Equatable {
         case allowMemberInvites = "allow_member_invites"
         case maxUploadMb = "max_upload_mb"
         case retentionDays = "retention_days"
+    }
+}
+
+/// Part of `Preferences`, for `updatePreferences`.
+public struct PreferenceChanges: Codable, Sendable, Equatable {
+    public var pinned: [String]?
+    public var hidden: [String]?
+    public var muted: [String]?
+    public var sendReadReceipts: Bool?
+
+    public init(pinned: [String]? = nil, hidden: [String]? = nil, muted: [String]? = nil, sendReadReceipts: Bool? = nil) {
+        self.pinned = pinned
+        self.hidden = hidden
+        self.muted = muted
+        self.sendReadReceipts = sendReadReceipts
     }
 }
