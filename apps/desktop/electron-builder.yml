@@ -1,6 +1,6 @@
 appId: chat.zuna.app
 productName: Zuna
-copyright: Zuna contributors. Licensed under GPL-3.0.
+copyright: Zuna contributors. Licensed under AGPL-3.0.
 directories:
   output: release
   buildResources: resources

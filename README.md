@@ -2,7 +2,7 @@
   <img src="apps/desktop/resources/icon.png" width="96" alt="">
   <h1>Zuna</h1>
   <p><b>Private, end-to-end encrypted chat on servers you and your friends run.</b></p>
-  <p>Windows, Linux, macOS, and an iPhone and iPad app on its way. Free and open source under the GPL-3.0.</p>
+  <p>Windows, Linux, macOS, and an iPhone and iPad app on its way. Free and open source under the AGPL-3.0.</p>
 </div>
 
 ![The Zuna app](docs/images/chat.png)
@@ -128,4 +128,4 @@ npm test
 
 ## License
 
-[GPL-3.0](LICENSE). You can use, change and host Zuna freely. If you distribute a modified version, you must publish its source under the same license.
+[AGPL-3.0](LICENSE). You can use, change and host Zuna freely. If you distribute a modified version, or run one that others use over a network, you must publish its source under the same license.

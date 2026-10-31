@@ -2,7 +2,7 @@
 name = "zuna-crypto"
 version = "0.1.0"
 edition = "2021"
-license = "GPL-3.0-only"
+license = "AGPL-3.0-only"
 description = "Zuna's end-to-end encryption core: OpenMLS group key agreement plus account-key and content primitives, compiled to WebAssembly for the desktop and natively for iOS."
 publish = false
 

@@ -11,7 +11,7 @@ The app is native: SwiftUI, with the unchanged client core (`packages/core`) run
 Before it reaches people:
 
 - **App Store requirements that need server features:** deleting an account from the app, and reporting content and blocking people.
-- **Licensing:** distributing GPL code through an app store needs an extra permission under section 7 of the GPL, from everyone who holds copyright.
+- **Licensing:** distributing AGPL code through an app store needs an extra permission under section 7 of the AGPL, from everyone who holds copyright.
 - **Notifications in production:** deploying the push relay with the app's APNs key ([PUSH_RELAY.md](PUSH_RELAY.md)), and Apple's notification filtering entitlement, so muted chats and messages read elsewhere are handled on the phone rather than by the server.
 - **Signing and TestFlight,** and testing on real devices.
 
