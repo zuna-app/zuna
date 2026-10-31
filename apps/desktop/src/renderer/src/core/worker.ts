@@ -1,6 +1,7 @@
 // The client core's home: a dedicated worker that owns all keys and the database.
 
 import { ZunaClient, type CoreEvent, type WebAdapter } from "@zuna/core";
+import { allowLocalLinks } from "@zuna/core/links";
 import { serveCore } from "@zuna/core/rpc";
 import { initCrypto } from "@zuna/crypto";
 import wasmUrl from "@zuna/crypto/wasm?url";
@@ -10,6 +11,8 @@ interface BootMessage {
   kind: "boot";
   deviceKey: Uint8Array;
   deviceName: string;
+  /** A development build's previews may reach this machine, for its test pages. */
+  localLinks: boolean;
 }
 
 let resolveClient: (client: ZunaClient) => void;
@@ -69,6 +72,7 @@ port.onmessage = async (event: MessageEvent) => {
     return;
   }
   const boot = data as BootMessage;
+  allowLocalLinks(boot.localLinks);
   try {
     await initCrypto({ module_or_path: wasmUrl });
     const db = await openSqliteProvider();

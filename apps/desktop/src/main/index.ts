@@ -22,13 +22,16 @@ import {
   Tray,
   type IpcMainInvokeEvent,
 } from "electron";
-import { previewable } from "@zuna/core/links";
+import { allowLocalLinks, previewable, privateAddress } from "@zuna/core/links";
 
 const APP_SCHEME = "zuna-app";
 const WEB_SCHEME = "zuna-web";
 const APP_ORIGIN = `${APP_SCHEME}://app`;
 const DEEP_LINK_SCHEME = "zuna";
 const isDev = !app.isPackaged;
+
+// Only a development build's previews may reach this machine, for its test pages.
+allowLocalLinks(isDev);
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -85,6 +88,24 @@ const WEB_MAX_REDIRECTS = 5;
 const WEB_USER_AGENT = "Mozilla/5.0 (compatible; Zuna link preview)";
 
 /**
+ * Whether an address may be fetched for a preview: the name itself, and where it
+ * leads. A public name can point at this machine or a private network, and what a
+ * preview finds there would go into the message.
+ */
+async function safeToFetch(web: Electron.Session, url: string): Promise<boolean> {
+  if (!previewable(url)) return false;
+  const host = new URL(url).hostname;
+  if (isDev && (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost"))) return true;
+  if (host.startsWith("[") || /^\d+\.\d+\.\d+\.\d+$/.test(host)) return true;
+  try {
+    const { endpoints } = await web.resolveHost(host);
+    return endpoints.length > 0 && !endpoints.some((endpoint) => privateAddress(endpoint.address));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Fetches a page or picture for a link preview, keeping at most `maxBytes`.
  * Redirects are followed one at a time, so each address is checked too.
  */
@@ -101,8 +122,14 @@ function fetchForPreview(web: Electron.Session, url: string, maxBytes: number): 
     request.setHeader("accept", "text/html,application/xhtml+xml,image/*;q=0.9,*/*;q=0.5");
     request.on("redirect", (_status, _method, location) => {
       current = new URL(location, current).toString();
-      if (++redirects > WEB_MAX_REDIRECTS || !previewable(current)) request.abort();
-      else request.followRedirect();
+      if (++redirects > WEB_MAX_REDIRECTS) {
+        request.abort();
+        return;
+      }
+      void safeToFetch(web, current).then((safe) => {
+        if (safe) request.followRedirect();
+        else request.abort();
+      });
     });
     request.on("response", (response) => {
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -151,7 +178,7 @@ function serveWeb(): void {
     const params = new URL(request.url).searchParams;
     const target = params.get("url") ?? "";
     const maxBytes = Math.min(Number(params.get("max")) || 0, WEB_MAX_BYTES);
-    if (!previewable(target) || maxBytes <= 0) return new Response("Not allowed", { status: 400 });
+    if (maxBytes <= 0 || !(await safeToFetch(web, target))) return new Response("Not allowed", { status: 400 });
     try {
       const page = await fetchForPreview(web, target, maxBytes);
       return new Response(new Uint8Array(page.body), {
@@ -312,7 +339,7 @@ function registerIpc(): void {
 
   handle("zuna:device-key", () => {
     const { key, protected: isProtected } = loadDeviceKey();
-    return { key: new Uint8Array(key), protected: isProtected, deviceName: `${deviceLabel()}` };
+    return { key: new Uint8Array(key), protected: isProtected, deviceName: `${deviceLabel()}`, localLinks: isDev };
   });
   handle("zuna:platform", () => process.platform);
   // macOS asks the person once before an app may record. Chromium's fake microphone, in tests, needs no asking.
