@@ -9,8 +9,16 @@ services:
     build:
       context: ../server
     # Or use a published image instead of building:
-    # image: ghcr.io/zuna-chat/zuna-server:latest
+    # image: ghcr.io/socketbyte/zuna-server:latest
     restart: unless-stopped
+    # It only ever writes to its data volume, and needs no special powers.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "80:80"
       - "443:443"

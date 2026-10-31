@@ -8,6 +8,14 @@ services:
     build:
       context: ../server
     restart: unless-stopped
+    # It only ever writes to its data volume, and needs no special powers.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "127.0.0.1:8080:8080"
     environment:
