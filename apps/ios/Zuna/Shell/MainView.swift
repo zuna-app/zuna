@@ -30,15 +30,14 @@ struct MainView: View {
             }
         }
         .background(Theme.bg0)
-        .overlay(alignment: .top) { ToastStack() }
         .sheet(isPresented: $model.joining) {
             JoinFlow(embedded: true)
         }
     }
 }
 
-/// Toasts from the core and the app, above everything.
-private struct ToastStack: View {
+/// Toasts from the core and the app, above everything, including the join screens.
+struct ToastStack: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -47,6 +46,7 @@ private struct ToastStack: View {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: icon(toast.kind))
                         .foregroundStyle(color(toast.kind))
+                        .accessibilityHidden(true)
                     Text(toast.message)
                         .font(.subheadline)
                         .foregroundStyle(Theme.text1)
@@ -57,6 +57,8 @@ private struct ToastStack: View {
                 .background(Theme.bg3, in: .rect(cornerRadius: 14, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Theme.lineStrong))
                 .onTapGesture { model.dismissToast(toast.id) }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(A11y.Toast.item)
                 .transition(.move(edge: .top).combined(with: .opacity))
             }
         }

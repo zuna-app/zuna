@@ -80,7 +80,31 @@ carol.session.sendMessage(`group:${weekend}`, { text: "Count me in" });
 // --- 3. Peers ---
 
 const peerServer = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+// Things a test needs done in the world itself, over the same RPC protocol as the peers.
+const extraDevices: TestApp[] = [];
+const worldMethods: Record<string, (...args: any[]) => Promise<unknown>> = {
+  /** Signs in to an account on another new device, as if on a new laptop. */
+  async newDevice(name: string, password: string = PASSWORD) {
+    const app = await new TestApp(`${name}-device-${extraDevices.length + 1}`).open();
+    extraDevices.push(app);
+    await app.login(server.url, name, password);
+    return app.userId;
+  },
+};
+
 peerServer.on("connection", (socket, request) => {
+  if (request.url === "/world") {
+    socket.on("message", async (data) => {
+      const message = decodeWire(String(data)) as { id: number; method: string; args: unknown[] };
+      try {
+        const value = await worldMethods[message.method]!(...message.args);
+        socket.send(encodeWire({ kind: "reply", id: message.id, ok: true, value }));
+      } catch (error) {
+        socket.send(encodeWire({ kind: "reply", id: message.id, ok: false, error: { name: "Error", message: String(error) } }));
+      }
+    });
+    return;
+  }
   const peer = peers[(request.url ?? "").slice(1)];
   if (!peer) {
     socket.close();
@@ -145,7 +169,7 @@ xcodebuild.stderr.pipe(buildLog);
 const exitCode: number = await new Promise((resolve) => xcodebuild.on("exit", (code) => resolve(code ?? 1)));
 
 deviceLog.kill();
-for (const peer of Object.values(peers)) peer.client.stop();
+for (const peer of [...Object.values(peers), ...extraDevices]) peer.client.stop();
 peerServer.close();
 await server.stop();
 await spare.stop();

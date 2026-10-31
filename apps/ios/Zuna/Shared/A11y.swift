@@ -60,7 +60,14 @@ enum A11y {
     enum ChatList {
         static let list = "chatList.list"
         static let empty = "chatList.empty"
+        static let filter = "chatList.filter"
+        static let hiddenToggle = "chatList.hiddenToggle"
         static func row(_ key: String) -> String { "chatList.row.\(key)" }
+        static func messageHit(_ id: String) -> String { "chatList.hit.\(id)" }
+    }
+
+    enum Toast {
+        static let item = "toast"
     }
 
     enum Settings {

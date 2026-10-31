@@ -52,6 +52,7 @@ struct RootView: View {
                         MainView()
                     }
                 }
+                .overlay(alignment: .top) { ToastStack() }
                 .environment(model)
                 .environment(images)
                 .tint(model.settings.accent.color)

@@ -1,7 +1,8 @@
 import Foundation
 
-struct RPCError: Error, CustomStringConvertible {
+struct RPCError: LocalizedError, CustomStringConvertible {
     let description: String
+    var errorDescription: String? { description }
 }
 
 /// The core's RPC protocol (packages/core/src/rpc.ts) over a WebSocket, from

@@ -1,11 +1,20 @@
 import SwiftUI
 import ZunaModels
 
-/// The active server's conversations, laid out like Telegram's chat list. The
-/// title shows the connection state while it isn't connected, as Telegram
-/// does. Filters, search and row actions come in F3, the chat itself in F4.
+/// The active server's conversations, laid out like Telegram's chat list: a
+/// search bar, filters, then the rows. The title shows the connection state
+/// while it isn't connected, as Telegram does. The chat itself comes in F4.
 struct ChatListView: View {
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All", people = "People", groups = "Groups", unread = "Unread"
+        var id: Self { self }
+    }
+
     @Environment(AppModel.self) private var model
+    @State private var query = ""
+    @State private var filter = Filter.all
+    @State private var showHidden = false
+    @State private var messageHits: [SearchResult] = []
 
     var body: some View {
         NavigationStack {
@@ -23,29 +32,194 @@ struct ChatListView: View {
                 ToolbarItem(placement: .principal) { title }
             }
             .toolbarBackground(Theme.bg1, for: .navigationBar)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+            .task(id: SearchKey(serverId: model.activeServerId, query: query)) { await searchMessages() }
+            .onChange(of: model.activeServerId) {
+                query = ""
+                showHidden = false
+            }
         }
     }
 
-    @ViewBuilder
+    // MARK: List
+
     private func list(_ server: AppModel.ServerState) -> some View {
-        let visible = server.conversations.filter { !$0.hidden }
-        if visible.isEmpty {
-            ContentUnavailableView("It's quiet here", systemImage: "bubble.left.and.bubble.right", description: Text("Conversations with people on \(server.entry.name) show up here."))
-                .foregroundStyle(Theme.text2)
-                .accessibilityIdentifier(A11y.ChatList.empty)
-        } else {
-            List(visible) { conversation in
-                ChatRow(conversation: conversation, server: server)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 14))
-                    .listRowBackground(Theme.bg0)
-                    .listRowSeparatorTint(Theme.line)
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 76 }
+        let (visible, hidden) = partition(server)
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        return List {
+            Section {
+                ForEach(visible) { row($0, server) }
+                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty {
+                    emptyState(searching: !needle.isEmpty)
+                }
+            } header: {
+                filterBar
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .accessibilityIdentifier(A11y.ChatList.list)
+            if !hidden.isEmpty {
+                Section {
+                    if showHidden {
+                        ForEach(hidden) { row($0, server) }
+                    }
+                } header: {
+                    Button {
+                        withAnimation { showHidden.toggle() }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.right")
+                                .rotationEffect(.degrees(showHidden ? 90 : 0))
+                            Text("Hidden (\(hidden.count))")
+                        }
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.text3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(A11y.ChatList.hiddenToggle)
+                }
+            }
+            if !messageHits.isEmpty {
+                Section {
+                    ForEach(messageHits, id: \.message.id) { hit in
+                        MessageHitRow(hit: hit, server: server)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 14))
+                            .listRowBackground(Theme.bg0)
+                            .listRowSeparatorTint(Theme.line)
+                    }
+                } header: {
+                    Text("Messages")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.text3)
+                }
+            }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .scrollDismissesKeyboard(.immediately)
+        .animation(model.settings.reduceMotion ? nil : .snappy(duration: 0.25), value: visible.map(\.key))
+        .accessibilityIdentifier(A11y.ChatList.list)
     }
+
+    private func row(_ conversation: ConversationView, _ server: AppModel.ServerState) -> some View {
+        ChatRow(conversation: conversation, server: server)
+            .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 14))
+            .listRowBackground(Theme.bg0)
+            .listRowSeparatorTint(Theme.line)
+            .alignmentGuide(.listRowSeparatorLeading) { _ in 76 }
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                Button {
+                    model.toggle(.pinned, conversation.key, on: server.entry.id)
+                } label: {
+                    Label(conversation.pinned ? "Unpin" : "Pin", systemImage: conversation.pinned ? "pin.slash.fill" : "pin.fill")
+                }
+                .tint(Theme.green)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button {
+                    model.toggle(.hidden, conversation.key, on: server.entry.id)
+                } label: {
+                    Label(conversation.hidden ? "Show" : "Hide", systemImage: conversation.hidden ? "eye.fill" : "eye.slash.fill")
+                }
+                .tint(Theme.bg5)
+                Button {
+                    model.toggle(.muted, conversation.key, on: server.entry.id)
+                } label: {
+                    Label(conversation.muted ? "Unmute" : "Mute", systemImage: conversation.muted ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                }
+                .tint(Theme.amber)
+            }
+            .contextMenu {
+                Button {
+                    model.toggle(.pinned, conversation.key, on: server.entry.id)
+                } label: {
+                    Label(conversation.pinned ? "Unpin" : "Pin to top", systemImage: conversation.pinned ? "pin.slash" : "pin")
+                }
+                Button {
+                    model.toggle(.muted, conversation.key, on: server.entry.id)
+                } label: {
+                    Label(conversation.muted ? "Unmute" : "Mute", systemImage: conversation.muted ? "speaker.wave.2" : "speaker.slash")
+                }
+                Button {
+                    model.toggle(.hidden, conversation.key, on: server.entry.id)
+                } label: {
+                    Label(conversation.hidden ? "Show in list" : "Hide from list", systemImage: conversation.hidden ? "eye" : "eye.slash")
+                }
+            }
+    }
+
+    /// What the filter and search let through, split into the list and its hidden part, as on the desktop.
+    private func partition(_ server: AppModel.ServerState) -> (visible: [ConversationView], hidden: [ConversationView]) {
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let filtered = server.conversations.filter { item in
+            if !needle.isEmpty {
+                let username = item.peerId.flatMap { server.users[$0]?.username.lowercased() } ?? ""
+                if !item.title.lowercased().contains(needle), !username.contains(needle) { return false }
+            }
+            switch filter {
+            case .all: return true
+            case .people: return item.kind == .dm
+            case .groups: return item.kind == .group
+            case .unread: return item.unread > 0
+            }
+        }
+        // Searching looks through hidden conversations too, so nothing gets lost.
+        if !needle.isEmpty { return (filtered, []) }
+        return (filtered.filter { !$0.hidden }, filtered.filter(\.hidden))
+    }
+
+    private var filterBar: some View {
+        Picker("Show", selection: $filter) {
+            ForEach(Filter.allCases) { item in
+                Text(item.rawValue).tag(item)
+            }
+        }
+        .pickerStyle(.segmented)
+        .padding(.vertical, 6)
+        .accessibilityIdentifier(A11y.ChatList.filter)
+    }
+
+    @ViewBuilder
+    private func emptyState(searching: Bool) -> some View {
+        let (title, image): (String, String) = if searching {
+            ("Nothing matches that search.", "magnifyingglass")
+        } else {
+            switch filter {
+            case .unread: ("You're all caught up.", "checkmark.circle")
+            case .groups: ("No groups yet.", "person.3")
+            default: ("It's quiet here.", "bubble.left.and.bubble.right")
+            }
+        }
+        ContentUnavailableView(title, systemImage: image)
+            .foregroundStyle(Theme.text2)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 40)
+            .listRowBackground(Theme.bg0)
+            .listRowSeparator(.hidden)
+            .accessibilityIdentifier(A11y.ChatList.empty)
+    }
+
+    // MARK: Message search
+
+    private struct SearchKey: Equatable {
+        let serverId: String?
+        let query: String
+    }
+
+    /// Searches the encrypted index on this device, once typing pauses, from two characters on.
+    private func searchMessages() async {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard needle.count >= 2, let serverId = model.activeServerId else {
+            messageHits = []
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(120))
+        guard !Task.isCancelled else { return }
+        let hits = (try? await model.core.session(serverId).search(needle, limit: 30)) ?? []
+        guard !Task.isCancelled else { return }
+        messageHits = hits
+    }
+
+    // MARK: Navigation bar
 
     private var serverButton: some View {
         Button {
@@ -217,5 +391,43 @@ private struct ChatRow: View {
                 .padding(.top, 4)
                 .accessibilityLabel("Pinned")
         }
+    }
+}
+
+/// A message found by search: who sent it, where, and the text. Opening it comes with the chat in F4.
+private struct MessageHitRow: View {
+    let hit: SearchResult
+    let server: AppModel.ServerState
+
+    var body: some View {
+        let sender = server.users[hit.message.senderId]
+        let conversation = server.conversations.first { $0.key == hit.conversationKey }
+        HStack(spacing: 12) {
+            AvatarView(
+                name: sender?.displayName ?? "?",
+                seed: hit.message.senderId,
+                source: sender?.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none,
+                size: 44
+            )
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(conversation?.title ?? "Conversation")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.text1)
+                        .lineLimit(1)
+                    Spacer(minLength: 6)
+                    Text(Format.listTime(hit.message.createdAt))
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.text3)
+                }
+                Text(plainText(hit.message.text))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(A11y.ChatList.messageHit(hit.message.id))
     }
 }

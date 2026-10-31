@@ -258,6 +258,30 @@ final class AppModel {
         }
     }
 
+    // MARK: Conversation preferences
+
+    enum PreferenceList { case pinned, muted, hidden }
+
+    /// Pins, mutes or hides a conversation, or undoes it. Synced to the account's other devices through the vault.
+    func toggle(_ list: PreferenceList, _ key: String, on serverId: String) {
+        guard let prefs = servers[serverId]?.prefs else { return }
+        func flipped(_ keys: [String]) -> [String] {
+            keys.contains(key) ? keys.filter { $0 != key } : keys + [key]
+        }
+        let changes = switch list {
+        case .pinned: PreferenceChanges(pinned: flipped(prefs.pinned))
+        case .muted: PreferenceChanges(muted: flipped(prefs.muted))
+        case .hidden: PreferenceChanges(hidden: flipped(prefs.hidden))
+        }
+        Task {
+            do {
+                try await core.session(serverId).updatePreferences(changes)
+            } catch {
+                toast("Couldn't save that: \(error)", .error)
+            }
+        }
+    }
+
     // MARK: Toasts
 
     func toast(_ message: String, _ kind: Toast.Kind = .info) {
