@@ -70,6 +70,7 @@ import type {
   TrustState,
   UserView,
 } from "./types";
+import { isMuted } from "./types";
 
 const CHUNK_SIZE = 1 << 20;
 const UPLOAD_CONCURRENCY = 3;
@@ -191,6 +192,8 @@ export class ServerSession {
   private lastTypingSent = new Map<string, number>();
   private flushing: Promise<void> | null = null;
   private flushRetry: ReturnType<typeof setTimeout> | undefined;
+  /** Updates the conversations when the next chat muted for a while is heard again. */
+  private muteTimer: ReturnType<typeof setTimeout> | undefined;
   private reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private stopped = false;
   /** Called when the server told us this session is over (banned, revoked). */
@@ -249,6 +252,7 @@ export class ServerSession {
     this.stopped = true;
     this.socket.stop();
     clearTimeout(this.flushRetry);
+    clearTimeout(this.muteTimer);
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
     this.reconcileTimers.clear();
   }
@@ -396,6 +400,7 @@ export class ServerSession {
       this.groups.set(group.id, group);
     }
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
+    this.watchMutes();
     const push = this.getKv<(Omit<PushSettings, "key"> & { key: string }) | "off">("push");
     this.push = push && push !== "off" ? { ...push, key: fromBase64(push.key) } : push;
     this.usersCursor = this.getKv<number>("users_cursor") ?? 0;
@@ -606,6 +611,7 @@ export class ServerSession {
           this.prefs = { ...this.prefs, ...JSON.parse(fromUtf8(data)) };
           this.setKv("prefs", this.prefs);
           this.emit({ type: "preferences", serverId: this.serverId });
+          this.watchMutes();
           this.resendPush();
         } else if (item.id.startsWith("verified:")) {
           const userId = item.id.slice("verified:".length);
@@ -1738,7 +1744,7 @@ export class ServerSession {
     if (!group) return;
     const key = this.conversationKey(group);
     const mentioned = view.mentions.includes(this.account.userId);
-    if (this.prefs.muted.includes(key) && !mentioned) return;
+    if (isMuted(this.prefs, key) && !mentioned) return;
     const sender = this.users.get(view.senderId);
     const senderName = sender?.profile.displayName || sender?.username || "Someone";
     const { title, body } = notificationText(group.kind, group.meta.name, senderName, view);
@@ -1821,6 +1827,7 @@ export class ServerSession {
     const out: ConversationView[] = [];
     const usersWithDm = new Set<string>();
     const selfId = this.account.userId;
+    const now = Date.now();
 
     for (const group of this.groups.values()) {
       const key = this.conversationKey(group);
@@ -1847,7 +1854,8 @@ export class ServerSession {
         unread,
         mentioned,
         pinned: this.prefs.pinned.includes(key),
-        muted: this.prefs.muted.includes(key),
+        muted: isMuted(this.prefs, key, now),
+        mutedUntil: this.mutedUntil(key, now),
         hidden: this.prefs.hidden.includes(key),
         members: group.members,
         historyVisible: group.historyVisible,
@@ -1874,7 +1882,8 @@ export class ServerSession {
         unread: 0,
         mentioned: false,
         pinned: this.prefs.pinned.includes(key),
-        muted: this.prefs.muted.includes(key),
+        muted: isMuted(this.prefs, key, now),
+        mutedUntil: this.mutedUntil(key, now),
         hidden: this.prefs.hidden.includes(key),
         members: [],
         historyVisible: false,
@@ -1900,10 +1909,42 @@ export class ServerSession {
     this.setKv("prefs", this.prefs);
     this.emit({ type: "preferences", serverId: this.serverId });
     this.emitConversations();
-    if (changes.muted) this.resendPush();
+    this.watchMutes();
+    if (changes.muted || changes.mutedUntil) this.resendPush();
     await this.putVault("prefs", utf8(JSON.stringify(this.prefs))).catch((error) => {
       console.warn("[zuna] saving preferences", error);
     });
+  }
+
+  /** Mutes a chat until `until` (ms), or without it until it's unmuted. */
+  mute(key: string, until?: number): Promise<void> {
+    const mutedUntil = Object.fromEntries(Object.entries(this.prefs.mutedUntil ?? {}).filter(([other, end]) => other !== key && end > Date.now()));
+    if (until !== undefined) mutedUntil[key] = until;
+    const muted = this.prefs.muted.filter((other) => other !== key);
+    if (until === undefined) muted.push(key);
+    return this.updatePreferences({ muted, mutedUntil });
+  }
+
+  unmute(key: string): Promise<void> {
+    const mutedUntil = Object.fromEntries(Object.entries(this.prefs.mutedUntil ?? {}).filter(([other, end]) => other !== key && end > Date.now()));
+    return this.updatePreferences({ muted: this.prefs.muted.filter((other) => other !== key), mutedUntil });
+  }
+
+  private mutedUntil(key: string, now = Date.now()): number | null {
+    const until = this.prefs.mutedUntil?.[key];
+    return until && until > now && !this.prefs.muted.includes(key) ? until : null;
+  }
+
+  /** Shows a chat muted for a while as heard again the moment its time is up. */
+  private watchMutes(): void {
+    clearTimeout(this.muteTimer);
+    const now = Date.now();
+    const next = Math.min(...Object.values(this.prefs.mutedUntil ?? {}).filter((until) => until > now));
+    if (!Number.isFinite(next) || this.stopped) return;
+    this.muteTimer = setTimeout(() => {
+      this.emitConversations();
+      this.watchMutes();
+    }, next - now + 50);
   }
 
   // --- Notifications ---
@@ -1947,10 +1988,15 @@ export class ServerSession {
       return;
     }
     // Muted DMs are kept by the person's key; the server knows the DM's group.
-    const muted = push.sendMuted
-      ? this.prefs.muted.map((key) => this.groupForKey(key)?.id).filter((id): id is string => !!id)
-      : [];
-    await this.api.setPush({ relay: push.relay, handle: push.handle, key: push.key, registration: push.registration, muted });
+    // A chat muted for a while is pushed again once its time is up, even while the app isn't running.
+    const groupOf = (key: string) => this.groupForKey(key)?.id;
+    const muted = push.sendMuted ? this.prefs.muted.map(groupOf).filter((id): id is string => !!id) : [];
+    const mutedUntil: Record<string, number> = {};
+    for (const [key, until] of Object.entries(push.sendMuted ? (this.prefs.mutedUntil ?? {}) : {})) {
+      const groupId = groupOf(key);
+      if (groupId && until > Date.now()) mutedUntil[groupId] = until;
+    }
+    await this.api.setPush({ relay: push.relay, handle: push.handle, key: push.key, registration: push.registration, muted, muted_until: mutedUntil });
   }
 
   private resendPush(): void {
@@ -2322,6 +2368,12 @@ export class ServerSession {
     this.emitConversations();
   }
 
+  /** Deletes several messages for everyone, in order. */
+  async deleteMessages(groupId: string, ids: string[]): Promise<void> {
+    for (const id of ids) this.ingest(await this.api.deleteMessage(groupId, id), false);
+    this.emitConversations();
+  }
+
   async setPinned(groupId: string, id: string, pinned: boolean): Promise<void> {
     this.ingest(await this.api.pin(groupId, id, pinned), false);
   }
@@ -2425,7 +2477,7 @@ export class ServerSession {
   /** Uploads attachments, then sends the message. Progress shows on the local echo. */
   async sendWithAttachments(
     groupKey: string,
-    files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number }[],
+    files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string }[],
     body: MessageBody,
   ): Promise<void> {
     const id = randomId();
@@ -2442,6 +2494,8 @@ export class ServerSession {
       height: file.height,
       thumb: file.thumb,
       duration: file.duration,
+      voice: file.voice,
+      waveform: file.waveform,
     }));
     const echo = this.ensureLocalEcho(groupKey, id, { ...body, attachments: placeholders });
     const groupId = echo.groupId;

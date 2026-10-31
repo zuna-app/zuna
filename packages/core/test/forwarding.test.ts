@@ -123,7 +123,7 @@ describe("forwarding", () => {
 
   it("names the author within a server and shares the files", async () => {
     const carolId = carol.client.session(carolFirst).getSelf().userId;
-    await bob.client.forwardMessage(bobFirst, original.groupId, original.id, bobFirst, `user:${carolId}`);
+    await bob.client.forwardMessages(bobFirst, original.groupId, [original.id], bobFirst, `user:${carolId}`);
     await waitFor(() => !!received(carol, "look at this", carolFirst), "carol to get the forwarded photo");
     const copy = received(carol, "look at this", carolFirst)!;
 
@@ -143,7 +143,7 @@ describe("forwarding", () => {
     const copy = received(carol, "look at this", carolFirst)!;
     const bobId = bob.client.session(bobFirst).getSelf().userId;
     const before = messages(bob).length;
-    await carol.client.forwardMessage(carolFirst, copy.groupId, copy.id, carolFirst, `user:${bobId}`);
+    await carol.client.forwardMessages(carolFirst, copy.groupId, [copy.id], carolFirst, `user:${bobId}`);
     await waitFor(
       () => messages(bob).slice(before).some((message) => message.senderId === carol.client.session(carolFirst).getSelf().userId && message.status === "sent"),
       "bob to get carol's forward",
@@ -156,7 +156,7 @@ describe("forwarding", () => {
     const copy = received(carol, "look at this", carolFirst)!;
     const bobOnSecond = bob.client.session(bobSecond).getSelf().userId;
     const before = messages(bob).length;
-    await carol.client.forwardMessage(carolFirst, copy.groupId, copy.id, carolSecond, `user:${bobOnSecond}`);
+    await carol.client.forwardMessages(carolFirst, copy.groupId, [copy.id], carolSecond, `user:${bobOnSecond}`);
     await waitFor(() => !!received(bob, "look at this", bobSecond), "bob to get it on his own server");
     const there = received(bob, "look at this", bobSecond)!;
 
@@ -168,7 +168,7 @@ describe("forwarding", () => {
   });
 
   it("refuses messages that aren't there to forward", async () => {
-    await expect(bob.client.forwardMessage(bobFirst, original.groupId, "no-such-message", bobFirst, `user:${alice.userId}`)).rejects.toThrow();
+    await expect(bob.client.forwardMessages(bobFirst, original.groupId, ["no-such-message"], bobFirst, `user:${alice.userId}`)).rejects.toThrow();
   });
 });
 
@@ -242,7 +242,7 @@ describe("link previews", () => {
     const sent = session.sendMessage(`user:${alice.userId}`, { text: link, preview });
     await waitFor(() => received(bob, link, bobFirst)?.seq != null, "bob's link to arrive");
     const carolId = carol.client.session(carolFirst).getSelf().userId;
-    await bob.client.forwardMessage(bobFirst, received(bob, link, bobFirst)!.groupId, sent.id, bobFirst, `user:${carolId}`);
+    await bob.client.forwardMessages(bobFirst, received(bob, link, bobFirst)!.groupId, [sent.id], bobFirst, `user:${carolId}`);
     await waitFor(() => !!received(carol, link, carolFirst), "carol to get the forwarded link");
     expect(received(carol, link, carolFirst)).toMatchObject({ preview, forwarded: { userId: bob.client.session(bobFirst).getSelf().userId } });
   });

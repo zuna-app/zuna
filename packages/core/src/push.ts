@@ -12,7 +12,7 @@ import { openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
-import type { AvatarRef, MessageBody, Preferences, Profile } from "./types";
+import { isMuted, type AvatarRef, type MessageBody, type Preferences, type Profile } from "./types";
 
 export interface PushPreview {
   serverId: string;
@@ -130,7 +130,7 @@ export async function previewPush(
   return preview({
     ...notificationText(group.kind, group.meta.name, nameOf(sender), content),
     decrypted: true,
-    muted: !mentioned && (prefs.muted ?? []).includes(conversationKey!),
+    muted: !mentioned && isMuted(prefs, conversationKey!),
     sender: { id: message.sender_user, name: nameOf(sender), picture: await picture(sender.profile.avatar) },
     group: group.kind === "group" ? { name: group.meta.name || "Group", picture: await picture(group.meta.avatar) } : undefined,
     text: previewText(content),

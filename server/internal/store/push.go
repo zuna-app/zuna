@@ -2,7 +2,7 @@ package store
 
 import (
 	"context"
-	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -18,8 +18,41 @@ type PushRegistration struct {
 	Key []byte
 	// Registration is the app's own ID for it, which tells the app which server a push is from.
 	Registration string
-	// Muted lists groups not to push for, while the app can't filter notifications itself.
-	Muted []string
+	// Muted lists groups not to push for, while the app can't filter
+	// notifications itself, with when each one's mute ends (ms), or 0 for
+	// until it's unmuted.
+	Muted map[string]int64
+}
+
+// encodeMuted stores mutes as "group" or "group:until", comma-separated.
+func encodeMuted(muted map[string]int64) string {
+	entries := make([]string, 0, len(muted))
+	for groupID, until := range muted {
+		if until > 0 {
+			entries = append(entries, groupID+":"+strconv.FormatInt(until, 10))
+		} else {
+			entries = append(entries, groupID)
+		}
+	}
+	return strings.Join(entries, ",")
+}
+
+func decodeMuted(value string) map[string]int64 {
+	muted := map[string]int64{}
+	for _, entry := range strings.Split(value, ",") {
+		groupID, until, _ := strings.Cut(entry, ":")
+		if groupID == "" {
+			continue
+		}
+		muted[groupID], _ = strconv.ParseInt(until, 10, 64)
+	}
+	return muted
+}
+
+// mutes reports whether a registration's mutes cover the group now.
+func (p PushRegistration) mutes(groupID string, now int64) bool {
+	until, ok := p.Muted[groupID]
+	return ok && (until == 0 || until > now)
 }
 
 // SetPushRegistration stores a device's registration, replacing any earlier one.
@@ -29,7 +62,7 @@ func (d *DB) SetPushRegistration(ctx context.Context, p PushRegistration) error 
 		 VALUES(?,?,?,?,?,?,?,?)
 		 ON CONFLICT(device_id) DO UPDATE SET relay = excluded.relay, handle = excluded.handle, push_key = excluded.push_key,
 		   registration = excluded.registration, muted = excluded.muted, updated_at = excluded.updated_at`,
-		p.DeviceID, p.UserID, p.Relay, p.Handle, p.Key, p.Registration, strings.Join(p.Muted, ","), Now())
+		p.DeviceID, p.UserID, p.Relay, p.Handle, p.Key, p.Registration, encodeMuted(p.Muted), Now())
 	return err
 }
 
@@ -56,16 +89,15 @@ func (d *DB) PushTargets(ctx context.Context, groupID, senderUserID string) ([]P
 	}
 	defer rows.Close()
 	var targets []PushRegistration
+	now := Now()
 	for rows.Next() {
 		var p PushRegistration
 		var muted string
 		if err := rows.Scan(&p.DeviceID, &p.UserID, &p.Relay, &p.Handle, &p.Key, &p.Registration, &muted); err != nil {
 			return nil, err
 		}
-		if muted != "" {
-			p.Muted = strings.Split(muted, ",")
-		}
-		if !slices.Contains(p.Muted, groupID) {
+		p.Muted = decodeMuted(muted)
+		if !p.mutes(groupID, now) {
 			targets = append(targets, p)
 		}
 	}
