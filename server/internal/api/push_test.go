@@ -6,6 +6,8 @@ import (
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"github.com/coder/websocket"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -19,6 +21,7 @@ import (
 // relayPush is what a server sends a push relay.
 type relayPush struct {
 	Handle     string            `json:"handle"`
+	Type       string            `json:"type"`
 	Data       map[string]string `json:"data"`
 	CollapseID string            `json:"collapse_id"`
 }
@@ -124,7 +127,7 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 	id := store.NewID()
 	owner.send(group.ID, 1, id)
 	push := relay.next(t)
-	if push.Handle != "bob-phone" || push.Data["r"] != registration || push.CollapseID != id {
+	if push.Handle != "bob-phone" || push.Type != "alert" || push.Data["r"] != registration || push.CollapseID != id {
 		t.Fatalf("push: %+v", push)
 	}
 	if ids := openPush(t, key, push); ids["g"] != group.ID || ids["m"] != id || len(ids) != 2 {
@@ -184,5 +187,113 @@ func waitUntil(t *testing.T, what string, condition func() bool) {
 			t.Fatalf("timed out waiting for %s", what)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// anotherDevice signs the same person in on a second device.
+func (c *client) anotherDevice() *client {
+	c.h.t.Helper()
+	var login struct {
+		Token string `json:"token"`
+	}
+	var user struct {
+		Username string `json:"username"`
+	}
+	c.h.mustDo("GET", "/api/users/"+c.userID, c.token, nil, &user)
+	c.h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": user.Username, "auth_key": bytesOf(32, user.Username[0])}, &login)
+	other := &client{h: c.h, token: login.Token, userID: c.userID, device: store.NewID()}
+	c.h.mustDo("POST", "/api/devices", other.token, map[string]any{
+		"id": other.device, "certificate": []byte("cert"), "signature_key": bytesOf(32, 9),
+	}, nil)
+	return other
+}
+
+func (s *socket) setActive(active bool) {
+	s.t.Helper()
+	frame, _ := json.Marshal(map[string]any{"t": "active", "active": active})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.ws.Write(ctx, websocket.MessageText, frame); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+func TestNoPushesWhileSomeoneUsesAnotherDevice(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	laptop := bob.anotherDevice()
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	bob.registerPush(relay.URL, "bob-phone", bytesOf(32, 5), store.NewID(), nil)
+
+	// Bob at his laptop: the phone keeps quiet, and the laptop's other windows hear about it.
+	phoneSocket := bob.connect()
+	laptopSocket := laptop.connect()
+	laptopSocket.setActive(true)
+	// The first event is the state when the phone connected.
+	for fmt.Sprint(phoneSocket.waitFor("activity")["active_devices"]) != fmt.Sprint([]any{laptop.device}) {
+	}
+	owner.send(group.ID, 1, store.NewID())
+	relay.none(t)
+
+	// Idle, or gone: pushes again.
+	laptopSocket.setActive(false)
+	phoneSocket.waitFor("activity")
+	owner.send(group.ID, 1, store.NewID())
+	relay.next(t)
+	laptopSocket.setActive(true)
+	phoneSocket.waitFor("activity")
+	laptopSocket.ws.CloseNow()
+	waitUntil(t, "the laptop to count as gone", func() bool {
+		owner.send(group.ID, 1, store.NewID())
+		select {
+		case <-relay.pushes:
+			return true
+		case <-time.After(100 * time.Millisecond):
+			return false
+		}
+	})
+}
+
+func TestSilentPushesClearChatsReadOrMessagesDeletedElsewhere(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	laptop := bob.anotherDevice()
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	key := bytesOf(32, 5)
+	bob.registerPush(relay.URL, "bob-phone", key, store.NewID(), nil)
+
+	// Nothing to clear yet, so reading sends nothing.
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	relay.none(t)
+
+	// After a notification, reading on the laptop clears it on the phone, once.
+	id := store.NewID()
+	owner.send(group.ID, 1, id)
+	relay.next(t)
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	read := relay.next(t)
+	if read.Type != "background" || read.Handle != "bob-phone" {
+		t.Fatalf("read push: %+v", read)
+	}
+	if fields := openPush(t, key, read); fields["t"] != "read" || fields["g"] != group.ID {
+		t.Fatalf("read push says %v", fields)
+	}
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	relay.none(t)
+
+	// A deleted message's notification goes too.
+	gone := store.NewID()
+	owner.send(group.ID, 1, gone)
+	relay.next(t)
+	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, nil, nil)
+	deleted := relay.next(t)
+	if fields := openPush(t, key, deleted); deleted.Type != "background" || fields["t"] != "delete" || fields["m"] != gone {
+		t.Fatalf("delete push: %+v %v", deleted, fields)
 	}
 }

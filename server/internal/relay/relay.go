@@ -115,7 +115,9 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var body struct {
-		Handle     string            `json:"handle"`
+		Handle string `json:"handle"`
+		// "background" for a silent push; anything else shows an alert.
+		Type       string            `json:"type"`
 		Data       map[string]string `json:"data"`
 		CollapseID string            `json:"collapse_id"`
 	}
@@ -139,7 +141,7 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "no_apns")
 		return
 	}
-	err := r.apns.Send(req.Context(), target.Token, target.Environment, body.Data, body.CollapseID)
+	err := r.apns.Send(req.Context(), target.Token, target.Environment, body.Type == "background", body.Data, body.CollapseID)
 	switch {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)

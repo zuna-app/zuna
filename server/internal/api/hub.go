@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -35,6 +36,9 @@ type conn struct {
 	deviceID string
 	send     chan []byte
 	close    context.CancelFunc
+	// active is set while the person is using this device: the desktop
+	// without being idle, the phone app on screen. Guarded by the hub's lock.
+	active bool
 }
 
 // Hub tracks live connections and fans events out to them.
@@ -198,7 +202,49 @@ func (h *Hub) add(c *conn, hidden bool) {
 	}
 }
 
+// SetActive records whether the person is using a device right now, and tells
+// their other devices, which keep quiet while they're elsewhere.
+func (h *Hub) SetActive(c *conn, active bool) {
+	h.mu.Lock()
+	changed := c.active != active
+	c.active = active
+	h.mu.Unlock()
+	if changed {
+		h.ToUsers([]string{c.userID}, h.activity(c.userID))
+	}
+}
+
+// Active reports whether someone is using any of their devices right now.
+func (h *Hub) Active(userID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.conns[userID] {
+		if c.active {
+			return true
+		}
+	}
+	return false
+}
+
+// activity is the event listing which of someone's devices they're using.
+func (h *Hub) activity(userID string) Event {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	devices := []string{}
+	for c := range h.conns[userID] {
+		if c.active && !slices.Contains(devices, c.deviceID) {
+			devices = append(devices, c.deviceID)
+		}
+	}
+	return Event{Type: "activity", Data: map[string]any{"active_devices": devices}}
+}
+
 func (h *Hub) remove(c *conn) {
+	defer func() {
+		if c.active {
+			h.ToUsers([]string{c.userID}, h.activity(c.userID))
+		}
+	}()
 	h.mu.Lock()
 	delete(h.conns[c.userID], c)
 	last := len(h.conns[c.userID]) == 0
@@ -237,6 +283,7 @@ type clientFrame struct {
 	Token   string `json:"token,omitempty"`
 	GroupID string `json:"group_id,omitempty"`
 	Data    []byte `json:"data,omitempty"`
+	Active  bool   `json:"active,omitempty"`
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -268,6 +315,8 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.add(c, user.HideLastSeen)
 	defer s.hub.remove(c)
+	// Which of the person's other devices are in use, so this one knows whether to keep quiet.
+	c.deliver(encodeEvent(s.hub.activity(c.userID)))
 
 	go s.writeLoop(ctx, ws, c)
 	s.readLoop(ctx, ws, c)
@@ -341,6 +390,8 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 		switch frame.Type {
 		case "typing":
 			s.relayTyping(ctx, c, frame)
+		case "active":
+			s.hub.SetActive(c, frame.Active)
 		case "ping":
 			c.deliver(pongFrame)
 		}

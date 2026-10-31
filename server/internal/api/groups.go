@@ -290,6 +290,7 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request, sess *store.
 		"user_id":  sess.UserID,
 		"data":     body.Data,
 	}})
+	s.pushRead(sess.UserID, sess.DeviceID, groupID)
 	writeOK(w)
 }
 
@@ -465,6 +466,9 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 	}
 	s.removeFiles(r.Context(), files)
 	s.broadcastMessage(r, groupID, message)
+	if members, err := s.db.GroupMemberIDs(r.Context(), groupID); err == nil {
+		s.pushDeletion(members, groupID, messageID)
+	}
 	writeJSON(w, http.StatusOK, message)
 }
 

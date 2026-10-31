@@ -151,6 +151,16 @@ func TestRelaysASealedPayloadToApple(t *testing.T) {
 		t.Fatalf("payload: %v", zuna)
 	}
 
+	// Silent pushes only wake the app, to clear notifications.
+	h.post("/v1/push", map[string]any{"handle": handle, "type": "background", "data": data})
+	silent := h.apns.last(t)
+	if silent.Headers.Get("apns-push-type") != "background" || silent.Headers.Get("apns-priority") != "5" {
+		t.Fatalf("silent push headers: %v", silent.Headers)
+	}
+	if aps := silent.Body["aps"].(map[string]any); aps["content-available"] != float64(1) || aps["alert"] != nil {
+		t.Fatalf("silent push: %v", silent.Body)
+	}
+
 	// Development builds of the app use Apple's sandbox.
 	sandbox := h.register(token, "sandbox")
 	h.post("/v1/push", map[string]any{"handle": sandbox, "data": data})
