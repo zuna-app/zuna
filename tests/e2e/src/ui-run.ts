@@ -1,7 +1,7 @@
 // Runs the iOS app's UI tests (XCUITest) against a real test world, and writes
 // a summary that can be read without opening Xcode.
 //
-//   npm run test:ios:ui [-- --only LaunchAndUnlockTests[/testName]]
+//   npm run test:ios:ui [-- --only LaunchAndUnlockTests[/testName][,OtherTests...]]
 //
 // 1. Builds the core bundle and the app for testing.
 // 2. Starts a fake 7TV and a server, and fills it: desktop clients (the
@@ -158,7 +158,7 @@ const xcodebuild = spawn(
     "-resultBundlePath", resultBundle,
     // Otherwise a failure makes xcodebuild gather diagnostics for minutes.
     "-collect-test-diagnostics", "never",
-    ...(only ? [`-only-testing:ZunaUITests/${only}`] : []),
+    ...(only ? only.split(",").map((name) => `-only-testing:ZunaUITests/${name}`) : []),
     "test-without-building",
   ],
   { cwd: iosDir, env: { ...process.env, TEST_RUNNER_ZUNA_WORLD: JSON.stringify(world) }, stdio: ["ignore", "pipe", "pipe"] },

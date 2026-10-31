@@ -79,6 +79,13 @@ public struct SessionCalls: Sendable {
         try await call("sendMessage", [conversationKey, body])
     }
 
+    /// Uploads the files, encrypted, then sends the message. Progress shows on the local echo.
+    public func sendWithAttachments(_ conversationKey: String, files: [OutgoingFile], body: MessageBody) async throws {
+        try await run("sendWithAttachments", [conversationKey, files, body])
+    }
+
+    public func emotesIn(_ text: String) async throws -> [String: EmoteRef] { try await call("emotesIn", [text]) }
+
     public func retryMessage(_ groupId: String, id: String) async throws { try await run("retryMessage", [groupId, id]) }
     public func discardMessage(_ groupId: String, id: String) async throws { try await run("discardMessage", [groupId, id]) }
     public func editMessage(_ groupId: String, id: String, text: String, emotes: [String: EmoteRef], mentions: [String]) async throws {
@@ -140,5 +147,27 @@ public struct PreferenceChanges: Codable, Sendable, Equatable {
         self.hidden = hidden
         self.muted = muted
         self.sendReadReceipts = sendReadReceipts
+    }
+}
+
+/// A file to send: on disk, with what a message records about it.
+public struct OutgoingFile: Codable, Sendable, Equatable {
+    public var blob: WireFile
+    public var name: String
+    public var mime: String
+    public var width: Int?
+    public var height: Int?
+    /// A tiny preview as a JPEG data URL, shown blurred until the picture is decrypted.
+    public var thumb: String?
+    public var duration: Double?
+
+    public init(blob: WireFile, name: String, mime: String, width: Int? = nil, height: Int? = nil, thumb: String? = nil, duration: Double? = nil) {
+        self.blob = blob
+        self.name = name
+        self.mime = mime
+        self.width = width
+        self.height = height
+        self.thumb = thumb
+        self.duration = duration
     }
 }

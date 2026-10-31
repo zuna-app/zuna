@@ -443,6 +443,22 @@ F4 is done. Each item has tests:
 - **Tests:** 6 UI tests (markup and emotes with the emote card and a reply, sent and read ticks both ways, a picture from the desktop opened in QuickLook, reactions both ways, history with the saved position, a search hit); golden files for markup and highlighting; 27 `ZunaKit` tests.
 - **For later:** VoiceOver reads the upside-down list newest first; F8 orders it. Tapping a mention and the banner's Verify button open verification, which comes in F6.
 
+## F5 results (2026-10-31)
+
+F5 is done; the hardware keyboard's shortcuts stay with F8. Each item has tests:
+
+- **Composer:** laid out like Telegram's (attach, the text growing up to six lines with the emoji button inside, send in the accent's color), a draft per conversation, the desktop's placeholder, and a bar instead when the other person was removed from the server. Return on a hardware keyboard sends, Shift-Return makes a new line.
+- **Sending** goes through the core's outbox: the local echo, "sending", Try again or Discard, kept across restarts. `emotes` and `mentions` go into the message body exactly as the desktop's composer puts them; a test compares what the desktop receives.
+- **Reply and edit** with the context bar and Cancel; swiping a message to the left answers it, as in Telegram.
+- **Autocomplete** above the field: `:emote` from two characters, prefix matches first, up to eight, with the author; `@person` from the group's members or everyone, not banned.
+- **Picker** as a sheet: the server's emotes under the set's name, the desktop's emoji by category (copied from the desktop and kept in step by a test), and search.
+- **Typing signals** on every change; the core throttles them.
+- **Attachments:** up to ten from the photo picker, the document picker, or a picture on the clipboard; previews, sizes and removal before sending; sizes, the blurred preview and a recording's length recorded as the desktop does; pictures the desktop can't show (HEIC) sent as JPEG; the server's size limit and upload progress from the core.
+- **Message menu** on a long press: the six quick reactions in a row and the full picker, Reply, Copy text, Edit (your text messages), Pin or Unpin, Try again or Discard, Delete for everyone (your messages, or a group's admins).
+- **Pinned bar** under the title, cycling through the pins; **search in a chat** with the note while history downloads; **the pinned list** with Unpin. Both open from the chat's menu under the avatar, until the details screen comes in F6.
+- **Bugs found and fixed:** none in shared code this time; the tests caught their own ordering assumptions and a SwiftUI task on an empty `Group` that never ran.
+- **Tests:** 4 UI tests (markup, emotes and mentions as the desktop receives them; reply by swipe, edit and delete; pin, react, search and unpin; a picture and a file); a Debug-only hook adds files to the composer, so tests don't go through the system's pickers.
+
 ## Prerequisites on this Mac
 
 Installed on 2026-10-31:

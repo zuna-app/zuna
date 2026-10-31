@@ -273,7 +273,7 @@ struct FlowLayout: Layout {
 
 // MARK: Emote card
 
-/// What the desktop shows when hovering an emote, on a long press: the emote
+/// What the desktop shows when hovering an emote, on a tap: the emote
 /// large, its name, who made it, and who reacted with it.
 struct EmoteCardInfo: Identifiable {
     let name: String

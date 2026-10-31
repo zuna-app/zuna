@@ -52,8 +52,8 @@ final class ChatReadingTests: XCTestCase {
         XCTAssertTrue(quote.label.contains("Hi Bob \(tag)"), "the reply quotes the original: \(quote.label)")
         zuna.screenshot("60-chat-markup-emotes")
 
-        // A long press on an emote shows its card.
-        text(emotes).coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).press(forDuration: 1)
+        // A tap on an emote shows its card.
+        text(emotes).coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
         let card = zuna.element(A11y.Chat.emoteCard)
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         XCTAssertTrue(card.label.contains("zunaDance"), card.label)

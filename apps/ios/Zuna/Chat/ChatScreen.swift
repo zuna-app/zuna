@@ -2,7 +2,8 @@ import SwiftUI
 import ZunaModels
 
 /// A chat, laid out like Telegram's: who it's with and their status in the
-/// bar, the messages, and a button back to the newest one. Writing comes in F5.
+/// bar, the pinned message, the messages with a button back to the newest one,
+/// and the composer.
 struct ChatScreen: View {
     let conversationKey: String
 
@@ -13,6 +14,20 @@ struct ChatScreen: View {
     @State private var highlighted: String?
     @State private var bridge = MessageListBridge()
     @State private var emoteCard: EmoteCardInfo?
+    @State private var sheet: ChatSheet?
+
+    private enum ChatSheet: Identifiable {
+        case search, pins
+        case react(messageId: String)
+
+        var id: String {
+            switch self {
+            case .search: "search"
+            case .pins: "pins"
+            case let .react(id): "react-\(id)"
+            }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -51,6 +66,7 @@ struct ChatScreen: View {
                 .background(Theme.amber.opacity(0.12))
                 .accessibilityIdentifier(A11y.Chat.banner)
             }
+            PinnedBar(serverId: serverId, conversation: conversation) { sheet = .pins }
             ZStack(alignment: .bottomTrailing) {
                 if let list, list.loaded || !list.items.isEmpty {
                     if list.items.isEmpty {
@@ -71,19 +87,40 @@ struct ChatScreen: View {
                     }
                 }
             }
+            if peer?.banned == true, !isSaved {
+                Label("This person was removed from the server.", systemImage: "xmark")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Theme.bg1)
+                    .accessibilityIdentifier(A11y.Composer.disabled)
+            } else {
+                Composer(serverId: serverId, conversation: conversation, server: server)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 ChatHeader(conversation: conversation, server: server, peer: peer, isSaved: isSaved)
             }
             ToolbarItem(placement: .topBarTrailing) {
-                if isSaved {
-                    Image(systemName: "bookmark.fill")
-                        .frame(width: 34, height: 34)
-                        .background(Theme.bg4, in: .circle)
-                } else {
-                    AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 34, online: peer?.online ?? false)
+                // Details come with F6; for now the avatar opens search and pins.
+                Menu {
+                    Button("Search", systemImage: "magnifyingglass") { sheet = .search }
+                        .disabled(conversation.groupId == nil)
+                    Button("Pinned messages", systemImage: "pin") { sheet = .pins }
+                        .disabled(conversation.groupId == nil)
+                } label: {
+                    if isSaved {
+                        Image(systemName: "bookmark.fill")
+                            .frame(width: 34, height: 34)
+                            .background(Theme.bg4, in: .circle)
+                    } else {
+                        AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 34, online: peer?.online ?? false)
+                    }
                 }
+                .accessibilityLabel("Chat options")
+                .accessibilityIdentifier(A11y.Chat.menu)
             }
         }
         .task(id: listId) {
@@ -93,6 +130,26 @@ struct ChatScreen: View {
             EmoteCard(info: info, server: server)
                 .presentationDetents([.height(150)])
                 .presentationBackground(Theme.bg2)
+        }
+        .sheet(item: $sheet) { sheet in
+            switch sheet {
+            case .search:
+                ChatSearchSheet(serverId: serverId, conversation: conversation, server: server)
+            case .pins:
+                PinsSheet(serverId: serverId, conversation: conversation, server: server)
+                    .presentationDetents([.medium, .large])
+            case let .react(messageId):
+                EmojiPicker(server: server) { pick in
+                    self.sheet = nil
+                    guard let groupId = conversation.groupId else { return }
+                    let (key, emote): (String, EmoteRef?) = switch pick {
+                    case let .emoji(value): (value, nil)
+                    case let .emote(emote): (emote.name, EmoteRef(id: emote.id, animated: emote.animated, zeroWidth: emote.zeroWidth, owner: emote.owner))
+                    }
+                    run { try await model.core.session(serverId).toggleReaction(groupId, messageId: messageId, key: key, emote: emote) }
+                }
+                .presentationDetents([.medium, .large])
+            }
         }
         .onChange(of: readKey(conversation, list)) {
             markRead(serverId, conversation, list)
@@ -126,8 +183,15 @@ struct ChatScreen: View {
                     }
                 }
             },
-            retry: { id in Task { try? await model.core.session(serverId).retryMessage(listId, id: id) } },
-            emoteCard: { name, emote, note in emoteCard = EmoteCardInfo(name: name, emote: emote, note: note) }
+            retry: { id in run { try await model.core.session(serverId).retryMessage(listId, id: id) } },
+            emoteCard: { name, emote, note in emoteCard = EmoteCardInfo(name: name, emote: emote, note: note) },
+            reply: { model.reply(serverId, conversation.key, to: $0) },
+            edit: { model.edit(serverId, conversation.key, $0) },
+            pin: { message, pinned in run { try await model.core.session(serverId).setPinned(message.groupId, id: message.id, pinned: pinned) } },
+            delete: { message in run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) } },
+            discard: { id in run { try await model.core.session(serverId).discardMessage(listId, id: id) } },
+            pickReaction: { sheet = .react(messageId: $0) },
+            isGroupAdmin: conversation.members.first { $0.userId == server.me?.userId }?.role == .admin
         )
         return MessageListView(
             input: MessageListController.Input(
@@ -154,6 +218,17 @@ struct ChatScreen: View {
                 }
             }
         )
+    }
+
+    /// Runs an action on the core, explaining a failure in a toast.
+    private func run(_ action: @escaping () async throws -> Void) {
+        Task {
+            do {
+                try await action()
+            } catch {
+                model.toast(OnboardingText.describe(error), .error)
+            }
+        }
     }
 
     private func toBottom(unread: Int, action: @escaping () -> Void) -> some View {
