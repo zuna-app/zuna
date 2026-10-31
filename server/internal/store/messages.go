@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -221,8 +222,11 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string) (*Message, [
 		if _, err := tx.ExecContext(ctx, `DELETE FROM reactions WHERE group_id = ? AND message_id = ?`, groupID, id); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, file_ids = '', deleted_at = ?, pinned_at = NULL, pinned_by = NULL, updated_seq = ?
-			WHERE group_id = ? AND id = ?`, Now(), seq, groupID, id)
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, file_ids = '', deleted_at = ?, pinned_at = NULL, pinned_by = NULL, updated_seq = ?
+			WHERE group_id = ? AND id = ?`, Now(), seq, groupID, id); err != nil {
+			return err
+		}
+		fileIDs, err = unshared(ctx, tx, fileIDs)
 		return err
 	})
 	if err != nil {
@@ -449,7 +453,7 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 }
 
 // DeleteMessagesOlderThan applies the server's retention policy. It returns
-// the files of the deleted messages.
+// the files no message uses any more.
 func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]string, error) {
 	var fileIDs []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
@@ -466,10 +470,46 @@ func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]strin
 			fileIDs = append(fileIDs, strings.Split(ids, ",")...)
 		}
 		rows.Close()
-		_, err = tx.ExecContext(ctx, `DELETE FROM messages WHERE created_at < ? AND pinned_at IS NULL`, cutoff)
+		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE created_at < ? AND pinned_at IS NULL`, cutoff); err != nil {
+			return err
+		}
+		fileIDs, err = unshared(ctx, tx, fileIDs)
 		return err
 	})
 	return fileIDs, err
+}
+
+// unshared keeps the files that no message uses any more. A forwarded message
+// shares its original's files, so they stay until the last copy is gone.
+func unshared(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, error) {
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT file_ids FROM messages WHERE file_ids != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	used := map[string]bool{}
+	for rows.Next() {
+		var ids string
+		if err := rows.Scan(&ids); err != nil {
+			return nil, err
+		}
+		for _, id := range strings.Split(ids, ",") {
+			used[id] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var orphaned []string
+	for _, id := range fileIDs {
+		if !used[id] && !slices.Contains(orphaned, id) {
+			orphaned = append(orphaned, id)
+		}
+	}
+	return orphaned, nil
 }
 
 // --- Files ---
