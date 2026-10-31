@@ -10,11 +10,14 @@ struct MainView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        if sizeClass == .regular {
-            WideLayout()
-        } else {
-            compact
+        Group {
+            if sizeClass == .regular {
+                WideLayout()
+            } else {
+                compact
+            }
         }
+        .task { await Notifications.askOnce() }
     }
 
     private var compact: some View {

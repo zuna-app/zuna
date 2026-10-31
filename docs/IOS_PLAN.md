@@ -588,3 +588,11 @@ Notifications show the message content, as the owner asked from the start, witho
 | N6 | End-to-end tests on the simulator: a test relay delivers with `simctl push`; a desktop peer's message shows on the lock screen with its text, a tap opens the chat, a reply reaches the desktop. |
 
 Real APNs and the relay's deployment wait for the domain and the APNs key; everything up to N6 runs on the simulator.
+
+### N0 and N3 results (2026-10-31)
+
+- **The core fits.** The extension runs the app's own core bundle in JavaScriptCore, without booting a client: `previewPush` (packages/core/src/push.ts) reads only the rows it needs, never writes, fetches the one message and decrypts it. A process doing exactly that, without JIT as on a phone, peaks at about 12.6 MB, against the extension's 24 MB. The cross-client tests run it beside a running host on every run (`zuna-host --preview-push`).
+- **Same words as the desktop:** the session's `notify` event and the push preview share `notificationText`, and core tests check that a pushed message reads exactly as the connected session's notification, with mutes, mentions, your own messages and unreadable ones.
+- **The extension** (`ZunaNotifications`) shares the App Group container and the Keychain group with the app. It shows the push's own generic text when the device key is locked, and keeps it for muted or hidden messages until the filtering entitlement arrives.
+- **Simulator limits:** `simctl push` hands a push straight to the system and never starts the extension, so the UI test covers asking for permission and showing a push, and the extension's decryption is covered by the cross-client test. A real push to the simulator will run the extension too, once there's an APNs key.
+- **The app asks for notifications** once a server's chats first show, as Telegram does after signing in.

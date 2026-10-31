@@ -90,6 +90,13 @@ const worldMethods: Record<string, (...args: any[]) => Promise<unknown>> = {
     execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-p", `com.apple.BiometricKit_Sim.pearl.${match ? "match" : "nomatch"}`]);
     return true;
   },
+  /** Delivers a push to the app as APNs would, with the payload a relay sends. */
+  async push(payload: unknown) {
+    const file = join(runDir, `push-${Date.now()}.json`);
+    writeFileSync(file, JSON.stringify(payload));
+    execFileSync("xcrun", ["simctl", "push", udid, BUNDLE_ID, file]);
+    return true;
+  },
   /** Signs in to an account on another new device, as if on a new laptop. */
   async newDevice(name: string, password: string = PASSWORD) {
     const app = await new TestApp(`${name}-device-${extraDevices.length + 1}`).open();

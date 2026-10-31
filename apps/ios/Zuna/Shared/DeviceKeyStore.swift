@@ -6,7 +6,7 @@ import ZunaHost
 /// only. Locked copies live in `DeviceLock`; after a restart of the phone this
 /// copy is discarded and the app asks for a password again.
 ///
-/// It's readable after the first unlock since the phone started, so a future
+/// It's readable after the first unlock since the phone started, so the
 /// notification extension can use it while the phone is locked. It never
 /// leaves this device: it isn't synced to iCloud Keychain or included in backups.
 enum DeviceKeyStore {

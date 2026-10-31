@@ -1,16 +1,19 @@
 // An iOS client under test: the app's core host, driven over its control
 // channel with the same RPC calls the app's UI makes.
 
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFile, execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { connectCore, type CoreConnection, type RemoteSession } from "@zuna/core/rpc";
-import type { CoreEvent, MessageView } from "@zuna/core";
+import type { CoreEvent, MessageView, PushPreview } from "@zuna/core";
 import { waitFor } from "../../../packages/core/test/helpers";
 import { hostBinary } from "./paths";
 import { BUNDLE_ID, launch, simulatorId, terminate } from "./simulator";
 import { decodeWire, encodeWire } from "./wire";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export interface HostOptions {
   /** Interpret JavaScript only, as JavaScriptCore does on iOS. */
@@ -121,6 +124,20 @@ export class HostApp {
 
   get session(): RemoteSession {
     return this.core.session(this.serverId);
+  }
+
+  /**
+   * Does what the iOS notification extension does for one push, in a process
+   * of its own beside this host and without JIT, as on a phone: the preview,
+   * and that process's memory footprint in MB.
+   */
+  async previewPush(groupId: string, messageId: string): Promise<{ preview: PushPreview; footprint: number }> {
+    const { stdout } = await execFileAsync(hostBinary, ["--data", this.dir, "--preview-push", this.serverId, groupId, messageId], {
+      env: { ...process.env, JSC_useJIT: "0" },
+    });
+    const json = /^ZUNA_PUSH_PREVIEW (.*)$/m.exec(stdout)?.[1];
+    if (!json) throw new Error(`No preview from the host:\n${stdout}`);
+    return { preview: JSON.parse(json), footprint: Number(/^ZUNA_FOOTPRINT (.*)$/m.exec(stdout)?.[1]) };
   }
 
   async userId(): Promise<string> {

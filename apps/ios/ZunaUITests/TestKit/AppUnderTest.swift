@@ -36,7 +36,9 @@ final class AppUnderTest {
     private(set) var serverId = ""
 
     /// Launches the app. `fresh` erases its data first; `bootSession` simulates a restart of the phone.
-    func launch(fresh: Bool = true, bootSession: String? = nil, textSize: String? = nil) throws {
+    /// `notifications` lets the app ask for notifications, as it does once its
+    /// chats first show; other tests keep the system's question out of the way.
+    func launch(fresh: Bool = true, bootSession: String? = nil, textSize: String? = nil, notifications: Bool = false) throws {
         let port = Int.random(in: 40_000..<50_000)
         app.launchArguments = [
             "-ZunaControlPort", String(port),
@@ -45,6 +47,7 @@ final class AppUnderTest {
             "-AppleLocale", "en_US",
         ]
         if fresh { app.launchArguments += ["-ZunaResetData", "YES"] }
+        app.launchArguments += ["-ZunaAskForNotifications", notifications ? "YES" : "NO"]
         if let bootSession { app.launchArguments += ["-ZunaBootSession", bootSession] }
         // Dynamic Type, as a UIContentSizeCategory name such as UICTContentSizeCategoryAccessibilityXL.
         if let textSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", textSize] }
@@ -252,6 +255,14 @@ final class AppUnderTest {
 
     func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any)[identifier]
+    }
+
+    /// Keeps a screenshot of the whole screen, such as the lock screen or a notification.
+    func screenshotScreen(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        XCTContext.runActivity(named: "Screenshot \(name)") { $0.add(attachment) }
     }
 
     /// Keeps a screenshot with the test results, for reviewing how screens look.

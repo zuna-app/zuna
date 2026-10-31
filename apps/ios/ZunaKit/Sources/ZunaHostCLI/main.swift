@@ -4,6 +4,12 @@
 //   zuna-host --data <folder> [--control <port>] [--device-name <name>]
 //
 // Prints "ZUNA_HOST_READY port=<port>" once the core is running.
+//
+//   zuna-host --data <folder> --preview-push <server> <group> <message>
+//
+// Does what the notification extension does for one push, beside a running
+// host if there is one, then prints "ZUNA_PUSH_PREVIEW <json>" and the
+// process's memory footprint in MB as "ZUNA_FOOTPRINT <mb>", and exits.
 
 import Foundation
 import Security
@@ -50,6 +56,33 @@ do {
     runtime = try CoreRuntime(options: options)
 } catch {
     fail("\(error)")
+}
+
+if let index = CommandLine.arguments.firstIndex(of: "--preview-push"), index + 3 < CommandLine.arguments.count {
+    let ids = Array(CommandLine.arguments[(index + 1)...(index + 3)])
+    Task {
+        do {
+            let json = try await runtime.previewPush(serverId: ids[0], groupId: ids[1], messageId: ids[2])
+            print("ZUNA_PUSH_PREVIEW \(json)")
+            print("ZUNA_FOOTPRINT \(footprint())")
+            exit(0)
+        } catch {
+            fail("\(error)")
+        }
+    }
+    dispatchMain()
+}
+
+/// The process's memory footprint in MB, as iOS counts it against an extension's limit.
+func footprint() -> Double {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
 }
 
 let server = ControlServer(runtime: runtime)

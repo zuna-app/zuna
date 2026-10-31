@@ -4,7 +4,7 @@
 // (apps/desktop/src/renderer/src/core/worker.ts).
 
 import "./polyfills";
-import { ZunaClient, type CoreEvent } from "@zuna/core";
+import { ZunaClient, previewPush, type CoreEvent } from "@zuna/core";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
 import { nativeFiles } from "./files";
@@ -126,5 +126,23 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
       done(null);
     },
     (error: Error) => done(error?.stack ?? String(error)),
+  );
+};
+
+// --- Notifications ---
+//
+// The notification extension loads this bundle too, but never boots a client:
+// it asks about one pushed message at a time (push.ts in the core).
+
+g.__zunaPreviewPush = (
+  deviceKey: Uint8Array,
+  serverId: string,
+  groupId: string,
+  messageId: string,
+  done: (error: string | null, json: string | null) => void,
+) => {
+  previewPush({ db: nativeDbProvider, deviceKey }, serverId, groupId, messageId).then(
+    (preview) => done(null, JSON.stringify(preview)),
+    (error: Error) => done(error?.stack ?? String(error), null),
   );
 };
