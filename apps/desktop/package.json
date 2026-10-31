@@ -1,6 +1,6 @@
 {
   "name": "@zuna/desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "license": "GPL-3.0-only",
   "description": "Zuna: private, end-to-end encrypted chat on servers you run.",
