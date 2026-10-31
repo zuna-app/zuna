@@ -5,6 +5,7 @@
 
 import "./polyfills";
 import { ZunaClient, previewPush, type CoreEvent } from "@zuna/core";
+import { allowLocalLinks } from "@zuna/core/links";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
 import { nativeFiles } from "./files";
@@ -118,6 +119,8 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
       emit(event);
     },
   });
+  // Only test builds' previews may reach this device, for their test pages.
+  allowLocalLinks(!!__zunaHost.testHooks);
   instance.open().then(
     () => {
       client = instance;

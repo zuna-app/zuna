@@ -42,11 +42,80 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         self.deliver = deliver
     }
 
-    /// HTTPS, or plain HTTP on this device, as for servers (previewable in links.ts).
+    /// Test builds' previews may reach this device, for their test pages. A released app never does.
+    private static func isTestPage(_ host: String) -> Bool {
+        #if DEBUG
+        ["localhost", "127.0.0.1", "::1"].contains(host) || host.hasSuffix(".localhost")
+        #else
+        false
+        #endif
+    }
+
+    /// HTTPS to somewhere public (previewable in links.ts). Pages can redirect
+    /// anywhere, so this is checked again for every address along the way.
     static func previewable(_ url: URL?) -> Bool {
         guard let url, let host = url.host?.lowercased() else { return false }
-        let local = ["localhost", "127.0.0.1", "::1"].contains(host) || host.hasSuffix(".localhost")
-        return url.scheme == "https" || (url.scheme == "http" && local)
+        if isTestPage(host) { return url.scheme == "https" || url.scheme == "http" }
+        guard url.scheme == "https" else { return false }
+        if host.contains(":") || host.allSatisfy({ $0.isNumber || $0 == "." }) { return !privateAddress(host) }
+        let name = host.hasSuffix(".") ? String(host.dropLast()) : host
+        let local = [".localhost", ".local", ".internal", ".intranet", ".lan", ".home", ".corp", ".home.arpa"]
+        return name.contains(".") && !local.contains { name.hasSuffix($0) }
+    }
+
+    /// Whether an address, as a resolver gives it, is on this device or a private network (privateAddress in links.ts).
+    static func privateAddress(_ address: String) -> Bool {
+        let text = address.lowercased()
+        if text.contains(":") {
+            if text.hasPrefix("::ffff:") || (text.hasPrefix("::") && text.contains(".")) {
+                let inner = String(text.dropFirst(text.hasPrefix("::ffff:") ? 7 : 2))
+                if inner.contains(".") { return privateAddress(inner) }
+                let parts = inner.split(separator: ":").compactMap { Int($0, radix: 16) }
+                guard parts.count == 2 else { return true }
+                return privateAddress("\(parts[0] >> 8).\(parts[0] & 255).\(parts[1] >> 8).\(parts[1] & 255)")
+            }
+            return text == "::" || text == "::1" || text.hasPrefix("fc") || text.hasPrefix("fd") || text.hasPrefix("fe8") || text.hasPrefix("fe9")
+                || text.hasPrefix("fea") || text.hasPrefix("feb") || text.hasPrefix("ff")
+        }
+        let parts = text.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4 else { return true }
+        let (a, b) = (parts[0], parts[1])
+        return a == 0 || a == 10 || a == 127 || (a == 100 && (64...127).contains(b)) || (a == 169 && b == 254)
+            || (a == 172 && (16...31).contains(b)) || (a == 192 && b == 168) || (a == 198 && (b == 18 || b == 19)) || a >= 224
+    }
+
+    /// Whether a link leads somewhere public: a public name can point at this
+    /// device or a private network, and what a preview finds there would go into
+    /// the message. The answer comes on the core's queue.
+    private func checkDestination(_ url: URL, then done: @escaping (Bool) -> Void) {
+        guard Self.previewable(url), let host = url.host?.lowercased() else {
+            done(false)
+            return
+        }
+        if Self.isTestPage(host) {
+            done(true)
+            return
+        }
+        DispatchQueue.global(qos: .userInitiated).async { [queue] in
+            var hints = addrinfo()
+            hints.ai_socktype = SOCK_STREAM
+            var results: UnsafeMutablePointer<addrinfo>?
+            var safe = false
+            if getaddrinfo(host, nil, &hints, &results) == 0 {
+                safe = true
+                var current = results
+                while let entry = current {
+                    var name = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                    if getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &name, socklen_t(name.count), nil, 0, NI_NUMERICHOST) != 0
+                        || Self.privateAddress(String(cString: name)) {
+                        safe = false
+                    }
+                    current = entry.pointee.ai_next
+                }
+                freeaddrinfo(results)
+            }
+            queue.async { done(safe) }
+        }
     }
 
     func install(into object: JSValue) {
@@ -70,15 +139,24 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             deliver("__zunaWebDone", [id, url, "", NSNull(), "That link can't be previewed."])
             return
         }
-        let task = session.dataTask(with: target)
-        fetches[task.taskIdentifier] = Fetch(id: id, maxBytes: maxBytes)
-        task.resume()
+        checkDestination(target) { [self] safe in
+            guard safe else {
+                deliver("__zunaWebDone", [id, url, "", NSNull(), "That link can't be previewed."])
+                return
+            }
+            let task = session.dataTask(with: target)
+            fetches[task.taskIdentifier] = Fetch(id: id, maxBytes: maxBytes)
+            task.resume()
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         fetches[task.taskIdentifier]?.redirects += 1
-        let allowed = (fetches[task.taskIdentifier]?.redirects ?? .max) <= Self.maxRedirects && Self.previewable(request.url)
-        completionHandler(allowed ? request : nil)
+        guard (fetches[task.taskIdentifier]?.redirects ?? .max) <= Self.maxRedirects, let target = request.url else {
+            completionHandler(nil)
+            return
+        }
+        checkDestination(target) { safe in completionHandler(safe ? request : nil) }
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
