@@ -89,7 +89,7 @@ try {
   await composer.fill("Hello from the **real** app:\n```go\nfunc main() { println(\"encrypted\") }\n```");
   await composer.press("Enter");
   await page.locator(".code-block").waitFor({ timeout: 20_000 });
-  await page.waitForFunction(() => document.querySelector(".msg .msg-meta svg.lucide-check, .msg .msg-meta svg.lucide-check-check"), null, { timeout: 15_000 });
+  await page.waitForFunction(() => document.querySelector(".msg .msg-meta .msg-tick:not(.is-sending)"), null, { timeout: 15_000 });
   await page.waitForTimeout(400);
   await page.screenshot({ path: join(shots, "3-chat.png") });
   console.log("sent and rendered a message");
