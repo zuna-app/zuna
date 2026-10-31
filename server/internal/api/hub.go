@@ -380,7 +380,7 @@ func (s *Server) authenticateSocket(ctx context.Context, ws *websocket.Conn) (*s
 		return nil, false
 	}
 	sess, err := s.db.SessionByToken(ctx, hashToken(frame.Token))
-	if err != nil {
+	if err != nil || sess.DeviceID == "" {
 		ws.Close(4401, "invalid session")
 		return nil, false
 	}

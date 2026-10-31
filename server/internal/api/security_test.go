@@ -4,12 +4,16 @@ package api_test
 // so it can't come back. The findings' numbers are in the audit's report.
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/coder/websocket"
 
 	"zuna/server/internal/api"
 	"zuna/server/internal/store"
@@ -92,6 +96,23 @@ func (c *client) readFile(id string) int {
 	c.h.t.Helper()
 	status, _, _ := c.h.raw("GET", "/api/files/"+id+"/chunks/0", c.token, nil, nil)
 	return status
+}
+
+// socketCloseCode says how the server closes a socket that signs in with a token.
+func (h *harness) socketCloseCode(token string) websocket.StatusCode {
+	h.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ws, _, err := websocket.Dial(ctx, strings.Replace(h.url, "http", "ws", 1)+"/api/ws", nil)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer ws.CloseNow()
+	if err := ws.Write(ctx, websocket.MessageText, []byte(`{"t":"auth","token":"`+token+`"}`)); err != nil {
+		h.t.Fatal(err)
+	}
+	_, _, err = ws.Read(ctx)
+	return websocket.CloseStatus(err)
 }
 
 // Z-07: bytes that aren't a commit or group info for this group and epoch.
@@ -253,6 +274,51 @@ func TestADirectMessageIsntAnyonesToDelete(t *testing.T) {
 	}
 	if status, _ := h.do("GET", path, owner.token, nil, nil); status != http.StatusOK {
 		t.Fatalf("the DM should still be there: %d", status)
+	}
+}
+
+// Z-04: a session nobody can see doesn't get to read anything or stay around.
+func TestASessionWithoutADeviceCanOnlyFinishSigningIn(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	var hidden struct {
+		Token string `json:"token"`
+	}
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &hidden)
+	for _, path := range []string{"/api/vault", "/api/groups", "/api/users", "/api/users/" + owner.userID, "/api/history-grants", "/api/emotes", "/api/invites", "/api/files/" + store.NewID()} {
+		if status, _ := h.do("GET", path, hidden.Token, nil, nil); status != http.StatusForbidden {
+			t.Fatalf("%s gave %d", path, status)
+		}
+	}
+	if status, _ := h.do("PATCH", "/api/admin/settings", hidden.Token, map[string]any{"name": "mine now"}, nil); status != http.StatusForbidden {
+		t.Fatalf("server settings gave %d", status)
+	}
+
+	// A password change ends it, and the session that asked goes on.
+	newKDF := map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1}
+	h.mustDo("POST", "/api/auth/password", owner.token, map[string]any{
+		"current_auth_key": bytesOf(32, 'o'), "kdf": newKDF, "auth_key": bytesOf(32, 0xcd), "wrapped_key_password": []byte("w"),
+	}, nil)
+	if status, _ := h.do("POST", "/api/auth/logout", hidden.Token, map[string]any{}, nil); status != http.StatusUnauthorized {
+		t.Fatalf("the hidden session still answers: %d", status)
+	}
+	if status, _ := h.do("GET", "/api/vault", owner.token, nil, nil); status != http.StatusOK {
+		t.Fatalf("the device's session stopped working: %d", status)
+	}
+
+	// So does changing the recovery key.
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xcd)}, &hidden)
+	h.mustDo("POST", "/api/auth/recovery-key", owner.token, map[string]any{
+		"current_auth_key": bytesOf(32, 0xcd), "recovery_auth_key": bytesOf(32, 0xef), "wrapped_key_recovery": []byte("w"),
+	}, nil)
+	if status, _ := h.do("POST", "/api/auth/logout", hidden.Token, map[string]any{}, nil); status != http.StatusUnauthorized {
+		t.Fatalf("the hidden session outlived a new recovery key: %d", status)
+	}
+
+	// A socket isn't a way around it.
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xcd)}, &hidden)
+	if code := h.socketCloseCode(hidden.Token); code != 4401 {
+		t.Fatalf("a socket for a session without a device closed with %d", code)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 )
 
 // PublicUser is what every member of a server can see about a user.
@@ -371,21 +372,61 @@ type Session struct {
 	Role     string
 }
 
+const (
+	// A session without a device is only the moment between signing in and
+	// registering one. It appears nowhere the person could notice it, so it
+	// doesn't get to last.
+	devicelessSessionLife = 10 * time.Minute
+	// A session nobody has used for this long is over.
+	sessionIdleLife = 365 * 24 * time.Hour
+	// When a session was last used is written at most this often.
+	lastUsedResolution = time.Hour
+)
+
 func (d *DB) SessionByToken(ctx context.Context, tokenHash []byte) (*Session, error) {
 	var s Session
 	var device sql.NullString
-	err := d.sql.QueryRowContext(ctx, `SELECT s.user_id, s.device_id, u.username, u.role
+	var createdAt, lastUsedAt int64
+	err := d.sql.QueryRowContext(ctx, `SELECT s.user_id, s.device_id, u.username, u.role, s.created_at, s.last_used_at
 		FROM sessions s JOIN users u ON u.id = s.user_id
-		WHERE s.token_hash = ? AND u.banned_at IS NULL`, tokenHash).Scan(&s.UserID, &device, &s.Username, &s.Role)
+		WHERE s.token_hash = ? AND u.banned_at IS NULL`, tokenHash).Scan(&s.UserID, &device, &s.Username, &s.Role, &createdAt, &lastUsedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
+	if err != nil {
+		return nil, err
+	}
+	now := Now()
+	if (!device.Valid && now-createdAt > devicelessSessionLife.Milliseconds()) || now-lastUsedAt > sessionIdleLife.Milliseconds() {
+		return nil, ErrNotFound
+	}
+	if now-lastUsedAt > lastUsedResolution.Milliseconds() {
+		if _, err := d.sql.ExecContext(ctx, `UPDATE sessions SET last_used_at = ? WHERE token_hash = ?`, now, tokenHash); err != nil {
+			return nil, err
+		}
+	}
 	s.DeviceID = device.String
-	return &s, err
+	return &s, nil
 }
 
 func (d *DB) DeleteSession(ctx context.Context, tokenHash []byte) error {
 	_, err := d.sql.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = ?`, tokenHash)
+	return err
+}
+
+// DeleteDevicelessSessions ends every session of a user with no device, apart
+// from the one asking. Sessions on real devices stay: they're listed in Settings,
+// where the person can remove them.
+func (d *DB) DeleteDevicelessSessions(ctx context.Context, userID string, keep []byte) error {
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND device_id IS NULL AND token_hash != ?`, userID, keep)
+	return err
+}
+
+// DeleteExpiredSessions forgets sessions that no longer work.
+func (d *DB) DeleteExpiredSessions(ctx context.Context) error {
+	now := Now()
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM sessions WHERE (device_id IS NULL AND created_at < ?) OR last_used_at < ?`,
+		now-devicelessSessionLife.Milliseconds(), now-sessionIdleLife.Milliseconds())
 	return err
 }
 

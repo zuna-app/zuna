@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 )
 
 func openTestDB(t *testing.T) *DB {
@@ -198,6 +199,77 @@ func ownFile(t *testing.T, db *DB, id string) {
 	t.Helper()
 	if err := db.CreateFile(context.Background(), File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSessionsDontLastForever(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	user, err := db.CreateUser(ctx, NewUser{
+		Username: "bob", KDF: KDFParams{Salt: []byte("s")}, AuthHash: []byte("h"), AuthSalt: []byte("s"),
+		RecoveryHash: []byte("h"), RecoverySalt: []byte("s"), WrappedKeyPassword: []byte("w"), WrappedKeyRecovery: []byte("w"),
+		IdentityKey: []byte("i"), HpkeKey: []byte("k"), HpkeKeySig: []byte("g"), VaultCore: []byte("v"),
+	}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	age := func(token string, createdAgo, usedAgo time.Duration) {
+		t.Helper()
+		now := Now()
+		if _, err := db.sql.ExecContext(ctx, `UPDATE sessions SET created_at = ?, last_used_at = ? WHERE token_hash = ?`,
+			now-createdAgo.Milliseconds(), now-usedAgo.Milliseconds(), []byte(token)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := func(token string) {
+		t.Helper()
+		if err := db.CreateSession(ctx, []byte(token), user); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Without a device, only long enough to register one.
+	session("new")
+	if _, err := db.SessionByToken(ctx, []byte("new")); err != nil {
+		t.Fatalf("a new session should work: %v", err)
+	}
+	age("new", devicelessSessionLife+time.Minute, 0)
+	if _, err := db.SessionByToken(ctx, []byte("new")); err == nil {
+		t.Fatal("a session with no device outlived its time")
+	}
+
+	// With one, until it's gone unused for a very long time.
+	session("device")
+	if err := db.AddDevice(ctx, []byte("device"), Device{ID: "d", UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}); err != nil {
+		t.Fatal(err)
+	}
+	age("device", 2*sessionIdleLife, 2*lastUsedResolution)
+	before := Now()
+	if _, err := db.SessionByToken(ctx, []byte("device")); err != nil {
+		t.Fatalf("a session in use should keep working: %v", err)
+	}
+	var used int64
+	if err := db.sql.QueryRowContext(ctx, `SELECT last_used_at FROM sessions WHERE token_hash = ?`, []byte("device")).Scan(&used); err != nil {
+		t.Fatal(err)
+	}
+	if used < before {
+		t.Fatal("using a session should be recorded")
+	}
+	age("device", 2*sessionIdleLife, sessionIdleLife+time.Hour)
+	if _, err := db.SessionByToken(ctx, []byte("device")); err == nil {
+		t.Fatal("a session unused for over a year still works")
+	}
+
+	session("fresh")
+	if err := db.DeleteExpiredSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	if err := db.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions`).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 1 {
+		t.Fatalf("%d sessions left, want only the fresh one", left)
 	}
 }
 

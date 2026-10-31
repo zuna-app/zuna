@@ -334,6 +334,16 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, se
 		writeFailure(w, err)
 		return
 	}
+	s.endHiddenSessions(w, r, sess.UserID)
+}
+
+// endHiddenSessions closes every session that has no device, after the
+// password or recovery key changed. Whoever knew the old one may have left one.
+func (s *Server) endHiddenSessions(w http.ResponseWriter, r *http.Request, userID string) {
+	if err := s.db.DeleteDevicelessSessions(r.Context(), userID, hashToken(bearerToken(r))); err != nil {
+		writeFailure(w, err)
+		return
+	}
 	writeOK(w)
 }
 
@@ -364,7 +374,7 @@ func (s *Server) handleChangeRecoveryKey(w http.ResponseWriter, r *http.Request,
 		writeFailure(w, err)
 		return
 	}
-	writeOK(w)
+	s.endHiddenSessions(w, r, sess.UserID)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, sess *store.Session) {

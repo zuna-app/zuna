@@ -202,6 +202,9 @@ func (s *Server) cleanup(ctx context.Context) {
 		slog.Warn("listing abandoned uploads", "error", err)
 	}
 	s.removeFiles(ctx, abandoned)
+	if err := s.db.DeleteExpiredSessions(ctx); err != nil {
+		slog.Warn("removing expired sessions", "error", err)
+	}
 
 	days, err := s.intSetting(ctx, "retention_days", 0)
 	if err != nil || days <= 0 {
@@ -264,16 +267,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/register", s.limited(s.handleRegister))
 	mux.HandleFunc("POST /api/auth/login", s.limited(s.handleLogin))
 	mux.HandleFunc("POST /api/auth/recover", s.limited(s.handleRecover))
+	// A session without a device can only finish a recovery, register its device or sign out.
 	mux.HandleFunc("POST /api/auth/password", s.authed(s.handleChangePassword))
-	mux.HandleFunc("POST /api/auth/recovery-key", s.authed(s.handleChangeRecoveryKey))
+	mux.HandleFunc("POST /api/auth/recovery-key", s.withDevice(s.handleChangeRecoveryKey))
 	mux.HandleFunc("POST /api/auth/logout", s.authed(s.handleLogout))
 
 	// Users and devices
-	mux.HandleFunc("GET /api/users", s.authed(s.handleUsers))
-	mux.HandleFunc("GET /api/users/{id}", s.authed(s.handleUser))
-	mux.HandleFunc("PATCH /api/me", s.authed(s.handleUpdateMe))
+	mux.HandleFunc("GET /api/users", s.withDevice(s.handleUsers))
+	mux.HandleFunc("GET /api/users/{id}", s.withDevice(s.handleUser))
+	mux.HandleFunc("PATCH /api/me", s.withDevice(s.handleUpdateMe))
 	mux.HandleFunc("POST /api/devices", s.authed(s.handleAddDevice))
-	mux.HandleFunc("DELETE /api/devices/{id}", s.authed(s.handleRevokeDevice))
+	mux.HandleFunc("DELETE /api/devices/{id}", s.withDevice(s.handleRevokeDevice))
 	mux.HandleFunc("PUT /api/push", s.withDevice(s.handleSetPush))
 	mux.HandleFunc("DELETE /api/push", s.withDevice(s.handleDeletePush))
 	mux.HandleFunc("GET /api/key-packages/status", s.withDevice(s.handleKeyPackageStatus))
@@ -281,14 +285,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/users/{id}/key-packages/claim", s.withDevice(s.handleClaimKeyPackages))
 
 	// Encrypted per-user key vault
-	mux.HandleFunc("GET /api/vault", s.authed(s.handleVaultGet))
-	mux.HandleFunc("PUT /api/vault", s.authed(s.handleVaultPut))
-	mux.HandleFunc("PUT /api/vault/core", s.authed(s.handleVaultCore))
-	mux.HandleFunc("GET /api/history-grants", s.authed(s.handleHistoryGrants))
-	mux.HandleFunc("DELETE /api/history-grants/{id}", s.authed(s.handleDeleteHistoryGrant))
+	mux.HandleFunc("GET /api/vault", s.withDevice(s.handleVaultGet))
+	mux.HandleFunc("PUT /api/vault", s.withDevice(s.handleVaultPut))
+	mux.HandleFunc("PUT /api/vault/core", s.withDevice(s.handleVaultCore))
+	mux.HandleFunc("GET /api/history-grants", s.withDevice(s.handleHistoryGrants))
+	mux.HandleFunc("DELETE /api/history-grants/{id}", s.withDevice(s.handleDeleteHistoryGrant))
 
 	// Groups
-	mux.HandleFunc("GET /api/groups", s.authed(s.handleGroups))
+	mux.HandleFunc("GET /api/groups", s.withDevice(s.handleGroups))
 	mux.HandleFunc("POST /api/groups", s.withDevice(s.handleCreateGroup))
 	mux.HandleFunc("GET /api/groups/{id}", s.member(s.handleGroup))
 	mux.HandleFunc("DELETE /api/groups/{id}", s.member(s.handleDeleteGroup))
@@ -316,19 +320,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/groups/{id}/pins", s.member(s.handlePins))
 
 	// Files (always encrypted by the client before upload)
-	mux.HandleFunc("POST /api/files", s.authed(s.handleCreateFile))
-	mux.HandleFunc("GET /api/files/{id}", s.authed(s.handleFileInfo))
-	mux.HandleFunc("PUT /api/files/{id}/chunks/{n}", s.authed(s.handleUploadChunk))
-	mux.HandleFunc("GET /api/files/{id}/chunks/{n}", s.authed(s.handleDownloadChunk))
-	mux.HandleFunc("POST /api/files/{id}/complete", s.authed(s.handleCompleteFile))
+	mux.HandleFunc("POST /api/files", s.withDevice(s.handleCreateFile))
+	mux.HandleFunc("GET /api/files/{id}", s.withDevice(s.handleFileInfo))
+	mux.HandleFunc("PUT /api/files/{id}/chunks/{n}", s.withDevice(s.handleUploadChunk))
+	mux.HandleFunc("GET /api/files/{id}/chunks/{n}", s.withDevice(s.handleDownloadChunk))
+	mux.HandleFunc("POST /api/files/{id}/complete", s.withDevice(s.handleCompleteFile))
 
 	// Emotes
-	mux.HandleFunc("GET /api/emotes", s.authed(s.handleEmotes))
+	mux.HandleFunc("GET /api/emotes", s.withDevice(s.handleEmotes))
 
 	// Server administration
-	mux.HandleFunc("GET /api/invites", s.authed(s.handleListInvites))
-	mux.HandleFunc("POST /api/invites", s.authed(s.handleCreateInvite))
-	mux.HandleFunc("DELETE /api/invites/{code}", s.authed(s.handleRevokeInvite))
+	mux.HandleFunc("GET /api/invites", s.withDevice(s.handleListInvites))
+	mux.HandleFunc("POST /api/invites", s.withDevice(s.handleCreateInvite))
+	mux.HandleFunc("DELETE /api/invites/{code}", s.withDevice(s.handleRevokeInvite))
 	mux.HandleFunc("PATCH /api/admin/settings", s.admin(s.handleUpdateSettings))
 	mux.HandleFunc("PUT /api/admin/icon", s.admin(s.handleUpdateIcon))
 	mux.HandleFunc("PUT /api/admin/emote-set", s.admin(s.handleSetEmoteSet))
@@ -424,7 +428,7 @@ func (s *Server) member(next memberHandler) http.HandlerFunc {
 }
 
 func (s *Server) admin(next authedHandler) http.HandlerFunc {
-	return s.authed(func(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	return s.withDevice(func(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 		if sess.Role != "owner" && sess.Role != "admin" {
 			writeError(w, http.StatusForbidden, "forbidden", "Only server admins can do this.")
 			return
