@@ -33,7 +33,7 @@ struct UnlockView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .accessibilityIdentifier("unlock.account")
+                .accessibilityIdentifier(A11y.Unlock.account)
             } else if let account = accounts.first {
                 Text("\(account.username) on \(account.serverName)")
                     .font(.footnote)
@@ -48,13 +48,13 @@ struct UnlockView: View {
                 .padding(12)
                 .background(Color(white: 0.16), in: RoundedRectangle(cornerRadius: 10))
                 .foregroundStyle(.white)
-                .accessibilityIdentifier("unlock.password")
+                .accessibilityIdentifier(A11y.Unlock.password)
 
             if wrong {
                 Text("That password isn't right.")
                     .font(.footnote)
                     .foregroundStyle(.red)
-                    .accessibilityIdentifier("unlock.error")
+                    .accessibilityIdentifier(A11y.Unlock.error)
             }
 
             Button(action: unlock) {
@@ -71,13 +71,16 @@ struct UnlockView: View {
             .tint(Color(white: 0.93))
             .foregroundStyle(.black)
             .disabled(password.isEmpty || busy)
-            .accessibilityIdentifier("unlock.submit")
+            .accessibilityIdentifier(A11y.Unlock.submit)
 
             Button("Forgot your password?") { confirmErase = true }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+                .accessibilityIdentifier(A11y.Unlock.forgot)
         }
         .padding(28)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.Unlock.screen)
         .frame(maxWidth: 420)
         .onAppear { focused = true }
         .alert("Sign in again?", isPresented: $confirmErase) {
