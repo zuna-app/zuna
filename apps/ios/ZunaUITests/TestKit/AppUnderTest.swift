@@ -102,6 +102,13 @@ final class AppUnderTest {
         return try blocking { try await control.call("getConnectionState", server: serverId) as? String ?? "" }
     }
 
+    /// Sends a message from the app's core, as the composer would (it comes in F5).
+    func send(to key: String, _ text: String) throws {
+        let control = control!
+        let serverId = serverId
+        try blocking { _ = try await control.call("sendMessage", server: serverId, [key, ["text": text]]) }
+    }
+
     /// The signed-in account's user ID.
     func selfId() throws -> String {
         let control = control!

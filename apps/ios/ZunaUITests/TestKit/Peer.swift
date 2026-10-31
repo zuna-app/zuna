@@ -14,10 +14,49 @@ final class Peer: @unchecked Sendable {
         socket = try blocking { try await RPCSocket.connect(to: url) }
     }
 
-    /// Calls a method of the peer's session whose result isn't needed. Arguments are JSON values.
-    func call(_ method: String, _ arguments: [String]) throws {
+    /// Calls a method of the peer's session. Arguments and the result are JSON
+    /// values; they cross into the background task as JSON so nothing unsafe is shared.
+    @discardableResult
+    func call(_ method: String, _ arguments: [Any] = []) throws -> Any {
         let socket = socket, serverId = account.serverId
-        try blocking { _ = try await socket.call(method, server: serverId, arguments) }
+        let encoded = try JSONSerialization.data(withJSONObject: arguments)
+        let result = try blocking {
+            let arguments = try JSONSerialization.jsonObject(with: encoded) as? [Any] ?? []
+            let value = try await socket.call(method, server: serverId, arguments)
+            return try JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)
+        }
+        return try JSONSerialization.jsonObject(with: result, options: .fragmentsAllowed)
+    }
+
+    /// Sends a message with any of the body's fields (text, emotes, mentions, replyTo), and returns its ID.
+    @discardableResult
+    func send(to key: String, _ body: [String: Any]) throws -> String {
+        let message = try call("sendMessage", [key, body]) as? [String: Any]
+        return message?["id"] as? String ?? ""
+    }
+
+    /// A message with the emotes in its text, as the desktop's composer records them.
+    @discardableResult
+    func sendWithEmotes(to key: String, _ text: String, mentions: [String] = []) throws -> String {
+        let emotes = try call("emotesIn", [text])
+        return try send(to: key, ["text": text, "emotes": emotes, "mentions": mentions])
+    }
+
+    /// Sends a picture with a caption, as the desktop does after picking a file.
+    func sendImage(to key: String, png: Data, name: String, width: Int, height: Int, text: String = "") throws {
+        let file: [String: Any] = [
+            "blob": ["$blob": ["bytes": png.base64EncodedString(), "type": "image/png"]],
+            "name": name,
+            "mime": "image/png",
+            "width": width,
+            "height": height,
+        ]
+        try call("sendWithAttachments", [key, [file], ["text": text]])
+    }
+
+    func conversation(_ key: String) throws -> [String: Any]? {
+        let conversations = try call("getConversations") as? [[String: Any]] ?? []
+        return conversations.first { $0["key"] as? String == key }
     }
 
     func send(to userId: String, _ text: String) throws {

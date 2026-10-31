@@ -28,8 +28,12 @@ final class ConversationListTests: XCTestCase {
         let filters = zuna.element(A11y.ChatList.filter)
         filters.buttons["Groups"].tap()
         try waitFor("only the group") { self.rows.count == 1 && self.rows.firstMatch.label.contains("Weekend") }
+        // Other tests may leave more unread, but notes to yourself never are.
+        filters.buttons["All"].tap()
+        let saved = row("user:\(World.current["bob"].userId)")
+        XCTAssertTrue(saved.waitForExistence(timeout: 5))
         filters.buttons["Unread"].tap()
-        try waitFor("the unread ones") { alice.exists && !carol.exists }
+        try waitFor("the unread ones") { self.rows.count > 0 && !saved.exists }
         zuna.screenshot("50-filter-unread")
         filters.buttons["People"].tap()
         try waitFor("people only") { carol.exists && !self.rows.firstMatch.label.contains("Weekend") }

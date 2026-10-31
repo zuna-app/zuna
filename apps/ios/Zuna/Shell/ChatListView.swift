@@ -3,7 +3,7 @@ import ZunaModels
 
 /// The active server's conversations, laid out like Telegram's chat list: a
 /// search bar, filters, then the rows. The title shows the connection state
-/// while it isn't connected, as Telegram does. The chat itself comes in F4.
+/// while it isn't connected, as Telegram does.
 struct ChatListView: View {
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", people = "People", groups = "Groups", unread = "Unread"
@@ -17,7 +17,8 @@ struct ChatListView: View {
     @State private var messageHits: [SearchResult] = []
 
     var body: some View {
-        NavigationStack {
+        @Bindable var model = model
+        NavigationStack(path: $model.chatPath) {
             Group {
                 if let server = model.activeServer {
                     list(server)
@@ -37,6 +38,9 @@ struct ChatListView: View {
             .onChange(of: model.activeServerId) {
                 query = ""
                 showHidden = false
+            }
+            .navigationDestination(for: String.self) { key in
+                ChatScreen(conversationKey: key)
             }
         }
     }
@@ -81,7 +85,12 @@ struct ChatListView: View {
             if !messageHits.isEmpty {
                 Section {
                     ForEach(messageHits, id: \.message.id) { hit in
-                        MessageHitRow(hit: hit, server: server)
+                        Button {
+                            open(hit, serverId: server.entry.id)
+                        } label: {
+                            MessageHitRow(hit: hit, server: server)
+                        }
+                        .buttonStyle(.plain)
                             .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 14))
                             .listRowBackground(Theme.bg0)
                             .listRowSeparatorTint(Theme.line)
@@ -101,7 +110,12 @@ struct ChatListView: View {
     }
 
     private func row(_ conversation: ConversationView, _ server: AppModel.ServerState) -> some View {
-        ChatRow(conversation: conversation, server: server)
+        Button {
+            model.chatPath = [conversation.key]
+        } label: {
+            ChatRow(conversation: conversation, server: server)
+        }
+        .buttonStyle(.plain)
             .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 14))
             .listRowBackground(Theme.bg0)
             .listRowSeparatorTint(Theme.line)
@@ -199,6 +213,14 @@ struct ChatListView: View {
     }
 
     // MARK: Message search
+
+    /// Opens the chat on the message that was found, highlighted.
+    private func open(_ hit: SearchResult, serverId: String) {
+        Task {
+            await model.jumpToMessage(serverId, groupId: hit.message.groupId, messageId: hit.message.id, seq: hit.message.seq)
+            model.chatPath = [hit.conversationKey]
+        }
+    }
 
     private struct SearchKey: Equatable {
         let serverId: String?
@@ -394,7 +416,7 @@ private struct ChatRow: View {
     }
 }
 
-/// A message found by search: who sent it, where, and the text. Opening it comes with the chat in F4.
+/// A message found by search: who sent it, where, and the text.
 private struct MessageHitRow: View {
     let hit: SearchResult
     let server: AppModel.ServerState

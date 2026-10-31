@@ -13,11 +13,31 @@ final class AppModel {
         var connection: ConnectionState
         var me: SelfInfo?
         var conversations: [ConversationView] = []
-        var users: [String: UserView] = [:]
+        var users: [String: UserView] {
+            didSet { mentionable = Self.mentionable(users) }
+        }
+        /// Lowercased username to user ID, for highlighting mentions. Changes only with the people, not with presence.
+        private(set) var mentionable: [String: String]
         var emotes: EmoteSet
         var prefs: Preferences
         /// groupId -> userId -> when the typing indicator expires.
         var typing: [String: [String: Date]] = [:]
+
+        init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], users: [String: UserView], emotes: EmoteSet, prefs: Preferences) {
+            self.entry = entry
+            self.info = info
+            self.connection = connection
+            self.me = me
+            self.conversations = conversations
+            self.users = users
+            self.mentionable = Self.mentionable(users)
+            self.emotes = emotes
+            self.prefs = prefs
+        }
+
+        private static func mentionable(_ users: [String: UserView]) -> [String: String] {
+            Dictionary(users.values.map { ($0.username.lowercased(), $0.id) }, uniquingKeysWith: { first, _ in first })
+        }
 
         /// Unread messages outside muted conversations, for the server rail's badge.
         var unread: Int {
@@ -52,6 +72,14 @@ final class AppModel {
     var joining = false
     /// An invite link opened from outside the app, for the join screens to pick up.
     var pendingLink: String?
+    /// The chats opened from the conversation list, by conversation key.
+    var chatPath: [String] = []
+    /// Loaded messages, by `listKey(serverId, listId)` (see MessageLists.swift).
+    var lists: [String: MessageList] = [:]
+    var jumpTarget: JumpTarget?
+    var nextJump = 0
+    /// Where each chat was scrolled to, when it wasn't at the newest message: the message at the top of the screen.
+    @ObservationIgnored var savedPositions: [String: String] = [:]
     private(set) var toasts: [Toast] = []
     var settings = AppSettings.load() {
         didSet { settings.save() }
@@ -153,6 +181,7 @@ final class AppModel {
     }
 
     func selectServer(_ serverId: String) {
+        if serverId != activeServerId { chatPath = [] }
         activeServerId = serverId
         drawerOpen = false
     }
@@ -173,9 +202,12 @@ final class AppModel {
         case let .users(serverId):
             refresh("users", serverId)
             refresh("conversations", serverId)
-        case .message, .messageRemoved, .messageMoved:
-            // Message lists arrive in F4; conversation previews follow the "conversations" event.
-            break
+        case let .message(serverId, message, _):
+            upsert(serverId, message)
+        case let .messageRemoved(serverId, groupId, id):
+            remove(serverId, groupId: groupId, id: id)
+        case let .messageMoved(serverId, fromGroupId, message):
+            move(serverId, from: fromGroupId, message)
         case let .presence(serverId, userId, online, lastSeenAt):
             servers[serverId]?.users[userId]?.online = online
             servers[serverId]?.users[userId]?.lastSeenAt = lastSeenAt
@@ -219,6 +251,8 @@ final class AppModel {
 
     private func removeServer(_ serverId: String) {
         servers[serverId] = nil
+        lists = lists.filter { !$0.key.hasPrefix("\(serverId)/") }
+        if activeServerId == serverId { chatPath = [] }
         order.removeAll { $0 == serverId }
         if activeServerId == serverId { activeServerId = order.first }
         if order.isEmpty { onboarding = true }

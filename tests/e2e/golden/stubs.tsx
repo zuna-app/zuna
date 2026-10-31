@@ -5,7 +5,7 @@
 import type { EmoteRef } from "@zuna/core";
 import type { ReactNode } from "react";
 
-export function Emote({ name, emote, stackOnPrevious }: { name: string; emote: EmoteRef; stackOnPrevious?: boolean }) {
+export function Emote({ name, emote, stackOnPrevious }: { name: string; emote: EmoteRef; serverUrl: string; stackOnPrevious?: boolean }) {
   return <i data-emote={name} data-id={emote.id} data-zw={stackOnPrevious ? "1" : "0"} />;
 }
 
