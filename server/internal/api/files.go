@@ -8,13 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"zuna/server/internal/store"
 )
 
 // Clients split files into 1 MiB plaintext chunks before encrypting them. The
 // extra room covers the authentication tag.
-const maxChunkBytes = (1 << 20) + 256
+const (
+	plainChunkBytes = 1 << 20
+	chunkOverhead   = 256
+	maxChunkBytes   = plainChunkBytes + chunkOverhead
+)
 
 func (s *Server) fileDir(id string) string {
 	return filepath.Join(s.files, id[:2], id)
@@ -47,9 +52,23 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *
 			fmt.Sprintf("Files on this server can be up to %d MB.", limit>>20))
 		return
 	}
-	if body.ChunkCount < 1 || body.TotalSize < 1 || body.TotalSize > int64(body.ChunkCount)*maxChunkBytes {
+	// Every part but the last is full, so the size says how many parts there can be.
+	if body.ChunkCount < 1 || body.TotalSize < 1 || body.TotalSize > int64(body.ChunkCount)*maxChunkBytes ||
+		int64(body.ChunkCount-1)*plainChunkBytes >= body.TotalSize {
 		writeError(w, http.StatusBadRequest, "bad_request", "The file description isn't valid.")
 		return
+	}
+	if s.cfg.UserQuotaMB > 0 {
+		used, err := s.db.StorageUsed(r.Context(), sess.UserID)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		if used+body.TotalSize > int64(s.cfg.UserQuotaMB)<<20 {
+			writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded",
+				"You've used all the storage this server gives each person. Deleting messages with files frees some.")
+			return
+		}
 	}
 	id := store.NewID()
 	if err := s.db.CreateFile(r.Context(), store.File{
@@ -121,6 +140,8 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, sess 
 		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
 		return
 	}
+	// A slow connection gets longer for this than for an ordinary request.
+	http.NewResponseController(w).SetReadDeadline(time.Now().Add(chunkReadTimeout))
 	if err := os.MkdirAll(s.fileDir(file.ID), 0o755); err != nil {
 		writeFailure(w, err)
 		return
@@ -139,7 +160,20 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, sess 
 		writeError(w, http.StatusBadRequest, "bad_request", "That part of the upload couldn't be read.")
 		return
 	}
+	// What arrives counts against what the upload said it would be, as it arrives.
+	replacing := int64(0)
+	if existing, err := os.Stat(s.chunkPath(file.ID, n)); err == nil {
+		replacing = existing.Size()
+	}
+	if file.Received+written-replacing > file.TotalSize+int64(file.ChunkCount)*chunkOverhead {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That's more than this upload said it would be.")
+		return
+	}
 	if err := os.Rename(tmp.Name(), s.chunkPath(file.ID, n)); err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if err := s.db.AddReceived(r.Context(), file.ID, written-replacing); err != nil {
 		writeFailure(w, err)
 		return
 	}

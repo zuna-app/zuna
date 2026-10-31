@@ -197,6 +197,11 @@ func (s *Server) cleanup(ctx context.Context) {
 		slog.Warn("listing unattached files", "error", err)
 	}
 	s.removeFiles(ctx, unattached)
+	abandoned, err := s.db.AbandonedUploads(ctx, time.Now().Add(-abandonedUploadTTL).UnixMilli())
+	if err != nil {
+		slog.Warn("listing abandoned uploads", "error", err)
+	}
+	s.removeFiles(ctx, abandoned)
 
 	days, err := s.intSetting(ctx, "retention_days", 0)
 	if err != nil || days <= 0 {

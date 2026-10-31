@@ -168,6 +168,45 @@ func TestFilesAreForTheirConversation(t *testing.T) {
 	}
 }
 
+// Z-14: what's stored and sent around is limited by what's really there.
+func TestUploadsAndDetailsAreLimited(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 3 })
+	owner := h.owner()
+	h.mustDo("PATCH", "/api/admin/settings", owner.token, map[string]any{"max_upload_mb": 1}, nil)
+
+	// Saying very little and sending a lot.
+	if status, _ := h.do("POST", "/api/files", owner.token, map[string]any{"chunk_count": 1000000, "total_size": 1}, nil); status != http.StatusBadRequest {
+		t.Fatalf("a million parts of one byte gave %d", status)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 1, "total_size": 10}, &created)
+	if status, _ := h.do("PUT", "/api/files/"+created.ID+"/chunks/0", owner.token, bytesOf(1<<20, 1), nil); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a part far bigger than declared gave %d", status)
+	}
+	h.mustDo("PUT", "/api/files/"+created.ID+"/chunks/0", owner.token, bytesOf(10, 1), nil)
+	// Sending the same part again is an honest retry, and doesn't count twice.
+	h.mustDo("PUT", "/api/files/"+created.ID+"/chunks/0", owner.token, bytesOf(10, 1), nil)
+
+	// One person's files together.
+	megabyte := map[string]any{"chunk_count": 1, "total_size": 1 << 20}
+	for range 2 {
+		h.mustDo("POST", "/api/files", owner.token, megabyte, nil)
+	}
+	if status, resp := h.do("POST", "/api/files", owner.token, megabyte, nil); status != http.StatusRequestEntityTooLarge || resp["error"] != "quota_exceeded" {
+		t.Fatalf("past the quota gave %d %v", status, resp)
+	}
+
+	// Sent to everyone, so kept small.
+	if status, _ := h.do("PATCH", "/api/me", owner.token, map[string]any{"profile": bytesOf(1<<20, 1)}, nil); status == http.StatusOK {
+		t.Fatal("a megabyte of profile was accepted")
+	}
+	if status, _, _ := h.raw("POST", "/api/auth/login", "", bytesOf(1<<20, ' '), nil); status != http.StatusBadRequest {
+		t.Fatalf("a megabyte of sign-in gave %d", status)
+	}
+}
+
 // Z-13: an address someone made up doesn't get them new attempts.
 func TestSignInLimitsSeeTheRealAddress(t *testing.T) {
 	h := newHarness(t, func(cfg *api.Config) {

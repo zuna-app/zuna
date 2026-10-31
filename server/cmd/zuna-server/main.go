@@ -162,7 +162,10 @@ func run(cfg config) error {
 	httpServer := &http.Server{
 		Handler:           srv.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
+		// So a slow upload can't hold a connection open for ever. Sockets aren't
+		// bound by it once they've connected, and parts of files get longer.
+		ReadTimeout: api.ReadTimeout,
+		IdleTimeout: 2 * time.Minute,
 	}
 
 	errs := make(chan error, 2)

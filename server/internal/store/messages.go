@@ -628,6 +628,25 @@ func (d *DB) UnattachedFiles(ctx context.Context, olderThan int64) ([]string, er
 	return ids, rows.Err()
 }
 
+// AbandonedUploads lists uploads that stopped before finishing, with nothing
+// arriving since the given time.
+func (d *DB) AbandonedUploads(ctx context.Context, idleSince int64) ([]string, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT id FROM files WHERE completed_at IS NULL AND attached_at IS NULL AND COALESCE(touched_at, created_at) < ?`, idleSince)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // --- Emotes ---
 
 // Emote is one 7TV emote known to this server.
