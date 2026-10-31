@@ -6,7 +6,11 @@ Phones can't keep a connection open in the background, so a Zuna server wakes th
 
 - **Phones** register their Apple push token and get back a handle: the token sealed with the relay's own key. The relay keeps no list of devices, and servers never see tokens.
 - **Servers** post a handle and a payload that the server already sealed for the phone. The payload holds only the group and message IDs. The relay passes it to Apple unchanged, as an alert, or as a silent push that tells the phone to clear a chat read or a message deleted elsewhere.
-- **So the relay learns** which server addresses send pushes, when they send them, and how big the sealed payloads are. It never learns who uses which server, who wrote what, or anything about a message. The phone fetches the message from its server and decrypts it.
+- **So the relay learns** which server addresses send pushes, when they send them, how big the sealed payloads are, and, since it opens each handle to reach Apple, which phone each push is for. That does let whoever runs a relay, or Apple, see which phones get pushes from which server address and when, even though the relay keeps no list of them. It never learns who wrote what, or anything about a message: the phone fetches the message from its server and decrypts it. A push's collapse ID, which the relay and Apple see in the clear, is different for each phone, so it doesn't show who received the same message.
+
+## What stops abuse
+
+Anyone holding a handle can ask for a push, so limits follow the phone: pushes are limited for each device token, however many handles someone makes for it. Registrations are limited per address. A caller who keeps naming phones Apple says don't exist is paused for a while, so that they can't get the relay's APNs key throttled for everyone.
 
 ## What it needs
 
@@ -61,7 +65,8 @@ Then run `docker compose up -d`.
 | `ZUNA_PUSH_APNS_TOPIC` | `chat.zuna.mobile` | The app's bundle ID |
 | `ZUNA_PUSH_LISTEN` | `127.0.0.1:8090` (`:8090` in Docker) | Where to listen, behind the proxy that adds HTTPS |
 | `ZUNA_PUSH_DATA` | `./zuna-push-data` (`/data` in Docker) | Holds `handle.key` |
-| `ZUNA_PUSH_TRUST_PROXY` | `false` | Take callers' addresses from the proxy's `X-Forwarded-For`, for rate limits |
+| `ZUNA_PUSH_TRUST_PROXY` | `false` | Take callers' addresses from the proxy's `X-Forwarded-For`, for rate limits, when it's on this machine or a private network |
+| `ZUNA_PUSH_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks |
 
 **Back up `handle.key`.** Every phone's handle is sealed with it. If it's lost, notifications stop until each app registers again, which it does when it next opens.
 

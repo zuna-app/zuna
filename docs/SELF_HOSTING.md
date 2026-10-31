@@ -115,7 +115,7 @@ server {
 
 Files upload in 1 MiB chunks, so the body size limit doesn't need to match your largest file.
 
-Set `ZUNA_TRUST_PROXY=true` only behind a proxy, so that rate limiting sees members' real addresses. Without a proxy, it would let anyone fake their address.
+Set `ZUNA_TRUST_PROXY=true` behind a proxy, so that rate limiting sees members' real addresses. It believes `X-Forwarded-For` only from this machine and private networks, reading it from the right so that only what your proxy added counts. For a proxy elsewhere, list it in `ZUNA_TRUSTED_PROXIES`, which replaces those networks. Otherwise all its callers count as one address.
 
 ## Configuration
 
@@ -128,9 +128,11 @@ Everything can be set by flag or environment variable.
 | `--listen` | `ZUNA_LISTEN` | `:8080` | Address to listen on when not using `--domain` |
 | `--public-url` | `ZUNA_PUBLIC_URL` | From the domain | Address people use to reach this server |
 | `--tls-cert`, `--tls-key` | `ZUNA_TLS_CERT`, `ZUNA_TLS_KEY` | | Use your own certificate files |
-| `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy |
-| `--download-url` | `ZUNA_DOWNLOAD_URL` | | Where invite pages link for downloading the app |
+| `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy on this machine or a private network |
+| `--trusted-proxies` | `ZUNA_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks |
+| `--download-url` | `ZUNA_DOWNLOAD_URL` | | A link for downloading the app, which invite pages show as well as the official releases |
 | `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address |
+| `--user-quota-mb` | `ZUNA_USER_QUOTA_MB` | `10240` | How many MB of files each person may keep, or `-1` for no limit |
 | `--push-relays` | `ZUNA_PUSH_RELAYS` | `https://relay.mgalazka.pl` | Comma-separated push relays that may wake phones for new messages, or `off` for none. Phones register with one of them |
 
 The app only connects over HTTPS, except to `localhost`.
@@ -172,7 +174,11 @@ sqlite3 /var/lib/zuna/zuna.db ".backup '/backups/zuna.db'"
 
 With Docker, the data is in the `zuna-data` volume. From source on Linux, it's in `/var/lib/zuna`, and a push relay's `/var/lib/zuna-push/handle.key` is worth keeping too.
 
-A backup doesn't let you read anyone's messages, since they're encrypted. Restoring an old backup does roll back the state of conversations; clients repair themselves by rejoining, but messages sent after the backup was taken are lost.
+A backup doesn't let you read anyone's messages, since they're encrypted, but keep it as safe as the server itself: as [SECURITY.md](../SECURITY.md) explains, what's in it lets someone try to guess weak passwords offline. Restoring an old backup does roll back the state of conversations; clients repair themselves by rejoining, but messages sent after the backup was taken are lost.
+
+## Moving to a new address
+
+Sign-in keys are bound to your server's address, so a key one server collects is no use on another. That means **nobody can sign in with their password or recovery key at a new address**, though devices already signed in carry on. To move a server, keep it reachable at its old address too, for signing in there, and keep `ZUNA_PUBLIC_URL` set to that old address. Picking an address you'll keep from the start avoids this.
 
 ## Upgrading
 
