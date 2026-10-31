@@ -615,6 +615,68 @@ func TestAServerIconIsOnlyEverAPicture(t *testing.T) {
 	}
 }
 
+// Z-30: the smaller gaps in who may do what.
+func TestSmallerAuthorizationGaps(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	h.mustDo("PATCH", "/api/admin/settings", owner.token, map[string]any{"allow_member_invites": true}, nil)
+	admin := h.register("admin", owner.newInvite())
+	bob := h.register("bob", owner.newInvite())
+	carol := h.register("carol", owner.newInvite())
+	h.mustDo("PUT", "/api/admin/users/"+admin.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil)
+	other := h.register("other-admin", owner.newInvite())
+	h.mustDo("PUT", "/api/admin/users/"+other.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil)
+
+	// Only someone who could have banned a person can unban them.
+	h.mustDo("POST", "/api/admin/users/"+other.userID+"/ban", owner.token, nil, nil)
+	if status, _ := h.do("POST", "/api/admin/users/"+other.userID+"/unban", admin.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("an admin unbanning an admin gave %d", status)
+	}
+	h.mustDo("POST", "/api/admin/users/"+other.userID+"/unban", owner.token, nil, nil)
+
+	// Members manage their own invites.
+	bobs := bob.newInvite()
+	carols := carol.newInvite()
+	var listed struct {
+		Invites []store.Invite `json:"invites"`
+	}
+	h.mustDo("GET", "/api/invites", bob.token, nil, &listed)
+	if len(listed.Invites) != 1 || listed.Invites[0].Code != bobs {
+		t.Fatalf("a member sees: %+v", listed.Invites)
+	}
+	if status, _ := h.do("DELETE", "/api/invites/"+carols, bob.token, nil, nil); status != http.StatusNotFound {
+		t.Fatalf("revoking someone else's invite gave %d", status)
+	}
+	h.mustDo("DELETE", "/api/invites/"+carols, admin.token, nil, nil)
+	h.mustDo("DELETE", "/api/invites/"+bobs, bob.token, nil, nil)
+
+	// Invite settings have to make sense.
+	for _, bad := range []map[string]any{{"max_uses": -1}, {"expires_in_seconds": -5}, {"expires_in_seconds": 1 << 40}} {
+		if status, _ := h.do("POST", "/api/invites", owner.token, bad, nil); status != http.StatusBadRequest {
+			t.Fatalf("invite settings %v gave %d", bad, status)
+		}
+	}
+
+	// Shortening retention deletes messages for good, so it's the owner's call.
+	if status, _ := h.do("PATCH", "/api/admin/settings", admin.token, map[string]any{"retention_days": 1}, nil); status != http.StatusForbidden {
+		t.Fatalf("an admin shortening retention gave %d", status)
+	}
+	h.mustDo("PATCH", "/api/admin/settings", owner.token, map[string]any{"retention_days": 30}, nil)
+	h.mustDo("PATCH", "/api/admin/settings", admin.token, map[string]any{"retention_days": 60}, nil)
+
+	// One person can't use up another's one-time key packages.
+	limited := false
+	for range 40 {
+		if status, _ := h.do("POST", "/api/users/"+carol.userID+"/key-packages/claim", bob.token, map[string]any{}, nil); status == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("key packages can be claimed without limit")
+	}
+}
+
 // Z-10: an account from before sign-in keys were bound to a server moves to a
 // new key by proving it knows the old one, which is no use for any other server.
 func TestUpgradingASignInKeyProvesItWithoutSendingIt(t *testing.T) {

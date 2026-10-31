@@ -196,7 +196,7 @@ func (s *Server) broadcastSettings(r *http.Request) {
 	s.hub.ToAll(Event{Type: "settings", Data: info})
 }
 
-func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
 		Name               *string `json:"name"`
 		Registration       *string `json:"registration"`
@@ -254,6 +254,18 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, _ 
 	if body.RetentionDays != nil {
 		if *body.RetentionDays < 0 {
 			writeError(w, http.StatusBadRequest, "bad_request", "Retention can't be negative.")
+			return
+		}
+		// Shortening it permanently deletes older messages within the hour, so
+		// that's for the owner to decide.
+		current, err := s.intSetting(ctx, "retention_days", 0)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		shorter := *body.RetentionDays > 0 && (current == 0 || *body.RetentionDays < current)
+		if shorter && sess.Role != "owner" {
+			writeError(w, http.StatusForbidden, "forbidden", "Only the server owner can shorten how long messages are kept.")
 			return
 		}
 		if err := s.db.SetSetting(ctx, "retention_days", strconv.Itoa(*body.RetentionDays)); err != nil {
@@ -391,8 +403,17 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 	writeOK(w)
 }
 
-func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	targetID := r.PathValue("id")
+	_, allowed, err := s.canModerate(r, sess, targetID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if !allowed {
+		writeError(w, http.StatusForbidden, "forbidden", "You can't unban this user.")
+		return
+	}
 	if err := s.db.UnbanUser(r.Context(), targetID); err != nil {
 		writeFailure(w, err)
 		return
