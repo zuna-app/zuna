@@ -145,9 +145,9 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 
 - **Orchestration:** `tests/e2e/src/ui-run.ts` (`npm run test:ios:ui`):
   1. Builds the core bundle and the app (`build-for-testing`).
-  2. Starts the fake 7TV and two servers: the main one, and a second that nobody has set up yet.
+  2. Starts the fake 7TV, a stand-in for the push relay, and the servers: the main one, which allows that relay, and two that nobody has set up yet.
   3. Seeds the main one through desktop clients in Node: alice (the owner), bob's laptop and carol, a DM and a group. More seeding (avatars, pins, reactions, emotes, a 2,000-message conversation) comes with the phases that need it.
-  4. Serves those clients to the tests over WebSockets ("peers"), plus `/world` for what no single client can do: signing in to an account on another new device, or showing the simulator's Face ID a face (enrolled while preparing the simulator).
+  4. Serves those clients to the tests over WebSockets ("peers"), plus `/world` for what no single client can do: signing in to an account on another new device, showing the simulator's Face ID a face (enrolled while preparing the simulator), or counting what reached the relay.
   5. Prepares the dedicated simulator and runs `xcodebuild test-without-building`, passing the world as JSON in `TEST_RUNNER_ZUNA_WORLD`.
 - **The tests stay synchronous.** `XCUIApplication` waits for the app by turning the main run loop, and an async test on the main actor blocks it. TestKit runs its network calls in the background and waits for them.
 - **TestKit** in the UI test target:
@@ -162,6 +162,7 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 - **One test file per matrix area:** Onboarding, Servers, ConversationList, ChatReading, Composer, MessageActions, Attachments, Groups, Invites, Verification, Settings, ServerAdmin, Lifecycle, iPad.
 - **Media:** `xcrun simctl addmedia` seeds the photo library with HEIC and HEVC fixtures. One test goes through the real PhotosPicker. The other attachment tests inject files through a Debug-only path, so they don't depend on an out-of-process picker.
 - **Lifecycle in the UI:** Home button and reactivation, `terminate` and relaunch with an unsent draft and a queued message, network faults through `test.network` showing "Waiting for network".
+- **Notifications:** the stand-in relay registers the app (with a made-up token in place of APNs) and hands the server's pushes to the simulator with `simctl push`, as APNs would. A new registration makes the older ones gone, as after reinstalling, so only the test's fresh device is notified. `simctl push` skips the notification extension, so the banner shows the push's own text; the extension's decryption is covered by the cross-client tests, which run it in a process of its own beside a host, without JIT, and check its memory.
 - **Screen tour:** one test visits every screen with seeded data and attaches screenshots. They are exported to `apps/ios/.e2e/<run>/screens/*.png` for visual review against the desktop design tokens, also with large Dynamic Type and on iPad. On any failure, the test attaches a screenshot and `app.debugDescription`, a text dump of the element tree.
 
 ### L6. Performance
@@ -253,6 +254,7 @@ The infrastructure comes first, so everything after it can be verified on its ow
 ## Limits of autonomy
 
 - **No physical device:** real-device performance, the background behavior of a real OS, the camera (L7).
+- **Real pushes:** a push from APNs, which would run the notification extension on the simulator too, needs the app's APNs key and the deployed relay.
 - **Signing:** distribution needs your Apple Developer team. Simulator builds need no signing.
 - **The out-of-process photo picker** is tested by one UI test; the rest go through the Debug injection path.
 - **App Store questions** (account deletion, reporting and blocking users, licensing) are decisions, not tests.

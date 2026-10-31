@@ -536,7 +536,7 @@ Work that needs a decision was set aside, as agreed, so the rest could go on:
 2. **GPL-3.0 on the App Store** (see risk 3): the project moved from AGPL-3.0 to GPL-3.0 on 2026-10-31, at the owner's decision. Distributing through the App Store still needs an extra permission under section 7 of the GPL, or another decision.
 3. **Signing and TestFlight:** archiving and uploading needs certificates and profiles created in the owner's Apple Developer account (Xcode's automatic signing with `-allowProvisioningUpdates` does it), so it waits for a go-ahead.
 4. **Look:** chat wallpapers, left open since F1. A light theme was ruled out on 2026-10-31.
-5. **Notifications:** decided on 2026-10-31 and in progress; see "Notifications" below. The owner applies for the notification filtering entitlement, and gives the relay's domain and an APNs key when it's deployed.
+5. **Notifications:** built and tested on the simulator; see "Notifications" below. What's left needs the owner: applying for the notification filtering entitlement, creating an APNs key, deploying the relay on a domain ([PUSH_RELAY.md](PUSH_RELAY.md)), then setting the app's `ZUNA_PUSH_RELAY` and the servers' default relay to it.
 
 ## Risks and open questions
 
@@ -596,3 +596,18 @@ Real APNs and the relay's deployment wait for the domain and the APNs key; every
 - **The extension** (`ZunaNotifications`) shares the App Group container and the Keychain group with the app. It shows the push's own generic text when the device key is locked, and keeps it for muted or hidden messages until the filtering entitlement arrives.
 - **Simulator limits:** `simctl push` hands a push straight to the system and never starts the extension, so the UI test covers asking for permission and showing a push, and the extension's decryption is covered by the cross-client test. A real push to the simulator will run the extension too, once there's an APNs key.
 - **The app asks for notifications** once a server's chats first show, as Telegram does after signing in.
+
+### N1 to N6 results (2026-10-31)
+
+- **Server (N1):** `PUT /api/push` and `DELETE /api/push` for a device's registration: the relay (one in `ZUNA_PUSH_RELAYS`), its handle, a 32-byte key and the app's registration ID, plus the muted groups. A new message, not a retry, edit or reaction, pushes to the other members' signed-in devices, with the group and message IDs sealed with AES-256-GCM under the device's key. Signing out, revocation, bans, and a relay's "gone" drop registrations. Go tests check all of it against a fake relay.
+- **Relay (N2):** `zuna-push` (server/cmd/zuna-push): handles are tokens sealed with the relay's own key, so it stores nothing; pushes go to APNs over HTTP/2 with a token-key JWT, in the sandbox or production; rate limits and forged-handle checks. Go tests run it against a fake APNs. Deployment: [PUSH_RELAY.md](PUSH_RELAY.md).
+- **Core:** `setPush` registers a device with its server, remembers it, sends it again after reconnecting, and keeps the muted list current. Core tests check what reaches a fake relay and that it opens with the key.
+- **App (N4):**
+  - asks for notifications once the chats first show, registers with the relay and every server, and keeps doing so as servers come and go;
+  - Settings → Notifications as on the desktop: on or off, sound, and "Sender and message", "Sender only" or "Nothing", with a note for servers that don't allow the app's relay and a way to iOS Settings when notifications are off there;
+  - while the app is open, notifications show as banners, except for the chat on screen; a tap opens the chat;
+  - Reply and Mark as read work from the notification, even with the app in the background: it resumes the core, sends through the outbox, marks the chat read, and closes its connections again;
+  - the icon's badge follows the unread count, and notifications of chats read here or elsewhere are cleared when the app sees it.
+- **Extension (N5):** opens the sealed push, previews it with the core, follows the preview setting and sound, groups notifications by chat, and adds one to the badge. Muted and hidden messages keep the push's generic text until the filtering entitlement arrives; then they're dropped.
+- **Tests (N6):** three UI tests through the stand-in relay (a push opens the chat; Reply reaches the desktop; turning notifications off stops pushes), the cross-client test of the extension's preview and memory, core and Go tests.
+- **Not done yet:** the sender's picture in notifications (Communication Notifications, which needs another capability and the avatar in the extension), and clearing notifications read on another device while the app is asleep (a silent push). Both are improvements for later.

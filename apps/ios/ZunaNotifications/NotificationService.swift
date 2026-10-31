@@ -5,10 +5,10 @@ import ZunaHost
 import ZunaModels
 
 /// Shows what a push announces, with the message's text, as the desktop words
-/// it. The server only says which message arrived; it's fetched and decrypted
-/// here with the device's keys, by the same core the app runs. Until the phone
-/// has been unlocked with the Zuna password since it started, the push's own
-/// generic text shows instead.
+/// it. The server only says which message arrived, sealed with this device's
+/// key; it's fetched and decrypted here with the device's keys, by the same
+/// core the app runs. Until the phone has been unlocked with the Zuna password
+/// since it started, the push's own generic text shows instead.
 final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
     private let logger = Logger(subsystem: "chat.zuna", category: "notifications")
     private var deliver: ((UNNotificationContent) -> Void)?
@@ -20,16 +20,24 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
     override func didReceive(_ request: UNNotificationRequest, withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void) {
         deliver = contentHandler
         fallback = request.content
-        guard let mutable = request.content.mutableCopy() as? UNMutableNotificationContent,
-              let push = PushPayload(request.content.userInfo) else {
+        let settings = NotificationSettings.load()
+        guard let mutable = request.content.mutableCopy() as? UNMutableNotificationContent else {
             finish(request.content)
             return
         }
+        mutable.sound = settings.sound ? .default : nil
+        PushStore.badge += 1
+        mutable.badge = NSNumber(value: PushStore.badge)
+        guard let push = PushStore.open(request.content.userInfo) else {
+            finish(mutable)
+            return
+        }
+        mutable.userInfo["serverId"] = push.serverId
         // Only this task touches it until it's delivered.
         nonisolated(unsafe) let content = mutable
         Task {
-            await fill(content, for: push)
-            finish(content)
+            let show = await fill(content, for: push, settings: settings)
+            finish(show ? content : UNNotificationContent())
         }
     }
 
@@ -44,30 +52,39 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         deliver(content)
     }
 
-    private func fill(_ content: UNMutableNotificationContent, for push: PushPayload) async {
+    /// Fills in the message. False when it shouldn't show at all, which only
+    /// takes effect with Apple's filtering entitlement.
+    private func fill(_ content: UNMutableNotificationContent, for push: PushStore.Message, settings: NotificationSettings) async -> Bool {
         guard let runtime = Self.makeRuntime() else {
             logger.info("The device key is locked; showing the push's own text")
-            return
+            return true
         }
         let started = Date()
-        let before = Self.footprint()
         do {
             let preview = try await runtime.pushPreview(serverId: push.serverId, groupId: push.groupId, messageId: push.messageId)
-            logger.info(
-                "Previewed a push in \(Int(Date().timeIntervalSince(started) * 1000)) ms, memory \(before, format: .fixed(precision: 1)) → \(Self.footprint(), format: .fixed(precision: 1)) MB"
-            )
-            // Without Apple's filtering entitlement a notification can't be dropped; muted chats are skipped by the server.
-            guard !preview.hidden, !preview.muted else { return }
-            content.title = preview.title
-            content.body = preview.body
+            logger.info("Previewed a push in \(Int(Date().timeIntervalSince(started) * 1000)) ms, using \(Self.footprint(), format: .fixed(precision: 1)) MB")
+            if preview.hidden || preview.muted {
+                if PushStore.canFilter { PushStore.badge -= 1 }
+                return !PushStore.canFilter
+            }
             if let key = preview.conversationKey {
                 content.threadIdentifier = "\(preview.serverId)/\(key)"
                 content.userInfo["conversationKey"] = key
             }
-            content.userInfo["serverId"] = preview.serverId
+            switch settings.preview {
+            case .full:
+                content.title = preview.title
+                content.body = preview.body
+            case .sender:
+                content.title = preview.title
+                content.body = "New message"
+            case .none:
+                break
+            }
         } catch {
             logger.error("A push couldn't be previewed: \(String(describing: error), privacy: .public)")
         }
+        return true
     }
 
     private static func makeRuntime() -> CoreRuntime? {
@@ -78,7 +95,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         return created
     }
 
-    /// The extension's memory footprint, which iOS caps at about 24 MB, in MB.
+    /// The extension's memory footprint in MB; iOS caps it at about 24.
     private static func footprint() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
@@ -88,22 +105,5 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             }
         }
         return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
-    }
-}
-
-/// Which message a push is about.
-struct PushPayload {
-    let serverId: String
-    let groupId: String
-    let messageId: String
-
-    init?(_ userInfo: [AnyHashable: Any]) {
-        guard let zuna = userInfo["zuna"] as? [String: Any],
-              let serverId = zuna["s"] as? String,
-              let groupId = zuna["g"] as? String,
-              let messageId = zuna["m"] as? String else { return nil }
-        self.serverId = serverId
-        self.groupId = groupId
-        self.messageId = messageId
     }
 }

@@ -7,6 +7,7 @@ import ZunaModels
 /// calls.
 struct MainView: View {
     @Environment(AppModel.self) private var model
+    @Environment(Notifications.self) private var notifications
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
@@ -17,7 +18,7 @@ struct MainView: View {
                 compact
             }
         }
-        .task { await Notifications.askOnce() }
+        .task { await notifications.askOnce() }
     }
 
     private var compact: some View {

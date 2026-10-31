@@ -76,6 +76,8 @@ func (a *APNs) Send(ctx context.Context, token, environment string, data map[str
 			"alert":           map[string]string{"title": "Zuna", "body": "New message"},
 			"mutable-content": 1,
 			"sound":           "default",
+			// The app's Reply and Mark as read actions.
+			"category": "message",
 		},
 		"zuna": data,
 	})

@@ -143,7 +143,7 @@ func TestRelaysASealedPayloadToApple(t *testing.T) {
 	}
 	h.checkToken(sent.Headers.Get("authorization"))
 	aps := sent.Body["aps"].(map[string]any)
-	if aps["mutable-content"] != float64(1) || aps["alert"].(map[string]any)["body"] != "New message" {
+	if aps["mutable-content"] != float64(1) || aps["category"] != "message" || aps["alert"].(map[string]any)["body"] != "New message" {
 		t.Fatalf("aps: %v", aps)
 	}
 	zuna := sent.Body["zuna"].(map[string]any)

@@ -48,6 +48,10 @@ final class AppUnderTest {
         ]
         if fresh { app.launchArguments += ["-ZunaResetData", "YES"] }
         app.launchArguments += ["-ZunaAskForNotifications", notifications ? "YES" : "NO"]
+        if notifications {
+            // The test relay and a made-up token stand in for APNs, which the simulator can't use without the app's key.
+            app.launchArguments += ["-ZunaPushRelay", World.current.pushRelay, "-ZunaPushToken", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"]
+        }
         if let bootSession { app.launchArguments += ["-ZunaBootSession", bootSession] }
         // Dynamic Type, as a UIContentSizeCategory name such as UICTContentSizeCategoryAccessibilityXL.
         if let textSize { app.launchArguments += ["-UIPreferredContentSizeCategoryName", textSize] }
