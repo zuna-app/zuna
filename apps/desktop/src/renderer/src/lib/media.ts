@@ -60,6 +60,64 @@ export function useDecryptedUrl(serverId: string | null, ref: AvatarRef | Attach
   return { url, failed };
 }
 
+// Pictures from a joined server, such as emotes and server icons, are fetched
+// here and shown from memory. The content security policy lets images come from
+// nowhere else, so nothing in a message can make the app contact anyone.
+
+const MAX_REMOTE_CACHED = 1000;
+const remoteCache = new Map<string, Promise<string>>();
+const remoteReady = new Map<string, string>();
+
+function fetchRemoteImage(address: string): Promise<string> {
+  const cached = remoteCache.get(address);
+  if (cached) {
+    remoteCache.delete(address);
+    remoteCache.set(address, cached);
+    return cached;
+  }
+  const pending = fetch(address, { credentials: "omit", referrerPolicy: "no-referrer" }).then(async (response) => {
+    if (!response.ok) throw new Error("That picture isn't available.");
+    const blob = await response.blob();
+    // Only pictures, whatever the address gives back.
+    if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml") throw new Error("That isn't a picture.");
+    const url = URL.createObjectURL(blob);
+    remoteReady.set(address, url);
+    return url;
+  });
+  remoteCache.set(address, pending);
+  pending.catch(() => remoteCache.delete(address));
+  if (remoteCache.size > MAX_REMOTE_CACHED) {
+    const [oldestAddress, oldest] = remoteCache.entries().next().value as [string, Promise<string>];
+    remoteCache.delete(oldestAddress);
+    remoteReady.delete(oldestAddress);
+    void oldest.then((url) => setTimeout(() => URL.revokeObjectURL(url), 60_000)).catch(() => undefined);
+  }
+  return pending;
+}
+
+/** A picture from a joined server, once it's here. `enabled` holds it back, such as until it's on screen. */
+export function useRemoteImage(address: string | null | undefined, enabled = true) {
+  const [url, setUrl] = useState<string | null>(() => (address && remoteReady.get(address)) || null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setUrl((address && remoteReady.get(address)) || null);
+    setFailed(false);
+    if (!address || !enabled) return;
+    let cancelled = false;
+    fetchRemoteImage(address)
+      .then((value) => {
+        if (!cancelled) setUrl(value);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [address, enabled]);
+  return { url, failed };
+}
+
 export async function downloadAttachment(serverId: string, attachment: Attachment): Promise<void> {
   const url = await fetchDecrypted(serverId, attachment);
   const link = document.createElement("a");

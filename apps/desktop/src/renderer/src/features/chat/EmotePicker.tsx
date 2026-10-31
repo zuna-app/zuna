@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Emote } from "@/components/Emote";
 import { quick, useReturnFocus } from "@/components/ui";
 import { EMOJI_CATEGORIES } from "@/lib/emoji-data";
+import { useRemoteImage } from "@/lib/media";
 import { useActiveServer } from "@/state/store";
 
 export type Pick =
@@ -15,6 +16,11 @@ const WIDTH = 352;
 const HEIGHT = 420;
 
 type Hovered = { kind: "emoji"; value: string; name: string } | { kind: "emote"; id: string; name: string; owner: string };
+
+function EmotePreview({ address }: { address: string }) {
+  const { url } = useRemoteImage(address);
+  return url ? <img src={url} alt="" /> : null;
+}
 
 export const EmotePicker = memo(function EmotePicker({
   anchor,
@@ -135,7 +141,7 @@ export const EmotePicker = memo(function EmotePicker({
       <div className="picker-footer">
         {hovered?.kind === "emote" && (
           <>
-            <img src={`${server!.entry.url}/api/emotes/${hovered.id}/2x.webp`} alt="" />
+            <EmotePreview address={`${server!.entry.url}/api/emotes/${hovered.id}/2x.webp`} />
             <span className="grow truncate">
               <b>{hovered.name}</b>
               {hovered.owner && <span> by {hovered.owner}</span>}

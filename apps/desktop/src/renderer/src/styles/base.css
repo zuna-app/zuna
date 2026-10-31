@@ -200,7 +200,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
   background: var(--bg-3); border: 1px solid var(--line-strong); border-radius: var(--radius-l); box-shadow: var(--shadow-m);
   animation: fade-in 0.08s;
 }
-.emote-card img { width: 56px; height: 56px; object-fit: contain; flex: none; }
+.emote-card img, .emote-card-blank { width: 56px; height: 56px; object-fit: contain; flex: none; }
 .emote-card b { display: block; font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
 .emote-card span { display: block; font-size: 12.5px; color: var(--text-2); }
 .emote-card em { display: block; font-style: normal; font-size: 11px; color: var(--text-3); margin-top: 2px; }

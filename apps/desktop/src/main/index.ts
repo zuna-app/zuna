@@ -48,11 +48,13 @@ const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
-  // Images only ever come from a joined server (emotes, icons) or from decrypted
-  // blobs. Message text never loads remote content, so links can't track people.
-  "img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*",
+  // Images are never fetched by address. Emotes and icons from a joined server are
+  // fetched first and shown from memory, and everything else is decrypted or inline,
+  // so nothing in a message can make this app contact anyone.
+  "img-src 'self' data: blob:",
   "media-src 'self' blob:",
   "font-src 'self'",
+  // Plain HTTP only reaches this machine, where someone may run a server of their own.
   `connect-src 'self' https: wss: http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:* ${WEB_SCHEME}:`,
   "worker-src 'self'",
   "object-src 'none'",

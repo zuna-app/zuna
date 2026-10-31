@@ -16,7 +16,7 @@ import {
 import { createPortal } from "react-dom";
 import { avatarColor, initialsOf } from "@/lib/format";
 import { refocusComposer } from "@/lib/focus";
-import { useDecryptedUrl } from "@/lib/media";
+import { useDecryptedUrl, useRemoteImage } from "@/lib/media";
 import { useApp } from "@/state/store";
 
 /** The motion used everywhere: quick, with no bounce. */
@@ -62,7 +62,8 @@ export function Avatar({
 }) {
   const activeServerId = useApp((state) => state.activeServerId);
   const { url } = useDecryptedUrl(serverId ?? activeServerId, avatar ?? null, !!avatar);
-  const source = imageUrl ?? url;
+  const remote = useRemoteImage(imageUrl);
+  const source = remote.url ?? url;
   return (
     <span
       className="avatar"
