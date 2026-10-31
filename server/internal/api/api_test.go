@@ -661,6 +661,21 @@ func TestBanRemovesAccessAndAsksMembersToClean(t *testing.T) {
 	}
 }
 
+func TestBanTellsTheBannedDeviceWhyBeforeClosing(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	// The reason and the close used to race, so try it a few times.
+	for i := range 10 {
+		user := h.register(fmt.Sprintf("banned%d", i), owner.newInvite())
+		ws := user.connect()
+		h.mustDo("POST", "/api/admin/users/"+user.userID+"/ban", owner.token, nil, nil)
+		if reason := ws.waitFor("force_logout")["reason"]; reason != "banned" {
+			t.Fatalf("force_logout said %v", reason)
+		}
+		ws.expectClose(4401)
+	}
+}
+
 // --- WebSocket ---
 
 type socket struct {
@@ -685,6 +700,23 @@ func (c *client) connect() *socket {
 	s := &socket{t: c.h.t, ws: ws}
 	s.waitFor("ready")
 	return s
+}
+
+// expectClose reads until the server closes the connection, with this code.
+func (s *socket) expectClose(code websocket.StatusCode) {
+	s.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		_, _, err := s.ws.Read(ctx)
+		if err == nil {
+			continue
+		}
+		if status := websocket.CloseStatus(err); status != code {
+			s.t.Fatalf("closed with %v (%v), want %d", status, err, code)
+		}
+		return
+	}
 }
 
 func (s *socket) waitFor(eventType string) map[string]any {
