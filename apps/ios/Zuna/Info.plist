@@ -42,6 +42,8 @@
 	</dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Zuna uses Face ID to unlock the app when App Lock is on.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Zuna uses the microphone to record voice messages.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>

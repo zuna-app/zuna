@@ -16,6 +16,15 @@ struct ChatListView: View {
     @State private var showHidden = false
     @State private var messageHits: [SearchResult] = []
     @State private var sheet: ListSheet?
+    /// A chat whose mute is being chosen, from its swipe action.
+    @State private var muting: MutingTarget?
+
+    struct MutingTarget: Identifiable {
+        let key: String
+        let title: String
+        let serverId: String
+        var id: String { key }
+    }
 
     private enum ListSheet: String, Identifiable {
         case invite, newGroup
@@ -66,6 +75,9 @@ struct ChatListView: View {
                 case .newGroup: NewGroupSheet(serverId: serverId)
                 }
             }
+        }
+        .confirmationDialog(muting.map { "Mute \($0.title)" } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
+            MuteButtons(conversationKey: target.key, serverId: target.serverId)
         }
         .toolbarBackground(Theme.bg1, for: .navigationBar)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -170,7 +182,11 @@ struct ChatListView: View {
                 }
                 .tint(Theme.bg5)
                 Button {
-                    model.toggle(.muted, conversation.key, on: server.entry.id)
+                    if conversation.muted {
+                        model.unmute(conversation.key, on: server.entry.id)
+                    } else {
+                        muting = MutingTarget(key: conversation.key, title: conversation.title, serverId: server.entry.id)
+                    }
                 } label: {
                     Label(conversation.muted ? "Unmute" : "Mute", systemImage: conversation.muted ? "speaker.wave.2.fill" : "speaker.slash.fill")
                 }
@@ -182,10 +198,18 @@ struct ChatListView: View {
                 } label: {
                     Label(conversation.pinned ? "Unpin" : "Pin to top", systemImage: conversation.pinned ? "pin.slash" : "pin")
                 }
-                Button {
-                    model.toggle(.muted, conversation.key, on: server.entry.id)
-                } label: {
-                    Label(conversation.muted ? "Unmute" : "Mute", systemImage: conversation.muted ? "speaker.wave.2" : "speaker.slash")
+                if conversation.muted {
+                    Button {
+                        model.unmute(conversation.key, on: server.entry.id)
+                    } label: {
+                        Label("Unmute", systemImage: "speaker.wave.2")
+                    }
+                } else {
+                    Menu {
+                        MuteButtons(conversationKey: conversation.key, serverId: server.entry.id)
+                    } label: {
+                        Label("Mute", systemImage: "speaker.slash")
+                    }
                 }
                 Button {
                     model.toggle(.hidden, conversation.key, on: server.entry.id)

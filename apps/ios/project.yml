@@ -74,6 +74,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
+        NSMicrophoneUsageDescription: Zuna uses the microphone to record voice messages.
         ITSAppUsesNonExemptEncryption: true
         ZunaPushRelay: $(ZUNA_PUSH_RELAY)
         NSUserActivityTypes:

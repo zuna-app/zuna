@@ -12,6 +12,7 @@ struct AttachmentsView: View {
     let serverId: String
     /// No text around the pictures: they fill the bubble.
     let flush: Bool
+    var own = false
     let open: (Attachment) -> Void
 
     var body: some View {
@@ -23,7 +24,11 @@ struct AttachmentsView: View {
                     .clipShape(.rect(cornerRadius: flush ? 0 : 10))
             }
             ForEach(Array(others.enumerated()), id: \.offset) { _, attachment in
-                FileCard(attachment: attachment, uploadProgress: message.uploadProgress) { open(attachment) }
+                if attachment.voice == true {
+                    VoiceCard(attachment: attachment, serverId: serverId, own: own, messageId: message.id, uploadProgress: message.uploadProgress)
+                } else {
+                    FileCard(attachment: attachment, uploadProgress: message.uploadProgress) { open(attachment) }
+                }
             }
         }
     }

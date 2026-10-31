@@ -15,12 +15,15 @@ struct ChatScreen: View {
     @State private var bridge = MessageListBridge()
     @State private var emoteCard: EmoteCardInfo?
     @State private var sheet: ChatSheet?
+    /// Messages picked to act on together, in the order picked, or nil when not picking.
+    @State private var selection: [String]?
+    @State private var confirmingDelete = false
 
     private enum ChatSheet: Identifiable {
         case search, pins
         case react(messageId: String)
         case verify(userId: String)
-        case forward(MessageView)
+        case forward([MessageView])
 
         var id: String {
             switch self {
@@ -28,7 +31,7 @@ struct ChatScreen: View {
             case .pins: "pins"
             case let .react(id): "react-\(id)"
             case let .verify(userId): "verify-\(userId)"
-            case let .forward(message): "forward-\(message.id)"
+            case let .forward(messages): "forward-\(messages.map(\.id).joined(separator: ","))"
             }
         }
     }
@@ -105,6 +108,8 @@ struct ChatScreen: View {
                     .padding(.vertical, 14)
                     .background(Theme.bg1)
                     .accessibilityIdentifier(A11y.Composer.disabled)
+            } else if let selection, let list {
+                selectionBar(selection, server: server, conversation: conversation, list: list)
             } else {
                 Composer(serverId: serverId, conversation: conversation, server: server)
             }
@@ -163,8 +168,8 @@ struct ChatScreen: View {
                     .presentationDetents([.medium, .large])
             case let .verify(userId):
                 VerifyView(serverId: serverId, userId: userId)
-            case let .forward(message):
-                ForwardSheet(serverId: serverId, message: message)
+            case let .forward(messages):
+                ForwardSheet(serverId: serverId, messages: messages) { selection = nil }
             case let .react(messageId):
                 EmojiPicker(server: server) { pick in
                     self.sheet = nil
@@ -214,7 +219,12 @@ struct ChatScreen: View {
             mention: { sheet = .verify(userId: $0) },
             emoteCard: { name, emote, note in emoteCard = EmoteCardInfo(name: name, emote: emote, note: note) },
             reply: { model.reply(serverId, conversation.key, to: $0) },
-            forward: { sheet = .forward($0) },
+            forward: { sheet = .forward([$0]) },
+            select: { message in
+                var picked = selection ?? []
+                if let index = picked.firstIndex(of: message.id) { picked.remove(at: index) } else { picked.append(message.id) }
+                selection = picked.isEmpty ? nil : picked
+            },
             edit: { model.edit(serverId, conversation.key, $0) },
             pin: { message, pinned in run { try await model.core.session(serverId).setPinned(message.groupId, id: message.id, pinned: pinned) } },
             delete: { message in run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) } },
@@ -230,6 +240,7 @@ struct ChatScreen: View {
                 server: server,
                 conversation: conversation,
                 highlighted: highlighted,
+                selection: selection,
                 jump: jump,
                 actions: actions
             ),
@@ -247,6 +258,71 @@ struct ChatScreen: View {
                 }
             }
         )
+    }
+
+    /// What can be done with the picked messages, in place of the composer, as in Telegram.
+    private func selectionBar(_ ids: [String], server: AppModel.ServerState, conversation: ConversationView, list: MessageList) -> some View {
+        // In the chat's order, whatever order they were picked in.
+        let picked = list.items.filter { ids.contains($0.id) }
+        let selfId = server.me?.userId
+        let isAdmin = conversation.members.first { $0.userId == selfId }?.role == .admin
+        let canDelete = !picked.isEmpty && picked.allSatisfy { $0.senderId == selfId || (conversation.kind == .group && isAdmin) }
+        return HStack(spacing: 4) {
+            Button("Cancel") { selection = nil }
+                .padding(.horizontal, 8)
+            Text("\(picked.count) selected")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.text1)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier(A11y.Chat.selectionCount)
+            Button {
+                copy(picked, server: server)
+            } label: {
+                Image(systemName: "doc.on.doc").frame(width: 40, height: 40)
+            }
+            .accessibilityLabel("Copy")
+            Button {
+                sheet = .forward(picked)
+            } label: {
+                Image(systemName: "arrowshape.turn.up.right").frame(width: 40, height: 40)
+            }
+            .accessibilityLabel("Forward")
+            if canDelete {
+                Button(role: .destructive) {
+                    confirmingDelete = true
+                } label: {
+                    Image(systemName: "trash").frame(width: 40, height: 40)
+                }
+                .tint(Theme.red)
+                .accessibilityLabel("Delete")
+            }
+        }
+        .disabled(picked.isEmpty)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg1)
+        .overlay(alignment: .top) { Divider().overlay(Theme.line) }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.Chat.selectionBar)
+        .confirmationDialog("Delete \(picked.count == 1 ? "this message" : "\(picked.count) messages") for everyone?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Delete for everyone", role: .destructive) {
+                guard let groupId = conversation.groupId else { return }
+                let serverId = server.entry.id
+                selection = nil
+                run { try await model.core.session(serverId).deleteMessages(groupId, ids: picked.map(\.id)) }
+            }
+        }
+    }
+
+    /// One message's text, or several with who wrote each and when, as Telegram copies them.
+    private func copy(_ picked: [MessageView], server: AppModel.ServerState) {
+        let name = { (id: String) in id == server.me?.userId ? "You" : server.users[id]?.displayName ?? "Unknown" }
+        UIPasteboard.general.string = picked.count == 1
+            ? picked[0].text
+            : picked.map { "\(name($0.senderId)), [\(Format.full($0.createdAt))]\n\($0.text.isEmpty ? $0.attachments.map(\.name).joined(separator: ", ") : $0.text)" }.joined(separator: "\n\n")
+        model.toast(picked.count == 1 ? "Copied" : "Copied \(picked.count) messages")
+        selection = nil
     }
 
     /// Runs an action on the core, explaining a failure in a toast.

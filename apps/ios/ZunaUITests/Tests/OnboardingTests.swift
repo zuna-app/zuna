@@ -143,7 +143,8 @@ final class OnboardingTests: XCTestCase {
         zuna.app.terminate()
         try zuna.launch(fresh: false)
         try zuna.waitForChats()
-        XCTAssertEqual(title.label, World.current.serverName)
+        // The title says "Updating…" while the app catches up.
+        try waitFor("the first server to open again") { title.label == World.current.serverName }
         XCTAssertTrue(zuna.serversButton.exists)
 
         // Settings say which server the account's sections are for.

@@ -14,6 +14,9 @@ struct MessageRowContext {
     /// The highest message anyone else has read, for the read ticks.
     let readUpTo: Int
     let highlighted: Bool
+    /// Messages are being picked to act on together, and whether this one is.
+    let selecting: Bool
+    let selected: Bool
 }
 
 /// The things a message can ask its chat to do.
@@ -28,6 +31,8 @@ struct ChatActions {
     var emoteCard: (_ name: String, _ emote: EmoteRef, _ note: String?) -> Void = { _, _, _ in }
     var reply: (_ message: MessageView) -> Void = { _ in }
     var forward: (_ message: MessageView) -> Void = { _ in }
+    /// Starts picking messages with this one, or adds or removes it.
+    var select: (_ message: MessageView) -> Void = { _ in }
     var edit: (_ message: MessageView) -> Void = { _ in }
     var pin: (_ message: MessageView, _ pinned: Bool) -> Void = { _, _ in }
     var delete: (_ message: MessageView) -> Void = { _ in }
@@ -43,6 +48,7 @@ let quickReactions = ["👍", "❤️", "😂", "🔥", "😮", "😢"]
 
 /// One message in the list, with the day's separator above it when a new day starts.
 struct MessageRow: View {
+    @Environment(AppModel.self) private var model
     let context: MessageRowContext
     let server: AppModel.ServerState
     let actions: ChatActions
@@ -63,12 +69,45 @@ struct MessageRow: View {
             if context.message.system != nil {
                 SystemRow(message: context.message, server: server)
             } else {
-                MessageItem(context: context, server: server, actions: actions)
+                HStack(alignment: .bottom, spacing: 6) {
+                    if context.selecting { checkmark.padding(.bottom, 6) }
+                    MessageItem(context: context, server: server, actions: actions)
+                }
+                // While picking, a tap anywhere on the row picks it, instead of opening what's under it.
+                .overlay {
+                    if context.selecting {
+                        Color.clear
+                            .contentShape(.rect)
+                            .onTapGesture { if selectable { actions.select(context.message) } }
+                            .accessibilityElement()
+                            .accessibilityLabel(context.selected ? "Selected" : "Not selected")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityIdentifier(A11y.Chat.selectToggle(context.message.id))
+                    }
+                }
+                .background(context.selected ? model.settings.accent.color.opacity(0.18) : .clear, in: .rect(cornerRadius: 12))
             }
         }
         .padding(.horizontal, 8)
         .background(context.highlighted ? Color.white.opacity(0.09) : .clear, in: .rect(cornerRadius: 12))
         .animation(.easeOut(duration: 0.4), value: context.highlighted)
+    }
+
+    private var selectable: Bool {
+        let message = context.message
+        return message.seq != nil && message.deletedAt == nil && message.status == .sent
+    }
+
+    private var checkmark: some View {
+        ZStack {
+            Circle().strokeBorder(Theme.text3, lineWidth: 2).opacity(context.selected ? 0 : 1)
+            if context.selected {
+                Circle().fill(model.settings.accent.color)
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(model.settings.accent.onAccent)
+            }
+        }
+        .frame(width: 22, height: 22)
+        .opacity(selectable ? 1 : 0.3)
     }
 }
 
@@ -210,12 +249,13 @@ private struct MessageItem: View {
                     Button(emoji) { actions.react(message.id, emoji, nil) }
                         .accessibilityIdentifier(A11y.Chat.quickReaction(emoji))
                 }
+                Button("More reactions", systemImage: "plus") { actions.pickReaction(message.id) }
             }
             .controlGroupStyle(.palette)
-            Button("More reactions", systemImage: "face.smiling") { actions.pickReaction(message.id) }
             Divider()
             Button("Reply", systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
             Button("Forward", systemImage: "arrowshape.turn.up.right") { actions.forward(message) }
+            Button("Select", systemImage: "checkmark.circle") { actions.select(message) }
         }
         if !message.text.isEmpty && !deleted {
             Button("Copy text", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
@@ -296,7 +336,7 @@ private struct MessageItem: View {
                 ReplyQuote(reply: reply, own: own, server: server) { actions.jump(reply.id) }
             }
             if !message.attachments.isEmpty {
-                AttachmentsView(message: message, serverId: server.entry.id, flush: onlyImages, open: actions.open)
+                AttachmentsView(message: message, serverId: server.entry.id, flush: onlyImages, own: own, open: actions.open)
                     .overlay(alignment: .bottomTrailing) {
                         if onlyImages { meta.padding(.horizontal, 6).padding(.vertical, 1).background(.black.opacity(0.55), in: .capsule).padding(7) }
                     }

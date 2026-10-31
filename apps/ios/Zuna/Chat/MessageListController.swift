@@ -20,6 +20,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         var server: AppModel.ServerState
         var conversation: ConversationView
         var highlighted: String?
+        /// The messages picked to act on together, or nil when not picking.
+        var selection: [String]?
         var jump: JumpTarget?
         var actions: ChatActions
     }
@@ -140,7 +142,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 own: message.senderId == selfId,
                 isGroup: input.conversation.kind == .group,
                 readUpTo: readUpTo,
-                highlighted: input.highlighted == message.id
+                highlighted: input.highlighted == message.id,
+                selecting: input.selection != nil,
+                selected: input.selection?.contains(message.id) ?? false
             )
         }
         contexts = result
@@ -195,6 +199,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     // MARK: Swipe to reply
 
     func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        // Not while picking messages, where a tap picks one.
+        if input?.selection != nil { return false }
         guard let pan = gesture as? UIPanGestureRecognizer else { return true }
         let velocity = pan.velocity(in: collectionView)
         // Only a mostly sideways swipe to the left, so scrolling stays as it was.

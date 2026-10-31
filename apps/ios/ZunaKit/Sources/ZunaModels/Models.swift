@@ -114,6 +114,10 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable {
     /// Tiny inline preview shown while the full image loads (data URL).
     public var thumb: String?
     public var duration: Double?
+    /// Recorded in the app, so it plays as a voice message.
+    public var voice: Bool?
+    /// A voice message's loudness over time: one byte (0 to 255) per bar, base64.
+    public var waveform: String?
 }
 
 public struct EmoteRef: Codable, Sendable, Equatable, Hashable {
@@ -248,6 +252,8 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var mentioned: Bool
     public var pinned: Bool
     public var muted: Bool
+    /// When a chat muted for a while is heard again (ms), or nil.
+    public var mutedUntil: Double?
     public var hidden: Bool
     public var members: [GroupMemberView]
     public var historyVisible: Bool
@@ -289,6 +295,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var pinned: [String]
     public var hidden: [String]
     public var muted: [String]
+    /// Chats muted for a while: conversation key -> when it ends (ms).
+    public var mutedUntil: [String: Double]?
     public var sendReadReceipts: Bool
 }
 

@@ -11,6 +11,7 @@ struct ConversationDetails: View {
     @Environment(AppModel.self) private var model
     @State private var sheet: DetailsSheet?
     @State private var memberMenu: String?
+    @State private var choosingMute = false
     @State private var confirming: Confirmation?
     @State private var photo: PhotosPickerItem?
     @State private var choosingPhoto = false
@@ -113,11 +114,22 @@ struct ConversationDetails: View {
             }
 
             Section {
-                Toggle(isOn: Binding(get: { !conversation.muted }, set: { _ in model.toggle(.muted, conversation.key, on: serverId) })) {
-                    Label("Notifications", systemImage: conversation.muted ? "bell.slash" : "bell")
+                // Turning them off asks for how long.
+                Toggle(isOn: Binding(get: { !conversation.muted }, set: { on in
+                    if on { model.unmute(conversation.key, on: serverId) } else { choosingMute = true }
+                })) {
+                    Label {
+                        Text("Notifications")
+                        if let until = conversation.mutedUntil { Text(Format.mutedUntil(until)) }
+                    } icon: {
+                        Image(systemName: conversation.muted ? "bell.slash" : "bell")
+                    }
                 }
                 .tint(model.settings.accent.switchTint)
                 .accessibilityIdentifier(A11y.Details.notifications)
+                .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
+                    MuteButtons(conversationKey: conversation.key, serverId: serverId)
+                }
                 Button {
                     model.toggle(.pinned, conversation.key, on: serverId)
                 } label: {

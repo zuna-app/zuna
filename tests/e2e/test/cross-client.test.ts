@@ -229,7 +229,7 @@ describe("an iOS client with a desktop client", () => {
     const original = (await phone.messages(dm)).find((view) => view.text === "forward this")!;
 
     // The phone forwards alice's map to the group: the desktop sees whose it was, and the same file.
-    await phone.core.client.forwardMessage(phone.serverId, original.groupId, original.id, phone.serverId, weekend.key);
+    await phone.core.client.forwardMessages(phone.serverId, original.groupId, [original.id], phone.serverId, weekend.key);
     await waitFor(() => alice.texts(weekend.key).includes("forward this"), "alice to see it in the group");
     const inGroup = (await alice.session.loadMessages(weekend.groupId!)).messages.find((view) => view.text === "forward this")!;
     expect(inGroup.senderId).toBe(bobId);
@@ -241,11 +241,36 @@ describe("an iOS client with a desktop client", () => {
     await phone.session.sendMessage(weekend.key, { text: "from bob's phone" });
     await waitFor(() => alice.texts(weekend.key).includes("from bob's phone"), "alice to get bob's message");
     const fromPhone = (await alice.session.loadMessages(weekend.groupId!)).messages.find((view) => view.text === "from bob's phone")!;
-    await alice.client.forwardMessage(alice.serverId, weekend.groupId!, fromPhone.id, alice.serverId, `user:${bobId}`);
+    await alice.client.forwardMessages(alice.serverId, weekend.groupId!, [fromPhone.id], alice.serverId, `user:${bobId}`);
     await waitFor(
       async () => (await phone.messages(dm)).some((view) => view.text === "from bob's phone" && view.forwarded?.userId === bobId),
       "bob to get his own message back, forwarded",
     );
+  });
+
+  it("sends voice messages, mutes chats for a while and deletes several messages, as the desktop does", async () => {
+    const dm = `user:${aliceId}`;
+    const waveform = Buffer.from(Array.from({ length: 48 }, (_, i) => i * 5)).toString("base64");
+    const audio = pattern(30_000, 9);
+    const blob = await wireBlob(new Blob([audio], { type: "audio/mp4" }));
+    await phone.session.sendWithAttachments(dm, [{ blob: blob as never, name: "Voice message.m4a", mime: "audio/mp4", duration: 4.2, voice: true, waveform }], {});
+    const groupId = alice.session.getConversations().find((item) => item.key === `user:${bobId}`)!.groupId!;
+    await waitFor(async () => (await alice.session.loadMessages(groupId)).messages.some((view) => view.attachments[0]?.voice), "alice to get the voice message");
+    const voice = (await alice.session.loadMessages(groupId)).messages.filter((view) => view.attachments[0]?.voice).at(-1)!;
+    expect(voice.attachments[0]).toMatchObject({ mime: "audio/mp4", duration: 4.2, voice: true, waveform });
+    expect(await bytesOf(await alice.session.downloadFile(voice.attachments[0]!))).toEqual(audio);
+
+    const until = Date.now() + 60_000;
+    await phone.session.mute(dm, until);
+    expect((await phone.session.getConversations()).find((item) => item.key === dm)).toMatchObject({ muted: true, mutedUntil: until });
+    await phone.session.unmute(dm);
+    expect((await phone.session.getConversations()).find((item) => item.key === dm)).toMatchObject({ muted: false, mutedUntil: null });
+
+    for (const text of ["gone one", "gone two"]) await phone.session.sendMessage(dm, { text });
+    await waitFor(() => alice.texts(`user:${bobId}`).includes("gone two"), "alice to get both");
+    const ids = (await phone.messages(dm)).filter((view) => view.text.startsWith("gone")).map((view) => view.id);
+    await phone.session.deleteMessages(groupId, ids);
+    await waitFor(() => !alice.texts(`user:${bobId}`).some((text) => text.startsWith("gone")), "alice to see both go");
   });
 
   it("sends a file straight from disk, a chunk at a time", async () => {

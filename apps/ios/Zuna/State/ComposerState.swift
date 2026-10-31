@@ -105,6 +105,29 @@ extension AppModel {
         }
     }
 
+    /// Sends a recorded voice message, answering the message being replied to.
+    func sendVoice(_ serverId: String, _ conversation: ConversationView, _ recording: VoiceRecorder.Recording) {
+        let replyTo = composer(serverId, conversation.key).replyTo?.id
+        updateComposer(serverId, conversation.key) { $0.replyTo = nil }
+        let file = OutgoingFile(
+            blob: WireFile(path: recording.url.path, type: "audio/mp4"),
+            name: "Voice message.m4a",
+            mime: "audio/mp4",
+            duration: recording.duration,
+            voice: true,
+            waveform: recording.waveform
+        )
+        let session = core.session(serverId)
+        Task {
+            do {
+                try await session.sendWithAttachments(conversation.key, files: [file], body: MessageBody(replyTo: replyTo))
+                try? FileManager.default.removeItem(at: recording.url)
+            } catch {
+                toast(OnboardingText.describe(error), .error)
+            }
+        }
+    }
+
     /// Makes the preview of a draft's first link once typing pauses, as the desktop does.
     /// Edits keep the preview they had.
     func updateLinkPreview(_ serverId: String, _ conversationKey: String, text: String) async {
@@ -129,10 +152,11 @@ extension AppModel {
         updateComposer(serverId, conversationKey) { $0.link = LinkDraft(url: link, preview: preview, loading: false) }
     }
 
-    /// Forwards a message to a chat on any server, and says where it went.
-    func forward(_ message: MessageView, from serverId: String, to targetServerId: String, _ conversation: ConversationView) async {
+    /// Forwards messages, in the chat's order, to a chat on any server, and says where they went.
+    func forward(_ messages: [MessageView], from serverId: String, to targetServerId: String, _ conversation: ConversationView) async {
+        guard let groupId = messages.first?.groupId else { return }
         do {
-            try await core.forwardMessage(from: serverId, groupId: message.groupId, id: message.id, to: targetServerId, conversationKey: conversation.key)
+            try await core.forwardMessages(from: serverId, groupId: groupId, ids: messages.map(\.id), to: targetServerId, conversationKey: conversation.key)
             toast("Forwarded to \(conversation.title)")
         } catch {
             toast(OnboardingText.describe(error), .error)

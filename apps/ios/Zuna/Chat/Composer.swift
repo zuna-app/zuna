@@ -19,6 +19,10 @@ struct Composer: View {
     @State private var picking = false
     /// The highlighted suggestion, moved with a hardware keyboard's arrows.
     @State private var selectedSuggestion = 0
+    @State private var recorder = VoiceRecorder()
+    /// The finger is on the microphone; how far it slid to the left, toward cancelling.
+    @State private var holding = false
+    @State private var slide: CGFloat = 0
 
     private static let maxSuggestions = 8
 
@@ -49,7 +53,7 @@ struct Composer: View {
                 filesBar
             }
             HStack(alignment: .bottom, spacing: 8) {
-                if state.editing == nil {
+                if state.editing == nil && !recorder.isRecording {
                     Menu {
                         Button("Photos and videos", systemImage: "photo.on.rectangle") { choosingPhotos = true }
                         Button("Files", systemImage: "doc") { choosingFiles = true }
@@ -65,44 +69,52 @@ struct Composer: View {
                     .accessibilityLabel("Attach files")
                     .accessibilityIdentifier(A11y.Composer.attach)
                 }
-                HStack(alignment: .bottom, spacing: 4) {
-                    TextField(placeholder, text: text, selection: $selection, axis: .vertical)
-                        .lineLimit(1...6)
-                        .font(.body)
-                        .foregroundStyle(Theme.text1)
-                        .focused($focused)
-                        .padding(.vertical, 8)
-                        .onKeyPress(phases: .down) { press in handleKey(press) }
-                        .accessibilityLabel("Message")
-                        .accessibilityIdentifier(A11y.Composer.input)
-                    Button {
-                        picking = true
-                    } label: {
-                        Image(systemName: "face.smiling")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Theme.text2)
-                            .frame(width: 30, height: 36)
+                if recorder.isRecording {
+                    recordingBar
+                } else {
+                    HStack(alignment: .bottom, spacing: 4) {
+                        TextField(placeholder, text: text, selection: $selection, axis: .vertical)
+                            .lineLimit(1...6)
+                            .font(.body)
+                            .foregroundStyle(Theme.text1)
+                            .focused($focused)
+                            .padding(.vertical, 8)
+                            .onKeyPress(phases: .down) { press in handleKey(press) }
+                            .accessibilityLabel("Message")
+                            .accessibilityIdentifier(A11y.Composer.input)
+                        Button {
+                            picking = true
+                        } label: {
+                            Image(systemName: "face.smiling")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Theme.text2)
+                                .frame(width: 30, height: 36)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Emoji and emotes")
+                        .accessibilityIdentifier(A11y.Composer.emoji)
+                    }
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
+                    .background(Theme.bg2, in: .rect(cornerRadius: 19, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.line))
+                }
+                if !state.canSend && state.editing == nil {
+                    microphone
+                } else {
+                    Button(action: send) {
+                        Image(systemName: state.editing != nil ? "checkmark" : "arrow.up")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(state.canSend ? model.settings.accent.onAccent : Theme.text3)
+                            .frame(width: 36, height: 36)
+                            .background(state.canSend ? model.settings.accent.color : Theme.bg3, in: .circle)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Emoji and emotes")
-                    .accessibilityIdentifier(A11y.Composer.emoji)
+                    .disabled(!state.canSend)
+                    .padding(.bottom, 1)
+                    .accessibilityLabel(state.editing != nil ? "Save edit" : "Send")
+                    .accessibilityIdentifier(A11y.Composer.send)
                 }
-                .padding(.leading, 14)
-                .padding(.trailing, 6)
-                .background(Theme.bg2, in: .rect(cornerRadius: 19, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.line))
-                Button(action: send) {
-                    Image(systemName: state.editing != nil ? "checkmark" : "arrow.up")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(state.canSend ? model.settings.accent.onAccent : Theme.text3)
-                        .frame(width: 36, height: 36)
-                        .background(state.canSend ? model.settings.accent.color : Theme.bg3, in: .circle)
-                }
-                .buttonStyle(.plain)
-                .disabled(!state.canSend)
-                .padding(.bottom, 1)
-                .accessibilityLabel(state.editing != nil ? "Save edit" : "Send")
-                .accessibilityIdentifier(A11y.Composer.send)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -242,6 +254,94 @@ struct Composer: View {
         .padding(.top, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Composer.context)
+    }
+
+    // MARK: Voice messages
+
+    /// Hold to record and let go to send, as in Telegram; sliding left throws it away.
+    private var microphone: some View {
+        Image(systemName: "mic.fill")
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(recorder.isRecording ? Color.white : Theme.text2)
+            .frame(width: 36, height: 36)
+            .background(recorder.isRecording ? Theme.red : Theme.bg3, in: .circle)
+            .scaleEffect(recorder.isRecording ? 1.35 : 1)
+            .animation(.spring(duration: 0.25), value: recorder.isRecording)
+            .padding(.bottom, 1)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        if !holding {
+                            holding = true
+                            Task { await startRecording() }
+                        }
+                        slide = min(0, value.translation.width)
+                    }
+                    .onEnded { _ in
+                        holding = false
+                        if slide < -90 { cancelRecording() } else { finishRecording() }
+                        slide = 0
+                    }
+            )
+            .accessibilityLabel("Record a voice message")
+            .accessibilityHint("Hold to record, and let go to send")
+            .accessibilityIdentifier(A11y.Composer.microphone)
+    }
+
+    private var recordingBar: some View {
+        HStack(spacing: 8) {
+            Circle().fill(Theme.red).frame(width: 9, height: 9)
+                .phaseAnimator([1, 0.3]) { dot, opacity in dot.opacity(opacity) } animation: { _ in .easeInOut(duration: 0.6) }
+            Text(Format.duration(recorder.elapsed))
+                .font(.body.monospacedDigit())
+                .foregroundStyle(Theme.text1)
+            Spacer(minLength: 0)
+            Label("Slide to cancel", systemImage: "chevron.left")
+                .font(.subheadline)
+                .foregroundStyle(slide < -90 ? Theme.red : Theme.text2)
+                .offset(x: slide / 2)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 38)
+        .onChange(of: recorder.elapsed >= VoiceRecorder.limit) { _, over in
+            if over { finishRecording() }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(A11y.Composer.recording)
+    }
+
+    private func startRecording() async {
+        do {
+            try await recorder.start()
+            // The finger came off already: a tap, or while the app asked for the microphone.
+            if !holding {
+                recorder.cancel()
+                model.toast("Hold to record, and let go to send.")
+            }
+        } catch {
+            holding = false
+            model.toast(error.localizedDescription, .error)
+        }
+    }
+
+    private func cancelRecording() {
+        recorder.cancel()
+    }
+
+    private func finishRecording() {
+        guard recorder.isRecording else { return }
+        do {
+            guard let recording = try recorder.stop() else { return }
+            if recording.duration < 0.5 {
+                try? FileManager.default.removeItem(at: recording.url)
+                model.toast("Hold to record, and let go to send.")
+                return
+            }
+            model.sendVoice(serverId, conversation, recording)
+        } catch {
+            model.toast(OnboardingText.describe(error), .error)
+        }
     }
 
     // MARK: Link previews
