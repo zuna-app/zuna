@@ -268,9 +268,14 @@ struct ConversationDetails: View {
                                 Text(user?.displayName ?? "Unknown").foregroundStyle(Theme.text1)
                                 if member.userId == selfId { Text("(you)").foregroundStyle(Theme.text3) }
                             }
-                            Text("@\(user?.username ?? "")").font(.caption).foregroundStyle(Theme.text3)
+                            Text(member.notOnRoster == true ? "Has this chat's keys, but isn't listed as a member" : member.noKeys == true ? "No device in this chat yet" : "@\(user?.username ?? "")")
+                                .font(.caption)
+                                .foregroundStyle(Theme.text3)
                         }
                         Spacer()
+                        if member.notOnRoster == true {
+                            Image(systemName: "exclamationmark.shield").font(.caption).foregroundStyle(Color(hex: 0xF4BCBE)).accessibilityLabel("Not listed as a member")
+                        }
                         if member.role == .admin {
                             Image(systemName: "crown.fill").font(.caption).foregroundStyle(Theme.text3).accessibilityLabel("Admin")
                         }

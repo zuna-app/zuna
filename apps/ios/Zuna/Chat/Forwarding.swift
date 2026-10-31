@@ -26,6 +26,13 @@ struct LinkCard: View {
     let messageId: String
     @Environment(\.openURL) private var openURL
 
+    private var siteLine: String {
+        var host = URL(string: preview.url)?.host?.lowercased() ?? ""
+        if host.hasPrefix("www.") { host.removeFirst(4) }
+        guard let site = preview.siteName, site.lowercased() != host else { return host }
+        return "\(host) · \(site)"
+    }
+
     var body: some View {
         let picture = preview.image.flatMap(PreviewImages.image)
         let wide = (preview.image?.width ?? 0) >= 300 && (preview.image?.width ?? 0) >= (preview.image?.height ?? 0) * 1.2
@@ -35,9 +42,8 @@ struct LinkCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 1) {
-                        if let site = preview.siteName {
-                            Text(site).font(.footnote.weight(.semibold)).foregroundStyle(own ? Color.white : Theme.text1).lineLimit(1)
-                        }
+                        // What the preview says about the page is the sender's claim, so where the link really goes is always shown.
+                        Text(siteLine).font(.footnote.weight(.semibold)).foregroundStyle(own ? Color.white : Theme.text1).lineLimit(1)
                         if let title = preview.title {
                             Text(title).font(.footnote.weight(.semibold)).foregroundStyle(own ? Color.white : Theme.text1).lineLimit(2)
                         }

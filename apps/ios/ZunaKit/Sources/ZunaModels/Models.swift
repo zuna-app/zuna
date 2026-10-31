@@ -256,12 +256,18 @@ public struct MessageView: Codable, Sendable, Equatable, Hashable, Identifiable 
     public var preview: LinkPreview?
     public var forwarded: ForwardInfo?
     public var uploadProgress: Double?
+    /// The time the sender's device signed is far from the server's.
+    public var timeDiffers: Bool?
 }
 
 public struct GroupMemberView: Codable, Sendable, Equatable, Hashable {
     public var userId: String
     public var role: GroupRole
     public var joinedAt: Int
+    /// The server says they're a member, but no device of theirs holds this group's keys.
+    public var noKeys: Bool?
+    /// A device of theirs holds this group's keys, but the server doesn't list them.
+    public var notOnRoster: Bool?
 }
 
 /// One row of the conversation list: a group, or a person even before the first message.

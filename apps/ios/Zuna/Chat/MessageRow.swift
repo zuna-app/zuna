@@ -189,7 +189,7 @@ private struct MessageItem: View {
 
     /// The time goes at the end of the text, or below a link's preview.
     private var metaInText: Bool {
-        !message.text.isEmpty && message.preview == nil && message.reactions.isEmpty && !deleted && message.status != .undecryptable && message.status != .unverified
+        !message.text.isEmpty && message.preview == nil && message.reactions.isEmpty && !deleted && message.status != .undecryptable && message.status != .unverified && message.status != .invalid
     }
 
     private var images: [Attachment] {
