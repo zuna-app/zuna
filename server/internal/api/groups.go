@@ -101,11 +101,15 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		MetaEpoch     *int64               `json:"meta_epoch"`
 		HistoryGrants []store.HistoryGrant `json:"history_grants"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxCommitBody, &body) {
 		return
 	}
 	if len(body.Commit) == 0 || len(body.GroupInfo) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The commit is incomplete.")
+		return
+	}
+	if len(body.Meta) > maxDetailBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Those group details are too large.")
 		return
 	}
 	before, err := s.db.GroupMemberIDs(r.Context(), groupID)
@@ -169,7 +173,11 @@ func (s *Server) handleGroupMeta(w http.ResponseWriter, r *http.Request, _ *stor
 		Epoch          int64  `json:"epoch"`
 		HistoryVisible *bool  `json:"history_visible"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
+		return
+	}
+	if len(body.Meta) > maxDetailBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Those group details are too large.")
 		return
 	}
 	if err := s.db.SetGroupMeta(r.Context(), groupID, body.Meta, body.Epoch, body.HistoryVisible); err != nil {

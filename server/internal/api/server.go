@@ -30,14 +30,31 @@ import (
 )
 
 const (
-	maxJSONBody     = 16 << 20
+	// What one JSON request may hold. A commit carries a whole group's tree, and
+	// a vault upload many keys; nothing else comes close to these.
+	maxJSONBody   = 1 << 20
+	maxCommitBody = 16 << 20
+	maxVaultBody  = 4 << 20
+	maxSignInBody = 8 << 10
+	maxSignUpBody = 64 << 10
+	// A profile or a group's details: a few short texts and a picture's reference.
+	maxDetailsBody = 64 << 10
+	maxDetailBytes = 16 << 10
+
 	defaultUploadMB = 100
-	unattachedTTL   = 24 * time.Hour
-	emoteRefresh    = 6 * time.Hour
-	emoteRetry      = time.Minute
-	cleanupInterval = time.Hour
+	// A person's files together, if the server doesn't say otherwise.
+	defaultUserQuotaMB = 10 << 10
+	unattachedTTL      = 24 * time.Hour
+	// An upload that has stopped, with nothing arriving for this long.
+	abandonedUploadTTL = 6 * time.Hour
+	emoteRefresh       = 6 * time.Hour
+	emoteRetry         = time.Minute
+	cleanupInterval    = time.Hour
 	// Friends behind one home router share an address, so this allows a burst.
 	defaultAuthBurst = 20
+	// How long a request's body may take. A part of a file gets longer, on a slow connection.
+	ReadTimeout      = time.Minute
+	chunkReadTimeout = 10 * time.Minute
 )
 
 // Config is the part of the server's configuration the API needs.
@@ -409,7 +426,11 @@ func randomToken(n int) string {
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, into any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
+	return readJSONUpTo(w, r, maxJSONBody, into)
+}
+
+func readJSONUpTo(w http.ResponseWriter, r *http.Request, limit int64, into any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if err := json.NewDecoder(r.Body).Decode(into); err != nil {
 		writeError(w, http.StatusBadRequest, "bad_request", "The request couldn't be read.")
 		return false

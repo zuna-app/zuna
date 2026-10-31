@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 
 	"zuna/server/internal/store"
@@ -25,6 +26,15 @@ const (
 	defaultKDFMemory     = 64 << 10
 	defaultKDFIterations = 3
 	defaultKDFParallel   = 1
+)
+
+// What a device and an account may keep here. Generous: real use stays far below.
+const (
+	maxKeyPackageBytes = 16 << 10
+	maxKeyPackagesKept = 500
+	maxVaultItemID     = 256
+	maxVaultItemBytes  = 256 << 10
+	maxVaultItems      = 500_000
 )
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{1,31}$`)
@@ -69,7 +79,7 @@ func (s *Server) handlePrelogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
@@ -111,7 +121,11 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		VaultCore          []byte          `json:"vault_core"`
 		Profile            []byte          `json:"profile"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
+		return
+	}
+	if len(body.Profile) > maxDetailBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That profile is too large.")
 		return
 	}
 	if !usernamePattern.MatchString(body.Username) {
@@ -193,7 +207,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		AuthKey  []byte `json:"auth_key"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
@@ -230,7 +244,7 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		Username        string `json:"username"`
 		RecoveryAuthKey []byte `json:"recovery_auth_key"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
@@ -276,7 +290,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, se
 		AuthKey            []byte          `json:"auth_key"`
 		WrappedKeyPassword []byte          `json:"wrapped_key_password"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
 		return
 	}
 	creds, err := s.credentialsOf(r, sess)
@@ -308,7 +322,7 @@ func (s *Server) handleChangeRecoveryKey(w http.ResponseWriter, r *http.Request,
 		RecoveryAuthKey    []byte `json:"recovery_auth_key"`
 		WrappedKeyRecovery []byte `json:"wrapped_key_recovery"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
 		return
 	}
 	creds, err := s.credentialsOf(r, sess)
@@ -386,11 +400,15 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request, sess *st
 		AvatarFile   *string `json:"avatar_file"`
 		HideLastSeen *bool   `json:"hide_last_seen"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
 	}
 	if body.AvatarFile != nil && !store.ValidID(*body.AvatarFile) {
 		writeError(w, http.StatusBadRequest, "bad_request", "That avatar file isn't valid.")
+		return
+	}
+	if len(body.Profile) > maxDetailBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "That profile is too large.")
 		return
 	}
 	if body.Profile != nil {
@@ -427,7 +445,7 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *s
 		writeError(w, http.StatusConflict, "conflict", "This session already has a device.")
 		return
 	}
-	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.SignatureKey) != 32 {
+	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.Certificate) > maxDetailBytes || len(body.SignatureKey) != 32 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The device data is incomplete.")
 		return
 	}
@@ -478,6 +496,21 @@ func (s *Server) handleAddKeyPackages(w http.ResponseWriter, r *http.Request, se
 		writeError(w, http.StatusBadRequest, "bad_request", "Too many key packages at once.")
 		return
 	}
+	for _, data := range append(slices.Clone(body.KeyPackages), body.LastResort) {
+		if len(data) > maxKeyPackageBytes {
+			writeError(w, http.StatusRequestEntityTooLarge, "too_large", "A key package is too large.")
+			return
+		}
+	}
+	count, _, err := s.db.KeyPackageStatus(r.Context(), sess.DeviceID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if count+len(body.KeyPackages) > maxKeyPackagesKept {
+		writeError(w, http.StatusBadRequest, "bad_request", "This device already has plenty of key packages.")
+		return
+	}
 	if err := s.db.AddKeyPackages(r.Context(), sess.DeviceID, body.KeyPackages, body.LastResort); err != nil {
 		writeFailure(w, err)
 		return
@@ -509,11 +542,26 @@ func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *st
 	var body struct {
 		Items []store.VaultItem `json:"items"`
 	}
-	if !readJSON(w, r, &body) {
+	if !readJSONUpTo(w, r, maxVaultBody, &body) {
 		return
 	}
 	if len(body.Items) == 0 {
 		writeOK(w)
+		return
+	}
+	for _, item := range body.Items {
+		if item.ID == "" || len(item.ID) > maxVaultItemID || len(item.Data) > maxVaultItemBytes {
+			writeError(w, http.StatusBadRequest, "bad_request", "A vault item isn't valid.")
+			return
+		}
+	}
+	count, err := s.db.VaultItemCount(r.Context(), sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if count+len(body.Items) > maxVaultItems {
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Your account's encrypted storage is full.")
 		return
 	}
 	seq, err := s.db.PutVaultItems(r.Context(), sess.UserID, body.Items)
@@ -532,8 +580,8 @@ func (s *Server) handleVaultCore(w http.ResponseWriter, r *http.Request, sess *s
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if len(body.VaultCore) == 0 {
-		writeError(w, http.StatusBadRequest, "bad_request", "The vault data is empty.")
+	if len(body.VaultCore) == 0 || len(body.VaultCore) > maxDetailBytes {
+		writeError(w, http.StatusBadRequest, "bad_request", "The vault data isn't valid.")
 		return
 	}
 	if err := s.db.UpdateVaultCore(r.Context(), sess.UserID, body.VaultCore); err != nil {

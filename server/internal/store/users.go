@@ -551,6 +551,13 @@ func (d *DB) VaultItemsSince(ctx context.Context, userID string, since int64, li
 	return items, rows.Err()
 }
 
+// VaultItemCount is how many items someone keeps in their vault.
+func (d *DB) VaultItemCount(ctx context.Context, userID string) (int, error) {
+	var n int
+	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM vault_items WHERE user_id = ?`, userID).Scan(&n)
+	return n, err
+}
+
 func (d *DB) UpdateVaultCore(ctx context.Context, userID string, core []byte) error {
 	_, err := d.sql.ExecContext(ctx, `UPDATE users SET vault_core = ? WHERE id = ?`, core, userID)
 	return err
