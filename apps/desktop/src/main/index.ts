@@ -21,8 +21,10 @@ import {
   Tray,
   type IpcMainInvokeEvent,
 } from "electron";
+import { previewable } from "@zuna/core/links";
 
 const APP_SCHEME = "zuna-app";
+const WEB_SCHEME = "zuna-web";
 const APP_ORIGIN = `${APP_SCHEME}://app`;
 const DEEP_LINK_SCHEME = "zuna";
 const isDev = !app.isPackaged;
@@ -38,6 +40,7 @@ let notifications: Notification[] = [];
 // (OPFS) requires and which file:// doesn't provide.
 protocol.registerSchemesAsPrivileged([
   { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true } },
+  { scheme: WEB_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } },
 ]);
 
 const CONTENT_SECURITY_POLICY = [
@@ -49,7 +52,7 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*",
   "media-src 'self' blob:",
   "font-src 'self'",
-  "connect-src 'self' https: wss: http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*",
+  `connect-src 'self' https: wss: http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:* ${WEB_SCHEME}:`,
   "worker-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
@@ -71,6 +74,94 @@ function serveRenderer(): void {
     headers.set("X-Content-Type-Options", "nosniff");
     if (filePath.endsWith(".wasm")) headers.set("Content-Type", "application/wasm");
     return new Response(response.body, { status: response.status, headers });
+  });
+}
+
+const WEB_MAX_BYTES = 5 << 20;
+const WEB_MAX_REDIRECTS = 5;
+const WEB_USER_AGENT = "Mozilla/5.0 (compatible; Zuna link preview)";
+
+/**
+ * Fetches a page or picture for a link preview, keeping at most `maxBytes`.
+ * Redirects are followed one at a time, so each address is checked too.
+ */
+function fetchForPreview(web: Electron.Session, url: string, maxBytes: number): Promise<{ url: string; type: string; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    let current = url;
+    let redirects = 0;
+    const request = net.request({ url, session: web, redirect: "manual", useSessionCookies: false });
+    const timer = setTimeout(() => request.abort(), 10_000);
+    const fail = () => {
+      clearTimeout(timer);
+      reject(new Error("The page isn't available."));
+    };
+    request.setHeader("accept", "text/html,application/xhtml+xml,image/*;q=0.9,*/*;q=0.5");
+    request.on("redirect", (_status, _method, location) => {
+      current = new URL(location, current).toString();
+      if (++redirects > WEB_MAX_REDIRECTS || !previewable(current)) request.abort();
+      else request.followRedirect();
+    });
+    request.on("response", (response) => {
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        request.abort();
+        return;
+      }
+      const parts: Buffer[] = [];
+      let size = 0;
+      const finish = () => {
+        clearTimeout(timer);
+        const type = response.headers["content-type"];
+        resolve({ url: current, type: String(Array.isArray(type) ? type[0] : (type ?? "")), body: Buffer.concat(parts).subarray(0, maxBytes) });
+      };
+      response.on("data", (chunk) => {
+        parts.push(chunk);
+        size += chunk.length;
+        // Only as much as a preview needs, however large the page is.
+        if (size >= maxBytes) {
+          finish();
+          request.abort();
+        }
+      });
+      response.on("end", finish);
+      response.on("error", fail);
+    });
+    request.on("abort", fail);
+    request.on("error", fail);
+    request.end();
+  });
+}
+
+/**
+ * Link previews. The core runs in a worker, which can't read other sites, so
+ * it fetches pages through here: zuna-web://fetch/?url=…&max=…. Requests go
+ * out from a session of their own without cookies, and only to the addresses
+ * previews allow.
+ */
+function serveWeb(): void {
+  const web = session.fromPartition(WEB_SCHEME);
+  web.setUserAgent(WEB_USER_AGENT);
+  web.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = Object.fromEntries(Object.entries(details.responseHeaders ?? {}).filter(([name]) => name.toLowerCase() !== "set-cookie"));
+    callback({ responseHeaders });
+  });
+  protocol.handle(WEB_SCHEME, async (request) => {
+    const params = new URL(request.url).searchParams;
+    const target = params.get("url") ?? "";
+    const maxBytes = Math.min(Number(params.get("max")) || 0, WEB_MAX_BYTES);
+    if (!previewable(target) || maxBytes <= 0) return new Response("Not allowed", { status: 400 });
+    try {
+      const page = await fetchForPreview(web, target, maxBytes);
+      return new Response(new Uint8Array(page.body), {
+        headers: {
+          "content-type": page.type,
+          "x-zuna-url": page.url,
+          "access-control-allow-origin": "*",
+          "access-control-expose-headers": "x-zuna-url",
+        },
+      });
+    } catch {
+      return new Response("Not available", { status: 502 });
+    }
   });
 }
 
@@ -324,6 +415,7 @@ if (!app.requestSingleInstanceLock()) {
         : null,
     );
     serveRenderer();
+    serveWeb();
     registerIpc();
     const initial = findDeepLink(process.argv);
     if (initial) pendingDeepLink = initial;

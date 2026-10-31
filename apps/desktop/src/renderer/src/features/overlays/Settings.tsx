@@ -174,6 +174,8 @@ function ProfileSection() {
 function PrivacySection() {
   const server = useActiveServer();
   const session = useApp((state) => state.session);
+  const settings = useApp((state) => state.settings);
+  const update = useApp((state) => state.updateSettings);
   const { run } = useAction();
   const self = server?.self ? server.users[server.self.userId] : null;
   if (!server || !self) return null;
@@ -186,6 +188,14 @@ function PrivacySection() {
       </SettingRow>
       <SettingRow title="Show when I'm online" hint="If off, people see “last seen recently” instead of your status.">
         <Switch on={!self.hidesLastSeen} onChange={(value) => void run(() => session().setHideLastSeen(!value))} label="Show when I'm online" />
+      </SettingRow>
+      <div className="settings-divider" />
+      <h3>On this device</h3>
+      <SettingRow
+        title="Link previews"
+        hint="When you write a link, this device fetches the page to show its title and picture, and sends them encrypted with your message. The site sees your address, as when you open a link. Your server never sees it."
+      >
+        <Switch on={settings.linkPreviews} onChange={(value) => update({ linkPreviews: value })} label="Link previews" />
       </SettingRow>
     </>
   );

@@ -1,6 +1,7 @@
-import type { ConversationView, EmoteRef, MessageView } from "@zuna/core";
+import type { ConversationView, EmoteRef, LinkPreview, MessageView } from "@zuna/core";
+import { findLink } from "@zuna/core/links";
 import { plainText } from "@zuna/core/plain-text";
-import { Check, CornerUpLeft, File as FileIcon, Paperclip, Pencil, SendHorizontal, Smile, X } from "lucide-react";
+import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, Paperclip, Pencil, SendHorizontal, Smile, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
@@ -17,6 +18,8 @@ export interface ComposerHandle {
 
 const drafts = new Map<string, string>();
 const MAX_SUGGESTIONS = 8;
+/** How long typing pauses before a link's page is fetched. */
+const PREVIEW_DELAY_MS = 400;
 
 interface Suggestion {
   key: string;
@@ -52,7 +55,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     const selfId = state.activeServerId ? state.servers[state.activeServerId]?.self?.userId : null;
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i]!;
-      if (item.senderId === selfId && item.text && item.seq !== null && !item.deletedAt && !item.system) return item;
+      if (item.senderId === selfId && item.text && item.seq !== null && !item.deletedAt && !item.system && !item.forwarded) return item;
     }
     return null;
   });
@@ -62,6 +65,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const [pickerAt, setPickerAt] = useState<{ x: number; y: number } | null>(null);
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
+  const [linkPreview, setLinkPreview] = useState<{ url: string; preview: LinkPreview | null; loading: boolean } | null>(null);
+  const [dismissedLink, setDismissedLink] = useState<string | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -94,6 +99,28 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   useEffect(() => {
     if (replyTo) focusComposer();
   }, [replyTo?.id]);
+
+  // The first link's preview, made on this device once typing pauses. Edits keep the one they had.
+  const link = useMemo(() => (settings.linkPreviews && !editing ? findLink(text) : null), [text, settings.linkPreviews, editing]);
+  useEffect(() => {
+    if (!link || link === dismissedLink) {
+      setLinkPreview(null);
+      return;
+    }
+    let current = true;
+    const timer = setTimeout(() => {
+      setLinkPreview((shown) => (shown?.url === link ? shown : { url: link, preview: null, loading: true }));
+      void useApp
+        .getState()
+        .core?.client.linkPreview(link)
+        .then((preview) => current && setLinkPreview({ url: link, preview, loading: false }))
+        .catch(() => current && setLinkPreview(null));
+    }, PREVIEW_DELAY_MS);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [link, dismissedLink]);
 
   // Grow with the content up to a limit.
   useEffect(() => {
@@ -196,6 +223,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
       replyTo: replyTo?.id,
       emotes: emotesInText(value),
       mentions: mentionsIn(value, users),
+      // Only if it's ready: sending doesn't wait for a slow page.
+      preview: linkPreview?.preview && value.includes(linkPreview.url) ? linkPreview.preview : undefined,
     };
     if (files.length > 0) {
       const sending = files;
@@ -212,6 +241,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     }
     setText("");
     setReply(listId, null);
+    setLinkPreview(null);
+    setDismissedLink(null);
     focusComposer();
   };
 
@@ -337,6 +368,22 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                   }
                 }}
               >
+                <X size={15} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {linkPreview && (linkPreview.loading || linkPreview.preview) && (
+          <div className="composer-context link-draft">
+            <div className="composer-context-inner">
+              <LinkIcon size={15} />
+              <span className="grow">
+                <span className="composer-context-title truncate">{linkPreview.preview?.title ?? linkPreview.preview?.siteName ?? "Loading the link's preview…"}</span>
+                <span className="composer-context-text truncate">{linkPreview.preview?.description ?? linkPreview.url}</span>
+              </span>
+              {linkPreview.preview?.image && <img className="link-draft-image" src={linkPreview.preview.image.data} alt="" />}
+              <button className="icon-btn is-small" aria-label="Remove the link's preview" onClick={() => setDismissedLink(linkPreview.url)}>
                 <X size={15} />
               </button>
             </div>

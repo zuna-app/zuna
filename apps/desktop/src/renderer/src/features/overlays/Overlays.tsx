@@ -1,4 +1,4 @@
-import type { Invite, UserView } from "@zuna/core";
+import type { Invite, MessageView, UserView } from "@zuna/core";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -46,6 +46,7 @@ export function Overlays() {
       {overlay?.type === "verify" && <VerifyIdentity key="verify" userId={overlay.userId} onClose={close} />}
       {overlay?.type === "add-members" && <AddMembers key="add-members" groupId={overlay.groupId} onClose={close} />}
       {overlay?.type === "image" && <ImageViewer key="image" url={overlay.url} name={overlay.name} onClose={close} />}
+      {overlay?.type === "forward" && <ForwardPicker key="forward" serverId={overlay.serverId} message={overlay.message} onClose={close} />}
     </AnimatePresence>
   );
 }
@@ -70,6 +71,68 @@ function ImageViewer({ url, name, onClose }: { url: string; name: string; onClos
       </a>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * Where to forward a message: any chat on any server, this one first. Picking
+ * one sends it there and opens it, as Telegram's desktop app does.
+ */
+function ForwardPicker({ serverId, message, onClose }: { serverId: string; message: MessageView; onClose: () => void }) {
+  const servers = useApp((state) => state.servers);
+  const order = useApp((state) => state.order);
+  const toast = useApp((state) => state.toast);
+  const [query, setQuery] = useState("");
+  const [sending, setSending] = useState<string | null>(null);
+  const needle = query.trim().toLowerCase();
+  const sections = [serverId, ...order.filter((id) => id !== serverId)]
+    .map((id) => servers[id])
+    .filter((server): server is NonNullable<typeof server> => !!server)
+    .map((server) => ({
+      server,
+      chats: server.conversations.filter((chat) => !server.prefs.hidden.includes(chat.key) && (!needle || chat.title.toLowerCase().includes(needle))),
+    }))
+    .filter((section) => section.chats.length > 0);
+
+  const forward = async (toServerId: string, key: string) => {
+    setSending(`${toServerId}/${key}`);
+    try {
+      await useApp.getState().core!.client.forwardMessage(serverId, message.groupId, message.id, toServerId, key);
+      const state = useApp.getState();
+      if (state.activeServerId !== toServerId) state.selectServer(toServerId);
+      useApp.getState().selectConversation(key);
+      onClose();
+    } catch (error) {
+      toast((error as Error).message, "error");
+      setSending(null);
+    }
+  };
+
+  return (
+    <Modal title="Forward to" onClose={onClose}>
+      <div className="input-wrap search-wrap">
+        <Search size={15} className="faint" />
+        <input className="input" placeholder="Search chats" value={query} autoFocus onChange={(event) => setQuery(event.target.value)} aria-label="Search chats" />
+      </div>
+      <div className="people-list forward-list">
+        {sections.map(({ server, chats }) => (
+          <div key={server.entry.id} className="forward-section">
+            {sections.length > 1 || server.entry.id !== serverId ? <span className="forward-server">{server.entry.name}</span> : null}
+            {chats.map((chat) => {
+              const id = `${server.entry.id}/${chat.key}`;
+              return (
+                <button key={id} className="person-row" disabled={sending !== null} onClick={() => void forward(server.entry.id, chat.key)}>
+                  <Avatar name={chat.title} seed={chat.peerId ?? chat.groupId ?? chat.key} avatar={chat.avatar} size={36} />
+                  <span className="grow truncate" style={{ fontWeight: 550 }}>{chat.title}</span>
+                  {sending === id && <Spinner size={14} />}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        {sections.length === 0 && <p className="muted" style={{ textAlign: "center", padding: 16 }}>No chats match that search.</p>}
+      </div>
+    </Modal>
   );
 }
 

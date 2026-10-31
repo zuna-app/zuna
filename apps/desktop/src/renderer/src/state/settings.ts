@@ -11,6 +11,8 @@ export interface AppSettings {
   enterToSend: boolean;
   /** After this long without input, or right away when the screen locks, the phone gets notifications instead. */
   awayAfterMinutes: 1 | 3 | 5 | 10;
+  /** This device fetches a page to preview the first link in a message being written. */
+  linkPreviews: boolean;
 }
 
 const KEY = "zuna-settings";
@@ -25,6 +27,7 @@ const DEFAULTS: AppSettings = {
   reduceMotion: false,
   enterToSend: true,
   awayAfterMinutes: 3,
+  linkPreviews: true,
 };
 
 const ACCENTS: AppSettings["accent"][] = ["neutral", "blue", "green", "red", "amber"];
