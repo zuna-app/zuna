@@ -196,6 +196,8 @@ func (h *Hub) add(c *conn, hidden bool) {
 		h.conns[c.userID] = map[*conn]struct{}{}
 	}
 	h.conns[c.userID][c] = struct{}{}
+	// Which of the person's other devices are in use, so this one knows whether to keep quiet.
+	c.deliver(h.activity(c.userID))
 	h.mu.Unlock()
 	if first && !hidden {
 		h.ToAll(Event{Type: "presence", Data: presenceUpdate{UserID: c.userID, Online: true}})
@@ -206,11 +208,10 @@ func (h *Hub) add(c *conn, hidden bool) {
 // their other devices, which keep quiet while they're elsewhere.
 func (h *Hub) SetActive(c *conn, active bool) {
 	h.mu.Lock()
-	changed := c.active != active
-	c.active = active
-	h.mu.Unlock()
-	if changed {
-		h.ToUsers([]string{c.userID}, h.activity(c.userID))
+	defer h.mu.Unlock()
+	if c.active != active {
+		c.active = active
+		h.sendActivity(c.userID)
 	}
 }
 
@@ -227,26 +228,33 @@ func (h *Hub) Active(userID string) bool {
 }
 
 // activity is the event listing which of someone's devices they're using.
-func (h *Hub) activity(userID string) Event {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+// It's built and queued with h.mu held, so each device gets these events in
+// the order the changes happened and the last one it gets is right.
+func (h *Hub) activity(userID string) []byte {
 	devices := []string{}
 	for c := range h.conns[userID] {
 		if c.active && !slices.Contains(devices, c.deviceID) {
 			devices = append(devices, c.deviceID)
 		}
 	}
-	return Event{Type: "activity", Data: map[string]any{"active_devices": devices}}
+	return encodeEvent(Event{Type: "activity", Data: map[string]any{"active_devices": devices}})
+}
+
+// sendActivity tells all of someone's devices which of them they're using.
+// The caller holds h.mu.
+func (h *Hub) sendActivity(userID string) {
+	frame := h.activity(userID)
+	for c := range h.conns[userID] {
+		c.deliver(frame)
+	}
 }
 
 func (h *Hub) remove(c *conn) {
-	defer func() {
-		if c.active {
-			h.ToUsers([]string{c.userID}, h.activity(c.userID))
-		}
-	}()
 	h.mu.Lock()
 	delete(h.conns[c.userID], c)
+	if c.active {
+		h.sendActivity(c.userID)
+	}
 	last := len(h.conns[c.userID]) == 0
 	if last {
 		delete(h.conns, c.userID)
@@ -315,8 +323,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	s.hub.add(c, user.HideLastSeen)
 	defer s.hub.remove(c)
-	// Which of the person's other devices are in use, so this one knows whether to keep quiet.
-	c.deliver(encodeEvent(s.hub.activity(c.userID)))
 
 	go s.writeLoop(ctx, ws, c)
 	s.readLoop(ctx, ws, c)
