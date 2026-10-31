@@ -515,6 +515,32 @@ func TestWrongPasswordsSlowDownForOneAccount(t *testing.T) {
 	}
 }
 
+// Z-24: nothing tells an outsider which usernames exist, or what's running here.
+func TestOutsidersLearnLittle(t *testing.T) {
+	h := newHarness(t)
+	h.owner()
+	salt := func(name string) string {
+		var kdf store.KDFParams
+		h.mustDo("POST", "/api/auth/prelogin", "", map[string]any{"username": name}, &kdf)
+		return base64.StdEncoding.EncodeToString(kdf.Salt)
+	}
+	if salt("nosuchuser") != salt("NOSUCHUSER") {
+		t.Fatal("unknown names behave differently from real ones with case")
+	}
+	if salt("owner") != salt("OWNER") {
+		t.Fatal("a real name should ignore case")
+	}
+
+	var info map[string]any
+	h.mustDo("GET", "/api/info", "", nil, &info)
+	if info["version"] != "" || info["user_count"] != float64(0) {
+		t.Fatalf("an outsider sees: %v", info)
+	}
+	if info["name"] == "" || info["registration"] != "invite" {
+		t.Fatalf("the join screen needs more than: %v", info)
+	}
+}
+
 // Z-10: an account from before sign-in keys were bound to a server moves to a
 // new key by proving it knows the old one, which is no use for any other server.
 func TestUpgradingASignInKeyProvesItWithoutSendingIt(t *testing.T) {

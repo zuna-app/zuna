@@ -155,7 +155,9 @@ struct InviteStep: View {
                 preview.setup ? "Set up your server" : "Join \(server.name)",
                 message: preview.setup
                     ? Text("You're creating the owner account.")
-                    : Text("\(Image(systemName: "person.2.fill")) \(server.userCount) \(server.userCount == 1 ? "member" : "members")")
+                    : server.userCount > 0
+                        ? Text("\(Image(systemName: "person.2.fill")) \(server.userCount) \(server.userCount == 1 ? "member" : "members")")
+                        : Text("Open sign-ups")
             ) {
                 AvatarView(name: server.name, seed: preview.url, source: .serverAt(url: preview.url, hasIcon: server.hasIcon), size: 72, rounded: true)
             }

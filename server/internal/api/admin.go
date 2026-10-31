@@ -32,6 +32,22 @@ type ServerInfo struct {
 	CommunityKey string `json:"community_key,omitempty"`
 }
 
+// publicServerInfo is what someone without an account may hear: what the join
+// screen needs, and nothing about which version this runs or who's here.
+func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
+	info, err := s.serverInfo(r)
+	if err != nil {
+		return nil, err
+	}
+	return &ServerInfo{
+		Name:         info.Name,
+		HasIcon:      info.HasIcon,
+		Claimed:      info.Claimed,
+		Registration: info.Registration,
+		CommunityKey: info.CommunityKey,
+	}, nil
+}
+
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
 	info := &ServerInfo{Version: s.cfg.Version}
@@ -81,10 +97,16 @@ func (s *Server) iconPath() string {
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
-	info, err := s.serverInfo(r)
+	info, err := s.publicServerInfo(r)
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	if _, err := s.db.SessionByToken(r.Context(), hashToken(bearerToken(r))); err == nil {
+		if info, err = s.serverInfo(r); err != nil {
+			writeFailure(w, err)
+			return
+		}
 	}
 	writeJSON(w, http.StatusOK, info)
 }

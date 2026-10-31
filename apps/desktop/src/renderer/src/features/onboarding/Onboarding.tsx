@@ -281,10 +281,12 @@ function InviteStep({
         <p className="muted">
           {preview.setup ? (
             "You're creating the owner account."
-          ) : (
+          ) : server.user_count > 0 ? (
             <span className="row" style={{ gap: 5, justifyContent: "center" }}>
               <Users size={13} /> {server.user_count} {server.user_count === 1 ? "member" : "members"}
             </span>
+          ) : (
+            "Open sign-ups"
           )}
         </p>
       </div>
