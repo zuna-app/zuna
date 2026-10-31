@@ -2641,7 +2641,7 @@ dependencies = [
  "openmls_basic_credential",
  "openmls_rust_crypto",
  "openmls_traits",
- "sha2 0.10.9",
+ "sha2 0.11.1",
  "tls_codec",
  "uniffi",
  "wasm-bindgen",
