@@ -6,9 +6,11 @@ import { Api } from "../src/api";
 import { parseInviteLink } from "../src/account";
 import { previewPush } from "../src/push";
 import type { CoreEvent, MessageView } from "../src/types";
-import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
+import { createDecipheriv } from "node:crypto";
+import { FakeRelay, TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
+let relay: FakeRelay;
 let alice: TestApp;
 let bob: TestApp;
 let carol: TestApp;
@@ -16,7 +18,9 @@ let invite: string;
 
 beforeAll(async () => {
   loadCrypto();
-  server = new TestServer();
+  relay = new FakeRelay();
+  await relay.start();
+  server = new TestServer({ pushRelays: [relay.url] });
   await server.start();
   alice = await new TestApp("alice-laptop").open();
   await alice.register(server.setupLink, "alice");
@@ -31,6 +35,7 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const app of [alice, bob, carol]) app?.client.stop();
   await server?.stop();
+  relay?.stop();
 });
 
 describe("onboarding", () => {
@@ -663,6 +668,47 @@ describe("notifications from a push", () => {
     const mention = await previewPush(extension(bob), bob.serverId, groupId, received(bob, "hey @bob").id);
     expect(mention).toMatchObject({ body: "alice: hey @bob", muted: false });
     await bob.session.updatePreferences({ muted: [] });
+  });
+
+  it("has the server push sealed IDs through a relay, skipping muted chats", async () => {
+    const key = new Uint8Array(32).fill(9);
+    const registration = "a".repeat(32);
+    const dm = `user:${alice.userId}`;
+    await expect(
+      bob.session.setPush({ relay: "https://elsewhere.example", handle: "bob-phone", key, registration, sendMuted: true }),
+    ).rejects.toMatchObject({ code: "relay_not_allowed" });
+    await bob.session.setPush({ relay: relay.url, handle: "bob-phone", key, registration, sendMuted: true });
+
+    const open = (push: FakeRelay["pushes"][number]) => {
+      const sealed = Buffer.from(push.data.p, "base64");
+      const decipher = createDecipheriv("aes-256-gcm", key, sealed.subarray(0, 12));
+      decipher.setAAD(Buffer.from(`zuna/push/v1|${registration}`));
+      decipher.setAuthTag(sealed.subarray(sealed.length - 16));
+      return JSON.parse(Buffer.concat([decipher.update(sealed.subarray(12, sealed.length - 16)), decipher.final()]).toString());
+    };
+    const before = relay.pushes.length;
+    const sent = alice.session.sendMessage(`user:${bob.userId}`, { text: "wake up" });
+    await waitFor(() => relay.pushes.length > before, "a push for bob");
+    const push = relay.pushes.at(-1)!;
+    expect(push).toMatchObject({ handle: "bob-phone", data: { r: registration }, collapse_id: sent.id });
+    expect(open(push)).toEqual({ g: sent.groupId, m: sent.id });
+
+    // Muting the DM tells the server, which stops pushing it.
+    await bob.session.updatePreferences({ muted: [dm] });
+    await sleep(300);
+    const quiet = relay.pushes.length;
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "shh" });
+    await waitFor(() => bob.texts(dm).includes("shh"), "delivery to bob");
+    await sleep(300);
+    expect(relay.pushes.length).toBe(quiet);
+    await bob.session.updatePreferences({ muted: [] });
+
+    // Turned off, nothing more is pushed.
+    await bob.session.setPush(null);
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "anyone?" });
+    await waitFor(() => bob.texts(dm).includes("anyone?"), "delivery to bob");
+    await sleep(300);
+    expect(relay.pushes.length).toBe(quiet);
   });
 
   it("hides your own messages, and names the chat when the message can't be read", async () => {

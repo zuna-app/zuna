@@ -57,6 +57,7 @@ import type {
   MessageView,
   Preferences,
   Profile,
+  PushSettings,
   ReactionView,
   ReplyPreview,
   Role,
@@ -166,6 +167,8 @@ export class ServerSession {
   private groups = new Map<string, CachedGroup>();
   private online = new Set<string>();
   private prefs: Preferences = { pinned: [], hidden: [], muted: [], sendReadReceipts: true };
+  /** What the app asked for notifications: where to push, "off" to stop them, or null if it never said. */
+  private push: PushSettings | "off" | null = null;
   private deviceNames = new Map<string, string>();
   private locks = new Map<string, Mutex>();
   private epochKeys = new Map<string, Uint8Array>();
@@ -285,6 +288,8 @@ export class ServerSession {
     try {
       await this.syncAll();
       if (this.socket.connected) this.setConnection("online");
+      // The server may have dropped it, or missed a change made offline.
+      this.resendPush();
     } catch (error) {
       console.warn("[zuna] sync failed", error);
       if (error instanceof ApiError && error.status === 401) {
@@ -375,6 +380,8 @@ export class ServerSession {
       this.groups.set(group.id, group);
     }
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
+    const push = this.getKv<(Omit<PushSettings, "key"> & { key: string }) | "off">("push");
+    this.push = push && push !== "off" ? { ...push, key: fromBase64(push.key) } : push;
     this.usersCursor = this.getKv<number>("users_cursor") ?? 0;
     this.info = this.getKv<ServerInfo>("info");
     this.emoteSet = this.getKv<EmoteSet>("emotes") ?? this.emoteSet;
@@ -583,6 +590,7 @@ export class ServerSession {
           this.prefs = { ...this.prefs, ...JSON.parse(fromUtf8(data)) };
           this.setKv("prefs", this.prefs);
           this.emit({ type: "preferences", serverId: this.serverId });
+          this.resendPush();
         } else if (item.id.startsWith("verified:")) {
           const userId = item.id.slice("verified:".length);
           this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, data]);
@@ -1860,9 +1868,41 @@ export class ServerSession {
     this.setKv("prefs", this.prefs);
     this.emit({ type: "preferences", serverId: this.serverId });
     this.emitConversations();
+    if (changes.muted) this.resendPush();
     await this.putVault("prefs", utf8(JSON.stringify(this.prefs))).catch((error) => {
       console.warn("[zuna] saving preferences", error);
     });
+  }
+
+  // --- Notifications ---
+
+  /**
+   * Has the server wake this device through a push relay for new messages, or
+   * stops it with null. It's remembered, and sent again after reconnecting and
+   * whenever the muted chats change, if the server is told about them.
+   */
+  async setPush(push: PushSettings | null): Promise<void> {
+    this.push = push ?? "off";
+    this.setKv("push", push ? { ...push, key: toBase64(push.key) } : "off");
+    await this.sendPush();
+  }
+
+  private async sendPush(): Promise<void> {
+    const push = this.push;
+    if (push === null) return;
+    if (push === "off") {
+      await this.api.deletePush();
+      return;
+    }
+    // Muted DMs are kept by the person's key; the server knows the DM's group.
+    const muted = push.sendMuted
+      ? this.prefs.muted.map((key) => this.groupForKey(key)?.id).filter((id): id is string => !!id)
+      : [];
+    await this.api.setPush({ relay: push.relay, handle: push.handle, key: push.key, registration: push.registration, muted });
+  }
+
+  private resendPush(): void {
+    this.sendPush().catch((error) => console.warn("[zuna] updating notifications", error));
   }
 
   // --- Reading messages ---
