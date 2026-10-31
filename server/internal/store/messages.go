@@ -6,7 +6,6 @@ import (
 	"errors"
 	"slices"
 	"sort"
-	"strings"
 )
 
 // Message is an encrypted message and its server-visible state.
@@ -125,12 +124,21 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string) (me
 			return err
 		}
 		now := Now()
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope, file_ids, created_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?)`, m.GroupID, m.ID, seq, seq, m.SenderUser, m.SenderDevice, m.Epoch, m.Envelope,
-			strings.Join(fileIDs, ","), now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope, created_at)
+			VALUES(?,?,?,?,?,?,?,?,?)`, m.GroupID, m.ID, seq, seq, m.SenderUser, m.SenderDevice, m.Epoch, m.Envelope, now); err != nil {
 			return err
 		}
 		for _, fileID := range fileIDs {
+			allowed, err := mayShareFile(ctx, tx, fileID, m.SenderUser)
+			if err != nil {
+				return err
+			}
+			if !allowed {
+				return ErrForbidden
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO file_refs(file_id, group_id, message_id) VALUES(?,?,?)`, fileID, m.GroupID, m.ID); err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(ctx, `UPDATE files SET attached_at = ? WHERE id = ? AND owner_id = ?`, now, fileID, m.SenderUser); err != nil {
 				return err
 			}
@@ -200,9 +208,8 @@ func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID stri
 func (d *DB) DeleteMessage(ctx context.Context, groupID, id string) (*Message, []string, error) {
 	var fileIDs []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
-		var files string
 		var deleted sql.NullInt64
-		err := tx.QueryRowContext(ctx, `SELECT file_ids, deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&files, &deleted)
+		err := tx.QueryRowContext(ctx, `SELECT deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&deleted)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -212,8 +219,9 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string) (*Message, [
 		if deleted.Valid {
 			return nil
 		}
-		if files != "" {
-			fileIDs = strings.Split(files, ",")
+		fileIDs, err = collectStrings(ctx, tx, `SELECT file_id FROM file_refs WHERE group_id = ? AND message_id = ?`, groupID, id)
+		if err != nil {
+			return err
 		}
 		seq, err := nextSeq(ctx, tx, groupID)
 		if err != nil {
@@ -222,11 +230,14 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string) (*Message, [
 		if _, err := tx.ExecContext(ctx, `DELETE FROM reactions WHERE group_id = ? AND message_id = ?`, groupID, id); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, file_ids = '', deleted_at = ?, pinned_at = NULL, pinned_by = NULL, updated_seq = ?
+		if _, err := tx.ExecContext(ctx, `DELETE FROM file_refs WHERE group_id = ? AND message_id = ?`, groupID, id); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, deleted_at = ?, pinned_at = NULL, pinned_by = NULL, updated_seq = ?
 			WHERE group_id = ? AND id = ?`, Now(), seq, groupID, id); err != nil {
 			return err
 		}
-		fileIDs, err = unshared(ctx, tx, fileIDs)
+		fileIDs, err = unreferenced(ctx, tx, fileIDs)
 		return err
 	})
 	if err != nil {
@@ -457,69 +468,85 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]string, error) {
 	var fileIDs []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT file_ids FROM messages WHERE created_at < ? AND file_ids != '' AND pinned_at IS NULL`, cutoff)
+		var err error
+		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT r.file_id FROM file_refs r
+			JOIN messages m ON m.group_id = r.group_id AND m.id = r.message_id
+			WHERE m.created_at < ? AND m.pinned_at IS NULL`, cutoff)
 		if err != nil {
 			return err
 		}
-		for rows.Next() {
-			var ids string
-			if err := rows.Scan(&ids); err != nil {
-				rows.Close()
-				return err
-			}
-			fileIDs = append(fileIDs, strings.Split(ids, ",")...)
-		}
-		rows.Close()
 		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE created_at < ? AND pinned_at IS NULL`, cutoff); err != nil {
 			return err
 		}
-		fileIDs, err = unshared(ctx, tx, fileIDs)
+		fileIDs, err = unreferenced(ctx, tx, fileIDs)
 		return err
 	})
 	return fileIDs, err
 }
 
-// unshared keeps the files that no message uses any more. A forwarded message
-// shares its original's files, so they stay until the last copy is gone.
-func unshared(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, error) {
-	if len(fileIDs) == 0 {
-		return nil, nil
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT file_ids FROM messages WHERE file_ids != ''`)
+func collectStrings(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	used := map[string]bool{}
+	var values []string
 	for rows.Next() {
-		var ids string
-		if err := rows.Scan(&ids); err != nil {
+		var value string
+		if err := rows.Scan(&value); err != nil {
 			return nil, err
 		}
-		for _, id := range strings.Split(ids, ",") {
-			used[id] = true
-		}
+		values = append(values, value)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+	return values, rows.Err()
+}
+
+// unreferenced keeps the files nothing uses any more. A forwarded message shares
+// its original's files, so they stay until the last copy is gone, and someone's
+// picture or a group's stays whatever messages come and go.
+func unreferenced(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, error) {
 	var orphaned []string
 	for _, id := range fileIDs {
-		if !used[id] && !slices.Contains(orphaned, id) {
+		if slices.Contains(orphaned, id) {
+			continue
+		}
+		var used int
+		err := tx.QueryRowContext(ctx, `SELECT
+			EXISTS(SELECT 1 FROM file_refs WHERE file_id = ?1) OR
+			EXISTS(SELECT 1 FROM users WHERE avatar_file = ?1) OR
+			EXISTS(SELECT 1 FROM files WHERE id = ?1 AND standalone = 1)`, id).Scan(&used)
+		if err != nil {
+			return nil, err
+		}
+		if used == 0 {
 			orphaned = append(orphaned, id)
 		}
 	}
 	return orphaned, nil
 }
 
+// mayShareFile reports whether a message from this user may use a file: their
+// own upload, or one already in a conversation they belong to, which is how a
+// forwarded message shares its original's files.
+func mayShareFile(ctx context.Context, tx *sql.Tx, fileID, userID string) (bool, error) {
+	var allowed int
+	err := tx.QueryRowContext(ctx, `SELECT
+		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND owner_id = ?2) OR
+		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
+			WHERE r.file_id = ?1 AND m.user_id = ?2)`, fileID, userID).Scan(&allowed)
+	return allowed != 0, err
+}
+
 // --- Files ---
 
 type File struct {
 	ID          string `json:"id"`
-	OwnerID     string `json:"owner_id"`
+	OwnerID     string `json:"owner_id,omitempty"`
 	ChunkCount  int    `json:"chunk_count"`
 	TotalSize   int64  `json:"total_size"`
 	CompletedAt *int64 `json:"completed_at"`
+	// Received is how much of the upload has arrived so far.
+	Received int64 `json:"-"`
 }
 
 func (d *DB) CreateFile(ctx context.Context, f File) error {
@@ -531,8 +558,8 @@ func (d *DB) CreateFile(ctx context.Context, f File) error {
 func (d *DB) File(ctx context.Context, id string) (*File, error) {
 	var f File
 	var completed sql.NullInt64
-	err := d.sql.QueryRowContext(ctx, `SELECT id, owner_id, chunk_count, total_size, completed_at FROM files WHERE id = ?`, id).Scan(
-		&f.ID, &f.OwnerID, &f.ChunkCount, &f.TotalSize, &completed)
+	err := d.sql.QueryRowContext(ctx, `SELECT id, owner_id, chunk_count, total_size, completed_at, received FROM files WHERE id = ?`, id).Scan(
+		&f.ID, &f.OwnerID, &f.ChunkCount, &f.TotalSize, &completed, &f.Received)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -540,14 +567,41 @@ func (d *DB) File(ctx context.Context, id string) (*File, error) {
 	return &f, err
 }
 
+// MayReadFile reports whether a user may read a file: their own, someone's
+// picture, or one in a conversation they belong to.
+func (d *DB) MayReadFile(ctx context.Context, fileID, userID string) (bool, error) {
+	var allowed int
+	err := d.sql.QueryRowContext(ctx, `SELECT
+		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND (owner_id = ?2 OR standalone = 1)) OR
+		EXISTS(SELECT 1 FROM users WHERE avatar_file = ?1) OR
+		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
+			WHERE r.file_id = ?1 AND m.user_id = ?2)`, fileID, userID).Scan(&allowed)
+	return allowed != 0, err
+}
+
+// StorageUsed is how many bytes of files someone has uploaded or is uploading.
+func (d *DB) StorageUsed(ctx context.Context, userID string) (int64, error) {
+	var total int64
+	err := d.sql.QueryRowContext(ctx, `SELECT COALESCE(SUM(total_size), 0) FROM files WHERE owner_id = ?`, userID).Scan(&total)
+	return total, err
+}
+
+// AddReceived records a part of an upload arriving, which may replace an
+// earlier copy of the same part.
+func (d *DB) AddReceived(ctx context.Context, id string, bytes int64) error {
+	_, err := d.sql.ExecContext(ctx, `UPDATE files SET received = received + ?, touched_at = ? WHERE id = ?`, bytes, Now(), id)
+	return err
+}
+
 func (d *DB) CompleteFile(ctx context.Context, id string) error {
 	_, err := d.sql.ExecContext(ctx, `UPDATE files SET completed_at = ? WHERE id = ?`, Now(), id)
 	return err
 }
 
-// AttachFile marks an upload as in use, which exempts it from cleanup.
+// AttachFile marks an upload as standing on its own, such as a group's picture,
+// which exempts it from cleanup.
 func (d *DB) AttachFile(ctx context.Context, id, ownerID string) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE files SET attached_at = ? WHERE id = ? AND owner_id = ?`, Now(), id, ownerID)
+	_, err := d.sql.ExecContext(ctx, `UPDATE files SET attached_at = ?, standalone = 1 WHERE id = ? AND owner_id = ?`, Now(), id, ownerID)
 	return err
 }
 

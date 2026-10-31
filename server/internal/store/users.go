@@ -249,20 +249,38 @@ func (d *DB) UserCount(ctx context.Context) (int, error) {
 	return n, err
 }
 
-// UpdateProfile stores the user's encrypted profile. It returns the avatar
-// file this replaced, if any, so it can be deleted.
+// UpdateProfile stores the user's encrypted profile. An avatar must be the
+// user's own file. It returns the avatar this replaced, if nothing else uses it,
+// so it can be deleted.
 func (d *DB) UpdateProfile(ctx context.Context, userID string, profile []byte, avatarFile *string) (string, error) {
 	var old sql.NullString
+	var orphaned []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		if err := tx.QueryRowContext(ctx, `SELECT avatar_file FROM users WHERE id = ?`, userID).Scan(&old); err != nil {
 			return err
+		}
+		if avatarFile != nil && (!old.Valid || old.String != *avatarFile) {
+			var owner string
+			err := tx.QueryRowContext(ctx, `SELECT owner_id FROM files WHERE id = ?`, *avatarFile).Scan(&owner)
+			if errors.Is(err, sql.ErrNoRows) || (err == nil && owner != userID) {
+				return ErrForbidden
+			}
+			if err != nil {
+				return err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE users SET profile = ?, avatar_file = ?, updated_at = ? WHERE id = ?`,
 			profile, avatarFile, Now(), userID); err != nil {
 			return err
 		}
 		if avatarFile != nil {
-			_, err := tx.ExecContext(ctx, `UPDATE files SET attached_at = ? WHERE id = ? AND owner_id = ?`, Now(), *avatarFile, userID)
+			if _, err := tx.ExecContext(ctx, `UPDATE files SET attached_at = ? WHERE id = ? AND owner_id = ?`, Now(), *avatarFile, userID); err != nil {
+				return err
+			}
+		}
+		if old.Valid && (avatarFile == nil || *avatarFile != old.String) {
+			var err error
+			orphaned, err = unreferenced(ctx, tx, []string{old.String})
 			return err
 		}
 		return nil
@@ -270,8 +288,8 @@ func (d *DB) UpdateProfile(ctx context.Context, userID string, profile []byte, a
 	if err != nil {
 		return "", err
 	}
-	if old.Valid && (avatarFile == nil || *avatarFile != old.String) {
-		return old.String, nil
+	if len(orphaned) > 0 {
+		return orphaned[0], nil
 	}
 	return "", nil
 }

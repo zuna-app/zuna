@@ -27,6 +27,7 @@ func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
 	}
 	send := func(id, file string) {
 		t.Helper()
+		ownFile(t, db, file)
 		if _, _, err := db.CreateMessage(ctx, Message{
 			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
 		}, []string{file}); err != nil {
@@ -136,6 +137,8 @@ func TestForwardedFilesStayUntilTheLastCopyIsGone(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	ownFile(t, db, "photo")
+	ownFile(t, db, "notes")
 	send(first, "original", "photo", "notes")
 	send(first, "forwarded-here", "photo")
 	send(second, "forwarded-there", "photo", "notes")
@@ -187,6 +190,64 @@ func TestAttachedFilesAreExemptFromCleanup(t *testing.T) {
 	}
 	if !slices.Equal(unattached, []string{"abandoned"}) {
 		t.Fatalf("unattached = %v", unattached)
+	}
+}
+
+// ownFile makes a file belonging to the user these tests send messages as.
+func ownFile(t *testing.T, db *DB, id string) {
+	t.Helper()
+	if err := db.CreateFile(context.Background(), File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "zuna.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Back to how it was before file_refs, with a message using two files and a group picture.
+	if _, err := db.sql.ExecContext(ctx, `
+		DROP TABLE file_refs;
+		ALTER TABLE messages ADD COLUMN file_ids TEXT NOT NULL DEFAULT '';
+		DROP INDEX files_owner;
+		DROP INDEX users_avatar;
+		DROP INDEX sessions_last_used;
+		ALTER TABLE files DROP COLUMN standalone;
+		ALTER TABLE files DROP COLUMN received;
+		ALTER TABLE files DROP COLUMN touched_at;
+		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
+		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
+			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+		INSERT INTO files(id, owner_id, chunk_count, total_size, attached_at, created_at) VALUES
+			('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'u', 1, 1, 1, 1),
+			('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'u', 1, 1, 1, 1),
+			('cccccccccccccccccccccccccccccccc', 'u', 1, 1, 1, 1);
+		PRAGMA user_version = 4;`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	if db, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	_, files, err := db.DeleteMessage(ctx, "g", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(files)
+	if !slices.Equal(files, []string{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}) {
+		t.Fatalf("deleting the message removed %v", files)
+	}
+	var standalone int
+	if err := db.sql.QueryRowContext(ctx, `SELECT standalone FROM files WHERE id = 'cccccccccccccccccccccccccccccccc'`).Scan(&standalone); err != nil {
+		t.Fatal(err)
+	}
+	if standalone != 1 {
+		t.Fatal("a file nothing refers to, kept on purpose, should count as standing on its own")
 	}
 }
 

@@ -333,6 +333,37 @@ CREATE TABLE push_registrations (
 	updated_at INTEGER NOT NULL
 );
 CREATE INDEX push_registrations_user ON push_registrations(user_id);
+`, `
+-- Which messages use which files. A file is only deleted once nothing refers to
+-- it, and only members of a conversation holding it may read it.
+CREATE TABLE file_refs (
+	file_id TEXT NOT NULL,
+	group_id TEXT NOT NULL,
+	message_id TEXT NOT NULL,
+	PRIMARY KEY (file_id, group_id, message_id),
+	FOREIGN KEY (group_id, message_id) REFERENCES messages(group_id, id) ON DELETE CASCADE
+);
+CREATE INDEX file_refs_message ON file_refs(group_id, message_id);
+WITH RECURSIVE split(group_id, message_id, file_id, rest) AS (
+	SELECT group_id, id, substr(file_ids, 1, 32), substr(file_ids, 34) FROM messages WHERE file_ids != ''
+	UNION ALL
+	SELECT group_id, message_id, substr(rest, 1, 32), substr(rest, 34) FROM split WHERE rest != ''
+)
+INSERT OR IGNORE INTO file_refs(file_id, group_id, message_id) SELECT file_id, group_id, message_id FROM split;
+ALTER TABLE messages DROP COLUMN file_ids;
+
+-- Standalone files, such as group pictures, belong to no message. The server
+-- can't tell which group's picture one is, so any account may read it.
+ALTER TABLE files ADD COLUMN standalone INTEGER NOT NULL DEFAULT 0;
+-- How much of an upload has arrived, and when the last part did.
+ALTER TABLE files ADD COLUMN received INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE files ADD COLUMN touched_at INTEGER;
+UPDATE files SET standalone = 1 WHERE attached_at IS NOT NULL
+	AND id NOT IN (SELECT file_id FROM file_refs)
+	AND id NOT IN (SELECT avatar_file FROM users WHERE avatar_file IS NOT NULL);
+CREATE INDEX files_owner ON files(owner_id);
+CREATE INDEX users_avatar ON users(avatar_file);
+CREATE INDEX sessions_last_used ON sessions(last_used_at);
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

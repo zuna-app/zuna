@@ -483,23 +483,15 @@ func (d *DB) SetReadState(ctx context.Context, groupID, userID string, state []b
 func (d *DB) DeleteGroup(ctx context.Context, groupID string) ([]string, error) {
 	var fileIDs []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT file_ids FROM messages WHERE group_id = ? AND file_ids != ''`, groupID)
+		var err error
+		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT file_id FROM file_refs WHERE group_id = ?`, groupID)
 		if err != nil {
 			return err
 		}
-		for rows.Next() {
-			var ids string
-			if err := rows.Scan(&ids); err != nil {
-				rows.Close()
-				return err
-			}
-			fileIDs = append(fileIDs, strings.Split(ids, ",")...)
-		}
-		rows.Close()
 		if _, err := tx.ExecContext(ctx, `DELETE FROM groups WHERE id = ?`, groupID); err != nil {
 			return err
 		}
-		fileIDs, err = unshared(ctx, tx, fileIDs)
+		fileIDs, err = unreferenced(ctx, tx, fileIDs)
 		return err
 	})
 	return fileIDs, err

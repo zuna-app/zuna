@@ -64,11 +64,23 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *
 	writeJSON(w, http.StatusCreated, map[string]string{"id": id})
 }
 
-func (s *Server) handleFileInfo(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleFileInfo(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	file, err := s.db.File(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	allowed, err := s.db.MayReadFile(r.Context(), file.ID, sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if !allowed {
+		writeFailure(w, store.ErrNotFound)
+		return
+	}
+	if file.OwnerID != sess.UserID {
+		file.OwnerID = ""
 	}
 	writeJSON(w, http.StatusOK, file)
 }
@@ -183,10 +195,20 @@ func (s *Server) handleCompleteFile(w http.ResponseWriter, r *http.Request, sess
 	writeOK(w)
 }
 
-func (s *Server) handleDownloadChunk(w http.ResponseWriter, r *http.Request, _ *store.Session) {
+func (s *Server) handleDownloadChunk(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	file, n, err := s.chunkFromRequest(r)
 	if err != nil {
 		writeChunkError(w, err)
+		return
+	}
+	allowed, err := s.db.MayReadFile(r.Context(), file.ID, sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	// The same answer as for a file that doesn't exist.
+	if !allowed {
+		writeFailure(w, store.ErrNotFound)
 		return
 	}
 	if file.CompletedAt == nil {

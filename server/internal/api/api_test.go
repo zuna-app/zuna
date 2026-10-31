@@ -534,7 +534,7 @@ func TestFilesRoundTripAndAccess(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": 11}, &created)
+	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": (1 << 20) + 11}, &created)
 	path := "/api/files/" + created.ID
 
 	if status, _ := h.do("PUT", path+"/chunks/0", bob.token, []byte("nope"), nil); status != http.StatusForbidden {
@@ -550,6 +550,12 @@ func TestFilesRoundTripAndAccess(t *testing.T) {
 	h.mustDo("PUT", path+"/chunks/1", owner.token, []byte("world"), nil)
 	h.mustDo("POST", path+"/complete", owner.token, nil, nil)
 
+	// Sent in a conversation, it's there for that conversation's members.
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	h.mustDo("POST", "/api/groups/"+group.ID+"/messages", owner.token, map[string]any{
+		"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{created.ID},
+	}, nil)
 	req, _ := http.NewRequest("GET", h.url+path+"/chunks/1", nil)
 	req.Header.Set("Authorization", "Bearer "+bob.token)
 	resp, err := http.DefaultClient.Do(req)
