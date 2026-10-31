@@ -7,7 +7,7 @@ import { parseInviteLink } from "../src/account";
 import { migrate, type LocalDb } from "../src/db";
 import { previewPush } from "../src/push";
 import type { CoreEvent, MessageView } from "../src/types";
-import { createDecipheriv } from "node:crypto";
+import { createDecipheriv, createHmac } from "node:crypto";
 import { createRequire } from "node:module";
 import { FakeRelay, TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
@@ -788,7 +788,9 @@ describe("notifications from a push", () => {
     const sent = alice.session.sendMessage(`user:${bob.userId}`, { text: "wake up" });
     await waitFor(() => relay.pushes.length > before, "a push for bob");
     const push = relay.pushes.at(-1)!;
-    expect(push).toMatchObject({ handle: "bob-phone", data: { r: registration }, collapse_id: sent.id });
+    // The relay and Apple see the collapse ID, so it can't be the same on each recipient's phone.
+    const collapseId = createHmac("sha256", key).update(`zuna/push-collapse/v1|${sent.id}`).digest("hex").slice(0, 32);
+    expect(push).toMatchObject({ handle: "bob-phone", data: { r: registration }, collapse_id: collapseId });
     expect(open(push)).toEqual({ g: sent.groupId, m: sent.id });
 
     // Muting the DM tells the server, which stops pushing it.

@@ -5,8 +5,11 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -116,9 +119,19 @@ func (s *Server) pushMessage(groupID string, message *store.Message) {
 				continue
 			}
 			s.notified.add(target.DeviceID, groupID)
-			s.push(target, pushAlert, map[string]string{"g": groupID, "m": message.ID}, message.ID)
+			s.push(target, pushAlert, map[string]string{"g": groupID, "m": message.ID}, collapseID(target.Key, message.ID))
 		}
 	}()
+}
+
+// collapseID names a notification so a later push can replace it. It goes to the
+// relay and Apple in the clear, so it's different for each phone: the same ID on
+// several phones would show who received the same message. The phone can work it
+// out from its own push key.
+func collapseID(key []byte, messageID string) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("zuna/push-collapse/v1|" + messageID))
+	return hex.EncodeToString(mac.Sum(nil)[:16])
 }
 
 // pushRead tells someone's other phones that a chat was read, so they clear

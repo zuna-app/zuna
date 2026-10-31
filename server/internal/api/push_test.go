@@ -4,7 +4,10 @@ import (
 	"context"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/coder/websocket"
@@ -127,8 +130,14 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 	id := store.NewID()
 	owner.send(group.ID, 1, id)
 	push := relay.next(t)
-	if push.Handle != "bob-phone" || push.Type != "alert" || push.Data["r"] != registration || push.CollapseID != id {
+	if push.Handle != "bob-phone" || push.Type != "alert" || push.Data["r"] != registration {
 		t.Fatalf("push: %+v", push)
+	}
+	// The relay and Apple see this in the clear, so it can't be the same on every recipient's phone.
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("zuna/push-collapse/v1|" + id))
+	if want := hex.EncodeToString(mac.Sum(nil)[:16]); push.CollapseID != want {
+		t.Fatalf("collapse ID = %q, want %q worked out from the phone's key", push.CollapseID, want)
 	}
 	if ids := openPush(t, key, push); ids["g"] != group.ID || ids["m"] != id || len(ids) != 2 {
 		t.Fatalf("sealed: %v", ids)
