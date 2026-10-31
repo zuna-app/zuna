@@ -2,7 +2,6 @@ import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView } fro
 import {
   AlertCircle,
   Check,
-  CheckCheck,
   CircleCheck,
   Clock,
   Copy,
@@ -375,11 +374,21 @@ function ReactionChip({
   );
 }
 
+/** Thin and slanted, as in Telegram. Reading a message adds a second tick beside the first, which stays put. */
+function Ticks({ read }: { read: boolean }) {
+  return (
+    <svg className={`msg-tick${read ? " is-read" : ""}`} width="18" height="10" viewBox="0 0 18 10" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M.6 5.6 3.7 8.8 12 .6" />
+      {read && <path d="M7.4 7.4 8.9 8.8 17.2 .6" />}
+    </svg>
+  );
+}
+
 function ReadTicks({ message, readUpTo }: { message: MessageView; readUpTo: number }) {
   if (message.status === "sending") return <Clock size={11} className="msg-tick is-sending" />;
   if (message.status === "failed") return <AlertCircle size={12} className="msg-tick is-failed" />;
   if (message.seq === null) return null;
-  return readUpTo >= message.seq ? <CheckCheck size={14} className="msg-tick is-read" /> : <Check size={14} className="msg-tick" />;
+  return <Ticks read={readUpTo >= message.seq} />;
 }
 
 interface MessageItemProps {

@@ -25,10 +25,11 @@
   --accent-soft: rgba(255, 255, 255, 0.1);
   --accent-text: #ececee;
 
-  --bubble-own: #2f2f33;
+  --bubble-own: #26262a;
   --bubble-own-text: #f2f2f3;
   --bubble-own-faint: rgba(255, 255, 255, 0.55);
-  --bubble-other: #1d1d20;
+  --bubble-other: #2f2f33;
+  --bubble-meta: rgba(255, 255, 255, 0.45);
 
   --link: #8ab4f8;
   --green: #4cc38a;
