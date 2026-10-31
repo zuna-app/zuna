@@ -9,6 +9,8 @@ export const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Tools installed per-user may not be on PATH yet in an already open terminal.
 const extraPaths = [
   join(homedir(), ".cargo", "bin"),
+  // Homebrew's rustup is keg-only, so it isn't on PATH unless the shell profile adds it.
+  "/opt/homebrew/opt/rustup/bin",
   join(process.env.LOCALAPPDATA ?? "", "Programs", "go", "bin"),
 ].filter((path) => existsSync(path));
 
