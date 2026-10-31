@@ -96,13 +96,14 @@ func currentEpoch(ctx context.Context, tx *sql.Tx, groupID string) (int64, error
 }
 
 // CreateMessage stores a message. Sending the same ID twice returns the
-// existing message, which makes client retries safe. Content must be encrypted
+// existing message, with created false, which makes client retries safe. Content must be encrypted
 // under the group's current epoch, so a removed member's key is never reused.
-func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string) (*Message, error) {
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string) (message *Message, created bool, err error) {
+	err = d.tx(ctx, func(tx *sql.Tx) error {
 		var existing string
 		err := tx.QueryRowContext(ctx, `SELECT sender_user FROM messages WHERE group_id = ? AND id = ?`, m.GroupID, m.ID).Scan(&existing)
 		if err == nil {
+			// A retry of a message that already arrived.
 			if existing != m.SenderUser {
 				return ErrConflict
 			}
@@ -133,12 +134,14 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string) (*M
 				return err
 			}
 		}
+		created = true
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return d.Message(ctx, m.GroupID, m.ID)
+	message, err = d.Message(ctx, m.GroupID, m.ID)
+	return message, created, err
 }
 
 func (d *DB) Message(ctx context.Context, groupID, id string) (*Message, error) {

@@ -50,6 +50,9 @@ type Config struct {
 	DownloadURL string
 	// AuthBurst is how many sign-in attempts one address can make at once.
 	AuthBurst int
+	// PushRelays are the relays this server sends notifications through, by
+	// address. Phones register with one of them; none turns pushes off.
+	PushRelays []string
 }
 
 type Server struct {
@@ -61,6 +64,9 @@ type Server struct {
 
 	authLimiter    *keyedLimiter
 	messageLimiter *keyedLimiter
+
+	pushClient *http.Client
+	pushSlots  chan struct{}
 }
 
 func New(cfg Config, db *store.DB) *Server {
@@ -75,6 +81,8 @@ func New(cfg Config, db *store.DB) *Server {
 		emotes:         emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
 		authLimiter:    newKeyedLimiter(rate.Every(6*time.Second), cfg.AuthBurst),
 		messageLimiter: newKeyedLimiter(rate.Limit(15), 60),
+		pushClient:     &http.Client{Timeout: pushTimeout},
+		pushSlots:      make(chan struct{}, pushConcurrency),
 	}
 }
 
@@ -212,6 +220,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/me", s.authed(s.handleUpdateMe))
 	mux.HandleFunc("POST /api/devices", s.authed(s.handleAddDevice))
 	mux.HandleFunc("DELETE /api/devices/{id}", s.authed(s.handleRevokeDevice))
+	mux.HandleFunc("PUT /api/push", s.withDevice(s.handleSetPush))
+	mux.HandleFunc("DELETE /api/push", s.withDevice(s.handleDeletePush))
 	mux.HandleFunc("GET /api/key-packages/status", s.withDevice(s.handleKeyPackageStatus))
 	mux.HandleFunc("POST /api/key-packages", s.withDevice(s.handleAddKeyPackages))
 	mux.HandleFunc("POST /api/users/{id}/key-packages/claim", s.withDevice(s.handleClaimKeyPackages))
