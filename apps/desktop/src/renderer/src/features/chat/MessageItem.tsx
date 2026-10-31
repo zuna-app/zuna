@@ -29,7 +29,7 @@ import { Avatar, PopupMenu, Spinner, Tooltip, useAction, useContextMenu, type Me
 import { copyText } from "@/lib/clipboard";
 import { formatBytes, formatDuration, formatFull, formatTime, nameColor } from "@/lib/format";
 import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
-import { downloadAttachment, useDecryptedUrl } from "@/lib/media";
+import { downloadAttachment, loadsByItself, useDecryptedUrl } from "@/lib/media";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
 import { useMarkupContext } from "./use-markup-context";
@@ -89,7 +89,9 @@ function SystemMessage({ message, highlighted }: { message: MessageView; highlig
 
 function ImageAttachment({ attachment, serverId, single, uploadProgress }: { attachment: Attachment; serverId: string; single: boolean; uploadProgress?: number }) {
   const uploading = !attachment.fileId;
-  const { url, failed } = useDecryptedUrl(serverId, attachment, !uploading);
+  // A very large picture waits for a click, as a video does.
+  const [wanted, setWanted] = useState(() => loadsByItself(attachment));
+  const { url, failed } = useDecryptedUrl(serverId, attachment, !uploading && wanted);
   const setOverlay = useApp((state) => state.setOverlay);
   const width = attachment.width ?? 320;
   const height = attachment.height ?? 240;
@@ -99,12 +101,19 @@ function ImageAttachment({ attachment, serverId, single, uploadProgress }: { att
       className={`media-tile${single ? " is-single" : ""}`}
       // The box is sized up front, so the list doesn't jump when the image arrives.
       style={single ? { width: Math.max(140, width * scale), minWidth: "100%", aspectRatio: `${width} / ${height}` } : undefined}
-      onClick={() => url && setOverlay({ type: "image", url, name: attachment.name })}
-      aria-label={`Open ${attachment.name}`}
+      onClick={() => (url ? setOverlay({ type: "image", url, name: attachment.name }) : setWanted(true))}
+      aria-label={wanted ? `Open ${attachment.name}` : `Load ${attachment.name}, ${formatBytes(attachment.size)}`}
     >
       {attachment.thumb && <img className={`media-thumb${url ? " is-hidden" : ""}`} src={attachment.thumb} alt="" draggable={false} />}
       {url && <img className="media-full" src={url} alt={attachment.name} draggable={false} />}
-      {!url && !failed && <span className="media-state">{uploading ? <UploadRing progress={uploadProgress ?? 0} /> : <Spinner delayed />}</span>}
+      {!wanted && (
+        <span className="media-state">
+          <span className="media-load">
+            <Download size={15} /> {formatBytes(attachment.size)}
+          </span>
+        </span>
+      )}
+      {wanted && !url && !failed && <span className="media-state">{uploading ? <UploadRing progress={uploadProgress ?? 0} /> : <Spinner delayed />}</span>}
       {failed && (
         <span className="media-state">
           <AlertCircle size={20} />

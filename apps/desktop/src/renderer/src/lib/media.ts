@@ -118,6 +118,13 @@ export function useRemoteImage(address: string | null | undefined, enabled = tru
   return { url, failed };
 }
 
+/** Pictures bigger than this wait for a click: this is what downloads with no click, and it all goes in memory. */
+const AUTO_LOAD_BYTES = 20 << 20;
+const AUTO_LOAD_CHUNKS = 21;
+
+/** The file's chunks, unlike its stated size, can't be lied about: decrypting checks them. */
+export const loadsByItself = (attachment: Attachment): boolean => attachment.size <= AUTO_LOAD_BYTES && attachment.chunks <= AUTO_LOAD_CHUNKS;
+
 export async function downloadAttachment(serverId: string, attachment: Attachment): Promise<void> {
   const url = await fetchDecrypted(serverId, attachment);
   const link = document.createElement("a");

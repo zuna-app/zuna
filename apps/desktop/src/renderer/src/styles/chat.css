@@ -247,6 +247,7 @@
 .media-thumb.is-hidden { visibility: hidden; }
 .media-full { animation: fade-in 0.12s; }
 .media-state { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; }
+.media-load { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.55); font-size: 12.5px; }
 .media-video { display: block; max-width: 100%; width: 420px; border-radius: var(--radius-m); margin: 2px 0 4px; background: #000; }
 .media-audio { display: block; width: 300px; max-width: 100%; margin: 3px 0; }
 .upload-ring { display: block; }
