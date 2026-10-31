@@ -2635,7 +2635,7 @@ dependencies = [
  "chacha20poly1305",
  "console_error_panic_hook",
  "getrandom 0.2.17",
- "hkdf 0.12.4",
+ "hkdf 0.13.0",
  "js-sys",
  "openmls",
  "openmls_basic_credential",
