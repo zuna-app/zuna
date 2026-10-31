@@ -651,7 +651,29 @@ describe("notifications from a push", () => {
       decrypted: true,
       muted: false,
       hidden: false,
+      sender: { id: alice.userId, name: "alice" },
+      text: "push me a note",
     });
+    expect(preview.group).toBeUndefined();
+    expect(preview.sender?.picture).toBeUndefined();
+  });
+
+  it("brings the sender's and the group's pictures when asked", async () => {
+    const face = new Uint8Array(70_000).map((_, i) => (i * 7) & 255);
+    const crest = new Uint8Array(500).fill(3);
+    await alice.session.updateProfile({}, new Blob([face], { type: "image/png" }));
+    const groupId = await alice.session.createGroup("Picture club", [bob.userId], false);
+    await alice.session.updateGroupMeta(groupId, {}, new Blob([crest], { type: "image/png" }));
+    await waitFor(() => bob.session.getConversations().some((item) => item.groupId === groupId && item.avatar), "bob to see the group's picture");
+    await waitFor(() => !!bob.session.getUsers().find((user) => user.id === alice.userId)?.avatar, "bob to see alice's picture");
+    alice.session.sendMessage(`group:${groupId}`, { text: "say cheese" });
+    await waitFor(() => bob.texts(`group:${groupId}`).includes("say cheese"), "delivery to bob");
+
+    const preview = await previewPush(extension(bob), bob.serverId, groupId, received(bob, "say cheese").id, true);
+    expect(preview).toMatchObject({ title: "Picture club", body: "alice: say cheese", text: "say cheese", group: { name: "Picture club" } });
+    expect(Buffer.from(preview.sender!.picture!, "base64").equals(Buffer.from(face))).toBe(true);
+    expect(Buffer.from(preview.group!.picture!, "base64").equals(Buffer.from(crest))).toBe(true);
+    await alice.session.updateProfile({ avatar: null }, null);
   });
 
   it("knows a muted chat, unless the message mentions you", async () => {

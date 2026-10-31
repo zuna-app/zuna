@@ -39,6 +39,7 @@ const forbidden = [
   "attachFile",
   "ZunaPushToken",
   "ZunaAskForNotifications",
+  "showNotification",
 ];
 const found = forbidden.filter((word) => strings.includes(word));
 if (found.length > 0) {

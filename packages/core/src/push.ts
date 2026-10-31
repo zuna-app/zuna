@@ -10,9 +10,9 @@ import { Api, decode } from "./api";
 import { INDEX_DB, decodeAccount, label, serverDbName, serverKeyFor } from "./client";
 import { openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
-import { fromBase64, fromUtf8 } from "./encoding";
-import { notificationText } from "./notify";
-import type { MessageBody, Preferences, Profile } from "./types";
+import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
+import { notificationText, previewText } from "./notify";
+import type { AvatarRef, MessageBody, Preferences, Profile } from "./types";
 
 export interface PushPreview {
   serverId: string;
@@ -26,7 +26,16 @@ export interface PushPreview {
   muted: boolean;
   /** Nothing to show: your own message, or one deleted since. */
   hidden: boolean;
+  /** For a notification laid out as a conversation: who wrote it, with their picture when asked for. */
+  sender?: { id: string; name: string; picture?: string };
+  /** The group it's in, with the group's picture when asked for. */
+  group?: { name: string; picture?: string };
+  /** The message alone, without the sender's name in front. */
+  text?: string;
 }
+
+/** Pictures are small; anything bigger isn't worth a notification extension's time. */
+const MAX_PICTURE_CHUNKS = 4;
 
 interface StoredUser {
   username: string;
@@ -38,7 +47,7 @@ interface StoredGroup {
   id: string;
   kind: "dm" | "group";
   peerId: string | null;
-  meta: { name?: string };
+  meta: { name?: string; avatar?: AvatarRef | null };
 }
 
 export async function previewPush(
@@ -46,6 +55,8 @@ export async function previewPush(
   serverId: string,
   groupId: string,
   messageId: string,
+  /** Also download and decrypt the sender's and the group's pictures, as base64. */
+  pictures = false,
 ): Promise<PushPreview> {
   const key = serverKeyFor(options.deviceKey, serverId);
   const index = await options.db.open(INDEX_DB);
@@ -100,13 +111,28 @@ export async function previewPush(
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
   const mentioned = (opened.value.mentions ?? []).includes(account.userId);
-  const text = notificationText(group.kind, group.meta.name, nameOf(sender), {
-    text: opened.value.text ?? "",
-    attachments: opened.value.attachments ?? [],
-  });
+  const content = { text: opened.value.text ?? "", attachments: opened.value.attachments ?? [] };
+  const picture = async (avatar: AvatarRef | null | undefined) => {
+    if (!pictures || !avatar || avatar.chunks > MAX_PICTURE_CHUNKS) return undefined;
+    try {
+      const key = fromBase64(avatar.key);
+      const prefix = fromBase64(avatar.prefix);
+      const parts: Uint8Array[] = [];
+      for (let index = 0; index < avatar.chunks; index++) {
+        const sealed = await api.downloadChunk(avatar.fileId, index);
+        parts.push(wasm.streamOpen(key, prefix, index, index === avatar.chunks - 1, sealed));
+      }
+      return toBase64(concat(...parts));
+    } catch {
+      return undefined;
+    }
+  };
   return preview({
-    ...text,
+    ...notificationText(group.kind, group.meta.name, nameOf(sender), content),
     decrypted: true,
     muted: !mentioned && (prefs.muted ?? []).includes(conversationKey!),
+    sender: { id: message.sender_user, name: nameOf(sender), picture: await picture(sender.profile.avatar) },
+    group: group.kind === "group" ? { name: group.meta.name || "Group", picture: await picture(group.meta.avatar) } : undefined,
+    text: previewText(content),
   });
 }

@@ -76,6 +76,53 @@ final class NotificationTests: XCTestCase {
         try waitFor("alice to get the reply", timeout: 30) { try alice.texts(with: self.bob).contains("Sure, at noon") }
     }
 
+    func testShowsTheSenderWithTheirPicture() throws {
+        try start()
+        let alice = try Peer("alice")
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let face = UIGraphicsImageRenderer(size: CGSize(width: 256, height: 256), format: format).pngData { context in
+            UIColor(red: 0.85, green: 0.45, blue: 0.3, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
+            UIColor.white.setFill()
+            context.cgContext.fillEllipse(in: CGRect(x: 78, y: 48, width: 100, height: 100))
+            context.cgContext.fillEllipse(in: CGRect(x: 38, y: 160, width: 180, height: 140))
+        }
+        try alice.setPicture(face)
+        defer { try? alice.setPicture(nil) }
+        let control = zuna.control!, serverId = zuna.serverId, aliceId = World.current["alice"].userId
+        try waitFor("bob's phone to see alice's picture") {
+            try blocking {
+                let users = try await control.call("getUsers", server: serverId) as? [[String: Any]] ?? []
+                return users.first { $0["id"] as? String == aliceId }?["avatar"] is [String: Any]
+            }
+        }
+
+        // A DM: the sender's name and picture, and the message.
+        let text = "Here's my new picture"
+        let messageId = try alice.send(to: "user:\(bob)", ["text": text])
+        let groupId = try XCTUnwrap(try alice.conversation("user:\(bob)")?["groupId"] as? String)
+        try waitFor("bob's phone to get it") { try self.zuna.texts(with: World.current["alice"].userId).contains(text) }
+        XCTAssertEqual(try zuna.showNotification(group: groupId, message: messageId), "shown")
+        let banner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        XCTAssertTrue(banner.label.contains("alice"), banner.label)
+        zuna.screenshotScreen("105-notification-with-picture")
+
+        // A group: its name, the sender's picture, and the message without the name in front.
+        let conversations = try alice.call("getConversations") as? [[String: Any]] ?? []
+        let weekend = try XCTUnwrap(conversations.first { $0["title"] as? String == "Weekend" }?["groupId"] as? String)
+        let plans = "Bring the board games"
+        let planId = try alice.send(to: "group:\(weekend)", ["text": plans])
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertEqual(try zuna.showNotification(group: weekend, message: planId), "shown")
+        let groupBanner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", plans)).firstMatch
+        XCTAssertTrue(groupBanner.waitForExistence(timeout: 10))
+        XCTAssertTrue(groupBanner.label.contains("Weekend"), groupBanner.label)
+        XCTAssertFalse(groupBanner.label.contains("alice: \(plans)"), groupBanner.label)
+        zuna.screenshotScreen("106-group-notification")
+    }
+
     func testTurningNotificationsOffStopsPushes() throws {
         try start()
         zuna.tab("Settings").tap()

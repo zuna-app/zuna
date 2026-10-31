@@ -36,8 +36,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         // Only this task touches it until it's delivered.
         nonisolated(unsafe) let content = mutable
         Task {
-            let show = await fill(content, for: push, settings: settings)
-            finish(show ? content : UNNotificationContent())
+            finish(await fill(content, for: push, settings: settings))
         }
     }
 
@@ -52,39 +51,32 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         deliver(content)
     }
 
-    /// Fills in the message. False when it shouldn't show at all, which only
-    /// takes effect with Apple's filtering entitlement.
-    private func fill(_ content: UNMutableNotificationContent, for push: PushStore.Message, settings: NotificationSettings) async -> Bool {
+    /// The message's notification. Empty when it shouldn't show at all, which
+    /// only takes effect with Apple's filtering entitlement.
+    private func fill(_ content: UNMutableNotificationContent, for push: PushStore.Message, settings: NotificationSettings) async -> UNNotificationContent {
         guard let runtime = Self.makeRuntime() else {
             logger.info("The device key is locked; showing the push's own text")
-            return true
+            return content
         }
         let started = Date()
         do {
-            let preview = try await runtime.pushPreview(serverId: push.serverId, groupId: push.groupId, messageId: push.messageId)
+            let preview = try await runtime.pushPreview(
+                serverId: push.serverId,
+                groupId: push.groupId,
+                messageId: push.messageId,
+                pictures: settings.preview != .none
+            )
             logger.info("Previewed a push in \(Int(Date().timeIntervalSince(started) * 1000)) ms, using \(Self.footprint(), format: .fixed(precision: 1)) MB")
             if preview.hidden || preview.muted {
-                if PushStore.canFilter { PushStore.badge -= 1 }
-                return !PushStore.canFilter
+                guard PushStore.canFilter else { return content }
+                PushStore.badge -= 1
+                return UNNotificationContent()
             }
-            if let key = preview.conversationKey {
-                content.threadIdentifier = "\(preview.serverId)/\(key)"
-                content.userInfo["conversationKey"] = key
-            }
-            switch settings.preview {
-            case .full:
-                content.title = preview.title
-                content.body = preview.body
-            case .sender:
-                content.title = preview.title
-                content.body = "New message"
-            case .none:
-                break
-            }
+            return await MessageNotification.content(for: preview, settings: settings, base: content)
         } catch {
             logger.error("A push couldn't be previewed: \(String(describing: error), privacy: .public)")
+            return content
         }
-        return true
     }
 
     private static func makeRuntime() -> CoreRuntime? {

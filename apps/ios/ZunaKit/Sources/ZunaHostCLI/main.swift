@@ -62,7 +62,7 @@ if let index = CommandLine.arguments.firstIndex(of: "--preview-push"), index + 3
     let ids = Array(CommandLine.arguments[(index + 1)...(index + 3)])
     Task {
         do {
-            let json = try await runtime.previewPush(serverId: ids[0], groupId: ids[1], messageId: ids[2])
+            let json = try await runtime.previewPush(serverId: ids[0], groupId: ids[1], messageId: ids[2], pictures: true)
             print("ZUNA_PUSH_PREVIEW \(json)")
             print("ZUNA_FOOTPRINT \(footprint())")
             exit(0)
