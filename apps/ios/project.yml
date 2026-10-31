@@ -85,7 +85,7 @@ targets:
     platform: iOS
     sources:
       - path: ZunaUITests
-      - path: Zuna/Shared
+      - path: Zuna/Shared/A11y.swift
     dependencies:
       - target: Zuna
     settings:

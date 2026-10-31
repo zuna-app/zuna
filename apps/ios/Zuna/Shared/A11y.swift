@@ -14,4 +14,30 @@ enum A11y {
         static let error = "unlock.error"
         static let forgot = "unlock.forgot"
     }
+
+    enum Shell {
+        static let chatsTab = "shell.tab.chats"
+        static let settingsTab = "shell.tab.settings"
+        static let serverButton = "shell.serverButton"
+        static let title = "shell.title"
+    }
+
+    enum Drawer {
+        static let screen = "drawer.screen"
+        static let join = "drawer.join"
+        static let profile = "drawer.profile"
+        static func server(_ id: String) -> String { "drawer.server.\(id)" }
+    }
+
+    enum ChatList {
+        static let list = "chatList.list"
+        static let empty = "chatList.empty"
+        static func row(_ key: String) -> String { "chatList.row.\(key)" }
+    }
+
+    enum Settings {
+        static let screen = "settings.screen"
+        static let appearance = "settings.appearance"
+        static func accent(_ id: String) -> String { "settings.accent.\(id)" }
+    }
 }

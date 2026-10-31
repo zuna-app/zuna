@@ -23,7 +23,7 @@ final class LaunchAndUnlockTests: XCTestCase {
         // Reopening the app the same day doesn't ask.
         zuna.app.terminate()
         try zuna.launch(fresh: false)
-        XCTAssertTrue(zuna.element(A11y.Root.ready).waitForExistence(timeout: 15))
+        try zuna.waitForChats()
 
         // After a restart of the phone it does.
         zuna.app.terminate()
@@ -41,7 +41,7 @@ final class LaunchAndUnlockTests: XCTestCase {
         password.tap()
         password.typeText(World.current["bob"].password)
         zuna.element(A11y.Unlock.submit).tap()
-        XCTAssertTrue(zuna.element(A11y.Root.ready).waitForExistence(timeout: 20))
+        try zuna.waitForChats()
         XCTAssertEqual(try zuna.state(), "ready")
     }
 

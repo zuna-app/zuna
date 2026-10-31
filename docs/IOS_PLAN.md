@@ -124,18 +124,21 @@ Decided on 2026-10-31: **the Zuna password is asked for once after every restart
 - **`ZunaModels`:** Codable mirrors of `packages/core/src/types.ts`. Drift is caught automatically by the tests.
 - **`CoreConnection`:** the Swift side of `connectCore`, giving async methods for the client and each session, plus a stream of events.
 - **`AppModel`** (`@Observable`) mirrors `apps/desktop/src/renderer/src/state/store.ts`: per-server state, message lists, debounced refreshes, typing expiry, upserts, jump targets, drafts, toasts.
-- **Navigation:**
-  - iPhone: a `NavigationStack` with the conversation list at the root, and a left drawer with the server rail (icons, unread counts, join, settings, own avatar), as in Discord's mobile app.
-  - iPad: a three-column `NavigationSplitView`, as on the desktop, with details in an inspector.
+- **Navigation** (decided with the user on 2026-10-31):
+  - The layout follows Telegram for iOS: the chat list, chat screen, bubbles, input bar, context menus and settings lists.
+  - Servers work like Discord: a drawer from the left holds the server icons (with unread counts), joining a server, and the own avatar. It opens with a swipe from the edge or the server button in the chat list.
+  - The bottom tab bar has "Chats" and "Settings". "Calls" comes later, when calls exist.
+  - iPad: the same structure in a `NavigationSplitView`, with the server rail always visible, as on the desktop.
+- **Look:**
+  - the desktop's dark theme from `tokens.css`, with its five accents and three message sizes, scaled with Dynamic Type;
+  - system fonts (SF Pro, SF Mono) rather than the desktop's Inter, as Telegram does on iOS;
+  - a light theme and chat wallpapers are open questions.
 - **Where UIKit is used:**
   - the message list: `UICollectionView` with a diffable data source, anchored to the bottom, loading older pages without jumps;
   - message text: TextKit 2 with attachments for inline emotes (animated, zero-width stacking), spoilers, links and mentions;
   - the composer: a growing `UITextView` with autocomplete and image paste;
   - context menus: `UIContextMenuInteraction` with a reaction bar.
 - **Platform features:** PhotosPicker, document picker, QuickLook, AVPlayer, the share sheet, haptics.
-- **Look:**
-  - the desktop's dark theme from `tokens.css`, its five accents and three message sizes, scaled with Dynamic Type;
-  - Inter and JetBrains Mono, taken from the same `@fontsource-variable` packages.
 - **Third-party dependencies:** none planned.
   - Animated WebP uses ImageIO (frames and delays from `CGImageSource`).
   - Code blocks use Shiki inside a second JavaScriptCore context, with its JavaScript regex engine and the desktop's themes and languages, so highlighting matches exactly.

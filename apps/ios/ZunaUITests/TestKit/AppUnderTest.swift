@@ -87,6 +87,18 @@ final class AppUnderTest {
         }
     }
 
+    /// Waits for the conversation list, which shows once a server is signed in.
+    func waitForChats(timeout: TimeInterval = 20) throws {
+        guard element(A11y.Shell.serverButton).waitForExistence(timeout: timeout) else {
+            throw RPCError(description: "The conversation list didn't show")
+        }
+    }
+
+    /// A tab in the tab bar, by its title.
+    func tab(_ title: String) -> XCUIElement {
+        app.tabBars.buttons[title]
+    }
+
     func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any)[identifier]
     }
