@@ -14,7 +14,7 @@ public func plainText(_ text: String) -> String {
     return result.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-nonisolated(unsafe) private let plainTextRules: [(NSRegularExpression, String)] = [
+private let plainTextRules: [(NSRegularExpression, String)] = [
     (#"```[\s\S]*?```"#, "[code]"),
     (#"\|\|[^\n]+?\|\|"#, "[spoiler]"),
     (#"`([^`\n]+)`"#, "$1"),

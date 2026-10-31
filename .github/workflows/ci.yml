@@ -31,3 +31,46 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:core
       - run: npm run build -w @zuna/desktop
+
+  # The iOS app: its quick checks, the iOS core host against desktop clients,
+  # the Release guard and the UI tests in a simulator (docs/IOS_TESTING.md).
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-apple-ios, aarch64-apple-ios-sim
+      - name: Install wasm-bindgen and XcodeGen
+        run: |
+          version=$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)
+          curl -fsSL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/wasm-bindgen-$version-aarch64-apple-darwin.tar.gz" | tar xz --strip-components=1 -C "$HOME/.cargo/bin" '*/wasm-bindgen'
+          brew install xcodegen
+      - run: npm ci
+      - run: npm run build:crypto
+      - run: npm run build:ios
+      - run: npm run test:ios:check
+      - run: npm run test:ios
+      - run: npm run test:ios:release
+      - run: npm run test:ios:ui
+      - name: Keep the UI test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ui-tests
+          path: |
+            apps/ios/.e2e/*/summary.md
+            apps/ios/.e2e/*/screens/
+            apps/ios/.e2e/*/*.log
+          if-no-files-found: ignore
