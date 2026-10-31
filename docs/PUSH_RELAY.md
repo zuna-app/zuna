@@ -58,7 +58,7 @@ Then run `docker compose up -d`.
 | `ZUNA_PUSH_APNS_KEY` | | The `.p8` file. Without it, phones can register but pushes fail |
 | `ZUNA_PUSH_APNS_KEY_ID` | | The key's ID |
 | `ZUNA_PUSH_APNS_TEAM` | `SGKB9R23YT` | The team that publishes the app |
-| `ZUNA_PUSH_APNS_TOPIC` | `chat.zuna.app` | The app's bundle ID |
+| `ZUNA_PUSH_APNS_TOPIC` | `chat.zuna.mobile` | The app's bundle ID |
 | `ZUNA_PUSH_LISTEN` | `127.0.0.1:8090` (`:8090` in Docker) | Where to listen, behind the proxy that adds HTTPS |
 | `ZUNA_PUSH_DATA` | `./zuna-push-data` (`/data` in Docker) | Holds `handle.key` |
 | `ZUNA_PUSH_TRUST_PROXY` | `false` | Take callers' addresses from the proxy's `X-Forwarded-For`, for rate limits |

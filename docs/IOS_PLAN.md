@@ -12,7 +12,7 @@ Status: agreed direction, not started. Scope: feature parity with the 0.1 deskto
   - Core: a `FileAdapter` instead of `Blob`, plus `suspend()`/`resume()` for the iOS lifecycle.
   - Nothing changes in the data the server sees.
 - **Conventions:** code, commits, UI text and docs in English. Work happens directly on `main`, one commit per finished, tested feature, never pushed without asking.
-- **Signing:** the paid Apple Developer team `SGKB9R23YT`, automatic signing, bundle ID `chat.zuna.app`, App Group `group.chat.zuna.app`, shared Keychain access group `SGKB9R23YT.chat.zuna.shared`.
+- **Signing:** the paid Apple Developer team `SGKB9R23YT`, automatic signing, bundle ID `chat.zuna.mobile`, App Group `group.chat.zuna.mobile`, shared Keychain access group `SGKB9R23YT.chat.zuna.shared`.
 
 ## How Zuna works
 

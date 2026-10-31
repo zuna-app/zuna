@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { root } from "./paths";
 
 export const SIMULATOR_NAME = process.env.ZUNA_E2E_SIMULATOR ?? "Zuna E2E iPhone";
-export const BUNDLE_ID = "chat.zuna.app";
+export const BUNDLE_ID = "chat.zuna.mobile";
 const projectDir = join(root, "apps", "ios");
 const derivedData = join(projectDir, "build", "DerivedData");
 export const appPath = join(derivedData, "Build", "Products", "Debug-iphonesimulator", "Zuna.app");

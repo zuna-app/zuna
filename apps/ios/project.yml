@@ -43,7 +43,7 @@ targets:
       - target: ZunaNotifications
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.app
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile
         PRODUCT_NAME: Zuna
         TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -67,7 +67,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleURLTypes:
-          - CFBundleURLName: chat.zuna.app
+          - CFBundleURLName: chat.zuna.mobile
             CFBundleURLSchemes: [zuna]
         # Plain HTTP only reaches servers on this device or the local network,
         # which the client core already limits to loopback addresses.
@@ -88,7 +88,7 @@ targets:
         # Notifications laid out as conversations, with the sender's picture.
         com.apple.developer.usernotifications.communication: true
         com.apple.security.application-groups:
-          - group.chat.zuna.app
+          - group.chat.zuna.mobile
         keychain-access-groups:
           - $(AppIdentifierPrefix)chat.zuna.shared
 
@@ -109,7 +109,7 @@ targets:
         product: ZunaModels
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.app.notifications
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile.notifications
         PRODUCT_NAME: ZunaNotifications
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: NO
@@ -129,7 +129,7 @@ targets:
       properties:
         com.apple.developer.usernotifications.communication: true
         com.apple.security.application-groups:
-          - group.chat.zuna.app
+          - group.chat.zuna.mobile
         keychain-access-groups:
           - $(AppIdentifierPrefix)chat.zuna.shared
 
@@ -143,7 +143,7 @@ targets:
       - target: Zuna
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.app.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile.uitests
         GENERATE_INFOPLIST_FILE: YES
         SWIFT_VERSION: "5.0"
         TEST_TARGET_NAME: Zuna
