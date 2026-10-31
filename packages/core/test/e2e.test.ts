@@ -341,6 +341,26 @@ describe("devices and recovery", () => {
     expect(bob.texts(`user:${alice.userId}`)).toContain("while offline");
   });
 
+  it("suspends in the background and catches up on resuming, including new keys", async () => {
+    bob.client.suspend();
+    expect(bob.session.connectionState).toBe("offline");
+    const groupId = alice.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!.groupId!;
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "while suspended" });
+    await waitFor(() => alice.texts(`user:${bob.userId}`).includes("while suspended"), "alice's send");
+    await (alice.session as any).withLock(groupId, () =>
+      (alice.session as any).commitWithRetry(groupId, async () => ({ kind: "update" })),
+    );
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "after a new epoch" });
+    await waitFor(() => alice.texts(`user:${bob.userId}`).includes("after a new epoch"), "alice's second send");
+    await sleep(300);
+    expect(bob.texts(`user:${alice.userId}`)).not.toContain("while suspended");
+
+    bob.client.resume();
+    await bob.online();
+    await waitFor(() => bob.texts(`user:${alice.userId}`).includes("after a new epoch"), "bob to catch up");
+    expect(bob.texts(`user:${alice.userId}`)).toContain("while suspended");
+  });
+
   it("repairs itself when a device's group state is lost", async () => {
     const session = bob.session as any;
     const groupId = bob.session.getConversations().find((item) => item.key === `user:${alice.userId}`)!.groupId!;

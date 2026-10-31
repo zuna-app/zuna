@@ -35,6 +35,7 @@ import {
 } from "./crypto";
 import { equalBytes, fromBase64, fromUtf8, toBase64, toBase64Url, u64Bytes, utf8 } from "./encoding";
 import type { LocalDb, SqlValue } from "./db";
+import { blobFiles, type FileAdapter } from "./files";
 import { plainText } from "./plain-text";
 import { indexTokens, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
@@ -190,6 +191,7 @@ export class ServerSession {
     private readonly dbKey: Uint8Array,
     private readonly emit: (event: CoreEvent) => void,
     private readonly deviceName: string,
+    private readonly files: FileAdapter = blobFiles,
   ) {
     this.api = new Api(account.serverUrl);
     this.api.token = account.token;
@@ -214,9 +216,13 @@ export class ServerSession {
   // --- Lifecycle ---
 
   start(): void {
+    this.markStaleSendsFailed();
+    this.connect();
+  }
+
+  private connect(): void {
     this.stopped = false;
     this.setConnection("connecting");
-    this.markStaleSendsFailed();
     this.socket.start();
   }
 
@@ -226,6 +232,22 @@ export class ServerSession {
     clearTimeout(this.flushRetry);
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
     this.reconcileTimers.clear();
+  }
+
+  /**
+   * Closes the connection while the app can't run, such as an iOS app in the
+   * background. Unlike `stop()`, `resume()` picks up again, catching up on
+   * whatever happened meanwhile.
+   */
+  suspend(): void {
+    if (this.stopped) return;
+    this.stop();
+    // Closing the socket ourselves doesn't report a disconnect, so say it here.
+    this.setConnection("offline");
+  }
+
+  resume(): void {
+    if (this.stopped) this.connect();
   }
 
   /** Called on first run after sign-up or sign-in, before going online. */
@@ -2252,19 +2274,20 @@ export class ServerSession {
   ): Promise<{ fileId: string; key: string; prefix: string; chunks: number }> {
     const key = wasm.randomBytes(32);
     const prefix = wasm.randomBytes(15);
-    const chunks = Math.max(1, Math.ceil(blob.size / CHUNK_SIZE));
-    const created = await this.api.createFile(chunks, blob.size + chunks * 16);
+    const size = this.files.size(blob);
+    const chunks = Math.max(1, Math.ceil(size / CHUNK_SIZE));
+    const created = await this.api.createFile(chunks, size + chunks * 16);
     let next = 0;
     let loaded = 0;
     const worker = async () => {
       while (next < chunks) {
         const index = next++;
         const start = index * CHUNK_SIZE;
-        const plain = new Uint8Array(await blob.slice(start, start + CHUNK_SIZE).arrayBuffer());
+        const plain = await this.files.read(blob, start, Math.min(start + CHUNK_SIZE, size));
         const sealed = wasm.streamSeal(key, prefix, index, index === chunks - 1, plain);
         await this.api.uploadChunk(created.id, index, sealed);
         loaded += plain.length;
-        onProgress?.(loaded, blob.size);
+        onProgress?.(loaded, size);
       }
     };
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, chunks) }, worker));
@@ -2289,7 +2312,7 @@ export class ServerSession {
       }
     };
     await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, ref.chunks) }, worker));
-    return new Blob(parts as BlobPart[], { type: ref.mime ?? "application/octet-stream" });
+    return this.files.assemble(parts, ref.mime ?? "application/octet-stream");
   }
 
   /** Uploads attachments, then sends the message. Progress shows on the local echo. */
@@ -2299,7 +2322,7 @@ export class ServerSession {
     body: MessageBody,
   ): Promise<void> {
     const id = randomId();
-    const totalBytes = files.reduce((sum, file) => sum + file.blob.size, 0);
+    const totalBytes = files.reduce((sum, file) => sum + this.files.size(file.blob), 0);
     const placeholders: Attachment[] = files.map((file) => ({
       fileId: "",
       key: "",
@@ -2307,7 +2330,7 @@ export class ServerSession {
       chunks: 0,
       name: file.name,
       mime: file.mime,
-      size: file.blob.size,
+      size: this.files.size(file.blob),
       width: file.width,
       height: file.height,
       thumb: file.thumb,
@@ -2317,7 +2340,7 @@ export class ServerSession {
     const groupId = echo.groupId;
 
     const limitMb = this.info?.max_upload_mb ?? 100;
-    const tooBig = files.find((file) => file.blob.size > limitMb * (1 << 20));
+    const tooBig = files.find((file) => this.files.size(file.blob) > limitMb * (1 << 20));
     if (tooBig) {
       this.markFailed(groupKey, id);
       throw new Error(`${tooBig.name} is larger than this server's ${limitMb} MB limit.`);
@@ -2337,7 +2360,7 @@ export class ServerSession {
             isNew: false,
           });
         });
-        uploaded += file.blob.size;
+        uploaded += this.files.size(file.blob);
         attachments.push({ ...placeholders[index]!, ...ref });
       }
       const finalBody: MessageBody = { ...body, attachments };
@@ -2357,7 +2380,7 @@ export class ServerSession {
     let avatarFile: string | null | undefined = profile.avatar?.fileId ?? null;
     if (avatarBlob) {
       const ref = await this.uploadBlob(avatarBlob);
-      profile.avatar = { ...ref, mime: avatarBlob.type || "image/webp" };
+      profile.avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
       avatarFile = ref.fileId;
     } else if (avatarBlob === null) {
       profile.avatar = null;
@@ -2448,7 +2471,7 @@ export class ServerSession {
     let avatar: AvatarRef | null = null;
     if (avatarBlob) {
       const ref = await this.uploadBlob(avatarBlob, undefined, true);
-      avatar = { ...ref, mime: avatarBlob.type || "image/webp" };
+      avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
     }
     const created = await this.api.createGroup(historyVisible);
     const groupId = created.group.id;
@@ -2534,7 +2557,7 @@ export class ServerSession {
     const meta: GroupMeta = { ...group.meta, ...changes };
     if (avatarBlob) {
       const ref = await this.uploadBlob(avatarBlob, undefined, true);
-      meta.avatar = { ...ref, mime: avatarBlob.type || "image/webp" };
+      meta.avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
     } else if (avatarBlob === null) {
       meta.avatar = null;
     }
@@ -2608,8 +2631,8 @@ export class ServerSession {
     await this.api.updateSettings(body);
   }
 
-  updateServerIcon(image: Blob): Promise<unknown> {
-    return this.api.updateIcon(image);
+  async updateServerIcon(image: Blob): Promise<unknown> {
+    return this.api.updateIcon(await this.files.read(image, 0, this.files.size(image)));
   }
 
   setEmoteSet(set: string): Promise<{ set_id: string; set_name: string; count: number }> {
