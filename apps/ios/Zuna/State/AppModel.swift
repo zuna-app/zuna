@@ -78,6 +78,12 @@ final class AppModel {
     var lists: [String: MessageList] = [:]
     var jumpTarget: JumpTarget?
     var nextJump = 0
+    #if DEBUG
+    /// Files a UI test adds to the open chat's composer, instead of going through the system's pickers.
+    var testAttachments: [URL] = []
+    #endif
+    /// Drafts, replies, edits and files being written, by `composerKey(serverId, conversationKey)`.
+    var composers: [String: ComposerState] = [:]
     /// Where each chat was scrolled to, when it wasn't at the newest message: the message at the top of the screen.
     @ObservationIgnored var savedPositions: [String: String] = [:]
     private(set) var toasts: [Toast] = []

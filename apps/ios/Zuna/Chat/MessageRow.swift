@@ -26,7 +26,19 @@ struct ChatActions {
     var mention: (_ userId: String) -> Void = { _ in }
     /// Shows an emote's card: its name, who made it, and who reacted with it.
     var emoteCard: (_ name: String, _ emote: EmoteRef, _ note: String?) -> Void = { _, _, _ in }
+    var reply: (_ message: MessageView) -> Void = { _ in }
+    var edit: (_ message: MessageView) -> Void = { _ in }
+    var pin: (_ message: MessageView, _ pinned: Bool) -> Void = { _, _ in }
+    var delete: (_ message: MessageView) -> Void = { _ in }
+    var discard: (_ messageId: String) -> Void = { _ in }
+    /// The full picker, for a reaction that isn't among the quick ones.
+    var pickReaction: (_ messageId: String) -> Void = { _ in }
+    /// You can delete others' messages here: you're an admin of this group.
+    var isGroupAdmin = false
 }
+
+/// The reactions offered first, as on the desktop.
+let quickReactions = ["👍", "❤️", "😂", "🔥", "😮", "😢"]
 
 /// One message in the list, with the day's separator above it when a new day starts.
 struct MessageRow: View {
@@ -186,6 +198,43 @@ private struct MessageItem: View {
         .accessibilityIdentifier(A11y.Chat.message(message.id))
     }
 
+    /// What a long press offers, as the desktop's message menu: reactions, then actions.
+    @ViewBuilder
+    private var menu: some View {
+        let canAct = message.seq != nil && !deleted && message.status == .sent
+        if canAct {
+            ControlGroup {
+                ForEach(quickReactions, id: \.self) { emoji in
+                    Button(emoji) { actions.react(message.id, emoji, nil) }
+                        .accessibilityIdentifier(A11y.Chat.quickReaction(emoji))
+                }
+            }
+            .controlGroupStyle(.palette)
+            Button("More reactions", systemImage: "face.smiling") { actions.pickReaction(message.id) }
+            Divider()
+            Button("Reply", systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
+        }
+        if !message.text.isEmpty && !deleted {
+            Button("Copy text", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+        }
+        if canAct && own && !message.text.isEmpty {
+            Button("Edit", systemImage: "pencil") { actions.edit(message) }
+        }
+        if canAct {
+            Button(message.pinnedAt != nil ? "Unpin" : "Pin", systemImage: message.pinnedAt != nil ? "pin.slash" : "pin") {
+                actions.pin(message, message.pinnedAt == nil)
+            }
+        }
+        if message.status == .failed {
+            Button("Try again", systemImage: "arrow.clockwise") { actions.retry(message.id) }
+            Button("Discard", systemImage: "trash", role: .destructive) { actions.discard(message.id) }
+        }
+        if canAct && (own || (context.isGroup && actions.isGroupAdmin)) {
+            Divider()
+            Button("Delete for everyone", systemImage: "trash", role: .destructive) { actions.delete(message) }
+        }
+    }
+
     private var bubble: some View {
         let accent = model.settings.accent
         let small: CGFloat = 4, grouped: CGFloat = 5, radius: CGFloat = 17
@@ -214,6 +263,8 @@ private struct MessageItem: View {
             if message.status == .failed { shape.stroke(Theme.red) }
         }
         .opacity(message.status == .sending ? 0.7 : 1)
+        .contentShape(.contextMenuPreview, shape)
+        .contextMenu { menu }
     }
 
     @ViewBuilder

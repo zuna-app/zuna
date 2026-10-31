@@ -36,6 +36,8 @@ const forbidden = [
   "lockEntries",
   "crashOn",
   "testHooks",
+  "attachFile",
+  "testAttachments",
 ];
 const found = forbidden.filter((word) => strings.includes(word));
 if (found.length > 0) {

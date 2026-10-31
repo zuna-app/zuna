@@ -261,14 +261,15 @@ final class CoreController {
             let name = command["command"] as? String
             let password = command["password"] as? String
             let account = command["account"] as? Int
-            return await self?.handleControl(name: name, password: password, account: account)
+            let path = command["path"] as? String
+            return await self?.handleControl(name: name, password: password, account: account, path: path)
         }
         control = server
         guard let bound = try? await server.start(port: UInt16(port)) else { return }
         print("ZUNA_HOST_READY port=\(bound)")
     }
 
-    private func handleControl(name: String?, password: String?, account: Int?) async -> String {
+    private func handleControl(name: String?, password: String?, account: Int?, path: String?) async -> String {
         switch name {
         case "state":
             switch phase {
@@ -291,6 +292,11 @@ final class CoreController {
         case "foreground":
             didBecomeActive()
             return "active"
+        case "attachFile":
+            // The open chat's composer stages it, as it would a picked file.
+            guard let path, let model else { return "no-chat" }
+            model.testAttachments.append(URL(fileURLWithPath: path))
+            return "attached"
         case "drift":
             return connection?.driftReports.joined(separator: "\n") ?? ""
         default:

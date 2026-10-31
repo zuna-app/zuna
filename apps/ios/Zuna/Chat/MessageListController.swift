@@ -12,7 +12,7 @@ final class MessageListBridge {
 /// apps do: the newest message is item 0 at the bottom, older pages are added
 /// past the end, so loading history and cells settling their size happen out
 /// of sight instead of moving what's on screen.
-final class MessageListController: UIViewController, UICollectionViewDelegate {
+final class MessageListController: UIViewController, UICollectionViewDelegate, UIGestureRecognizerDelegate {
     struct Input {
         var listKey: String
         var detached: Bool
@@ -36,6 +36,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate {
     private var contexts: [String: MessageRowContext] = [:]
     private var atBottom = true
     private var handledJump: Int?
+    private var swiping: (cell: UICollectionViewCell, message: MessageView)?
+    private let replyIcon = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill"))
 
     private static let groupWindow = 5 * 60 * 1000
     private static let flip = CGAffineTransform(scaleX: 1, y: -1)
@@ -59,6 +61,15 @@ final class MessageListController: UIViewController, UICollectionViewDelegate {
         collectionView.delegate = self
         collectionView.accessibilityIdentifier = A11y.Chat.list
         view.addSubview(collectionView)
+
+        // Swiping a message to the left answers it, as in Telegram.
+        let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
+        swipe.delegate = self
+        collectionView.addGestureRecognizer(swipe)
+        replyIcon.tintColor = UIColor(Theme.text2)
+        replyIcon.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
+        replyIcon.alpha = 0
+        view.addSubview(replyIcon)
 
         let registration = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
             guard let self, let input, let context = contexts[id] else { return }
@@ -179,6 +190,49 @@ final class MessageListController: UIViewController, UICollectionViewDelegate {
         collectionView.layoutIfNeeded()
         guard let attributes = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0)) else { return }
         collectionView.contentOffset.y = attributes.frame.minY - anchor.offset
+    }
+
+    // MARK: Swipe to reply
+
+    func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
+        guard let pan = gesture as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: collectionView)
+        // Only a mostly sideways swipe to the left, so scrolling stays as it was.
+        return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.5
+    }
+
+    @objc private func swiped(_ gesture: UIPanGestureRecognizer) {
+        let threshold: CGFloat = 64
+        switch gesture.state {
+        case .began:
+            let point = gesture.location(in: collectionView)
+            guard let indexPath = collectionView.indexPathForItem(at: point),
+                  let cell = collectionView.cellForItem(at: indexPath),
+                  let id = dataSource.itemIdentifier(for: indexPath),
+                  let message = input?.items.first(where: { $0.id == id }),
+                  message.seq != nil, message.deletedAt == nil, message.status == .sent, message.system == nil else { return }
+            swiping = (cell, message)
+        case .changed:
+            guard let swiping else { return }
+            let offset = max(-threshold * 1.4, min(0, gesture.translation(in: collectionView).x))
+            swiping.cell.contentView.transform = Self.flip.translatedBy(x: offset, y: 0)
+            let frame = swiping.cell.convert(swiping.cell.bounds, to: view)
+            replyIcon.center = CGPoint(x: frame.maxX - 26, y: frame.midY)
+            replyIcon.alpha = min(1, -offset / threshold)
+        case .ended, .cancelled, .failed:
+            guard let swiping else { return }
+            self.swiping = nil
+            if gesture.state == .ended, gesture.translation(in: collectionView).x <= -threshold {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                input?.actions.reply(swiping.message)
+            }
+            UIView.animate(withDuration: 0.2) {
+                swiping.cell.contentView.transform = Self.flip
+                self.replyIcon.alpha = 0
+            }
+        default:
+            break
+        }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

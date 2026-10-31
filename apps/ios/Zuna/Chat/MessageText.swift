@@ -171,7 +171,7 @@ final class MessageTextLabel: UIView {
     var onLink: ((URL) -> Void)?
     var onMention: ((String) -> Void)?
     var onSpoiler: ((Int) -> Void)?
-    /// A long press on an emote, for its card.
+    /// A tap on an emote, for its card.
     var onEmote: ((String, EmoteRef) -> Void)?
 
     var attributedText = NSAttributedString() {
@@ -193,7 +193,6 @@ final class MessageTextLabel: UIView {
         layoutManager.textContainer = container
         contentStorage.addTextLayoutManager(layoutManager)
         addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped(_:))))
-        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:))))
         isAccessibilityElement = true
     }
 
@@ -264,6 +263,11 @@ final class MessageTextLabel: UIView {
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: self)
+        // An emote shows its card; a long press is the message's menu.
+        for (view, (name, emote)) in zip(emoteViews, emoteInfo) where !view.isHidden && view.frame.insetBy(dx: -4, dy: -4).contains(point) {
+            onEmote?(name, emote)
+            return
+        }
         let whole = NSRange(location: 0, length: attributedText.length)
         for key in [NSAttributedString.Key.zunaSpoiler, .zunaMention, .zunaLink] {
             var hit: (Any, NSRange)?
@@ -287,16 +291,6 @@ final class MessageTextLabel: UIView {
                 if let text = value as? String, let url = URL(string: text) { onLink?(url) }
                 return
             }
-        }
-    }
-
-    @objc private func pressed(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
-        let point = gesture.location(in: self)
-        for (view, (name, emote)) in zip(emoteViews, emoteInfo) where !view.isHidden && view.frame.insetBy(dx: -4, dy: -4).contains(point) {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            onEmote?(name, emote)
-            return
         }
     }
 

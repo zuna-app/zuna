@@ -109,6 +109,13 @@ final class AppUnderTest {
         try blocking { _ = try await control.call("sendMessage", server: serverId, [key, ["text": text]]) }
     }
 
+    /// Adds a file to the open chat's composer, as if picked (Debug builds only).
+    func attachFile(_ url: URL) throws {
+        let control = control!
+        let path = url.path
+        try blocking { _ = try await control.host("attachFile", ["path": path]) }
+    }
+
     /// The signed-in account's user ID.
     func selfId() throws -> String {
         let control = control!

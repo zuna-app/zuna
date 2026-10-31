@@ -76,11 +76,31 @@ enum A11y {
         static let empty = "chat.empty"
         static let reply = "chat.reply"
         static let emoteCard = "chat.emoteCard"
+        static let pinnedBar = "chat.pinnedBar"
+        static let menu = "chat.menu"
+        static let search = "chat.search"
+        static let pins = "chat.pins"
+        static func quickReaction(_ emoji: String) -> String { "chat.quickReaction.\(emoji)" }
+        static func result(_ id: String) -> String { "chat.result.\(id)" }
         static func message(_ id: String) -> String { "chat.message.\(id)" }
         static func text(_ id: String) -> String { "chat.text.\(id)" }
         static func meta(_ id: String) -> String { "chat.meta.\(id)" }
         static func reaction(_ key: String) -> String { "chat.reaction.\(key)" }
         static func attachment(_ name: String) -> String { "chat.attachment.\(name)" }
+    }
+
+    enum Composer {
+        static let input = "composer.input"
+        static let send = "composer.send"
+        static let attach = "composer.attach"
+        static let emoji = "composer.emoji"
+        static let context = "composer.context"
+        static let cancelContext = "composer.cancelContext"
+        static let picker = "composer.picker"
+        static let disabled = "composer.disabled"
+        static func pickerEmote(_ name: String) -> String { "composer.picker.\(name)" }
+        static func suggestion(_ label: String) -> String { "composer.suggestion.\(label)" }
+        static func file(_ name: String) -> String { "composer.file.\(name)" }
     }
 
     enum Toast {
