@@ -1,8 +1,9 @@
 import type { ConversationView, MessageView } from "@zuna/core";
-import { BadgeCheck, Bookmark, Lock, PanelRight, Pin, Search, ShieldAlert, Upload, X } from "lucide-react";
+import { BadgeCheck, Bookmark, Copy, Forward, Lock, PanelRight, Pin, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Tooltip } from "@/components/ui";
-import { formatLastSeen } from "@/lib/format";
+import { Avatar, Tooltip, useAction } from "@/components/ui";
+import { copyText } from "@/lib/clipboard";
+import { formatFull, formatLastSeen } from "@/lib/format";
 import { renderMarkup } from "@/lib/markup";
 import { listIdFor, useActiveServer, useApp } from "@/state/store";
 import { Composer, type ComposerHandle } from "./Composer";
@@ -101,6 +102,79 @@ function PinnedBar({ conversation, onOpenAll }: { conversation: ConversationView
   );
 }
 
+/** What can be done with the picked messages, in place of the composer, as in Telegram. */
+function SelectionBar({ conversation, listId }: { conversation: ConversationView; listId: string }) {
+  const server = useActiveServer();
+  const session = useApp((state) => state.session);
+  const toast = useApp((state) => state.toast);
+  const toggleSelected = useApp((state) => state.toggleSelected);
+  const ids = useApp((state) => state.selection?.ids ?? []);
+  const items = useApp((state) => state.lists[listId]?.items ?? []);
+  const { busy, run } = useAction();
+  // In the chat's order, whatever order they were picked in.
+  const picked = items.filter((item) => ids.includes(item.id));
+  const selfId = server?.self?.userId;
+  const isAdmin = conversation.members.find((member) => member.userId === selfId)?.role === "admin";
+  const canDelete = picked.length > 0 && picked.every((item) => item.senderId === selfId || (conversation.kind === "group" && isAdmin));
+  const stop = () => toggleSelected(listId, null);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") stop();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const copy = async () => {
+    const name = (id: string) => (id === selfId ? "You" : (server?.users[id]?.displayName ?? "Unknown"));
+    const text =
+      picked.length === 1
+        ? picked[0]!.text
+        : picked.map((item) => `${name(item.senderId)}, [${formatFull(item.createdAt)}]\n${item.text || item.attachments.map((file) => file.name).join(", ")}`).join("\n\n");
+    await copyText(text);
+    toast(picked.length === 1 ? "Copied" : `Copied ${picked.length} messages`);
+    stop();
+  };
+
+  return (
+    <div className="selection-bar">
+      <Tooltip text="Cancel" side="top">
+        <button className="icon-btn" onClick={stop} aria-label="Cancel selection">
+          <X size={18} />
+        </button>
+      </Tooltip>
+      <span className="grow selection-count">
+        {picked.length} {picked.length === 1 ? "message" : "messages"} selected
+      </span>
+      <button className="btn" disabled={!picked.length} onClick={() => void copy()}>
+        <Copy size={15} /> Copy
+      </button>
+      <button
+        className="btn"
+        disabled={!picked.length || !conversation.groupId}
+        onClick={() => useApp.getState().setOverlay({ type: "forward", serverId: server!.entry.id, groupId: conversation.groupId!, ids: picked.map((item) => item.id) })}
+      >
+        <Forward size={15} /> Forward
+      </button>
+      {canDelete && (
+        <button
+          className="btn btn-danger"
+          disabled={busy}
+          onClick={() =>
+            run(async () => {
+              await session().deleteMessages(conversation.groupId!, picked.map((item) => item.id));
+              stop();
+            })
+          }
+        >
+          <Trash2 size={15} /> Delete for everyone
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function ChatView({ conversation }: { conversation: ConversationView }) {
   const server = useActiveServer();
   const listId = listIdFor(conversation);
@@ -112,10 +186,14 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
   const [dragging, setDragging] = useState(false);
   const peer = conversation.peerId ? server?.users[conversation.peerId] : null;
   const isSaved = conversation.peerId === server?.self?.userId;
+  const selecting = useApp((state) => state.selection?.listId === listId);
 
   useEffect(() => {
     void loadList(listId, conversation.groupId);
   }, [listId, conversation.groupId, loadList]);
+
+  // Picked messages belong to the chat they were picked in.
+  useEffect(() => () => useApp.getState().toggleSelected(listId, null), [listId]);
 
   const onDrop = (event: React.DragEvent) => {
     event.preventDefault();
@@ -192,7 +270,9 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
           <MessageList conversation={conversation} listId={listId} emptyState={<EmptyChat conversation={conversation} />} />
         </div>
 
-        {peer?.banned && !isSaved ? (
+        {selecting ? (
+          <SelectionBar conversation={conversation} listId={listId} />
+        ) : peer?.banned && !isSaved ? (
           <div className="composer-disabled">
             <X size={15} /> This person was removed from the server.
           </div>

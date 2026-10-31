@@ -11,6 +11,7 @@ const on = (channel: string, listener: (value: any) => void) => {
 contextBridge.exposeInMainWorld("zunaDesktop", {
   deviceKey: () => ipcRenderer.invoke("zuna:device-key"),
   platform: () => ipcRenderer.invoke("zuna:platform"),
+  microphone: () => ipcRenderer.invoke("zuna:microphone"),
   notify: (payload: unknown) => ipcRenderer.invoke("zuna:notify", payload),
   setBadge: (count: number) => ipcRenderer.invoke("zuna:badge", count),
   setCloseToTray: (enabled: boolean) => ipcRenderer.invoke("zuna:close-to-tray", enabled),

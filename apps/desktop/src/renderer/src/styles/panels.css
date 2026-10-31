@@ -12,6 +12,7 @@
 .side-section h4 { font-size: 12px; font-weight: 500; color: var(--text-3); padding: 5px 8px; }
 .side-row { display: flex; align-items: center; gap: 11px; padding: 7px 8px; min-height: 36px; border-radius: var(--radius-m); font-size: 13.5px; text-align: left; color: var(--text-1); }
 .side-row > svg { color: var(--text-2); flex: none; }
+.side-row-hint { display: block; font-size: 12px; color: var(--text-3); }
 .side-row.is-button { width: 100%; }
 .side-row.is-button:hover { background: var(--hover); }
 .side-row.is-danger, .side-row.is-danger > svg { color: var(--red); }

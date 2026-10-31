@@ -218,6 +218,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 .menu-item svg { color: var(--text-2); flex: none; }
 .menu-item.is-danger, .menu-item.is-danger svg { color: var(--red); }
 .menu-item.is-danger:hover { background: var(--red-soft); }
+.menu-item svg.menu-more { color: var(--text-3); margin-right: -2px; }
 .menu-sep { height: 1px; background: var(--line); margin: 4px 5px; }
 .menu-react { display: flex; gap: 1px; padding: 1px 1px 5px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .menu-react button { width: 32px; height: 32px; border-radius: var(--radius-s); font-size: 18px; line-height: 1; }

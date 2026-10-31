@@ -252,6 +252,44 @@
 
 /* Composer: a plain docked bar, like Telegram's */
 .composer-area { flex: none; position: relative; z-index: 3; background: var(--bg-1); border-top: 1px solid var(--line); }
+/* Recording a voice message, in place of the message box. */
+.recording-row { gap: 10px; }
+.recording-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); flex: none; animation: recording-pulse 1.2s ease-in-out infinite; }
+@keyframes recording-pulse { 50% { opacity: 0.35; } }
+.recording-time { font-size: 13.5px; font-variant-numeric: tabular-nums; color: var(--text-1); min-width: 36px; }
+.recording-levels { flex: 1; height: 28px; display: flex; align-items: center; justify-content: flex-end; gap: 2px; overflow: hidden; }
+.recording-levels i { width: 3px; border-radius: 2px; background: var(--text-2); flex: none; }
+
+/* A voice message: play, waveform and time. */
+.voice { display: flex; align-items: center; gap: 10px; min-width: 240px; padding: 2px 0; }
+.voice-play {
+  flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent);
+}
+.voice.is-own .voice-play { background: var(--bubble-own-text); color: var(--bubble-own); }
+.voice-play:disabled { opacity: 0.7; }
+.voice-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.voice-wave { height: 24px; display: flex; align-items: center; gap: 2px; cursor: pointer; }
+.voice-wave i { flex: 1; max-width: 3px; min-width: 2px; border-radius: 2px; background: var(--text-3); }
+.voice-wave i.is-played { background: var(--text-1); }
+.voice.is-own .voice-wave i { background: var(--bubble-own-faint); }
+.voice.is-own .voice-wave i.is-played { background: var(--bubble-own-text); }
+.voice-time { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--text-3); }
+.voice.is-own .voice-time { color: var(--bubble-own-faint); }
+
+.selection-bar { display: flex; align-items: center; gap: 8px; max-width: 832px; width: 100%; margin: 0 auto; padding: 10px 12px 12px 8px; }
+.selection-count { font-size: 13.5px; font-weight: 500; }
+
+/* Picking messages, as in Telegram: a circle on the left, and the row highlighted. */
+.msg.is-selecting { padding-left: 34px; cursor: pointer; }
+.msg.is-selected { background: var(--accent-soft); }
+.msg-check {
+  position: absolute; left: 6px; bottom: 6px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center;
+  border: 2px solid var(--text-3); color: var(--on-accent);
+}
+.msg-check.is-on { background: var(--accent); border-color: var(--accent); }
+.msg-check.is-disabled { opacity: 0.3; }
+
 .composer-disabled { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; color: var(--text-2); font-size: 13.5px; }
 .composer { max-width: 832px; margin: 0 auto; }
 .composer-row { display: flex; align-items: flex-end; gap: 2px; padding: 8px 10px; }

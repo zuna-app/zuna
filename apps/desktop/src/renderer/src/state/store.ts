@@ -62,7 +62,7 @@ export type Overlay =
   | { type: "verify"; userId: string }
   | { type: "add-members"; groupId: string }
   | { type: "image"; url: string; name: string }
-  | { type: "forward"; serverId: string; message: MessageView }
+  | { type: "forward"; serverId: string; groupId: string; ids: string[] }
   | null;
 
 export type Panel = { type: "info" } | { type: "search" } | { type: "pins" } | null;
@@ -84,6 +84,8 @@ interface AppState {
   jumpTarget: { groupId: string; messageId: string; nonce: number } | null;
   replyTo: Record<string, MessageView | null>;
   editing: Record<string, MessageView | null>;
+  /** Messages picked in a chat to act on together, by message ID in the order picked. */
+  selection: { listId: string; ids: string[] } | null;
   onboarding: { open: boolean };
 
   boot(): Promise<void>;
@@ -103,6 +105,8 @@ interface AppState {
   dismissToast(id: number): void;
   setReply(listId: string, message: MessageView | null): void;
   setEditing(listId: string, message: MessageView | null): void;
+  /** Starts picking messages with this one, adds or removes one, or stops with null. */
+  toggleSelected(listId: string, id: string | null): void;
   updateSettings(changes: Partial<AppSettings>): void;
   refreshConversations(serverId: string): void;
 }
@@ -335,6 +339,7 @@ export const useApp = create<AppState>((set, get) => {
     jumpTarget: null,
     replyTo: {},
     editing: {},
+    selection: null,
     onboarding: { open: false },
 
     async boot() {
@@ -589,6 +594,15 @@ export const useApp = create<AppState>((set, get) => {
         editing: { ...state.editing, [listId]: message },
         replyTo: message ? { ...state.replyTo, [listId]: null } : state.replyTo,
       }));
+    },
+
+    toggleSelected(listId, id) {
+      set((state) => {
+        if (!id) return { selection: null };
+        const current = state.selection?.listId === listId ? state.selection.ids : [];
+        const ids = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
+        return { selection: ids.length ? { listId, ids } : null };
+      });
     },
 
     updateSettings(changes) {

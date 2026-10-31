@@ -18,6 +18,7 @@ import {
   safeStorage,
   session,
   shell,
+  systemPreferences,
   Tray,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -312,6 +313,12 @@ function registerIpc(): void {
     return { key: new Uint8Array(key), protected: isProtected, deviceName: `${deviceLabel()}` };
   });
   handle("zuna:platform", () => process.platform);
+  // macOS asks the person once before an app may record. Chromium's fake microphone, in tests, needs no asking.
+  handle("zuna:microphone", async () => {
+    if (process.platform !== "darwin" || app.commandLine.hasSwitch("use-fake-device-for-media-stream")) return true;
+    if (systemPreferences.getMediaAccessStatus("microphone") === "granted") return true;
+    return systemPreferences.askForMediaAccess("microphone");
+  });
   // Whether the person is at the computer, for where notifications go: "active",
   // "idle" after this many seconds without input anywhere, or "locked".
   handle("zuna:idle-state", (_event, seconds: number) => powerMonitor.getSystemIdleState(Math.max(1, Math.round(seconds))));
@@ -405,9 +412,10 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
-    // The renderer needs notifications only. Calls will ask for more when they arrive.
-    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-      callback(permission === "notifications" || permission === "clipboard-sanitized-write");
+    // The renderer needs notifications, and the microphone for voice messages. Calls will ask for more when they arrive.
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+      const microphoneOnly = permission === "media" && "mediaTypes" in details && (details.mediaTypes ?? []).every((type) => type === "audio");
+      callback(permission === "notifications" || permission === "clipboard-sanitized-write" || microphoneOnly);
     });
     Menu.setApplicationMenu(
       process.platform === "darwin"
