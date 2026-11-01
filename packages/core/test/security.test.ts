@@ -2,6 +2,8 @@
 // against a real server and real MLS, kept here so they can't come back. The
 // findings' numbers are in the audit's report.
 
+import { DatabaseSync } from "node:sqlite";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as wasm from "@zuna/crypto";
 import { Api, decode } from "../src/api";
@@ -11,6 +13,7 @@ import {
   deriveRecoveryKeys,
   derivePasswordKeys,
   parseCertificate,
+  randomId,
   sealEnvelope,
   sealSignal,
   sealVaultItem,
@@ -857,5 +860,181 @@ describe("the search index (Z-36)", () => {
     await session.rebuildSearchIndex();
     expect(alice.session.search("quixotic").length).toBeGreaterThan(0);
     expect(session.getKv("search_version")).toBe(2);
+  });
+});
+
+/** The server's database, for what a malicious server writes for itself. */
+function withServerDatabase<T>(use: (db: InstanceType<typeof DatabaseSync>) => T): T {
+  const db = new DatabaseSync(join((server as any).dir as string, "zuna.db"));
+  db.exec("PRAGMA busy_timeout = 10000");
+  try {
+    return use(db);
+  } finally {
+    db.close();
+  }
+}
+
+const sessionOf = (app: TestApp) => app.session as any;
+const warned = (app: TestApp, text: string) => securityEvents(app).some((event) => (event as { message: string }).message.includes(text));
+
+describe("a server adding an account of its own to a conversation (Z-38)", () => {
+  const addToRoster = (groupId: string, userId: string) =>
+    withServerDatabase((db) => db.prepare("INSERT INTO group_members(group_id, user_id, role, joined_at) VALUES(?, ?, 'member', ?)").run(groupId, userId, Date.now() + 5000));
+
+  const heldBy = (app: TestApp, groupId: string): boolean => sessionOf(app).hasMlsGroup(groupId);
+
+  it("sends nothing into a new DM the server lists a third person in, and warns", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const ghost = await person("ghost");
+    await carol.session.markVerified(bob.userId);
+    const { group } = await apiOf(carol).createDm(bob.userId);
+    addToRoster(group.id, ghost.userId);
+    const sent = carol.session.sendMessage(`user:${bob.userId}`, { text: "for bob's eyes only" });
+    await waitFor(() => warned(carol, "wrong people"), "the warning");
+    await waitFor(() => [`pending:user:${bob.userId}`, group.id].some((id) => sessionOf(carol).messageRow(id, sent.id)?.status === "failed"), "the send to fail");
+    await sleep(300);
+    expect(heldBy(ghost, group.id)).toBe(false);
+    expect(heldBy(bob, group.id)).toBe(false);
+  });
+
+  it("gives the keys only to the DM's two people, whatever the server's later answers list", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const ghost = await person("ghost");
+    // An answer that looks right, followed by the group as the server really has it.
+    const real = apiOf(carol).createDm;
+    (apiOf(carol) as any).createDm = async (peer: string) => {
+      const reply = await real(peer);
+      return { ...reply, group: { ...reply.group, members: reply.group.members.filter((member) => member.user_id !== ghost.userId) } };
+    };
+    const { group } = await real(bob.userId);
+    addToRoster(group.id, ghost.userId);
+    const sent = carol.session.sendMessage(`user:${bob.userId}`, { text: "just us" });
+    await waitFor(() => sessionOf(bob).messageRow(group.id, sent.id)?.status === "sent", "bob to read it");
+    await sleep(500);
+    expect(heldBy(ghost, group.id)).toBe(false);
+    expect(warned(carol, "someone else")).toBe(true);
+    expect(sessionOf(carol).treeMembers(group.id).map((member: { userId: string }) => member.userId)).not.toContain(ghost.userId);
+    expect(carol.session.getConversations().find((item) => item.groupId === group.id)!.members.map((member) => member.userId).sort()).toEqual([bob.userId, carol.userId].sort());
+  });
+
+  it("refuses to start a conversation over when the server says it never started", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const ghost = await person("ghost");
+    await carol.session.markVerified(bob.userId);
+    const first = carol.session.sendMessage(`user:${bob.userId}`, { text: "an old message" });
+    await waitFor(() => !!carol.session.getConversations().find((item) => item.key === `user:${bob.userId}`)?.groupId, "the DM");
+    const groupId = carol.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!.groupId!;
+    await waitFor(() => sessionOf(bob).messageRow(groupId, first.id)?.status === "sent", "bob to read it");
+    const epoch = sessionOf(carol).mlsEpoch(groupId);
+    withServerDatabase((db) => {
+      db.prepare("UPDATE groups SET epoch = 0, group_info = NULL WHERE id = ?").run(groupId);
+      db.prepare("DELETE FROM group_events WHERE group_id = ?").run(groupId);
+    });
+    addToRoster(groupId, ghost.userId);
+    const sent = carol.session.sendMessage(`user:${bob.userId}`, { text: "said after the rewind" });
+    await waitFor(() => sessionOf(carol).messageRow(groupId, sent.id)?.status === "failed", "the send to fail");
+    expect(warned(carol, "never started")).toBe(true);
+    expect(heldBy(ghost, groupId)).toBe(false);
+    // What this device has stays as it was.
+    expect(heldBy(carol, groupId)).toBe(true);
+    expect(sessionOf(carol).mlsEpoch(groupId)).toBe(epoch);
+  });
+
+  it("removes a third person from a DM's tree, and warns", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const ghost = await person("ghost");
+    const first = carol.session.sendMessage(`user:${bob.userId}`, { text: "hello" });
+    await waitFor(() => !!carol.session.getConversations().find((item) => item.key === `user:${bob.userId}`)?.groupId, "the DM");
+    const groupId = carol.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!.groupId!;
+    await waitFor(() => sessionOf(bob).messageRow(groupId, first.id)?.status === "sent", "bob to read it");
+    const info = await apiOf(carol).groupInfo(groupId);
+    const ghostMls = sessionOf(ghost).mls;
+    const joined = ghostMls.joinExternal(utf8(groupId), decode(info.group_info!)) as { commit: Uint8Array };
+    await apiOf(carol).commit(groupId, { expected_epoch: info.epoch, commit: joined.commit, group_info: ghostMls.exportGroupInfo(utf8(groupId)), kind: "external" });
+    await waitFor(() => warned(carol, "isn't part of one of your direct messages"), "the warning");
+    await waitFor(() => !sessionOf(carol).treeMembers(groupId).some((member: { userId: string }) => member.userId === ghost.userId), "them to be removed", 15_000);
+    const sent = carol.session.sendMessage(`user:${bob.userId}`, { text: "after they're gone" });
+    await waitFor(() => sessionOf(bob).messageRow(groupId, sent.id)?.status === "sent", "bob to read it");
+    expect(Number(ghostMls.epoch(utf8(groupId)))).toBeLessThan(sessionOf(carol).mlsEpoch(groupId));
+  });
+
+  it("starts a new group with only who the person chose", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const ghost = await person("ghost");
+    // Anyone on a group's list can try to join it themselves, which gets a warning. This is about what Carol hands out.
+    ghost.client.stop();
+    const real = apiOf(carol).createGroup;
+    (apiOf(carol) as any).createGroup = async (history: boolean) => {
+      const reply = await real(history);
+      addToRoster(reply.group.id, ghost.userId);
+      return { ...reply, group: { ...reply.group, members: [...reply.group.members, { user_id: ghost.userId, role: "member", joined_at: 0, visible_from_seq: 0, read_state: null }] } };
+    };
+    const groupId = await carol.session.createGroup("Chosen people", [bob.userId], false);
+    await waitFor(() => sessionOf(bob).hasMlsGroup(groupId), "bob to join");
+    await sleep(300);
+    expect(heldBy(ghost, groupId)).toBe(false);
+    expect(sessionOf(carol).treeMembers(groupId).map((member: { userId: string }) => member.userId)).not.toContain(ghost.userId);
+  });
+
+  it("warns about someone new in a tree it joins", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const dave = await person("dave");
+    const groupId = await groupWith(carol, [bob]);
+    await carol.session.addMembers(groupId, [dave.userId]);
+    await waitFor(() => sessionOf(dave).hasMlsGroup(groupId), "dave to join");
+    // Bob hasn't heard of Dave, and has to rejoin.
+    sessionOf(bob).setKnownMembers(groupId, [carol.userId, bob.userId]);
+    await sessionOf(bob).joinExternal(groupId);
+    const rows = sessionOf(bob).db.all("SELECT id, body FROM messages WHERE group_id = ? AND id LIKE 'sys-%'", [groupId]) as { body: Uint8Array }[];
+    const notices = rows.map((row) => sessionOf(bob).openJson("message", row.body).system).filter((system: { type: string }) => system.type === "unexpected_join");
+    expect(notices.map((system: { actorId?: string }) => system.actorId)).toEqual([dave.userId]);
+  });
+});
+
+describe("a leaf naming someone nobody can check yet (Z-43)", () => {
+  it("counts for nothing, and nothing is encrypted until it's been checked", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const mal = await person("mal");
+    const groupId = await groupWith(carol, [bob, mal]);
+    const session = sessionOf(carol);
+    const malApi = apiOf(mal);
+    // The others would notice and remove it. A server can hold back what they send.
+    bob.client.stop();
+    mal.client.stop();
+    // A device with nothing pinned for Bob, with the server failing to say who he is.
+    session.db.run("DELETE FROM pinned_identities WHERE user_id = ?", [bob.userId]);
+    const realUser = apiOf(carol).user;
+    (apiOf(carol) as any).user = (id: string) => (id === bob.userId ? Promise.reject(new Error("not found")) : realUser(id));
+    const before = securityEvents(carol).length;
+    const keys = wasm.signingKeygen();
+    const device = randomId();
+    const payload = utf8(JSON.stringify({ v: 1, user: bob.userId, device, key: toBase64(keys.publicKey) }));
+    const forged = utf8(JSON.stringify({ p: toBase64(payload), s: toBase64(new Uint8Array(64)) }));
+    const ghost = new wasm.MlsClient(keys.publicKey, keys.secretKey, forged, [] as unknown as any[]);
+    const info = await malApi.groupInfo(groupId);
+    const joined = ghost.joinExternal(utf8(groupId), decode(info.group_info!)) as { commit: Uint8Array };
+    await malApi.commit(groupId, { expected_epoch: info.epoch, commit: joined.commit, group_info: ghost.exportGroupInfo(utf8(groupId)), kind: "external" });
+    await waitFor(() => session.mlsEpoch(groupId) === info.epoch + 1, "carol to apply it");
+
+    const leaf = session.treeMembers(groupId).find((member: { deviceId: string }) => member.deviceId === device);
+    expect(leaf).toMatchObject({ genuine: false, unchecked: true });
+    const sent = carol.session.sendMessage(`group:${groupId}`, { text: "not to a leaf nobody checked" });
+    await sleep(1000);
+    expect(session.messageRow(groupId, sent.id).status).toBe("sending");
+    expect(withServerDatabase((db) => db.prepare("SELECT id FROM messages WHERE group_id = ? AND id = ?").get(groupId, sent.id))).toBeUndefined();
+
+    // Once the server answers, the forged leaf fails the check and goes.
+    (apiOf(carol) as any).user = realUser;
+    await carol.session.flushOutbox();
+    await waitFor(() => session.messageRow(groupId, sent.id)?.seq !== null, "the message to go", 20_000);
+    expect(session.treeMembers(groupId).some((member: { deviceId: string }) => member.deviceId === device)).toBe(false);
+    expect(securityEvents(carol).slice(before).some((event) => (event as { message: string }).message.includes("isn't really"))).toBe(true);
   });
 });

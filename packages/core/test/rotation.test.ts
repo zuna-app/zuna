@@ -7,9 +7,9 @@ import { join } from "node:path";
 import * as wasm from "@zuna/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api, ApiError, decode } from "../src/api";
-import { createCertificate, openVaultItem, parseCertificate, sealVaultItem, derivePasswordKeys } from "../src/crypto";
+import { createCertificate, openVaultItem, parseCertificate, randomId, sealVaultItem, derivePasswordKeys } from "../src/crypto";
 import { fromBase64, toBase64, utf8 } from "../src/encoding";
-import { keyCommitment, sealBundle } from "../src/generations";
+import { keyCommitment, parseLinkPayload, sealBundle, signSealKey } from "../src/generations";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -1365,5 +1365,76 @@ describe("a leaf's certificate", () => {
     const row = await apiOf(app).user(app.userId);
     const own = row.devices.find((device) => device.id === app.session.getSelf().deviceId)!;
     expect(toBase64(decode(own.certificate))).toBe(toBase64(session.account.certificate));
+  });
+});
+
+describe("a server listing devices of its own for someone's account (Z-39)", () => {
+  /** Rows a server can write: a device of its own with someone's real certificate, and a claim that another was removed. */
+  function plantDevice(userId: string): { id: string; seal: { publicKey: Uint8Array; secretKey: Uint8Array } } {
+    const attacker = wasm.signingKeygen();
+    const seal = wasm.hpkeKeygen();
+    const id = randomId();
+    const now = Date.now();
+    const db = serverDatabase();
+    try {
+      const { certificate } = db.prepare("SELECT certificate FROM devices WHERE user_id = ? LIMIT 1").get(userId) as { certificate: Uint8Array };
+      db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_sig) VALUES(?,?,?,?,?,?,?,?)").run(
+        id, userId, certificate, attacker.publicKey, now, now, seal.publicKey, signSealKey(attacker.secretKey, userId, id, seal.publicKey),
+      );
+      db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at) VALUES(?,?,?,?,?,?,?)").run(
+        randomId(), userId, certificate, attacker.publicKey, now, now, now,
+      );
+      db.prepare("UPDATE users SET updated_at = ? WHERE id = ?").run(now + 1, userId);
+    } finally {
+      db.close();
+    }
+    return { id, seal };
+  }
+
+  const bundleFor = (deviceId: string): unknown => {
+    const db = serverDatabase();
+    try {
+      return db.prepare("SELECT data FROM account_bundles WHERE device_id = ?").get(deviceId);
+    } finally {
+      db.close();
+    }
+  };
+
+  for (const kind of ["older", "new"] as const) {
+    it(`seals nothing to it on an account of the ${kind} kind`, async () => {
+      const app = kind === "older" ? (await olderPerson("gina")).app : await person("gina");
+      await waitFor(() => sessionOf(app).protocolSince !== null, "the account to be followed");
+      const before = securityEvents(app).length;
+      const fake = plantDevice(app.userId);
+      await sessionOf(app).syncUsers();
+      await atGeneration(app, 1);
+      expect(bundleFor(fake.id)).toBeUndefined();
+      expect(securityEvents(app).slice(before).some((event) => event.message.includes("never signed in"))).toBe(true);
+      // Whichever keys the server has now, it can't open the account with them.
+      const link = parseLinkPayload(new Uint8Array((await apiOf(app).identityLinks(app.userId, 0)).map((wire) => decode(wire.payload))[0]!));
+      expect(link!.devices.map((device) => device.id)).not.toContain(fake.id);
+    });
+  }
+
+  it("doesn't deliver a later bundle to one on an account lacking a slot", async () => {
+    const { app } = await olderPerson("hana");
+    await app.session.rotate();
+    await sleep(200);
+    const fake = plantDevice(app.userId);
+    await sessionOf(app).catchUp();
+    await sleep(200);
+    expect(bundleFor(fake.id)).toBeUndefined();
+  });
+
+  it("doesn't accept a real device's entry with another key in it", async () => {
+    const { app } = await olderPerson("ivy");
+    const laptop = await new TestApp("ivy-laptop").open();
+    open.push(laptop);
+    await laptop.login(server.url, app.session.getSelf().username);
+    const entry = (await apiOf(app).user(app.userId)).devices.find((device) => device.id === laptop.session.getSelf().deviceId)!;
+    expect(sessionOf(app).certifiedKey(entry)).not.toBeNull();
+    const attacker = wasm.signingKeygen();
+    expect(sessionOf(app).certifiedKey({ ...entry, signature_key: toBase64(attacker.publicKey) })).toBeNull();
+    expect(sessionOf(app).certifiedKey({ ...entry, id: randomId() })).toBeNull();
   });
 });

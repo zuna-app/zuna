@@ -12,6 +12,7 @@ import {
   decode,
   encodeBody,
   type ApiAccount,
+  type ApiDevice,
   type ApiEvent,
   type ApiGroup,
   type ApiLink,
@@ -249,6 +250,8 @@ interface CachedGroup {
   removedAt?: number | null;
   /** People the server says left, not yet shown, until MLS confirms their keys are gone. */
   pendingRemovals?: Record<string, { actor: string; seq: number; at: number }>;
+  /** A DM the server listed more than two people in, seen before anyone's known to be its other person. It's not used. */
+  doubtful?: boolean;
 }
 
 /** One leaf of a group's MLS tree, and whether it really is the device it says. */
@@ -259,6 +262,10 @@ interface TreeMember {
   deviceId: string;
   /** Its certificate is signed by that person's identity key, for the signing key it really uses. */
   genuine: boolean;
+  /** No key is known for that person yet, so nothing has been checked. It isn't genuine, but it isn't caught out either. */
+  unchecked?: boolean;
+  /** In a DM, someone who isn't one of its two people. */
+  outsider?: boolean;
 }
 
 interface MessageRow {
@@ -1369,17 +1376,33 @@ export class ServerSession {
    * Whether this account's other devices should count a device. A list signed by a
    * link says so for those on it. Otherwise it has to show it came from someone who
    * opened a slot, which a stolen identity key can't do. An account still lacking a
-   * slot can't ask that, since an honest device may have had no slot to open.
+   * slot can't ask that of everyone, since an honest device may have had no slot to
+   * open, but that's only a device from before, which this device already knows.
    */
   private ownDeviceAccepted(deviceId: string, device: { signatureKey: Uint8Array; enrollProof?: string | null } | undefined): boolean {
     const { core, userId } = this.account;
     const { password, recovery } = core.slots;
-    if (!password || !recovery) return true;
-    if (!device) return false;
+    const lacksSlot = !password || !recovery;
+    if (!device) return lacksSlot;
     const head = this.headOf(userId);
     if (head && carries(head, { id: deviceId, key: device.signatureKey })) return true;
     const proof = decode(device.enrollProof);
-    return proof.length > 0 && [password, recovery].some((slot) => verifyEnrollment(slot.sign, userId, deviceId, device.signatureKey, proof));
+    if (proof.length > 0 && [password, recovery].some((slot) => !!slot && verifyEnrollment(slot.sign, userId, deviceId, device.signatureKey, proof))) return true;
+    if (!lacksSlot) return false;
+    const known = this.users.get(userId)?.devices.get(deviceId);
+    return !!known && equalBytes(known.signatureKey, device.signatureKey);
+  }
+
+  /**
+   * The key a device of this account really signs with, if the server's entry for it
+   * holds up. Certificates are public and the rest of an entry is the server's word,
+   * so all of it is held to what the certificate says.
+   */
+  private certifiedKey(device: ApiDevice): Uint8Array | null {
+    const { userId, core } = this.account;
+    const standing = this.certificateStanding(userId, core.rootPublic, decode(device.certificate));
+    if (!standing?.carried || standing.cert.userId !== userId || standing.cert.deviceId !== device.id) return null;
+    return equalBytes(standing.cert.signatureKey, decode(device.signature_key)) ? standing.cert.signatureKey : null;
   }
 
   /** Devices gone from this account that no generation covers yet, so someone holds keys they shouldn't. */
@@ -1390,8 +1413,9 @@ export class ServerSession {
       .filter((device) => {
         if (device.revoked_at == null || device.id === deviceId) return false;
         if (head) {
-          if (carries(head, { id: device.id, key: decode(device.signature_key) })) return true;
-          return parseCertificate(decode(device.certificate))?.generation === head.gen;
+          const cert = parseCertificate(decode(device.certificate));
+          if (cert?.deviceId === device.id && carries(head, { id: device.id, key: cert.signatureKey })) return true;
+          return cert?.generation === head.gen;
         }
         return this.protocolSince !== null && device.revoked_at >= this.protocolSince;
       })
@@ -1469,21 +1493,25 @@ export class ServerSession {
 
   /** Makes the next generation and writes it down, so a crash from here on carries on with these same keys. */
   private async prepareRotation(plan: RotationPlan): Promise<RotationIntent> {
-    const { userId, username, deviceId, deviceSecret, accountKey: oldKey, core } = this.account;
+    const { userId, username, deviceId, devicePublic, deviceSecret, accountKey: oldKey, core } = this.account;
     const generation = core.generation + 1;
     const me = await this.api.user(userId);
     const accountKey = wasm.randomBytes(32);
     const identity = wasm.signingKeygen();
     const hpke = wasm.hpkeKeygen();
 
+    // Any device with a good certificate that's new to this one gets the usual alert now, before it could be carried.
+    this.applyUser(me);
     const devices: LinkDevice[] = [];
     const removed: string[] = [];
     for (const device of me.devices) {
       if (device.revoked_at != null) continue;
-      const key = decode(device.signature_key);
-      const standing = this.certificateStanding(userId, core.rootPublic, decode(device.certificate));
-      const fine = device.id === deviceId || (!!standing?.carried && this.ownDeviceAccepted(device.id, { signatureKey: key, enrollProof: device.enroll_proof }));
-      if (fine) devices.push({ id: device.id, key });
+      if (device.id === deviceId) {
+        devices.push({ id: deviceId, key: devicePublic });
+        continue;
+      }
+      const key = this.certifiedKey(device);
+      if (key && this.ownDeviceAccepted(device.id, { signatureKey: key, enrollProof: device.enroll_proof })) devices.push({ id: device.id, key });
       else removed.push(device.id);
     }
     if (removed.length > 0) {
@@ -1871,10 +1899,9 @@ export class ServerSession {
     for (const id of state.missing_bundles) {
       const device = me.devices.find((item) => item.id === id);
       if (!device || id === deviceId || device.revoked_at != null) continue;
-      const key = decode(device.signature_key);
+      const key = this.certifiedKey(device);
       const seal = decode(device.seal_key);
-      const standing = this.certificateStanding(userId, core.rootPublic, decode(device.certificate));
-      const fine = !!standing?.carried && this.ownDeviceAccepted(id, { signatureKey: key, enrollProof: device.enroll_proof }) && seal.length === 32 && verifySealKey(key, userId, id, seal, decode(device.seal_sig));
+      const fine = !!key && this.ownDeviceAccepted(id, { signatureKey: key, enrollProof: device.enroll_proof }) && seal.length === 32 && verifySealKey(key, userId, id, seal, decode(device.seal_sig));
       if (fine) bundles.push({ device_id: id, data: sealBundle(seal, userId, id, head.gen, head.hash, accountKey) });
     }
     if (bundles.length > 0) await this.api.putBundles(head.gen, bundles);
@@ -2093,14 +2120,62 @@ export class ServerSession {
     return undefined;
   }
 
+  private warnOnce(key: string, message: string, userId = ""): void {
+    if (this.warnedLeaves.has(key)) return;
+    this.warnedLeaves.add(key);
+    this.emit({ type: "security", serverId: this.serverId, userId, message });
+  }
+
+  /** The two people of a DM, or the one, for saved messages. */
+  private dmPeople(group: CachedGroup): string[] {
+    return [...new Set([this.account.userId, group.peerId ?? this.account.userId])];
+  }
+
+  /** Whether this device has been part of a group, so that a server saying it never started is wrong. */
+  private startedHere(groupId: string): boolean {
+    if (this.joinedEpoch(groupId) !== null) return true;
+    if (this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? LIMIT 1", [groupId])) return true;
+    return this.hasMlsGroup(groupId) && this.mlsEpoch(groupId) > 0;
+  }
+
+  /**
+   * Starting a group over would mean believing the server about who's in it, with
+   * nothing to compare it with, so a group that has already started never does.
+   */
+  private refuseRewind(groupId: string): void {
+    if (!this.startedHere(groupId)) return;
+    this.warnOnce(`rewind/${groupId}`, "The server said one of your conversations never started, which can't be right. Zuna didn't start it over, so that conversation won't work until the server stops saying so.");
+    throw new Error("This conversation can't be used right now: the server's answer about it doesn't hold together.");
+  }
+
+  private refuseDoubtful(groupId: string): void {
+    if (this.groups.get(groupId)?.doubtful) throw new Error("This conversation can't be used: the server listed more than two people in a direct message.");
+  }
+
   private applyGroup(api: ApiGroup): CachedGroup {
     const previous = this.groups.get(api.id);
     const selfId = this.account.userId;
-    const peerId =
-      api.kind === "dm" ? api.members.find((member) => member.user_id !== selfId)?.user_id ?? previous?.peerId ?? selfId : null;
+    // What a conversation is, and for a DM who it's with, is settled when it's first
+    // seen. The server's list is only its word, and a DM is between two people.
+    const kind = previous?.kind ?? api.kind;
+    const others = [...new Set(api.members.map((member) => member.user_id))].filter((id) => id !== selfId);
+    let peerId: string | null = null;
+    let doubtful = false;
+    if (kind === "dm") {
+      if (previous && !previous.doubtful) {
+        peerId = previous.peerId;
+      } else {
+        peerId = others[0] ?? previous?.peerId ?? selfId;
+        doubtful = others.length > 1;
+      }
+      if (others.some((id) => id !== peerId)) {
+        this.warnOnce(`dm-roster/${api.id}`, "The server listed someone else in one of your direct messages. They were left out, and any keys they got are being taken back.");
+      }
+    }
+    const listed = api.members.filter((member) => kind !== "dm" || member.user_id === selfId || member.user_id === peerId);
     const group: CachedGroup = {
       id: api.id,
-      kind: api.kind,
+      kind,
       peerId,
       epoch: api.epoch,
       seq: api.seq,
@@ -2110,13 +2185,14 @@ export class ServerSession {
       metaVersion: previous?.metaVersion ?? 0,
       historyVisible: api.history_visible,
       createdAt: api.created_at,
-      members: api.members.map((member) => ({ userId: member.user_id, role: member.role, joinedAt: member.joined_at })),
-      readStates: Object.fromEntries(api.members.map((member) => [member.user_id, member.read_state])),
+      members: listed.map((member) => ({ userId: member.user_id, role: member.role, joinedAt: member.joined_at })),
+      readStates: Object.fromEntries(listed.map((member) => [member.user_id, member.read_state])),
       readBy: previous?.readBy ?? {},
       ownRead: previous?.ownRead ?? 0,
       // The server listing us as a member means we're in it after all.
       removedAt: null,
       pendingRemovals: previous?.pendingRemovals,
+      doubtful,
     };
     this.groups.set(api.id, group);
     this.refreshGroupSecrets(group);
@@ -2374,14 +2450,19 @@ export class ServerSession {
    */
   private treeMembers(groupId: string): TreeMember[] {
     const members = this.mls.members(utf8(groupId)) as { leafIndex: number; credential: Uint8Array; signatureKey: Uint8Array }[];
+    const group = this.groups.get(groupId);
+    const people = group?.kind === "dm" ? this.dmPeople(group) : null;
     const out: TreeMember[] = members.map((member) => {
       const cert = parseCertificate(member.credential);
       if (!cert) return { leaf: member.leafIndex, userId: "", deviceId: "", genuine: false };
+      const found = { leaf: member.leafIndex, userId: cert.userId, deviceId: cert.deviceId };
+      if (people && !people.includes(cert.userId)) return { ...found, genuine: false, outsider: true };
       // Someone not known yet is looked up by checkTree, which runs on any change to the tree.
+      // Until that's worked, nothing about this leaf has been checked, so it counts for nothing.
       const pinned = this.pinnedIdentity(cert.userId);
-      const standing = pinned ? this.certificateStanding(cert.userId, pinned, member.credential) : { cert, carried: true };
-      const genuine = !!standing?.carried && equalBytes(standing.cert.signatureKey, member.signatureKey);
-      return { leaf: member.leafIndex, userId: cert.userId, deviceId: cert.deviceId, genuine };
+      if (!pinned) return { ...found, genuine: false, unchecked: true };
+      const standing = this.certificateStanding(cert.userId, pinned, member.credential);
+      return { ...found, genuine: !!standing?.carried && equalBytes(standing.cert.signatureKey, member.signatureKey) };
     });
     const seen = new Set<string>();
     for (const member of [...out].reverse()) {
@@ -2427,7 +2508,7 @@ export class ServerSession {
     this.cleanEpochs.delete(groupId);
     await this.learnTreeUsers(groupId);
     this.noteLeaves(groupId);
-    const bad = this.treeMembers(groupId).filter((member) => !member.genuine && member.leaf !== this.mls.ownLeafIndex(utf8(groupId)));
+    const bad = this.treeMembers(groupId).filter((member) => !member.genuine && !member.unchecked && member.leaf !== this.mls.ownLeafIndex(utf8(groupId)));
     for (const member of bad) {
       const warned = `${groupId}/${member.leaf}/${this.mlsEpoch(groupId)}`;
       if (this.warnedLeaves.has(warned)) continue;
@@ -2437,9 +2518,11 @@ export class ServerSession {
         type: "security",
         serverId: this.serverId,
         userId: member.userId,
-        message: owner
-          ? `A device claiming to be ${owner}'s isn't really theirs, and it tried to join one of your conversations. It's being removed.`
-          : "A device with an invalid certificate tried to join one of your conversations. It's being removed.",
+        message: member.outsider
+          ? `${owner ?? "Someone"} isn't part of one of your direct messages, but was given its keys. They're being removed.`
+          : owner
+            ? `A device claiming to be ${owner}'s isn't really theirs, and it tried to join one of your conversations. It's being removed.`
+            : "A device with an invalid certificate tried to join one of your conversations. It's being removed.",
       });
       if (member.userId) {
         this.addSystemRow(groupId, Date.now(), member.userId, { type: "unexpected_join", actorId: member.userId });
@@ -2487,19 +2570,36 @@ export class ServerSession {
       this.setJoinedEpoch(groupId, result.epoch);
       this.rememberCurrentEpochKey(groupId);
       await this.checkTree(groupId);
-      const known = this.knownMembers(groupId);
-      if (known.size === 0) this.setKnownMembers(groupId, this.treeUsers(groupId));
+      this.noteArrivalsAtJoin(groupId);
       void this.uploadEpochKeys().catch(() => undefined);
       return true;
     }
     return false;
   }
 
+  /**
+   * A commit says who it adds, but joining takes a whole tree on trust, so whoever's
+   * in it that this device hadn't heard of gets the same warning as an unexpected
+   * join. A brand new device has heard of nobody, and takes the tree as it finds it.
+   */
+  private noteArrivalsAtJoin(groupId: string): void {
+    const known = this.knownMembers(groupId);
+    const inTree = this.treeUsers(groupId);
+    if (known.size > 0) {
+      for (const userId of inTree) {
+        if (!known.has(userId) && userId !== this.account.userId) this.addSystemRow(groupId, Date.now(), userId, { type: "unexpected_join", actorId: userId });
+      }
+    }
+    this.setKnownMembers(groupId, new Set([...known, ...inTree]));
+  }
+
   /** Makes sure this device can use the group, starting it if nobody has yet. */
   private async ensureReady(groupId: string): Promise<void> {
     const group = await this.api.group(groupId);
     this.applyGroup(group);
+    this.refuseDoubtful(groupId);
     if (group.epoch === 0) {
+      this.refuseRewind(groupId);
       await this.initGroup(group, []);
       return;
     }
@@ -2521,7 +2621,12 @@ export class ServerSession {
     if (!this.hasMlsGroup(groupId)) return;
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       if (this.cleanEpochs.get(groupId) === this.mlsEpoch(groupId)) return;
-      await this.learnTreeUsers(groupId);
+      await this.checkTree(groupId);
+      // Nothing goes to a leaf nobody could check. This can wait until the server answers.
+      const roster = new Set(this.groups.get(groupId)?.members.map((member) => member.userId));
+      if (this.treeMembers(groupId).some((member) => member.unchecked && roster.has(member.userId))) {
+        throw new ApiError(0, "unchecked_member", "Couldn't check who's in this conversation yet. This will go when the server answers.");
+      }
       if ((await this.staleLeaves(groupId)).length === 0) {
         this.cleanEpochs.set(groupId, this.mlsEpoch(groupId));
         return;
@@ -2535,16 +2640,21 @@ export class ServerSession {
   }
 
   /**
-   * Starts a group's MLS state. Two members may race to do this. The server
-   * accepts one, and the loser receives a Welcome from the winner.
+   * Starts a group's MLS state. Two people may race to start a DM. The server
+   * accepts one, and the loser receives a Welcome from the winner. Who gets the
+   * keys is who the person asked for: the server's list is never what decides it.
    */
   private async initGroup(group: ApiGroup, extraUsers: string[], meta?: GroupMeta): Promise<void> {
+    const cached = this.groups.get(group.id);
+    const selfId = this.account.userId;
+    if (cached?.kind !== "dm" && group.created_by !== selfId) throw new Error("This conversation hasn't been started yet.");
+    const targets = cached?.kind === "dm" ? this.dmPeople(cached) : [...new Set([selfId, ...extraUsers])];
+
     const groupBytes = utf8(group.id);
     this.mls.deleteGroup(groupBytes);
     this.mls.createGroup(groupBytes);
     this.saveMls();
 
-    const targets = [...new Set([...group.members.map((member) => member.user_id), ...extraUsers])];
     const packages: { deviceId: string; data: Uint8Array }[] = [];
     for (const userId of targets) {
       packages.push(...(await this.claimKeyPackages(userId, this.account.deviceId)));
@@ -2722,7 +2832,7 @@ export class ServerSession {
 
   private async pullPage(groupId: string): Promise<boolean> {
     const cached = this.groups.get(groupId);
-    if (!cached || cached.removedAt) return false;
+    if (!cached || cached.removedAt || cached.doubtful) return false;
     if (!this.hasMlsGroup(groupId)) {
       const group = await this.api.group(groupId);
       this.applyGroup(group);
@@ -3107,7 +3217,7 @@ export class ServerSession {
       console.warn("[zuna] couldn't rejoin a conversation", error);
       try {
         await this.voidBrokenCommit(groupId, error);
-        if (!this.hasMlsGroup(groupId) && this.groups.get(groupId)?.epoch === 0) {
+        if (!this.hasMlsGroup(groupId) && this.groups.get(groupId)?.epoch === 0 && !this.startedHere(groupId)) {
           const group = await this.api.group(groupId);
           await this.initGroup(group, []);
         }
@@ -3136,12 +3246,14 @@ export class ServerSession {
 
   private async staleLeaves(groupId: string): Promise<number[]> {
     const group = this.groups.get(groupId);
-    if (!group || !this.hasMlsGroup(groupId)) return [];
+    if (!group || group.doubtful || !this.hasMlsGroup(groupId)) return [];
     const roster = new Set(group.members.map((member) => member.userId));
     const own = this.mls.ownLeafIndex(utf8(groupId));
     const stale: number[] = [];
     for (const member of this.treeMembers(groupId)) {
       if (member.leaf === own) continue;
+      // Not caught out, only not checked yet. ensureTreeClean waits for that.
+      if (member.unchecked && roster.has(member.userId)) continue;
       if (!member.genuine || !roster.has(member.userId)) {
         stale.push(member.leaf);
         continue;
@@ -3946,6 +4058,13 @@ export class ServerSession {
     const existing = this.dmWith(peerId);
     if (existing && existing.epoch > 0 && !existing.removedAt) return existing.id;
     const created = await this.api.createDm(peerId);
+    // Whoever this message is for is who the person chose, whatever else the server says.
+    const people = new Set([this.account.userId, peerId]);
+    const listed = new Set(created.group.members.map((member) => member.user_id));
+    if (created.group.kind !== "dm" || listed.size !== people.size || [...people].some((id) => !listed.has(id))) {
+      this.warnOnce(`dm-reply/${created.group.id}`, "The server answered with the wrong people for a new direct message, so nothing was sent.");
+      throw new Error("This message wasn't sent: the server's answer about this conversation doesn't hold together.");
+    }
     this.applyGroup(created.group);
     return created.group.id;
   }
@@ -4129,6 +4248,7 @@ export class ServerSession {
   /** Runs `send` with the current epoch's key, catching up and retrying if we were behind. */
   private async sealAndRetry(groupId: string, send: (epoch: number, key: Uint8Array) => Promise<void>): Promise<void> {
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
+      this.refuseDoubtful(groupId);
       if (!this.hasMlsGroup(groupId)) await this.ensureReady(groupId);
       await this.ensureTreeClean(groupId);
       const epoch = this.rememberCurrentEpochKey(groupId);
@@ -4530,6 +4650,9 @@ export class ServerSession {
       avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
     }
     const created = await this.api.createGroup(historyVisible);
+    if (created.group.kind !== "group" || created.group.created_by !== this.account.userId) {
+      throw new Error("The group wasn't created: the server's answer doesn't hold together.");
+    }
     const groupId = created.group.id;
     this.applyGroup(created.group);
     await this.withLock(groupId, async () => {
