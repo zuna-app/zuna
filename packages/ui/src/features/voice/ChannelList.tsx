@@ -70,7 +70,8 @@ function ChannelRow({ channel, onMenu }: { channel: ChannelView; onMenu: (event:
   const inChannel = useVoice((state) => state.channelId === channel.id && state.serverId === server?.entry.id);
   const active = server?.activeKey === channel.key;
   const { conversation } = channel;
-  const unread = !!conversation && conversation.unread > 0 && !conversation.muted;
+  // A voice channel is somewhere to go, not something to read, so only a mention marks one.
+  const unread = channel.type === "text" && !!conversation && conversation.unread > 0 && !conversation.muted;
   const mentions = conversation?.unreadMentions ?? 0;
   const occupants = useMemo(
     () => Object.values(server?.voice ?? {}).filter((member) => member.channelId === channel.id).sort((a, b) => a.since - b.since),

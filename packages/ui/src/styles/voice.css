@@ -112,7 +112,8 @@
 .voice-control-group .voice-control:hover { background: var(--hover-strong); }
 .voice-control-more { display: flex; align-items: center; justify-content: center; padding: 0 15px 0 5px; color: var(--text-2); }
 .voice-control-more:hover { background: var(--hover-strong); color: var(--text-1); }
-.voice-control { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--bg-3); color: var(--text-1); transition: background 0.1s linear, color 0.1s linear; }
+.voice-control-dot { position: absolute; top: 10px; right: 10px; width: 8px; height: 8px; border-radius: 50%; background: var(--text-1); box-shadow: 0 0 0 2px var(--bg-3); }
+.voice-control { position: relative; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--bg-3); color: var(--text-1); transition: background 0.1s linear, color 0.1s linear; }
 .voice-control:hover { background: var(--bg-4); }
 .voice-control:disabled { opacity: 0.55; cursor: not-allowed; }
 .voice-control.is-off { color: var(--red); }

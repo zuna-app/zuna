@@ -489,6 +489,8 @@ try {
   await bob.page.keyboard.press("Enter");
   await bob.page.locator(".voice-chat .bubble", { hasText: "typing while talking" }).waitFor({ timeout: 15_000 });
   check("a voice channel has a chat beside the call", true);
+  await alice.page.locator(".voice-control-dot").waitFor({ timeout: 5000 }).then(() => check("someone in the call sees there's something new in its chat", true)).catch(() => check("someone in the call sees there's something new in its chat", false));
+  check("a voice channel isn't marked as unread for its chat", (await rowFor(alice.page, "Lounge").getAttribute("class")).includes("is-unread") === false);
   await sleep(300);
   await shot(bob, "10-chat-in-voice");
   await bob.page.getByRole("button", { name: "Hide chat" }).first().click();

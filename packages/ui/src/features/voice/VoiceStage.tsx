@@ -176,7 +176,7 @@ function DeviceMenu({ kind, x, y, onClose }: { kind: "audioinput" | "audiooutput
   return <PopupMenu x={x} y={y} entries={entries} onClose={onClose} />;
 }
 
-function Controls({ chatOpen, onToggleChat }: { chatOpen: boolean; onToggleChat: () => void }) {
+function Controls({ chatOpen, chatUnread, onToggleChat }: { chatOpen: boolean; /** Something new in the chat beside the call, which only those in it would want to know. */ chatUnread: boolean; onToggleChat: () => void }) {
   const muted = useVoice((state) => state.muted);
   const deafened = useVoice((state) => state.deafened);
   const serverMuted = useVoice((state) => state.serverMuted);
@@ -231,6 +231,7 @@ function Controls({ chatOpen, onToggleChat }: { chatOpen: boolean; onToggleChat:
       <Tooltip text={chatOpen ? "Hide chat" : "Show chat"} side="top">
         <button className={`voice-control${chatOpen ? " is-on" : ""}`} onClick={onToggleChat} aria-label={chatOpen ? "Hide chat" : "Show chat"} aria-pressed={chatOpen}>
           <MessageSquare size={20} />
+          {chatUnread && !chatOpen && <i className="voice-control-dot" />}
         </button>
       </Tooltip>
       <Tooltip text="Disconnect" side="top">
@@ -327,7 +328,7 @@ export function VoiceStage({ channel }: { channel: ChannelView }) {
                 })}
               </div>
             </div>
-            <Controls chatOpen={chatOpen} onToggleChat={() => setChatOpen(!chatOpen)} />
+            <Controls chatOpen={chatOpen} chatUnread={(channel.conversation?.unread ?? 0) > 0} onToggleChat={() => setChatOpen(!chatOpen)} />
           </>
         )}
       </div>

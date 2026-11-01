@@ -13,7 +13,7 @@ const ServerButton = memo(function ServerButton({ serverId, dragged }: { serverI
   if (!server) return null;
   // In a channel, only what's said to someone counts, though anything new there shows.
   const unread = server.conversations.reduce((sum, item) => sum + countedUnread(item), 0) + server.channels.reduce((sum, item) => sum + (!item.conversation || item.conversation.muted ? 0 : item.conversation.unreadMentions), 0);
-  const hasNew = unread > 0 || server.channels.some((item) => !!item.conversation && !item.conversation.muted && item.conversation.unread > 0);
+  const hasNew = unread > 0 || server.channels.some((item) => item.type === "text" && !!item.conversation && !item.conversation.muted && item.conversation.unread > 0);
   const { entry } = server;
   return (
     <div className={`rail-item${active ? " is-active" : ""}${hasNew ? " has-unread" : ""}`}>
