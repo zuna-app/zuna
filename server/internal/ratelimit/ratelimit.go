@@ -70,6 +70,9 @@ func (l *Keyed) makeRoom(now time.Time) {
 	}
 }
 
+// forgetBackoffAfter is how long without a failure wipes the slate clean.
+const forgetBackoffAfter = 24 * time.Hour
+
 // Backoff slows repeated failures for one key, such as wrong passwords for one
 // account: a few are free, and then the wait doubles each time, up to a limit.
 type Backoff struct {
@@ -108,6 +111,9 @@ func (b *Backoff) Fail(key string) {
 		b.makeRoom(now)
 		e = &backoffEntry{}
 		b.entries[key] = e
+	}
+	if now.Sub(e.seen) > forgetBackoffAfter {
+		e.failures = 0
 	}
 	e.seen = now
 	e.failures++

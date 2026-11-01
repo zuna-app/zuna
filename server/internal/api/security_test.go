@@ -612,6 +612,50 @@ func TestWrongPasswordsSlowDownForOneAccount(t *testing.T) {
 	}
 }
 
+// Z-49: someone's wrong guesses shouldn't lock out the person they're guessing at.
+func TestSomeoneElsesGuessesDontKeepAPersonOut(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.TrustProxy = true
+		cfg.AuthBurst = 100_000
+	})
+	h.owner()
+	login := func(address string) int {
+		status, _, _ := h.raw("POST", "/api/auth/login", "", []byte(`{"username":"owner","auth_key":"`+base64.StdEncoding.EncodeToString(bytesOf(32, 0xff))+`"}`),
+			map[string]string{"X-Forwarded-For": address})
+		return status
+	}
+	limited := false
+	for range 30 {
+		limited = limited || login("203.0.113.9") == http.StatusTooManyRequests
+	}
+	if !limited {
+		t.Fatal("wrong passwords from one address never slowed down")
+	}
+	if status := login("203.0.113.10"); status != http.StatusUnauthorized {
+		t.Fatalf("someone else trying that account gave %d", status)
+	}
+	// However many addresses they come from, there's still a limit.
+	limited = false
+	for i := range 300 {
+		limited = limited || login(fmt.Sprintf("198.51.%d.%d", i/256, i%256)) == http.StatusTooManyRequests
+	}
+	if !limited {
+		t.Fatal("wrong passwords from many addresses never slowed down")
+	}
+}
+
+// Z-48: going back too many days wraps around to a date in the future.
+func TestRetentionCantWrapAround(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	for _, days := range []int64{1 << 40, 1 << 62, 36501} {
+		if status, _ := h.do("PATCH", "/api/admin/settings", owner.token, map[string]any{"retention_days": days}, nil); status != http.StatusBadRequest {
+			t.Fatalf("%d days gave %d", days, status)
+		}
+	}
+	h.mustDo("PATCH", "/api/admin/settings", owner.token, map[string]any{"retention_days": 36500}, nil)
+}
+
 // Z-23: last seen stays hidden, including through a person's devices.
 func TestDeviceTimesAreOnlyForTheirOwner(t *testing.T) {
 	h := newHarness(t)

@@ -33,10 +33,15 @@ const (
 	defaultKDFIterations = 3
 	defaultKDFParallel   = 1
 
-	// Wrong passwords for one account, however many addresses they come from.
+	// Wrong passwords for one account from one address.
 	signInFreeFailures = 12
 	signInFirstWait    = 2 * time.Second
 	signInLongestWait  = 5 * time.Minute
+
+	// And however many addresses they come from: far more, so that it takes a lot of
+	// addresses to keep someone out of their own account with this.
+	accountFreeFailures = 200
+	accountLongestWait  = time.Minute
 
 	// How long a proof of an older sign-in key may take to come back.
 	upgradeChallengeLife = 5 * time.Minute
@@ -241,6 +246,29 @@ func (s *Server) newSession(r *http.Request, userID string) (string, error) {
 	return token, nil
 }
 
+// Someone else's wrong guesses shouldn't keep a person out of their own account, so
+// they count against the account from that address, and only much later against the
+// account as a whole. Signing in clears only the first, or it would give whoever is
+// guessing a fresh start each time.
+func (s *Server) signInAllowed(r *http.Request, username string) bool {
+	account := strings.ToLower(username)
+	return s.signInFailures.Allowed(account+"|"+s.callerKey(r)) && s.accountFailures.Allowed(account)
+}
+
+func (s *Server) signInFailed(r *http.Request, username string) {
+	// Nobody could have that name, so nothing is kept for it.
+	if !usernamePattern.MatchString(username) {
+		return
+	}
+	account := strings.ToLower(username)
+	s.signInFailures.Fail(account + "|" + s.callerKey(r))
+	s.accountFailures.Fail(account)
+}
+
+func (s *Server) signInSucceeded(r *http.Request, username string) {
+	s.signInFailures.Succeed(strings.ToLower(username) + "|" + s.callerKey(r))
+}
+
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
@@ -250,15 +278,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
-	failures := strings.ToLower(body.Username)
-	if !s.signInFailures.Allowed(failures) {
+	if !s.signInAllowed(r, body.Username) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
 		return
 	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
 	if errors.Is(err, store.ErrNotFound) || (err == nil &&
 		subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.AuthKey), creds.AuthHash) != 1) {
-		s.signInFailures.Fail(failures)
+		s.signInFailed(r, body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
 		return
 	}
@@ -266,7 +293,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
-	s.signInFailures.Succeed(failures)
+	s.signInSucceeded(r, body.Username)
 	if creds.Banned {
 		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
 		return
@@ -283,15 +310,14 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
-	failures := strings.ToLower(body.Username)
-	if !s.signInFailures.Allowed(failures) {
+	if !s.signInAllowed(r, body.Username) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
 		return
 	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
 	if errors.Is(err, store.ErrNotFound) || (err == nil &&
 		subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, body.RecoveryAuthKey), creds.RecoveryHash) != 1) {
-		s.signInFailures.Fail(failures)
+		s.signInFailed(r, body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and recovery key don't match.")
 		return
 	}
@@ -299,7 +325,7 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
-	s.signInFailures.Succeed(failures)
+	s.signInSucceeded(r, body.Username)
 	if creds.Banned {
 		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
 		return
@@ -415,10 +441,10 @@ func (s *Server) handleUpgradeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	refuse := func() {
-		s.signInFailures.Fail(strings.ToLower(body.Username))
+		s.signInFailed(r, body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
 	}
-	if !s.signInFailures.Allowed(strings.ToLower(body.Username)) {
+	if !s.signInAllowed(r, body.Username) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
 		return
 	}

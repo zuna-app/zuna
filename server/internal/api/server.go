@@ -89,15 +89,16 @@ type Server struct {
 	emotes  *emotes.Service
 	callers *clientip.Resolver
 
-	authLimiter    *ratelimit.Keyed
-	messageLimiter *ratelimit.Keyed
-	writeLimiter   *ratelimit.Keyed
-	socketLimiter  *ratelimit.Keyed
-	publicLimiter  *ratelimit.Keyed
-	claimLimiter   *ratelimit.Keyed
-	targetLimiter  *ratelimit.Keyed
-	rotateLimiter  *ratelimit.Keyed
-	signInFailures *ratelimit.Backoff
+	authLimiter     *ratelimit.Keyed
+	messageLimiter  *ratelimit.Keyed
+	writeLimiter    *ratelimit.Keyed
+	socketLimiter   *ratelimit.Keyed
+	publicLimiter   *ratelimit.Keyed
+	claimLimiter    *ratelimit.Keyed
+	targetLimiter   *ratelimit.Keyed
+	rotateLimiter   *ratelimit.Keyed
+	signInFailures  *ratelimit.Backoff
+	accountFailures *ratelimit.Backoff
 
 	commitLimiter     *ratelimit.Keyed
 	userCommitLimiter *ratelimit.Keyed
@@ -141,8 +142,9 @@ func New(cfg Config, db *store.DB) *Server {
 		claimLimiter:  ratelimit.NewKeyed(rate.Limit(5), 600),
 		targetLimiter: ratelimit.NewKeyed(rate.Every(2*time.Second), 20),
 		// Each rotation is a link for every contact to follow, so they stay rare.
-		rotateLimiter:  ratelimit.NewKeyed(rate.Every(time.Minute), 30),
-		signInFailures: ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
+		rotateLimiter:   ratelimit.NewKeyed(rate.Every(time.Minute), 30),
+		signInFailures:  ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
+		accountFailures: ratelimit.NewBackoff(accountFreeFailures, signInFirstWait, accountLongestWait),
 		// Per person in a group. The burst is less than store.UndoableCommits, so that
 		// what one person sends in one go can always be undone by anyone else.
 		commitLimiter:     ratelimit.NewKeyed(rate.Limit(1), 30),
@@ -234,7 +236,9 @@ func (s *Server) cleanup(ctx context.Context) {
 	}
 
 	days, err := s.intSetting(ctx, "retention_days", 0)
-	if err != nil || days <= 0 {
+	// Anything larger may have been stored before there was a limit. Going back that
+	// far wraps around to a date in the future, before which everything is older.
+	if err != nil || days <= 0 || days > maxRetentionDays {
 		return
 	}
 	expired := time.Now().AddDate(0, 0, -days).UnixMilli()
