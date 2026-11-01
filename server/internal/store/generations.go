@@ -454,7 +454,7 @@ func (d *DB) vaultItems(ctx context.Context, query string, args ...any) ([]Vault
 
 // PutVaultItemsAt stores items sealed under the given generation, which has to be
 // the current one: a device behind it would be sealing to a key it should stop using.
-func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int64, items []VaultItem) (int64, error) {
+func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int64, items []VaultItem, quota int64) (int64, error) {
 	var seq int64
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		var current int64
@@ -466,6 +466,9 @@ func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int6
 		}
 		for i := range items {
 			items[i].Generation = generation
+		}
+		if err := countVaultItems(ctx, tx, userID, items, quota); err != nil {
+			return err
 		}
 		if err := putItems(ctx, tx, userID, items); err != nil {
 			return err

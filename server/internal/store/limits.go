@@ -1,0 +1,124 @@
+﻿package store
+
+import (
+	"context"
+	"database/sql"
+	"time"
+)
+
+// What one person can make the server keep, beyond their files. All of it is far
+// past what using the app comes to, and is there so that nobody can fill a disk.
+const (
+	maxCommitBytes = 1 << 30
+	// A commit and its group info, which holds the group's whole tree.
+	commitBaseBytes      = 256 << 10
+	commitBytesPerDevice = 8 << 10
+
+	maxReactionsByPerson  = 32
+	maxReactionsOnMessage = 1024
+	maxGroupsCreated      = 10_000
+	maxActiveDevices      = 128
+	maxDevicesEver        = 4096
+
+	// A commit is kept this long and this far behind where its group has got to.
+	// A device further behind than that rejoins, as one that's lost its place does.
+	keepCommitsFor   = 30 * 24 * time.Hour
+	keepCommitEpochs = 256
+
+	storedBytes = "stored_bytes"
+	commitBytes = "commit_bytes"
+)
+
+// countBytes adds to one of someone's running totals, unless that would take them
+// past limit, where zero is no limit.
+func countBytes(ctx context.Context, tx *sql.Tx, column, userID string, n, limit int64) error {
+	if limit <= 0 {
+		_, err := tx.ExecContext(ctx, `UPDATE users SET `+column+` = `+column+` + ? WHERE id = ?`, n, userID)
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE users SET `+column+` = `+column+` + ?1 WHERE id = ?2 AND `+column+` + ?1 <= ?3`, n, userID, limit)
+	if err != nil {
+		return err
+	}
+	if changed, _ := res.RowsAffected(); changed == 0 {
+		return ErrQuota
+	}
+	return nil
+}
+
+// RecountStorage works out again what everyone has stored, since the running totals
+// only ever go up: nothing about deleting a message says whose total it was on, and
+// expiring messages deletes a lot of them at once.
+func (d *DB) RecountStorage(ctx context.Context) error {
+	stored := map[string]int64{}
+	commits := map[string]int64{}
+	add := func(totals map[string]int64, query string) error {
+		rows, err := d.sql.QueryContext(ctx, query)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var user string
+			var n int64
+			if err := rows.Scan(&user, &n); err != nil {
+				return err
+			}
+			totals[user] += n
+		}
+		return rows.Err()
+	}
+	for _, query := range []string{
+		`SELECT sender_user, COALESCE(SUM(LENGTH(envelope)), 0) FROM messages GROUP BY sender_user`,
+		`SELECT user_id, COALESCE(SUM(LENGTH(data)), 0) FROM reactions GROUP BY user_id`,
+		`SELECT user_id, COALESCE(SUM(LENGTH(data)), 0) FROM vault_items GROUP BY user_id`,
+	} {
+		if err := add(stored, query); err != nil {
+			return err
+		}
+	}
+	if err := add(commits, `SELECT sender_user, COALESCE(SUM(LENGTH(data) + COALESCE(LENGTH(replaced_info), 0)), 0)
+		FROM group_events WHERE kind = 'commit' GROUP BY sender_user`); err != nil {
+		return err
+	}
+	return d.tx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET stored_bytes = 0, commit_bytes = 0`); err != nil {
+			return err
+		}
+		for user, n := range stored {
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET stored_bytes = ? WHERE id = ?`, n, user); err != nil {
+				return err
+			}
+		}
+		for user, n := range commits {
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET commit_bytes = ? WHERE id = ?`, n, user); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// PruneCommits forgets commits nobody should still need.
+func (d *DB) PruneCommits(ctx context.Context) error {
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM group_events WHERE kind = 'commit' AND created_at < ?
+		AND epoch <= (SELECT epoch FROM groups WHERE groups.id = group_events.group_id) - ?`,
+		time.Now().Add(-keepCommitsFor).UnixMilli(), keepCommitEpochs)
+	return err
+}
+
+// commitDevices is how many devices a commit's size can reasonably go by: those of
+// the people in the group, and of whoever it's adding.
+func commitDevices(ctx context.Context, tx *sql.Tx, groupID string, adding []string) (int64, error) {
+	args := []any{groupID}
+	query := `SELECT COUNT(*) FROM devices WHERE revoked_at IS NULL AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?`
+	if len(adding) > 0 {
+		query += ` UNION SELECT id FROM users WHERE id IN (` + placeholders(len(adding)) + `)`
+		for _, user := range adding {
+			args = append(args, user)
+		}
+	}
+	var n int64
+	err := tx.QueryRowContext(ctx, query+`)`, args...).Scan(&n)
+	return n, err
+}

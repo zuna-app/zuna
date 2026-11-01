@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -17,6 +18,9 @@ import (
 
 const (
 	sendBufferSize = 256
+	// A commit can be many megabytes, so a count of frames alone wouldn't stop a slow
+	// reader from having the server hold gigabytes on its behalf.
+	maxQueuedBytes = 64 << 20
 	authTimeout    = 10 * time.Second
 	writeTimeout   = 15 * time.Second
 	pingInterval   = 25 * time.Second
@@ -41,6 +45,7 @@ type conn struct {
 	userID   string
 	deviceID string
 	send     chan []byte
+	queued   atomic.Int64
 	close    context.CancelFunc
 	// active is set while the person is using this device: the desktop
 	// without being idle, the phone app on screen. Guarded by the hub's lock.
@@ -77,6 +82,10 @@ func encodeEvent(event Event) []byte {
 // deliver queues a frame. A client too slow to keep up is disconnected rather
 // than slowing everyone down; on reconnect it catches up from the change feed.
 func (c *conn) deliver(frame []byte) {
+	if c.queued.Add(int64(len(frame))) > maxQueuedBytes {
+		c.close()
+		return
+	}
 	select {
 	case c.send <- frame:
 	default:
@@ -400,6 +409,7 @@ func (s *Server) writeLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 		case <-ctx.Done():
 			return
 		case frame := <-c.send:
+			c.queued.Add(-int64(len(frame)))
 			if frame == nil {
 				// Disconnect: what was queued before it is written, and the session is over.
 				ws.Close(4401, "session ended")

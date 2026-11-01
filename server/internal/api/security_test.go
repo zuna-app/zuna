@@ -612,6 +612,122 @@ func TestWrongPasswordsSlowDownForOneAccount(t *testing.T) {
 	}
 }
 
+// A commit whose ciphertext is as large as someone likes.
+func largeCommitFrame(groupID string, epoch int64, size int) []byte {
+	frame := mlsHeader(2)
+	frame = append(frame, mlsVector([]byte(groupID))...)
+	frame = binary.BigEndian.AppendUint64(frame, uint64(epoch))
+	frame = append(frame, 3)
+	frame = append(frame, mlsVector(nil)...)
+	frame = append(frame, mlsVector([]byte("sender"))...)
+	frame = binary.BigEndian.AppendUint32(frame, uint32(size)|0x80000000)
+	return append(frame, bytesOf(size, 1)...)
+}
+
+func newGroup(h *harness, c *client) string {
+	h.t.Helper()
+	var created struct {
+		Group *store.Group `json:"group"`
+	}
+	h.mustDo("POST", "/api/groups", c.token, map[string]any{"kind": "group"}, &created)
+	return created.Group.ID
+}
+
+// Z-50: what someone makes the server keep counts, whatever form it's in.
+func TestMessagesAndTheVaultCount(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 1 })
+	owner := h.owner()
+	group := newGroup(h, owner)
+	var status int
+	sent := 0
+	for sent = 0; sent < 20; sent++ {
+		status, _ = h.do("POST", "/api/groups/"+group+"/messages", owner.token, map[string]any{
+			"id": store.NewID(), "epoch": 0, "envelope": bytesOf(200<<10, 1),
+		}, nil)
+		if status != http.StatusCreated {
+			break
+		}
+	}
+	if status != http.StatusRequestEntityTooLarge || sent != 5 {
+		t.Fatalf("message %d gave %d", sent, status)
+	}
+	// With no room for messages, there's still room for the keys to the old ones.
+	put := func(id string) int {
+		status, _ := h.do("PUT", "/api/v2/vault", owner.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": id, "data": bytesOf(200<<10, 1)}}}, nil)
+		return status
+	}
+	if status := put("first"); status != http.StatusOK {
+		t.Fatalf("a vault item gave %d", status)
+	}
+	refused := false
+	for i := range 10 {
+		refused = refused || put(fmt.Sprintf("item-%d", i)) == http.StatusRequestEntityTooLarge
+	}
+	if !refused {
+		t.Fatal("the vault had no limit")
+	}
+}
+
+// Z-50: reactions are small and few, on the current epoch, like anything else.
+func TestReactionsAreLimited(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	group := newGroup(h, owner)
+	message := owner.send(group, 0, store.NewID())
+	react := func(id string, epoch int64, size int) int {
+		status, _ := h.do("POST", "/api/groups/"+group+"/messages/"+message.ID+"/reactions", owner.token, map[string]any{"id": id, "epoch": epoch, "data": bytesOf(size, 1)}, nil)
+		return status
+	}
+	first := store.NewID()
+	if status := react(first, 0, 2<<10); status != http.StatusOK {
+		t.Fatalf("a reaction gave %d", status)
+	}
+	if status := react(store.NewID(), 0, 2<<10+1); status != http.StatusBadRequest {
+		t.Fatalf("a large reaction gave %d", status)
+	}
+	if status, resp := owner.commit(group, 0, nil); status != http.StatusOK {
+		t.Fatalf("a commit: %d %v", status, resp)
+	}
+	if status := react(store.NewID(), 0, 16); status != http.StatusConflict {
+		t.Fatalf("a reaction for an old epoch gave %d", status)
+	}
+	for i := 1; i < 32; i++ {
+		if status := react(store.NewID(), 1, 16); status != http.StatusOK {
+			t.Fatalf("reaction %d gave %d", i, status)
+		}
+	}
+	if status := react(store.NewID(), 1, 16); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("one too many gave %d", status)
+	}
+	if status := react(first, 0, 16); status != http.StatusOK {
+		t.Fatalf("a retry gave %d", status)
+	}
+}
+
+// Z-50: commits were the one thing anyone could fill a disk with, at no cost.
+func TestCommitsCount(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 1 })
+	owner := h.owner()
+	group := newGroup(h, owner)
+	commit := func(epoch int64, size int) int {
+		status, _ := owner.commit(group, epoch, map[string]any{"commit": largeCommitFrame(group, epoch, size)})
+		return status
+	}
+	if status := commit(0, 300<<10); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a commit far too large for its group gave %d", status)
+	}
+	var status int
+	var epoch int64
+	for epoch = 0; epoch < 20; epoch++ {
+		if status = commit(epoch, 200<<10); status != http.StatusOK {
+			break
+		}
+	}
+	if status != http.StatusRequestEntityTooLarge || epoch != 5 {
+		t.Fatalf("commit %d gave %d", epoch, status)
+	}
+}
+
 // Z-49: someone's wrong guesses shouldn't lock out the person they're guessing at.
 func TestSomeoneElsesGuessesDontKeepAPersonOut(t *testing.T) {
 	h := newHarness(t, func(cfg *api.Config) {

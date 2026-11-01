@@ -423,7 +423,7 @@ func (s *Server) handleVaultPutAtGeneration(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Your account's encrypted storage is full.")
 		return
 	}
-	seq, err := s.db.PutVaultItemsAt(r.Context(), sess.UserID, body.Generation, body.Items)
+	seq, err := s.db.PutVaultItemsAt(r.Context(), sess.UserID, body.Generation, body.Items, s.vaultQuotaBytes())
 	if err != nil {
 		writeFailure(w, err)
 		return

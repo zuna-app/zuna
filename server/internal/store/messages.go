@@ -98,7 +98,7 @@ func currentEpoch(ctx context.Context, tx *sql.Tx, groupID string) (int64, error
 // CreateMessage stores a message. Sending the same ID twice returns the
 // existing message, with created false, which makes client retries safe. Content must be encrypted
 // under the group's current epoch, so a removed member's key is never reused.
-func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string) (message *Message, created bool, err error) {
+func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quota int64) (message *Message, created bool, err error) {
 	err = d.tx(ctx, func(tx *sql.Tx) error {
 		var existing string
 		err := tx.QueryRowContext(ctx, `SELECT sender_user FROM messages WHERE group_id = ? AND id = ?`, m.GroupID, m.ID).Scan(&existing)
@@ -118,6 +118,9 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string) (me
 		}
 		if epoch != m.Epoch {
 			return &EpochConflictError{Current: epoch}
+		}
+		if err := countBytes(ctx, tx, storedBytes, m.SenderUser, int64(len(m.Envelope)), quota); err != nil {
+			return err
 		}
 		seq, err := nextSeq(ctx, tx, m.GroupID)
 		if err != nil {
@@ -168,7 +171,7 @@ func (d *DB) Message(ctx context.Context, groupID, id string) (*Message, error) 
 }
 
 // EditMessage replaces a message's ciphertext. Only the sender may edit.
-func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID string, epoch int64, envelope []byte) (*Message, error) {
+func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID string, epoch int64, envelope []byte, quota int64) (*Message, error) {
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		var sender string
 		var deleted sql.NullInt64
@@ -188,6 +191,9 @@ func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID stri
 		}
 		if current != epoch {
 			return &EpochConflictError{Current: current}
+		}
+		if err := countBytes(ctx, tx, storedBytes, userID, int64(len(envelope)), quota); err != nil {
+			return err
 		}
 		seq, err := nextSeq(ctx, tx, groupID)
 		if err != nil {
@@ -266,18 +272,38 @@ func messageExists(ctx context.Context, tx *sql.Tx, groupID, id string) error {
 	return err
 }
 
-func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction) (*Message, error) {
+// AddReaction stores a reaction. Like a message, it has to be under the current
+// epoch, and adding the same ID twice is a retry that changes nothing.
+func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, quota int64) (*Message, error) {
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
 		}
-		res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO reactions(group_id, message_id, id, user_id, epoch, data, created_at)
-			VALUES(?,?,?,?,?,?,?)`, groupID, messageID, r.ID, r.UserID, r.Epoch, r.Data, Now())
+		var same, mine, all int
+		err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(id = ?), 0), COALESCE(SUM(user_id = ?), 0), COUNT(*) FROM reactions
+			WHERE group_id = ? AND message_id = ?`, r.ID, r.UserID, groupID, messageID).Scan(&same, &mine, &all)
 		if err != nil {
 			return err
 		}
-		if n, _ := res.RowsAffected(); n == 0 {
+		if same > 0 {
 			return nil
+		}
+		if mine >= maxReactionsByPerson || all >= maxReactionsOnMessage {
+			return ErrLimit
+		}
+		current, err := currentEpoch(ctx, tx, groupID)
+		if err != nil {
+			return err
+		}
+		if current != r.Epoch {
+			return &EpochConflictError{Current: current}
+		}
+		if err := countBytes(ctx, tx, storedBytes, r.UserID, int64(len(r.Data)), quota); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO reactions(group_id, message_id, id, user_id, epoch, data, created_at)
+			VALUES(?,?,?,?,?,?,?)`, groupID, messageID, r.ID, r.UserID, r.Epoch, r.Data, Now()); err != nil {
+			return err
 		}
 		return touch(ctx, tx, groupID, messageID)
 	})

@@ -509,6 +509,14 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, genera
 		if (generation == nil && current != 0) || (generation != nil && *generation != current) {
 			return &GenerationConflictError{Current: current}
 		}
+		// Everyone who talks to this person has to deal with each of these.
+		var active, ever int
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(revoked_at IS NULL), 0), COUNT(*) FROM devices WHERE user_id = ?`, dev.UserID).Scan(&active, &ever); err != nil {
+			return err
+		}
+		if active >= maxActiveDevices || ever >= maxDevicesEver {
+			return ErrLimit
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_sig, enroll_proof)
 			VALUES(?,?,?,?,?,?,?,?,?)`, dev.ID, dev.UserID, dev.Certificate, dev.SignatureKey, now, now, dev.SealKey, dev.SealSig, dev.EnrollProof)
 		if isUniqueViolation(err) {
@@ -647,15 +655,26 @@ type VaultItem struct {
 }
 
 // PutVaultItems upserts items and returns the user's newest vault sequence.
-func (d *DB) PutVaultItems(ctx context.Context, userID string, items []VaultItem) (int64, error) {
+func (d *DB) PutVaultItems(ctx context.Context, userID string, items []VaultItem, quota int64) (int64, error) {
 	var seq int64
 	err := d.tx(ctx, func(tx *sql.Tx) error {
+		if err := countVaultItems(ctx, tx, userID, items, quota); err != nil {
+			return err
+		}
 		if err := putItems(ctx, tx, userID, items); err != nil {
 			return err
 		}
 		return tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM vault_items WHERE user_id = ?`, userID).Scan(&seq)
 	})
 	return seq, err
+}
+
+func countVaultItems(ctx context.Context, tx *sql.Tx, userID string, items []VaultItem, quota int64) error {
+	var size int64
+	for _, item := range items {
+		size += int64(len(item.Data))
+	}
+	return countBytes(ctx, tx, storedBytes, userID, size, quota)
 }
 
 func putItems(ctx context.Context, tx *sql.Tx, userID string, items []VaultItem) error {

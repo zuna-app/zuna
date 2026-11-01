@@ -886,7 +886,7 @@ func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *st
 	for i := range body.Items {
 		body.Items[i].Generation = 0
 	}
-	seq, err := s.db.PutVaultItems(r.Context(), sess.UserID, body.Items)
+	seq, err := s.db.PutVaultItems(r.Context(), sess.UserID, body.Items, s.vaultQuotaBytes())
 	if err != nil {
 		writeFailure(w, err)
 		return

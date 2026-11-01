@@ -147,6 +147,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		Meta:          body.Meta,
 		MetaEpoch:     body.MetaEpoch,
 		HistoryGrants: body.HistoryGrants,
+		Quota:         s.quotaBytes(),
 	})
 	if err != nil {
 		writeFailure(w, err)
@@ -410,7 +411,10 @@ func (s *Server) handleDeleteWelcome(w http.ResponseWriter, r *http.Request, ses
 
 // --- Messages ---
 
-const maxEnvelopeBytes = 256 << 10
+const (
+	maxEnvelopeBytes = 256 << 10
+	maxReactionBytes = 2 << 10
+)
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
 	limit := clampLimit(queryInt(r, "limit", 50), 200)
@@ -489,7 +493,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		SenderDevice: sess.DeviceID,
 		Epoch:        body.Epoch,
 		Envelope:     body.Envelope,
-	}, body.FileIDs)
+	}, body.FileIDs, s.quotaBytes())
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -514,7 +518,7 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request, sess 
 		writeError(w, http.StatusBadRequest, "bad_request", "The edited message isn't valid.")
 		return
 	}
-	message, err := s.db.EditMessage(r.Context(), groupID, r.PathValue("mid"), sess.UserID, sess.DeviceID, body.Epoch, body.Envelope)
+	message, err := s.db.EditMessage(r.Context(), groupID, r.PathValue("mid"), sess.UserID, sess.DeviceID, body.Epoch, body.Envelope, s.quotaBytes())
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -565,7 +569,7 @@ func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request, sess 
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if !store.ValidID(body.ID) || len(body.Data) == 0 || len(body.Data) > 4096 {
+	if !store.ValidID(body.ID) || len(body.Data) == 0 || len(body.Data) > maxReactionBytes {
 		writeError(w, http.StatusBadRequest, "bad_request", "The reaction isn't valid.")
 		return
 	}
@@ -574,7 +578,7 @@ func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request, sess 
 		UserID: sess.UserID,
 		Epoch:  body.Epoch,
 		Data:   body.Data,
-	})
+	}, s.quotaBytes())
 	if err != nil {
 		writeFailure(w, err)
 		return

@@ -167,6 +167,12 @@ func (s *Server) quotaBytes() int64 {
 	return int64(s.cfg.UserQuotaMB) << 20
 }
 
+// vaultQuotaBytes is more than that, since the vault counts towards the same total:
+// someone with no room for more messages should still keep the keys to the old ones.
+func (s *Server) vaultQuotaBytes() int64 {
+	return 2 * s.quotaBytes()
+}
+
 // EnsureSetupInvite creates the one-time owner invite for an unclaimed server.
 func (s *Server) EnsureSetupInvite(ctx context.Context) (string, error) {
 	hasOwner, err := s.db.HasOwner(ctx)
@@ -234,6 +240,14 @@ func (s *Server) cleanup(ctx context.Context) {
 	if err := s.db.DeleteExpiredSessions(ctx); err != nil {
 		slog.Warn("removing expired sessions", "error", err)
 	}
+	defer func() {
+		if err := s.db.PruneCommits(ctx); err != nil {
+			slog.Warn("removing old commits", "error", err)
+		}
+		if err := s.db.RecountStorage(ctx); err != nil {
+			slog.Warn("recounting storage", "error", err)
+		}
+	}()
 
 	days, err := s.intSetting(ctx, "retention_days", 0)
 	// Anything larger may have been stored before there was a limit. Going back that
@@ -582,6 +596,8 @@ func writeFailure(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrQuota):
 		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded",
 			"You've used all the storage this server gives each person. Deleting messages with files frees some.")
+	case errors.Is(err, store.ErrLimit):
+		writeError(w, http.StatusRequestEntityTooLarge, "limit_reached", "That's more than this server allows.")
 	default:
 		slog.Error("request failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal", "Something went wrong on the server.")

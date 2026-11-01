@@ -24,6 +24,7 @@ var (
 	ErrConflict  = errors.New("conflict")
 	ErrForbidden = errors.New("forbidden")
 	ErrQuota     = errors.New("over quota")
+	ErrLimit     = errors.New("over a limit")
 )
 
 // EpochConflictError reports that a commit or message targeted an old epoch.
@@ -421,6 +422,11 @@ ALTER TABLE users ADD COLUMN recovery_bound INTEGER NOT NULL DEFAULT 0;
 -- can apply goes back to something the server already held.
 ALTER TABLE group_events ADD COLUMN replaced_info BLOB;
 CREATE INDEX group_events_replaced_info ON group_events(group_id, epoch) WHERE replaced_info IS NOT NULL;
+`, `
+-- What someone has stored besides files, and in commits. Running totals, as working
+-- them out takes too long to do for every message. The server recounts them hourly.
+ALTER TABLE users ADD COLUMN stored_bytes INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN commit_bytes INTEGER NOT NULL DEFAULT 0;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

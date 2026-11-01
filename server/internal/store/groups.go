@@ -60,6 +60,8 @@ type Commit struct {
 	Meta          []byte
 	MetaEpoch     *int64
 	HistoryGrants []HistoryGrant
+	// What this person may have in commits, as CreateFile's quota is for files.
+	Quota int64
 }
 
 type Welcome struct {
@@ -146,6 +148,13 @@ func (d *DB) CreateGroup(ctx context.Context, creator string, historyVisible boo
 	id := NewID()
 	now := Now()
 	err := d.tx(ctx, func(tx *sql.Tx) error {
+		var created int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM groups WHERE created_by = ? AND kind = 'group'`, creator).Scan(&created); err != nil {
+			return err
+		}
+		if created >= maxGroupsCreated {
+			return ErrLimit
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO groups(id, kind, history_visible, created_by, created_at) VALUES(?, 'group', ?, ?, ?)`,
 			id, historyVisible, creator, now); err != nil {
 			return err
@@ -311,6 +320,9 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		if err := checkCommitExtras(ctx, tx, c, role); err != nil {
 			return err
 		}
+		if err := countCommit(ctx, tx, c); err != nil {
+			return err
+		}
 
 		seq, err := nextSeq(ctx, tx, c.GroupID)
 		if err != nil {
@@ -396,6 +408,30 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		return nil, err
 	}
 	return &event, nil
+}
+
+// countCommit holds a commit to a size that goes with the group it's for, and counts
+// everything it makes the server keep for its sender.
+func countCommit(ctx context.Context, tx *sql.Tx, c Commit) error {
+	devices, err := commitDevices(ctx, tx, c.GroupID, c.AddUsers)
+	if err != nil {
+		return err
+	}
+	size := int64(len(c.Data) + len(c.GroupInfo))
+	if size > commitBaseBytes+commitBytesPerDevice*devices {
+		return ErrLimit
+	}
+	for _, welcome := range c.Welcomes {
+		size += int64(len(welcome.Data))
+	}
+	for _, grant := range c.HistoryGrants {
+		size += int64(len(grant.Data))
+	}
+	limit := int64(maxCommitBytes)
+	if c.Quota > 0 && c.Quota < limit {
+		limit = c.Quota
+	}
+	return countBytes(ctx, tx, commitBytes, c.SenderUser, size, limit)
 }
 
 // checkCommitExtras holds a commit's welcomes and history grants to what the
