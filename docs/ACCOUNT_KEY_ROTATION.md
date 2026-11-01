@@ -376,7 +376,7 @@ The current tables stay as they are, keeping the root:
 
 So someone is verified if the root matches and `trust:` reaches the current head, whether by comparing emoji at that head or through a link with continuity.
 
-Pressing "they match" (`session.ts:3364`) records the current head, and that's also how someone gets out of `changed` after a fork: they adopt the chain whose emoji matched.
+Pressing "they match" (`markVerified`) says which key the emoji covered, and that's the only key it goes by, since the press is exactly when a server would choose to answer differently. That's also how someone gets out of `changed` after a fork: they keep the chain they hold if that's what they compared, or adopt the one the server shows if it ends in exactly that key. A server's `identity_key` is only pinned if the emoji covered it, with no chain held. If nothing fits any more, nothing changes, and they're asked to compare again.
 
 **The emoji covers the heads,** because only that catches a fork: two people comparing see the same emoji only if they hold the same head. If either person has any active device with an older certificate, both compute it over the roots, so that a person on an older client still gets a match.
 

@@ -620,9 +620,17 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
               </button>
               <button
                 className="btn btn-primary grow"
+                disabled={!check}
                 onClick={() =>
                   run(async () => {
-                    await session().markVerified(userId);
+                    if (!check) return;
+                    try {
+                      await session().markVerified(userId, check.covers);
+                    } catch (error) {
+                      // Whatever changed, these are no longer the emoji to compare.
+                      void session().safetyCheck(userId).then(setCheck);
+                      throw error;
+                    }
                     toast(`${user.displayName} is verified`);
                     onClose();
                   })

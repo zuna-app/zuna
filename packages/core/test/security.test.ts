@@ -631,7 +631,7 @@ describe("a verified contact on a new device (Z-11)", () => {
   it("warns on a new device when the server swaps a key this account already knows", async () => {
     const dave = await person("dave");
     const erin = await person("erin");
-    await dave.session.markVerified(erin.userId);
+    await dave.session.markVerified(erin.userId, dave.session.safetyCheck(erin.userId)!.covers);
     await waitFor(() => (dave.session as any).db.get("SELECT uploaded FROM pinned_identities WHERE user_id = ?", [erin.userId])?.uploaded === 1, "the pin to be saved");
 
     // A new device starts from nothing but what's in the vault.
@@ -662,7 +662,7 @@ describe("a verified contact on a new device (Z-11)", () => {
   it("shows nobody as changed when a verification is simply cleared", async () => {
     const dave = await person("dave");
     const erin = await person("erin");
-    await dave.session.markVerified(erin.userId);
+    await dave.session.markVerified(erin.userId, dave.session.safetyCheck(erin.userId)!.covers);
     await dave.session.clearVerification(erin.userId);
     expect(dave.session.safetyCheck(erin.userId)!.trust).toBe("unverified");
     await (dave.session as any).syncVault();
@@ -978,7 +978,7 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     const carol = await person("carol");
     const bob = await person("bob");
     const ghost = await person("ghost");
-    await carol.session.markVerified(bob.userId);
+    await carol.session.markVerified(bob.userId, carol.session.safetyCheck(bob.userId)!.covers);
     const { group } = await apiOf(carol).createDm(bob.userId);
     addToRoster(group.id, ghost.userId);
     const sent = carol.session.sendMessage(`user:${bob.userId}`, { text: "for bob's eyes only" });
@@ -1053,7 +1053,7 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     const carol = await person("carol");
     const bob = await person("bob");
     const ghost = await person("ghost");
-    await carol.session.markVerified(bob.userId);
+    await carol.session.markVerified(bob.userId, carol.session.safetyCheck(bob.userId)!.covers);
     const first = carol.session.sendMessage(`user:${bob.userId}`, { text: "an old message" });
     await waitFor(() => !!carol.session.getConversations().find((item) => item.key === `user:${bob.userId}`)?.groupId, "the DM");
     const groupId = carol.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!.groupId!;

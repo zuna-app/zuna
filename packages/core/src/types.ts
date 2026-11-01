@@ -310,6 +310,8 @@ export type ConnectionState = "connecting" | "syncing" | "online" | "offline";
 export interface SafetyCheck {
   emoji: { emoji: string; name: string }[];
   trust: TrustState;
+  /** What those emoji cover, to hand back to `markVerified` if they match. */
+  covers: string;
 }
 
 export interface Progress {

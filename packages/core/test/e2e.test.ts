@@ -647,7 +647,7 @@ describe("verification", () => {
     expect(fromAlice.emoji).toEqual(fromBob.emoji);
     expect(fromAlice.trust).toBe("unverified");
 
-    await alice.session.markVerified(bob.userId);
+    await alice.session.markVerified(bob.userId, alice.session.safetyCheck(bob.userId)!.covers);
     expect(alice.session.safetyCheck(bob.userId)!.trust).toBe("verified");
   });
 

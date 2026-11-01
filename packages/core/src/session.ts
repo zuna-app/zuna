@@ -1332,8 +1332,14 @@ export class ServerSession {
     this.updateIdentityState(userId, "forked = 1", []);
     const root = this.pinnedIdentity(userId);
     if (root) {
-      const head = await this.readWholeChain(userId, root).catch(() => null);
-      if (head) this.forkHeads.set(userId, head.at(-1)!.identity);
+      const shown = await this.readWholeChain(userId, root).catch(() => null);
+      // A shorter version of what's held changes nothing, so what's held stays what's compared.
+      const held = this.chainOf(userId);
+      const onlyHeld = !shown?.length || shown.every((link, index) => {
+        const mine = held[index];
+        return !!mine && equalBytes(mine.hash, link.hash);
+      });
+      if (shown && !onlyHeld) this.forkHeads.set(userId, shown.at(-1)!.identity);
     }
     if (userId === this.account.userId) {
       this.emit({
@@ -1368,22 +1374,6 @@ export class ServerSession {
       }
       if (wires.length < 200) return links;
     }
-  }
-
-  /** The person compared keys against the chain the server shows now, so that's the one to follow. */
-  private async adoptChain(userId: string): Promise<void> {
-    const root = this.pinnedIdentity(userId);
-    if (!root) return;
-    const links = await this.readWholeChain(userId, root);
-    this.db.transaction(() => {
-      this.db.run("DELETE FROM identity_chain WHERE user_id = ?", [userId]);
-      this.chains.delete(userId);
-      for (const link of links) this.acceptLink(userId, link);
-      this.updateIdentityState(userId, "forked = 0, known_generation = 0, known_hash = NULL", []);
-    });
-    this.forkHeads.delete(userId);
-    this.applyUser(await this.api.user(userId));
-    this.rescheduleAffectedByDeviceChange(userId);
   }
 
   /**
@@ -4724,23 +4714,60 @@ export class ServerSession {
     return {
       emoji: legacy ? safetyEmoji(core.rootPublic, user.identityKey) : safetyEmoji(core.identityPublic, theirs),
       trust: user.trust,
+      covers: legacy ? `roots:${toBase64(user.identityKey)}` : `heads:${toBase64(theirs)}`,
     };
   }
 
-  async markVerified(userId: string): Promise<void> {
-    // These people compared keys, so whichever chain the keys came from is the one to follow.
-    if (this.identityState(userId).forked) await this.adoptChain(userId);
-    const user = this.users.get(userId);
-    if (!user) return;
-    if (user.trust === "changed") {
-      this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [user.identityKey, userId]);
+  /**
+   * The person compared the emoji `covers` names, so that key is the only one this
+   * goes by, whatever the server says by now. If nothing shown fits it any more,
+   * nothing changes, and the emoji have to be compared again.
+   */
+  async markVerified(userId: string, covers: string): Promise<void> {
+    const root = this.pinnedIdentity(userId);
+    if (!root || !this.users.has(userId)) return;
+    const [scheme, encoded] = covers.split(":");
+    const compared = fromBase64(encoded ?? "");
+    const outdated = new Error("What you compared isn't what the server shows now. Compare the emoji again.");
+    let pin = root;
+    let chain: Link[] | null = null;
+    if (!equalBytes(compared, scheme === "heads" ? (this.headOf(userId)?.identity ?? root) : root)) {
+      // Only a chain ending in exactly that key can replace what's held.
+      const shown = scheme === "heads" && this.identityState(userId).forked ? await this.readWholeChain(userId, root).catch(() => null) : null;
+      if (shown && equalBytes(shown.at(-1)?.identity ?? root, compared)) {
+        chain = shown;
+      } else {
+        // Otherwise it's a first key that isn't the one known, which leaves a chain from that one with nothing to follow from.
+        if (scheme === "heads" && this.chainOf(userId).length > 0) throw outdated;
+        pin = compared;
+        if (scheme !== "heads") chain = [];
+      }
     }
-    this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, user.identityKey]);
-    this.setVerifiedPosition(userId, this.headGeneration(userId));
-    user.trust = "verified";
-    this.persistUser(user);
+    const user = this.users.get(userId);
+    if (!user || !equalBytes(user.identityKey, pin)) throw outdated;
+
+    const repinned = !equalBytes(pin, root);
+    const forked = !!this.identityState(userId).forked;
+    this.db.transaction(() => {
+      if (chain) {
+        this.db.run("DELETE FROM identity_chain WHERE user_id = ?", [userId]);
+        this.chains.delete(userId);
+        for (const link of chain) this.acceptLink(userId, link);
+      }
+      if (forked) this.updateIdentityState(userId, "forked = 0, known_generation = 0, known_hash = NULL, chain_uploaded = 0", []);
+      if (repinned) this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [pin, userId]);
+      this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, pin]);
+      this.setVerifiedPosition(userId, this.headGeneration(userId));
+    });
+    this.forkHeads.delete(userId);
+    if (chain || forked || repinned) {
+      const fresh = await this.api.user(userId).catch(() => null);
+      if (fresh) this.applyUser(fresh);
+      this.rescheduleAffectedByDeviceChange(userId);
+    }
+    this.refreshTrust(userId);
     this.emit({ type: "users", serverId: this.serverId });
-    await this.putVault(`verified:${userId}`, user.identityKey).catch((error) => console.warn("[zuna] saving verification", error));
+    await this.putVault(`verified:${userId}`, pin).catch((error) => console.warn("[zuna] saving verification", error));
     await this.uploadPins().catch((error) => console.warn("[zuna] saving a known key", error));
   }
 

@@ -100,7 +100,14 @@ struct VerifyView: View {
                 .accessibilityIdentifier(A11y.Verify.mismatch)
                 Button {
                     run {
-                        try await model.core.session(serverId).markVerified(userId)
+                        guard let covers = check?.covers else { return }
+                        do {
+                            try await model.core.session(serverId).markVerified(userId, covers: covers)
+                        } catch {
+                            // Whatever changed, these are no longer the emoji to compare.
+                            check = try? await model.core.session(serverId).safetyCheck(userId)
+                            throw error
+                        }
                         model.toast("\(name) is verified")
                         dismiss()
                     }

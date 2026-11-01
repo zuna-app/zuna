@@ -160,7 +160,7 @@ public struct SessionCalls: Sendable {
 
     /// The twelve emoji to compare with someone, from both people's keys.
     public func safetyCheck(_ userId: String) async throws -> SafetyCheck? { try await call("safetyCheck", [userId]) }
-    public func markVerified(_ userId: String) async throws { try await run("markVerified", [userId]) }
+    public func markVerified(_ userId: String, covers: String) async throws { try await run("markVerified", [userId, covers]) }
     public func clearVerification(_ userId: String) async throws { try await run("clearVerification", [userId]) }
 
     // MARK: Profile and security

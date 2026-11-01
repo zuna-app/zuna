@@ -381,6 +381,8 @@ public struct SafetyCheck: Codable, Sendable, Equatable {
 
     public var emoji: [Item]
     public var trust: TrustState
+    /// What those emoji cover, to hand back to `markVerified` if they match.
+    public var covers: String
 }
 
 /// `getSelf()`.

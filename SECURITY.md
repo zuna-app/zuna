@@ -65,7 +65,7 @@ When a device is removed or signs out, your password or recovery key changes, or
 
 ### The emoji check
 
-Pinning alone doesn't protect a first conversation: a malicious server could hand out a fake key from the start. The emoji check closes that gap. Two people compare 12 emoji (72 bits, from an iterated SHA-512 over both identity keys, in the style of Signal's safety numbers). If they match, each app holds the other person's real key, and since every device in a chat has to be signed by that key, nobody else's device can be in the chat as them. After someone's keys are replaced, the emoji change, and a verification only carries over if a device the other person has known for at least a week made the change. Otherwise that person goes back to unverified, and a line in your chat says so.
+Pinning alone doesn't protect a first conversation: a malicious server could hand out a fake key from the start. The emoji check closes that gap. Two people compare 12 emoji (72 bits, from an iterated SHA-512 over both identity keys, in the style of Signal's safety numbers). If they match, each app holds the other person's real key, and since every device in a chat has to be signed by that key, nobody else's device can be in the chat as them. Saying they match only ever trusts the key those emoji were made from, so a server can't use that moment to swap in another. After someone's keys are replaced, the emoji change, and a verification only carries over if a device the other person has known for at least a week made the change. Otherwise that person goes back to unverified, and a line in your chat says so.
 
 ### Who's in a conversation
 

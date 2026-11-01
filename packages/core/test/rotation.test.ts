@@ -676,7 +676,7 @@ describe("someone holding old keys, with the server's help", () => {
   it("can't change who the account trusts with vault items under an old key", async () => {
     const dave = await person("dave");
     await sessionOf(dave).ensureUser(alice.userId, true);
-    await dave.session.markVerified(alice.userId);
+    await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
     const oldKey = accountKeyOf(dave).slice();
     await dave.session.rotate();
     const attacker = wasm.signingKeygen();
@@ -1229,7 +1229,7 @@ describe("verified contacts", () => {
     await waitFor(() => erin.texts(`user:${dave.userId}`).includes("hello"), "delivery");
     const dm = dave.session.getConversations().find((item) => item.key === `user:${erin.userId}`)!.groupId!;
     await sessionOf(dave).ensureUser(erin.userId, true);
-    await erin.session.markVerified(dave.userId);
+    await erin.session.markVerified(dave.userId, erin.session.safetyCheck(dave.userId)!.covers);
     expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("verified");
     return { dave, erin, dm };
   }
@@ -1312,9 +1312,179 @@ describe("verified contacts", () => {
     sessionOf(erin).updateIdentityState(dave.userId, "forked = 1", []);
     sessionOf(erin).refreshTrust(dave.userId);
     expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
-    await erin.session.markVerified(dave.userId);
+    await erin.session.markVerified(dave.userId, erin.session.safetyCheck(dave.userId)!.covers);
     expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("verified");
     expect(sessionOf(erin).identityState(dave.userId).forked).toBe(0);
+  });
+
+  describe("pressing that the emoji match", () => {
+    const covers = (from: TestApp, to: TestApp): string => from.session.safetyCheck(to.userId)!.covers;
+    const press = (from: TestApp, to: TestApp, compared: string) => from.session.markVerified(to.userId, compared);
+    const pinned = (app: TestApp, userId: string): string => toBase64(sessionOf(app).pinnedIdentity(userId));
+    const someKey = () => wasm.signingKeygen().publicKey as Uint8Array;
+    const garbageLink = (generation: number) => ({ generation, payload: toBase64(utf8("{}")), by_prev: "", by_new: "", by_device: "" });
+    const lieAboutChain = (app: TestApp, links: unknown[]) => {
+      (apiOf(app) as any).identityLinks = async () => links;
+    };
+    const lieAboutKey = (app: TestApp, key: Uint8Array) => {
+      const real = apiOf(app).user;
+      (apiOf(app) as any).user = async (id: string) => ({ ...(await real(id)), identity_key: toBase64(key) });
+    };
+
+    async function rotatedPair() {
+      const { dave, erin } = await verifiedPair();
+      const root = pinned(erin, dave.userId);
+      await dave.session.rotate();
+      await waitFor(() => sessionOf(erin).headGeneration(dave.userId) === 1, "erin to follow");
+      await waitFor(() => covers(erin, dave).startsWith("heads:"), "the new certificate");
+      return { dave, erin, root, head: toBase64(sessionOf(erin).headOf(dave.userId).identity) };
+    }
+
+    const fork = (erin: TestApp, dave: TestApp) => {
+      sessionOf(erin).updateIdentityState(dave.userId, "forked = 1", []);
+      sessionOf(erin).refreshTrust(dave.userId);
+    };
+
+    it("keeps the chain that was compared, whatever the server shows at that moment", async () => {
+      const { dave, erin, head } = await rotatedPair();
+      fork(erin, dave);
+      const compared = covers(erin, dave);
+      expect(compared).toBe(`heads:${head}`);
+      // Back to before the rotation, which would make a removed device's certificate count again.
+      lieAboutChain(erin, []);
+      await press(erin, dave, compared);
+      expect(sessionOf(erin).headGeneration(dave.userId)).toBe(1);
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("verified");
+    });
+
+    it("changes nothing if the chain the server shows doesn't end in what was compared", async () => {
+      const { dave, erin, head } = await rotatedPair();
+      fork(erin, dave);
+      const compared = `heads:${toBase64(someKey())}`;
+      await expect(press(erin, dave, compared)).rejects.toThrow("Compare the emoji again");
+      expect(toBase64(sessionOf(erin).headOf(dave.userId).identity)).toBe(head);
+      expect(sessionOf(erin).identityState(dave.userId).forked).toBe(1);
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
+    });
+
+    it("follows the real chain over a forged one held first, if that's what was compared", async () => {
+      const dave = await person("dave");
+      const erin = await person("erin");
+      await sessionOf(erin).ensureUser(dave.userId, true);
+      const { buildLink, readHeldLink, rootHash, slotsHash } = await import("../src/generations");
+      const core = sessionOf(dave).account.core;
+      const other = wasm.signingKeygen();
+      const device = wasm.signingKeygen();
+      const forged = buildLink(
+        {
+          user: dave.userId,
+          gen: 1,
+          prev: rootHash(dave.userId, core.rootPublic),
+          identity: other.publicKey,
+          hpke: wasm.hpkeKeygen().publicKey,
+          keyCommit: new Uint8Array(32),
+          slotsHash: slotsHash({}),
+          devices: [{ id: "a".repeat(32), key: device.publicKey }],
+          removed: [],
+          signer: "a".repeat(32),
+        },
+        core.identitySecret,
+        other.secretKey,
+        device.secretKey,
+      );
+      sessionOf(erin).acceptLink(dave.userId, readHeldLink(forged));
+      await dave.session.rotate();
+      await sessionOf(erin).followChain(dave.userId);
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
+      const real = toBase64(sessionOf(dave).account.core.identityPublic);
+      await waitFor(() => covers(erin, dave) === `heads:${real}`, "the real chain to be what's compared");
+      await press(erin, dave, covers(erin, dave));
+      expect(toBase64(sessionOf(erin).headOf(dave.userId).identity)).toBe(real);
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("verified");
+    });
+
+    it("doesn't take a shorter chain for what's being compared", async () => {
+      const { dave, erin, head } = await rotatedPair();
+      let calls = 0;
+      (apiOf(erin) as any).identityLinks = async () => (++calls === 1 ? [garbageLink(2)] : []);
+      await sessionOf(erin).followChain(dave.userId);
+      expect(sessionOf(erin).identityState(dave.userId).forked).toBe(1);
+      expect(covers(erin, dave)).toBe(`heads:${head}`);
+    });
+
+    it("never pins the key the server names when the emoji covered another", async () => {
+      const { dave, erin, root, head } = await rotatedPair();
+      const fake = someKey();
+      sessionOf(erin).applyUser({ ...(await apiOf(erin).user(dave.userId)), identity_key: toBase64(fake) });
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
+      expect(covers(erin, dave)).toBe(`heads:${head}`);
+      await expect(press(erin, dave, covers(erin, dave))).rejects.toThrow("Compare the emoji again");
+      expect(pinned(erin, dave.userId)).toBe(root);
+      expect(toBase64(sessionOf(erin).verifiedIdentity(dave.userId))).toBe(root);
+    });
+
+    it("can't be moved to a key of the server's by one press", async () => {
+      const dave = await person("dave");
+      const erin = await person("erin");
+      await sessionOf(erin).ensureUser(dave.userId, true);
+      const root = pinned(erin, dave.userId);
+      // The warning that asks for the comparison, over a link that doesn't even hold together.
+      lieAboutChain(erin, [garbageLink(1)]);
+      await sessionOf(erin).followChain(dave.userId);
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
+      const compared = covers(erin, dave);
+      expect(compared).toBe(`heads:${root}`);
+      const fake = wasm.signingKeygen();
+      lieAboutChain(erin, []);
+      lieAboutKey(erin, fake.publicKey);
+      await press(erin, dave, compared);
+      expect(pinned(erin, dave.userId)).toBe(root);
+      expect(toBase64(sessionOf(erin).verifiedIdentity(dave.userId))).toBe(root);
+      expect(toBase64(sessionOf(erin).users.get(dave.userId).identityKey)).toBe(toBase64(fake.publicKey));
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
+      // A certificate signed by that key counts for nothing.
+      const ghost = wasm.signingKeygen();
+      const certificate = createCertificate(fake.secretKey, { userId: dave.userId, deviceId: "b".repeat(32), signatureKey: ghost.publicKey });
+      expect(sessionOf(erin).certificateStanding(dave.userId, sessionOf(erin).pinnedIdentity(dave.userId), certificate)).toBeNull();
+    });
+
+    it("refuses when the server changes the key between comparing and pressing", async () => {
+      const dave = await person("dave");
+      const erin = await person("erin");
+      await sessionOf(erin).ensureUser(dave.userId, true);
+      const root = pinned(erin, dave.userId);
+      const compared = covers(erin, dave);
+      sessionOf(erin).applyUser({ ...(await apiOf(erin).user(dave.userId)), identity_key: toBase64(someKey()) });
+      await expect(press(erin, dave, compared)).rejects.toThrow("Compare the emoji again");
+      expect(pinned(erin, dave.userId)).toBe(root);
+      expect(sessionOf(erin).verifiedIdentity(dave.userId)).toBeNull();
+    });
+
+    it("moves to a new first key only if that's what the emoji covered", async () => {
+      const dave = await person("dave");
+      const erin = await person("erin");
+      await sessionOf(erin).ensureUser(dave.userId, true);
+      const replaced = someKey();
+      lieAboutKey(erin, replaced);
+      await sessionOf(erin).ensureUser(dave.userId, true);
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
+      expect(covers(erin, dave)).toBe(`heads:${toBase64(replaced)}`);
+      await press(erin, dave, covers(erin, dave));
+      expect(pinned(erin, dave.userId)).toBe(toBase64(replaced));
+      expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("verified");
+    });
+
+    it("goes by the first keys for someone on an older app, and leaves the chain alone", async () => {
+      const { dave, erin, root } = await rotatedPair();
+      for (const device of sessionOf(erin).users.get(dave.userId).devices.values()) device.legacy = true;
+      fork(erin, dave);
+      const compared = covers(erin, dave);
+      expect(compared).toBe(`roots:${root}`);
+      lieAboutChain(erin, []);
+      await press(erin, dave, compared);
+      expect(sessionOf(erin).headGeneration(dave.userId)).toBe(1);
+      expect(pinned(erin, dave.userId)).toBe(root);
+    });
   });
 
   it("shares how far a verification reached with this account's new devices", async () => {
