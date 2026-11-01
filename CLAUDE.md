@@ -121,7 +121,7 @@ Rules the core depends on:
 - One sidebar icon is one self-hosted install, with one account on it. No central service and no federation.
 - The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only, and there are no open channels.
 - Each server's admins pick one 7TV emote set. People can't add their own.
-- No browser client. `dev:web` is only a development convenience.
+- The web app is served by its own host, `zuna-web`, never by a chat server, and on an origin of its own (`docs/WEB_PLAN.md`).
 - Pinned messages live in the pins drawer, with no bar above the chat.
 - Security fixes may not add a step, prompt or setting for people using the app.
 
