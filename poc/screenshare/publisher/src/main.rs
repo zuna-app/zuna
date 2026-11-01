@@ -38,6 +38,7 @@ struct Args {
     output: Option<String>,
     output_raw: Option<String>,
     list_monitors: bool,
+    check_dmabuf: bool,
 }
 
 const USAGE: &str = "zuna-screenshare [options]
@@ -61,7 +62,8 @@ const USAGE: &str = "zuna-screenshare [options]
   --no-idr-fix           Leave out the fix for keyframes under encryption
   --output FILE          Write H.264 to a file instead of publishing
   --output-raw FILE      Also write the encoder's output, unchanged
-  --list-monitors        List monitors and exit";
+  --list-monitors        List monitors and exit
+  --check-dmabuf         Linux: check that DMA-BUFs reach NVENC, without capturing";
 
 fn parse_args() -> std::result::Result<Args, String> {
     let mut args = Args {
@@ -79,6 +81,7 @@ fn parse_args() -> std::result::Result<Args, String> {
         output: None,
         output_raw: None,
         list_monitors: false,
+        check_dmabuf: false,
     };
     let mut raw = std::env::args().skip(1);
     while let Some(flag) = raw.next() {
@@ -113,6 +116,7 @@ fn parse_args() -> std::result::Result<Args, String> {
             "--output" => args.output = Some(value()?),
             "--output-raw" => args.output_raw = Some(value()?),
             "--list-monitors" => args.list_monitors = true,
+            "--check-dmabuf" => args.check_dmabuf = true,
             "--help" | "-h" => return Err(USAGE.into()),
             other => return Err(format!("Unknown option {other}\n\n{USAGE}")),
         }
@@ -198,6 +202,12 @@ fn run(args: Args) -> Result<()> {
     if args.list_monitors {
         capture::list_monitors();
         return Ok(());
+    }
+    if args.check_dmabuf {
+        #[cfg(target_os = "linux")]
+        return encoder::check_dmabuf(&args.capture.render_node).map(|report| print!("{report}"));
+        #[cfg(not(target_os = "linux"))]
+        return Err("--check-dmabuf is for Linux".into());
     }
 
     let runtime = tokio::runtime::Runtime::new().map_err(|error| format!("Starting the runtime: {error}"))?;

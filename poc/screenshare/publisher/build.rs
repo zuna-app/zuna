@@ -56,10 +56,11 @@ fn build_encoder_library(manifest: &Path, ffmpeg: &Path, out: &Path, program_dir
         command
             .args(["-shared", "-fPIC", "-fvisibility=hidden"])
             .arg(&source)
+            .arg(manifest.join("native/dmabuf_cuda.c"))
             .arg("-o")
             .arg(program_dir.join("libzuna_encoder.so"))
             .arg(format!("-L{}", ffmpeg.join("lib").display()))
-            .args(["-lavcodec", "-lavfilter", "-lavutil", "-Wl,-Bsymbolic", "-Wl,--disable-new-dtags"])
+            .args(["-lavcodec", "-lavfilter", "-lavutil", "-ldl", "-Wl,-Bsymbolic", "-Wl,--disable-new-dtags"])
             .arg(format!("-Wl,-rpath,{}", ffmpeg.join("lib").display()));
     }
     let status = command.status().expect("Couldn't run the C compiler");

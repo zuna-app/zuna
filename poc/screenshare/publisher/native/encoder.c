@@ -32,6 +32,16 @@
 #endif
 #endif
 
+#ifdef __linux__
+// FFmpeg's header wants CUDA's for these two, and nothing else from it.
+#define CUDA_VERSION 0
+typedef struct CUctx_st *CUcontext;
+typedef struct CUstream_st *CUstream;
+#include <libavutil/hwcontext_cuda.h>
+
+#include "dmabuf_cuda.h"
+#endif
+
 struct zuna_encoder {
     char *codec_name;
     zuna_encoder_config config;
@@ -49,6 +59,9 @@ struct zuna_encoder {
     AVFilterContext *graph_source;
     AVFilterContext *graph_sink;
     AVFrame *filtered;
+#endif
+#ifdef __linux__
+    zuna_importer *importer;
 #endif
 };
 
@@ -339,7 +352,45 @@ int zuna_encoder_send_cpu(zuna_encoder *e, const uint8_t *data, int stride, int6
     return send_owned(e, frame, pts, force_key);
 }
 
+#ifdef __linux__
+// NVENC from DMA-BUFs: the importer copies each frame into CUDA memory on the GPU.
+static int open_cuda(zuna_encoder *e) {
+    int result = av_hwdevice_ctx_create(&e->device, AV_HWDEVICE_TYPE_CUDA, NULL, NULL, 0);
+    if (result < 0) return result;
+    e->frames = av_hwframe_ctx_alloc(e->device);
+    if (!e->frames) return AVERROR(ENOMEM);
+    AVHWFramesContext *frames = (AVHWFramesContext *)e->frames->data;
+    frames->format = AV_PIX_FMT_CUDA;
+    frames->sw_format = AV_PIX_FMT_RGB0;
+    frames->width = e->config.width;
+    frames->height = e->config.height;
+    result = av_hwframe_ctx_init(e->frames);
+    if (result < 0) return result;
+    AVCUDADeviceContext *device = ((AVHWDeviceContext *)e->device->data)->hwctx;
+    return zuna_importer_open(e->config.render_node, device->cuda_ctx, e->config.width, e->config.height,
+                              &e->importer);
+}
+
+// A frame of its own in CUDA memory, so it can be repeated after the capture buffer
+// has gone back to the compositor.
+static int send_through_cuda(zuna_encoder *e, const zuna_dmabuf *dmabuf, int64_t pts, int force_key) {
+    AVFrame *frame = av_frame_alloc();
+    if (!frame) return AVERROR(ENOMEM);
+    int result = av_hwframe_get_buffer(e->frames, frame, 0);
+    if (result >= 0)
+        result = zuna_importer_copy(e->importer, dmabuf, (uint64_t)(uintptr_t)frame->data[0], frame->linesize[0]);
+    if (result < 0) {
+        av_frame_free(&frame);
+        return result;
+    }
+    return send_owned(e, frame, pts, force_key);
+}
+#endif
+
 int zuna_encoder_send_dmabuf(zuna_encoder *e, const zuna_dmabuf *dmabuf, int64_t pts, int force_key) {
+#ifdef __linux__
+    if (e->importer) return send_through_cuda(e, dmabuf, pts, force_key);
+#endif
 #ifdef ZUNA_VAAPI
     AVDRMFrameDescriptor *descriptor = av_mallocz(sizeof *descriptor);
     if (!descriptor) return AVERROR(ENOMEM);
@@ -431,6 +482,9 @@ int zuna_encoder_open(const zuna_encoder_config *config, zuna_encoder **out) {
         if (result >= 0) result = open_graph(e);
     }
 #endif
+#ifdef __linux__
+    if (result >= 0 && is_codec(e, "h264_nvenc") && config->input == ZUNA_INPUT_DMABUF) result = open_cuda(e);
+#endif
     if (result >= 0) result = open_codec(e);
     if (result < 0) {
         zuna_encoder_close(e);
@@ -444,6 +498,9 @@ void zuna_encoder_close(zuna_encoder *e) {
     if (!e) return;
     av_frame_free(&e->last);
     avcodec_free_context(&e->codec);
+#ifdef __linux__
+    zuna_importer_close(e->importer);
+#endif
 #ifdef ZUNA_VAAPI
     avfilter_graph_free(&e->graph);
     av_buffer_unref(&e->drm_frames);

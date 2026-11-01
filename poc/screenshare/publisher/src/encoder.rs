@@ -66,6 +66,10 @@ struct Api {
     receive: unsafe extern "C" fn(*mut RawEncoder, *mut *const u8, *mut c_int, *mut i64, *mut c_int) -> c_int,
     set_bitrate: unsafe extern "C" fn(*mut RawEncoder, i64) -> c_int,
     error: unsafe extern "C" fn(c_int, *mut c_char, c_int),
+    #[cfg(target_os = "linux")]
+    dmabuf_modifiers: unsafe extern "C" fn(*const c_char, u32, *mut u64, c_int) -> c_int,
+    #[cfg(target_os = "linux")]
+    dmabuf_check: unsafe extern "C" fn(*const c_char, *mut c_char, c_int) -> c_int,
 }
 
 #[cfg(windows)]
@@ -104,6 +108,10 @@ fn load_api() -> Result<Api> {
         receive: get!(b"zuna_encoder_receive"),
         set_bitrate: get!(b"zuna_encoder_set_bitrate"),
         error: get!(b"zuna_encoder_error"),
+        #[cfg(target_os = "linux")]
+        dmabuf_modifiers: get!(b"zuna_dmabuf_modifiers"),
+        #[cfg(target_os = "linux")]
+        dmabuf_check: get!(b"zuna_dmabuf_check"),
     };
     // The function pointers above outlive this, so the library stays loaded for good.
     std::mem::forget(library);
@@ -125,6 +133,29 @@ fn check(api: &Api, code: c_int, doing: &str) -> Result<c_int> {
     unsafe { (api.error)(code, buffer.as_mut_ptr(), buffer.len() as c_int) };
     let message = unsafe { CStr::from_ptr(buffer.as_ptr()) }.to_string_lossy().into_owned();
     Err(format!("{doing}: {message}"))
+}
+
+/// The modifiers NVENC can take a DMA-BUF of this DRM format with, best first.
+#[cfg(target_os = "linux")]
+pub fn dmabuf_modifiers(render_node: &str, fourcc: u32) -> Result<Vec<u64>> {
+    let api = api()?;
+    let node = CString::new(render_node).unwrap();
+    let mut modifiers = [0u64; 64];
+    let code = unsafe { (api.dmabuf_modifiers)(node.as_ptr(), fourcc, modifiers.as_mut_ptr(), modifiers.len() as c_int) };
+    let count = check(api, code, "Asking EGL which DMA-BUFs it can import")?;
+    Ok(modifiers[..count as usize].to_vec())
+}
+
+/// Brings DMA-BUFs of every modifier into CUDA without a compositor, and says how
+/// each went.
+#[cfg(target_os = "linux")]
+pub fn check_dmabuf(render_node: &str) -> Result<String> {
+    let api = api()?;
+    let node = CString::new(render_node).unwrap();
+    let mut report = vec![0 as c_char; 8192];
+    let code = unsafe { (api.dmabuf_check)(node.as_ptr(), report.as_mut_ptr(), report.len() as c_int) };
+    let report = unsafe { CStr::from_ptr(report.as_ptr()) }.to_string_lossy().into_owned();
+    check(api, code, &format!("{report}Bringing DMA-BUFs into CUDA")).map(|_| report)
 }
 
 pub struct Config<'a> {

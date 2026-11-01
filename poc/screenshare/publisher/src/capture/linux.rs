@@ -23,7 +23,7 @@ use super::{
     Options,
 };
 use crate::{
-    encoder::{Config, DmaBuf, Encoder, Input, Pixel, Result, INPUT_CPU, INPUT_DMABUF},
+    encoder::{self, Config, DmaBuf, Encoder, Input, Pixel, Result, INPUT_CPU, INPUT_DMABUF},
     pipeline::Pipeline,
 };
 
@@ -48,7 +48,7 @@ const VIDEO_BGRX: u32 = 8;
 const VIDEO_RGBA: u32 = 11;
 const VIDEO_BGRA: u32 = 12;
 
-const DRM_FORMAT_MOD_LINEAR: i64 = 0;
+const DRM_FORMAT_MOD_LINEAR: u64 = 0;
 
 const fn fourcc(code: &[u8; 4]) -> u32 {
     (code[0] as u32) | (code[1] as u32) << 8 | (code[2] as u32) << 16 | (code[3] as u32) << 24
@@ -67,18 +67,21 @@ fn describe_format(format: u32) -> Option<(Pixel, u32)> {
 
 const FORMATS: [u32; 4] = [VIDEO_BGRX, VIDEO_BGRA, VIDEO_RGBX, VIDEO_RGBA];
 
-fn format_param(format: u32, fps: u32, modifier: Option<i64>) -> Vec<u64> {
+/// Shared memory with no modifiers, and DMA-BUFs with them, the first preferred.
+fn format_param(format: u32, fps: u32, modifiers: &[u64]) -> Vec<u64> {
     let mut properties = vec![
         (FORMAT_MEDIA_TYPE, 0, Value::Id(MEDIA_TYPE_VIDEO)),
         (FORMAT_MEDIA_SUBTYPE, 0, Value::Id(MEDIA_SUBTYPE_RAW)),
         (FORMAT_VIDEO_FORMAT, 0, Value::Id(format)),
     ];
-    if let Some(modifier) = modifier {
-        // Offering a modifier at all is what says DMA-BUFs are welcome.
+    if let Some(&preferred) = modifiers.first() {
+        // Offering a modifier at all is what says DMA-BUFs are welcome. An enum's
+        // first value is its default, and the rest are the choices.
+        let choices = std::iter::once(preferred).chain(modifiers.iter().copied()).map(|modifier| Value::Long(modifier as i64));
         properties.push((
             FORMAT_VIDEO_MODIFIER,
             pod::PROP_MANDATORY | pod::PROP_DONT_FIXATE,
-            Value::Choice(pod::CHOICE_ENUM, vec![Value::Long(modifier), Value::Long(modifier)]),
+            Value::Choice(pod::CHOICE_ENUM, choices.collect()),
         ));
     }
     properties.push((
@@ -261,6 +264,19 @@ fn choose_encoder(requested: &str) -> Result<String> {
     }
 }
 
+/// VA-API maps linear DMA-BUFs straight onto its surfaces. NVENC takes whatever EGL can
+/// import, which dmabuf_cuda.c copies into CUDA memory without leaving the GPU.
+fn dmabuf_modifiers(codec: &str, render_node: &str, format: u32) -> Vec<u64> {
+    if codec == "h264_vaapi" {
+        return vec![DRM_FORMAT_MOD_LINEAR];
+    }
+    let Some((_, drm_format)) = describe_format(format) else { return Vec::new() };
+    encoder::dmabuf_modifiers(render_node, drm_format).unwrap_or_else(|error| {
+        log::warn!("Using shared memory, since DMA-BUFs can't reach NVENC: {error}");
+        Vec::new()
+    })
+}
+
 /// What the person picks in the portal's dialog, kept alive for as long as it's shared.
 struct PortalShare {
     proxy: Screencast,
@@ -328,10 +344,6 @@ impl Capture {
             return Err("Couldn't start PipeWire's thread".into());
         }
 
-        // Only VA-API can take a DMA-BUF here. NVENC would need it brought into CUDA first,
-        // which is a step past this proof of concept, so it gets shared memory.
-        let want_dmabuf = codec == "h264_vaapi" && !options.cpu_input;
-
         unsafe { (api.thread_loop_lock)(thread_loop) };
         let duplicate = portal.remote.try_clone().map_err(|error| format!("Copying PipeWire's connection: {error}"))?;
         let core = unsafe { (api.context_connect_fd)(context, duplicate.as_raw_fd(), ptr::null_mut(), 0) };
@@ -361,12 +373,18 @@ impl Capture {
         let mut hook = Box::new(SpaHook::zeroed());
         unsafe { (api.stream_add_listener)(stream, &mut *hook, &STREAM_EVENTS, &mut *shared as *mut Shared as *mut c_void) };
 
-        // Best first: DMA-BUF if wanted, then shared memory for whatever can't do that.
+        // Best first: DMA-BUFs, then shared memory for a compositor that can't share those.
         let mut offers: Vec<Vec<u64>> = Vec::new();
-        if want_dmabuf {
-            offers.extend(FORMATS.iter().map(|&format| format_param(format, options.fps, Some(DRM_FORMAT_MOD_LINEAR))));
+        if !options.cpu_input {
+            for format in FORMATS {
+                let modifiers = dmabuf_modifiers(&codec, &options.render_node, format);
+                if modifiers.is_empty() {
+                    break;
+                }
+                offers.push(format_param(format, options.fps, &modifiers));
+            }
         }
-        offers.extend(FORMATS.iter().map(|&format| format_param(format, options.fps, None)));
+        offers.extend(FORMATS.iter().map(|&format| format_param(format, options.fps, &[])));
         let mut params: Vec<*const c_void> = offers.iter().map(|offer| offer.as_ptr() as *const c_void).collect();
 
         let connected = unsafe {
@@ -402,7 +420,10 @@ impl Capture {
             thread::sleep(Duration::from_millis(20));
         };
 
-        let from = if negotiated.modifier.is_some() { "DMA-BUF" } else { "shared memory" };
+        let from = match negotiated.modifier {
+            Some(modifier) => format!("DMA-BUF with modifier {modifier:#x}"),
+            None => "shared memory".into(),
+        };
         Ok(Self {
             api,
             description: format!("portal node {} at {}x{}, {codec} from {from}", portal.node, negotiated.width, negotiated.height),

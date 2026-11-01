@@ -30,7 +30,7 @@ typedef struct zuna_encoder_config {
     int gop;
     int64_t bitrate;
     void *d3d11_device;       // ID3D11Device*, for ZUNA_INPUT_D3D11
-    const char *render_node;  // /dev/dri/renderD128, for VA-API
+    const char *render_node;  // /dev/dri/renderD128, for VA-API and DMA-BUFs into NVENC
 } zuna_encoder_config;
 
 typedef struct zuna_dmabuf {
@@ -60,5 +60,12 @@ ZUNA_API int zuna_encoder_receive(zuna_encoder *encoder, const uint8_t **data, i
 ZUNA_API int zuna_encoder_set_bitrate(zuna_encoder *encoder, int64_t bitrate);
 
 ZUNA_API void zuna_encoder_error(int code, char *buffer, int size);
+
+// Linux only, in dmabuf_cuda.c. The modifiers NVENC can take a DMA-BUF of this DRM
+// format with, best first: returns how many, or a negative error.
+ZUNA_API int zuna_dmabuf_modifiers(const char *render_node, uint32_t fourcc, uint64_t *modifiers, int capacity);
+// Imports DMA-BUFs it makes itself, of every one of those modifiers, and checks what
+// comes out, without a compositor. Says what it found in report.
+ZUNA_API int zuna_dmabuf_check(const char *render_node, char *report, int size);
 
 #endif
