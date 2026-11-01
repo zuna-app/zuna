@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"bytes"
@@ -343,17 +343,19 @@ func (s *Server) handleSealKey(w http.ResponseWriter, r *http.Request, sess *sto
 		return
 	}
 	var body struct {
-		SealKey []byte `json:"seal_key"`
-		SealSig []byte `json:"seal_sig"`
+		SealKey        []byte `json:"seal_key"`
+		SealSig        []byte `json:"seal_sig"`
+		SealGeneration *int64 `json:"seal_generation"`
+		SealProof      []byte `json:"seal_proof"`
 	}
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if len(body.SealKey) != 32 || len(body.SealSig) != ed25519.SignatureSize {
+	if len(body.SealKey) != 32 || len(body.SealSig) != ed25519.SignatureSize || len(body.SealProof) > ed25519.SignatureSize {
 		writeError(w, http.StatusBadRequest, "bad_request", "That key isn't valid.")
 		return
 	}
-	if err := s.db.SetDeviceSealKey(r.Context(), sess.UserID, sess.DeviceID, body.SealKey, body.SealSig); err != nil {
+	if err := s.db.SetDeviceSealKey(r.Context(), sess.UserID, sess.DeviceID, body.SealKey, body.SealSig, body.SealGeneration, body.SealProof); err != nil {
 		writeFailure(w, err)
 		return
 	}

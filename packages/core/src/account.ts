@@ -35,6 +35,7 @@ import {
   sealToSlot,
   signEnrollment,
   signSealKey,
+  signSealProof,
   type NewSlot,
   type RotationPlan,
   type SlotKind,
@@ -149,6 +150,8 @@ async function createDevice(api: Api, core: VaultCore, userId: string, slotSign:
     generation: core.generation,
     seal_key: seal.publicKey,
     seal_sig: signSealKey(device.secretKey, userId, deviceId, seal.publicKey),
+    seal_generation: core.generation,
+    seal_proof: signSealProof(device.secretKey, userId, deviceId, core.generation, seal.publicKey),
     enroll_proof: slotSign ? signEnrollment(slotSign, userId, deviceId, device.publicKey) : undefined,
   });
   return { ...made, certificate, sealPublic: seal.publicKey as Uint8Array, sealSecret: seal.secretKey as Uint8Array, protocol };

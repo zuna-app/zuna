@@ -1,4 +1,4 @@
-package store
+﻿package store
 
 import (
 	"context"
@@ -48,6 +48,10 @@ type Device struct {
 	SealKey     []byte `json:"seal_key"`
 	SealSig     []byte `json:"seal_sig"`
 	EnrollProof []byte `json:"enroll_proof"`
+	// SealGeneration is the generation SealKey is from, and SealProof the device's
+	// signature on the two together.
+	SealGeneration *int64 `json:"seal_generation"`
+	SealProof      []byte `json:"seal_proof"`
 }
 
 // KDFParams are the Argon2id settings a client must use to derive its keys.
@@ -214,12 +218,12 @@ func (d *DB) UnboundAccounts(ctx context.Context) (int, error) {
 const publicUserColumns = `id, username, role, identity_key, key_generation, identity_head, hpke_key, hpke_key_sig, profile, profile_sig,
 	last_seen_at, hide_last_seen, banned_at, created_at, updated_at`
 
-const deviceColumns = `id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at, seal_key, seal_sig, enroll_proof`
+const deviceColumns = `id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at, seal_key, seal_sig, enroll_proof, seal_generation, seal_proof`
 
 func scanDevice(row interface{ Scan(...any) error }) (Device, error) {
 	var dev Device
 	var revoked sql.NullInt64
-	err := row.Scan(&dev.ID, &dev.UserID, &dev.Certificate, &dev.SignatureKey, &dev.CreatedAt, &dev.LastSeenAt, &revoked, &dev.SealKey, &dev.SealSig, &dev.EnrollProof)
+	err := row.Scan(&dev.ID, &dev.UserID, &dev.Certificate, &dev.SignatureKey, &dev.CreatedAt, &dev.LastSeenAt, &revoked, &dev.SealKey, &dev.SealSig, &dev.EnrollProof, &dev.SealGeneration, &dev.SealProof)
 	dev.RevokedAt = nullableInt(revoked)
 	return dev, err
 }
@@ -517,8 +521,8 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, genera
 		if active >= maxActiveDevices || ever >= maxDevicesEver {
 			return ErrLimit
 		}
-		_, err := tx.ExecContext(ctx, `INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_sig, enroll_proof)
-			VALUES(?,?,?,?,?,?,?,?,?)`, dev.ID, dev.UserID, dev.Certificate, dev.SignatureKey, now, now, dev.SealKey, dev.SealSig, dev.EnrollProof)
+		_, err := tx.ExecContext(ctx, `INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_sig, enroll_proof, seal_generation, seal_proof)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?)`, dev.ID, dev.UserID, dev.Certificate, dev.SignatureKey, now, now, dev.SealKey, dev.SealSig, dev.EnrollProof, dev.SealGeneration, dev.SealProof)
 		if isUniqueViolation(err) {
 			return ErrConflict
 		}

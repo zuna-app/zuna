@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"context"
@@ -717,13 +717,15 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request, sess *st
 
 func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
-		ID           string `json:"id"`
-		Certificate  []byte `json:"certificate"`
-		SignatureKey []byte `json:"signature_key"`
-		Generation   *int64 `json:"generation"`
-		SealKey      []byte `json:"seal_key"`
-		SealSig      []byte `json:"seal_sig"`
-		EnrollProof  []byte `json:"enroll_proof"`
+		ID             string `json:"id"`
+		Certificate    []byte `json:"certificate"`
+		SignatureKey   []byte `json:"signature_key"`
+		Generation     *int64 `json:"generation"`
+		SealKey        []byte `json:"seal_key"`
+		SealSig        []byte `json:"seal_sig"`
+		EnrollProof    []byte `json:"enroll_proof"`
+		SealGeneration *int64 `json:"seal_generation"`
+		SealProof      []byte `json:"seal_proof"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -733,18 +735,20 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *s
 		return
 	}
 	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.Certificate) > maxDetailBytes || len(body.SignatureKey) != 32 ||
-		(len(body.SealKey) != 0 && len(body.SealKey) != 32) || len(body.SealSig) > 64 || len(body.EnrollProof) > 64 {
+		(len(body.SealKey) != 0 && len(body.SealKey) != 32) || len(body.SealSig) > 64 || len(body.EnrollProof) > 64 || len(body.SealProof) > 64 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The device data is incomplete.")
 		return
 	}
 	err := s.db.AddDevice(r.Context(), hashToken(bearerToken(r)), store.Device{
-		ID:           body.ID,
-		UserID:       sess.UserID,
-		Certificate:  body.Certificate,
-		SignatureKey: body.SignatureKey,
-		SealKey:      body.SealKey,
-		SealSig:      body.SealSig,
-		EnrollProof:  body.EnrollProof,
+		ID:             body.ID,
+		UserID:         sess.UserID,
+		Certificate:    body.Certificate,
+		SignatureKey:   body.SignatureKey,
+		SealKey:        body.SealKey,
+		SealSig:        body.SealSig,
+		EnrollProof:    body.EnrollProof,
+		SealGeneration: body.SealGeneration,
+		SealProof:      body.SealProof,
 	}, body.Generation)
 	var stale *store.GenerationConflictError
 	if body.Generation == nil && errors.As(err, &stale) {

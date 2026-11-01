@@ -85,6 +85,16 @@ export const signSealKey = (deviceSecret: Uint8Array, user: string, device: stri
 export const verifySealKey = (devicePublic: Uint8Array, user: string, device: string, seal: Uint8Array, signature: Uint8Array) =>
   wasm.verify(devicePublic, sealKeyInput(user, device, seal), signature);
 
+// What a device has signed since seal keys said which generation they're from, so
+// that a server can't offer an older one again. The one above stays for older apps.
+const sealProofInput = (user: string, device: string, generation: number, seal: Uint8Array) => concat(label(`zuna/device-seal/v2|${user}|${device}|${generation}|`), seal);
+
+export const signSealProof = (deviceSecret: Uint8Array, user: string, device: string, generation: number, seal: Uint8Array) =>
+  wasm.sign(deviceSecret, sealProofInput(user, device, generation, seal));
+
+export const verifySealProof = (devicePublic: Uint8Array, user: string, device: string, generation: number, seal: Uint8Array, signature: Uint8Array) =>
+  wasm.verify(devicePublic, sealProofInput(user, device, generation, seal), signature);
+
 const enrollInput = (user: string, device: string, signingKey: Uint8Array) => concat(label(`zuna/device-enroll/v1|${user}|${device}|`), signingKey);
 
 /**

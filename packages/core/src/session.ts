@@ -79,10 +79,12 @@ import {
   sealBundle,
   sealToSlot,
   signSealKey,
+  signSealProof,
   slotsHash,
   verifyEnrollment,
   verifyLink,
   verifySealKey,
+  verifySealProof,
   type Link,
   type LinkDevice,
   type RotationPlan,
@@ -171,6 +173,8 @@ const ROTATION_INTENT = "rotation_intent";
 const ROTATION_ATTEMPTS = 6;
 /** After this long failing to rotate, the person is told. */
 const ROTATION_STUCK_MS = 24 * 3600 * 1000;
+const MAX_REMOVAL_ROTATIONS = 5;
+const REMOVAL_ROTATION_WINDOW_MS = 3600 * 1000;
 /** Enough for anyone to have heard about a rotation by the time a key is forgotten, in a core with a size limit. */
 const OLDER_HPKE_KEPT = 16;
 /** A device that has held a leaf this long, as this device saw it, has continuity with what came before. */
@@ -776,6 +780,12 @@ export class ServerSession {
       });
     }
 
+    if (isSelf) {
+      for (const device of api.devices) {
+        const key = devices.get(device.id)?.signatureKey;
+        if (key && device.id !== this.account.deviceId) this.sealKeyOf(device, key);
+      }
+    }
     if (isSelf && previous) {
       for (const device of devices.values()) {
         if (!previous.devices.has(device.id) && device.id !== this.account.deviceId) {
@@ -1409,6 +1419,30 @@ export class ServerSession {
     return equalBytes(standing.cert.signatureKey, decode(device.signature_key)) ? standing.cert.signatureKey : null;
   }
 
+  /**
+   * What to seal this account's key to for one of its devices, if that device signed
+   * it and it isn't older than what the device has said before. A server could
+   * otherwise offer an old one again, and a copy of the device taken back then would
+   * go on working. One from before these said their generation counts until it has.
+   */
+  private sealKeyOf(device: ApiDevice, key: Uint8Array): Uint8Array | null {
+    const { userId } = this.account;
+    const seal = decode(device.seal_key);
+    if (seal.length !== 32) return null;
+    const seen = this.getKv<Record<string, number>>("seal_seen") ?? {};
+    const newest = seen[device.id] ?? -1;
+    const generation = device.seal_generation;
+    if (generation != null && verifySealProof(key, userId, device.id, generation, seal, decode(device.seal_proof))) {
+      if (generation < newest) {
+        this.warnOnce(`old-seal/${device.id}/${generation}`, "The server offered an old key for one of your devices. It wasn't used.", userId);
+        return null;
+      }
+      if (generation > newest) this.setKv("seal_seen", { ...seen, [device.id]: generation });
+      return seal;
+    }
+    return newest < 0 && verifySealKey(key, userId, device.id, seal, decode(device.seal_sig)) ? seal : null;
+  }
+
   /** Devices gone from this account that no generation covers yet, so someone holds keys they shouldn't. */
   private uncoveredRemovals(api: ApiUser): string[] {
     const { userId, deviceId } = this.account;
@@ -1443,8 +1477,18 @@ export class ServerSession {
 
   private async rotateForRemovals(): Promise<void> {
     if (this.stopped) return;
+    // Only the server says a device was removed, and each rotation costs every contact
+    // a link to follow. Replacing keys only ever waits a little: it's never skipped.
+    const recent = (this.getKv<number[]>("removal_rotations") ?? []).filter((at) => Date.now() - at < REMOVAL_ROTATION_WINDOW_MS);
+    if (recent.length >= MAX_REMOVAL_ROTATIONS) {
+      this.warnOnce("removal-rotations", "The server keeps saying devices were removed from your account, so Zuna has slowed down replacing your keys. If you haven't been removing devices, your server may be misbehaving.");
+      this.rotateSoon(REMOVAL_ROTATION_WINDOW_MS / MAX_REMOVAL_ROTATIONS);
+      return;
+    }
+    const before = this.account.core.generation;
     try {
       await this.withLock(ACCOUNT_LOCK, () => this.rotateLocked({}, true));
+      if (this.account.core.generation !== before) this.setKv("removal_rotations", [...recent, Date.now()]);
       this.setKv("rotation_stuck_since", 0);
       this.sealOlderSoon(0);
     } catch (error) {
@@ -1571,11 +1615,8 @@ export class ServerSession {
 
     const bundles: { device_id: string; data: Uint8Array }[] = [];
     for (const { id, key } of devices) {
-      const device = me.devices.find((item) => item.id === id)!;
-      const seal = decode(device.seal_key);
-      if (seal.length === 32 && verifySealKey(key, userId, id, seal, decode(device.seal_sig))) {
-        bundles.push({ device_id: id, data: sealBundle(seal, userId, id, generation, link.hash, accountKey) });
-      }
+      const seal = this.sealKeyOf(me.devices.find((item) => item.id === id)!, key);
+      if (seal) bundles.push({ device_id: id, data: sealBundle(seal, userId, id, generation, link.hash, accountKey) });
     }
     const request = {
       expected_generation: core.generation,
@@ -1725,16 +1766,21 @@ export class ServerSession {
 
   /** A copy of a device taken once should stop being useful, so the key each rotation seals to changes. */
   private async replaceSealKey(): Promise<void> {
-    const { userId, deviceId, deviceSecret, sealSecret } = this.account;
     const seal = wasm.hpkeKeygen();
-    this.account = { ...this.account, sealPublic: seal.publicKey, sealSecret: seal.secretKey, sealOlder: sealSecret };
+    this.account = { ...this.account, sealPublic: seal.publicKey, sealSecret: seal.secretKey, sealOlder: this.account.sealSecret };
     this.saveAccount();
-    await this.api.setSealKey(deviceId, seal.publicKey, signSealKey(deviceSecret, userId, deviceId, seal.publicKey));
+    await this.publishSealKey();
+  }
+
+  private async publishSealKey(): Promise<void> {
+    const { userId, deviceId, deviceSecret, sealPublic, core } = this.account;
+    const seal = sealPublic!;
+    await this.api.setSealKey(deviceId, seal, signSealKey(deviceSecret, userId, deviceId, seal), core.generation, signSealProof(deviceSecret, userId, deviceId, core.generation, seal));
   }
 
   /** Gives this device a seal key, and a certificate that says what generation it's from. */
   private async prepareDevice(): Promise<void> {
-    const { userId, deviceId, deviceSecret } = this.account;
+    const { userId, deviceId } = this.account;
     const me = await this.api.user(userId);
     const own = me.devices.find((device) => device.id === deviceId);
     if (!this.account.sealPublic) {
@@ -1742,10 +1788,8 @@ export class ServerSession {
       this.account = { ...this.account, sealPublic: seal.publicKey, sealSecret: seal.secretKey };
       this.saveAccount();
     }
-    const sealPublic = this.account.sealPublic!;
-    if (own && !equalBytes(decode(own.seal_key), sealPublic)) {
-      await this.api.setSealKey(deviceId, sealPublic, signSealKey(deviceSecret, userId, deviceId, sealPublic));
-    }
+    // One from before seal keys said which generation they're from gets that said once.
+    if (own && (!equalBytes(decode(own.seal_key), this.account.sealPublic!) || own.seal_generation == null)) await this.publishSealKey();
     await this.ensureCertificate(me);
   }
 
@@ -1904,9 +1948,8 @@ export class ServerSession {
       const device = me.devices.find((item) => item.id === id);
       if (!device || id === deviceId || device.revoked_at != null) continue;
       const key = this.certifiedKey(device);
-      const seal = decode(device.seal_key);
-      const fine = !!key && this.ownDeviceAccepted(id, { signatureKey: key, enrollProof: device.enroll_proof }) && seal.length === 32 && verifySealKey(key, userId, id, seal, decode(device.seal_sig));
-      if (fine) bundles.push({ device_id: id, data: sealBundle(seal, userId, id, head.gen, head.hash, accountKey) });
+      const seal = key && this.ownDeviceAccepted(id, { signatureKey: key, enrollProof: device.enroll_proof }) ? this.sealKeyOf(device, key) : null;
+      if (seal) bundles.push({ device_id: id, data: sealBundle(seal, userId, id, head.gen, head.hash, accountKey) });
     }
     if (bundles.length > 0) await this.api.putBundles(head.gen, bundles);
   }

@@ -60,6 +60,8 @@ export interface ApiDevice {
   seal_key?: string | null;
   seal_sig?: string | null;
   enroll_proof?: string | null;
+  seal_generation?: number | null;
+  seal_proof?: string | null;
 }
 
 /** One step of someone's chain of identity keys. */
@@ -278,7 +280,7 @@ export class Api {
   user = (id: string) => this.request<ApiUser>("GET", at`/api/users/${id}`);
   updateMe = (body: { profile?: Uint8Array; profile_sig?: Uint8Array; avatar_file?: string | null; hide_last_seen?: boolean }) =>
     this.request("PATCH", "/api/me", body);
-  addDevice = (id: string, certificate: Uint8Array, signatureKey: Uint8Array, extra?: { generation: number; seal_key: Uint8Array; seal_sig: Uint8Array; enroll_proof?: Uint8Array }) =>
+  addDevice = (id: string, certificate: Uint8Array, signatureKey: Uint8Array, extra?: { generation: number; seal_key: Uint8Array; seal_sig: Uint8Array; enroll_proof?: Uint8Array; seal_generation: number; seal_proof: Uint8Array }) =>
     this.request("POST", "/api/devices", { id, certificate, signature_key: signatureKey, ...extra });
   revokeDevice = (id: string) => this.request("DELETE", at`/api/devices/${id}`);
 
@@ -310,8 +312,8 @@ export class Api {
     this.request("POST", "/api/v2/account/slots", { slot, vault_core: vaultCore });
   closeGeneration = (generation: number, vaultCore: Uint8Array) =>
     this.request("POST", "/api/v2/account/core", { generation, vault_core: vaultCore });
-  setSealKey = (deviceId: string, sealKey: Uint8Array, sealSig: Uint8Array) =>
-    this.request("PUT", at`/api/v2/devices/${deviceId}/seal-key`, { seal_key: sealKey, seal_sig: sealSig });
+  setSealKey = (deviceId: string, sealKey: Uint8Array, sealSig: Uint8Array, generation: number, proof: Uint8Array) =>
+    this.request("PUT", at`/api/v2/devices/${deviceId}/seal-key`, { seal_key: sealKey, seal_sig: sealSig, seal_generation: generation, seal_proof: proof });
   setCertificate = (deviceId: string, certificate: Uint8Array) =>
     this.request("PUT", at`/api/v2/devices/${deviceId}/certificate`, { certificate });
   identityLinks = async (userId: string, after: number) =>

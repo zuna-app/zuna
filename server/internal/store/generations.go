@@ -404,8 +404,8 @@ func (d *DB) CloseGeneration(ctx context.Context, userID string, generation int6
 }
 
 // SetDeviceSealKey is a device saying what to seal account keys to from now on.
-func (d *DB) SetDeviceSealKey(ctx context.Context, userID, deviceID string, key, signature []byte) error {
-	return d.touchDevice(ctx, userID, deviceID, `UPDATE devices SET seal_key = ?, seal_sig = ? WHERE id = ?`, key, signature, deviceID)
+func (d *DB) SetDeviceSealKey(ctx context.Context, userID, deviceID string, key, signature []byte, generation *int64, proof []byte) error {
+	return d.touchDevice(ctx, userID, deviceID, `UPDATE devices SET seal_key = ?, seal_sig = ?, seal_generation = ?, seal_proof = ? WHERE id = ?`, key, signature, generation, proof, deviceID)
 }
 
 // SetDeviceCertificate is a device publishing the certificate it has now.

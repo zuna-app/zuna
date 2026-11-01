@@ -427,6 +427,11 @@ CREATE INDEX group_events_replaced_info ON group_events(group_id, epoch) WHERE r
 -- them out takes too long to do for every message. The server recounts them hourly.
 ALTER TABLE users ADD COLUMN stored_bytes INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN commit_bytes INTEGER NOT NULL DEFAULT 0;
+`, `
+-- Which generation a device's seal key is from, signed by it, so that clients can
+-- refuse one older than it's said before. seal_sig stays for those that don't know.
+ALTER TABLE devices ADD COLUMN seal_generation INTEGER;
+ALTER TABLE devices ADD COLUMN seal_proof BLOB;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

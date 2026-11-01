@@ -1121,6 +1121,65 @@ describe("older apps", () => {
   });
 });
 
+describe("two details of rotation (Z-61)", () => {
+  const sealFields = (id: string) => {
+    const db = serverDatabase();
+    const row = db.prepare("SELECT seal_key, seal_sig, seal_generation, seal_proof FROM devices WHERE id = ?").get(id) as Record<string, any>;
+    db.close();
+    return row;
+  };
+
+  it("won't seal to an older key than a device has said before", async () => {
+    const dave = await person("dave");
+    const phone = await secondDevice(dave, "dave-phone");
+    const phoneId = phone.session.getSelf().deviceId;
+    await waitFor(() => sealFields(phoneId).seal_generation !== null, "its seal key to say its generation");
+    const old = sealFields(phoneId);
+    expect(old.seal_generation).toBe(0);
+
+    await dave.session.rotate();
+    await atGeneration(phone, 1);
+    await waitFor(() => sealFields(phoneId).seal_generation === 1, "the phone to replace its seal key");
+    await sessionOf(dave).ensureUser(dave.userId, true);
+
+    // A server offers the old one again, with everything that went with it.
+    const db = serverDatabase();
+    db.prepare("UPDATE devices SET seal_key = ?, seal_sig = ?, seal_generation = ?, seal_proof = ? WHERE id = ?").run(old.seal_key, old.seal_sig, old.seal_generation, old.seal_proof, phoneId);
+    db.prepare("UPDATE users SET updated_at = updated_at + 1 WHERE id = ?").run(dave.userId);
+    db.close();
+    const me = await apiOf(dave).user(dave.userId);
+    const device = me.devices.find((item) => item.id === phoneId)!;
+    const key = decode(device.signature_key);
+    expect(sessionOf(dave).sealKeyOf(device, key)).toBeNull();
+    expect(securityEvents(dave).some((event) => event.message.includes("old key"))).toBe(true);
+
+    // And it can't pass for one from before they said, either.
+    expect(sessionOf(dave).sealKeyOf({ ...device, seal_generation: null, seal_proof: null }, key)).toBeNull();
+  });
+
+  it("still takes a key from before they said which generation it's from", async () => {
+    const dave = await person("dave");
+    const phone = await secondDevice(dave, "dave-phone");
+    const phoneId = phone.session.getSelf().deviceId;
+    const device = (await apiOf(dave).user(dave.userId)).devices.find((item) => item.id === phoneId)!;
+    sessionOf(dave).setKv("seal_seen", {});
+    const older = { ...device, seal_generation: null, seal_proof: null };
+    expect(sessionOf(dave).sealKeyOf(older, decode(device.signature_key))).toEqual(decode(device.seal_key));
+  });
+
+  it("slows down when told over and over that devices were removed", async () => {
+    const dave = await person("dave");
+    const session = sessionOf(dave);
+    session.setKv("removal_rotations", new Array(5).fill(Date.now()));
+    const generation = generationOf(dave);
+    await session.rotateForRemovals();
+    clearTimeout(session.rotationTimer);
+    session.rotationTimer = undefined;
+    expect(generationOf(dave)).toBe(generation);
+    expect(securityEvents(dave).some((event) => event.message.includes("slowed down"))).toBe(true);
+  });
+});
+
 describe("a server from before generations", () => {
   it("is treated as it always was by an up-to-date client", async () => {
     const dave = await new TestApp("dave").open();
