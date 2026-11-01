@@ -64,8 +64,14 @@ function start(name, command, args, onLine, env) {
   return child
 }
 
+// Waits for them to go, since on Linux they take a moment after SIGTERM, and a run
+// started straight after would find LiveKit's ports still taken.
 function stopAll() {
-  for (const child of children.reverse()) child.kill()
+  const running = children.reverse().filter((child) => child.exitCode === null && child.signalCode === null)
+  const exited = running.map((child) => new Promise((resolve) => child.once('exit', resolve)))
+  for (const child of running) child.kill()
+  const force = setTimeout(() => running.forEach((child) => child.kill('SIGKILL')), 5000)
+  return Promise.all(exited).finally(() => clearTimeout(force))
 }
 process.on('SIGINT', () => {
   stopAll()
@@ -112,7 +118,8 @@ async function main() {
   const joinResults = []
   const run = { label, flags, description: null, colours: null, firstFrameMs: null, errors: [] }
 
-  start('livekit', liveKit, ['--dev', '--bind', '127.0.0.1', '--node-ip', '127.0.0.1'], () => {}, {})
+  // It says why it couldn't start on stdout, and nothing else.
+  start('livekit', liveKit, ['--dev', '--bind', '127.0.0.1', '--node-ip', '127.0.0.1'], (line) => console.error(`[livekit] ${line}`), {})
   await new Promise((resolve) => setTimeout(resolve, 1500))
 
   let finish
@@ -192,7 +199,7 @@ async function main() {
 
   await finished
   clearInterval(sampler)
-  stopAll()
+  await stopAll()
 
   writeReport(run, publisherStats, viewerStats, gpuStats, joinResults)
 }
@@ -258,8 +265,8 @@ function writeReport(run, publisherStats, viewerStats, gpuStats, joinResults) {
   console.log(`Saved to ${join(resultsDir, `${run.label}.json`)}`)
 }
 
-main().then(() => process.exit(0)).catch((error) => {
+main().then(() => process.exit(0)).catch(async (error) => {
   console.error(error)
-  stopAll()
+  await stopAll()
   process.exit(1)
 })
