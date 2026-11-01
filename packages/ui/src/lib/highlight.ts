@@ -1,7 +1,7 @@
 // Code highlighting with Shiki. The engine and each language load on first use,
 // so chats without code never pay for them.
 
-import type { HighlighterCore, ThemedToken } from "shiki/core";
+import type { GrammarState, HighlighterCore, ThemedToken } from "shiki/core";
 
 const languages: Record<string, () => Promise<any>> = {
   bash: () => import("shiki/langs/bash.mjs"),
@@ -81,11 +81,11 @@ function getHighlighter(): Promise<HighlighterCore> {
 const results = new Map<string, ThemedToken[][]>();
 
 // Anyone in a chat chooses what gets highlighted, on this thread, so only so much
-// is: past these, the rest of a block shows uncolored.
+// is, a few lines at a time: past these, the rest of a block shows uncolored.
 const MAX_HIGHLIGHTED_CHARS = 20_000;
 const MAX_HIGHLIGHTED_LINES = 500;
 const MAX_TOKENIZED_LINE = 1_000;
-const LINE_TIME_LIMIT_MS = 50;
+const LINES_AT_A_TIME = 50;
 
 /** Returns colored lines, or null for an unknown language. */
 export async function highlightCode(code: string, language: string): Promise<ThemedToken[][] | null> {
@@ -102,13 +102,16 @@ export async function highlightCode(code: string, language: string): Promise<The
   let count = 0;
   let chars = 0;
   while (count < lines.length && count < MAX_HIGHLIGHTED_LINES && chars + lines[count]!.length <= MAX_HIGHLIGHTED_CHARS) chars += lines[count++]!.length + 1;
-  const { tokens } = instance.codeToTokens(lines.slice(0, count).join("\n"), {
-    lang: name,
-    theme: "github-dark-default",
-    tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
-    tokenizeTimeLimit: LINE_TIME_LIMIT_MS,
-  });
-  const highlighted = count === 0 ? [] : tokens;
+  const highlighted: ThemedToken[][] = [];
+  let grammarState: GrammarState | undefined;
+  for (let start = 0; start < count; start += LINES_AT_A_TIME) {
+    // Between batches, the interface gets its turn, however much there is to color.
+    if (start > 0) await new Promise((resolve) => setTimeout(resolve, 0));
+    const batch = lines.slice(start, Math.min(start + LINES_AT_A_TIME, count)).join("\n");
+    const result = instance.codeToTokens(batch, { lang: name, theme: "github-dark-default", tokenizeMaxLineLength: MAX_TOKENIZED_LINE, grammarState });
+    highlighted.push(...result.tokens);
+    grammarState = result.grammarState;
+  }
   const rest = lines.slice(count).map((line): ThemedToken[] => [{ content: line, offset: 0 }]);
   const all = [...highlighted, ...rest];
   if (results.size > 500) results.clear();

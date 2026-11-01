@@ -99,7 +99,6 @@ const g = globalThis as any;
 const MAX_HIGHLIGHTED_CHARS = 20_000;
 const MAX_HIGHLIGHTED_LINES = 500;
 const MAX_TOKENIZED_LINE = 1_000;
-const LINE_TIME_LIMIT_MS = 50;
 
 let highlighter: Promise<HighlighterCore> | null = null;
 
@@ -125,11 +124,11 @@ g.__zunaHighlight = (code: string, language: string, done: (result: string | nul
       let count = 0;
       let chars = 0;
       while (count < lines.length && count < MAX_HIGHLIGHTED_LINES && chars + lines[count]!.length <= MAX_HIGHLIGHTED_CHARS) chars += lines[count++]!.length + 1;
+      // This runs off the main thread, so there's no need to color a few lines at a time as the desktop does.
       const { tokens } = instance.codeToTokens(lines.slice(0, count).join("\n"), {
         lang: name,
         theme: "github-dark-default",
         tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
-        tokenizeTimeLimit: LINE_TIME_LIMIT_MS,
       });
       const highlighted = count === 0 ? [] : tokens.map((line) => line.map((token) => [token.content, token.color ?? null]));
       const rest = lines.slice(count).map((line) => [[line, null]]);

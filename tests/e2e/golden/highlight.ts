@@ -18,6 +18,18 @@ const samples: [language: string, code: string][] = [
   ["yml", "services:\n  zuna:\n    image: ghcr.io/zuna-chat/zuna-server:latest\n    ports: [\"8787:8787\"]"],
   ["diff", "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new"],
   ["html", "<p class=\"x\">Hello <b>there</b></p>"],
+  // Longer than the desktop colors at once, with a comment and a string across where it stops for a moment.
+  [
+    "typescript",
+    [
+      ...Array.from({ length: 48 }, (_, i) => `const a${i} = ${i} * 2; // line ${i}`),
+      "/* a comment that starts here",
+      "   and goes on past the fiftieth line",
+      "   to here */ const after = `a template",
+      "${after} still the template`;",
+      ...Array.from({ length: 60 }, (_, i) => `function f${i}(x: number): string { return \`${i}\` + x; }`),
+    ].join("\n"),
+  ],
 ];
 
 export async function golden() {
