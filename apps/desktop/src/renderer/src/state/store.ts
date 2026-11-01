@@ -93,6 +93,9 @@ interface AppState {
   addServer(serverId: string): Promise<void>;
   removeServer(serverId: string): void;
   selectServer(serverId: string): void;
+  /** The rail's order as a server is dragged along it, saved when it's let go. */
+  setServerOrder(order: string[]): void;
+  saveServerOrder(): void;
   selectConversation(key: string | null): void;
   loadList(listId: string, groupId: string | null): Promise<void>;
   loadOlder(listId: string): Promise<void>;
@@ -475,6 +478,15 @@ export const useApp = create<AppState>((set, get) => {
         };
       });
       updateBadge();
+    },
+
+    setServerOrder(order) {
+      set({ order });
+    },
+
+    saveServerOrder() {
+      const { core, order, toast } = get();
+      core?.client.reorderServers(order).catch(() => toast("Couldn't save the order of your servers.", "error"));
     },
 
     selectServer(serverId) {

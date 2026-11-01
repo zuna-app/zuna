@@ -35,13 +35,13 @@ server.stdout.on("data", (chunk) => (serverOutput += chunk));
 server.stderr.on("data", (chunk) => (serverOutput += chunk));
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-async function setupLink() {
+async function setupLink(output = () => serverOutput) {
   for (let i = 0; i < 200; i++) {
-    const match = serverOutput.match(/http:\/\/\S+\/invite\/\S+/);
+    const match = output().match(/http:\/\/\S+\/invite\/\S+/);
     if (match) return match[0];
     await sleep(50);
   }
-  throw new Error(`the server didn't start:\n${serverOutput}`);
+  throw new Error(`the server didn't start:\n${output()}`);
 }
 
 const failures = [];
@@ -53,6 +53,8 @@ function check(name, passed, detail = "") {
 
 let electronApp;
 let bots;
+let secondServer;
+const secondData = mkdtempSync(join(tmpdir(), "zuna-ui-data-"));
 try {
   const link = await setupLink();
   electronApp = await electron.launch({
@@ -517,7 +519,55 @@ try {
   await page.keyboard.press("Escape");
   await sleep(150);
 
+  // Reordering servers
+  const secondPort = port + 1;
+  secondServer = spawn(binary, ["--listen", `127.0.0.1:${secondPort}`, "--data", secondData, "--public-url", `http://127.0.0.1:${secondPort}`, "--auth-burst", "1000"], { stdio: ["ignore", "pipe", "pipe"] });
+  let secondOutput = "";
+  secondServer.stdout.on("data", (chunk) => (secondOutput += chunk));
+  secondServer.stderr.on("data", (chunk) => (secondOutput += chunk));
+  const secondLink = await setupLink(() => secondOutput);
+  await page.getByLabel("Join a server").click();
+  await page.getByLabel("Invite link").fill(secondLink);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByPlaceholder("How people will see you").fill("Alex Rivera", { timeout: 15_000 });
+  await page.locator('input[type="password"]').fill("ui-check-only-Pass-9182");
+  await page.getByRole("button", { name: "Create account" }).click();
+  await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
+  await page.getByText("I've stored it somewhere safe").click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByPlaceholder("Our corner of the internet").fill("Workshop");
+  await page.getByRole("button", { name: "Finish" }).click();
+  await page.locator('.rail-button[aria-label="Workshop"]').waitFor({ timeout: 20_000 });
+  await sleep(300);
+  const railOrder = (on = page) => on.locator(".rail-button").evaluateAll((buttons) => buttons.map((button) => button.getAttribute("aria-label")).join(", "));
+  const activeServer = () => page.locator('.rail-button[aria-current="true"]').getAttribute("aria-label");
+  check("a new server goes to the end of the rail", (await railOrder()) === "Friends, Workshop", await railOrder());
+
+  const friends = await page.locator('.rail-button[aria-label="Friends"]').boundingBox();
+  const workshop = await page.locator('.rail-button[aria-label="Workshop"]').boundingBox();
+  await page.mouse.move(friends.x + friends.width / 2, friends.y + friends.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(friends.x + friends.width / 2, workshop.y + workshop.height / 2, { steps: 12 });
+  await sleep(150);
+  await shot("27-rail-dragging");
+  await page.mouse.up();
+  await sleep(500);
+  check("dragging a server moves it along the rail", (await railOrder()) === "Workshop, Friends", await railOrder());
+  check("letting go of a drag doesn't switch servers", (await activeServer()) === "Workshop", await activeServer());
+  await page.locator('.rail-button[aria-label="Friends"]').click();
+  await sleep(200);
+  check("a click after a drag still switches servers", (await activeServer()) === "Friends", await activeServer());
+
   check("no errors in the page", errors.length === 0, errors.slice(0, 3).join(" | ").slice(0, 400));
+
+  await electronApp.close();
+  electronApp = await electron.launch({
+    args: [app, `--user-data-dir=${userData}`],
+    env: { ...process.env, ELECTRON_RENDERER_URL: "" },
+  });
+  const reopened = await electronApp.firstWindow();
+  await reopened.locator(".rail-button").first().waitFor({ timeout: 30_000 });
+  check("the rail's order survives a restart", (await railOrder(reopened)) === "Workshop, Friends", await railOrder(reopened));
 } catch (error) {
   console.error("UI CHECK CRASHED:", error);
   console.error(errors.join("\n").slice(0, 2000));
@@ -545,8 +595,9 @@ try {
     }
   }
   server.kill();
+  secondServer?.kill();
   await sleep(300);
-  for (const dir of [data, userData]) {
+  for (const dir of [data, secondData, userData]) {
     try {
       rmSync(dir, { recursive: true, force: true });
     } catch {

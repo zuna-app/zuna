@@ -11,7 +11,6 @@ For agents, not people. `CLAUDE.md` says how to keep this current. Keep it terse
 
 Things one platform should have and doesn't.
 
-- **Desktop can't reorder servers.** iOS can. `ZunaClient.reorderServers` exists, but nothing on the desktop calls it, although `docs/IOS_PLAN.md` says the rail can be dragged.
 - **iOS doesn't warn about a message's time.** The desktop flags a time far from what the sender's device signed. `MessageView.timeDiffers` is decoded in `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift`, but no screen uses it.
 
 ## Accounts and servers
@@ -25,7 +24,7 @@ Things one platform should have and doesn't.
 | Recovery key shown and saved | yes | yes | `features/onboarding/Onboarding.tsx` | `Onboarding/OnboardingSteps.swift` | Desktop saves a file, iOS uses the share sheet |
 | Sign in, recovery with a new password | yes | yes | `features/onboarding/Onboarding.tsx` | `Onboarding/OnboardingSteps.swift` | |
 | Several servers, unread count per server | yes | yes | `features/shell/ServerRail.tsx` | `Shell/ServerListView.swift`, `Shell/MainView.swift` | By design: a rail on the desktop, a list like Mail's mailboxes on iOS |
-| Reorder servers | no | yes | | `Shell/ServerListView.swift` | See Known gaps |
+| Reorder servers | yes | yes | `features/shell/ServerRail.tsx` | `Shell/ServerListView.swift` | By design: dragged on the rail, Edit on iOS. The desktop has no keyboard way yet |
 | Sign out, erasing local data | yes | yes | `features/overlays/ServerSettings.tsx`, `features/shell/Shell.tsx` | `Settings/ServerSettingsView.swift`, `State/AppModel.swift` | |
 | Signed out by the server: data kept, sign in again or clear | yes | yes | `features/shell/Shell.tsx` | `Shell/ChatListView.swift` | |
 | Connection state | yes | yes | `App.tsx` | `Shell/ChatListView.swift`, `Shell/ServerListView.swift` | |
