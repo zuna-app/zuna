@@ -446,6 +446,10 @@ CREATE TABLE sign_in_attempts (
 -- check before erasing their own copies. The server can't read or forge it.
 ALTER TABLE messages ADD COLUMN deleted_by TEXT;
 ALTER TABLE messages ADD COLUMN deletion BLOB;
+`, `
+-- Whether a device has signed a request with its key, after which the requests
+-- that need one must always come signed.
+ALTER TABLE devices ADD COLUMN signs_requests INTEGER NOT NULL DEFAULT 0;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

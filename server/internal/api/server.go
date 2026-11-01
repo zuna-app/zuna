@@ -110,6 +110,8 @@ type Server struct {
 	voidLimiter       *ratelimit.Keyed
 	commitHolds       *ratelimit.Backoff
 
+	proofs seenProofs
+
 	pushClient *http.Client
 	pushQueue  chan pushJob
 	pushers    sync.Once
@@ -346,7 +348,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/users/{id}", s.withDevice(s.handleUser))
 	mux.HandleFunc("PATCH /api/me", s.withDevice(s.handleUpdateMe))
 	mux.HandleFunc("POST /api/devices", s.authed(s.handleAddDevice))
-	mux.HandleFunc("DELETE /api/devices/{id}", s.withDevice(s.handleRevokeDevice))
+	mux.HandleFunc("DELETE /api/devices/{id}", s.withDevice(s.proven(s.handleRevokeDevice)))
+	mux.HandleFunc("POST /api/devices/proof", s.withDevice(s.proven(s.handleDeviceProof)))
 	mux.HandleFunc("PUT /api/push", s.withDevice(s.handleSetPush))
 	mux.HandleFunc("DELETE /api/push", s.withDevice(s.handleDeletePush))
 	mux.HandleFunc("GET /api/key-packages/status", s.withDevice(s.handleKeyPackageStatus))
@@ -378,7 +381,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/groups", s.withDevice(s.handleGroups))
 	mux.HandleFunc("POST /api/groups", s.withDevice(s.handleCreateGroup))
 	mux.HandleFunc("GET /api/groups/{id}", s.member(s.handleGroup))
-	mux.HandleFunc("DELETE /api/groups/{id}", s.member(s.handleDeleteGroup))
+	mux.HandleFunc("DELETE /api/groups/{id}", s.member(s.provenMember(s.handleDeleteGroup)))
 	mux.HandleFunc("POST /api/groups/{id}/commit", s.member(s.handleCommit))
 	mux.HandleFunc("POST /api/groups/{id}/void-commits", s.member(s.handleVoidCommits))
 	mux.HandleFunc("GET /api/groups/{id}/group-info", s.member(s.handleGroupInfo))
@@ -395,7 +398,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/groups/{id}/messages", s.member(s.handleSendMessage))
 	mux.HandleFunc("GET /api/groups/{id}/messages/{mid}", s.member(s.handleMessage))
 	mux.HandleFunc("PUT /api/groups/{id}/messages/{mid}", s.member(s.handleEditMessage))
-	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}", s.member(s.handleDeleteMessage))
+	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}", s.member(s.provenMember(s.handleDeleteMessage)))
 	mux.HandleFunc("POST /api/groups/{id}/messages/{mid}/reactions", s.member(s.handleAddReaction))
 	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}/reactions/{rid}", s.member(s.handleRemoveReaction))
 	mux.HandleFunc("PUT /api/groups/{id}/messages/{mid}/pin", s.member(s.handlePin(true)))
@@ -444,7 +447,7 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		headers := w.Header()
 		headers.Set("Access-Control-Allow-Origin", "*")
 		headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		headers.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+		headers.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Zuna-Proof, X-Zuna-Time")
 		headers.Set("Access-Control-Max-Age", "86400")
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("Referrer-Policy", "no-referrer")
@@ -533,6 +536,10 @@ func (s *Server) admin(next authedHandler) http.HandlerFunc {
 	return s.withDevice(func(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 		if sess.Role != "owner" && sess.Role != "admin" {
 			writeError(w, http.StatusForbidden, "forbidden", "Only server admins can do this.")
+			return
+		}
+		// Everything an admin does is for the whole server, so it needs the device's proof.
+		if r.Method != http.MethodGet && !s.checkProof(w, r, sess) {
 			return
 		}
 		next(w, r, sess)
