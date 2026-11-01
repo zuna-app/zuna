@@ -643,7 +643,7 @@ describe("verification", () => {
   it("shows both people the same emoji and remembers the result", async () => {
     const fromAlice = alice.session.safetyCheck(bob.userId)!;
     const fromBob = bob.session.safetyCheck(alice.userId)!;
-    expect(fromAlice.emoji).toHaveLength(12);
+    expect(fromAlice.emoji).toHaveLength(16);
     expect(fromAlice.emoji).toEqual(fromBob.emoji);
     expect(fromAlice.trust).toBe("unverified");
 

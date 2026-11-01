@@ -612,7 +612,7 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
               <button
                 className="btn grow"
                 onClick={() => {
-                  toast("Don't share anything private with them until you know why the emoji differ.", "security");
+                  toast("If they see 12 emoji, their app needs updating. Otherwise, don't share anything private with them until you know why the emoji differ.", "security");
                   onClose();
                 }}
               >

@@ -1,7 +1,7 @@
 import SwiftUI
 import ZunaModels
 
-/// Comparing twelve emoji with someone, as the desktop's verification does:
+/// Comparing sixteen emoji with someone, as the desktop's verification does:
 /// matching emoji mean nobody, the server included, is in between.
 struct VerifyView: View {
     let serverId: String
@@ -91,7 +91,7 @@ struct VerifyView: View {
         } else {
             HStack(spacing: 10) {
                 Button {
-                    model.toast("Don't share anything private with them until you know why the emoji differ.", .security)
+                    model.toast("If they see 12 emoji, their app needs updating. Otherwise, don't share anything private with them until you know why the emoji differ.", .security)
                     dismiss()
                 } label: {
                     Label("They don't match", systemImage: "exclamationmark.triangle").frame(maxWidth: .infinity, minHeight: 44)

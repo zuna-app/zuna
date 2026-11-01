@@ -46,11 +46,11 @@ final class DetailsTests: XCTestCase {
         zuna.element(A11y.Details.trust).tap()
         let emoji = zuna.element(A11y.Verify.emoji)
         XCTAssertTrue(emoji.waitForExistence(timeout: 10))
-        // Alice's desktop computes the same twelve emoji for bob.
+        // Alice's desktop computes the same sixteen emoji for bob.
         let alice = try Peer("alice")
         let check = try XCTUnwrap(try alice.call("safetyCheck", [bobId]) as? [String: Any])
         let expected = (check["emoji"] as? [[String: Any]] ?? []).compactMap { $0["emoji"] as? String }
-        XCTAssertEqual(expected.count, 12)
+        XCTAssertEqual(expected.count, 16)
         try waitFor("the emoji to show") { expected.allSatisfy { emoji.label.contains($0) } }
         zuna.screenshot("81-verify")
 

@@ -97,7 +97,7 @@ Things one platform should have and doesn't.
 | Labels when members and keys disagree | yes | yes | yes | `features/chat/SidePanel.tsx` | `Details/ConversationDetails.swift` | |
 | New group, adding members | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/GroupSheets.swift` | |
 | Invites | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/InviteSheet.swift` | |
-| Emoji verification | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/VerifyView.swift` | Its title has the username as well as the name. "They match" waits for the emoji. iOS run on a Mac in `ZunaUITests/Tests/DetailsTests.swift` |
+| Emoji verification | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/VerifyView.swift` | 16 emoji from Argon2id (`crypto/src/primitives.rs` `safety_digest`, `zuna/safety/v2`); apps from before show 12, and "They don't match" says so. Its title has the username as well as the name. "They match" waits for the emoji. iOS run on a Mac in `ZunaUITests/Tests/DetailsTests.swift` |
 
 ## Settings and administration
 

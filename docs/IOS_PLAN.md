@@ -298,7 +298,7 @@ Minimum iOS version: 18 (proposed).
 | New group: name, people with search, history for new members | sheet | F6 |
 | Add members, with history shared when enabled | sheet | F6 |
 | Invites: expiry (1, 7, 30 days, never), uses (1, 5, 25, unlimited), create and copy, active links with copy and revoke, a note when members can't invite | plus the share sheet | F6 |
-| Emoji verification: 12 emoji with names, three states, "They match", "They don't match", "Remove verification", own key | same | F6 |
+| Emoji verification: 16 emoji with names, three states, "They match", "They don't match", "Remove verification", own key | same | F6 |
 
 ### Settings and administration
 
@@ -476,10 +476,10 @@ F6 is done. Each item has tests that check the desktop's side too:
   - for a group: the picture (admins change it), name and description (admins edit them), what the server can see, the members with admins first, crowns and verified marks, and each member's menu (Message, Verify security key, Make or remove admin, Remove from group); for admins, adding people and "New members can read earlier messages"; Leave group and Delete group for everyone, both confirmed.
 - **New group** from the button beside the server's name or its menu: the name, people with search, and history for newcomers; the group opens when created.
 - **Invites** from the server's menu: expiry and uses as on the desktop, the new link with Copy and Share, active links with copy and revoke, and the note when members can't invite.
-- **Verification** from the details, a mention or the changed-key banner: the twelve emoji with names, the three states, "They match", "They don't match", "Remove verification", and your own key.
+- **Verification** from the details, a mention or the changed-key banner: the sixteen emoji with names, the three states, "They match", "They don't match", "Remove verification", and your own key.
 - **Group pictures** go up as 256-pixel squares, as the desktop's `prepareAvatar` makes them, in WebP when the system can write it and JPEG otherwise.
 - **An argument left out** of a call now travels as `{"$undefined": true}`, since JSON's null can mean something else: in `updateGroupMeta`, null removes the picture, so turning history on must not send it.
-- **Tests:** 4 UI tests (the twelve emoji on the phone match the desktop's and verification is kept; a group created, members added, promoted and removed, renamed and deleted, each seen by the desktop peers; an invite link the desktop can read until it's revoked; muting from the details).
+- **Tests:** 4 UI tests (the sixteen emoji on the phone match the desktop's and verification is kept; a group created, members added, promoted and removed, renamed and deleted, each seen by the desktop peers; an invite link the desktop can read until it's revoked; muting from the details).
 
 ## F7 results (2026-10-31)
 

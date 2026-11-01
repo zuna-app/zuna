@@ -15,15 +15,17 @@ use openmls_traits::{
     crypto::OpenMlsCrypto,
     types::{HpkeAeadType, HpkeCiphertext, HpkeConfig, HpkeKdfType, HpkeKemType, SignatureScheme},
 };
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Digest, Sha256};
 use tls_codec::{Deserialize as _, Serialize as _};
 
 pub const NONCE_LEN: usize = 24;
 pub const KEY_LEN: usize = 32;
-/// Iteration count of the safety-number digest, the same work factor Signal
-/// uses for safety numbers. It slows down offline grinding for a key whose
-/// fingerprint collides with a victim's.
-const SAFETY_ITERATIONS: usize = 5200;
+/// Argon2id cost of the safety digest: the same as a password's, so every
+/// device already runs it. A server that swaps both people's keys only needs
+/// the two sides' emoji to agree, a collision rather than a fixed target, so
+/// each guess has to cost memory as well as time.
+const SAFETY_MEMORY_KIB: u32 = 64 * 1024;
+const SAFETY_ITERATIONS: u32 = 3;
 
 const HPKE_CONFIG: HpkeConfig = HpkeConfig(
     HpkeKemType::DhKem25519,
@@ -189,29 +191,22 @@ pub fn hpke_open(secret: &[u8], info: &[u8], aad: &[u8], sealed: &[u8]) -> Resul
 
 /// Digest behind the anti-MITM emoji check.
 ///
-/// Both people compute the same value because the keys are sorted first, and
-/// each extra iteration makes it costlier to grind a fake key whose emoji match.
+/// Both people compute the same value because the keys are sorted first.
+/// Argon2id makes each attempt at keys whose emoji match expensive, and keeps
+/// graphics cards from doing many at once.
 pub fn safety_digest(key_a: &[u8], key_b: &[u8]) -> Vec<u8> {
     let (first, second) = if key_a <= key_b {
         (key_a, key_b)
     } else {
         (key_b, key_a)
     };
-    let mut hash = Sha512::new()
-        .chain_update(b"zuna/safety/v1")
-        .chain_update((first.len() as u32).to_be_bytes())
-        .chain_update(first)
-        .chain_update((second.len() as u32).to_be_bytes())
-        .chain_update(second)
-        .finalize();
-    for _ in 0..SAFETY_ITERATIONS {
-        hash = Sha512::new()
-            .chain_update(hash)
-            .chain_update(first)
-            .chain_update(second)
-            .finalize();
-    }
-    hash.to_vec()
+    let mut input = Vec::with_capacity(8 + first.len() + second.len());
+    input.extend_from_slice(&(first.len() as u32).to_be_bytes());
+    input.extend_from_slice(first);
+    input.extend_from_slice(&(second.len() as u32).to_be_bytes());
+    input.extend_from_slice(second);
+    argon2id(&input, b"zuna/safety/v2", SAFETY_MEMORY_KIB, SAFETY_ITERATIONS, 1, 64)
+        .expect("fixed Argon2id parameters are valid")
 }
 
 #[cfg(test)]
@@ -281,5 +276,16 @@ mod tests {
     fn safety_digest_is_symmetric_and_key_dependent() {
         assert_eq!(safety_digest(b"alice", b"bob"), safety_digest(b"bob", b"alice"));
         assert_ne!(safety_digest(b"alice", b"bob"), safety_digest(b"alice", b"eve"));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn safety_digest_matches_its_golden_value() {
+        // Every app has to show the same emoji, so this value can never change.
+        let digest = safety_digest(&[1u8; 32], &[2u8; 32]);
+        assert_eq!(
+            digest[..16],
+            [244, 182, 10, 184, 43, 202, 251, 120, 99, 118, 108, 154, 215, 52, 156, 53]
+        );
     }
 }

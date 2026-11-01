@@ -541,22 +541,33 @@ export function reactionId(userId: string, messageId: string, key: string): stri
 
 // --- Emoji verification ---
 
+const SAFETY_EMOJI_COUNT = 16;
+const safetyCache = new Map<string, { emoji: string; name: string }[]>();
+
 /**
  * The anti-MITM check. Both people see the same emoji only if each of their
- * apps holds the other's real identity key. Twelve emoji from a set of 64 give
- * 72 bits, on top of an iterated hash that makes grinding for a match expensive.
+ * apps holds the other's real identity key. Sixteen emoji from a set of 64 give
+ * 96 bits, from Argon2id, which makes each attempt at keys whose emoji match
+ * cost memory as well as time. Apps from before showed twelve, so the count
+ * itself shows when one side needs updating.
  */
 export function safetyEmoji(ownIdentity: Uint8Array, peerIdentity: Uint8Array): { emoji: string; name: string }[] {
+  const cacheKey = `${toHex(ownIdentity)}|${toHex(peerIdentity)}`;
+  const cached = safetyCache.get(cacheKey);
+  if (cached) return cached;
   const digest = wasm.safetyDigest(ownIdentity, peerIdentity);
   const out: { emoji: string; name: string }[] = [];
   let bitOffset = 0;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < SAFETY_EMOJI_COUNT; i++) {
     const byteIndex = bitOffset >> 3;
     const shift = bitOffset & 7;
     const value = ((digest[byteIndex]! | (digest[byteIndex + 1]! << 8)) >> shift) & 63;
     out.push(SAFETY_EMOJI[value]!);
     bitOffset += 6;
   }
+  // Argon2id takes a moment, and the same pair is asked for again whenever trust is.
+  if (safetyCache.size >= 64) safetyCache.delete(safetyCache.keys().next().value!);
+  safetyCache.set(cacheKey, out);
   return out;
 }
 
