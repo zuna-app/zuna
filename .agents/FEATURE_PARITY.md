@@ -39,7 +39,7 @@ Things one platform should have and doesn't.
 | Everyone and groups, saved messages, rows with previews and unread counts | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
 | Filters: All, People, Groups, Unread | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
 | Search people, groups and messages | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
-| "@" on a chat with unread mentions of you or replies to you | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` (`badge`) | Shows in muted chats too, as in Telegram |
+| "@" on a group with unread mentions of you or replies to you | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` (`badge`) | Groups only, and in muted ones too, as in Telegram |
 | Pin, hide, "Hidden (n)" | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
 | Mute for a time | yes | yes | yes | `lib/mute.ts` | `Shared/Mute.swift` | |
 | A preview for a message that can't be shown | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shared/Format.swift` | |

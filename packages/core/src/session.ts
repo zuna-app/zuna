@@ -4213,7 +4213,8 @@ export class ServerSession {
        AND deleted_at IS NULL AND id NOT LIKE 'sys-%'`,
       [group.id, group.ownRead, this.account.userId],
     );
-    const mentions = this.db.get<{ n: number }>(
+    // As in Telegram, only groups have them: everything in a direct message is for you.
+    const mentions = group.kind !== "group" ? undefined : this.db.get<{ n: number }>(
       `SELECT COUNT(*) AS n FROM media d JOIN messages m ON m.row_id = d.row_id
        WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0`,
       [group.id, this.mentionTag, group.ownRead, this.account.userId],
@@ -4223,13 +4224,13 @@ export class ServerSession {
   }
 
   /**
-   * The oldest unread message here that mentions this account or replies to it,
+   * The oldest unread message in a group that mentions this account or replies to it,
    * as Telegram's "@" button finds it. It stops counting as waiting, so the next
    * call finds the one after.
    */
   nextUnreadMention(groupId: string): { id: string; seq: number } | null {
     const group = this.groups.get(groupId);
-    if (!group) return null;
+    if (group?.kind !== "group") return null;
     const row = this.db.get<{ row_id: number; id: string; seq: number }>(
       `SELECT m.row_id, m.id, m.seq FROM media d JOIN messages m ON m.row_id = d.row_id
        WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0

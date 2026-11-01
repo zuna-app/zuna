@@ -89,6 +89,17 @@ describe("unread mentions", () => {
     laptop.client.stop();
   });
 
+  it("aren't counted in a direct message, where everything is for you", async () => {
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "a question for bob" });
+    await waitFor(() => !!latest(bob, "a question for bob"), "bob to get it");
+    const question = latest(bob, "a question for bob")!;
+    bob.session.sendMessage(`user:${alice.userId}`, { text: "@alice an answer", replyTo: question.id, mentions: [alice.userId] });
+    await waitFor(() => alice.texts(`user:${bob.userId}`).includes("@alice an answer"), "alice to get the answer");
+    const dm = alice.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!;
+    expect(dm).toMatchObject({ unread: 1, unreadMentions: 0, mentioned: false });
+    expect(alice.session.nextUnreadMention(dm.groupId!)).toBeNull();
+  });
+
   it("are found again after the index is built anew", async () => {
     await send(alice, "@bob after a rebuild", { mentions: [bob.userId] });
     (bob.session as any).setKv("search_version", 0);

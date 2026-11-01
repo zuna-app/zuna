@@ -277,7 +277,7 @@ export interface ConversationView {
   unread: number;
   /** Whether any of those mention you or reply to you. */
   mentioned: boolean;
-  /** How many unread messages mention you or reply to you, and haven't been jumped to. */
+  /** How many unread messages in a group mention you or reply to you, and haven't been jumped to. Always 0 in a direct message. */
   unreadMentions: number;
   pinned: boolean;
   muted: boolean;

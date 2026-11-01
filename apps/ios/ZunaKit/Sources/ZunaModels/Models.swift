@@ -326,7 +326,7 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var unread: Int
     /// Whether any of those mention you or reply to you.
     public var mentioned: Bool
-    /// How many unread messages mention you or reply to you, and haven't been jumped to.
+    /// How many unread messages in a group mention you or reply to you, and haven't been jumped to. Always 0 in a direct message.
     public var unreadMentions: Int
     public var pinned: Bool
     public var muted: Bool
