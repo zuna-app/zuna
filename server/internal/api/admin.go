@@ -27,6 +27,8 @@ type ServerInfo struct {
 	EmoteSetID         string `json:"emote_set_id"`
 	EmoteSetName       string `json:"emote_set_name"`
 	UserCount          int    `json:"user_count"`
+	// AccountProtocol says this server keeps generations of account keys.
+	AccountProtocol int `json:"account_protocol"`
 	// CommunityKey is only present in open sign-up mode, where admins accepted
 	// that the server can read profiles. In invite mode it stays in invite links.
 	CommunityKey string `json:"community_key,omitempty"`
@@ -45,12 +47,14 @@ func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
 		Claimed:      info.Claimed,
 		Registration: info.Registration,
 		CommunityKey: info.CommunityKey,
+
+		AccountProtocol: info.AccountProtocol,
 	}, nil
 }
 
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
-	info := &ServerInfo{Version: s.cfg.Version}
+	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol}
 	var err error
 	if info.Name, err = s.db.Setting(ctx, "name", "Zuna"); err != nil {
 		return nil, err

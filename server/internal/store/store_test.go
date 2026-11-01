@@ -240,7 +240,7 @@ func TestSessionsDontLastForever(t *testing.T) {
 
 	// With one, until it's gone unused for a very long time.
 	session("device")
-	if err := db.AddDevice(ctx, []byte("device"), Device{ID: "d", UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}); err != nil {
+	if err := db.AddDevice(ctx, []byte("device"), Device{ID: "d", UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, nil); err != nil {
 		t.Fatal(err)
 	}
 	age("device", 2*sessionIdleLife, 2*lastUsedResolution)
@@ -290,6 +290,18 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE files DROP COLUMN standalone;
 		ALTER TABLE files DROP COLUMN received;
 		ALTER TABLE files DROP COLUMN touched_at;
+		DROP TABLE identity_links;
+		DROP TABLE account_slots;
+		DROP TABLE account_bundles;
+		DROP INDEX vault_items_generation;
+		ALTER TABLE vault_items DROP COLUMN generation;
+		ALTER TABLE users DROP COLUMN key_generation;
+		ALTER TABLE users DROP COLUMN identity_head;
+		ALTER TABLE users DROP COLUMN profile_sig;
+		ALTER TABLE users DROP COLUMN bridge;
+		ALTER TABLE devices DROP COLUMN seal_key;
+		ALTER TABLE devices DROP COLUMN seal_sig;
+		ALTER TABLE devices DROP COLUMN enroll_proof;
 		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');

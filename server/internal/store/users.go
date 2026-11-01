@@ -10,19 +10,24 @@ import (
 
 // PublicUser is what every member of a server can see about a user.
 type PublicUser struct {
-	ID           string   `json:"id"`
-	Username     string   `json:"username"`
-	Role         string   `json:"role"`
-	IdentityKey  []byte   `json:"identity_key"`
-	HpkeKey      []byte   `json:"hpke_key"`
-	HpkeKeySig   []byte   `json:"hpke_key_sig"`
-	Profile      []byte   `json:"profile"`
-	LastSeenAt   *int64   `json:"last_seen_at"`
-	HideLastSeen bool     `json:"hide_last_seen"`
-	Banned       bool     `json:"banned"`
-	CreatedAt    int64    `json:"created_at"`
-	UpdatedAt    int64    `json:"updated_at"`
-	Devices      []Device `json:"devices"`
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	Role        string `json:"role"`
+	IdentityKey []byte `json:"identity_key"`
+	// KeyGeneration, IdentityHead and ProfileSig are for clients that follow an
+	// account's generations. Older ones go on seeing the key it began with.
+	KeyGeneration int64    `json:"key_generation"`
+	IdentityHead  []byte   `json:"identity_head"`
+	HpkeKey       []byte   `json:"hpke_key"`
+	HpkeKeySig    []byte   `json:"hpke_key_sig"`
+	Profile       []byte   `json:"profile"`
+	ProfileSig    []byte   `json:"profile_sig"`
+	LastSeenAt    *int64   `json:"last_seen_at"`
+	HideLastSeen  bool     `json:"hide_last_seen"`
+	Banned        bool     `json:"banned"`
+	CreatedAt     int64    `json:"created_at"`
+	UpdatedAt     int64    `json:"updated_at"`
+	Devices       []Device `json:"devices"`
 }
 
 // Device is one app install belonging to a user. The certificate is signed by
@@ -37,6 +42,12 @@ type Device struct {
 	// RevokedAt is set once a device is removed. Revoked devices stay listed so
 	// that messages they sent earlier can still be verified.
 	RevokedAt *int64 `json:"revoked_at"`
+	// SealKey is what to seal account keys to for this device, signed by it with
+	// SealSig. EnrollProof shows that whoever made the device opened a password's
+	// or recovery key's slot.
+	SealKey     []byte `json:"seal_key"`
+	SealSig     []byte `json:"seal_sig"`
+	EnrollProof []byte `json:"enroll_proof"`
 }
 
 // KDFParams are the Argon2id settings a client must use to derive its keys.
@@ -62,6 +73,7 @@ type NewUser struct {
 	HpkeKeySig         []byte
 	VaultCore          []byte
 	Profile            []byte
+	Slots              []Slot
 }
 
 // Credentials is the authentication material for one user.
@@ -78,6 +90,8 @@ type Credentials struct {
 	WrappedKeyRecovery []byte
 	VaultCore          []byte
 	Banned             bool
+	KeyGeneration      int64
+	Bridge             []byte
 }
 
 // CreateUser consumes the invite (if any) and creates the user atomically.
@@ -112,7 +126,7 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 			id, username, username_key, role, kdf_salt, kdf_memory, kdf_iterations, kdf_parallelism,
 			auth_hash, auth_salt, recovery_hash, recovery_salt, wrapped_key_password, wrapped_key_recovery,
 			identity_key, hpke_key, hpke_key_sig, vault_core, profile, created_at, updated_at
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?, X''),COALESCE(?, X''),?,?,?,?,?,?,?)`,
 			id, u.Username, strings.ToLower(u.Username), role,
 			u.KDF.Salt, u.KDF.Memory, u.KDF.Iterations, u.KDF.Parallelism,
 			u.AuthHash, u.AuthSalt, u.RecoveryHash, u.RecoverySalt,
@@ -121,7 +135,10 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 		if isUniqueViolation(err) {
 			return ErrConflict
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		return d.insertSlots(ctx, tx, id, u.Slots)
 	})
 	return id, err
 }
@@ -130,11 +147,11 @@ func (d *DB) CredentialsByUsername(ctx context.Context, username string) (*Crede
 	var c Credentials
 	var banned sql.NullInt64
 	err := d.sql.QueryRowContext(ctx, `SELECT id, username, role, kdf_salt, kdf_memory, kdf_iterations, kdf_parallelism,
-		auth_hash, auth_salt, recovery_hash, recovery_salt, wrapped_key_password, wrapped_key_recovery, vault_core, banned_at
+		auth_hash, auth_salt, recovery_hash, recovery_salt, wrapped_key_password, wrapped_key_recovery, vault_core, banned_at, key_generation, bridge
 		FROM users WHERE username_key = ?`, strings.ToLower(username)).Scan(
 		&c.UserID, &c.Username, &c.Role, &c.KDF.Salt, &c.KDF.Memory, &c.KDF.Iterations, &c.KDF.Parallelism,
 		&c.AuthHash, &c.AuthSalt, &c.RecoveryHash, &c.RecoverySalt, &c.WrappedKeyPassword, &c.WrappedKeyRecovery,
-		&c.VaultCore, &banned)
+		&c.VaultCore, &banned, &c.KeyGeneration, &c.Bridge)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -170,14 +187,24 @@ func (d *DB) ReplaceRecoveryAuthKey(ctx context.Context, userID string, hash, sa
 	return err
 }
 
-const publicUserColumns = `id, username, role, identity_key, hpke_key, hpke_key_sig, profile,
+const publicUserColumns = `id, username, role, identity_key, key_generation, identity_head, hpke_key, hpke_key_sig, profile, profile_sig,
 	last_seen_at, hide_last_seen, banned_at, created_at, updated_at`
+
+const deviceColumns = `id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at, seal_key, seal_sig, enroll_proof`
+
+func scanDevice(row interface{ Scan(...any) error }) (Device, error) {
+	var dev Device
+	var revoked sql.NullInt64
+	err := row.Scan(&dev.ID, &dev.UserID, &dev.Certificate, &dev.SignatureKey, &dev.CreatedAt, &dev.LastSeenAt, &revoked, &dev.SealKey, &dev.SealSig, &dev.EnrollProof)
+	dev.RevokedAt = nullableInt(revoked)
+	return dev, err
+}
 
 func scanPublicUser(row interface{ Scan(...any) error }) (*PublicUser, error) {
 	var u PublicUser
 	var lastSeen, banned sql.NullInt64
 	var hide int
-	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.IdentityKey, &u.HpkeKey, &u.HpkeKeySig, &u.Profile,
+	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.IdentityKey, &u.KeyGeneration, &u.IdentityHead, &u.HpkeKey, &u.HpkeKeySig, &u.Profile, &u.ProfileSig,
 		&lastSeen, &hide, &banned, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -211,18 +238,16 @@ func (d *DB) Users(ctx context.Context, since int64) ([]*PublicUser, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	deviceRows, err := d.sql.QueryContext(ctx, `SELECT id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at FROM devices`)
+	deviceRows, err := d.sql.QueryContext(ctx, `SELECT `+deviceColumns+` FROM devices`)
 	if err != nil {
 		return nil, err
 	}
 	defer deviceRows.Close()
 	for deviceRows.Next() {
-		var dev Device
-		var revoked sql.NullInt64
-		if err := deviceRows.Scan(&dev.ID, &dev.UserID, &dev.Certificate, &dev.SignatureKey, &dev.CreatedAt, &dev.LastSeenAt, &revoked); err != nil {
+		dev, err := scanDevice(deviceRows)
+		if err != nil {
 			return nil, err
 		}
-		dev.RevokedAt = nullableInt(revoked)
 		if u, ok := byID[dev.UserID]; ok {
 			u.Devices = append(u.Devices, dev)
 		}
@@ -238,19 +263,16 @@ func (d *DB) User(ctx context.Context, id string) (*PublicUser, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := d.sql.QueryContext(ctx, `SELECT id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at
-		FROM devices WHERE user_id = ?`, id)
+	rows, err := d.sql.QueryContext(ctx, `SELECT `+deviceColumns+` FROM devices WHERE user_id = ?`, id)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var dev Device
-		var revoked sql.NullInt64
-		if err := rows.Scan(&dev.ID, &dev.UserID, &dev.Certificate, &dev.SignatureKey, &dev.CreatedAt, &dev.LastSeenAt, &revoked); err != nil {
+		dev, err := scanDevice(rows)
+		if err != nil {
 			return nil, err
 		}
-		dev.RevokedAt = nullableInt(revoked)
 		u.Devices = append(u.Devices, dev)
 	}
 	return u, rows.Err()
@@ -265,7 +287,7 @@ func (d *DB) UserCount(ctx context.Context) (int, error) {
 // UpdateProfile stores the user's encrypted profile. An avatar must be the
 // user's own file. It returns the avatar this replaced, if nothing else uses it,
 // so it can be deleted.
-func (d *DB) UpdateProfile(ctx context.Context, userID string, profile []byte, avatarFile *string) (string, error) {
+func (d *DB) UpdateProfile(ctx context.Context, userID string, profile, profileSig []byte, avatarFile *string) (string, error) {
 	var old sql.NullString
 	var orphaned []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
@@ -282,8 +304,8 @@ func (d *DB) UpdateProfile(ctx context.Context, userID string, profile []byte, a
 				return err
 			}
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET profile = ?, avatar_file = ?, updated_at = ? WHERE id = ?`,
-			profile, avatarFile, Now(), userID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET profile = ?, profile_sig = ?, avatar_file = ?, updated_at = ? WHERE id = ?`,
+			profile, profileSig, avatarFile, Now(), userID); err != nil {
 			return err
 		}
 		if avatarFile != nil {
@@ -448,12 +470,22 @@ func (d *DB) DeleteExpiredSessions(ctx context.Context) error {
 
 // --- Devices ---
 
-// AddDevice registers a device and binds the current session to it.
-func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device) error {
+// AddDevice registers a device and binds the current session to it. A device
+// signing in says which generation of keys it got, since a rotation may have got
+// in first, and one that doesn't know about generations only joins an account
+// that hasn't had any.
+func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, generation *int64) error {
 	return d.tx(ctx, func(tx *sql.Tx) error {
 		now := Now()
-		_, err := tx.ExecContext(ctx, `INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at)
-			VALUES(?,?,?,?,?,?)`, dev.ID, dev.UserID, dev.Certificate, dev.SignatureKey, now, now)
+		var current int64
+		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, dev.UserID).Scan(&current); err != nil {
+			return err
+		}
+		if (generation == nil && current != 0) || (generation != nil && *generation != current) {
+			return &GenerationConflictError{Current: current}
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_sig, enroll_proof)
+			VALUES(?,?,?,?,?,?,?,?,?)`, dev.ID, dev.UserID, dev.Certificate, dev.SignatureKey, now, now, dev.SealKey, dev.SealSig, dev.EnrollProof)
 		if isUniqueViolation(err) {
 			return ErrConflict
 		}
@@ -471,27 +503,26 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device) error 
 // RevokeDevice removes a device of the user and ends its sessions.
 func (d *DB) RevokeDevice(ctx context.Context, userID, deviceID string) error {
 	return d.tx(ctx, func(tx *sql.Tx) error {
-		now := Now()
-		res, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
-			now, deviceID, userID)
-		if err != nil {
-			return err
-		}
-		if n, _ := res.RowsAffected(); n == 0 {
-			return ErrNotFound
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE device_id = ?`, deviceID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM key_packages WHERE device_id = ?`, deviceID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM push_registrations WHERE device_id = ?`, deviceID); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, now, userID)
-		return err
+		return revokeDevice(ctx, tx, userID, deviceID, Now())
 	})
+}
+
+func revokeDevice(ctx context.Context, tx *sql.Tx, userID, deviceID string, now int64) error {
+	res, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
+		now, deviceID, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	for _, table := range []string{"sessions", "key_packages", "push_registrations", "account_bundles"} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE device_id = ?`, deviceID); err != nil {
+			return err
+		}
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE users SET updated_at = ? WHERE id = ?`, now, userID)
+	return err
 }
 
 // --- Key packages ---
@@ -581,49 +612,48 @@ func (d *DB) ClaimKeyPackages(ctx context.Context, userID string) ([]ClaimedKeyP
 
 // --- Vault ---
 
-// VaultItem is an opaque blob, encrypted under the user's account key.
+// VaultItem is an opaque blob, encrypted under the user's account key of its
+// generation. The generation is only a hint: a wrong one makes it fail to open.
 type VaultItem struct {
-	ID   string `json:"id"`
-	Seq  int64  `json:"seq"`
-	Data []byte `json:"data"`
+	ID         string `json:"id"`
+	Seq        int64  `json:"seq"`
+	Generation int64  `json:"generation"`
+	Data       []byte `json:"data"`
 }
 
 // PutVaultItems upserts items and returns the user's newest vault sequence.
 func (d *DB) PutVaultItems(ctx context.Context, userID string, items []VaultItem) (int64, error) {
 	var seq int64
 	err := d.tx(ctx, func(tx *sql.Tx) error {
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM vault_items WHERE user_id = ?`, userID).Scan(&seq); err != nil {
+		if err := putItems(ctx, tx, userID, items); err != nil {
 			return err
 		}
-		for _, item := range items {
-			seq++
-			if _, err := tx.ExecContext(ctx, `INSERT INTO vault_items(user_id, id, seq, data) VALUES(?,?,?,?)
-				ON CONFLICT(user_id, id) DO UPDATE SET seq = excluded.seq, data = excluded.data`,
-				userID, item.ID, seq, item.Data); err != nil {
-				return err
-			}
-		}
-		return nil
+		return tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM vault_items WHERE user_id = ?`, userID).Scan(&seq)
 	})
 	return seq, err
 }
 
-func (d *DB) VaultItemsSince(ctx context.Context, userID string, since int64, limit int) ([]VaultItem, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT id, seq, data FROM vault_items WHERE user_id = ? AND seq > ?
-		ORDER BY seq ASC LIMIT ?`, userID, since, limit)
-	if err != nil {
-		return nil, err
+func putItems(ctx context.Context, tx *sql.Tx, userID string, items []VaultItem) error {
+	var seq int64
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM vault_items WHERE user_id = ?`, userID).Scan(&seq); err != nil {
+		return err
 	}
-	defer rows.Close()
-	items := []VaultItem{}
-	for rows.Next() {
-		var item VaultItem
-		if err := rows.Scan(&item.ID, &item.Seq, &item.Data); err != nil {
-			return nil, err
+	for _, item := range items {
+		seq++
+		if _, err := tx.ExecContext(ctx, `INSERT INTO vault_items(user_id, id, seq, generation, data) VALUES(?,?,?,?,?)
+			ON CONFLICT(user_id, id) DO UPDATE SET seq = excluded.seq, generation = excluded.generation, data = excluded.data`,
+			userID, item.ID, seq, item.Generation, item.Data); err != nil {
+			return err
 		}
-		items = append(items, item)
 	}
-	return items, rows.Err()
+	return nil
+}
+
+// VaultItemsSince is the vault as a client from before generations sees it: only
+// what it can open, since it would skip anything else for good.
+func (d *DB) VaultItemsSince(ctx context.Context, userID string, since int64, limit int) ([]VaultItem, error) {
+	return d.vaultItems(ctx, `SELECT id, seq, generation, data FROM vault_items WHERE user_id = ? AND seq > ? AND generation = 0
+		ORDER BY seq ASC LIMIT ?`, userID, since, limit)
 }
 
 // VaultItemCount is how many items someone keeps in their vault.
@@ -633,9 +663,11 @@ func (d *DB) VaultItemCount(ctx context.Context, userID string) (int, error) {
 	return n, err
 }
 
-func (d *DB) UpdateVaultCore(ctx context.Context, userID string, core []byte) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE users SET vault_core = ? WHERE id = ?`, core, userID)
-	return err
+// KeyGeneration is which generation of its keys an account is at.
+func (d *DB) KeyGeneration(ctx context.Context, userID string) (int64, error) {
+	var generation int64
+	err := d.sql.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, userID).Scan(&generation)
+	return generation, err
 }
 
 // --- Invites ---

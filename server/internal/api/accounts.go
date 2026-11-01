@@ -153,6 +153,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		HpkeKeySig         []byte          `json:"hpke_key_sig"`
 		VaultCore          []byte          `json:"vault_core"`
 		Profile            []byte          `json:"profile"`
+		Slots              []store.Slot    `json:"slots"`
 	}
 	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
 		return
@@ -166,9 +167,10 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 			"Usernames are 2-32 characters: letters, numbers, dots, dashes and underscores.")
 		return
 	}
+	// An account has slots from the start, or the wrappers from before there were any.
+	wrapped := validNewSlots(body.Slots) || (len(body.Slots) == 0 && len(body.WrappedKeyPassword) > 0 && len(body.WrappedKeyRecovery) > 0)
 	if !validKDF(body.KDF) || len(body.AuthKey) != 32 || len(body.RecoveryAuthKey) != 32 ||
-		len(body.IdentityKey) != 32 || len(body.HpkeKey) != 32 || len(body.WrappedKeyPassword) == 0 ||
-		len(body.WrappedKeyRecovery) == 0 || len(body.VaultCore) == 0 {
+		len(body.IdentityKey) != 32 || len(body.HpkeKey) != 32 || !wrapped || len(body.VaultCore) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The sign-up data is incomplete.")
 		return
 	}
@@ -200,6 +202,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		HpkeKeySig:         body.HpkeKeySig,
 		VaultCore:          body.VaultCore,
 		Profile:            body.Profile,
+		Slots:              body.Slots,
 	}, body.InviteCode)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "invalid_invite", "This invite link has expired or was already used.")
@@ -239,6 +242,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username string `json:"username"`
 		AuthKey  []byte `json:"auth_key"`
+		Client   int    `json:"client"`
 	}
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
@@ -264,25 +268,14 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
 		return
 	}
-	token, err := s.newSession(r, creds.UserID)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"user_id":     creds.UserID,
-		"username":    creds.Username,
-		"role":        creds.Role,
-		"token":       token,
-		"wrapped_key": creds.WrappedKeyPassword,
-		"vault_core":  creds.VaultCore,
-	})
+	s.finishSignIn(w, r, creds, "password", creds.WrappedKeyPassword, body.Client)
 }
 
 func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Username        string `json:"username"`
 		RecoveryAuthKey []byte `json:"recovery_auth_key"`
+		Client          int    `json:"client"`
 	}
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
@@ -308,19 +301,49 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "banned", "This account was banned from the server.")
 		return
 	}
+	s.finishSignIn(w, r, creds, "recovery", creds.WrappedKeyRecovery, body.Client)
+}
+
+// finishSignIn hands over what opens the account. A client from before there were
+// generations can only use a wrapper of the old kind around the first account key.
+func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, creds *store.Credentials, kind string, wrapped []byte, client int) {
+	if client < accountProtocol && (creds.KeyGeneration > 0 || len(wrapped) == 0) {
+		writeUpdateRequired(w)
+		return
+	}
 	token, err := s.newSession(r, creds.UserID)
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	reply := map[string]any{
 		"user_id":     creds.UserID,
 		"username":    creds.Username,
 		"role":        creds.Role,
 		"token":       token,
-		"wrapped_key": creds.WrappedKeyRecovery,
+		"wrapped_key": wrapped,
 		"vault_core":  creds.VaultCore,
-	})
+	}
+	if client >= accountProtocol {
+		slot, err := s.db.SlotOf(r.Context(), creds.UserID, kind)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		_, _, link, err := s.db.Head(r.Context(), creds.UserID)
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		reply["protocol"] = accountProtocol
+		reply["generation"] = creds.KeyGeneration
+		reply["slot"] = slot
+		reply["head_link"] = link
+		if slot == nil {
+			reply["bridge"] = creds.Bridge
+		}
+	}
+	writeJSON(w, http.StatusOK, reply)
 }
 
 // Sign-in keys are bound to this server's address, so one a person's app gives
@@ -466,6 +489,9 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, se
 		writeFailure(w, err)
 		return
 	}
+	if s.needsRotation(w, r, creds) {
+		return
+	}
 	proved := subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.CurrentAuthKey), creds.AuthHash) == 1 ||
 		subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, body.RecoveryAuthKey), creds.RecoveryHash) == 1
 	if !proved {
@@ -506,6 +532,9 @@ func (s *Server) handleChangeRecoveryKey(w http.ResponseWriter, r *http.Request,
 	creds, err := s.credentialsOf(r, sess)
 	if err != nil {
 		writeFailure(w, err)
+		return
+	}
+	if s.needsRotation(w, r, creds) {
 		return
 	}
 	if subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.CurrentAuthKey), creds.AuthHash) != 1 {
@@ -597,6 +626,7 @@ func (s *Server) handleUser(w http.ResponseWriter, r *http.Request, sess *store.
 func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
 		Profile      []byte  `json:"profile"`
+		ProfileSig   []byte  `json:"profile_sig"`
 		AvatarFile   *string `json:"avatar_file"`
 		HideLastSeen *bool   `json:"hide_last_seen"`
 	}
@@ -612,7 +642,7 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request, sess *st
 		return
 	}
 	if body.Profile != nil {
-		old, err := s.db.UpdateProfile(r.Context(), sess.UserID, body.Profile, body.AvatarFile)
+		old, err := s.db.UpdateProfile(r.Context(), sess.UserID, body.Profile, body.ProfileSig, body.AvatarFile)
 		if err != nil {
 			writeFailure(w, err)
 			return
@@ -637,6 +667,10 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *s
 		ID           string `json:"id"`
 		Certificate  []byte `json:"certificate"`
 		SignatureKey []byte `json:"signature_key"`
+		Generation   *int64 `json:"generation"`
+		SealKey      []byte `json:"seal_key"`
+		SealSig      []byte `json:"seal_sig"`
+		EnrollProof  []byte `json:"enroll_proof"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -645,7 +679,8 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *s
 		writeError(w, http.StatusConflict, "conflict", "This session already has a device.")
 		return
 	}
-	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.Certificate) > maxDetailBytes || len(body.SignatureKey) != 32 {
+	if !store.ValidID(body.ID) || len(body.Certificate) == 0 || len(body.Certificate) > maxDetailBytes || len(body.SignatureKey) != 32 ||
+		(len(body.SealKey) != 0 && len(body.SealKey) != 32) || len(body.SealSig) > 64 || len(body.EnrollProof) > 64 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The device data is incomplete.")
 		return
 	}
@@ -654,7 +689,15 @@ func (s *Server) handleAddDevice(w http.ResponseWriter, r *http.Request, sess *s
 		UserID:       sess.UserID,
 		Certificate:  body.Certificate,
 		SignatureKey: body.SignatureKey,
-	})
+		SealKey:      body.SealKey,
+		SealSig:      body.SealSig,
+		EnrollProof:  body.EnrollProof,
+	}, body.Generation)
+	var stale *store.GenerationConflictError
+	if body.Generation == nil && errors.As(err, &stale) {
+		writeUpdateRequired(w)
+		return
+	}
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -743,6 +786,15 @@ func (s *Server) handleVaultGet(w http.ResponseWriter, r *http.Request, sess *st
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+func validVaultItems(items []store.VaultItem) bool {
+	for _, item := range items {
+		if item.ID == "" || len(item.ID) > maxVaultItemID || len(item.Data) > maxVaultItemBytes {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
 		Items []store.VaultItem `json:"items"`
@@ -754,11 +806,20 @@ func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *st
 		writeOK(w)
 		return
 	}
-	for _, item := range body.Items {
-		if item.ID == "" || len(item.ID) > maxVaultItemID || len(item.Data) > maxVaultItemBytes {
-			writeError(w, http.StatusBadRequest, "bad_request", "A vault item isn't valid.")
-			return
-		}
+	if !validVaultItems(body.Items) {
+		writeError(w, http.StatusBadRequest, "bad_request", "A vault item isn't valid.")
+		return
+	}
+	// A client from before generations is sealing to a key someone evicted may
+	// hold. It's told this worked, since other devices store the same keys.
+	generation, err := s.db.KeyGeneration(r.Context(), sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if generation > 0 {
+		writeJSON(w, http.StatusOK, map[string]int64{"seq": 0})
+		return
 	}
 	count, err := s.db.VaultItemCount(r.Context(), sess.UserID)
 	if err != nil {
@@ -769,6 +830,9 @@ func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *st
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Your account's encrypted storage is full.")
 		return
 	}
+	for i := range body.Items {
+		body.Items[i].Generation = 0
+	}
 	seq, err := s.db.PutVaultItems(r.Context(), sess.UserID, body.Items)
 	if err != nil {
 		writeFailure(w, err)
@@ -778,25 +842,22 @@ func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *st
 	writeJSON(w, http.StatusOK, map[string]int64{"seq": seq})
 }
 
-func (s *Server) handleVaultCore(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-	var body struct {
-		VaultCore []byte `json:"vault_core"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	if len(body.VaultCore) == 0 || len(body.VaultCore) > maxDetailBytes {
-		writeError(w, http.StatusBadRequest, "bad_request", "The vault data isn't valid.")
-		return
-	}
-	if err := s.db.UpdateVaultCore(r.Context(), sess.UserID, body.VaultCore); err != nil {
+// handleHistoryGrants is for clients from before generations, which would delete
+// a grant they can't open. Once an account has rotated they aren't shown any.
+func (s *Server) handleHistoryGrants(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	generation, err := s.db.KeyGeneration(r.Context(), sess.UserID)
+	if err != nil {
 		writeFailure(w, err)
 		return
 	}
-	writeOK(w)
+	if generation > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"grants": []store.HistoryGrant{}})
+		return
+	}
+	s.handleHistoryGrantsAtAnyGeneration(w, r, sess)
 }
 
-func (s *Server) handleHistoryGrants(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+func (s *Server) handleHistoryGrantsAtAnyGeneration(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	grants, err := s.db.HistoryGrants(r.Context(), sess.UserID)
 	if err != nil {
 		writeFailure(w, err)

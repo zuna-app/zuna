@@ -364,6 +364,51 @@ UPDATE files SET standalone = 1 WHERE attached_at IS NOT NULL
 CREATE INDEX files_owner ON files(owner_id);
 CREATE INDEX users_avatar ON users(avatar_file);
 CREATE INDEX sessions_last_used ON sessions(last_used_at);
+`, `
+-- Generations of an account's keys (docs/ACCOUNT_KEY_ROTATION.md). identity_key
+-- stays the key the account began with, which clients from before this still pin.
+ALTER TABLE users ADD COLUMN key_generation INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN identity_head BLOB;
+ALTER TABLE users ADD COLUMN profile_sig BLOB;
+ALTER TABLE users ADD COLUMN bridge BLOB;
+ALTER TABLE devices ADD COLUMN seal_key BLOB;
+ALTER TABLE devices ADD COLUMN seal_sig BLOB;
+ALTER TABLE devices ADD COLUMN enroll_proof BLOB;
+ALTER TABLE vault_items ADD COLUMN generation INTEGER NOT NULL DEFAULT 0;
+CREATE INDEX vault_items_generation ON vault_items(user_id, generation);
+
+CREATE TABLE identity_links (
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	generation INTEGER NOT NULL,
+	payload BLOB NOT NULL,
+	by_prev BLOB NOT NULL,
+	by_new BLOB NOT NULL,
+	by_device BLOB NOT NULL,
+	created_at INTEGER NOT NULL,
+	PRIMARY KEY (user_id, generation)
+);
+
+-- The password's and recovery key's public-key wrappers of the account key.
+CREATE TABLE account_slots (
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	kind TEXT NOT NULL,
+	seal_key BLOB NOT NULL,
+	sign_key BLOB NOT NULL,
+	sealed_secret BLOB NOT NULL,
+	sealed_key BLOB NOT NULL,
+	PRIMARY KEY (user_id, kind)
+);
+
+-- The account key sealed for each device: only the newest is ever needed.
+CREATE TABLE account_bundles (
+	device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	generation INTEGER NOT NULL,
+	data BLOB NOT NULL
+);
+
+-- Removals from before this are nobody's cue to rotate.
+INSERT OR IGNORE INTO settings(key, value) VALUES('account_protocol_since', CAST(CAST(strftime('%s', 'now') AS INTEGER) * 1000 AS TEXT));
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

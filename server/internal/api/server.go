@@ -94,6 +94,7 @@ type Server struct {
 	publicLimiter  *ratelimit.Keyed
 	claimLimiter   *ratelimit.Keyed
 	targetLimiter  *ratelimit.Keyed
+	rotateLimiter  *ratelimit.Keyed
 	signInFailures *ratelimit.Backoff
 
 	pushClient *http.Client
@@ -129,6 +130,8 @@ func New(cfg Config, db *store.DB) *Server {
 		publicLimiter:  ratelimit.NewKeyed(rate.Limit(5), 60),
 		claimLimiter:   ratelimit.NewKeyed(rate.Limit(5), 600),
 		targetLimiter:  ratelimit.NewKeyed(rate.Every(2*time.Second), 20),
+		// Each rotation is a link for every contact to follow, so they stay rare.
+		rotateLimiter:  ratelimit.NewKeyed(rate.Every(time.Minute), 30),
 		signInFailures: ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
 		pushClient:     &http.Client{Timeout: pushTimeout},
 		pushSlots:      make(chan struct{}, pushConcurrency),
@@ -289,9 +292,23 @@ func (s *Server) Handler() http.Handler {
 	// Encrypted per-user key vault
 	mux.HandleFunc("GET /api/vault", s.withDevice(s.handleVaultGet))
 	mux.HandleFunc("PUT /api/vault", s.withDevice(s.handleVaultPut))
-	mux.HandleFunc("PUT /api/vault/core", s.withDevice(s.handleVaultCore))
 	mux.HandleFunc("GET /api/history-grants", s.withDevice(s.handleHistoryGrants))
 	mux.HandleFunc("DELETE /api/history-grants/{id}", s.withDevice(s.handleDeleteHistoryGrant))
+
+	// Generations of an account's keys.
+	mux.HandleFunc("GET /api/v2/account", s.withDevice(s.handleAccount))
+	mux.HandleFunc("POST /api/v2/account/rotate", s.withDevice(s.handleRotate))
+	mux.HandleFunc("POST /api/v2/account/bundles", s.withDevice(s.handleBundles))
+	mux.HandleFunc("POST /api/v2/account/slots", s.withDevice(s.handleFirstSlot))
+	mux.HandleFunc("POST /api/v2/account/core", s.withDevice(s.handleCloseGeneration))
+	mux.HandleFunc("PUT /api/v2/devices/{id}/seal-key", s.withDevice(s.handleSealKey))
+	mux.HandleFunc("PUT /api/v2/devices/{id}/certificate", s.withDevice(s.handleCertificate))
+	mux.HandleFunc("GET /api/users/{id}/identity-links", s.withDevice(s.handleIdentityLinks))
+	mux.HandleFunc("GET /api/v2/vault", s.withDevice(s.handleVaultGetAnyGeneration))
+	mux.HandleFunc("PUT /api/v2/vault", s.withDevice(s.handleVaultPutAtGeneration))
+	mux.HandleFunc("GET /api/v2/vault/older", s.withDevice(s.handleVaultOlder))
+	mux.HandleFunc("POST /api/v2/vault/reseal", s.withDevice(s.handleVaultReseal))
+	mux.HandleFunc("GET /api/v2/history-grants", s.withDevice(s.handleHistoryGrantsAtAnyGeneration))
 
 	// Groups
 	mux.HandleFunc("GET /api/groups", s.withDevice(s.handleGroups))
@@ -512,6 +529,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 // reported generically, so internal details never reach clients.
 func writeFailure(w http.ResponseWriter, err error) {
 	var conflict *store.EpochConflictError
+	var stale *store.GenerationConflictError
 	switch {
 	case errors.As(err, &conflict):
 		writeJSON(w, http.StatusConflict, map[string]any{
@@ -519,6 +537,14 @@ func writeFailure(w http.ResponseWriter, err error) {
 			"message": "The conversation's keys changed. Catch up and retry.",
 			"epoch":   conflict.Current,
 		})
+	case errors.As(err, &stale):
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":      "stale_generation",
+			"message":    "This account's keys changed. Catch up and retry.",
+			"generation": stale.Current,
+		})
+	case errors.Is(err, store.ErrDevicesChanged):
+		writeError(w, http.StatusConflict, "devices_changed", "This account's devices changed. Look again and retry.")
 	case errors.Is(err, store.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "That doesn't exist anymore.")
 	case errors.Is(err, store.ErrForbidden):
