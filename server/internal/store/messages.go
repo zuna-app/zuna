@@ -449,11 +449,13 @@ type Changes struct {
 // are always included so a client can follow every epoch transition.
 func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFrom int64, limit int) (*Changes, error) {
 	// Find the page boundary across both tables first, so that a page ends at
-	// one sequence number and no later commit is skipped.
+	// one sequence number and no later commit is skipped. Someone added without
+	// the group's history gets its events from the commit that added them: what
+	// came before is in their Welcome, and who did what when isn't theirs to see.
 	rows, err := d.sql.QueryContext(ctx, `SELECT s FROM (
 			SELECT updated_seq AS s FROM messages WHERE group_id = ?1 AND updated_seq > ?2 AND seq > ?3
 			UNION ALL
-			SELECT seq AS s FROM group_events WHERE group_id = ?1 AND seq > ?2
+			SELECT seq AS s FROM group_events WHERE group_id = ?1 AND seq > ?2 AND seq >= ?3
 		) ORDER BY s ASC LIMIT ?4`, groupID, after, visibleFrom, limit+1)
 	if err != nil {
 		return nil, err
@@ -493,7 +495,7 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 	}
 
 	eventRows, err := d.sql.QueryContext(ctx, `SELECT group_id, seq, kind, epoch, data, sender_user, sender_device, target_user, created_at
-		FROM group_events WHERE group_id = ? AND seq > ? AND seq <= ? ORDER BY seq ASC`, groupID, after, upTo)
+		FROM group_events WHERE group_id = ? AND seq > ? AND seq <= ? AND seq >= ? ORDER BY seq ASC`, groupID, after, upTo, visibleFrom)
 	if err != nil {
 		return nil, err
 	}
@@ -574,14 +576,15 @@ func unreferenced(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, 
 }
 
 // mayShareFile reports whether a message from this user may use a file: their
-// own finished upload, or one already in a conversation they belong to, which is
-// how a forwarded message shares its original's files.
+// own finished upload, or one already in a message they can see, in a conversation
+// they belong to, which is how a forwarded message shares its original's files.
 func mayShareFile(ctx context.Context, tx *sql.Tx, fileID, userID string) (bool, error) {
 	var allowed int
 	err := tx.QueryRowContext(ctx, `SELECT
 		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND owner_id = ?2 AND completed_at IS NOT NULL) OR
 		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
-			WHERE r.file_id = ?1 AND m.user_id = ?2)`, fileID, userID).Scan(&allowed)
+			JOIN messages msg ON msg.group_id = r.group_id AND msg.id = r.message_id
+			WHERE r.file_id = ?1 AND m.user_id = ?2 AND msg.seq > m.visible_from_seq)`, fileID, userID).Scan(&allowed)
 	return allowed != 0, err
 }
 
@@ -630,14 +633,15 @@ func (d *DB) File(ctx context.Context, id string) (*File, error) {
 }
 
 // MayReadFile reports whether a user may read a file: their own, someone's
-// picture, or one in a conversation they belong to.
+// picture, or one in a message they can see, in a conversation they belong to.
 func (d *DB) MayReadFile(ctx context.Context, fileID, userID string) (bool, error) {
 	var allowed int
 	err := d.sql.QueryRowContext(ctx, `SELECT
 		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND (owner_id = ?2 OR standalone = 1)) OR
 		EXISTS(SELECT 1 FROM users WHERE avatar_file = ?1) OR
 		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
-			WHERE r.file_id = ?1 AND m.user_id = ?2)`, fileID, userID).Scan(&allowed)
+			JOIN messages msg ON msg.group_id = r.group_id AND msg.id = r.message_id
+			WHERE r.file_id = ?1 AND m.user_id = ?2 AND msg.seq > m.visible_from_seq)`, fileID, userID).Scan(&allowed)
 	return allowed != 0, err
 }
 

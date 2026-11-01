@@ -923,6 +923,53 @@ func TestADeletionCarriesWhatItsDeviceSigned(t *testing.T) {
 	}
 }
 
+// Someone added without a group's history gets nothing of it: not its commits and
+// who left when, and not the files of messages from before.
+func TestJoiningWithoutHistoryGivesNoEventsOrFilesFromBefore(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	carol := h.register("carol", owner.newInvite())
+	group := newGroup(h, owner)
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{carol.userID}}); status != http.StatusOK {
+		t.Fatalf("adding carol: %d %v", status, resp)
+	}
+	if status, resp := owner.commit(group, 1, map[string]any{"remove_users": []string{carol.userID}}); status != http.StatusOK {
+		t.Fatalf("removing carol: %d %v", status, resp)
+	}
+	before := owner.upload([]byte("from before"))
+	h.mustDo("POST", "/api/groups/"+group+"/messages", owner.token, map[string]any{"id": store.NewID(), "epoch": 2, "envelope": []byte("x"), "file_ids": []string{before}}, nil)
+	if status, resp := owner.commit(group, 2, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("adding bob: %d %v", status, resp)
+	}
+	after := owner.upload([]byte("from after"))
+	h.mustDo("POST", "/api/groups/"+group+"/messages", owner.token, map[string]any{"id": store.NewID(), "epoch": 3, "envelope": []byte("x"), "file_ids": []string{after}}, nil)
+
+	var changes store.Changes
+	h.mustDo("GET", "/api/groups/"+group+"/changes?after=0", bob.token, nil, &changes)
+	// Only the commit that added him, which took the group to epoch 3.
+	if len(changes.Events) != 1 || changes.Events[0].Epoch != 3 || len(changes.Messages) != 1 {
+		t.Fatalf("bob was given %d events and %d messages: %+v", len(changes.Events), len(changes.Messages), changes.Events)
+	}
+	if status := bob.readFile(before); status != http.StatusNotFound {
+		t.Fatalf("a file from before: %d", status)
+	}
+	if status := bob.readFile(after); status != http.StatusOK {
+		t.Fatalf("a file from after: %d", status)
+	}
+	// Nor can it be forwarded somewhere to be read there.
+	dm := bob.dm(owner.userID)
+	bob.commit(dm.ID, 0, nil)
+	if status, _ := h.do("POST", "/api/groups/"+dm.ID+"/messages", bob.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{before}}, nil); status == http.StatusOK {
+		t.Fatal("a file from before was forwarded")
+	}
+	var full store.Changes
+	h.mustDo("GET", "/api/groups/"+group+"/changes?after=0", owner.token, nil, &full)
+	if len(full.Events) < 3 {
+		t.Fatalf("the owner sees only %d events", len(full.Events))
+	}
+}
+
 // Z-48: going back too many days wraps around to a date in the future.
 func TestRetentionCantWrapAround(t *testing.T) {
 	h := newHarness(t)
