@@ -251,8 +251,6 @@ interface CachedGroup {
   metaEpoch: number | null;
   /** The newest version of the group's signed details seen, so an older copy isn't taken for new. */
   metaVersion?: number;
-  /** What the server said when this group was first seen. Details from before this setting was signed go by this. */
-  historyVisible: boolean;
   createdAt: number;
   members: GroupMemberView[];
   readStates: Record<string, string | null>;
@@ -2364,7 +2362,6 @@ export class ServerSession {
       metaBlob: api.meta,
       metaEpoch: api.meta_epoch,
       metaVersion: previous?.metaVersion ?? 0,
-      historyVisible: previous?.historyVisible ?? api.history_visible,
       createdAt: api.created_at,
       members: listed.map((member) => ({ userId: member.user_id, role: member.role, joinedAt: member.joined_at })),
       readStates: Object.fromEntries(listed.map((member) => [member.user_id, member.read_state])),
@@ -2400,14 +2397,18 @@ export class ServerSession {
    * Takes on a group's details if an admin's device signed them and they aren't
    * older than what's held. Anyone with an epoch key could write some, and the
    * server could serve old ones. Unsigned details, from before these were signed,
-   * count only until signed ones are seen, and an admin's app replaces them.
+   * count only until signed ones are seen, and an admin's app replaces them. They
+   * never say whether history is shared: anyone could have written that.
    */
   private acceptGroupDetails(group: CachedGroup, opened: unknown): void {
     if (opened === null) return;
     const signed = readSignedGroupDetails(group.id, opened);
     if (!signed) {
       const legacy = parseGroupDetails(opened);
-      if (legacy && !group.metaVersion) group.meta = legacy;
+      if (legacy && !group.metaVersion) {
+        delete legacy.historyVisible;
+        group.meta = legacy;
+      }
       this.resealIfAdmin(group);
       return;
     }
@@ -2449,9 +2450,12 @@ export class ServerSession {
     return sealSignal(key, "meta", groupId, epoch, signGroupDetails(groupId, details, version, signer, this.account.deviceSecret));
   }
 
-  /** Whether someone added to a group gets its history. That's an admin's choice, and never only the server's word. */
+  /**
+   * Whether someone added to a group gets its history. That's an admin's signed
+   * choice, never the server's word, so without the details an admin signed, it's no.
+   */
   private sharesHistory(group: CachedGroup): boolean {
-    return group.meta.historyVisible ?? group.historyVisible;
+    return group.meta.historyVisible ?? false;
   }
 
   /**

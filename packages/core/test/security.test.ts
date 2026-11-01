@@ -1273,6 +1273,31 @@ describe("a server deciding that a group's history is shared (Z-44)", () => {
     await owner.session.addMembers(groupId, [joiner.userId]);
     await waitFor(async () => (await joiner.session.loadMessages(groupId)).messages.some((item) => item.text === OLD), "them to read older messages");
   });
+
+  it("isn't the server's word on the admin's new device either", async () => {
+    const owner = await person("nora");
+    const member = await person("otto");
+    const joiner = await person("pia");
+    const groupId = await groupWith(owner, [member]);
+    owner.session.sendMessage(`group:${groupId}`, { text: OLD });
+    await waitFor(() => member.texts(`group:${groupId}`).includes(OLD), "delivery");
+
+    // The admin's first device goes offline. The server keeps the details it signed
+    // from the new one, and says instead that history is shared.
+    const { username } = owner.session.getSelf();
+    owner.client.stop();
+    withServerDatabase((db) => db.prepare("UPDATE groups SET meta = NULL, meta_epoch = NULL, history_visible = 1 WHERE id = ?").run(groupId));
+    const phone = await new TestApp("nora-phone").open();
+    open.push(phone);
+    await phone.login(server.url, username);
+    await waitFor(() => phone.texts(`group:${groupId}`).includes(OLD), "history on the new device", 30_000);
+
+    // Offline, so that a grant stays on the server to be counted rather than being collected.
+    joiner.client.stop();
+    await phone.session.addMembers(groupId, [joiner.userId]);
+    expect(grantCount(groupId)).toBe(0);
+    expect(phone.session.getConversations().find((item) => item.groupId === groupId)?.historyVisible).toBe(false);
+  });
 });
 
 describe("what's in a request's path (Z-55)", () => {
