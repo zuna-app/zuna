@@ -160,6 +160,14 @@ jobs:
         run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)"
       - run: npm ci
       - run: npm run build:crypto
+      # Screens share natively on Windows and Linux. A build without this shares through Chromium instead.
+      - name: Install what native screen capture builds with
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y clang pkg-config libglib2.0-dev libva-dev
+      - name: Build native screen capture
+        if: matrix.os != 'macos-latest'
+        shell: bash
+        run: npm run build:screenshare
       # A build people install has to be able to prove where it came from. To publish
       # unsigned builds anyway, say so by setting the repository variable
       # ALLOW_UNSIGNED_RELEASE to true. Those builds won't update themselves.

@@ -17,6 +17,7 @@
     "build:crypto": "node scripts/build-crypto.mjs",
     "build:server": "node scripts/build-server.mjs",
     "build:web": "node scripts/build-web.mjs",
+    "build:screenshare": "node scripts/build-screenshare.mjs",
     "test": "npm run test:crypto && npm run test:server && npm run test:core",
     "test:crypto": "node scripts/test-crypto.mjs",
     "test:server": "node scripts/test-server.mjs",

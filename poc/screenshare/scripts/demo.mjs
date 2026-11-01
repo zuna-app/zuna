@@ -34,7 +34,8 @@ const viewerKey = { right: e2eeKey, wrong: 'some-other-key-entirely', none: '' }
 
 // cl.exe doesn't take paths over 260 characters, and LiveKit's headers go past that
 // from a target folder this deep in a checkout.
-const targetDir = isWindows ? join(process.env.LOCALAPPDATA, 'zss') : join(root, 'publisher', 'target')
+const crate = join(root, '..', '..', 'apps', 'desktop', 'native', 'screenshare')
+const targetDir = isWindows ? join(process.env.LOCALAPPDATA, 'zss') : join(crate, 'target')
 
 function msvcToolchain() {
   const list = spawnSync('rustup', ['toolchain', 'list'], { encoding: 'utf8' }).stdout ?? ''
@@ -49,7 +50,7 @@ function build() {
     if (npm.status !== 0) throw new Error('npm install failed')
   }
   const args = [...(isWindows ? [`+${msvcToolchain()}`] : []), 'build', '--release']
-  const result = spawnSync('cargo', args, { cwd: join(root, 'publisher'), stdio: 'inherit', env: { ...process.env, CARGO_TARGET_DIR: targetDir } })
+  const result = spawnSync('cargo', args, { cwd: crate, stdio: 'inherit', env: { ...process.env, CARGO_TARGET_DIR: targetDir, ZUNA_FFMPEG_DIR: join(root, '.deps', 'ffmpeg') } })
   if (result.status !== 0) throw new Error('Building the publisher failed')
 }
 
