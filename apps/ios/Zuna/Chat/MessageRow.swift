@@ -236,7 +236,8 @@ private struct MessageItem: View {
                 Spacer(minLength: 0)
             }
             .padding(.vertical, 4)
-            .accessibilityIdentifier(A11y.Chat.blockedMessage)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(A11y.Chat.blockedMessage(message.id))
         } else {
             bubbleRow
         }

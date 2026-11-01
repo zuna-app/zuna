@@ -589,6 +589,83 @@ try {
   check("turning them off takes the mark off the header", true);
   await page.getByLabel("Details", { exact: true }).click();
 
+  // Marking a chat as unread from the list, which opening it takes off
+  const priyaRow = page.locator(".conv-row").filter({ has: page.locator(".conv-title", { hasText: "Priya Nair" }) });
+  await priyaRow.click({ button: "right" });
+  if ((await page.getByRole("menuitem", { name: "Mark as read" }).count()) > 0) {
+    await page.getByRole("menuitem", { name: "Mark as read" }).click();
+    await priyaRow.locator(".conv-badge").waitFor({ state: "detached", timeout: 5000 });
+    check("reading a chat from the list takes its count off", true);
+    await priyaRow.click({ button: "right" });
+  }
+  await page.getByRole("menuitem", { name: "Mark as unread" }).click();
+  await priyaRow.getByLabel("Marked as unread").waitFor({ timeout: 5000 });
+  check("a chat marked as unread shows a mark in the list", true);
+  await shot("19la-marked-unread");
+  await openChat("Priya Nair");
+  await priyaRow.getByLabel("Marked as unread").waitFor({ state: "detached", timeout: 5000 });
+  check("opening it takes the mark off", true);
+
+  // Blocking someone from their details: their chat leaves the list, and their messages fold away
+  await page.getByLabel("Details", { exact: true }).click();
+  await page.locator(".side-row", { hasText: "Block Priya Nair" }).click();
+  await page.locator(".composer-disabled", { hasText: "You blocked Priya Nair" }).waitFor({ timeout: 5000 });
+  check("blocking someone says so in place of the message box", true);
+  await priyaRow.waitFor({ state: "detached", timeout: 5000 });
+  check("someone blocked leaves the chat list", true);
+  await page.getByLabel("Details", { exact: true }).click();
+  await openChat("Weekend trip");
+  const folded = page.locator(".msg.is-blocked").first();
+  await folded.waitFor({ timeout: 5000 });
+  check("a blocked person's messages fold into a line", true);
+  await sleep(200);
+  await shot("19lb-blocked-message");
+  await folded.getByRole("button", { name: "Show" }).click();
+  await page.locator(".msg:not(.is-blocked)", { hasText: "I'll sort out the food" }).waitFor({ timeout: 5000 });
+  check("asking shows the message", true);
+
+  // Notifying only about mentions, from a group's details
+  await page.getByLabel("Details", { exact: true }).click();
+  const onlyMentions = page.getByRole("switch", { name: "Only mentions" });
+  await onlyMentions.click();
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="Only mentions"]')?.getAttribute("aria-checked") === "true", null, { timeout: 5000 });
+  check("a group can notify only about mentions", true);
+  await sleep(200);
+  await shot("19lc-only-mentions");
+  await onlyMentions.click();
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="Only mentions"]')?.getAttribute("aria-checked") === "false", null, { timeout: 5000 });
+  await page.getByLabel("Details", { exact: true }).click();
+
+  // Who read your message in a group, from its menu
+  await page.locator(".composer-input").click();
+  await page.keyboard.type("Who's in for Saturday?");
+  await page.keyboard.press("Enter");
+  const asked = page.locator(".msg.is-own", { hasText: "Who's in for Saturday?" });
+  await asked.locator(".msg-tick.is-read").waitFor({ timeout: 15_000 });
+  await sleep(1500);
+  await asked.locator(".bubble").click({ button: "right" });
+  const readBy = page.getByRole("menuitem", { name: /^Read by \d+$/ });
+  await readBy.waitFor({ timeout: 5000 });
+  const readCount = Number((await readBy.innerText()).match(/\d+/)[0]);
+  await readBy.click();
+  const readers = await page.locator(".menu .menu-item").allInnerTexts();
+  check("a message's menu lists who in the group read it", readers.length === readCount && readers.some((name) => name.includes("Sam Chen")), readers.join(", "));
+  await shot("19ld-read-by");
+  await page.keyboard.press("Escape");
+
+  // Unblocking from Privacy settings brings their chat back
+  await page.getByLabel("Settings", { exact: true }).click();
+  await page.locator(".settings-nav-item", { hasText: "Privacy" }).click();
+  const blockedRow = page.locator(".setting-row", { hasText: "Priya Nair" });
+  await blockedRow.waitFor({ timeout: 5000 });
+  await sleep(150);
+  await shot("19le-blocked-people");
+  await blockedRow.getByRole("button", { name: "Unblock" }).click();
+  await blockedRow.waitFor({ state: "detached", timeout: 5000 });
+  await page.keyboard.press("Escape");
+  await priyaRow.waitFor({ timeout: 5000 });
+  check("unblocking in Privacy brings their chat back", true);
+
   // Sharing a location, where Chromium is told where this device is. In saved
   // messages, where no bot answers and changes the chat's preview.
   await electronApp.context().setGeolocation({ latitude: 52.229676, longitude: 21.012229, accuracy: 25 });

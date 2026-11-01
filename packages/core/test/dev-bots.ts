@@ -216,8 +216,9 @@ function keepAnswering(bots: TestApp[]): void {
           }
           continue;
         }
-        if (conversation.kind !== "dm") continue;
+        // They read groups too, so a message's menu has someone to list as having read it.
         await bot.session.markRead(message.groupId, message.seq ?? 0);
+        if (conversation.kind !== "dm") continue;
         await sleep(400);
         bot.session.sendTyping(message.groupId);
         await sleep(1500);
