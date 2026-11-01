@@ -96,6 +96,7 @@ import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
 import { linkInText } from "./links";
 import { MEDIA_KINDS, mediaIn } from "./media";
+import { withoutMetadata, type ByteSource } from "./metadata";
 import { notificationText, previewText } from "./notify";
 import { SEARCH_INDEX_VERSION, indexTokens, mediaTag, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
@@ -5016,14 +5017,19 @@ export class ServerSession {
 
   // --- Files ---
 
+  /** A file to upload, read as it is. */
+  private whole(blob: Blob): ByteSource {
+    return { size: this.files.size(blob), read: (start, end) => this.files.read(blob, start, end) };
+  }
+
   private async uploadBlob(
-    blob: Blob,
+    source: ByteSource,
     onProgress?: (loaded: number, total: number) => void,
     attach = false,
   ): Promise<{ fileId: string; key: string; prefix: string; chunks: number }> {
     const key = wasm.randomBytes(32);
     const prefix = wasm.randomBytes(15);
-    const size = this.files.size(blob);
+    const size = source.size;
     const chunks = Math.max(1, Math.ceil(size / CHUNK_SIZE));
     const created = await this.api.createFile(chunks, size + chunks * 16);
     let next = 0;
@@ -5032,7 +5038,7 @@ export class ServerSession {
       while (next < chunks) {
         const index = next++;
         const start = index * CHUNK_SIZE;
-        const plain = await this.files.read(blob, start, Math.min(start + CHUNK_SIZE, size));
+        const plain = await source.read(start, Math.min(start + CHUNK_SIZE, size));
         const sealed = wasm.streamSeal(key, prefix, index, index === chunks - 1, plain);
         await this.api.uploadChunk(created.id, index, sealed);
         loaded += plain.length;
@@ -5066,12 +5072,16 @@ export class ServerSession {
     return this.files.assemble(parts, ref.mime ?? "application/octet-stream");
   }
 
-  /** Uploads attachments, then sends the message. Progress shows on the local echo. */
+  /**
+   * Uploads attachments, then sends the message. Progress shows on the local echo.
+   * What files say about where, when and on what they were made is taken out first,
+   * unless this device's settings keep it.
+   */
   async sendWithAttachments(
     groupKey: string,
     files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string }[],
     body: MessageBody,
-    options: { previewUrl?: string } = {},
+    options: { previewUrl?: string; keepMetadata?: boolean } = {},
   ): Promise<void> {
     assertSendable(body);
     const id = randomId();
@@ -5105,7 +5115,9 @@ export class ServerSession {
       const attachments: Attachment[] = [];
       let uploaded = 0;
       for (const [index, file] of files.entries()) {
-        const ref = await this.uploadBlob(file.blob, (loaded) => {
+        // A voice message is recorded by the app, so it holds nothing of the kind.
+        const source = options.keepMetadata || file.voice ? this.whole(file.blob) : await withoutMetadata(this.whole(file.blob), file.mime, file.name);
+        const ref = await this.uploadBlob(source, (loaded) => {
           const current = this.messageRow(groupId, id);
           if (!current) return;
           this.emit({
@@ -5116,7 +5128,7 @@ export class ServerSession {
           });
         });
         uploaded += this.files.size(file.blob);
-        attachments.push({ ...placeholders[index]!, ...ref });
+        attachments.push({ ...placeholders[index]!, size: source.size, ...ref });
       }
       const finalBody: MessageBody = { ...body, attachments };
       this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", finalBody), groupId, id]);
@@ -5140,7 +5152,7 @@ export class ServerSession {
     const profile: Profile = { ...(self?.profile ?? emptyProfile(this.account.username)), ...changes };
     let avatarFile: string | null | undefined = profile.avatar?.fileId ?? null;
     if (avatarBlob) {
-      const ref = await this.uploadBlob(avatarBlob);
+      const ref = await this.uploadBlob(this.whole(avatarBlob));
       profile.avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
       avatarFile = ref.fileId;
     } else if (avatarBlob === null) {
@@ -5305,7 +5317,7 @@ export class ServerSession {
   async createGroup(name: string, memberIds: string[], historyVisible: boolean, avatarBlob?: Blob): Promise<string> {
     let avatar: AvatarRef | null = null;
     if (avatarBlob) {
-      const ref = await this.uploadBlob(avatarBlob, undefined, true);
+      const ref = await this.uploadBlob(this.whole(avatarBlob), undefined, true);
       avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
     }
     const created = await this.api.createGroup(historyVisible);
@@ -5397,7 +5409,7 @@ export class ServerSession {
     const meta: GroupMeta = { ...group.meta, ...changes };
     if (historyVisible !== undefined) meta.historyVisible = historyVisible;
     if (avatarBlob) {
-      const ref = await this.uploadBlob(avatarBlob, undefined, true);
+      const ref = await this.uploadBlob(this.whole(avatarBlob), undefined, true);
       meta.avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };
     } else if (avatarBlob === null) {
       meta.avatar = null;

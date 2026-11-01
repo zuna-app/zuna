@@ -172,6 +172,30 @@ describe("an iOS client with a desktop client", () => {
     expect(await bytesOf(downloaded)).toEqual(large);
   });
 
+  it("takes the metadata out of a photo and a film the phone sends from disk", async () => {
+    const dm = `user:${aliceId}`;
+    const fixture = (name: string) => join(import.meta.dirname, "../../../packages/core/test/fixtures/metadata", name);
+    await phone.session.sendWithAttachments(
+      dm,
+      [
+        { blob: wireFile(fixture("photo.jpg"), "image/jpeg") as never, name: "beach.jpg", mime: "image/jpeg", width: 32, height: 48 },
+        { blob: wireFile(fixture("timed.mov"), "video/quicktime") as never, name: "walk.mov", mime: "video/quicktime", width: 64, height: 48 },
+      ],
+      { text: "from the beach" },
+    );
+    await waitFor(() => alice.texts(`user:${bobId}`).includes("from the beach"), "alice to receive them");
+    const page = await alice.session.loadMessages(alice.session.getConversations().find((item) => item.key === `user:${bobId}`)!.groupId!);
+    const [photo, film] = page.messages.find((view) => view.text === "from the beach")!.attachments;
+    const photoBytes = Buffer.from(await bytesOf(await alice.session.downloadFile(photo!)));
+    const filmBytes = Buffer.from(await bytesOf(await alice.session.downloadFile(film!)));
+    expect(photoBytes.includes("ZunaTest")).toBe(false);
+    expect(photo!.size).toBe(photoBytes.length);
+    expect(photoBytes.length).toBeLessThan(readFileSync(fixture("photo.jpg")).length);
+    // The film's track of places goes too, and the film stays the same length.
+    expect(filmBytes.includes("+52.22")).toBe(false);
+    expect(filmBytes.length).toBe(readFileSync(fixture("timed.mov")).length);
+  });
+
   it("makes link previews on the phone, fetched natively, that the desktop reads, and the other way round", async () => {
     const requests: { url: string; cookie?: string }[] = [];
     const site = createServer((request, response) => {

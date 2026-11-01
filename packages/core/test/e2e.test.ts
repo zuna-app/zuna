@@ -8,6 +8,7 @@ import { migrate, type LocalDb } from "../src/db";
 import { previewPush } from "../src/push";
 import type { CoreEvent, MessageView } from "../src/types";
 import { createDecipheriv, createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { FakeRelay, TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
@@ -557,6 +558,32 @@ describe("attachments", () => {
 
     const shortened = { ...attachment, chunks: 2 };
     await expect(bob.session.downloadFile(shortened)).rejects.toThrow();
+  });
+
+  it("takes out where, when and on what a photo was taken, unless the sender's settings keep it", async () => {
+    const photo = new Uint8Array(readFileSync(new URL("./fixtures/metadata/photo.jpg", import.meta.url)));
+    const send = (text: string, keepMetadata?: boolean) =>
+      alice.session.sendWithAttachments(`user:${bob.userId}`, [{ blob: new Blob([photo], { type: "image/jpeg" }), name: "beach.jpg", mime: "image/jpeg", width: 32, height: 48 }], { text }, { keepMetadata });
+    await send("cleaned");
+    await send("as taken", true);
+    await waitFor(() => bob.texts(`user:${alice.userId}`).includes("as taken"), "delivery");
+    const groupId = bob.session.getConversations().find((item) => item.key === `user:${alice.userId}`)!.groupId!;
+    const { messages } = await bob.session.loadMessages(groupId);
+    const received = async (text: string) => {
+      const attachment = messages.find((item) => item.text === text)!.attachments[0]!;
+      const bytes = Buffer.from(await (await bob.session.downloadFile(attachment)).arrayBuffer());
+      return { attachment, bytes };
+    };
+
+    const cleaned = await received("cleaned");
+    expect(cleaned.bytes.includes("ZunaTest")).toBe(false);
+    expect(cleaned.bytes.length).toBeLessThan(photo.length);
+    expect(cleaned.attachment.size).toBe(cleaned.bytes.length);
+    expect(cleaned.attachment).toMatchObject({ name: "beach.jpg", width: 32, height: 48 });
+
+    const kept = await received("as taken");
+    expect(kept.bytes.equals(Buffer.from(photo))).toBe(true);
+    expect(kept.attachment.size).toBe(photo.length);
   });
 });
 
