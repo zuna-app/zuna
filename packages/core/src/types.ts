@@ -19,6 +19,8 @@ export interface ServerInfo {
   community_key?: string;
   /** Whether this server keeps generations of account keys. Absent on one that doesn't. */
   account_protocol?: number;
+  /** Whether this server takes requests signed by a device's key. Absent on one that doesn't. */
+  request_proofs?: number;
 }
 
 export interface InvitePreview {

@@ -54,6 +54,7 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var userCount: Int
     public var communityKey: String?
     public var accountProtocol: Int?
+    public var requestProofs: Int?
 
     enum CodingKeys: String, CodingKey {
         case name, version, claimed, registration
@@ -65,6 +66,7 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case emoteSetName = "emote_set_name"
         case userCount = "user_count"
         case accountProtocol = "account_protocol"
+        case requestProofs = "request_proofs"
         case communityKey = "community_key"
     }
 }

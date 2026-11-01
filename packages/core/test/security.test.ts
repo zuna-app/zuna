@@ -1434,6 +1434,25 @@ describe("an edit from a device that has left", () => {
   });
 });
 
+describe("a session token on its own", () => {
+  it("can't remove a device once the app has signed a request, and the app still can", async () => {
+    const owner = await person("fran");
+    const phone = await new TestApp("fran-phone").open();
+    open.push(phone);
+    await phone.login(server.url, owner.session.getSelf().username);
+    const phoneId = phone.session.getSelf().deviceId;
+    await waitFor(() => !!apiOf(owner).prove, "the app to sign");
+    const response = await fetch(`${server.url}/api/devices/${phoneId}`, { method: "DELETE", headers: { Authorization: `Bearer ${apiOf(owner).token}` } });
+    expect(response.status).toBe(401);
+    expect((await response.json()).error).toBe("proof_required");
+
+    // Its clock being an hour off only costs a second try.
+    (apiOf(owner) as any).clockOffset = -3600_000;
+    await owner.session.revokeDevice(phoneId);
+    expect(Math.abs((apiOf(owner) as any).clockOffset)).toBeLessThan(60_000);
+  });
+});
+
 describe("a Welcome delivered as being for another group (Z-46)", () => {
   it("leaves what's held for the group it really names alone", async () => {
     const victim = await person("nell");

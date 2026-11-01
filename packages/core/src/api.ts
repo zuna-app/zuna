@@ -1,6 +1,7 @@
 // A typed client for the server's REST interface. Binary fields travel as base64.
 
-import { fromBase64, toBase64 } from "./encoding";
+import * as wasm from "@zuna/crypto";
+import { concat, fromBase64, toBase64, utf8 } from "./encoding";
 import { ACCOUNT_PROTOCOL } from "./generations";
 import type { Emote, Invite, ServerInfo } from "./types";
 
@@ -217,6 +218,13 @@ export function encodeBody(value: unknown): unknown {
 
 export class Api {
   token: string | null = null;
+  /**
+   * Signs a request with this device's key. What can't be undone, or acts for the
+   * whole server, needs it, so that a session token alone can do none of it.
+   */
+  prove: ((input: Uint8Array) => Uint8Array) | null = null;
+  /** How far the server's clock is from this device's, once a proof has shown it's off. */
+  private clockOffset = 0;
 
   constructor(readonly baseUrl: string) {}
 
@@ -224,22 +232,39 @@ export class Api {
     const headers: Record<string, string> = {};
     if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
     let payload: BodyInit | undefined;
+    let bytes: Uint8Array = new Uint8Array(0);
     if (raw) {
       payload = raw as BodyInit;
+      if (this.prove && method !== "GET") bytes = raw instanceof Uint8Array ? raw : new Uint8Array(await raw.arrayBuffer());
     } else if (body !== undefined) {
       headers["Content-Type"] = "application/json";
-      payload = JSON.stringify(encodeBody(body));
+      const text = JSON.stringify(encodeBody(body));
+      payload = text;
+      bytes = utf8(text);
     }
     let response: Response;
-    try {
-      response = await fetch(this.baseUrl + path, {
-        method,
-        headers,
-        body: payload,
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-    } catch {
-      throw new ApiError(0, "network", "Couldn't reach the server. Check your connection.");
+    for (let attempt = 0; ; attempt++) {
+      if (this.prove && method !== "GET") {
+        const at = Date.now() + this.clockOffset;
+        const input = concat(utf8(`zuna/request/v1|${method}|${path.split("?")[0]}|${at}|`), wasm.sha256(bytes));
+        headers["X-Zuna-Proof"] = toBase64(this.prove(input));
+        headers["X-Zuna-Time"] = String(at);
+      }
+      try {
+        response = await fetch(this.baseUrl + path, {
+          method,
+          headers,
+          body: payload,
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+      } catch {
+        throw new ApiError(0, "network", "Couldn't reach the server. Check your connection.");
+      }
+      if (response.status !== 401 || attempt > 0 || !this.prove) break;
+      // A proof this device's clock put too far from the server's: the server says its time.
+      const parsed = (await response.clone().json().catch(() => ({}))) as Record<string, unknown>;
+      if (parsed.error !== "proof_stale" || typeof parsed.now !== "number") break;
+      this.clockOffset = parsed.now - Date.now();
     }
     if (!response.ok) {
       const parsed = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -370,6 +395,8 @@ export class Api {
     this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages`, body);
   editMessage = (groupId: string, id: string, epoch: number, envelope: Uint8Array) =>
     this.request<ApiMessage>("PUT", at`/api/groups/${groupId}/messages/${id}`, { epoch, envelope });
+  /** Signs one request as this device starts, so that from then on its session token alone can't do what needs proof. */
+  proveDevice = () => this.request<{ ok: boolean }>("POST", "/api/devices/proof");
   deleteMessage = (groupId: string, id: string, epoch: number, deletion: Uint8Array) =>
     this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${id}`, { epoch, deletion });
   addReaction = (groupId: string, messageId: string, id: string, epoch: number, data: Uint8Array) =>
