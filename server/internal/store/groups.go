@@ -277,7 +277,8 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		var epoch int64
 		var kind string
-		err := tx.QueryRowContext(ctx, `SELECT epoch, kind FROM groups WHERE id = ?`, c.GroupID).Scan(&epoch, &kind)
+		var replaced []byte
+		err := tx.QueryRowContext(ctx, `SELECT epoch, kind, group_info FROM groups WHERE id = ?`, c.GroupID).Scan(&epoch, &kind, &replaced)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -382,8 +383,13 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 			SenderDevice: c.SenderDevice,
 			CreatedAt:    now,
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, data, sender_user, sender_device, created_at)
-			VALUES(?,?,?,?,?,?,?,?)`, c.GroupID, seq, "commit", newEpoch, c.Data, c.SenderUser, c.SenderDevice, now)
+		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, data, sender_user, sender_device, created_at, replaced_info)
+			VALUES(?,?,?,?,?,?,?,?,?)`, c.GroupID, seq, "commit", newEpoch, c.Data, c.SenderUser, c.SenderDevice, now, replaced)
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE group_events SET replaced_info = NULL WHERE group_id = ? AND epoch <= ? AND replaced_info IS NOT NULL`,
+			c.GroupID, newEpoch-UndoableCommits)
 		return err
 	})
 	if err != nil {
@@ -435,12 +441,23 @@ func checkCommitExtras(ctx context.Context, tx *sql.Tx, c Commit, role string) e
 	return nil
 }
 
+// UndoableCommits is how many of a group's latest commits a plain member can undo.
+// It's more than anyone can send in a burst, so that one person's run of them can
+// always be undone by whoever is still at the epoch before.
+const UndoableCommits = 32
+
 // VoidCommits takes a group back to an earlier epoch, after a commit nobody can
 // apply. Members who never got past that epoch simply carry on from it; one who
-// did rejoins. Only `from`, the epoch the group is at, can be voided, so an admin
+// did rejoins. Only `from`, the epoch the group is at, can be voided, so someone
 // acting on old information changes nothing.
-func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice string, from, to int64, groupInfo []byte) (*GroupEvent, error) {
+//
+// An admin says what to go back to. Anyone else can only go back over other plain
+// members' commits, to the group info the server held then. Taking theirs instead
+// would let one member's undo leave everyone with nothing they could rejoin from.
+// It returns who sent the commits undone, starting from the latest.
+func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice string, byAdmin bool, from, to int64, groupInfo []byte) (*GroupEvent, []string, error) {
 	var event GroupEvent
+	var senders []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		current, err := currentEpoch(ctx, tx, groupID)
 		if err != nil {
@@ -448,6 +465,26 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 		}
 		if current != from {
 			return &EpochConflictError{Current: current}
+		}
+		var anyAdmin bool
+		senders, anyAdmin, err = commitSenders(ctx, tx, groupID, to)
+		if err != nil {
+			return err
+		}
+		if !byAdmin {
+			if anyAdmin {
+				return ErrForbidden
+			}
+			var held []byte
+			err := tx.QueryRowContext(ctx, `SELECT replaced_info FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch = ?`,
+				groupID, to+1).Scan(&held)
+			if errors.Is(err, sql.ErrNoRows) || (err == nil && len(held) == 0 && to != 0) {
+				return ErrForbidden
+			}
+			if err != nil {
+				return err
+			}
+			groupInfo = held
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM group_events WHERE group_id = ? AND kind = 'commit' AND epoch > ?`, groupID, to); err != nil {
 			return err
@@ -468,14 +505,46 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 			GroupID: groupID, Seq: seq, Kind: "commit_voided", Epoch: to,
 			SenderUser: sender, SenderDevice: senderDevice, CreatedAt: Now(),
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, sender_user, sender_device, created_at)
-			VALUES(?,?,?,?,?,?,?)`, groupID, seq, "commit_voided", to, sender, senderDevice, event.CreatedAt)
+		var target any
+		if len(senders) > 0 {
+			event.TargetUser = senders[0]
+			target = senders[0]
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO group_events(group_id, seq, kind, epoch, sender_user, sender_device, target_user, created_at)
+			VALUES(?,?,?,?,?,?,?,?)`, groupID, seq, "commit_voided", to, sender, senderDevice, target, event.CreatedAt)
 		return err
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return &event, nil
+	return &event, senders, nil
+}
+
+// commitSenders is who sent a group's commits past an epoch, latest first, and
+// whether any of them is an admin of it now.
+func commitSenders(ctx context.Context, tx *sql.Tx, groupID string, after int64) ([]string, bool, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT e.sender_user, COALESCE(m.role, '') FROM group_events e
+		LEFT JOIN group_members m ON m.group_id = e.group_id AND m.user_id = e.sender_user
+		WHERE e.group_id = ? AND e.kind = 'commit' AND e.epoch > ? ORDER BY e.epoch DESC`, groupID, after)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var senders []string
+	anyAdmin := false
+	seen := map[string]bool{}
+	for rows.Next() {
+		var user, role string
+		if err := rows.Scan(&user, &role); err != nil {
+			return nil, false, err
+		}
+		anyAdmin = anyAdmin || role == "admin"
+		if !seen[user] {
+			seen[user] = true
+			senders = append(senders, user)
+		}
+	}
+	return senders, anyAdmin, rows.Err()
 }
 
 // GroupInfo returns the latest published MLS GroupInfo, used for external joins.

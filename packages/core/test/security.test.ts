@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as wasm from "@zuna/crypto";
-import { Api, decode } from "../src/api";
+import { Api, ApiError, decode } from "../src/api";
 import {
   CONTENT_LABEL,
   createCertificate,
@@ -452,7 +452,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     await apiOf(erin).commit(groupId, { expected_epoch: epoch, commit, group_info: info, kind: "update" });
 
     // The admin's app puts it right by itself, and nobody's keys or messages are lost.
-    await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /broken update/.test(event.message)), "alice to undo it");
+    await waitFor(() => securityEvents(alice).some((event) => event.type === "security" && /broken update/.test(event.message)), "it to be undone");
     await waitFor(async () => (await apiOf(dave).groupInfo(groupId)).epoch === epoch, "the group to go back");
     alice.session.sendMessage(`group:${groupId}`, { text: "after the attack" });
     await waitFor(() => dave.texts(`group:${groupId}`).includes("after the attack"), "delivery to dave");
@@ -460,6 +460,53 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     expect(dave.texts(`group:${groupId}`)).toContain("before the attack");
     dave.session.sendMessage(`group:${groupId}`, { text: "from dave" });
     await waitFor(() => alice.texts(`group:${groupId}`).includes("from dave"), "dave can still send");
+  });
+
+  it("doesn't need an admin to be online for that (Z-47)", async () => {
+    const owner = await person("rae");
+    const attacker = await person("sam");
+    const eve = await person("tess");
+    const groupId = await groupWith(owner, [attacker, eve]);
+    owner.client.stop();
+    await sleep(100);
+    const epoch = sessionOf(eve).mlsEpoch(groupId) as number;
+    const honestInfo = (await apiOf(eve).groupInfo(groupId)).group_info;
+
+    const { commit, info } = brokenFrames(groupId, epoch);
+    await apiOf(attacker).commit(groupId, { expected_epoch: epoch, commit, group_info: info, kind: "update" });
+    await waitFor(() => securityEvents(eve).some((event) => /broken update from sam/.test((event as { message: string }).message)), "it to be undone, and who sent it named");
+
+    const latest = await apiOf(eve).groupInfo(groupId);
+    expect(latest.epoch).toBe(epoch);
+    expect(latest.group_info).toBe(honestInfo);
+    eve.session.sendMessage(`group:${groupId}`, { text: "anyone there?" });
+    await waitFor(() => attacker.texts(`group:${groupId}`).includes("anyone there?"), "the group to carry on");
+
+    // And whoever sent it has to wait before doing that again.
+    const again = brokenFrames(groupId, epoch);
+    await expect(apiOf(attacker).commit(groupId, { expected_epoch: epoch, commit: again.commit, group_info: again.info, kind: "update" })).rejects.toMatchObject({ status: 429 });
+
+    await owner.open();
+    await owner.online();
+    await waitFor(() => owner.texts(`group:${groupId}`).includes("anyone there?"), "the admin to catch up");
+  });
+
+  it("doesn't undo anything for a moment's trouble with the server (Z-47)", async () => {
+    const dave = await person("uma");
+    const groupId = await groupWith(alice, [dave]);
+    const session = sessionOf(dave);
+    const api = apiOf(dave) as any;
+    const realInfo = api.groupInfo;
+    let voided = 0;
+    api.voidCommits = async () => {
+      voided++;
+    };
+    api.groupInfo = async () => {
+      throw new ApiError(503, "unavailable", "Not right now.");
+    };
+    await session.repair(groupId);
+    api.groupInfo = realInfo;
+    expect(voided).toBe(0);
   });
 
   it("doesn't let a plain member's commit rename a group", async () => {

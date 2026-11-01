@@ -94,6 +94,12 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request, sess 
 
 func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
 	groupID := r.PathValue("id")
+	// Every commit makes everyone do work, and one nobody can apply stops the group
+	// until it's undone, so sending those is what earns a wait.
+	if !s.commitHolds.Allowed(groupID+"/"+sess.UserID) || !s.commitLimiter.Allow(groupID+"/"+sess.UserID) || !s.userCommitLimiter.Allow(sess.UserID) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes to this conversation at once. Please wait a moment.")
+		return
+	}
 	var body struct {
 		ExpectedEpoch int64                `json:"expected_epoch"`
 		Commit        []byte               `json:"commit"`
@@ -164,13 +170,14 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 }
 
 // handleVoidCommits undoes a commit nobody can apply: well formed, so it got past
-// the check above, but no member's MLS state can follow it. An admin whose device
+// the check above, but no member's MLS state can follow it. A member whose device
 // still holds the last good epoch brings the group back to it, and everyone who
-// never left that epoch carries on.
+// never left that epoch carries on. Any member can, so that a group doesn't wait for
+// an admin, within what VoidCommits allows them.
 func (s *Server) handleVoidCommits(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
 	groupID := r.PathValue("id")
-	if member.Role != "admin" {
-		writeError(w, http.StatusForbidden, "forbidden", "Only an admin of this conversation can do this.")
+	if !s.voidLimiter.Allow(groupID + "/" + sess.UserID) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes to this conversation at once. Please wait a moment.")
 		return
 	}
 	var body struct {
@@ -181,17 +188,21 @@ func (s *Server) handleVoidCommits(w http.ResponseWriter, r *http.Request, sess 
 	if !readJSONUpTo(w, r, maxCommitBody, &body) {
 		return
 	}
+	byAdmin := member.Role == "admin"
 	// Only the very start has no group info to go back to.
 	valid := body.To >= 0 && body.To < body.From &&
-		((body.To == 0 && len(body.GroupInfo) == 0) || validGroupInfoFrame(body.GroupInfo, groupID, body.To))
+		(!byAdmin || (body.To == 0 && body.From == 1 && len(body.GroupInfo) == 0) || validGroupInfoFrame(body.GroupInfo, groupID, body.To))
 	if !valid {
 		writeError(w, http.StatusBadRequest, "bad_request", "That isn't a valid state for this conversation.")
 		return
 	}
-	event, err := s.db.VoidCommits(r.Context(), groupID, sess.UserID, sess.DeviceID, body.From, body.To, body.GroupInfo)
+	event, senders, err := s.db.VoidCommits(r.Context(), groupID, sess.UserID, sess.DeviceID, byAdmin, body.From, body.To, body.GroupInfo)
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	for _, sender := range senders {
+		s.commitHolds.Fail(groupID + "/" + sender)
 	}
 	group, err := s.db.Group(r.Context(), groupID)
 	if err != nil {

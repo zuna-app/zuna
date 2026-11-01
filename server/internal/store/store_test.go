@@ -307,6 +307,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE devices DROP COLUMN enroll_proof;
 		ALTER TABLE users DROP COLUMN auth_bound;
 		ALTER TABLE users DROP COLUMN recovery_bound;
+		DROP INDEX group_events_replaced_info;
+		ALTER TABLE group_events DROP COLUMN replaced_info;
 		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');

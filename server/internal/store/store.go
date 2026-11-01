@@ -416,6 +416,11 @@ INSERT OR IGNORE INTO settings(key, value) VALUES('account_protocol_since', CAST
 -- copy of this database could also make.
 ALTER TABLE users ADD COLUMN auth_bound INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN recovery_bound INTEGER NOT NULL DEFAULT 0;
+`, `
+-- The group info a commit replaced, for a while, so that undoing a commit nobody
+-- can apply goes back to something the server already held.
+ALTER TABLE group_events ADD COLUMN replaced_info BLOB;
+CREATE INDEX group_events_replaced_info ON group_events(group_id, epoch) WHERE replaced_info IS NOT NULL;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

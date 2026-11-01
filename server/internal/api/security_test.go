@@ -4,6 +4,7 @@ package api_test
 // so it can't come back. The findings' numbers are in the audit's report.
 
 import (
+	"bytes"
 	"context"
 	"crypto/hkdf"
 	"crypto/sha256"
@@ -170,9 +171,6 @@ func TestAnAdminCanVoidACommitNobodyCanApply(t *testing.T) {
 		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to, "group_info": info}, nil)
 		return status
 	}
-	if status := void(bob, 2, 1, groupInfoFrame(group, 1)); status != http.StatusForbidden {
-		t.Fatalf("a plain member gave %d", status)
-	}
 	if status := void(owner, 2, 1, bytesOf(32, 1)); status != http.StatusBadRequest {
 		t.Fatalf("garbage to go back to gave %d", status)
 	}
@@ -204,9 +202,104 @@ func TestAnAdminCanVoidACommitNobodyCanApply(t *testing.T) {
 			t.Fatal("the voided commit is still in the feed")
 		}
 	}
-	// And the group goes on from there.
-	if status, resp := bob.commit(group, 1, nil); status != http.StatusOK {
+	// And the group goes on from there, without whoever sent it for now.
+	if status, _ := bob.commit(group, 1, nil); status != http.StatusTooManyRequests {
+		t.Fatalf("the sender's next commit gave %d", status)
+	}
+	if status, resp := owner.commit(group, 1, nil); status != http.StatusOK {
 		t.Fatalf("the next commit: %d %v", status, resp)
+	}
+}
+
+// Z-47: a group shouldn't have to wait for an admin, without any member being able
+// to take it somewhere nobody can come back from.
+func TestAMemberCanVoidOnlyWhatsSafeToVoid(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	carol := h.register("carol", owner.newInvite())
+	dave := h.register("dave", owner.newInvite())
+	var created struct {
+		Group *store.Group `json:"group"`
+	}
+	h.mustDo("POST", "/api/groups", owner.token, map[string]any{"kind": "group"}, &created)
+	group := created.Group.ID
+	owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID, carol.userID, dave.userID}})
+
+	void := func(c *client, from, to int64, info []byte) int {
+		status, _ := h.do("POST", "/api/groups/"+group+"/void-commits", c.token, map[string]any{"from_epoch": from, "to_epoch": to, "group_info": info}, nil)
+		return status
+	}
+	groupInfo := func() []byte {
+		var info struct {
+			GroupInfo []byte `json:"group_info"`
+			Epoch     int64  `json:"epoch"`
+		}
+		h.mustDo("GET", "/api/groups/"+group+"/group-info", bob.token, nil, &info)
+		return info.GroupInfo
+	}
+
+	// An admin's commit isn't a plain member's to undo.
+	if status := void(carol, 1, 0, nil); status != http.StatusForbidden {
+		t.Fatalf("undoing an admin's commit gave %d", status)
+	}
+
+	atOne := groupInfo()
+	if status, resp := bob.commit(group, 1, nil); status != http.StatusOK {
+		t.Fatalf("a commit: %d %v", status, resp)
+	}
+
+	// What it goes back to is what the server held, whatever they say.
+	if status := void(carol, 2, 1, bytesOf(32, 1)); status != http.StatusOK {
+		t.Fatalf("a member undoing a member's commit gave %d", status)
+	}
+	if !bytes.Equal(groupInfo(), atOne) {
+		t.Fatal("the group info isn't what the server held at that epoch")
+	}
+
+	// The event names whose it was, so people know who to take it up with.
+	var feed store.Changes
+	h.mustDo("GET", "/api/groups/"+group+"/changes?after=0", bob.token, nil, &feed)
+	last := feed.Events[len(feed.Events)-1]
+	if last.Kind != "commit_voided" || last.TargetUser != bob.userID || last.SenderUser != carol.userID {
+		t.Fatalf("last event: %+v", last)
+	}
+
+	// Too far back for what's been kept isn't theirs to do either.
+	for epoch := int64(1); epoch < store.UndoableCommits+3; epoch++ {
+		sender := carol
+		if epoch%2 == 0 {
+			sender = dave
+		}
+		if status, resp := sender.commit(group, epoch, nil); status != http.StatusOK {
+			t.Fatalf("commit at %d: %d %v", epoch, status, resp)
+		}
+	}
+	if status := void(bob, store.UndoableCommits+3, 1, nil); status != http.StatusForbidden {
+		t.Fatalf("undoing past what's kept gave %d", status)
+	}
+}
+
+// Z-47: nobody gets to keep a group busy with commits.
+func TestCommitsAreLimited(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	var created struct {
+		Group *store.Group `json:"group"`
+	}
+	h.mustDo("POST", "/api/groups", owner.token, map[string]any{"kind": "group"}, &created)
+	group := created.Group.ID
+	limited := false
+	for epoch := int64(0); epoch < 200 && !limited; epoch++ {
+		status, resp := owner.commit(group, epoch, nil)
+		if status == http.StatusTooManyRequests {
+			limited = true
+		} else if status != http.StatusOK {
+			t.Fatalf("commit at %d: %d %v", epoch, status, resp)
+		}
+	}
+	if !limited {
+		t.Fatal("200 commits in a row weren't limited")
 	}
 }
 

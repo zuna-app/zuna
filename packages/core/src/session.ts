@@ -2907,6 +2907,7 @@ export class ServerSession {
     }
     if (event.kind === "commit_voided") {
       this.db.run("DELETE FROM epoch_starts WHERE group_id = ? AND epoch > ?", [event.group_id, event.epoch]);
+      this.noteVoidedCommit(event);
       // A device that got past that epoch has gone somewhere nobody else will follow.
       if (this.hasMlsGroup(event.group_id) && this.mlsEpoch(event.group_id) > event.epoch) await this.repair(event.group_id);
       return;
@@ -2958,29 +2959,37 @@ export class ServerSession {
 
   /**
    * A commit nobody can apply: it reached the server well formed, but no member's
-   * MLS state can follow it, and neither can anyone rejoin past it. An admin whose
-   * device still has the last good state brings the group back to it, and everyone
-   * who never got past that epoch simply carries on. Nobody has to accept anything
-   * new, since they keep the keys they already trust.
+   * MLS state can follow it, and neither can anyone rejoin past it. Whoever's device
+   * still has the last good state brings the group back to it, and everyone who
+   * never got past that epoch simply carries on. Nobody has to accept anything new,
+   * since they keep the keys they already trust.
    */
   private async voidBrokenCommit(groupId: string, cause: unknown): Promise<void> {
     const group = await this.api.group(groupId);
     this.applyGroup(group);
-    if (group.members.find((member) => member.user_id === this.account.userId)?.role !== "admin") return;
     const groupBytes = utf8(groupId);
     const held = this.hasMlsGroup(groupId);
     const local = held ? this.mlsEpoch(groupId) : 0;
     // With nothing held, only the start of a group can be undone.
     if (group.epoch <= local || (!held && group.epoch > 1)) return;
     console.warn("[zuna] undoing a commit nobody can apply", cause);
-    await this.api.voidCommits(groupId, group.epoch, local, held ? this.mls.exportGroupInfo(groupBytes) : new Uint8Array(0));
-    this.emit({
-      type: "security",
-      serverId: this.serverId,
-      userId: "",
-      message: "Someone sent one of your conversations a broken update. It was undone, and the conversation carries on.",
-    });
+    try {
+      await this.api.voidCommits(groupId, group.epoch, local, held ? this.mls.exportGroupInfo(groupBytes) : new Uint8Array(0));
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 403) throw error;
+      // Being refused this says nothing about still being in the group. Someone else may yet be able to.
+      this.warnOnce(`stuck/${groupId}/${group.epoch}`, "One of your conversations has a broken update that only one of its admins can undo. It will carry on once one of them opens Zuna.");
+      return;
+    }
     this.applyGroup(await this.api.group(groupId));
+  }
+
+  /** Who's told that a commit was undone: anyone it happened in front of, not a device reading about it later. */
+  private noteVoidedCommit(event: ApiEvent): void {
+    const joined = this.joinedEpoch(event.group_id);
+    if (joined === null || joined > event.epoch) return;
+    const name = this.users.get(event.target_user ?? "")?.profile.displayName ?? "someone";
+    this.warnOnce(`voided/${event.group_id}/${event.seq}`, `A broken update from ${name} in one of your conversations was undone, and the conversation carries on.`, event.target_user ?? "");
   }
 
   private async applyCommit(event: ApiEvent): Promise<void> {
@@ -3226,6 +3235,8 @@ export class ServerSession {
    * wrong on this device. If nobody can rejoin either, because what the group moved
    * on to doesn't hold together, it's undone if this person is able to do that, and
    * otherwise waits for someone who is. What this device has isn't lost either way.
+   * Only MLS refusing what the group moved on to says that: a server or a network
+   * having a bad moment says nothing about the group, so it's just tried again later.
    */
   private async repair(groupId: string): Promise<void> {
     try {
@@ -3233,15 +3244,17 @@ export class ServerSession {
     } catch (error) {
       if (error instanceof ApiError && (error.status === 403 || error.status === 404)) throw error;
       console.warn("[zuna] couldn't rejoin a conversation", error);
-      try {
-        await this.voidBrokenCommit(groupId, error);
-        if (!this.hasMlsGroup(groupId) && this.groups.get(groupId)?.epoch === 0 && !this.startedHere(groupId)) {
-          const group = await this.api.group(groupId);
-          await this.initGroup(group, []);
+      if (!(error instanceof ApiError)) {
+        try {
+          await this.voidBrokenCommit(groupId, error);
+          if (!this.hasMlsGroup(groupId) && this.groups.get(groupId)?.epoch === 0 && !this.startedHere(groupId)) {
+            const group = await this.api.group(groupId);
+            await this.initGroup(group, []);
+          }
+        } catch (voidError) {
+          if (voidError instanceof ApiError && (voidError.status === 403 || voidError.status === 404)) throw voidError;
+          console.warn("[zuna] couldn't undo a broken update", voidError);
         }
-      } catch (voidError) {
-        if (voidError instanceof ApiError && (voidError.status === 403 || voidError.status === 404)) throw voidError;
-        console.warn("[zuna] couldn't undo a broken update", voidError);
       }
     }
     this.retryUndecryptable(groupId);

@@ -1,4 +1,4 @@
-// Package api implements Zuna's HTTP and WebSocket interface.
+﻿// Package api implements Zuna's HTTP and WebSocket interface.
 //
 // The server is a delivery service and a blob store. It authenticates accounts,
 // orders each group's commits and relays ciphertext. It never handles message
@@ -99,6 +99,11 @@ type Server struct {
 	rotateLimiter  *ratelimit.Keyed
 	signInFailures *ratelimit.Backoff
 
+	commitLimiter     *ratelimit.Keyed
+	userCommitLimiter *ratelimit.Keyed
+	voidLimiter       *ratelimit.Keyed
+	commitHolds       *ratelimit.Backoff
+
 	pushClient *http.Client
 	pushSlots  chan struct{}
 	notified   notifiedChats
@@ -130,16 +135,22 @@ func New(cfg Config, db *store.DB) *Server {
 		authLimiter:    ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		messageLimiter: ratelimit.NewKeyed(rate.Limit(15), 60),
 		// Far beyond what using the app needs, even while uploading a large file.
-		writeLimiter:   ratelimit.NewKeyed(rate.Limit(50), 300),
-		socketLimiter:  ratelimit.NewKeyed(rate.Limit(2), 60),
-		publicLimiter:  ratelimit.NewKeyed(rate.Limit(5), 60),
-		claimLimiter:   ratelimit.NewKeyed(rate.Limit(5), 600),
-		targetLimiter:  ratelimit.NewKeyed(rate.Every(2*time.Second), 20),
+		writeLimiter:  ratelimit.NewKeyed(rate.Limit(50), 300),
+		socketLimiter: ratelimit.NewKeyed(rate.Limit(2), 60),
+		publicLimiter: ratelimit.NewKeyed(rate.Limit(5), 60),
+		claimLimiter:  ratelimit.NewKeyed(rate.Limit(5), 600),
+		targetLimiter: ratelimit.NewKeyed(rate.Every(2*time.Second), 20),
 		// Each rotation is a link for every contact to follow, so they stay rare.
 		rotateLimiter:  ratelimit.NewKeyed(rate.Every(time.Minute), 30),
 		signInFailures: ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
-		pushClient:     &http.Client{Timeout: pushTimeout},
-		pushSlots:      make(chan struct{}, pushConcurrency),
+		// Per person in a group. The burst is less than store.UndoableCommits, so that
+		// what one person sends in one go can always be undone by anyone else.
+		commitLimiter:     ratelimit.NewKeyed(rate.Limit(1), 30),
+		userCommitLimiter: ratelimit.NewKeyed(rate.Limit(5), 300),
+		voidLimiter:       ratelimit.NewKeyed(rate.Every(10*time.Second), 5),
+		commitHolds:       ratelimit.NewBackoff(0, time.Minute, time.Hour),
+		pushClient:        &http.Client{Timeout: pushTimeout},
+		pushSlots:         make(chan struct{}, pushConcurrency),
 	}
 }
 
