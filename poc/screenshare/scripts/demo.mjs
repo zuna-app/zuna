@@ -4,7 +4,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ensureFfmpeg, ensureLiveKit, isWindows, root } from './deps.mjs'
 
@@ -98,6 +98,36 @@ function nvidiaEncoderStats() {
   return { sessions, fps, latencyUs, encoderUtilization, gpuUtilization }
 }
 
+// On Linux the compositor does part of the work, such as reading each frame back from
+// the GPU for shared memory, so its CPU time counts too.
+// This person's, since a login screen can have an Xorg of its own, and Wayland's first.
+const compositorNames = ['kwin_wayland', 'gnome-shell', 'sway', 'Hyprland', 'niri', 'weston', 'Xorg']
+function findCompositor() {
+  if (isWindows) return null
+  const found = []
+  for (const pid of readdirSync('/proc').filter((entry) => /^\d+$/.test(entry))) {
+    try {
+      const name = readFileSync(`/proc/${pid}/comm`, 'utf8').trim()
+      if (compositorNames.includes(name) && statSync(`/proc/${pid}`).uid === process.getuid()) found.push({ pid, name })
+    } catch {
+      // It ended while this looked.
+    }
+  }
+  found.sort((a, b) => compositorNames.indexOf(a.name) - compositorNames.indexOf(b.name))
+  return found[0] ?? null
+}
+
+// User and system time, which Linux counts in hundredths of a second.
+function cpuSeconds(pid) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    const fields = stat.slice(stat.lastIndexOf(') ') + 2).split(' ')
+    return (Number(fields[11]) + Number(fields[12])) / 100
+  } catch {
+    return null
+  }
+}
+
 const mean = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null)
 const max = (values) => (values.length ? Math.max(...values) : null)
 const sum = (values) => values.reduce((total, value) => total + value, 0)
@@ -115,6 +145,7 @@ async function main() {
   const publisherStats = []
   const viewerStats = []
   const gpuStats = []
+  const compositorStats = []
   const joinResults = []
   const run = { label, flags, description: null, colours: null, firstFrameMs: null, errors: [] }
 
@@ -158,7 +189,9 @@ async function main() {
     ...(viewerKey ? [`--e2ee-key=${viewerKey}`] : []),
     ...(flags.display ? [`--display=${flags.display}`] : []),
   ]
+  let viewerStarted = false
   const startViewer = () => {
+    viewerStarted = true
     // Timed from here, since on Linux the portal's dialog comes first and waits for as
     // long as the person takes.
     if (seconds > 0) setTimeout(finish, seconds * 1000)
@@ -192,24 +225,34 @@ async function main() {
     startPublisher()
   }
 
+  const compositor = findCompositor()
+  let compositorBefore = compositor && { at: performance.now(), cpu: cpuSeconds(compositor.pid) }
   const sampler = setInterval(() => {
     const sample = nvidiaEncoderStats()
     if (sample) gpuStats.push(sample)
+    if (compositor) {
+      const now = { at: performance.now(), cpu: cpuSeconds(compositor.pid) }
+      // Only once the viewer runs, and not while the portal's dialog waits.
+      if (viewerStarted && now.cpu !== null && compositorBefore.cpu !== null)
+        compositorStats.push({ name: compositor.name, cpuCores: (now.cpu - compositorBefore.cpu) / ((now.at - compositorBefore.at) / 1000) })
+      compositorBefore = now
+    }
   }, 1000)
 
   await finished
   clearInterval(sampler)
   await stopAll()
 
-  writeReport(run, publisherStats, viewerStats, gpuStats, joinResults)
+  writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats, joinResults)
 }
 
-function writeReport(run, publisherStats, viewerStats, gpuStats, joinResults) {
+function writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats, joinResults) {
   // The start is a ramp, and the steady part is what these numbers describe.
   const settled = (stats) => stats.slice(Math.min(10, Math.floor(stats.length / 3)))
   const steadyPublisher = settled(publisherStats)
   const steadyViewer = settled(viewerStats)
   const steadyGpu = settled(gpuStats).filter((sample) => sample.sessions > 0)
+  const steadyCompositor = settled(compositorStats)
 
   const reachedCap = publisherStats.find((stats) => stats.encoderKbps >= Number(flags.bitrate))
   const summary = {
@@ -235,6 +278,7 @@ function writeReport(run, publisherStats, viewerStats, gpuStats, joinResults) {
       idrRewritten: publisherStats.at(-1)?.idrRewritten ?? 0,
       idrLeftAlone: publisherStats.at(-1)?.idrLeftAlone ?? 0,
     },
+    compositor: steadyCompositor.length ? { name: steadyCompositor[0].name, cpuCores: mean(steadyCompositor.map((sample) => sample.cpuCores)) } : null,
     gpu: steadyGpu.length ? { encoderUtilization: mean(steadyGpu.map((sample) => sample.encoderUtilization)), sessions: max(steadyGpu.map((sample) => sample.sessions)), reportedFps: mean(steadyGpu.map((sample) => sample.fps)) } : null,
     viewer: {
       fps: mean(steadyViewer.map((stats) => stats.fps)),
