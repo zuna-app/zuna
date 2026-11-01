@@ -2,6 +2,7 @@ import { Lock, LogOut, MessageCircle } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Spinner, useAction } from "@/components/ui";
 import { installStickyFocus } from "@/lib/focus";
+import { prefetchEmotes } from "@/lib/media";
 import { useActiveConversation, useActiveServer, useApp } from "@/state/store";
 import { ChatView } from "@/features/chat/ChatView";
 import { ConversationList } from "./ConversationList";
@@ -10,6 +11,7 @@ import { ServerRail } from "./ServerRail";
 const LIST_WIDTH_KEY = "zuna-list-width";
 const MIN_LIST_WIDTH = 260;
 const MAX_LIST_WIDTH = 460;
+const PREFETCH_DELAY_MS = 3000;
 
 function loadWidth(): number {
   const stored = Number(localStorage.getItem(LIST_WIDTH_KEY));
@@ -106,6 +108,21 @@ function useShortcuts() {
   }, []);
 }
 
+/** Each joined server's emotes, once the app has settled, and again if they change. */
+function useEmotePrefetch() {
+  const sets = useApp((state) =>
+    Object.values(state.servers)
+      .map((server) => `${server.entry.id}/${server.emotes.set_id}/${server.emotes.emotes.length}`)
+      .join(),
+  );
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      for (const server of Object.values(useApp.getState().servers)) prefetchEmotes(server.entry.url, server.emotes.emotes);
+    }, PREFETCH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [sets]);
+}
+
 export function Shell() {
   const conversation = useActiveConversation();
   const activeServerId = useApp((state) => state.activeServerId);
@@ -116,6 +133,7 @@ export function Shell() {
 
   useEffect(installStickyFocus, []);
   useShortcuts();
+  useEmotePrefetch();
 
   const onResizeStart = useCallback(
     (event: React.MouseEvent) => {

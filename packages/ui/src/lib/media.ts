@@ -118,6 +118,29 @@ export function useRemoteImage(address: string | null | undefined, enabled = tru
   return { url, failed };
 }
 
+const EMOTE_FILES = ["1x", "2x", "3x"];
+const PREFETCH_AT_ONCE = 2;
+const prefetched = new Set<string>();
+
+/**
+ * Fetches a server's whole emote set in the background, into the browser's cache
+ * and no further. A message showing an emote then asks the server for nothing, so
+ * the server can't tell from that who read what, or when.
+ */
+export function prefetchEmotes(serverUrl: string, emotes: { id: string }[]): void {
+  if ((navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) return;
+  const queue = emotes.flatMap((emote) => EMOTE_FILES.map((file) => `${serverUrl}/api/emotes/${emote.id}/${file}.webp`)).filter((address) => !prefetched.has(address));
+  const work = async () => {
+    for (let address = queue.pop(); address; address = queue.pop()) {
+      prefetched.add(address);
+      await fetch(address, { credentials: "omit", referrerPolicy: "no-referrer", cache: "force-cache" })
+        .then((response) => response.arrayBuffer())
+        .catch(() => undefined);
+    }
+  };
+  for (let count = 0; count < PREFETCH_AT_ONCE; count++) void work();
+}
+
 /** Pictures and videos bigger than this wait for a click: this is what downloads with no click, and it all goes in memory. */
 const AUTO_LOAD_BYTES = 20 << 20;
 const AUTO_LOAD_CHUNKS = 21;
