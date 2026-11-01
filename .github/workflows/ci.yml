@@ -1,9 +1,9 @@
 name: CI
 
 on:
-  # Each release: the same v* tags that start the Release workflow.
-  push:
-    tags: ["v*"]
+  # Each release: the Release workflow runs this first, and signs and publishes
+  # nothing unless it passes.
+  workflow_call:
   pull_request:
 
 # Third-party actions are pinned to full commits, since a tag can be moved.

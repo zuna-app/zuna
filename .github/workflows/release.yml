@@ -7,10 +7,19 @@ on:
 # Nothing runs with more than it needs. Files are built and signed by jobs that
 # can't publish anything, and the job that publishes runs no build. Third-party
 # actions are pinned to full commits, since a tag can be moved.
+#
+# Whatever signs or publishes waits for every test and advisory check in ci.yml,
+# and runs in the "release" environment. Its signing secrets belong there rather
+# than in the repository, with the other maintainer as a required reviewer and
+# only v* tags allowed, so that one account or token alone can't ship an update
+# that installed apps take on their own.
 permissions:
   contents: read
 
 jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
   server:
     runs-on: ubuntu-latest
     steps:
@@ -29,6 +38,8 @@ jobs:
           if-no-files-found: error
 
   image:
+    needs: [checks]
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,6 +94,8 @@ jobs:
           if-no-files-found: error
 
   web-image:
+    needs: [checks]
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -126,6 +139,8 @@ jobs:
             ghcr.io/${{ steps.owner.outputs.name }}/zuna-web:${{ github.ref_name }}
 
   desktop:
+    needs: [checks]
+    environment: release
     strategy:
       fail-fast: false
       matrix:
@@ -195,7 +210,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [server, image, web, web-image, desktop]
+    needs: [checks, server, image, web, web-image, desktop]
+    environment: release
     runs-on: ubuntu-latest
     permissions:
       contents: write
