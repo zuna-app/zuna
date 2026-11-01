@@ -51,6 +51,8 @@ mac:
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
     NSMicrophoneUsageDescription: Zuna uses the microphone to record voice messages.
+    NSLocationUsageDescription: Zuna uses your location only when you choose to share it in a chat.
+    NSLocationWhenInUseUsageDescription: Zuna uses your location only when you choose to share it in a chat.
   artifactName: Zuna-${version}-${arch}.${ext}
 linux:
   target:

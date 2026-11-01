@@ -375,6 +375,9 @@ private struct MessageItem: View {
             if let preview = message.preview {
                 LinkCard(preview: preview, own: own, messageId: message.id)
             }
+            if let location = message.location {
+                LocationCard(location: location, own: own, messageId: message.id)
+            }
             if !message.reactions.isEmpty {
                 ReactionsView(message: message, own: own, server: server, react: { actions.react(message.id, $0, $1) }, card: actions.emoteCard) {
                     meta

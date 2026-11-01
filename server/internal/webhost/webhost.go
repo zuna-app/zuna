@@ -180,7 +180,7 @@ func (h *host) withHeaders(next http.Handler) http.Handler {
 		headers.Set("X-Frame-Options", "DENY")
 		headers.Set("Cross-Origin-Opener-Policy", "same-origin")
 		headers.Set("Cross-Origin-Resource-Policy", "same-origin")
-		headers.Set("Permissions-Policy", "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), display-capture=()")
+		headers.Set("Permissions-Policy", "microphone=(self), camera=(), geolocation=(self), payment=(), usb=(), display-capture=()")
 		// Behind a proxy there's no telling how a request arrived, but browsers ignore
 		// this over plain HTTP. Only for this machine would it stick to something else.
 		if !devHost(hostOf(r)) {

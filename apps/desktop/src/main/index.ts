@@ -493,10 +493,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
-    // The renderer needs notifications, and the microphone for voice messages. Calls will ask for more when they arrive.
+    // The renderer needs notifications, the microphone for voice messages, and where this device is for sharing it,
+    // which it only asks for when someone chooses to. Calls will ask for more when they arrive.
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
       const microphoneOnly = permission === "media" && "mediaTypes" in details && (details.mediaTypes ?? []).every((type) => type === "audio");
-      callback(permission === "notifications" || permission === "clipboard-sanitized-write" || microphoneOnly);
+      callback(permission === "notifications" || permission === "clipboard-sanitized-write" || permission === "geolocation" || microphoneOnly);
     });
     Menu.setApplicationMenu(
       process.platform === "darwin"

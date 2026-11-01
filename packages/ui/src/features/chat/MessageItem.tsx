@@ -1,4 +1,4 @@
-import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView } from "@zuna/core";
+import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView, SharedLocation } from "@zuna/core";
 import {
   AlertCircle,
   Check,
@@ -9,6 +9,7 @@ import {
   Download,
   File as FileIcon,
   Forward,
+  MapPin,
   MoreHorizontal,
   Pause,
   Pencil,
@@ -32,6 +33,7 @@ import { copyText } from "@/lib/clipboard";
 import { formatBytes, formatDuration, formatFull, formatTime, nameColor } from "@/lib/format";
 import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
 import { timerChangeText } from "@/lib/disappearing";
+import { accuracyText, coordinatesText, mapLink } from "@/lib/location";
 import { downloadAttachment, loadsByItself, useDecryptedUrl } from "@/lib/media";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
@@ -415,6 +417,25 @@ function LinkCard({ preview }: { preview: LinkPreview }) {
   );
 }
 
+/**
+ * A place someone shared. No map is drawn, since that would mean fetching it from
+ * a map's server: it opens on OpenStreetMap in the browser instead.
+ */
+function LocationCard({ location }: { location: SharedLocation }) {
+  return (
+    <a className="location-card" href={mapLink(location)} target="_blank" rel="noreferrer noopener" title="Open on OpenStreetMap" draggable={false}>
+      <span className="location-pin">
+        <MapPin size={20} />
+      </span>
+      <span className="location-text">
+        <b>Location</b>
+        <span>{coordinatesText(location)}</span>
+        {location.accuracy !== undefined && <span className="location-accuracy">{accuracyText(location.accuracy)}</span>}
+      </span>
+    </a>
+  );
+}
+
 /** A reaction, as in Telegram: emoji with the people who reacted, or a count once there are many. */
 function ReactionChip({
   reaction,
@@ -716,6 +737,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                 </div>
               )}
               {message.preview && <LinkCard preview={message.preview} />}
+              {message.location && <LocationCard location={message.location} />}
             </>
           )}
           {hasReactions ? (

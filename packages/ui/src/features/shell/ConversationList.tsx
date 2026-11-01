@@ -44,7 +44,9 @@ function previewFor(message: MessageView | null, users: Record<string, UserView>
   const author = message.senderId === selfId ? "You" : kind === "group" ? users[message.senderId]?.displayName.split(" ")[0] : null;
   const body = message.text
     ? plainText(message.text).slice(0, 80)
-    : message.attachments[0]
+    : message.location
+      ? "Location"
+      : message.attachments[0]
       ? message.attachments[0].voice
         ? "Voice message"
         : message.attachments[0].mime.startsWith("image/")

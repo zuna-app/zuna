@@ -16,6 +16,7 @@ struct Composer: View {
     @State private var photos: [PhotosPickerItem] = []
     @State private var choosingPhotos = false
     @State private var choosingFiles = false
+    @State private var sharingLocation = false
     @State private var picking = false
     /// The highlighted suggestion, moved with a hardware keyboard's arrows.
     @State private var selectedSuggestion = 0
@@ -57,6 +58,7 @@ struct Composer: View {
                     Menu {
                         Button("Photos and videos", systemImage: "photo.on.rectangle") { choosingPhotos = true }
                         Button("Files", systemImage: "doc") { choosingFiles = true }
+                        Button("Location", systemImage: "mappin.and.ellipse") { sharingLocation = true }
                         if UIPasteboard.general.hasImages {
                             Button("Paste image", systemImage: "doc.on.clipboard") { pasteImage() }
                         }
@@ -129,6 +131,10 @@ struct Composer: View {
         }
         .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case let .success(urls) = result { Task { await stageFiles(urls) } }
+        }
+        .sheet(isPresented: $sharingLocation) {
+            ShareLocationSheet(serverId: serverId, conversationKey: conversation.key)
+                .presentationDetents([.medium])
         }
         .sheet(isPresented: $picking) {
             EmojiPicker(server: server) { pick in

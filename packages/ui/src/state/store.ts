@@ -64,6 +64,7 @@ export type Overlay =
   | { type: "add-members"; groupId: string }
   | { type: "image"; url: string; name: string }
   | { type: "forward"; serverId: string; groupId: string; ids: string[] }
+  | { type: "share-location"; conversationKey: string }
   | null;
 
 /** "media" is one kind of thing from the chat, opened from its details. */

@@ -166,6 +166,24 @@
   border-left: 2px solid var(--text-3); background: var(--hover); color: inherit; text-decoration: none;
 }
 .link-card:hover { background: var(--hover-strong); }
+
+/* A shared place: a pin, and where it is, without a map that would have to be fetched. */
+.location-card {
+  display: flex; align-items: center; gap: 10px; margin: 2px 0; padding: 8px 12px 8px 8px; border-radius: var(--radius-m);
+  background: var(--hover); color: inherit; text-decoration: none; min-width: 220px;
+}
+.location-card:hover { background: var(--hover-strong); }
+.msg.is-own .location-card { background: rgba(255, 255, 255, 0.07); }
+.location-pin {
+  flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%;
+  background: var(--accent); color: var(--on-accent);
+}
+.location-pin.is-large { width: 52px; height: 52px; }
+.location-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; font-size: 13px; }
+.location-text b { font-weight: 600; }
+.location-accuracy { font-size: 12px; color: var(--text-2); }
+.msg.is-own .location-accuracy { color: var(--bubble-own-faint); }
+.share-location { display: flex; align-items: center; gap: 14px; padding: 6px 0 12px; }
 .msg.is-own .link-card { border-left-color: var(--bubble-own-faint); background: rgba(255, 255, 255, 0.07); }
 .link-card.is-wide { flex-direction: column; gap: 6px; }
 .link-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
@@ -192,7 +210,7 @@
 .quote { display: block; margin: 2px 0; padding: 0 0 0 9px; border-left: 2px solid var(--text-3); color: var(--text-2); white-space: pre-wrap; }
 .msg.is-own .quote { color: var(--bubble-own-faint); border-left-color: var(--bubble-own-faint); }
 .msg.is-own a { color: var(--bubble-own-text); text-decoration: underline; }
-.msg a.link-card { color: inherit; text-decoration: none; }
+.msg a.link-card, .msg a.location-card { color: inherit; text-decoration: none; }
 .mention { font-weight: 500; color: inherit; border-radius: 3px; padding: 0 2px; background: rgba(255, 255, 255, 0.09); }
 .mention.is-self { background: rgba(255, 255, 255, 0.18); }
 

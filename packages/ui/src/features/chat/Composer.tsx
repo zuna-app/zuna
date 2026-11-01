@@ -2,11 +2,11 @@ import type { ConversationView, EmoteRef, LinkPreview, MessageView } from "@zuna
 import { findLink } from "@zuna/core/links";
 import { MAX_TEXT_LENGTH } from "@zuna/core/validate";
 import { plainText } from "@zuna/core/plain-text";
-import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, Mic, Paperclip, Pencil, SendHorizontal, Smile, Trash2, X } from "lucide-react";
+import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, MapPin, Mic, Paperclip, Pencil, SendHorizontal, Smile, Trash2, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
-import { Avatar, Tooltip } from "@/components/ui";
+import { Avatar, PopupMenu, Tooltip } from "@/components/ui";
 import { focusComposer, registerComposer } from "@/lib/focus";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
@@ -65,6 +65,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const [text, setText] = useState(drafts.get(conversation.key) ?? "");
   const [files, setFiles] = useState<PreparedFile[]>([]);
   const [pickerAt, setPickerAt] = useState<{ x: number; y: number } | null>(null);
+  const [attachAt, setAttachAt] = useState<{ x: number; y: number } | null>(null);
   const [caret, setCaret] = useState(0);
   const [selected, setSelected] = useState(0);
   const [linkPreview, setLinkPreview] = useState<{ url: string; preview: LinkPreview | null; loading: boolean } | null>(null);
@@ -513,11 +514,29 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
               }}
             />
             {!editing && (
-              <Tooltip text="Attach files" side="top">
-                <button className="icon-btn" onClick={() => fileInput.current?.click()} aria-label="Attach files">
+              <Tooltip text="Attach" side="top">
+                <button
+                  className={`icon-btn${attachAt ? " is-active" : ""}`}
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setAttachAt(attachAt ? null : { x: rect.left, y: rect.top - 6 });
+                  }}
+                  aria-label="Attach"
+                >
                   <Paperclip size={18} />
                 </button>
               </Tooltip>
+            )}
+            {attachAt && (
+              <PopupMenu
+                x={attachAt.x}
+                y={attachAt.y}
+                onClose={() => setAttachAt(null)}
+                entries={[
+                  { label: "Photo or file", icon: <FileIcon size={15} />, onSelect: () => fileInput.current?.click() },
+                  { label: "Location", icon: <MapPin size={15} />, onSelect: () => useApp.getState().setOverlay({ type: "share-location", conversationKey: conversation.key }) },
+                ]}
+              />
             )}
             <textarea
               ref={input}

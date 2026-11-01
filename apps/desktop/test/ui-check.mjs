@@ -549,7 +549,47 @@ try {
   await page.locator(".side-row").filter({ hasText: "Notifications" }).getByRole("switch").click();
   await until.waitFor({ state: "detached", timeout: 5000 });
   check("turning notifications back on unmutes it", (await jordan.locator(".conv-muted").count()) === 0);
+
+  // Disappearing messages
+  await page.locator(".side-row", { hasText: "Disappearing messages" }).click();
+  await page.getByRole("menuitem", { name: "1 day" }).click();
+  await page.locator(".system-pill", { hasText: "You set messages to disappear after 1 day" }).waitFor({ timeout: 10_000 });
+  await page.locator(".chat-head .chat-timer").waitFor({ timeout: 5000 });
+  check("turning on disappearing messages says so in the chat and the header", true);
+  await page.keyboard.type("This one disappears tomorrow");
+  await page.keyboard.press("Enter");
+  const fleeting = page.locator(".msg.is-own", { hasText: "This one disappears tomorrow" });
+  await fleeting.locator(".msg-timer").waitFor({ timeout: 10_000 });
+  check("a message sent then is marked as one that disappears", true);
+  await sleep(300);
+  await shot("19l-disappearing");
+  await page.locator(".side-row", { hasText: "Disappearing messages" }).click();
+  await page.getByRole("menuitem", { name: "Off" }).click();
+  await page.locator(".system-pill", { hasText: "You turned off disappearing messages" }).waitFor({ timeout: 10_000 });
+  await page.locator(".chat-head .chat-timer").waitFor({ state: "detached", timeout: 5000 });
+  check("turning them off takes the mark off the header", true);
   await page.getByLabel("Details", { exact: true }).click();
+
+  // Sharing a location, where Chromium is told where this device is. In saved
+  // messages, where no bot answers and changes the chat's preview.
+  await electronApp.context().setGeolocation({ latitude: 52.229676, longitude: 21.012229, accuracy: 25 });
+  await openChat("Saved messages");
+  await page.getByLabel("Attach", { exact: true }).click();
+  await page.getByRole("menuitem", { name: "Location" }).click();
+  const found = page.locator(".share-location", { hasText: "52.22968° N, 21.01223° E" });
+  await found.waitFor({ timeout: 15_000 });
+  check("sharing a location shows where this device is first", (await found.innerText()).includes("Within 25 m"), (await found.innerText()).replace(/\n/g, " | "));
+  await shot("19m-share-location");
+  await page.getByRole("button", { name: "Send location" }).click();
+  const placeCard = page.locator(".msg.is-own .location-card").last();
+  await placeCard.waitFor({ timeout: 10_000 });
+  check("a shared location shows as a place, linking to a map", (await placeCard.getAttribute("href"))?.startsWith("https://www.openstreetmap.org/?mlat=52.229676&mlon=21.012229") === true, await placeCard.getAttribute("href"));
+  await sleep(300);
+  check("the message box is ready after sharing a location", await composerFocused());
+  await page.locator(".conv-row", { hasText: "Saved messages" }).locator(".conv-preview", { hasText: "Location" }).waitFor({ timeout: 10_000 });
+  check("the chat list reads it as a location", true);
+  await sleep(300);
+  await shot("19n-location");
 
   // Search
   await page.locator("#conversation-search").fill("campsite");

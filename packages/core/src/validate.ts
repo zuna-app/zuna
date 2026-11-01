@@ -3,7 +3,7 @@
 // of the app sees it. A malformed message must never be able to break the app.
 
 import { checkPreview } from "./links";
-import type { Attachment, AvatarRef, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, Preferences, Profile, SystemEvent } from "./types";
+import type { Attachment, AvatarRef, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, Preferences, Profile, SharedLocation, SystemEvent } from "./types";
 
 /** The longest message text anyone may send, and that clients agree to show. */
 export const MAX_TEXT_LENGTH = 100_000;
@@ -23,6 +23,8 @@ const MAX_THUMB_LENGTH = 22 << 10;
 /** Enough for a file far beyond any server's limit, in 1 MiB chunks. */
 const MAX_CHUNKS = 1 << 24;
 const MAX_PICTURE_SIDE = 1 << 20;
+/** Past this a location says nothing useful, in meters: about the distance around the Earth. */
+const MAX_ACCURACY = 40_075_000;
 
 const FILE_ID = /^[0-9a-f]*$/;
 const MESSAGE_ID = /^[0-9a-f]{32}$/;
@@ -109,6 +111,17 @@ function parseEarlier(value: unknown): EarlierMessage | null {
   return earlier;
 }
 
+/** A shared place, if it's one on Earth. How far off it may be is dropped if it makes no sense. */
+function parseLocation(value: unknown): SharedLocation | null {
+  if (!isObject(value)) return null;
+  const { lat, lon, accuracy } = value;
+  if (typeof lat !== "number" || typeof lon !== "number" || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  const location: SharedLocation = { lat, lon };
+  if (typeof accuracy === "number" && Number.isFinite(accuracy) && accuracy >= 0 && accuracy <= MAX_ACCURACY) location.accuracy = accuracy;
+  return location;
+}
+
 function parseForwarded(value: unknown): ForwardInfo | null {
   if (!isObject(value)) return null;
   return isString(value.userId, MAX_ID_LENGTH) ? { userId: value.userId } : {};
@@ -170,6 +183,12 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   const after = parseEarlier(value.after);
   if (after) body.after = after;
   if (isCount(value.expiresIn, MAX_EXPIRES_IN) && value.expiresIn > 0) body.expiresIn = value.expiresIn;
+  if (!absent(value.location)) {
+    // A location is all such a message says, so one that isn't a place can't be shown.
+    const location = parseLocation(value.location);
+    if (!location) return null;
+    body.location = location;
+  }
   return body;
 }
 

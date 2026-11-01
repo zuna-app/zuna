@@ -169,6 +169,22 @@ public struct EmoteRef: Codable, Sendable, Equatable, Hashable {
     }
 }
 
+/// Where someone's device said they were when they shared it. Mirrors `SharedLocation`.
+public struct SharedLocation: Codable, Sendable, Equatable, Hashable {
+    /// Degrees north, from -90 to 90.
+    public var lat: Double
+    /// Degrees east, from -180 to 180.
+    public var lon: Double
+    /// How far off it may be, in meters, as the device said.
+    public var accuracy: Double?
+
+    public init(lat: Double, lon: Double, accuracy: Double? = nil) {
+        self.lat = lat
+        self.lon = lon
+        self.accuracy = accuracy
+    }
+}
+
 /// What the UI sends. Mirrors `MessageBody`.
 public struct MessageBody: Codable, Sendable, Equatable {
     public var text: String?
@@ -177,14 +193,16 @@ public struct MessageBody: Codable, Sendable, Equatable {
     public var attachments: [Attachment]?
     public var mentions: [String]?
     public var preview: LinkPreview?
+    public var location: SharedLocation?
 
-    public init(text: String? = nil, replyTo: String? = nil, emotes: [String: EmoteRef]? = nil, attachments: [Attachment]? = nil, mentions: [String]? = nil, preview: LinkPreview? = nil) {
+    public init(text: String? = nil, replyTo: String? = nil, emotes: [String: EmoteRef]? = nil, attachments: [Attachment]? = nil, mentions: [String]? = nil, preview: LinkPreview? = nil, location: SharedLocation? = nil) {
         self.text = text
         self.replyTo = replyTo
         self.emotes = emotes
         self.attachments = attachments
         self.mentions = mentions
         self.preview = preview
+        self.location = location
     }
 }
 
@@ -275,6 +293,7 @@ public struct MessageView: Codable, Sendable, Equatable, Hashable, Identifiable 
     public var system: SystemEvent?
     public var preview: LinkPreview?
     public var forwarded: ForwardInfo?
+    public var location: SharedLocation?
     public var uploadProgress: Double?
     /// The time the sender's device signed is far from the server's.
     public var timeDiffers: Bool?

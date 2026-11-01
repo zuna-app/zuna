@@ -133,6 +133,21 @@ export interface MessageBody {
   after?: EarlierMessage;
   /** How long after it's sent the message disappears, in seconds, signed with the rest. */
   expiresIn?: number;
+  /** A place the sender shared, from their device. */
+  location?: SharedLocation;
+}
+
+/**
+ * Where someone's device said they were when they shared it. It travels inside
+ * the message, and nothing about it loads a map: only opening it elsewhere does.
+ */
+export interface SharedLocation {
+  /** Degrees north, from -90 to 90. */
+  lat: number;
+  /** Degrees east, from -180 to 180. */
+  lon: number;
+  /** How far off it may be, in meters, as the device said. */
+  accuracy?: number;
 }
 
 /** How long a chat's messages can be set to last, in seconds: an hour, a day, a week and a month. */
@@ -226,6 +241,7 @@ export interface MessageView {
   system: SystemEvent | null;
   preview: LinkPreview | null;
   forwarded: ForwardInfo | null;
+  location: SharedLocation | null;
   uploadProgress?: number;
   /** The time the sender's device signed is far from the server's. */
   timeDiffers?: boolean;

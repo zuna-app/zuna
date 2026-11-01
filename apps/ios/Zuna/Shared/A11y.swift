@@ -76,6 +76,7 @@ enum A11y {
         static let bannerVerify = "chat.keyBanner.verify"
         static let toBottom = "chat.toBottom"
         static let toMention = "chat.toMention"
+        static func location(_ messageId: String) -> String { "chat.location.\(messageId)" }
         static let empty = "chat.empty"
         static let reply = "chat.reply"
         static let emoteCard = "chat.emoteCard"
@@ -103,6 +104,7 @@ enum A11y {
         static let input = "composer.input"
         static let send = "composer.send"
         static let attach = "composer.attach"
+        static let sendLocation = "composer.sendLocation"
         static let emoji = "composer.emoji"
         static let context = "composer.context"
         static let cancelContext = "composer.cancelContext"

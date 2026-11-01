@@ -23,6 +23,7 @@ import { formatUpcoming } from "@/lib/format";
 import { useActiveServer, useApp } from "@/state/store";
 import { JoinFlow } from "@/features/onboarding/Onboarding";
 import { ServerSettings } from "./ServerSettings";
+import { ShareLocation } from "./ShareLocation";
 import { Settings } from "./Settings";
 
 export function Overlays() {
@@ -49,6 +50,7 @@ export function Overlays() {
       {overlay?.type === "add-members" && <AddMembers key="add-members" groupId={overlay.groupId} onClose={close} />}
       {overlay?.type === "image" && <ImageViewer key="image" url={overlay.url} name={overlay.name} onClose={close} />}
       {overlay?.type === "forward" && <ForwardPicker key="forward" serverId={overlay.serverId} groupId={overlay.groupId} ids={overlay.ids} onClose={close} />}
+      {overlay?.type === "share-location" && <ShareLocation key="share-location" conversationKey={overlay.conversationKey} onClose={close} />}
     </AnimatePresence>
   );
 }

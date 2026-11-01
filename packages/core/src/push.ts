@@ -121,7 +121,7 @@ export async function previewPush(
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
   const mentioned = (body.mentions ?? []).includes(account.userId);
-  const content = { text: body.text ?? "", attachments: body.attachments ?? [] };
+  const content = { text: body.text ?? "", attachments: body.attachments ?? [], location: body.location };
   const picture = async (avatar: AvatarRef | null | undefined) => {
     if (!pictures || !avatar || avatar.chunks > MAX_PICTURE_CHUNKS) return undefined;
     try {

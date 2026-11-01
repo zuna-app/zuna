@@ -14,7 +14,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 |---|---|---|
 | **Accounts** | Username, role, sign-up date, which devices exist | Password, display name, avatar, bio |
 | **Conversations** | Who is in each conversation | Group names, pictures and descriptions |
-| **Messages** | Who sent one, when, to which conversation, and its rough size (padded to 256-byte blocks) | Text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, whether and from whom it was forwarded |
+| **Messages** | Who sent one, when, to which conversation, and its rough size (padded to 256-byte blocks) | Text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, shared locations, whether and from whom it was forwarded |
 | **Reactions** | Who reacted to which message | Which reaction it was (with the exception under "Limits") |
 | **Files** | Size and uploader, and which messages share a file, so it knows a forwarded file is the same one | Name, type, content |
 | **Pins and deletes** | Which message was pinned or deleted | The message's content |
@@ -107,6 +107,10 @@ The sender's device makes a link's preview while they write: it fetches the page
 In the web app, the page can't fetch other sites, so its host, `zuna-web`, fetches pages for it by the same rules, and only on port 443. It checks the address a name leads to as it connects. The web app's host therefore sees which links are previewed, and sites see the host's address instead of the sender's. The chat server still never sees them. A host can turn previews off.
 
 A preview's title and picture are the sender's claim about the page, like the message's text, so a card can say anything. The app only shows a preview for a whole link in the message's own text, always shows which site that link really goes to, and requires its picture to be inline: a preview can't make your device load anything.
+
+### Shared locations
+
+A shared location is where the sender's device said it was, sent inside the encrypted message like its text. The app only asks the system where it is when someone chooses to share it, and shows what it found before sending. Nothing in a message loads a map, since that would tell a map's server where people are looking: the app shows the coordinates, and only opening them, on OpenStreetMap from the desktop and the web app or in Maps on iPhone and iPad, tells that service.
 
 ### Forwarding
 

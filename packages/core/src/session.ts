@@ -4133,7 +4133,7 @@ export class ServerSession {
     this.emit({ type: "notify", serverId: this.serverId, title, body, conversationKey: key, groupId: view.groupId, messageId: view.id });
   }
 
-  previewText(view: Pick<MessageView, "text" | "attachments">): string {
+  previewText(view: Pick<MessageView, "text" | "attachments"> & { location?: MessageView["location"] }): string {
     return previewText(view);
   }
 
@@ -4166,6 +4166,7 @@ export class ServerSession {
       system: body.system ?? null,
       preview: body.preview ?? null,
       forwarded: body.forwarded ?? null,
+      location: body.location ?? null,
       expiresAt: row.expires_at,
     };
     if (body.sentAt !== undefined && Math.abs(body.sentAt - (row.edited_at ?? row.created_at)) > TIME_DIFFERS_MS) view.timeDiffers = true;
@@ -4180,7 +4181,7 @@ export class ServerSession {
     return {
       id,
       senderId: row.sender_user,
-      text: body?.text?.slice(0, 200) ?? "",
+      text: body?.text?.slice(0, 200) || (body?.location ? "📍 Location" : ""),
       hasAttachment: (body?.attachments?.length ?? 0) > 0,
       deleted: false,
     };
@@ -4651,6 +4652,7 @@ export class ServerSession {
       attachments: body.attachments,
       preview: body.preview,
       forwarded: body.forwarded,
+      location: body.location,
       senderId: row.sender_user,
     };
   }
@@ -4880,7 +4882,7 @@ export class ServerSession {
     this.enqueue(key, {
       kind: "message",
       id,
-      body: { text: body.text, replyTo: body.replyTo, emotes: body.emotes, attachments: body.attachments, mentions: body.mentions },
+      body: { text: body.text, replyTo: body.replyTo, emotes: body.emotes, attachments: body.attachments, mentions: body.mentions, location: body.location },
       fileIds: body.attachments?.map((item) => item.fileId),
     });
   }
@@ -4904,6 +4906,7 @@ export class ServerSession {
       // The preview stays while its link does; an edit doesn't fetch a new one.
       preview: previous.preview && linkInText(previous.preview.url, text) ? previous.preview : undefined,
       forwarded: previous.forwarded,
+      location: previous.location,
     };
     assertSendable(body);
     this.db.run("UPDATE messages SET body = ?, edited_at = ? WHERE group_id = ? AND id = ?", [

@@ -116,6 +116,8 @@ enum Format {
         let body: String
         if !message.text.isEmpty {
             body = String(decoding: plainText(message.text).utf16.prefix(80), as: UTF16.self)
+        } else if message.location != nil {
+            body = "Location"
         } else if let attachment = message.attachments.first {
             body = attachment.voice == true ? "Voice message"
                 : attachment.mime.hasPrefix("image/") ? "Photo" : attachment.mime.hasPrefix("video/") ? "Video" : attachment.name

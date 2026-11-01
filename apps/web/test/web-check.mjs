@@ -278,6 +278,21 @@ async function runIn(name) {
       notes.push(`${name} couldn't record: ${recorded.error}`);
     }
 
+    // Sharing a location: the host's headers have to let the page ask where it is.
+    try {
+      await context.grantPermissions(["geolocation"], { origin: appUrl.slice(0, -1) });
+      await context.setGeolocation({ latitude: 52.229676, longitude: 21.012229, accuracy: 25 });
+      await page.getByLabel("Attach", { exact: true }).click();
+      await page.getByRole("menuitem", { name: "Location" }).click();
+      await page.locator(".share-location", { hasText: "52.22968° N, 21.01223° E" }).waitFor({ timeout: 15_000 });
+      await page.getByRole("button", { name: "Send location" }).click();
+      await page.locator(".msg.is-own .location-card").last().waitFor({ timeout: 10_000 });
+      check("a location is found and shared", true);
+    } catch (error) {
+      check("a location is found and shared", false, (await page.locator(".share-location").innerText().catch(() => "")) || error.message.split("\n")[0]);
+      await page.keyboard.press("Escape");
+    }
+
     // Everything is still there after a reload
     await page.reload();
     await page.locator(".conv-row", { hasText: "Priya" }).waitFor({ timeout: 30_000 });

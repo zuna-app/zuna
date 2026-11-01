@@ -5,7 +5,7 @@
 import { plainText } from "./plain-text";
 import type { MessageView } from "./types";
 
-type Preview = Pick<MessageView, "text" | "attachments">;
+type Preview = Pick<MessageView, "text" | "attachments"> & { location?: MessageView["location"] };
 
 /** A message as one short line: its text, or what it carries. */
 export function previewText(view: Preview): string {
@@ -13,6 +13,7 @@ export function previewText(view: Preview): string {
     const plain = plainText(view.text);
     return plain.length > 140 ? `${plain.slice(0, 140)}…` : plain;
   }
+  if (view.location) return "📍 Location";
   const first = view.attachments[0];
   if (!first) return "";
   if (first.mime.startsWith("image/")) return "📷 Photo";
