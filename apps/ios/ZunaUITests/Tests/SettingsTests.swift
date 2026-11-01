@@ -57,6 +57,27 @@ final class SettingsTests: XCTestCase {
         try waitFor("alice to see the status hidden", timeout: 30) { try self.aliceSees(id)?["hidesLastSeen"] as? Bool == true }
         zuna.app.switches[A11y.Settings.readReceipts].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         try waitFor("read receipts off") { try self.zuna.preferencesFlag("sendReadReceipts") == false }
+
+        // Removing metadata from files is on, and turning it off asks first.
+        let metadata = zuna.app.switches[A11y.Settings.removeMetadata]
+        zuna.app.swipeUp()
+        XCTAssertTrue(metadata.waitForExistence(timeout: 5))
+        XCTAssertEqual(metadata.value as? String, "1")
+        zuna.toggle(A11y.Settings.removeMetadata)
+        let question = zuna.app.alerts["Send files with their metadata?"]
+        XCTAssertTrue(question.waitForExistence(timeout: 5))
+        zuna.screenshot("90b-keep-metadata")
+        question.buttons["Cancel"].tap()
+        try waitFor("the question to go") { !question.exists }
+        XCTAssertEqual(metadata.value as? String, "1")
+        zuna.toggle(A11y.Settings.removeMetadata)
+        XCTAssertTrue(question.waitForExistence(timeout: 5))
+        question.buttons["Turn Off"].tap()
+        try waitFor("metadata to be kept") { metadata.value as? String == "0" }
+        // On again doesn't ask, and leaves it as the other tests expect.
+        zuna.toggle(A11y.Settings.removeMetadata)
+        try waitFor("metadata to be removed again") { metadata.value as? String == "1" }
+        XCTAssertFalse(question.exists)
     }
 
     func testChangesThePasswordWhichThenUnlocksAfterARestart() throws {

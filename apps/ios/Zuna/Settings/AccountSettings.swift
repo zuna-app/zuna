@@ -115,10 +115,11 @@ struct ProfileView: View {
     }
 }
 
-/// Read receipts and online status, per server, as on the desktop.
+/// Read receipts and online status, per server, and what this device sends, as on the desktop.
 struct PrivacyView: View {
     let serverId: String
     @Environment(AppModel.self) private var model
+    @State private var confirmingKeep = false
 
     var body: some View {
         let server = model.servers[serverId]
@@ -151,6 +152,22 @@ struct PrivacyView: View {
             } footer: {
                 Text("When you write a link, this device fetches the page to show its title and picture, and sends them encrypted with your message. The site sees your address, as when you open a link. Your server never sees it.")
             }
+            Section {
+                // Turning it off waits for a yes, so the switch only follows the setting.
+                Toggle("Remove metadata from files", isOn: Binding(get: { model.settings.removeMetadata }, set: { value in
+                    if value { model.settings.removeMetadata = true } else { confirmingKeep = true }
+                }))
+                .tint(model.settings.accent.switchTint)
+                .accessibilityIdentifier(A11y.Settings.removeMetadata)
+            } footer: {
+                Text("Before a file is sent, this device takes out where and when it was made, the camera or phone and its serial number, the program, and editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are.")
+            }
+        }
+        .alert("Send files with their metadata?", isPresented: $confirmingKeep) {
+            Button("Cancel", role: .cancel) {}
+            Button("Turn Off", role: .destructive) { model.settings.removeMetadata = false }
+        } message: {
+            Text("Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the program used, and what was changed in it. So can anyone they pass the files on to.\n\nYour server still can't see any of it, as files are encrypted. This is only for this device, and for files you send from now on.")
         }
         .listRowBackground(Theme.bg2)
         .scrollContentBackground(.hidden)

@@ -13,8 +13,6 @@ For agents, not people. `CLAUDE.md` says how to keep this current. Keep it terse
 
 Things one platform should have and doesn't.
 
-- **iOS: no switch for removing metadata from files.** The core removes it, but nothing turns that off. It goes in `PrivacyView` (`Settings/AccountSettings.swift`) and `State/AppSettings.swift`, with `keepMetadata` in `SendOptions` (`ZunaModels/Models.swift`) passed from `State/ComposerState.swift`.
-
 - **Web, Firefox: unchecked.** Nothing has been run in Firefox yet (see "Web check" above). Its `MediaRecorder` may only record WebM with Opus, which the iPhone app can't play (`apps/ios/Zuna/Chat/Voice.swift` plays AAC in MP4). `web-check.mjs` reports what each browser records and whether Apple's decoder reads it.
 
 ## Accounts and servers
@@ -115,7 +113,7 @@ Things one platform should have and doesn't.
 |---|---|---|---|---|---|---|
 | Profile | yes | yes | yes | `features/overlays/Settings.tsx` | `Settings/AccountSettings.swift` | |
 | Privacy: read receipts, online status, link previews | yes | yes | yes | `features/overlays/Settings.tsx` | `Settings/AccountSettings.swift` | |
-| Privacy: removing metadata from files, on by default, saying what it shows and asking before it turns off | yes | no | yes | `features/overlays/Settings.tsx` (`KeepMetadataConfirm`), `state/settings.ts`, `features/chat/Composer.tsx` | | Per device. Passes `keepMetadata` to `sendWithAttachments`. Checked in `ui-check.mjs`: on by default, Escape closes only the question, off takes "Turn off", on again doesn't ask |
+| Privacy: removing metadata from files, on by default, saying what it shows and asking before it turns off | yes | yes | yes | `features/overlays/Settings.tsx` (`KeepMetadataConfirm`), `state/settings.ts`, `features/chat/Composer.tsx` | `Settings/AccountSettings.swift` (`PrivacyView`, an alert), `State/AppSettings.swift`, `State/ComposerState.swift` | Per device. Passes `keepMetadata` to `sendWithAttachments` (iOS: `SendOptions` in `ZunaModels`). Checked in `ui-check.mjs` and `SettingsTests` in the simulator: on by default, off takes "Turn off" (Escape closes only the question on the desktop), on again doesn't ask |
 | Appearance: accent, message size, reduce motion, Enter sends | yes | yes | yes | `features/overlays/Settings.tsx`, `state/settings.ts` | `Settings/SettingsView.swift`, `State/AppSettings.swift` | |
 | Security: own key, devices, password, recovery key | yes | yes | yes | `features/overlays/Settings.tsx` | `Settings/AccountSettings.swift` | |
 | Replacing an account's keys, in the background | yes | yes | yes | `packages/core/src/session.ts` | same | All in the core, with nothing to see but the line below. iOS: `setCredential` through `CryptoBridge.swift` checked against WebAssembly (`tests/e2e/test/crypto.test.ts`), and a desktop follows a rotation made on the iOS host (`cross-client.test.ts`). Web checked in Edge only |

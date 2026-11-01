@@ -198,6 +198,7 @@ enum A11y {
         static let readReceipts = "settings.readReceipts"
         static let showOnline = "settings.showOnline"
         static let linkPreviews = "settings.linkPreviews"
+        static let removeMetadata = "settings.removeMetadata"
         static let currentPassword = "settings.currentPassword"
         static let newPassword = "settings.newPassword"
         static let changePassword = "settings.changePassword"

@@ -107,8 +107,9 @@ public struct SessionCalls: Sendable {
     }
 
     /// Uploads the files, encrypted, then sends the message. Progress shows on the local echo.
-    public func sendWithAttachments(_ conversationKey: String, files: [OutgoingFile], body: MessageBody, previewUrl: String? = nil) async throws {
-        try await run("sendWithAttachments", [conversationKey, files, body, SendOptions(previewUrl: previewUrl)])
+    /// What the files say about where, when and on what they were made is taken out, unless `keepMetadata`.
+    public func sendWithAttachments(_ conversationKey: String, files: [OutgoingFile], body: MessageBody, previewUrl: String? = nil, keepMetadata: Bool = false) async throws {
+        try await run("sendWithAttachments", [conversationKey, files, body, SendOptions(previewUrl: previewUrl, keepMetadata: keepMetadata ? true : nil)])
     }
 
     public func emotesIn(_ text: String) async throws -> [String: EmoteRef] { try await call("emotesIn", [text]) }

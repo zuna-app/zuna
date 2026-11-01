@@ -206,12 +206,15 @@ public struct MessageBody: Codable, Sendable, Equatable {
     }
 }
 
-/// How a message is sent: `previewUrl` is a link whose preview isn't ready yet. Mirrors the core's send options.
+/// How a message is sent: `previewUrl` is a link whose preview isn't ready yet, and
+/// `keepMetadata` sends files with their metadata. Mirrors the core's send options.
 public struct SendOptions: Codable, Sendable, Equatable {
     public var previewUrl: String?
+    public var keepMetadata: Bool?
 
-    public init(previewUrl: String? = nil) {
+    public init(previewUrl: String? = nil, keepMetadata: Bool? = nil) {
         self.previewUrl = previewUrl
+        self.keepMetadata = keepMetadata
     }
 }
 

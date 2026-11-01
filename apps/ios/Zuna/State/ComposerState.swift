@@ -82,7 +82,7 @@ extension AppModel {
 
         let preview = state.link.flatMap { value.contains($0.url) ? $0.preview : nil }
         let body = MessageBody(text: value.isEmpty ? nil : value, replyTo: state.replyTo?.id, emotes: emotes, mentions: mentions, preview: preview)
-        let draft = state.link, dismissed = state.dismissedLink, previews = settings.linkPreviews
+        let draft = state.link, dismissed = state.dismissedLink, previews = settings.linkPreviews, keepMetadata = !settings.removeMetadata
         let files = state.files
         updateComposer(serverId, conversation.key) {
             $0.text = ""
@@ -103,7 +103,7 @@ extension AppModel {
                 if files.isEmpty {
                     try await session.sendMessage(conversation.key, body, previewUrl: pendingLink)
                 } else {
-                    try await session.sendWithAttachments(conversation.key, files: files.map(\.file), body: body, previewUrl: pendingLink)
+                    try await session.sendWithAttachments(conversation.key, files: files.map(\.file), body: body, previewUrl: pendingLink, keepMetadata: keepMetadata)
                     files.forEach(OutgoingFiles.discard)
                 }
             } catch {

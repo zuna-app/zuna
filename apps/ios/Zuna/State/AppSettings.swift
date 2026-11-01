@@ -12,6 +12,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var appLock = false
     /// This device fetches a page to preview the first link in a message being written.
     var linkPreviews = true
+    /// Before a file is sent, this device takes out where, when and on what it was made.
+    var removeMetadata = true
 
     private static let key = "zuna-settings"
 
@@ -30,6 +32,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         enterToSend = try container.decodeIfPresent(Bool.self, forKey: .enterToSend) ?? true
         appLock = try container.decodeIfPresent(Bool.self, forKey: .appLock) ?? false
         linkPreviews = try container.decodeIfPresent(Bool.self, forKey: .linkPreviews) ?? true
+        removeMetadata = try container.decodeIfPresent(Bool.self, forKey: .removeMetadata) ?? true
     }
 
     init() {}
