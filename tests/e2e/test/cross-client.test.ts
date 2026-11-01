@@ -24,6 +24,8 @@ const others: HostApp[] = [];
 
 const bytesOf = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
 const pattern = (size: number, seed: number) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + seed) & 255);
+/** How many times Bob's account has replaced its keys, as the server says. */
+const generation = async () => ((await (alice.session as any).api.user(bobId)) as { key_generation?: number }).key_generation ?? 0;
 
 beforeAll(async () => {
   loadCrypto();
@@ -384,6 +386,7 @@ describe("an iOS client with a desktop client", () => {
     // The server refuses the socket with close code 4401, which must reach the core.
     const tablet = others[0]!;
     const tabletDevice = (await tablet.session.getSelf()).deviceId;
+    const before = await generation();
     await tablet.close();
     await phone.session.revokeDevice(tabletDevice);
     await tablet.open();
@@ -392,10 +395,11 @@ describe("an iOS client with a desktop client", () => {
     await waitFor(async () => (await tablet.core.client.listServers()).some((server) => !!server.signedOut), "the iPad to be signed out").catch((error) => {
       throw new Error(`${error.message}\n${tablet.output.slice(-3000)}`);
     });
+    // Removing it replaces the account's keys a moment later, in the background, which must be over before the next test.
+    await waitFor(async () => (await generation()) > before, "the phone to replace its keys", 60_000);
   });
 
   it("replaces its account's keys when it removes a device, and the desktop follows with no warning", async () => {
-    const generation = async () => ((await (alice.session as any).api.user(bobId)) as { key_generation?: number }).key_generation ?? 0;
     const trust = () => alice.session.getUsers().find((user) => user.id === bobId)?.trust;
     // The line goes in their chat, so there has to be one.
     await phone.session.sendMessage(`user:${aliceId}`, { text: "before new keys" });
