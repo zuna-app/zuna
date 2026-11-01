@@ -642,6 +642,32 @@ describe("presence and read state", () => {
     }, "alice to see the read receipt");
   });
 
+  it("sends a read position again if it never reached the server, as when a tab closes while it's on its way", async () => {
+    const reader = await new TestApp("ines").open();
+    await reader.register(invite, "ines");
+    try {
+      await waitFor(() => alice.session.getUsers().some((user) => user.id === reader.userId), "alice to see ines");
+      const aliceKey = `user:${alice.userId}`;
+      alice.session.sendMessage(`user:${reader.userId}`, { text: "read, then cut off" });
+      await waitFor(() => reader.texts(aliceKey).includes("read, then cut off"), "delivery");
+      const conversation = reader.session.getConversations().find((item) => item.key === aliceKey)!;
+      const { messages } = await reader.session.loadMessages(conversation.groupId!);
+      const seq = messages.find((message) => message.text === "read, then cut off")!.seq!;
+      const api = (reader.session as any).api;
+      api.setRead = () => Promise.reject(new TypeError("Load failed"));
+      await reader.session.markRead(conversation.groupId!, seq);
+      expect(reader.session.getConversations().find((item) => item.key === aliceKey)!.unread).toBe(0);
+      const seen = () => alice.session.getConversations().find((item) => item.key === `user:${reader.userId}`)!.readBy[reader.userId] ?? 0;
+      await sleep(300);
+      expect(seen()).toBeLessThan(seq);
+      // Opened again, the app sends it, though the chat already looks read there.
+      await reader.restart();
+      await waitFor(() => seen() >= seq, "alice to see the read receipt after all");
+    } finally {
+      reader.client.stop();
+    }
+  });
+
   it("keeps read positions private when receipts are off", async () => {
     await bob.session.updatePreferences({ sendReadReceipts: false });
     const aliceKey = `user:${alice.userId}`;

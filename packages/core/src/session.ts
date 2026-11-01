@@ -272,6 +272,11 @@ interface CachedGroup {
   readStates: Record<string, string | null>;
   readBy: Record<string, number>;
   ownRead: number;
+  /**
+   * How far the server is known to have this person's read position. Behind
+   * `ownRead`, it's sent again. Groups saved before this was kept have none.
+   */
+  readSent?: number;
   /** When the server said this device's person is no longer in this conversation. */
   removedAt?: number | null;
   /** People the server says left, not yet shown, until MLS confirms their keys are gone. */
@@ -667,6 +672,7 @@ export class ServerSession {
     await this.processHistoryGrants();
     await this.topUpKeyPackages();
     await this.uploadEpochKeys();
+    await this.sendUnsentReads();
     void this.flushOutbox();
   }
 
@@ -2411,6 +2417,7 @@ export class ServerSession {
       readStates: Object.fromEntries(listed.map((member) => [member.user_id, member.read_state])),
       readBy: previous?.readBy ?? {},
       ownRead: previous?.ownRead ?? 0,
+      readSent: previous?.readSent,
       // The server listing us as a member means we're in it after all.
       removedAt: null,
       pendingRemovals: previous?.pendingRemovals,
@@ -2550,6 +2557,8 @@ export class ServerSession {
     if (seq === null) return;
     if (userId === this.account.userId) {
       group.ownRead = Math.max(group.ownRead, seq);
+      // It came from the server, so the server has it.
+      if (group.readSent !== undefined) group.readSent = Math.max(group.readSent, seq);
     } else {
       group.readBy[userId] = Math.max(group.readBy[userId] ?? 0, seq);
     }
@@ -4994,25 +5003,57 @@ export class ServerSession {
   async markRead(groupId: string, seq: number): Promise<void> {
     const group = this.groups.get(groupId);
     if (!group || seq <= group.ownRead || !this.hasMlsGroup(groupId)) return;
+    group.readSent ??= group.ownRead;
     group.ownRead = seq;
     this.persistGroup(group);
     this.emitConversations();
-    const epoch = this.rememberCurrentEpochKey(groupId);
+    await this.sendRead(group);
+  }
+
+  /**
+   * Tells the server how far this person has read. One that doesn't arrive, as when
+   * the app closes or the network drops while it's on its way, goes again at the next
+   * sync, since the chat already looks read here and nothing else would send it.
+   */
+  private async sendRead(group: CachedGroup): Promise<void> {
+    const seq = group.ownRead;
+    const epoch = this.rememberCurrentEpochKey(group.id);
     const { userId, deviceId, deviceSecret, accountKey } = this.account;
     let framed: Uint8Array;
     if (this.prefs.sendReadReceipts) {
-      const key = this.epochKey(groupId, epoch);
+      const key = this.epochKey(group.id, epoch);
       if (!key) return;
-      framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", groupId, userId, epoch, { seq }));
+      framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }));
     } else {
       // The position is sealed to our own account key, so our other devices stay
       // in sync while nobody else can read it.
-      const sealed = sealSignal(accountKey, "read", groupId, epoch, { seq });
+      const sealed = sealSignal(accountKey, "read", group.id, epoch, { seq });
       framed = new Uint8Array(sealed.length + 1);
       framed[0] = 1;
       framed.set(sealed, 1);
     }
-    await this.api.setRead(groupId, framed).catch((error) => console.warn("[zuna] read state", error));
+    try {
+      await this.api.setRead(group.id, framed);
+    } catch (error) {
+      console.warn("[zuna] read state", error);
+      // Refused for good, sending it again won't help. Signed out, it can go once signed back in.
+      if (!(error instanceof ApiError) || error.retryable || error.status === 401) return;
+    }
+    // The group may have been read in again from the server meanwhile.
+    const current = this.groups.get(group.id);
+    if (current && seq > (current.readSent ?? 0)) {
+      current.readSent = seq;
+      this.persistGroup(current);
+    }
+  }
+
+  /** Read positions that never reached the server. */
+  private async sendUnsentReads(): Promise<void> {
+    for (const group of this.groups.values()) {
+      if (group.readSent !== undefined && group.ownRead > group.readSent && !group.removedAt && this.hasMlsGroup(group.id)) {
+        await this.sendRead(group).catch((error) => console.warn("[zuna] read state", error));
+      }
+    }
   }
 
   // --- Files ---
