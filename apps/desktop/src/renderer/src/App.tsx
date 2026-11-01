@@ -91,20 +91,28 @@ export function App() {
         useApp.getState().selectServer(serverId);
         useApp.getState().selectConversation(key);
       }),
-      desktop?.onFocus((focused) => {
-        useApp.setState({ windowFocused: focused });
-      }),
     ];
-    const onFocus = () => useApp.setState({ windowFocused: true });
-    const onBlur = () => useApp.setState({ windowFocused: false });
+    return () => {
+      for (const remove of removers) remove?.();
+    };
+  }, [phase, setOverlay]);
+
+  // Whether the window has focus decides what counts as read. The window usually gains
+  // focus while the app is still starting, so this listens from the first render.
+  useEffect(() => {
+    const setFocused = (focused: boolean) => useApp.setState({ windowFocused: focused });
+    setFocused(document.hasFocus());
+    const removeDesktop = desktop?.onFocus(setFocused);
+    const onFocus = () => setFocused(true);
+    const onBlur = () => setFocused(false);
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
     return () => {
-      for (const remove of removers) remove?.();
+      removeDesktop?.();
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };
-  }, [phase, setOverlay]);
+  }, []);
 
   // Where notifications go: here while the person is at the computer, their phone otherwise.
   useEffect(() => (phase === "ready" ? watchActivity() : undefined), [phase]);
