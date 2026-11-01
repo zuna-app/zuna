@@ -1,0 +1,16 @@
+# Advisories cargo audit reports that don't reach what Zuna builds, each with why.
+# Release builds wait for cargo audit, so look at these again whenever openmls or
+# hpke-rs move to a new version.
+[advisories]
+ignore = [
+  # crypto-bigint 0.5: timing differences in P-256, P-384 and secp256k1 arithmetic,
+  # which openmls_rust_crypto and hpke-rs-rust-crypto bring in for ciphersuites Zuna
+  # never uses: it only uses X25519, Ed25519 and ChaCha20-Poly1305, in MLS and in
+  # HPKE. The fix needs elliptic-curve 0.14, which those crates don't use yet.
+  "RUSTSEC-2026-0387",
+  # libcrux-kem 0.0.9: panics on short hybrid keys. Cargo.lock lists it as an
+  # optional dependency of hpke-rs that isn't built: `cargo tree -i libcrux-kem
+  # --target all` prints nothing.
+  "RUSTSEC-2026-0330",
+  "RUSTSEC-2026-0331",
+]
