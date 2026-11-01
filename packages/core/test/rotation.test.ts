@@ -1554,6 +1554,8 @@ describe("signing in, against a server that chose the keys", () => {
   it("refuses them at a later generation too, with a link saying the key is right", async () => {
     const dave = await person("dave");
     await dave.session.rotate();
+    // Closing the generation writes the vault core again, which would undo what's forged here.
+    await waitFor(() => sessionOf(dave).account.core.closedBelow >= 1, "the generation to close");
     const core = fakeCore(1, { rootPublic: sessionOf(dave).account.core.rootPublic });
     const chosen = wasm.randomBytes(32);
     const db = serverDatabase();
