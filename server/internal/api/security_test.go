@@ -823,6 +823,23 @@ func TestSomeoneElsesGuessesDontKeepAPersonOut(t *testing.T) {
 	}
 }
 
+// A session token is no faster a way to guess the password: checking the current
+// one, to change it or the recovery key, counts as a sign-in does.
+func TestChangingThePasswordIsNoFasterAWayToGuessIt(t *testing.T) {
+	for _, path := range []string{"/api/auth/password", "/api/auth/recovery-key"} {
+		h := newHarness(t, func(cfg *api.Config) { cfg.AuthBurst = 100_000 })
+		owner := h.owner()
+		limited := false
+		for range 30 {
+			status, _ := h.do("POST", path, owner.token, map[string]any{"current_auth_key": bytesOf(32, 0xff)}, nil)
+			limited = limited || status == http.StatusTooManyRequests
+		}
+		if !limited {
+			t.Fatalf("wrong passwords through %s never slowed down", path)
+		}
+	}
+}
+
 // Attempts sent at once, once an account's free ones are gone, get one guess between
 // them, and a restart doesn't hand out new ones.
 func TestGuessesSentAtOnceGetOneThroughAndOutlastARestart(t *testing.T) {

@@ -574,12 +574,17 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request, se
 	if s.needsRotation(w, r, creds) {
 		return
 	}
+	// A guess here counts as a sign-in does, or a session token would be a faster way to guess.
+	if !s.trySignIn(w, r, sess.Username) {
+		return
+	}
 	proved := subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.CurrentAuthKey), creds.AuthHash) == 1 ||
 		subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, body.RecoveryAuthKey), creds.RecoveryHash) == 1
 	if !proved {
 		writeError(w, http.StatusForbidden, "invalid_credentials", "Your current password isn't correct.")
 		return
 	}
+	s.signInSucceeded(r, sess.Username)
 	if !validKDF(body.KDF) || len(body.AuthKey) != 32 || len(body.WrappedKeyPassword) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The new password data is incomplete.")
 		return
@@ -619,10 +624,14 @@ func (s *Server) handleChangeRecoveryKey(w http.ResponseWriter, r *http.Request,
 	if s.needsRotation(w, r, creds) {
 		return
 	}
+	if !s.trySignIn(w, r, sess.Username) {
+		return
+	}
 	if subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.CurrentAuthKey), creds.AuthHash) != 1 {
 		writeError(w, http.StatusForbidden, "invalid_credentials", "Your current password isn't correct.")
 		return
 	}
+	s.signInSucceeded(r, sess.Username)
 	if len(body.RecoveryAuthKey) != 32 || len(body.WrappedKeyRecovery) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The new recovery key data is incomplete.")
 		return
