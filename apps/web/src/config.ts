@@ -6,6 +6,8 @@ export interface HostConfig {
   previews: boolean;
   /** A server address to start the sign-in form with. */
   server: string | null;
+  /** A development host's previews may reach this machine, for its test pages. */
+  localLinks: boolean;
 }
 
 export async function loadConfig(): Promise<HostConfig> {
@@ -16,8 +18,9 @@ export async function loadConfig(): Promise<HostConfig> {
     return {
       previews: config.previews === true,
       server: typeof config.server === "string" && config.server ? config.server : null,
+      localLinks: config.localLinks === true,
     };
   } catch {
-    return { previews: false, server: null };
+    return { previews: false, server: null, localLinks: false };
   }
 }

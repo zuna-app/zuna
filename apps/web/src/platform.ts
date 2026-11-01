@@ -3,7 +3,7 @@
 
 import { connectWorker, type Platform } from "@zuna/ui";
 import type { HostConfig } from "./config";
-import { deviceName, loadDeviceKey } from "./device";
+import { deviceName, loadDeviceKey, removeUnreadableDatabase } from "./device";
 
 const UPDATE_CHECK_MS = 30 * 60_000;
 const UPDATE_CHECK_ON_FOCUS_MS = 60_000;
@@ -30,12 +30,13 @@ export function webPlatform(config: HostConfig): Platform {
     hour12: undefined,
     titleBar: false,
     async bootCore(onEvent) {
-      const key = await loadDeviceKey();
+      const { key, created } = await loadDeviceKey();
+      if (created) await removeUnreadableDatabase();
       worker = new Worker(new URL("./worker.ts", import.meta.url), {
         type: "module",
         name: config.previews ? "zuna-core" : "zuna-core-no-previews",
       });
-      const booted = await connectWorker(worker, { key, protected: false, deviceName: deviceName(), localLinks: import.meta.env.DEV }, onEvent);
+      const booted = await connectWorker(worker, { key, protected: false, deviceName: deviceName(), localLinks: config.localLinks }, onEvent);
       // Asks the browser not to clear Zuna's data when the disk fills up. If it does
       // anyway, signing in again brings the history back from the vault.
       void navigator.storage.persist?.().catch(() => false);

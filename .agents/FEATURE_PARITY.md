@@ -7,13 +7,13 @@ For agents, not people. `CLAUDE.md` says how to keep this current. Keep it terse
 - **Web** shares the desktop's interface (`@zuna/ui`), so its rows follow the desktop's unless a note says otherwise. What only the web does is in "The web app" below.
 - **Android** doesn't exist yet (`docs/ROADMAP.md`). Add a column when it does.
 - **Last full check:** 2026-11-01, by reading and searching the code on Windows. Nothing was run for it, and Swift can't be built on that machine, so iOS `yes` means the code is there. `docs/IOS_PLAN.md`'s phase reports record what iOS was tested with on a Mac.
-- **Web check:** 2026-11-01 on a Mac, in Chromium only: signing in, the list, reading, sending with a link preview, the tab's title, a second tab and "Use here", and the Notifications and Security settings. Firefox and WebKit come with the web checks (`docs/WEB_PLAN.md`, W4).
+- **Web check:** 2026-11-01 on macOS 27, `apps/web/test/web-check.mjs` in Chromium and WebKit: signing up, the title's count, reading, sending with a link preview, a picture, a voice message, a reload, a second tab and "Use here", the narrow-window notice, the web's settings, and signing in again on a cleared browser. Firefox wasn't run: neither Playwright's nor Mozilla's Firefox starts on macOS 27 ("Could not find profile folder").
 
 ## Known gaps
 
 Things one platform should have and doesn't.
 
-None right now.
+- **Web, Firefox: unchecked.** Nothing has been run in Firefox yet (see "Web check" above). Its `MediaRecorder` may only record WebM with Opus, which the iPhone app can't play (`apps/ios/Zuna/Chat/Voice.swift` plays AAC in MP4). `web-check.mjs` reports what each browser records and whether Apple's decoder reads it.
 
 ## Accounts and servers
 

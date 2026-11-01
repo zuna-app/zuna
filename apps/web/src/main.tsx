@@ -22,7 +22,17 @@ function unsupportedReason(): string | null {
   return null;
 }
 
-const unsupported = unsupportedReason();
+/** Safari keeps no files for a private window, which is where Zuna keeps your messages. */
+async function storageReason(): Promise<string | null> {
+  try {
+    await navigator.storage.getDirectory();
+    return null;
+  } catch {
+    return "This browser won't let Zuna keep your messages here, which happens in private windows. Open Zuna in a normal window.";
+  }
+}
+
+const unsupported = unsupportedReason() ?? (await storageReason());
 if (unsupported) {
   showScreen("Zuna can't run here", unsupported);
 } else {
