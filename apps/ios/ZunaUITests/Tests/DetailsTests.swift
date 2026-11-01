@@ -138,7 +138,9 @@ final class DetailsTests: XCTestCase {
         let delete = zuna.app.sheets.buttons["Delete group for everyone"]
         XCTAssertTrue(delete.waitForExistence(timeout: 5))
         delete.tap()
-        try waitFor("the group to go for alice", timeout: 30) { try self.groupOn(alice, groupId) == nil }
+        // Nothing is erased on the server's word, so alice keeps it, marked as no longer hers.
+        try waitFor("the group to go for alice", timeout: 30) { try self.groupOn(alice, groupId)?["removed"] as? Bool == true }
+        XCTAssertNil(try self.groupId(named: "\(name) II"))
     }
 
     private func groupId(named name: String) throws -> String? {
