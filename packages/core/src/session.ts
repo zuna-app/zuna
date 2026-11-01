@@ -34,6 +34,7 @@ import {
   coreFromJson,
   coreToJson,
   createCertificate,
+  namesItsSender,
   openEnvelope,
   openHistoryGrant,
   openProfile,
@@ -3471,6 +3472,11 @@ export class ServerSession {
     if (existing && existing.updated_seq >= message.updated_seq && existing.status !== "undecryptable" && existing.status !== "unverified") {
       return;
     }
+    // A message's author never changes. A signature only proves who signed what's arriving now.
+    if (existing && existing.sender_user !== message.sender_user) {
+      this.warnOnce(`author/${message.group_id}/${message.id}`, "The server tried to change who wrote a message in one of your conversations. The message was left as it was.");
+      return;
+    }
     let status: MessageStatus = "sent";
     let body: StoredBody | null = null;
     let raw: Uint8Array | null = null;
@@ -3486,7 +3492,10 @@ export class ServerSession {
         raw = envelope;
       } else {
         const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, envelope);
-        if (opened.ok) {
+        if (opened.ok && !namesItsSender(opened.value, message.sender_user, message.sender_device)) {
+          status = "unverified";
+          raw = envelope;
+        } else if (opened.ok) {
           this.keyProvedItself(message.group_id, message.epoch);
           const parsed = parseMessageBody(opened.value);
           if (parsed) {
@@ -4204,7 +4213,7 @@ export class ServerSession {
     if (entry.kind === "edit") {
       await this.withLock(entry.groupId, () =>
         this.sealAndRetry(entry.groupId, async (epoch, key) => {
-          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, { ...entry.body, sentAt: Date.now() });
+          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(entry.body));
           this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
         }),
       );
@@ -4218,7 +4227,7 @@ export class ServerSession {
       await this.rotateIfOld(groupId);
       this.moveLocalEcho(groupKey, groupId, entry.id);
       await this.sealAndRetry(groupId, async (epoch, key) => {
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, { ...body, sentAt: Date.now() });
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody(body));
         const saved = await this.api.sendMessage(groupId, {
           id: entry.id,
           epoch,
@@ -4229,6 +4238,11 @@ export class ServerSession {
       });
     });
     this.emitConversations();
+  }
+
+  /** What goes under this device's signature: the message, when it was sent, and who's sending it. */
+  private signedBody(body: MessageBody): MessageBody & { sentAt: number; by: { user: string; device: string } } {
+    return { ...body, sentAt: Date.now(), by: { user: this.account.userId, device: this.account.deviceId } };
   }
 
   /** A DM's first message is echoed before its group exists; this moves it there. */

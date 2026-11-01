@@ -8,7 +8,7 @@
 import * as wasm from "@zuna/crypto";
 import { Api, decode } from "./api";
 import { INDEX_DB, decodeAccount, label, serverDbName, serverKeyFor } from "./client";
-import { openEnvelope } from "./crypto";
+import { namesItsSender, openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
@@ -107,7 +107,7 @@ export async function previewPush(
     message.epoch,
     decode(message.envelope),
   );
-  if (!opened.ok) return preview({});
+  if (!opened.ok || !namesItsSender(opened.value, message.sender_user, message.sender_device)) return preview({});
   const body = parseMessageBody(opened.value);
   if (!body) return preview({});
 

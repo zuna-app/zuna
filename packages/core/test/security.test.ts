@@ -1038,3 +1038,50 @@ describe("a leaf naming someone nobody can check yet (Z-43)", () => {
     expect(securityEvents(carol).slice(before).some((event) => (event as { message: string }).message.includes("isn't really"))).toBe(true);
   });
 });
+
+describe("a server rewriting who said what (Z-40)", () => {
+  it("keeps a message's author and text when someone else's envelope arrives with its ID", async () => {
+    const ann = await person("ann");
+    const mal = await person("mal");
+    const eve = await person("eve");
+    const groupId = await groupWith(ann, [mal, eve]);
+    const sent = ann.session.sendMessage(`group:${groupId}`, { text: "I agree with the plan" });
+    await waitFor(() => sessionOf(eve).messageRow(groupId, sent.id)?.status === "sent", "eve to read it");
+    const row = sessionOf(eve).messageRow(groupId, sent.id);
+    const malSession = sessionOf(mal);
+    const envelope = sealEnvelope(malSession.epochKey(groupId, row.epoch), malSession.account.deviceSecret, "message", groupId, sent.id, row.epoch, { text: "I resign" });
+    sessionOf(eve).ingest(
+      {
+        group_id: groupId, id: sent.id, seq: row.seq, updated_seq: row.updated_seq + 1,
+        sender_user: mal.userId, sender_device: malSession.account.deviceId, epoch: row.epoch,
+        envelope: toBase64(envelope), created_at: row.created_at, edited_at: null, deleted_at: null, pinned_at: null, reactions: [],
+      },
+      true,
+    );
+    const view = sessionOf(eve).toMessageView(sessionOf(eve).messageRow(groupId, sent.id));
+    expect(view).toMatchObject({ senderId: ann.userId, text: "I agree with the plan", status: "sent" });
+    expect(warned(eve, "who wrote a message")).toBe(true);
+  });
+
+  it("doesn't believe a body that says someone else sent it", async () => {
+    const ann = await person("ann");
+    const mal = await person("mal");
+    const eve = await person("eve");
+    const groupId = await groupWith(ann, [mal, eve]);
+    const malSession = sessionOf(mal);
+    const id = randomId();
+    const epoch = malSession.mlsEpoch(groupId);
+    const envelope = sealEnvelope(malSession.epochKey(groupId, epoch), malSession.account.deviceSecret, "message", groupId, id, epoch, {
+      text: "passed on from another device",
+      by: { user: ann.userId, device: sessionOf(ann).account.deviceId },
+    });
+    sessionOf(eve).ingest(
+      {
+        group_id: groupId, id, seq: 999, updated_seq: 999, sender_user: mal.userId, sender_device: malSession.account.deviceId, epoch,
+        envelope: toBase64(envelope), created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [],
+      },
+      true,
+    );
+    expect(sessionOf(eve).messageRow(groupId, id).status).toBe("unverified");
+  });
+});

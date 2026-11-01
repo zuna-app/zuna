@@ -365,6 +365,15 @@ export function sealEnvelope(
   return concat(wasm.sign(deviceSecret, signatureInput(aad, ciphertext)), ciphertext);
 }
 
+/**
+ * The authenticated data says what a message is, not who wrote it, so a body says
+ * that itself, under the signature. A body from before this says nothing, which is fine.
+ */
+export function namesItsSender(body: unknown, user: string, device: string): boolean {
+  const by = (body as { by?: { user?: unknown; device?: unknown } } | null)?.by;
+  return by === undefined || (by?.user === user && by?.device === device);
+}
+
 export type OpenResult<T> = { ok: true; value: T } | { ok: false; reason: "signature" | "decrypt" };
 
 export function openEnvelope<T>(
