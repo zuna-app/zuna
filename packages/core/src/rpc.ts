@@ -43,12 +43,40 @@ export interface RpcPort {
   onmessage: ((event: MessageEvent) => void) | null;
 }
 
+/** Each public method of `T` by name: what TypeScript lets the interface call. */
+type MethodName<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknown ? K : never }[keyof T] & string;
+
+// What the interface may call. A list, rather than whatever name arrives, keeps the
+// core's private methods, such as those that save keys, out of reach of a page
+// someone has taken over. TypeScript checks that each is exactly the public methods.
+const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
+  findLink: true, forwardMessages: true, leaveServer: true, linkPreview: true, listServers: true, login: true, nudge: true, open: true,
+  previewInvite: true, recover: true, register: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
+  stop: true, suspend: true
+};
+const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
+  addMembers: true, banUser: true, changePassword: true, clearVerification: true, createGroup: true, createInvite: true, deleteGroup: true,
+  deleteMessage: true, deleteMessages: true, discardMessage: true, downloadFile: true, editMessage: true, emoteUrl: true, emotesIn: true,
+  flushOutbox: true, forgetConversation: true, forwardMessage: true, forwardable: true, getConnectionState: true, getConversations: true,
+  getDevices: true, getEmotes: true, getInfo: true, getPreferences: true, getSelf: true, getUsers: true, invites: true,
+  isActiveElsewhere: true, leaveGroup: true, linkForInvite: true, loadAround: true, loadMessages: true, loadPins: true, markRead: true,
+  markVerified: true, messageById: true, mute: true, nudge: true, prepareNewDevice: true, previewText: true, refreshEmotes: true,
+  regenerateRecoveryKey: true, removeMember: true, resume: true, retryMessage: true, revokeDevice: true, revokeInvite: true, rotate: true,
+  safetyCheck: true, search: true, searchCoverage: true, sendMessage: true, sendTyping: true, sendWithAttachments: true, serverUrl: true,
+  setActive: true, setEmoteSet: true, setGroupRole: true, setHideLastSeen: true, setPinned: true, setPush: true, setServerRole: true,
+  signOut: true, start: true, stop: true, suspend: true, syncGroup: true, toggleReaction: true, unbanUser: true, unmute: true,
+  updateGroupMeta: true, updatePreferences: true, updateProfile: true, updateServerIcon: true, updateServerSettings: true
+};
+
 /** Runs in the worker: answers calls by invoking methods on the client or a session. */
 export function serveCore(port: RpcPort, getClient: () => ZunaClient | Promise<ZunaClient>): (event: CoreEvent) => void {
   port.onmessage = async ({ data }: MessageEvent) => {
     const call = data as CallMessage;
     if (call.kind !== "call") return;
     try {
+      if (typeof call.method !== "string" || !Object.hasOwn(call.serverId ? SESSION_METHODS : CLIENT_METHODS, call.method)) {
+        throw new Error("The core has no such thing to do.");
+      }
       const client = await getClient();
       const target: any = call.serverId ? client.session(call.serverId) : client;
       const value = await target[call.method](...call.args);
