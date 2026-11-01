@@ -166,6 +166,10 @@ const SIGNED_OUT_RETRY_MS = 5 * 60 * 1000;
 const TIME_DIFFERS_MS = 24 * 3600 * 1000;
 const SEARCH_REBUILD_BATCH = 200;
 const VAULT_BATCH = 200;
+/** The vault item that lists every pin and verification this account holds, and its preferences. */
+const MANIFEST_ID = "manifest";
+/** Past this, a manifest wouldn't fit in a vault item, and pins and verifications travel only one by one. */
+const MAX_MANIFEST_BYTES = 200 << 10;
 const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
 /** Keeps changes to this account's keys one at a time. Group IDs are hex, so it can't be one of those. */
 const ACCOUNT_LOCK = "account";
@@ -324,6 +328,22 @@ const validApiMessage = (message: ApiMessage): boolean =>
   typeof message.sender_device === "string" &&
   Array.isArray(message.reactions);
 
+/** The vault's manifest: every pin and verification, by user, as base64 keys, an empty one for a cleared verification. */
+interface TrustManifest {
+  v: number;
+  pins: Record<string, string>;
+  verified: Record<string, string>;
+  prefs?: unknown;
+}
+
+function parseManifest(value: unknown): TrustManifest | null {
+  const manifest = value as Partial<TrustManifest> | null;
+  const keys = (record: unknown): record is Record<string, string> =>
+    !!record && typeof record === "object" && Object.values(record).every((key) => typeof key === "string");
+  if (!manifest || !Number.isSafeInteger(manifest.v) || manifest.v! < 1 || !keys(manifest.pins) || !keys(manifest.verified)) return null;
+  return { v: manifest.v!, pins: manifest.pins, verified: manifest.verified, prefs: manifest.prefs };
+}
+
 /** A message as this device stored it: what can be shown, or null if that's nothing. */
 function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody): StoredBody | null {
   const body: StoredBody | null = parseMessageBody(stored);
@@ -395,6 +415,8 @@ export class ServerSession {
   private treeUsersCache = new Map<string, Set<string>>();
   /** Leaves already warned about, so one ghost makes one warning. */
   private warnedLeaves = new Set<string>();
+  private manifest: TrustManifest | null = null;
+  private manifestWrite: Promise<void> = Promise.resolve();
   private resealing = new Set<string>();
   /** Each person's chain of identity keys as far as it's been checked, oldest first. */
   private chains = new Map<string, Link[]>();
@@ -577,6 +599,7 @@ export class ServerSession {
     // The vault comes next: it holds the keys this account already trusts,
     // which a new device must have before believing what the server says.
     await this.syncVault();
+    this.checkManifestFloor();
     await this.syncUsers();
     await this.uploadPins();
     await this.refreshEmotes();
@@ -659,6 +682,7 @@ export class ServerSession {
     this.rotationOpen = this.getKv<RotationIntent>(ROTATION_INTENT) !== null;
     this.protocolSince = this.getKv<number>("protocol_since");
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
+    this.manifest = this.getKv<TrustManifest>("manifest");
     this.watchMutes();
     const push = this.getKv<(Omit<PushSettings, "key"> & { key: string }) | "off">("push");
     this.push = push && push !== "off" ? { ...push, key: fromBase64(push.key) } : push;
@@ -924,7 +948,11 @@ export class ServerSession {
             this.saveEpochKey(groupId!, Number(epoch), data, "vault");
             touchedGroups.add(groupId!);
           }
+        } else if (item.id === MANIFEST_ID) {
+          this.applyManifest(data);
         } else if (item.id === "prefs") {
+          // A manifest's copy is the current one. This item may be an older one, served again.
+          if (this.manifest) continue;
           try {
             this.prefs = { ...this.prefs, ...parsePreferences(JSON.parse(fromUtf8(data))) };
           } catch {
@@ -937,6 +965,8 @@ export class ServerSession {
           this.resendPush();
         } else if (item.id.startsWith("verified:")) {
           const userId = item.id.slice("verified:".length);
+          // The same goes for a verification the manifest lists.
+          if (this.manifest && userId in this.manifest.verified) continue;
           this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, data]);
           // The person accepted this key on another device, so it's the one to expect here too.
           if (data.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, data]);
@@ -1025,7 +1055,108 @@ export class ServerSession {
         for (const row of rows) this.db.run("UPDATE pinned_identities SET uploaded = 1 WHERE user_id = ?", [row.user_id]);
       });
     }
+    if (this.manifestBehind()) await this.writeManifest();
     await this.uploadChainPositions();
+  }
+
+  // --- Vault manifest ---
+
+  /**
+   * Which items a device gets from the vault is the server's choice, and an older
+   * copy of an item still opens. So one item, the manifest, holds every pin and
+   * verification and the preferences, with a number only ever raised. Withholding
+   * one pin or verification then does nothing, a device that has seen a manifest
+   * refuses an older one, and each rotation seals the number into the vault core,
+   * so a new device knows how far back is too far.
+   */
+  private applyManifest(data: Uint8Array): void {
+    let manifest: TrustManifest | null;
+    try {
+      manifest = parseManifest(JSON.parse(fromUtf8(data)));
+    } catch {
+      manifest = null;
+    }
+    if (!manifest) return;
+    const held = this.manifest?.v ?? 0;
+    if (manifest.v < held) {
+      this.warnOnce(`manifest/${manifest.v}`, "The server sent an older copy of the keys your account trusts. It was ignored.");
+      return;
+    }
+    // Two devices writing at once give the same number, so the same number can still be news.
+    if (manifest.v === held && JSON.stringify(manifest) === JSON.stringify(this.manifest)) return;
+    // Only who changes needs their trust worked out again: a manifest lists everyone.
+    const touched = new Set<string>();
+    this.db.transaction(() => {
+      for (const [userId, encoded] of Object.entries(manifest.verified)) {
+        const key = fromBase64(encoded);
+        const before = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId])?.identity_key;
+        if (before && equalBytes(before, key)) continue;
+        this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, key]);
+        if (key.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, key]);
+        touched.add(userId);
+      }
+      for (const [userId, encoded] of Object.entries(manifest.pins)) {
+        if (this.pinnedIdentity(userId)) continue;
+        this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, fromBase64(encoded)]);
+        touched.add(userId);
+      }
+    });
+    for (const [userId, encoded] of Object.entries(manifest.pins)) {
+      const pinned = this.pinnedIdentity(userId);
+      // Two devices of one account holding different keys for someone means one was shown a key that isn't theirs.
+      if (pinned && !equalBytes(pinned, fromBase64(encoded)) && !(userId in manifest.verified)) {
+        const name = this.users.get(userId)?.profile.displayName || "someone";
+        this.warnOnce(`pin/${userId}`, `Another of your devices holds a different security key for ${name}. Compare emoji with them before trusting their messages.`, userId);
+      }
+    }
+    this.manifest = manifest;
+    this.setKv("manifest", manifest);
+    if (manifest.prefs) {
+      this.prefs = { ...this.prefs, ...parsePreferences(manifest.prefs) };
+      this.setKv("prefs", this.prefs);
+      this.emit({ type: "preferences", serverId: this.serverId });
+      this.watchMutes();
+      this.resendPush();
+    }
+    for (const userId of touched) this.refreshTrust(userId);
+  }
+
+  /** Whether this device holds a pin or verification the manifest doesn't list as it is here. */
+  private manifestBehind(): boolean {
+    const manifest = this.manifest;
+    if (!manifest) return true;
+    const pins = this.db.all<{ user_id: string }>("SELECT user_id FROM pinned_identities");
+    if (pins.some((row) => !(row.user_id in manifest.pins))) return true;
+    const verified = this.db.all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM verified");
+    return verified.some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key));
+  }
+
+  /** Writes what this device holds as the next manifest, one at a time. */
+  private writeManifest(): Promise<void> {
+    this.manifestWrite = this.manifestWrite
+      .then(async () => {
+        const entries = (rows: { user_id: string; identity_key: Uint8Array }[]) => Object.fromEntries(rows.map((row) => [row.user_id, toBase64(row.identity_key)]));
+        const manifest: TrustManifest = {
+          v: (this.manifest?.v ?? 0) + 1,
+          pins: entries(this.db.all("SELECT user_id, identity_key FROM pinned_identities ORDER BY user_id")),
+          verified: entries(this.db.all("SELECT user_id, identity_key FROM verified ORDER BY user_id")),
+          prefs: this.prefs,
+        };
+        const data = utf8(JSON.stringify(manifest));
+        if (data.length > MAX_MANIFEST_BYTES || !(await this.putItems([{ id: MANIFEST_ID, data }]))) return;
+        this.manifest = manifest;
+        this.setKv("manifest", manifest);
+      })
+      .catch((error) => console.warn("[zuna] saving the manifest", error));
+    return this.manifestWrite;
+  }
+
+  /** A new device shown less than the vault core says the manifest had reached was shown an older copy, or none. */
+  private checkManifestFloor(): void {
+    const floor = this.account.core.manifest ?? 0;
+    if (floor > (this.manifest?.v ?? 0)) {
+      this.warnOnce("manifest/floor", "Not everything your account trusts arrived from the server, so people you've verified may show as unverified here. Compare emoji with them again before trusting them.");
+    }
   }
 
   private async saveDeviceName(): Promise<void> {
@@ -1584,6 +1715,7 @@ export class ServerSession {
       firstKey,
       closedBelow: core.closedBelow,
       slots,
+      manifest: this.manifest?.v ?? 0,
     };
     const head = this.headOf(userId);
     const signed = buildLink(
@@ -1748,6 +1880,8 @@ export class ServerSession {
       this.applyUser(await this.api.user(userId));
       this.rescheduleAffectedByDeviceChange(userId);
       await this.uploadPins();
+      // The manifest so far is sealed under the old key, which nothing believes now.
+      await this.writeManifest();
       await this.uploadEpochKeys();
       await this.topUpKeyPackages();
     } catch (error) {
@@ -3968,6 +4102,7 @@ export class ServerSession {
     await this.putVault("prefs", utf8(JSON.stringify(this.prefs))).catch((error) => {
       console.warn("[zuna] saving preferences", error);
     });
+    await this.writeManifest();
   }
 
   /** Mutes a chat until `until` (ms), or without it until it's unmuted. */
@@ -4838,11 +4973,13 @@ export class ServerSession {
   async clearVerification(userId: string): Promise<void> {
     const user = this.users.get(userId);
     if (!user) return;
-    this.db.run("DELETE FROM verified WHERE user_id = ?", [userId]);
+    // An empty key says it was cleared, which the manifest carries to other devices.
+    this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, new Uint8Array(0)]);
     user.trust = this.trustOf(userId, user.identityKey);
     this.persistUser(user);
     this.emit({ type: "users", serverId: this.serverId });
     await this.putVault(`verified:${userId}`, new Uint8Array(0)).catch(() => undefined);
+    await this.writeManifest();
   }
 
   // --- Group management ---

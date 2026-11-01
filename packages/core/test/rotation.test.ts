@@ -673,6 +673,64 @@ describe("someone holding old keys, with the server's help", () => {
     db.close();
   }
 
+  it("can't keep a verification from a new device by leaving out its items", async () => {
+    const dave = await person("dave");
+    await sessionOf(dave).ensureUser(alice.userId, true);
+    await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
+    expect(sessionOf(dave).manifest.verified[alice.userId]).toBeTruthy();
+    const db = serverDatabase();
+    db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id IN (?, ?)").run(dave.userId, `pin:${alice.userId}`, `verified:${alice.userId}`);
+    db.close();
+    const phone = await secondDevice(dave, "dave-phone");
+    expect(phone.session.safetyCheck(alice.userId)!.trust).toBe("verified");
+  });
+
+  it("can't undo a verification's removal or a preference with older copies", async () => {
+    const dave = await person("dave");
+    const phone = await secondDevice(dave, "dave-phone");
+    await sessionOf(dave).ensureUser(alice.userId, true);
+    await dave.session.updatePreferences({ sendReadReceipts: false });
+    await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
+    const older = Object.fromEntries(serverVault(dave.userId).map((item) => [item.id, item]));
+    await dave.session.clearVerification(alice.userId);
+    await dave.session.updatePreferences({ sendReadReceipts: true });
+    await waitFor(async () => {
+      await sessionOf(phone).syncVault();
+      return phone.session.safetyCheck(alice.userId)!.trust === "unverified" && phone.session.getPreferences().sendReadReceipts;
+    }, "the phone to catch up");
+
+    for (const id of [`verified:${alice.userId}`, "prefs", "manifest"]) plantVaultItem(dave.userId, id, older[id]!.generation, older[id]!.data);
+    await sessionOf(phone).syncVault();
+    expect(phone.session.safetyCheck(alice.userId)!.trust).toBe("unverified");
+    expect(phone.session.getPreferences().sendReadReceipts).toBe(true);
+    expect(securityEvents(phone).some((event) => (event as { message: string }).message.includes("older copy"))).toBe(true);
+  });
+
+  it("lets a new device know when it's shown less than a rotation sealed in", async () => {
+    const dave = await person("dave");
+    await sessionOf(dave).ensureUser(alice.userId, true);
+    await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
+    await dave.session.rotate();
+    await waitFor(() => sessionOf(dave).account.core.closedBelow >= 1, "the generation to close");
+    expect(sessionOf(dave).account.core.manifest).toBeGreaterThan(0);
+    const db = serverDatabase();
+    db.prepare("DELETE FROM vault_items WHERE user_id = ? AND (id = 'manifest' OR id LIKE 'verified:%')").run(dave.userId);
+    db.close();
+    const phone = await secondDevice(dave, "dave-phone");
+    expect(securityEvents(phone).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
+  });
+
+  it("warns a device whose pin the account's manifest contradicts", async () => {
+    const dave = await person("dave");
+    const phone = await secondDevice(dave, "dave-phone");
+    await sessionOf(dave).ensureUser(alice.userId, true);
+    // As if the phone had been shown a key of the server's for alice the first time it saw her.
+    sessionOf(phone).db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [wasm.signingKeygen().publicKey, alice.userId]);
+    await dave.session.updatePreferences({ sendReadReceipts: false });
+    await sessionOf(phone).syncVault();
+    expect(securityEvents(phone).some((event) => (event as { message: string }).message.includes("different security key"))).toBe(true);
+  });
+
   it("can't change who the account trusts with vault items under an old key", async () => {
     const dave = await person("dave");
     await sessionOf(dave).ensureUser(alice.userId, true);

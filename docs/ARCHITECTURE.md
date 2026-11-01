@@ -85,7 +85,8 @@ password or recovery key --> slot key --> slot's secrets (sealed on the server)
 
 account key (random, one per generation)
   |- vault core: identity key, HPKE key, community key, older keys
-  \- vault items: every epoch's content key, preferences, verifications
+  \- vault items: every epoch's content key, preferences, verifications, and a manifest
+                 listing every pin and verification under a number that only goes up
 
 MLS epoch --exporter--> content key --> messages, reactions, group details, read state, typing
 

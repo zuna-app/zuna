@@ -138,6 +138,8 @@ export interface VaultCore {
   closedBelow: number;
   /** What to seal the account key to for a password and recovery key. */
   slots: Partial<Record<SlotKind, SlotPublic>>;
+  /** The vault's manifest had reached at least this when the core was sealed, so a new device knows not to settle for less. */
+  manifest?: number;
 }
 
 const slotToJson = (slot: SlotPublic | undefined) => slot && { seal: toBase64(slot.seal), sign: toBase64(slot.sign) };
@@ -158,6 +160,7 @@ export function coreToJson(core: VaultCore) {
     firstKey: core.firstKey && toBase64(core.firstKey),
     closedBelow: core.closedBelow,
     slots: { password: slotToJson(core.slots.password), recovery: slotToJson(core.slots.recovery) },
+    manifest: core.manifest ?? 0,
   };
 }
 
@@ -184,6 +187,7 @@ export function coreFromJson(json: any): VaultCore {
     firstKey: json.firstKey ? fromBase64(json.firstKey) : null,
     closedBelow: json.closedBelow ?? 0,
     slots,
+    manifest: Number.isSafeInteger(json.manifest) ? json.manifest : 0,
   };
 }
 
