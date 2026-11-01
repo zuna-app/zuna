@@ -497,6 +497,45 @@ func (d *DB) DeleteExpiredSessions(ctx context.Context) error {
 	return err
 }
 
+// SignInAttempts is what's kept of one account's sign-in attempts, as Unix milliseconds.
+type SignInAttempts struct {
+	Account  string
+	Attempts int
+	Until    int64
+	Seen     int64
+}
+
+// RecentSignInAttempts lists the accounts tried since a moment.
+func (d *DB) RecentSignInAttempts(ctx context.Context, since int64) ([]SignInAttempts, error) {
+	rows, err := d.sql.QueryContext(ctx, `SELECT account, attempts, until_at, seen_at FROM sign_in_attempts WHERE seen_at >= ?`, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SignInAttempts
+	for rows.Next() {
+		var a SignInAttempts
+		if err := rows.Scan(&a.Account, &a.Attempts, &a.Until, &a.Seen); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (d *DB) SaveSignInAttempts(ctx context.Context, a SignInAttempts) error {
+	_, err := d.sql.ExecContext(ctx, `INSERT INTO sign_in_attempts(account, attempts, until_at, seen_at) VALUES(?,?,?,?)
+		ON CONFLICT(account) DO UPDATE SET attempts = excluded.attempts, until_at = excluded.until_at, seen_at = excluded.seen_at`,
+		a.Account, a.Attempts, a.Until, a.Seen)
+	return err
+}
+
+// DeleteSignInAttemptsBefore forgets accounts nobody has tried since a moment.
+func (d *DB) DeleteSignInAttemptsBefore(ctx context.Context, before int64) error {
+	_, err := d.sql.ExecContext(ctx, `DELETE FROM sign_in_attempts WHERE seen_at < ?`, before)
+	return err
+}
+
 // --- Devices ---
 
 // AddDevice registers a device and binds the current session to it. A device

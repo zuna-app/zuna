@@ -107,13 +107,20 @@ func (r *Resolver) Address(req *http.Request) string {
 // usually one customer, with more addresses than anyone could use up, so all of
 // a /64 count as one.
 func Key(address string) string {
+	return KeyWithin(address, 64)
+}
+
+// KeyWithin counts all of an IPv6 network of this many bits as one address, for a
+// limit where someone with many /64s, as a free tunnel's /48 gives, mustn't get
+// more tries for each.
+func KeyWithin(address string, bits int) string {
 	addr, err := netip.ParseAddr(address)
 	if err != nil {
 		return address
 	}
 	addr = addr.Unmap()
 	if addr.Is6() {
-		prefix, err := addr.Prefix(64)
+		prefix, err := addr.Prefix(bits)
 		if err == nil {
 			return prefix.String()
 		}

@@ -70,8 +70,8 @@ func (l *Keyed) makeRoom(now time.Time) {
 	}
 }
 
-// forgetBackoffAfter is how long without a failure wipes the slate clean.
-const forgetBackoffAfter = 24 * time.Hour
+// ForgetAfter is how long without a failure wipes a Backoff's slate clean.
+const ForgetAfter = 24 * time.Hour
 
 // Backoff slows repeated failures for one key, such as wrong passwords for one
 // account: a few are free, and then the wait doubles each time, up to a limit.
@@ -105,14 +105,17 @@ func (b *Backoff) Allowed(key string) bool {
 func (b *Backoff) Fail(key string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	now := time.Now()
+	b.fail(key, time.Now())
+}
+
+func (b *Backoff) fail(key string, now time.Time) {
 	e, ok := b.entries[key]
 	if !ok {
 		b.makeRoom(now)
 		e = &backoffEntry{}
 		b.entries[key] = e
 	}
-	if now.Sub(e.seen) > forgetBackoffAfter {
+	if now.Sub(e.seen) > ForgetAfter {
 		e.failures = 0
 	}
 	e.seen = now
@@ -124,6 +127,68 @@ func (b *Backoff) Fail(key string) {
 		}
 		e.until = now.Add(wait)
 	}
+}
+
+// Attempt is one key of one Backoff, for Reserve.
+type Attempt struct {
+	Backoff *Backoff
+	Key     string
+}
+
+// Reserve counts an attempt as a failure against every key at once, before anyone
+// knows whether it will succeed, so that attempts sent together can't all get in
+// while one wait is over. Nothing is counted unless every key may try now, and
+// otherwise it says how long the longest wait has left. Succeed takes one back.
+// Each Backoff may only appear once, and always in the same order.
+func Reserve(attempts ...Attempt) (time.Duration, bool) {
+	for _, a := range attempts {
+		a.Backoff.mu.Lock()
+		defer a.Backoff.mu.Unlock()
+	}
+	now := time.Now()
+	var wait time.Duration
+	for _, a := range attempts {
+		if e, ok := a.Backoff.entries[a.Key]; ok && now.Before(e.until) {
+			wait = max(wait, e.until.Sub(now))
+		}
+	}
+	if wait > 0 {
+		return wait, false
+	}
+	for _, a := range attempts {
+		a.Backoff.fail(a.Key, now)
+	}
+	return 0, true
+}
+
+// Entry is what a Backoff holds for one key, so that it can be kept across restarts.
+type Entry struct {
+	Failures int
+	Until    time.Time
+	Seen     time.Time
+}
+
+// Entry says what's held for a key.
+func (b *Backoff) Entry(key string) (Entry, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	e, ok := b.entries[key]
+	if !ok {
+		return Entry{}, false
+	}
+	return Entry{Failures: e.failures, Until: e.until, Seen: e.seen}, true
+}
+
+// Restore puts back what was held for a key, unless it's long enough ago to be forgotten.
+func (b *Backoff) Restore(key string, entry Entry) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	if now.Sub(entry.Seen) > ForgetAfter {
+		return
+	}
+	b.makeRoom(now)
+	b.entries[key] = &backoffEntry{failures: entry.Failures, until: entry.Until, seen: entry.Seen}
 }
 
 // Succeed forgets a key's failures.

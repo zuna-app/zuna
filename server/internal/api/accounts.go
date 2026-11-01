@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"slices"
@@ -17,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"zuna/server/internal/clientip"
+	"zuna/server/internal/ratelimit"
 	"zuna/server/internal/store"
 )
 
@@ -38,9 +41,10 @@ const (
 	signInFirstWait    = 2 * time.Second
 	signInLongestWait  = 5 * time.Minute
 
-	// And however many addresses they come from: far more, so that it takes a lot of
-	// addresses to keep someone out of their own account with this.
-	accountFreeFailures = 200
+	// And however many addresses they come from, counting every attempt: far more, so
+	// that it takes a lot of addresses to keep someone out of their own account with
+	// this. Past them, it's one a minute, so at most about 1,600 a day.
+	accountFreeAttempts = 200
 	accountLongestWait  = time.Minute
 
 	// How long a proof of an older sign-in key may take to come back.
@@ -250,23 +254,54 @@ func (s *Server) newSession(r *http.Request, userID string) (string, error) {
 // they count against the account from that address, and only much later against the
 // account as a whole. Signing in clears only the first, or it would give whoever is
 // guessing a fresh start each time.
-func (s *Server) signInAllowed(r *http.Request, username string) bool {
-	account := strings.ToLower(username)
-	return s.signInFailures.Allowed(account+"|"+s.callerKey(r)) && s.accountFailures.Allowed(account)
-}
-
-func (s *Server) signInFailed(r *http.Request, username string) {
+//
+// Each attempt is counted before its key is checked, so that attempts sent at once
+// can't all get in while a wait is over, and the account's count is kept across
+// restarts. It writes the refusal itself, and says whether to go on.
+func (s *Server) trySignIn(w http.ResponseWriter, r *http.Request, username string) bool {
 	// Nobody could have that name, so nothing is kept for it.
 	if !usernamePattern.MatchString(username) {
-		return
+		return true
 	}
 	account := strings.ToLower(username)
-	s.signInFailures.Fail(account + "|" + s.callerKey(r))
-	s.accountFailures.Fail(account)
+	wait, ok := ratelimit.Reserve(
+		ratelimit.Attempt{Backoff: s.signInFailures, Key: account + "|" + s.signInCallerKey(r)},
+		ratelimit.Attempt{Backoff: s.accountAttempts, Key: account},
+	)
+	if !ok {
+		w.Header().Set("Retry-After", strconv.Itoa(int((wait+time.Second-1)/time.Second)))
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+		return false
+	}
+	if entry, ok := s.accountAttempts.Entry(account); ok {
+		saved := store.SignInAttempts{Account: account, Attempts: entry.Failures, Until: entry.Until.UnixMilli(), Seen: entry.Seen.UnixMilli()}
+		if err := s.db.SaveSignInAttempts(r.Context(), saved); err != nil {
+			slog.Warn("saving sign-in attempts", "error", err)
+		}
+	}
+	return true
 }
 
 func (s *Server) signInSucceeded(r *http.Request, username string) {
-	s.signInFailures.Succeed(strings.ToLower(username) + "|" + s.callerKey(r))
+	s.signInFailures.Succeed(strings.ToLower(username) + "|" + s.signInCallerKey(r))
+}
+
+// signInCallerKey counts a whole IPv6 /48 as one caller, which is what one free
+// tunnel gives anyone.
+func (s *Server) signInCallerKey(r *http.Request) string {
+	return clientip.KeyWithin(s.callers.Address(r), 48)
+}
+
+// restoreSignInAttempts puts back each account's count from before a restart.
+func (s *Server) restoreSignInAttempts(ctx context.Context) {
+	saved, err := s.db.RecentSignInAttempts(ctx, time.Now().Add(-ratelimit.ForgetAfter).UnixMilli())
+	if err != nil {
+		slog.Warn("loading sign-in attempts", "error", err)
+		return
+	}
+	for _, a := range saved {
+		s.accountAttempts.Restore(a.Account, ratelimit.Entry{Failures: a.Attempts, Until: time.UnixMilli(a.Until), Seen: time.UnixMilli(a.Seen)})
+	}
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -278,14 +313,12 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
-	if !s.signInAllowed(r, body.Username) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+	if !s.trySignIn(w, r, body.Username) {
 		return
 	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
 	if errors.Is(err, store.ErrNotFound) || (err == nil &&
 		subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.AuthKey), creds.AuthHash) != 1) {
-		s.signInFailed(r, body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
 		return
 	}
@@ -310,14 +343,12 @@ func (s *Server) handleRecover(w http.ResponseWriter, r *http.Request) {
 	if !readJSONUpTo(w, r, maxSignInBody, &body) {
 		return
 	}
-	if !s.signInAllowed(r, body.Username) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+	if !s.trySignIn(w, r, body.Username) {
 		return
 	}
 	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
 	if errors.Is(err, store.ErrNotFound) || (err == nil &&
 		subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, body.RecoveryAuthKey), creds.RecoveryHash) != 1) {
-		s.signInFailed(r, body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and recovery key don't match.")
 		return
 	}
@@ -441,11 +472,9 @@ func (s *Server) handleUpgradeKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	refuse := func() {
-		s.signInFailed(r, body.Username)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
 	}
-	if !s.signInAllowed(r, body.Username) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts for this account. Please wait a few minutes and try again.")
+	if !s.trySignIn(w, r, body.Username) {
 		return
 	}
 	// A proof made for another address is no good, even if it's passed on here.

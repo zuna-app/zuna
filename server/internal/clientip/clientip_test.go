@@ -78,3 +78,15 @@ func TestOneIPv6NetworkCountsAsOne(t *testing.T) {
 		t.Fatal("an IPv4 address written as IPv6 is the same address")
 	}
 }
+
+func TestAWiderIPv6NetworkCountsAsOneWhenAsked(t *testing.T) {
+	if KeyWithin("2001:db8:1:2::1", 48) != KeyWithin("2001:db8:1:ffff::1", 48) {
+		t.Fatal("two /64s of one /48 counted apart")
+	}
+	if KeyWithin("2001:db8:1::1", 48) == KeyWithin("2001:db8:2::1", 48) {
+		t.Fatal("two /48s counted as one")
+	}
+	if KeyWithin("192.0.2.1", 48) == KeyWithin("192.0.2.2", 48) {
+		t.Fatal("IPv4 addresses counted as one")
+	}
+}

@@ -101,7 +101,7 @@ type Server struct {
 	targetLimiter   *ratelimit.Keyed
 	rotateLimiter   *ratelimit.Keyed
 	signInFailures  *ratelimit.Backoff
-	accountFailures *ratelimit.Backoff
+	accountAttempts *ratelimit.Backoff
 
 	commitLimiter     *ratelimit.Keyed
 	userCommitLimiter *ratelimit.Keyed
@@ -130,7 +130,7 @@ func New(cfg Config, db *store.DB) *Server {
 	if err != nil {
 		panic(err)
 	}
-	return &Server{
+	s := &Server{
 		cfg:            cfg,
 		db:             db,
 		hub:            newHub(db),
@@ -149,7 +149,7 @@ func New(cfg Config, db *store.DB) *Server {
 		// Each rotation is a link for every contact to follow, so they stay rare.
 		rotateLimiter:   ratelimit.NewKeyed(rate.Every(time.Minute), 30),
 		signInFailures:  ratelimit.NewBackoff(signInFreeFailures, signInFirstWait, signInLongestWait),
-		accountFailures: ratelimit.NewBackoff(accountFreeFailures, signInFirstWait, accountLongestWait),
+		accountAttempts: ratelimit.NewBackoff(accountFreeAttempts, signInFirstWait, accountLongestWait),
 		// Per person in a group. The burst is less than store.UndoableCommits, so that
 		// what one person sends in one go can always be undone by anyone else.
 		commitLimiter:     ratelimit.NewKeyed(rate.Limit(1), 30),
@@ -159,6 +159,8 @@ func New(cfg Config, db *store.DB) *Server {
 		pushClient:        &http.Client{Timeout: pushTimeout},
 		pushQueue:         make(chan pushJob, pushQueueLength),
 	}
+	s.restoreSignInAttempts(context.Background())
+	return s
 }
 
 // Emotes exposes the emote service, so tests can point it at a fake 7TV.
@@ -244,6 +246,9 @@ func (s *Server) cleanup(ctx context.Context) {
 	s.removeFiles(ctx, abandoned)
 	if err := s.db.DeleteExpiredSessions(ctx); err != nil {
 		slog.Warn("removing expired sessions", "error", err)
+	}
+	if err := s.db.DeleteSignInAttemptsBefore(ctx, time.Now().Add(-ratelimit.ForgetAfter).UnixMilli()); err != nil {
+		slog.Warn("forgetting old sign-in attempts", "error", err)
 	}
 	defer func() {
 		if err := s.db.PruneCommits(ctx); err != nil {
@@ -520,7 +525,7 @@ func (s *Server) admin(next authedHandler) http.HandlerFunc {
 
 func (s *Server) limited(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.authLimiter.Allow(s.callerKey(r)) {
+		if !s.authLimiter.Allow(s.signInCallerKey(r)) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many attempts. Please wait a minute and try again.")
 			return
 		}

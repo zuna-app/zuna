@@ -131,7 +131,7 @@ Everything can be set by flag or environment variable.
 | `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy on this machine or a private network |
 | `--trusted-proxies` | `ZUNA_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks |
 | `--download-url` | `ZUNA_DOWNLOAD_URL` | | A link for downloading the app, which invite pages show as well as the official releases |
-| `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address |
+| `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address, where an IPv6 /48 counts as one |
 | `--user-quota-mb` | `ZUNA_USER_QUOTA_MB` | `10240` | How many MB of files each person may keep, and as many again of messages, or `-1` for no limit |
 | `--push-relays` | `ZUNA_PUSH_RELAYS` | `https://relay.mgalazka.pl` | Comma-separated push relays that may wake phones for new messages, or `off` for none. Phones register with one of them |
 

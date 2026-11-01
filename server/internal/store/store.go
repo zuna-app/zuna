@@ -432,6 +432,15 @@ ALTER TABLE users ADD COLUMN commit_bytes INTEGER NOT NULL DEFAULT 0;
 -- refuse one older than it's said before. seal_sig stays for those that don't know.
 ALTER TABLE devices ADD COLUMN seal_generation INTEGER;
 ALTER TABLE devices ADD COLUMN seal_proof BLOB;
+`, `
+-- Sign-in attempts for each account, however many addresses they came from, so
+-- that restarting the server doesn't give whoever is guessing a fresh start.
+CREATE TABLE sign_in_attempts (
+	account TEXT PRIMARY KEY,
+	attempts INTEGER NOT NULL,
+	until_at INTEGER NOT NULL,
+	seen_at INTEGER NOT NULL
+);
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

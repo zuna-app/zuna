@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -819,6 +820,77 @@ func TestSomeoneElsesGuessesDontKeepAPersonOut(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("wrong passwords from many addresses never slowed down")
+	}
+}
+
+// Attempts sent at once, once an account's free ones are gone, get one guess between
+// them, and a restart doesn't hand out new ones.
+func TestGuessesSentAtOnceGetOneThroughAndOutlastARestart(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.TrustProxy = true
+		cfg.AuthBurst = 100_000
+	})
+	h.owner()
+	login := func(url, address string) (int, http.Header) {
+		req, _ := http.NewRequest("POST", url+"/api/auth/login", strings.NewReader(`{"username":"owner","auth_key":"`+base64.StdEncoding.EncodeToString(bytesOf(32, 0xff))+`"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-For", address)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode, resp.Header
+	}
+	// The account's free attempts, each from an address of its own, and one more, which starts a wait.
+	for i := range 201 {
+		if status, _ := login(h.url, fmt.Sprintf("198.51.%d.%d", i/256, i%256)); status != http.StatusUnauthorized {
+			t.Fatalf("attempt %d gave %d", i, status)
+		}
+	}
+	status, header := login(h.url, "203.0.113.1")
+	if status != http.StatusTooManyRequests || header.Get("Retry-After") == "" {
+		t.Fatalf("an attempt during the wait gave %d, Retry-After %q", status, header.Get("Retry-After"))
+	}
+	time.Sleep(2100 * time.Millisecond)
+	var through atomic.Int32
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if status, _ := login(h.url, fmt.Sprintf("192.0.2.%d", i)); status == http.StatusUnauthorized {
+				through.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if through.Load() != 1 {
+		t.Fatalf("%d of 50 guesses at once were checked", through.Load())
+	}
+
+	restarted := httptest.NewServer(api.New(api.Config{DataDir: h.dir, PublicURL: "http://test", Version: "test", TrustProxy: true, AuthBurst: 100_000}, h.db).Handler())
+	defer restarted.Close()
+	if status, _ := login(restarted.URL, "203.0.113.2"); status != http.StatusTooManyRequests {
+		t.Fatalf("after a restart, an attempt during the wait gave %d", status)
+	}
+}
+
+// One free tunnel gives a /48, which is 65,536 /64s, and they count as one caller.
+func TestOneIPv6TunnelCountsAsOneCallerForSigningIn(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.TrustProxy = true
+		cfg.AuthBurst = 100_000
+	})
+	h.owner()
+	limited := false
+	for i := range 30 {
+		status, _, _ := h.raw("POST", "/api/auth/login", "", []byte(`{"username":"owner","auth_key":"`+base64.StdEncoding.EncodeToString(bytesOf(32, 0xff))+`"}`),
+			map[string]string{"X-Forwarded-For": fmt.Sprintf("2001:db8:1:%x::1", i)})
+		limited = limited || status == http.StatusTooManyRequests
+	}
+	if !limited {
+		t.Fatal("wrong passwords from the /64s of one /48 never slowed down")
 	}
 }
 
