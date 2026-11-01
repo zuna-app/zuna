@@ -18,6 +18,7 @@ import {
   type RemoteTrackPublication,
   Room,
   RoomEvent,
+  type ScreenShareCaptureOptions,
   ScreenSharePresets,
   setLogLevel,
   Track,
@@ -408,7 +409,17 @@ export class VoiceRoom {
     const h264 = RTCRtpSender.getCapabilities("video")?.codecs.some((codec) => codec.mimeType.toLowerCase() === "video/h264");
     await this.room.localParticipant.setScreenShareEnabled(
       true,
-      { audio: audio ? SYSTEM_AUDIO : false, contentHint: "detail", resolution: { ...ScreenSharePresets.original.resolution, frameRate: fps }, selfBrowserSurface: "exclude", surfaceSwitching: "include", systemAudio: audio ? "include" : "exclude" },
+      {
+        audio: audio ? SYSTEM_AUDIO : false,
+        contentHint: "detail",
+        // The screen's own size, which LiveKit takes as no constraints at all and so leaves out
+        // the frame rate with it. Browsers then capture at their default of about 30.
+        resolution: ScreenSharePresets.original.resolution,
+        video: { frameRate: { ideal: fps, max: fps } } as ScreenShareCaptureOptions["video"],
+        selfBrowserSurface: "exclude",
+        surfaceSwitching: "include",
+        systemAudio: audio ? "include" : "exclude",
+      },
       { videoCodec: h264 ? "h264" : "vp8", simulcast: false, screenShareEncoding: { maxBitrate: bitrateKbps * 1000, maxFramerate: fps }, degradationPreference: "maintain-resolution", dtx: false, red: false },
     );
     this.on.media();
