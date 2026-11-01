@@ -4155,7 +4155,10 @@ export class ServerSession {
     // Whoever this message is for is who the person chose, whatever else the server says.
     const people = new Set([this.account.userId, peerId]);
     const listed = new Set(created.group.members.map((member) => member.user_id));
-    if (created.group.kind !== "dm" || listed.size !== people.size || [...people].some((id) => !listed.has(id))) {
+    // A conversation this device already knows stays what it was, so naming one for someone else changes nothing.
+    const held = this.groups.get(created.group.id);
+    const elsewhere = !!held && (held.kind !== "dm" || held.peerId !== peerId);
+    if (created.group.kind !== "dm" || elsewhere || listed.size !== people.size || [...people].some((id) => !listed.has(id))) {
       this.warnOnce(`dm-reply/${created.group.id}`, "The server answered with the wrong people for a new direct message, so nothing was sent.");
       throw new Error("This message wasn't sent: the server's answer about this conversation doesn't hold together.");
     }

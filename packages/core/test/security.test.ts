@@ -1010,6 +1010,45 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     expect(carol.session.getConversations().find((item) => item.groupId === group.id)!.members.map((member) => member.userId).sort()).toEqual([bob.userId, carol.userId].sort());
   });
 
+  // The server's reply names another conversation, with the right two people listed for this one.
+  const answerWith = (app: TestApp, groupId: string) => {
+    const real = apiOf(app).createDm;
+    (apiOf(app) as any).createDm = async (peer: string) => {
+      const reply = await real(peer);
+      return { ...reply, group: { ...reply.group, id: groupId } };
+    };
+  };
+
+  const expectNothingSent = async (carol: TestApp, peer: TestApp, listener: TestApp, groupId: string) => {
+    const sent = carol.session.sendMessage(`user:${peer.userId}`, { text: `only for ${peer.userId}` });
+    await waitFor(() => warned(carol, "wrong people"), "the warning");
+    await waitFor(() => [`pending:user:${peer.userId}`, groupId].some((id) => sessionOf(carol).messageRow(id, sent.id)?.status === "failed"), "the send to fail");
+    await sleep(300);
+    expect(sessionOf(listener).messageRow(groupId, sent.id)).toBeFalsy();
+    await expect(apiOf(listener).message(groupId, sent.id)).rejects.toThrow();
+  };
+
+  it("sends nothing to a DM with someone else when the server names it for a new DM", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const spy = await person("spy");
+    const first = carol.session.sendMessage(`user:${spy.userId}`, { text: "an honest message" });
+    await waitFor(() => !!carol.session.getConversations().find((item) => item.key === `user:${spy.userId}`)?.groupId, "the DM");
+    const groupId = carol.session.getConversations().find((item) => item.key === `user:${spy.userId}`)!.groupId!;
+    await waitFor(() => sessionOf(spy).messageRow(groupId, first.id)?.status === "sent", "the spy to read it");
+    answerWith(carol, groupId);
+    await expectNothingSent(carol, bob, spy, groupId);
+  });
+
+  it("sends nothing to a group when the server names it for a new DM", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const spy = await person("spy");
+    const groupId = await carol.session.createGroup("Somewhere else", [spy.userId], false);
+    answerWith(carol, groupId);
+    await expectNothingSent(carol, bob, spy, groupId);
+  });
+
   it("refuses to start a conversation over when the server says it never started", async () => {
     const carol = await person("carol");
     const bob = await person("bob");
