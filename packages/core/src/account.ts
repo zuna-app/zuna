@@ -342,9 +342,11 @@ const holdsRoot = (core: VaultCore, root: Uint8Array): boolean =>
 
 /** Opens what a sign-in handed over, by whichever way this secret's account key is wrapped now. */
 function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | RecoveryKeys, session: LoginResponse): OpenedAccount {
+  // Every server since accounts had generations says so. One that doesn't would have
+  // this device open a wrapper with none of the checks below, which a new device has
+  // nothing else to hold up against.
   if ((session.protocol ?? 0) < ACCOUNT_PROTOCOL) {
-    const accountKey = unwrapAccountKey(keys.wrapKey, decode(session.wrapped_key), kind);
-    return { accountKey, core: openVaultCore(accountKey, decode(session.vault_core)), slotSign: null, newSlot: null };
+    throw new Error("This server runs a version of Zuna too old to sign in to from a new device. Its admin needs to update it.");
   }
   const generation = session.generation ?? 0;
   const payload = session.head_link ? decode(session.head_link.payload) : null;

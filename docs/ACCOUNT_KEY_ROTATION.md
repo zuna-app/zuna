@@ -453,7 +453,7 @@ Slots created at generation 0 are only as trustworthy as the account was at that
 
 Servers are self-hosted, so they update when their operators get to it.
 
-- **New client, old server.** `GET /api/info` gains an `account_protocol` field. Without it, a client behaves as it does today: no rotation and no pause on uploads.
+- **New client, old server.** `GET /api/info` gains an `account_protocol` field. Without it, a client that's already signed in behaves as it does today: no rotation and no pause on uploads. A new device doesn't sign in to a server whose sign-in reply leaves out `protocol`, since it would have to open a wrapper without the checks that a key commitment and the account's first key give, and has nothing else to hold it up against.
 - **Downgrades are noticed.** A client that has seen the field remembers, and if it later disappears, the client raises the existing security event once, and pauses nothing. A malicious server can always refuse rotations, so this only makes it visible.
 - **Old client, new server.** Existing routes keep their meaning for accounts at generation 0. The rest is below.
 

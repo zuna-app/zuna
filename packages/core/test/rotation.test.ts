@@ -1543,6 +1543,21 @@ describe("signing in, against a server that chose the keys", () => {
     db.close();
   }
 
+  it("refuses a server that says it's from before generations, rather than skip the checks", async () => {
+    const dave = await person("dave");
+    const request = (Api.prototype as any).request;
+    (Api.prototype as any).request = async function (this: Api, method: string, path: string, ...rest: unknown[]) {
+      const reply = await request.call(this, method, path, ...rest);
+      if (path === "/api/auth/login") delete reply.protocol;
+      return reply;
+    };
+    try {
+      await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("too old");
+    } finally {
+      (Api.prototype as any).request = request;
+    }
+  });
+
   it("refuses an account key that opens a core of the server's own", async () => {
     const dave = await person("dave");
     sealToPasswordSlot(dave, fakeCore(0));
