@@ -135,12 +135,19 @@ async function runIn(name) {
     const profile = () => engines[name].launchPersistentContext(mkdtempSync(join(tmpdir(), `zuna-web-${name}-`)), { ...launchOptions(name), viewport: { width: 1280, height: 800 } });
     context = await profile();
     if (name !== "firefox") await context.grantPermissions(["microphone"], { origin: appUrl.slice(0, -1) }).catch(() => undefined);
+    // A request to the server cut off as a tab reloads or hands over, such as a read
+    // position on its way, is one WebKit reports as failing its access control checks.
+    // That's only expected while this check is itself reloading, handing over or
+    // closing a tab: a real failure of those checks would come on every request.
+    const leaving = new Set();
+    let cutOffs = 0;
+    const cutOff = (page, text) => leaving.has(page) && /^Fetch API cannot load .* due to access control checks\.$/.test(text) && ++cutOffs > 0;
     const watch = (page, label) => {
       // WebKit reports a ResizeObserver that runs late as an error. It's harmless, and the desktop's Chromium doesn't.
       page.on("pageerror", (error) => !/ResizeObserver loop/.test(error.message) && errors.push(`${label}: ${error.message}`));
       page.on("console", (message) => {
         const text = message.text();
-        if (message.type() === "error" && !/WebSocket|Failed to load resource|ResizeObserver loop/.test(text)) errors.push(`${label}: ${text}`);
+        if (message.type() === "error" && !/WebSocket|Failed to load resource|ResizeObserver loop/.test(text) && !cutOff(page, text)) errors.push(`${label}: ${text}`);
         if (/Content.Security.Policy/i.test(text)) errors.push(`${label}: ${text}`);
       });
     };
@@ -299,7 +306,9 @@ async function runIn(name) {
     }
 
     // Everything is still there after a reload
+    leaving.add(page);
     await page.reload();
+    leaving.delete(page);
     await page.locator(".conv-row", { hasText: "Priya" }).waitFor({ timeout: 30_000 });
     await page.locator(".conv-row", { hasText: "Priya" }).click();
     await page.locator(".msg.is-own .link-card", { hasText: "The quiet side of the lake" }).waitFor({ timeout: 15_000 });
@@ -312,6 +321,7 @@ async function runIn(name) {
     await second.getByText("Zuna is open in another tab").waitFor({ timeout: 15_000 });
     check("a second tab says Zuna is open elsewhere", (await page.locator(".conv-row").count()) > 0);
     await second.screenshot({ path: prefix("04-other-tab") });
+    leaving.add(page);
     await second.getByRole("button", { name: "Use here" }).click();
     await second.locator(".conv-row", { hasText: "Priya" }).waitFor({ timeout: 30_000 });
     await page.getByText("Zuna is open in another tab").waitFor({ timeout: 15_000 });
@@ -342,6 +352,7 @@ async function runIn(name) {
     // A browser whose data was cleared signs in again, and the history comes back from the vault.
     // Playwright's WebKit profiles share the origin-private file system, so this one also
     // finds a database it has no key for, which it has to clear rather than fail on.
+    leaving.add(second);
     await context.close();
     context = undefined;
     fresh = await profile();
@@ -371,6 +382,7 @@ async function runIn(name) {
     }
 
     check("no errors in the page", errors.length === 0, errors.slice(0, 5).join(" | "));
+    if (cutOffs) notes.push(`${name}: ${cutOffs} request(s) cut off as the check reloaded, handed over or closed a tab`);
   } catch (error) {
     check("the run finished", false, error.message.split("\n")[0]);
     console.error(error);
