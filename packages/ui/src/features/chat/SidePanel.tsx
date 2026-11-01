@@ -51,7 +51,7 @@ export function SidePanel({ conversation }: { conversation: ConversationView }) 
               {sharedTitle(panel.kind)}
             </h3>
           ) : (
-            <h3>{panel?.type === "search" ? "Search this chat" : panel?.type === "pins" ? "Pinned messages" : conversation.kind === "group" ? "Group details" : "Details"}</h3>
+            <h3>{panel?.type === "search" ? "Search this chat" : panel?.type === "pins" ? "Pinned messages" : conversation.kind === "group" ? "Group details" : conversation.kind === "channel" ? "Channel details" : "Details"}</h3>
           )}
           <button className="icon-btn is-small" onClick={() => setPanel(null)} aria-label="Close">
             <X size={16} />
@@ -188,6 +188,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
   const peer = conversation.peerId ? server?.users[conversation.peerId] : null;
   const isSelf = conversation.peerId === server?.self?.userId;
 
+  if (conversation.kind === "channel") return <ChannelInfo conversation={conversation} />;
   if (conversation.kind === "group") return <GroupInfo conversation={conversation} />;
 
   return (
@@ -240,6 +241,57 @@ function BlockRow({ userId, name }: { userId: string; name: string }) {
         {!blocked && <span className="side-row-hint">You won't see their messages or hear about them. They aren't told.</span>}
       </span>
     </button>
+  );
+}
+
+/** A channel's details: what it's for, and what's been shared there. Who's in it is everyone. */
+function ChannelInfo({ conversation }: { conversation: ConversationView }) {
+  const server = useActiveServer();
+  const session = useApp((state) => state.session);
+  const setOverlay = useApp((state) => state.setOverlay);
+  const [muteMenu, setMuteMenu] = useState<{ x: number; y: number } | null>(null);
+  const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  return (
+    <div className="side-body">
+      <div className="side-section">
+        <h3 style={{ padding: "4px 8px" }}>#{conversation.title}</h3>
+        {conversation.description && <p className="side-hint selectable" style={{ padding: "0 8px 6px" }}>{conversation.description}</p>}
+        {isAdmin && (
+          <button className="side-row is-button" onClick={() => setOverlay({ type: "channel", channelId: conversation.groupId! })}>
+            <Pencil size={17} />
+            <span className="grow">Edit channel</span>
+          </button>
+        )}
+        <button
+          className="side-row is-button"
+          onClick={(event) => {
+            if (conversation.muted) {
+              void session().unmute(conversation.key);
+              return;
+            }
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMuteMenu({ x: rect.right, y: rect.bottom + 4 });
+          }}
+        >
+          {conversation.muted ? <BellOff size={17} /> : <Bell size={17} />}
+          <span className="grow">
+            {conversation.muted ? "Unmute" : "Mute"}
+            <span className="side-row-hint">{conversation.muted ? "You won't hear about anything here." : "You hear about what's said to you."}</span>
+          </span>
+        </button>
+        {muteMenu && <PopupMenu x={muteMenu.x} y={muteMenu.y} alignRight entries={muteEntries((until) => void session().mute(conversation.key, until))} onClose={() => setMuteMenu(null)} />}
+      </div>
+      <SharedMediaRows conversation={conversation} />
+      <div className="side-section">
+        <div className="side-row">
+          <Lock size={17} />
+          <span className="grow">
+            End-to-end encrypted
+            <span className="side-row-hint">Everyone on this server can read it, and the server itself can't.</span>
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
 

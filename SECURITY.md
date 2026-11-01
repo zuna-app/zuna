@@ -72,6 +72,29 @@ When a device is removed or signs out, your password or recovery key changes, or
 
 Pinning alone doesn't protect a first conversation: a malicious server could hand out a fake key from the start. The emoji check closes that gap. Two people compare 16 emoji (96 bits, from Argon2id over both identity keys, at the same cost as a password). A server that swaps both people's keys only needs the two sides to agree, so a match is cheaper to find than for one fixed key: the memory Argon2id needs for every attempt, and the four extra emoji, put that out of reach. Apps from before showed 12, so the count shows when one side needs updating. If they match, each app holds the other person's real key, and since every device in a chat has to be signed by that key, nobody else's device can be in the chat as them. Saying they match only ever trusts the key those emoji were made from, so a server can't use that moment to swap in another. After someone's keys are replaced, the emoji change, and a verification only carries over if a device the other person has known for at least a week made the change. Otherwise that person goes back to unverified, and a line in your chat says so.
 
+### Channels
+
+Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What they're called and everything said in them is end-to-end encrypted in the same way as a group's, and the server can't read any of it.
+
+To be in a channel, someone has to show they hold the community key, which comes with invite links and which the server doesn't have. Members check that for each person on the roster, and remove anyone who can't. A server can't get an account of its own making into a channel. Three things to know about that:
+
+- **Open sign-ups** give the server the community key, so there it could.
+- **Someone banned** still holds the key. The server takes them off the roster, and members remove them, but a server that wants them back could put them back. They'd get what's said from then on, not what was said while they were gone.
+- **Old invite links** carry the key too. Whoever holds one can read channel names if they get hold of the server's data, and can sign up if the invite still works. Nothing else depends on that key.
+
+A newcomer gets a channel's history from a member's device, which signs what it hands over. Any member can do that, since all of them may read all of it, so a member with bad intentions could hand someone a wrong key for an old epoch, and those old messages then wouldn't open. Nothing new is at risk: only MLS's own keys are used for what's sent from then on.
+
+### Voice channels
+
+Media is encrypted in the app with a key from the channel's MLS group, frame by frame, before LiveKit sees it. LiveKit and the Zuna server can't hear or see it. The key exists only for the group's current epoch and is never stored or handed on, unlike the keys to messages: a stolen vault, or someone who joins later, can't open a recording of a call.
+
+- **What they do see.** The Zuna server sees who's in which voice channel, whether they say they're muted, deafened or sharing, and when. LiveKit sees who's in a room, by user and device ID with no names, and from when to when, who's sending what, how big it is, and how loud each person's audio is, since that's what lets it say who's speaking. Frames are encrypted, not hidden: their size and timing can say something about what's being said.
+- **Who can hear.** Whoever is in the group. Someone removed goes on being able to open what's sent under the old key for about 1.5 seconds, while everyone moves to the new one. Someone in the room without the key can't open anything: the server can put someone in a room, but not in the group.
+- **Who said it.** Everyone in the group can work out everyone's sender key, so a member could send media as another member. LiveKit can't. There are no per-frame signatures.
+- **The microphone** is processed entirely on the device. Nothing about it leaves but what's sent.
+- **The native screen capture** gets its keys over its standard input, never its command line, and its token can only publish a screen. libwebrtc's logs stay off unless `ZUNA_WEBRTC_LOG` is set, since the native frame cryptor has been reported to log keys. `poc/screenshare/scripts/key-log-check.mjs` looks for that.
+- **Push to talk from another window** uses a system-wide key hook in the desktop's main process, only while someone is in a call with it on, and only the one key asked for is ever passed on.
+
 ### Who's in a conversation
 
 The server keeps the list of who's in each conversation, and it says who may do what. What MLS proves is who actually holds the keys. Clients go by that:

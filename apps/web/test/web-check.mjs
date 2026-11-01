@@ -9,10 +9,11 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright-core";
+import { ensureLiveKit } from "../../../scripts/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
@@ -87,6 +88,9 @@ const site = createServer((request, response) => {
 await new Promise((resolve) => site.listen(0, "127.0.0.1", resolve));
 const article = `http://127.0.0.1:${site.address().port}/guide`;
 
+// The test browsers won't send media to this machine's loopback address, so LiveKit says to use another of its addresses.
+const lanAddress = Object.values(networkInterfaces()).flat().find((item) => item.family === "IPv4" && !item.internal)?.address ?? "127.0.0.1";
+
 function launchOptions(name) {
   if (name === "chromium") return { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] };
   if (name === "firefox") return { firefoxUserPrefs: { "media.navigator.streams.fake": true, "media.navigator.permission.disabled": true } };
@@ -118,7 +122,9 @@ async function runIn(name) {
   const data = mkdtempSync(join(tmpdir(), "zuna-web-data-"));
   const serverPort = randomPort();
   const serverUrl = `http://127.0.0.1:${serverPort}`;
-  const server = start(join(bin, `zuna-server${exe}`), ["--listen", `127.0.0.1:${serverPort}`, "--data", data, "--public-url", serverUrl, "--auth-burst", "1000", "--push-relays", "off"]);
+  const liveKitPort = randomPort();
+  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", lanAddress, "--bind", "127.0.0.1", "--node-ip", lanAddress, "--port", String(liveKitPort)]);
+  const server = start(join(bin, `zuna-server${exe}`), ["--listen", `127.0.0.1:${serverPort}`, "--data", data, "--public-url", serverUrl, "--auth-burst", "1000", "--push-relays", "off", "--livekit-internal-url", `http://127.0.0.1:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
   const webPort = randomPort();
   const web = start(join(bin, `zuna-web${exe}`), ["--listen", `127.0.0.1:${webPort}`, "--root", dist, "--dev"]);
   const appUrl = `http://localhost:${webPort}/`;
@@ -370,6 +376,30 @@ async function runIn(name) {
     check("signing in again brings the history back", true);
     await again.screenshot({ path: prefix("07-signed-in-again") });
 
+    // Channels and voice, under this host's content security policy
+    again.on("console", (message) => message.text().includes("[zuna]") && console.log(`  ${message.text()}`));
+    await again.locator(".channel-empty button").click();
+    await again.getByPlaceholder("new-channel").fill("general");
+    await again.getByRole("button", { name: "Create channel" }).click();
+    await again.locator(".chat-title", { hasText: "general" }).waitFor({ timeout: 15_000 });
+    await again.locator(".composer-input").fill("hello channel");
+    await again.keyboard.press("Enter");
+    await again.locator(".bubble", { hasText: "hello channel" }).waitFor({ timeout: 15_000 });
+    check("a text channel works", true);
+    await again.locator(".channel-section-head", { hasText: "Text channels" }).hover();
+    await again.getByRole("button", { name: /New channel in Text channels/ }).click();
+    await again.getByRole("button", { name: /^Voice/ }).click();
+    await again.getByPlaceholder("Lounge").fill("Lounge");
+    await again.getByRole("button", { name: "Create channel" }).click();
+    await again.locator(".channel-row", { hasText: "Lounge" }).click();
+    await again.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
+    check("a voice channel connects, encrypted", true);
+    await again.waitForFunction(() => document.querySelector(".voice-control.is-live, .voice-control.is-off"), null, { timeout: 15_000 });
+    await sleep(1000);
+    await again.screenshot({ path: prefix("08-voice") });
+    await again.getByRole("button", { name: "Disconnect from voice" }).click();
+    await again.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
+
     // Where the browser keeps nothing, the app says why it can't run
     if (name === "webkit") {
       const privateBrowser = await webkit.launch();
@@ -377,7 +407,7 @@ async function runIn(name) {
       await privatePage.goto(appUrl);
       await privatePage.getByText("which happens in private windows").waitFor({ timeout: 15_000 }).catch(() => undefined);
       check("a private window says why Zuna can't run there", await privatePage.getByText("which happens in private windows").isVisible());
-      await privatePage.screenshot({ path: prefix("08-private-window") });
+      await privatePage.screenshot({ path: prefix("09-private-window") });
       await privateBrowser.close();
     }
 
@@ -396,6 +426,7 @@ async function runIn(name) {
     stop(bots);
     stop(web);
     stop(server);
+    stop(liveKit);
     await sleep(300);
     rmSync(data, { recursive: true, force: true });
   }

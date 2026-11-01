@@ -155,11 +155,11 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
   const [released, setReleased] = useState(false);
 
   const items = list?.items ?? [];
-  const isGroup = conversation.kind === "group";
+  const isGroup = conversation.kind !== "dm";
   const isAdmin = conversation.members.find((member) => member.userId === selfId)?.role === "admin";
   const readUpTo = useMemo(
-    () => Object.entries(conversation.readBy).reduce((highest, [id, seq]) => (id === selfId ? highest : Math.max(highest, seq)), 0),
-    [conversation.readBy, selfId],
+    () => (conversation.kind === "channel" ? -1 : Object.entries(conversation.readBy).reduce((highest, [id, seq]) => (id === selfId ? highest : Math.max(highest, seq)), 0)),
+    [conversation.kind, conversation.readBy, selfId],
   );
 
   // Only messages arriving at the end while the chat is open animate in, so older

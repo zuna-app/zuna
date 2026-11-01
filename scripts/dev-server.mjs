@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, env, root, run } from "./lib.mjs";
+import { devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, ensureLiveKit, env, root, run } from "./lib.mjs";
 
 const URL = "http://localhost:8787";
 const serverData = join(devData, "server");
@@ -29,6 +29,8 @@ const log = createWriteStream(logPath, { flags: "a" });
 const binary = join(devData, "bin", process.platform === "win32" ? "zuna-server.exe" : "zuna-server");
 run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server") });
 
+const liveKit = ensureLiveKit();
+
 const children = [];
 let stopping = false;
 const stop = (code = 0) => {
@@ -43,8 +45,14 @@ function fail(message) {
   stop(1);
 }
 
-// The server first, since setting everything up needs its one-time setup link.
-const server = spawn(binary, ["--listen", "127.0.0.1:8787", "--data", serverData, "--public-url", URL, "--auth-burst", "1000"], {
+// For voice channels. Its development mode has a key and secret everyone knows, on this machine only.
+const media = spawn(liveKit, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1"], { stdio: ["ignore", "pipe", "pipe"] });
+children.push(media);
+media.stdout.on("data", (chunk) => log.write(chunk));
+media.stderr.on("data", (chunk) => log.write(chunk));
+
+// The server next, since setting everything up needs its one-time setup link.
+const server = spawn(binary, ["--listen", "127.0.0.1:8787", "--data", serverData, "--public-url", URL, "--auth-burst", "1000", "--livekit-url", "ws://127.0.0.1:7880", "--livekit-key", "devkey", "--livekit-secret", "secret"], {
   stdio: ["ignore", "pipe", "pipe"],
 });
 children.push(server);

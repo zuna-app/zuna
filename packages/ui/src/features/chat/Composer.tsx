@@ -161,6 +161,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         render: <Emote name={emote.name} emote={{ id: emote.id, animated: emote.animated }} serverUrl={serverUrl} size="reaction" hoverCard={false} />,
       }));
     }
+    // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet.
     const members = conversation.kind === "group" ? conversation.members.map((member) => member.userId) : Object.keys(users);
     return members
       .map((id) => users[id])

@@ -3,6 +3,7 @@ import {
   Bell,
   Camera,
   Check,
+  Mic,
   Copy,
   Info,
   KeyRound,
@@ -26,6 +27,7 @@ import { usePasswordStrength } from "@/lib/password";
 import { prepareAvatar } from "@/lib/media";
 import type { AppSettings } from "@/state/settings";
 import { useActiveServer, useApp } from "@/state/store";
+import { VoiceSettingsSection } from "@/features/voice/VoiceSettings";
 
 const ACCENTS: { id: AppSettings["accent"]; color: string; check: string; label: string }[] = [
   { id: "neutral", color: "#ececee", check: "#111113", label: "Neutral" },
@@ -39,6 +41,7 @@ const SECTIONS = [
   { id: "profile", label: "Profile", icon: UserRound },
   { id: "privacy", label: "Privacy", icon: Lock },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "voice", label: "Voice and video", icon: Mic },
   { id: "appearance", label: "Appearance", icon: Palette },
   { id: "security", label: "Security", icon: ShieldCheck },
   { id: "about", label: "About", icon: Info },
@@ -524,6 +527,7 @@ export function Settings({ initialSection, onClose }: { initialSection?: string;
       {section === "profile" && <ProfileSection />}
       {section === "privacy" && <PrivacySection />}
       {section === "notifications" && <NotificationsSection />}
+      {section === "voice" && <VoiceSettingsSection />}
       {section === "appearance" && <AppearanceSection />}
       {section === "security" && <SecuritySection />}
       {section === "about" && <AboutSection />}

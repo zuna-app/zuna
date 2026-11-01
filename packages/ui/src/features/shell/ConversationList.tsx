@@ -33,10 +33,11 @@ import { refocusComposer } from "@/lib/focus";
 import { timerText } from "@/lib/disappearing";
 import { formatListTime } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
+import { ChannelSections } from "@/features/voice/ChannelList";
 import { platform } from "@/platform";
 import { useActiveServer, useApp } from "@/state/store";
 
-type Filter = "all" | "people" | "groups" | "unread";
+type Filter = "all" | "channels" | "people" | "groups" | "unread";
 
 function previewFor(message: MessageView | null, users: Record<string, UserView>, selfId: string, kind: string): string {
   if (!message) return "";
@@ -204,6 +205,7 @@ export function ConversationList() {
         const username = item.peerId ? users[item.peerId]?.username.toLowerCase() : "";
         if (!item.title.toLowerCase().includes(needle) && !username?.includes(needle)) return false;
       }
+      if (filter === "channels") return false;
       if (filter === "people") return item.kind === "dm";
       if (filter === "groups") return item.kind === "group";
       if (filter === "unread") return item.unread > 0 || item.markedUnread;
@@ -263,8 +265,10 @@ export function ConversationList() {
     },
   ];
 
+  const showsChannels = !!server.info?.channels && (server.channels.length > 0 || isAdmin);
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: "All" },
+    ...(showsChannels ? [{ id: "channels" as const, label: "Channels" }] : []),
     { id: "people", label: "People" },
     { id: "groups", label: "Groups" },
     { id: "unread", label: "Unread" },
@@ -354,12 +358,13 @@ export function ConversationList() {
       </div>
 
       <div className="conv-list" ref={listRef}>
+        {(filter === "all" || filter === "channels") && <ChannelSections query={query} />}
         {visible.map(renderRow)}
         {messageHits.length > 0 && (
           <div className="message-hits">
             <h4>Messages</h4>
             {messageHits.map((hit) => {
-              const conversation = conversations.find((item) => item.key === hit.conversationKey);
+              const conversation = conversations.find((item) => item.key === hit.conversationKey) ?? server.channels.find((item) => item.key === hit.conversationKey)?.conversation;
               const sender = users[hit.message.senderId];
               return (
                 <button
@@ -383,7 +388,7 @@ export function ConversationList() {
             })}
           </div>
         )}
-        {visible.length === 0 && hidden.length === 0 && messageHits.length === 0 && (
+        {visible.length === 0 && hidden.length === 0 && messageHits.length === 0 && filter !== "channels" && (
           <div className="empty-state" style={{ padding: "32px 20px" }}>
             <p>{query ? "Nothing matches that search." : filter === "unread" ? "You're all caught up." : filter === "groups" ? "No groups yet." : "It's quiet here."}</p>
             {!query && filter !== "unread" && (

@@ -9,6 +9,17 @@ files:
   - package.json
   - resources/icon.png
   - "!**/*.map"
+# The key hook for push to talk comes built for each system, against an interface that
+# doesn't change between versions of Electron, so nothing has to be compiled.
+npmRebuild: false
+# A native module can't load from inside the archive.
+asarUnpack:
+  - "**/node_modules/uiohook-napi/**"
+# Captures and encodes a screen on the GPU, where it was built. A build without it shares through Chromium.
+extraResources:
+  - from: native/screenshare/dist
+    to: screenshare
+    filter: ["**/*"]
 protocols:
   - name: Zuna invite link
     schemes:
@@ -50,7 +61,8 @@ mac:
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
-    NSMicrophoneUsageDescription: Zuna uses the microphone to record voice messages.
+    NSMicrophoneUsageDescription: Zuna uses the microphone for voice messages and voice channels.
+    NSCameraUsageDescription: Zuna uses the camera when you turn it on in a voice channel.
     NSLocationUsageDescription: Zuna uses your location only when you choose to share it in a chat.
     NSLocationWhenInUseUsageDescription: Zuna uses your location only when you choose to share it in a chat.
   artifactName: Zuna-${version}-${arch}.${ext}

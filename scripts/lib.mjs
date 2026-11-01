@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,35 @@ export function ensureBuilt() {
   if (!existsSync(join(root, "packages", "crypto", "pkg", "zuna_crypto_bg.wasm"))) {
     run(process.execPath, [join(root, "scripts", "build-crypto.mjs")]);
   }
+}
+
+/** The LiveKit server voice channels use. Update this and `deploy/docker-compose.voice.yml` together. */
+export const LIVEKIT_TAG = "v1.13.11";
+
+/**
+ * A LiveKit server for development, built from its pinned tag the first time. It's
+ * stripped, since Windows Defender quarantines Go binaries with debug symbols.
+ */
+export function ensureLiveKit() {
+  const name = process.platform === "win32" ? "livekit-server.exe" : "livekit-server";
+  const binary = join(devData, "bin", name);
+  const stamp = `${binary}.tag`;
+  if (existsSync(binary) && existsSync(stamp) && readFileSync(stamp, "utf8") === LIVEKIT_TAG) return binary;
+  mkdirSync(dirname(binary), { recursive: true });
+  // The screen sharing proof of concept may already have one.
+  const built = join(root, "poc", "screenshare", ".deps", name);
+  if (existsSync(built) && existsSync(`${built}.tag`) && readFileSync(`${built}.tag`, "utf8") === LIVEKIT_TAG) {
+    copyFileSync(built, binary);
+  } else {
+    console.log(`Building LiveKit ${LIVEKIT_TAG}, which only happens once...`);
+    const source = join(devData, "livekit-src");
+    rmSync(source, { recursive: true, force: true });
+    run("git", ["clone", "--quiet", "--depth", "1", "--branch", LIVEKIT_TAG, "https://github.com/livekit/livekit", source]);
+    run("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/server"], { cwd: source });
+    rmSync(source, { recursive: true, force: true });
+  }
+  writeFileSync(stamp, LIVEKIT_TAG);
+  return binary;
 }
 
 export async function devServerRunning() {

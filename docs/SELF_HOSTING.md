@@ -143,6 +143,37 @@ Everything else is in the app under **Server settings**: name and picture, invit
 
 To let people use Zuna in a browser, run the web app's own program, `zuna-web`, on a domain of its own, such as `web.chat.example.com`. It isn't part of the server and never should be: [WEB.md](WEB.md) explains why, and how to run it.
 
+## Voice channels
+
+Voice channels need [LiveKit](https://livekit.io), a media server that runs beside Zuna. It only ever carries encrypted media. Without it, everything else works, and voice channels can be made but not joined.
+
+It doesn't need much, since it only passes media along. A small VPS is fine for a friend group, though it uses bandwidth: each person in a call receives everyone else's audio, at about 64 kbit/s each, and a shared screen can be 20 Mbit/s for each person watching.
+
+**With Docker,** add the voice file to whichever you use:
+
+```bash
+export ZUNA_LIVEKIT_SECRET=$(openssl rand -hex 32)
+```
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
+```
+
+**Without Docker,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it:
+
+| Setting | Environment | |
+|---|---|---|
+| `--livekit-internal-url` | `ZUNA_LIVEKIT_INTERNAL_URL` | How Zuna reaches it, such as `http://127.0.0.1:7880` |
+| `--livekit-key` | `ZUNA_LIVEKIT_KEY` | Its API key |
+| `--livekit-secret` | `ZUNA_LIVEKIT_SECRET` | Its API secret |
+| `--livekit-url` | `ZUNA_LIVEKIT_URL` | Only if apps should reach it at an address of its own, such as `wss://voice.example.com`, with its own certificate |
+
+Apps reach it through Zuna's own address, at `/livekit/`, so there's no second name or certificate to look after. A reverse proxy in front of Zuna has to allow WebSockets there, as it already does for `/api/ws`.
+
+**Media doesn't go through Zuna.** Open **7881/tcp** and **7882/udp** on the machine for it, or whichever ports you gave LiveKit. UDP is much better for calls, and TCP is for people whose networks block it.
+
+If you use the web app with `--servers`, and apps reach LiveKit at an address of its own, list that with `--media-servers` too.
+
 ## Phone notifications
 
 Phones can't keep a connection open in the background, so the server wakes them through a push relay when a message arrives. The relay sees only that something arrived for some phone: the message stays encrypted on the server, and the phone fetches and decrypts it itself. [PUSH_RELAY.md](PUSH_RELAY.md) explains how it works and how to run one.

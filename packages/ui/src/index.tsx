@@ -6,12 +6,13 @@ import "./styles/onboarding.css";
 import "./styles/shell.css";
 import "./styles/chat.css";
 import "./styles/panels.css";
+import "./styles/voice.css";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { setPlatform, type Platform } from "./platform";
 
-export type { BootResult, NotifyPayload, Platform } from "./platform";
+export type { BootResult, DisplaySource, NativeScreenShare, NotifyPayload, Platform } from "./platform";
 export { connectWorker, type DeviceInfo } from "./core/boot";
 
 /** Shows the app in the page's #root, on whatever the host provides, until the returned function removes it. */

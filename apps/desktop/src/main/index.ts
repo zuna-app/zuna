@@ -2,12 +2,15 @@
 // the device key. All chat logic and cryptography run in the sandboxed renderer.
 
 import { randomBytes } from "node:crypto";
+import { startKeyWatch } from "./global-key";
+import { startNativeScreen } from "./native-screen";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   app,
   BrowserWindow,
+  desktopCapturer,
   ipcMain,
   Menu,
   nativeImage,
@@ -16,6 +19,7 @@ import {
   powerMonitor,
   protocol,
   safeStorage,
+  screen,
   session,
   shell,
   systemPreferences,
@@ -24,6 +28,7 @@ import {
 } from "electron";
 import { allowLocalLinks, previewable, privateAddress } from "@zuna/core/links";
 import { startPreviewProxy } from "./preview-proxy";
+import { nativeScreenPath } from "./native-screen";
 import { startUpdates } from "./updates";
 
 const APP_SCHEME = "zuna-app";
@@ -42,6 +47,11 @@ let pendingDeepLink: string | null = null;
 let closeToTray = true;
 let notifications: Notification[] = [];
 let deviceKeyHandedOut = false;
+let displaySources = new Map<string, Electron.DesktopCapturerSource>();
+/** What the next request to capture the display gets, as picked in the app. */
+let nextDisplay: { id: string; audio: boolean } | null = null;
+let nativeScreen: ReturnType<typeof startNativeScreen> | null = null;
+let stopKeyWatch: (() => void) | null = null;
 
 // A secure, standard scheme gives the renderer a real origin, which storage
 // (OPFS) requires and which file:// doesn't provide.
@@ -400,6 +410,53 @@ function registerIpc(): void {
     if (systemPreferences.getMediaAccessStatus("microphone") === "granted") return true;
     return systemPreferences.askForMediaAccess("microphone");
   });
+  handle("zuna:camera", async () => {
+    if (process.platform !== "darwin" || app.commandLine.hasSwitch("use-fake-device-for-media-stream")) return true;
+    if (systemPreferences.getMediaAccessStatus("camera") === "granted") return true;
+    return systemPreferences.askForMediaAccess("camera");
+  });
+  // What can be shared, for the picker in the app. A screen's name and picture come
+  // from the system, and where it is lets the native capture find the same one.
+  handle("zuna:display-sources", async () => {
+    const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 340, height: 212 }, fetchWindowIcons: false });
+    const native = nativeScreenAvailable();
+    displaySources = new Map(sources.map((source) => [source.id, source]));
+    return sources
+      // Nobody needs to share this window into this window.
+      .filter((source) => source.id !== mainWindow?.getMediaSourceId())
+      .map((source) => ({
+        id: source.id,
+        name: source.name,
+        kind: source.id.startsWith("screen:") ? "screen" : "window",
+        thumbnail: source.thumbnail.isEmpty() ? "" : source.thumbnail.toDataURL(),
+        native: native && source.id.startsWith("screen:"),
+      }));
+  });
+  handle("zuna:choose-display-source", (_event, id: string, audio: boolean) => {
+    nextDisplay = { id, audio: !!audio };
+  });
+  handle("zuna:native-screen-start", async (event, options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }) => {
+    nativeScreen?.stop();
+    const display = screenForSource(options.source);
+    const started = startNativeScreen({ ...options, at: display }, (problem) => {
+      if (nativeScreen !== started) return;
+      nativeScreen = null;
+      event.sender.send("zuna:native-screen-ended", problem);
+    });
+    nativeScreen = started;
+    await started.ready;
+  });
+  handle("zuna:native-screen-key", (_event, key: Uint8Array, keyIndex: number) => nativeScreen?.setKey(key, keyIndex));
+  handle("zuna:native-screen-stop", () => {
+    nativeScreen?.stop();
+    nativeScreen = null;
+  });
+  // Only the key asked about is ever reported, and only while someone holds it for talking.
+  handle("zuna:watch-key", (event, code: string | null) => {
+    stopKeyWatch?.();
+    stopKeyWatch = code ? startKeyWatch(code, (down) => event.sender.send("zuna:key", down)) : null;
+    return !!stopKeyWatch;
+  });
   // Whether the person is at the computer, for where notifications go: "active",
   // "idle" after this many seconds without input anywhere, or "locked".
   handle("zuna:idle-state", (_event, seconds: number) => powerMonitor.getSystemIdleState(Math.max(1, Math.round(seconds))));
@@ -440,6 +497,20 @@ function registerIpc(): void {
   handle("zuna:open-external", (_event, url: string) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
   });
+}
+
+/** Whether a program for capturing natively came with this build, for this system. */
+function nativeScreenAvailable(): boolean {
+  return (process.platform === "win32" || process.platform === "linux") && !!nativeScreenPath();
+}
+
+/** Where on the desktop the screen a source shows is, in the pixels the native capture counts in. */
+function screenForSource(source: string): { x: number; y: number } | null {
+  const displayId = displaySources.get(source)?.display_id;
+  const display = screen.getAllDisplays().find((item) => String(item.id) === displayId);
+  if (!display) return null;
+  const inPixels = process.platform === "win32" ? screen.dipToScreenPoint({ x: display.bounds.x, y: display.bounds.y }) : display.bounds;
+  return { x: inPixels.x + 1, y: inPixels.y + 1 };
 }
 
 function deviceLabel(): string {
@@ -493,12 +564,27 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(() => {
-    // The renderer needs notifications, the microphone for voice messages, and where this device is for sharing it,
-    // which it only asks for when someone chooses to. Calls will ask for more when they arrive.
-    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
-      const microphoneOnly = permission === "media" && "mediaTypes" in details && (details.mediaTypes ?? []).every((type) => type === "audio");
-      callback(permission === "notifications" || permission === "clipboard-sanitized-write" || permission === "geolocation" || microphoneOnly);
+    // The renderer needs notifications, the microphone and camera for voice channels and voice messages, and
+    // where this device is for sharing it, which it only asks for when someone chooses to.
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+      callback(permission === "notifications" || permission === "clipboard-sanitized-write" || permission === "geolocation" || permission === "media" || permission === "display-capture" || permission === "speaker-selection");
     });
+    // Sharing a window, or a screen from a system without native capture, goes through Chromium. What it
+    // gets is what was picked in the app, and nothing happens unless something has been.
+    session.defaultSession.setDisplayMediaRequestHandler(
+      (_request, callback) => {
+        const chosen = nextDisplay ? displaySources.get(nextDisplay.id) : undefined;
+        const audio = nextDisplay?.audio && process.platform === "win32";
+        nextDisplay = null;
+        if (!chosen) {
+          callback({});
+          return;
+        }
+        callback(audio ? { video: chosen, audio: "loopback" } : { video: chosen });
+      },
+      // macOS can't say what there is to share without being asked first, and its own picker needs no asking.
+      { useSystemPicker: process.platform === "darwin" },
+    );
     Menu.setApplicationMenu(
       process.platform === "darwin"
         ? Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }, { role: "windowMenu" }])
@@ -517,6 +603,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("before-quit", () => {
     quitting = true;
+    nativeScreen?.stop();
+    stopKeyWatch?.();
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin" && (!tray || isDev)) app.quit();

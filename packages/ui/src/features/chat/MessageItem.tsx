@@ -496,7 +496,8 @@ function Ticks({ read }: { read: boolean }) {
 function ReadTicks({ message, readUpTo }: { message: MessageView; readUpTo: number }) {
   if (message.status === "sending") return <Clock size={11} className="msg-tick is-sending" />;
   if (message.status === "failed") return <AlertCircle size={12} className="msg-tick is-failed" />;
-  if (message.seq === null) return null;
+  // Below zero means nobody's reading is known here, as in a channel.
+  if (message.seq === null || readUpTo < 0) return null;
   return <Ticks read={readUpTo >= message.seq} />;
 }
 

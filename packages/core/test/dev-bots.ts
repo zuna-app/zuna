@@ -134,6 +134,20 @@ async function startConversations(bots: TestApp[]): Promise<void> {
  * for setup: signing in from the app adds a new device, which reads this history
  * through the keys stored in the owner's encrypted vault.
  */
+/** Somewhere for everyone to talk, and somewhere to hear each other. */
+async function startChannels(owner: TestApp, bots: TestApp[]): Promise<void> {
+  const [sam, jordan] = bots as [TestApp, TestApp];
+  const general = await owner.session.createChannel({ type: "text", name: "general", topic: "Anything goes" });
+  await owner.session.createChannel({ type: "text", name: "links", topic: "Things worth a look" });
+  await owner.session.createChannel({ type: "voice", name: "Lounge", bitrate: 96 });
+  await owner.session.createChannel({ type: "voice", name: "Gaming", userLimit: 5 });
+  await waitFor(() => !!sam.session.getChannels().find((item) => item.id === general)?.conversation?.ready, "Sam to come into #general");
+  await waitFor(() => !!jordan.session.getChannels().find((item) => item.id === general)?.conversation?.ready, "Jordan to come into #general");
+  sam.session.sendMessage(`group:${general}`, { text: "Welcome to the server, everyone." });
+  await sleep(150);
+  jordan.session.sendMessage(`group:${general}`, { text: "Is voice working yet? Try the **Lounge**." });
+}
+
 async function createWorld(world: string): Promise<TestApp[]> {
   const setupLink = process.env.ZUNA_DEV_SETUP_LINK;
   if (!setupLink) throw new Error("The server didn't provide a setup link.");
@@ -149,6 +163,7 @@ async function createWorld(world: string): Promise<TestApp[]> {
 
   const bots = await joinBots(invite, world);
   await startConversations(bots);
+  await startChannels(owner, bots);
 
   const person = (username: string) => bots.find((bot) => bot.name === username)!;
   await waitFor(() => owner.texts(`user:${person("sam").userId}`).length >= 2, "the owner to receive Sam's messages");

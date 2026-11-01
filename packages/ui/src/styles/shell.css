@@ -35,11 +35,13 @@
 }
 .rail-add:hover { background: var(--hover-strong); color: var(--text-1); }
 .rail-footer { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-top: 8px; }
-.rail-self { border-radius: 50%; --dot-border: var(--bg-0); }
+.rail-self { display: flex; border-radius: 50%; --dot-border: var(--bg-0); transition: box-shadow 0.08s linear; }
+.rail-self.is-speaking { box-shadow: 0 0 0 2px var(--green); }
 
 /* Sidebar */
 .sidebar { flex: none; position: relative; display: flex; background: var(--bg-1); min-width: 0; --dot-border: var(--bg-1); }
-.sidebar-inner { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sidebar-column { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.sidebar-inner { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .sidebar-resizer {
   position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 4;
 }

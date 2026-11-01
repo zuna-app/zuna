@@ -29,6 +29,8 @@ export function webPlatform(config: HostConfig): Platform {
   return {
     hour12: undefined,
     titleBar: false,
+    // What sound there is to share is up to the browser, which offers it in its own picker.
+    systemAudio: true,
     async bootCore(onEvent) {
       const { key, created } = await loadDeviceKey();
       if (created) await removeUnreadableDatabase();

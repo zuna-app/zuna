@@ -3,8 +3,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Spinner, useAction } from "@/components/ui";
 import { installStickyFocus } from "@/lib/focus";
 import { prefetchEmotes } from "@/lib/media";
-import { useActiveConversation, useActiveServer, useApp } from "@/state/store";
+import { useActiveChannel, useActiveConversation, useActiveServer, useApp } from "@/state/store";
 import { ChatView } from "@/features/chat/ChatView";
+import { VoicePanel } from "@/features/voice/VoicePanel";
+import { VoiceStage } from "@/features/voice/VoiceStage";
+import { watchPushToTalk } from "@/voice/ptt";
+import { useVoice } from "@/voice/store";
 import { ConversationList } from "./ConversationList";
 import { ServerRail } from "./ServerRail";
 
@@ -16,6 +20,18 @@ const PREFETCH_DELAY_MS = 3000;
 function loadWidth(): number {
   const stored = Number(localStorage.getItem(LIST_WIDTH_KEY));
   return stored >= MIN_LIST_WIDTH && stored <= MAX_LIST_WIDTH ? stored : 320;
+}
+
+/** A channel opened before this device has come into it, which takes a moment and needs nobody to do anything. */
+function JoiningChannel() {
+  return (
+    <div className="no-chat">
+      <div className="empty-state">
+        <Spinner size={22} />
+        <p>Getting the keys to this channel…</p>
+      </div>
+    </div>
+  );
 }
 
 function NoConversation() {
@@ -125,13 +141,16 @@ function useEmotePrefetch() {
 
 export function Shell() {
   const conversation = useActiveConversation();
+  const channel = useActiveChannel();
   const activeServerId = useApp((state) => state.activeServerId);
+  const inThisVoice = useVoice((state) => channel?.type === "voice" && state.channelId === channel.id && state.serverId === activeServerId);
   const activeServer = useActiveServer();
   const activeKey = activeServer?.activeKey;
   const [width, setWidth] = useState(loadWidth);
   const dragging = useRef(false);
 
   useEffect(installStickyFocus, []);
+  useEffect(watchPushToTalk, []);
   useShortcuts();
   useEmotePrefetch();
 
@@ -165,8 +184,11 @@ export function Shell() {
     <div className="shell">
       <ServerRail />
       <aside className="sidebar" style={{ width }}>
-        <div key={activeServerId} className="sidebar-inner">
-          <ConversationList />
+        <div className="sidebar-column">
+          <div key={activeServerId} className="sidebar-inner">
+            <ConversationList />
+          </div>
+          <VoicePanel />
         </div>
         <div className="sidebar-resizer" onMouseDown={onResizeStart} />
       </aside>
@@ -175,8 +197,12 @@ export function Shell() {
           {/* Switching chats is instant: messages are already in memory or a few milliseconds away. */}
           {activeServer?.entry.signedOut ? (
             <SignedOut server={activeServer} />
+          ) : channel && inThisVoice ? (
+            <VoiceStage key={`${activeServerId}:${channel.id}`} channel={channel} />
           ) : conversation ? (
-            <ChatView key={`${activeServerId}:${activeKey}`} conversation={conversation} />
+            <ChatView key={`${activeServerId}:${activeKey}`} conversation={conversation} voice={channel?.type === "voice"} />
+          ) : channel ? (
+            <JoiningChannel />
           ) : (
             <NoConversation />
           )}

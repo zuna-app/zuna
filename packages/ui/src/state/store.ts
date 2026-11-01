@@ -2,6 +2,7 @@
 
 import type { CoreConnection, RemoteSession } from "@zuna/core/rpc";
 import type {
+  ChannelView,
   ConnectionState,
   ConversationView,
   CoreEvent,
@@ -12,10 +13,12 @@ import type {
   ServerEntry,
   ServerInfo,
   UserView,
+  VoiceMember,
 } from "@zuna/core";
 import { create } from "zustand";
 import { platform } from "@/platform";
 import { playNotificationSound } from "@/lib/sound";
+import { voiceHooks } from "@/voice/events";
 import { loadSettings, type AppSettings } from "./settings";
 
 export interface ServerSelf {
@@ -31,6 +34,9 @@ export interface ServerState {
   connection: ConnectionState;
   self: ServerSelf | null;
   conversations: ConversationView[];
+  channels: ChannelView[];
+  /** Who's in the voice channels, by device. */
+  voice: Record<string, VoiceMember>;
   users: Record<string, UserView>;
   /** username -> user ID. Replaced only when the people change, not on presence. */
   mentionable: Map<string, string>;
@@ -65,6 +71,7 @@ export type Overlay =
   | { type: "image"; url: string; name: string }
   | { type: "forward"; serverId: string; groupId: string; ids: string[] }
   | { type: "share-location"; conversationKey: string }
+  | { type: "channel"; channelId?: string; channelType?: "text" | "voice" }
   | null;
 
 /** "media" is one kind of thing from the chat, opened from its details. */
@@ -194,9 +201,20 @@ export const useApp = create<AppState>((set, get) => {
   const refreshConversations = (serverId: string) =>
     debounced(`conversations:${serverId}`, async () => {
       try {
-        const conversations = await get().session(serverId).getConversations();
-        patchServer(serverId, { conversations });
+        const session = get().session(serverId);
+        const [conversations, channels] = await Promise.all([session.getConversations(), session.getChannels()]);
+        patchServer(serverId, { conversations, channels });
         updateBadge();
+      } catch {
+        // The server may have just been removed.
+      }
+    });
+
+  const refreshVoice = (serverId: string) =>
+    debounced(`voice:${serverId}`, async () => {
+      try {
+        const members = await get().session(serverId).getVoiceMembers();
+        patchServer(serverId, { voice: Object.fromEntries(members.map((member) => [member.deviceId, member])) });
       } catch {
         // The server may have just been removed.
       }
@@ -208,6 +226,10 @@ export const useApp = create<AppState>((set, get) => {
     for (const server of Object.values(servers)) {
       for (const conversation of server.conversations) {
         total += countedUnread(conversation);
+      }
+      // In a channel, only what's said to someone counts for this.
+      for (const channel of server.channels) {
+        if (channel.conversation && !channel.conversation.muted) total += channel.conversation.unreadMentions;
       }
     }
     platform.setUnreadCount(total);
@@ -242,6 +264,25 @@ export const useApp = create<AppState>((set, get) => {
         break;
       case "conversations":
         refreshConversations(event.serverId);
+        break;
+      case "channels":
+        refreshConversations(event.serverId);
+        refreshVoice(event.serverId);
+        break;
+      case "voice":
+        patchServer(event.serverId, (server) => {
+          const voice = { ...server.voice };
+          if (event.member) voice[event.deviceId] = event.member;
+          else delete voice[event.deviceId];
+          return { voice };
+        });
+        if (event.member) voiceHooks.onMember?.(event.serverId, event.member);
+        break;
+      case "voice_key":
+        voiceHooks.onKey?.(event.serverId, event.channelId);
+        break;
+      case "voice_ended":
+        voiceHooks.onEnded?.(event.serverId, event.channelId, event.reason);
         break;
       case "users":
         refreshUsers(event.serverId);
@@ -333,6 +374,7 @@ export const useApp = create<AppState>((set, get) => {
           .catch(() => undefined);
         break;
       case "signed_out":
+        voiceHooks.onServerGone?.(event.serverId);
         patchEntry(event.serverId, event.reason);
         get().toast(
           event.reason === "banned"
@@ -405,7 +447,7 @@ export const useApp = create<AppState>((set, get) => {
       async function loadServerState(entry: ServerEntry) {
         const { core } = get();
         const session = core!.session(entry.id);
-        const [conversations, users, emotes, prefs, self, connection, info] = await Promise.all([
+        const [conversations, users, emotes, prefs, self, connection, info, channels, voice] = await Promise.all([
           session.getConversations(),
           session.getUsers(),
           session.getEmotes(),
@@ -413,6 +455,8 @@ export const useApp = create<AppState>((set, get) => {
           session.getSelf(),
           session.getConnectionState(),
           session.getInfo(),
+          session.getChannels(),
+          session.getVoiceMembers(),
         ]);
         set((state) => ({
           servers: {
@@ -423,6 +467,8 @@ export const useApp = create<AppState>((set, get) => {
               connection,
               self,
               conversations,
+              channels,
+              voice: Object.fromEntries(voice.map((member) => [member.deviceId, member])),
               users: Object.fromEntries(users.map((user) => [user.id, user])),
               mentionable: mentionMap(users),
               emotes,
@@ -449,7 +495,7 @@ export const useApp = create<AppState>((set, get) => {
       const entry = entries.find((item) => item.id === serverId);
       if (!entry) return;
       const session = core.session(serverId);
-      const [conversations, users, emotes, prefs, self, info, connection] = await Promise.all([
+      const [conversations, users, emotes, prefs, self, info, connection, channels, voice] = await Promise.all([
         session.getConversations(),
         session.getUsers(),
         session.getEmotes(),
@@ -457,6 +503,8 @@ export const useApp = create<AppState>((set, get) => {
         session.getSelf(),
         session.getInfo(),
         session.getConnectionState(),
+        session.getChannels(),
+        session.getVoiceMembers(),
       ]);
       // A sign-in replaces any earlier account on the same server.
       const staleIds = get().order.filter((id) => !entries.some((item) => item.id === id));
@@ -469,6 +517,8 @@ export const useApp = create<AppState>((set, get) => {
           connection,
           self,
           conversations,
+          channels,
+          voice: Object.fromEntries(voice.map((member) => [member.deviceId, member])),
           users: Object.fromEntries(users.map((user) => [user.id, user])),
           mentionable: mentionMap(users),
           emotes,
@@ -485,6 +535,7 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     removeServer(serverId) {
+      voiceHooks.onServerGone?.(serverId);
       set((state) => {
         const servers = { ...state.servers };
         delete servers[serverId];
@@ -540,7 +591,7 @@ export const useApp = create<AppState>((set, get) => {
         // A chat opens at its first unread message, so the pages back to it come first, all at once.
         const { activeServerId, servers } = get();
         const server = activeServerId ? servers[activeServerId] : undefined;
-        const { ownRead = 0, unread = 0 } = server?.conversations.find((item) => item.groupId === groupId) ?? {};
+        const { ownRead = 0, unread = 0 } = server?.conversations.find((item) => item.groupId === groupId) ?? server?.channels.find((item) => item.id === groupId)?.conversation ?? {};
         const unreadIn = (messages: MessageView[]) => messages.filter((message) => isUnread(message, ownRead, server?.self?.userId, server?.prefs.blocked)).length;
         for (let pages = 1; toUnread && page.hasMore && pages < UNREAD_PAGES && unreadIn(page.messages) < unread; pages++) {
           const oldest = page.messages.find((message) => message.seq !== null)?.seq;
@@ -690,7 +741,15 @@ export const useActiveConversation = (): ConversationView | null =>
   useApp((state) => {
     const server = state.activeServerId ? state.servers[state.activeServerId] : null;
     if (!server?.activeKey) return null;
-    return server.conversations.find((item) => item.key === server.activeKey) ?? null;
+    return server.conversations.find((item) => item.key === server.activeKey) ?? server.channels.find((item) => item.key === server.activeKey)?.conversation ?? null;
+  });
+
+/** The channel open now, if that's what's open, whether or not this device has come into it yet. */
+export const useActiveChannel = (): ChannelView | null =>
+  useApp((state) => {
+    const server = state.activeServerId ? state.servers[state.activeServerId] : null;
+    if (!server?.activeKey) return null;
+    return server.channels.find((item) => item.key === server.activeKey) ?? null;
   });
 
 /** Where a conversation's messages live before and after its group exists. */

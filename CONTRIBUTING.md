@@ -87,6 +87,8 @@ node apps/desktop/test/attack-check.mjs
 
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
+Voice needs a LiveKit server, which `npm run dev:server` builds from a pinned tag the first time and runs for you. `node apps/desktop/test/voice-check.mjs` drives real apps against one: on Windows, each app's fake microphone speaks with the system's text to speech, and elsewhere it plays a tone, which the speech checks don't apply to.
+
 ## Packaging
 
 ```bash

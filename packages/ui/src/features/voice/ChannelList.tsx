@@ -1,0 +1,278 @@
+import type { ChannelView, VoiceMember } from "@zuna/core";
+import { AtSign, BellOff, Camera, ChevronRight, Hash, HeadphoneOff, MicOff, Pencil, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
+import { Reorder } from "motion/react";
+import { memo, useMemo, useRef, useState } from "react";
+import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
+import { muteEntries } from "@/lib/mute";
+import { useActiveServer, useApp } from "@/state/store";
+import { selfIsSpeaking, useVoice } from "@/voice/store";
+
+const COLLAPSED_KEY = "zuna-collapsed-categories";
+
+function loadCollapsed(): Record<string, true> {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+interface Section {
+  name: string;
+  channels: ChannelView[];
+  /** What the add button makes here, when it's one of the usual headings. */
+  type: "text" | "voice";
+}
+
+/** A channel's own heading if it has one, or one for its type, in the order they come up. */
+function sectionsOf(channels: ChannelView[]): Section[] {
+  const sections = new Map<string, Section>();
+  for (const channel of channels) {
+    const name = channel.category || (channel.type === "voice" ? "Voice channels" : "Text channels");
+    let section = sections.get(name);
+    if (!section) {
+      section = { name, channels: [], type: channel.type };
+      sections.set(name, section);
+    }
+    section.channels.push(channel);
+  }
+  return [...sections.values()];
+}
+
+export const channelTitle = (channel: ChannelView): string => channel.name || (channel.unreadable ? "Unreadable channel" : "Channel");
+
+const VoiceOccupant = memo(function VoiceOccupant({ member }: { member: VoiceMember }) {
+  const server = useActiveServer();
+  const selfId = server?.self?.userId;
+  const inThisCall = useVoice((state) => state.channelId === member.channelId && state.serverId === server?.entry.id);
+  const speaking = useVoice((state) => (member.userId === selfId ? selfIsSpeaking(state) && state.status === "connected" : inThisCall && !!state.speaking[member.userId]));
+  const user = server?.users[member.userId];
+  const name = user?.displayName ?? "Someone";
+  return (
+    <div className={`voice-occupant${speaking ? " is-speaking" : ""}`}>
+      <span className="voice-occupant-avatar">
+        <Avatar name={name} seed={member.userId} avatar={user?.avatar} size={22} />
+      </span>
+      <span className="truncate grow">{name}</span>
+      {member.screen && <span className="voice-live">Live</span>}
+      {member.camera && <Camera size={13} className="faint" />}
+      {member.serverMuted ? <MicOff size={13} className="voice-server-muted" /> : member.muted && !member.deafened && <MicOff size={13} className="faint" />}
+      {member.deafened && <HeadphoneOff size={13} className="faint" />}
+    </div>
+  );
+});
+
+function ChannelRow({ channel, onMenu }: { channel: ChannelView; onMenu: (event: React.MouseEvent, channel: ChannelView) => void }) {
+  const server = useActiveServer();
+  const selectConversation = useApp((state) => state.selectConversation);
+  const join = useVoice((state) => state.join);
+  const toast = useApp((state) => state.toast);
+  const inChannel = useVoice((state) => state.channelId === channel.id && state.serverId === server?.entry.id);
+  const active = server?.activeKey === channel.key;
+  const { conversation } = channel;
+  const unread = !!conversation && conversation.unread > 0 && !conversation.muted;
+  const mentions = conversation?.unreadMentions ?? 0;
+  const occupants = useMemo(
+    () => Object.values(server?.voice ?? {}).filter((member) => member.channelId === channel.id).sort((a, b) => a.since - b.since),
+    [server?.voice, channel.id],
+  );
+  const full = channel.userLimit > 0 && occupants.length >= channel.userLimit;
+  const onOpen = () => {
+    if (channel.type === "voice" && server) {
+      // Clicking a voice channel is coming into it, as in Discord. Leaving goes back to what was open before.
+      const activeIsVoice = server.channels.find((item) => item.key === server.activeKey)?.type === "voice";
+      selectConversation(channel.key);
+      if (server.info?.voice) void join(server.entry.id, channel.id, activeIsVoice ? undefined : server.activeKey);
+      else toast("This server has no media server yet, so its voice channels can't be joined.", "info");
+      return;
+    }
+    selectConversation(channel.key);
+  };
+  return (
+    <>
+      <button
+        data-row-key={channel.key}
+        className={`channel-row${active ? " is-active" : ""}${unread ? " is-unread" : ""}${inChannel ? " is-connected" : ""}`}
+        onClick={onOpen}
+        onContextMenu={(event) => onMenu(event, channel)}
+        aria-current={active}
+        disabled={channel.unreadable}
+        title={channel.topic || undefined}
+      >
+        {channel.type === "voice" ? <Volume2 size={16} className="channel-icon" /> : <Hash size={16} className="channel-icon" />}
+        <span className="channel-name truncate">{channelTitle(channel)}</span>
+        {conversation?.muted && <BellOff size={12} className="conv-muted" />}
+        {channel.type === "voice" && channel.userLimit > 0 && (
+          <span className={`channel-limit${full ? " is-full" : ""}`}>
+            {occupants.length}/{channel.userLimit}
+          </span>
+        )}
+        {mentions > 0 && (
+          <span className="conv-badge conv-mention" aria-label={`${mentions} mentioning you`}>
+            <AtSign size={12} strokeWidth={2.4} />
+          </span>
+        )}
+      </button>
+      {occupants.length > 0 && (
+        <div className="voice-occupants">
+          {occupants.map((member) => (
+            <VoiceOccupant key={member.deviceId} member={member} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The server's channels, at the top of the list, under headings that fold away. */
+export function ChannelSections({ query }: { query: string }) {
+  const server = useActiveServer();
+  const session = useApp((state) => state.session);
+  const setOverlay = useApp((state) => state.setOverlay);
+  const toast = useApp((state) => state.toast);
+  const [collapsed, setCollapsed] = useState(loadCollapsed);
+  const rowMenu = useContextMenu();
+  const [menuChannel, setMenuChannel] = useState<ChannelView | null>(null);
+  // While a row is being dragged, this is what's shown; otherwise, what the server says.
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const dragged = useRef(false);
+
+  const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  const needle = query.trim().toLowerCase();
+  const channels = server?.channels ?? [];
+  const ordered = useMemo(() => {
+    if (!dragOrder) return channels;
+    const byId = new Map(channels.map((channel) => [channel.id, channel]));
+    return dragOrder.flatMap((id) => byId.get(id) ?? []);
+  }, [channels, dragOrder]);
+  const shown = needle ? ordered.filter((channel) => channel.name.toLowerCase().includes(needle)) : ordered;
+  const sections = useMemo(() => sectionsOf(shown), [shown]);
+
+  if (!server?.info?.channels) return null;
+  if (channels.length === 0 && !isAdmin) return null;
+
+  const toggleSection = (name: string) => {
+    setCollapsed((current) => {
+      const next = { ...current };
+      if (next[name]) delete next[name];
+      else next[name] = true;
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+      } catch {
+        // It just won't be remembered.
+      }
+      return next;
+    });
+  };
+
+  const entries = (channel: ChannelView): MenuEntry[] => [
+    ...(channel.conversation
+      ? [
+          channel.conversation.muted
+            ? { label: "Unmute", icon: <Volume2 size={15} />, onSelect: () => void session().unmute(channel.key) }
+            : { label: "Mute", icon: <VolumeX size={15} />, submenu: muteEntries((until) => void session().mute(channel.key, until)) },
+        ]
+      : []),
+    ...(isAdmin
+      ? [
+          { label: "Edit channel", icon: <Pencil size={15} />, onSelect: () => setOverlay({ type: "channel", channelId: channel.id }) },
+          {
+            label: "Delete channel",
+            icon: <Trash2 size={15} />,
+            danger: true,
+            onSelect: () => {
+              if (window.confirm(`Delete ${channelTitle(channel)}? Its messages go for everyone.`)) {
+                void session()
+                  .deleteChannel(channel.id)
+                  .catch((error: Error) => toast(error.message, "error"));
+              }
+            },
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <div className="channel-sections">
+      {sections.map((section) => {
+        const folded = !!collapsed[section.name] && !needle;
+        const ids = section.channels.map((channel) => channel.id);
+        // A folded heading keeps showing what someone's in, and what mentions them.
+        const visible = folded ? section.channels.filter((channel) => channel.conversation?.unreadMentions || Object.values(server.voice).some((member) => member.channelId === channel.id && member.userId === server.self?.userId)) : section.channels;
+        return (
+          <section key={section.name} className="channel-section">
+            <header className="channel-section-head">
+              <button className={`channel-section-title${folded ? " is-folded" : ""}`} onClick={() => toggleSection(section.name)} aria-expanded={!folded}>
+                <ChevronRight size={12} />
+                <span className="truncate">{section.name}</span>
+              </button>
+              {isAdmin && (
+                <Tooltip text="New channel">
+                  <button className="icon-btn is-small" onClick={() => setOverlay({ type: "channel", channelType: section.type })} aria-label={`New channel in ${section.name}`}>
+                    <Plus size={14} />
+                  </button>
+                </Tooltip>
+              )}
+            </header>
+            {isAdmin && !folded && !needle ? (
+              <Reorder.Group
+                as="div"
+                axis="y"
+                values={ids}
+                onReorder={(next: string[]) => {
+                  const others = ordered.map((channel) => channel.id);
+                  const first = others.findIndex((id) => ids.includes(id));
+                  const rest = others.filter((id) => !ids.includes(id));
+                  rest.splice(first, 0, ...next);
+                  setDragOrder(rest);
+                }}
+              >
+                {section.channels.map((channel) => (
+                  <Reorder.Item
+                    as="div"
+                    key={channel.id}
+                    value={channel.id}
+                    onPointerDown={() => (dragged.current = false)}
+                    onDragStart={() => (dragged.current = true)}
+                    onDragEnd={() => {
+                      const order = dragOrder;
+                      setDragOrder(null);
+                      if (order) void session().reorderChannels(order).catch((error: Error) => toast(error.message, "error"));
+                    }}
+                  >
+                    <ChannelRow
+                      channel={channel}
+                      onMenu={(event, target) => {
+                        setMenuChannel(target);
+                        rowMenu.open(event);
+                      }}
+                    />
+                  </Reorder.Item>
+                ))}
+              </Reorder.Group>
+            ) : (
+              visible.map((channel) => (
+                <ChannelRow
+                  key={channel.id}
+                  channel={channel}
+                  onMenu={(event, target) => {
+                    setMenuChannel(target);
+                    rowMenu.open(event);
+                  }}
+                />
+              ))
+            )}
+          </section>
+        );
+      })}
+      {channels.length === 0 && isAdmin && !needle && (
+        <div className="channel-empty">
+          <button className="btn btn-small" onClick={() => setOverlay({ type: "channel", channelType: "text" })}>
+            <Plus size={14} /> New channel
+          </button>
+        </div>
+      )}
+      {rowMenu.menu && menuChannel && entries(menuChannel).length > 0 && <PopupMenu key="channel-menu" x={rowMenu.menu.x} y={rowMenu.menu.y} entries={entries(menuChannel)} onClose={rowMenu.close} />}
+    </div>
+  );
+}

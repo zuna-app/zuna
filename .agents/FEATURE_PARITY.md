@@ -13,6 +13,7 @@ For agents, not people. `CLAUDE.md` says how to keep this current. Keep it terse
 
 Things one platform should have and doesn't.
 
+- **iOS: no channels or voice channels.** Not built, as asked, and nothing in the app knows about them. `ios` hosts don't set `channels` on `ZunaClient`, so the phone's core ignores channels, its device takes no part in their MLS groups, and the server sends no push for a channel's messages. A person's other devices keep working. To build it: set `channels`, add `ChannelView`, `VoiceMember` and the session's channel and voice methods to `ZunaModels`, and LiveKit's Swift SDK with per-participant keys from `voiceKey` and `voiceSenderKey`.
 - **Web, Firefox: unchecked.** Nothing has been run in Firefox yet (see "Web check" above). Its `MediaRecorder` may only record WebM with Opus, which the iPhone app can't play (`apps/ios/Zuna/Chat/Voice.swift` plays AAC in MP4). `web-check.mjs` reports what each browser records and whether Apple's decoder reads it.
 
 ## Accounts and servers
@@ -31,6 +32,28 @@ Things one platform should have and doesn't.
 | Signed out by the server: data kept, sign in again or clear | yes | yes | yes | `features/shell/Shell.tsx` | `Shell/ChatListView.swift` | |
 | Connection state | yes | yes | yes | `App.tsx` | `Shell/ChatListView.swift`, `Shell/ServerListView.swift` | The web has no title bar, so it shows at the top of the conversation list (`components/ui.tsx`, `ConnectionStatus`) |
 | Security alerts from the core | yes | yes | yes | `state/store.ts` | `State/AppModel.swift` | Among them, a message the server denies that the next one from its device names (`after` in each body; `lookForEarlier`, `findMissing` in the core) |
+
+## Channels and voice channels
+
+Desktop and web only for now (see Known gaps). Paths are under `features/voice/` and `voice/` in `packages/ui/src/` unless written out. Checked on Windows with `apps/desktop/test/voice-check.mjs` in Electron against a real LiveKit, and `apps/web/test/web-check.mjs` in Chromium, which connects and encrypts but only has one person in a call.
+
+| Feature | Desktop | iOS | Web | Desktop and web code | Notes |
+|---|---|---|---|---|---|
+| Channels in the list: headings that fold, a Channels tab, unread marks, "@" for mentions | yes | no | yes | `features/voice/ChannelList.tsx`, `features/shell/ConversationList.tsx` | From `getChannels` in the core, apart from `getConversations`. A channel's unread counts mark it and the rail, and only mentions count toward the badge |
+| Making, editing, ordering and deleting channels, for server admins | yes | no | yes | `features/voice/ChannelDialog.tsx`, `features/voice/ChannelList.tsx` | Name, topic, heading; for voice, audio quality and how many people fit. Names and topics sealed with the community key, signed by the device (`packages/core/src/channels.ts`) |
+| Everything a group chat does, in a text channel | yes | no | yes | `features/chat/*` | Replies, reactions, files, pins, search and so on. No read ticks, as where someone has read to stays on their own devices. Server admins can delete others' messages |
+| Comes into every channel without being asked, with its history | yes | no | yes | `packages/core/src/session.ts` (`joinChannels`, `grantChannelHistory`) | External commit; any member online hands over the older keys. Until one does, older messages wait for keys |
+| Notified only about what's said to you in a channel, unless it's muted | yes | no | yes | `packages/core/src/session.ts` (`maybeNotify`) | |
+| Voice channels: click to join, who's in each shown to everyone, speaking rings, a panel that stays while looking elsewhere | yes | no | yes | `features/voice/VoicePanel.tsx`, `features/voice/VoiceStage.tsx`, `voice/room.ts`, `voice/store.ts` | One at a time across all servers; joining on a second device ends it on the first. The channel's chat opens beside the call |
+| Encrypted media, keyed from the channel's MLS group, with a key per sender | yes | no | yes | `voice/room.ts`, `packages/core/src/voice.ts`, `voiceKey` in the core | Moves to a new key whenever someone joins the group or is removed, listening at once and sending 1.5 s later |
+| Noise cancelling (RNNoise), voice activity detection and a gate, by level or by speech | yes | no | yes | `voice/mic.worklet.ts`, `voice/mic.ts` | In an AudioWorklet, adding about 40 ms. RNNoise needs 48 kHz, which Firefox may not let a page have: there it passes sound through by level alone (unchecked) |
+| Push to talk, with a release delay | yes | no | partial | `voice/ptt.ts`, `apps/desktop/src/main/global-key.ts` | Web: only while the tab is in front. Desktop: anywhere, through `uiohook-napi`, checked on Windows in `voice-check.mjs`. It can't work under Wayland, where only the window hears it |
+| Mute, deafen, choosing devices, how loud each person is, muting someone for yourself, join and leave sounds | yes | no | yes | `features/voice/VoiceStage.tsx`, `features/voice/VoicePanel.tsx`, `voice/settings.ts`, `voice/sounds.ts` | |
+| Muting someone for everyone, and disconnecting them, for server admins | yes | no | yes | `features/voice/VoiceStage.tsx`, `server/internal/api/voice.go` | LiveKit enforces it, as their token no longer allows a microphone |
+| Cameras | yes | no | yes | `voice/room.ts` | Checked with Chromium's fake camera |
+| Sharing a screen natively, on the GPU | yes | no | no | `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts`, `features/voice/ScreenPicker.tsx` | Windows and Linux, whole screens. Run from the app on Windows with NVENC only; Linux only in `poc/screenshare`. See `docs/SCREEN_SHARE.md` |
+| Sharing through the browser, with its sound on Windows | yes | no | yes | `voice/room.ts`, `apps/desktop/src/main/index.ts` (`setDisplayMediaRequestHandler`) | Windows on the desktop, whatever isn't native, and everything on the web, which uses the browser's own picker. Whether the sound leaves out this call (`restrictOwnAudio`) hasn't been heard; macOS hasn't been run |
+| Voice and video settings, with a microphone test and a live meter | yes | no | yes | `features/voice/VoiceSettings.tsx` | Per device |
 
 ## Conversation list
 
@@ -131,6 +154,7 @@ These aren't gaps, so don't port them without being asked.
 
 - **Desktop only:** tray, title bar, automatic updates, system notifications and the unread badge, and Electron's fuses.
 - **Desktop and web:** the resizable sidebar, and the content security policy (sent by `zuna-web` on the web).
+- **Desktop only:** native screen capture, and push to talk from another window.
 - **Web only:** one tab at a time with "Use here", the unread count in the tab's title, the "Zuna was updated" reload prompt, and the "Make the window bigger" notice below 860 × 540.
 - **iOS only:** App lock with Face ID or passcode, the cover in the app switcher, the iPad split layout.
 
@@ -163,3 +187,6 @@ The desktop is one codebase, and these are where the OSes differ (`apps/desktop/
 | Device key protected by the OS | yes | yes | Only with a real secret store. `basic_text` counts as unprotected |
 | Asks the OS for the microphone | no | yes | no |
 | Finds where this device is, for sharing it | unchecked | unchecked: needs the location entitlement and usage text, in `resources/entitlements.mac.plist` and `electron-builder.yml` | unchecked |
+| Native screen capture, on the GPU | yes, NVENC only so far | no, by design: Chromium | unchecked from the app; ran in `poc/screenshare` on Arch with KDE and NVIDIA |
+| Push to talk from another window | unchecked | unchecked: needs Accessibility permission | X11 only, unchecked |
+| Asks the OS for the camera | no | yes, unchecked | no |

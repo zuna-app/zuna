@@ -15,6 +15,28 @@ export interface NotifyPayload {
   route: unknown;
 }
 
+/** Something that can be shared: a whole screen, or one window. */
+export interface DisplaySource {
+  id: string;
+  name: string;
+  kind: "screen" | "window";
+  /** What it looks like now, as a data URL. */
+  thumbnail: string;
+  /** It can be captured and encoded natively, which is much lighter on the computer. */
+  native: boolean;
+}
+
+/** Sharing a screen from a native process, which captures and encodes on the GPU and only uses LiveKit to carry the result. */
+export interface NativeScreenShare {
+  /** Starts it, finishing once it's publishing. */
+  start(options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }): Promise<void>;
+  /** The key its frames go under from now on. */
+  setKey(key: Uint8Array, keyIndex: number): void;
+  stop(): void;
+  /** It ended by itself, and why if that's a problem. */
+  onEnded(listener: (problem: string | null) => void): () => void;
+}
+
 export interface Platform {
   /** Whether the system shows times with AM and PM, or undefined to follow the language. */
   hour12: boolean | undefined;
@@ -31,6 +53,17 @@ export interface Platform {
   notify?(payload: NotifyPayload): void;
   /** Whether the operating system lets Zuna record, asking the person the first time. */
   microphone?(): Promise<boolean>;
+  /** The same for the camera. */
+  camera?(): Promise<boolean>;
+  /** What can be shared, for a picker of Zuna's own. Without it, the browser asks. */
+  displaySources?(): Promise<DisplaySource[]>;
+  /** Says what the next request to capture the display gets. */
+  chooseDisplaySource?(id: string, audio: boolean): Promise<void>;
+  /** Sharing a screen can bring the computer's sound with it. */
+  systemAudio?: boolean;
+  nativeScreen?: NativeScreenShare;
+  /** Says when a key goes down or up anywhere on the computer, not just in this window. */
+  watchKey?(code: string, listener: (down: boolean) => void): () => void;
   /** "active", "idle" after this many seconds without input anywhere, or "locked". */
   idleState?(seconds: number): Promise<"active" | "idle" | "locked" | "unknown">;
   /** The screen locking or the computer sleeping ("away"), and coming back ("back"). */

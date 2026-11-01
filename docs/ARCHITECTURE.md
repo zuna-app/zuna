@@ -24,7 +24,7 @@ flowchart LR
 | Crypto core | `crypto/` | Rust, OpenMLS, WebAssembly | One audited MLS implementation, reusable natively on mobile |
 | Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so it can power a mobile app |
 | Interface | `packages/ui/` | React, Motion | The desktop's screens, shared with the web app. Each host gives it a `Platform` for what's outside the page |
-| Desktop app | `apps/desktop/` | Electron | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for future calls |
+| Desktop app | `apps/desktop/` | Electron | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for voice channels |
 | Web app | `apps/web/`, `server/cmd/zuna-web` | The same interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
 | Server | `server/` | Go, pure-Go SQLite | A single static binary for every platform, with no dependencies to install |
 
@@ -32,7 +32,7 @@ The core runs in a Worker so that cryptography and database work can never block
 
 ## Data model
 
-A server has **users** and **groups**. A group's `kind` is `dm` or `group`. A DM is created the first time someone sends a message, and a user's DM with themselves is their saved messages.
+A server has **users** and **groups**. A group's `kind` is `dm`, `group` or `channel`. A DM is created the first time someone sends a message, and a user's DM with themselves is their saved messages.
 
 The conversation list merges groups with every user on the server, since anyone can message anyone from the start.
 
@@ -52,6 +52,49 @@ The server is a delivery service and a blob store:
 Each device's MLS credential is a certificate signed by its owner's identity key, naming the key it signs with. Certificates are public, so holding one proves nothing. Clients run one check on every leaf, whenever the tree may have changed and before encrypting: the certificate is signed by the identity key known for that person, for the very signing key the leaf uses, and each device has one leaf. A leaf that fails is removed and warned about.
 
 Epoch keys only ever come from the MLS exporter for the current epoch. A history grant can fill in epochs from before this device joined, if an admin's device signed it, and it never replaces anything. So there's no way to plant a key for an epoch still to come.
+
+## Channels and voice
+
+A **channel** is a group anyone on the server can see and join, made by a server admin. The server lists channels to everyone, with what they're called sealed with the community key, which comes with invite links and which the server doesn't hold, and signed by the device that wrote it.
+
+A device comes into a channel by itself, with an external commit, so it needs nobody else online. On the roster, each person has a **proof** that they hold the community key, worked out from that key, the channel and their user ID, which other members check. Someone without a good proof isn't on the roster as far as members are concerned, so their leaf is stale and gets removed. A server that makes up an account therefore can't get into a channel, or read what any is called.
+
+History comes from whichever member's device gets there first: it seals the channel's older epoch keys to the newcomer, signed, as a history grant. They only ever fill in epochs from before that device joined, like any grant.
+
+A **voice channel** is a channel with a room on [LiveKit](https://livekit.io), which is a server of its own and only sees encrypted media.
+
+```mermaid
+flowchart LR
+  subgraph App["Desktop or web app"]
+    Core["Client core<br/>Worker"]
+    Room["LiveKit room<br/>and its E2EE worker"]
+    Mic["Microphone<br/>RNNoise, gate<br/>AudioWorklet"]
+    Mic --> Room
+    Core -->|"token and media key"| Room
+  end
+  Native["Native screen capture<br/>Windows and Linux"]
+  Zuna["Zuna server"]
+  LiveKit["LiveKit<br/>encrypted media only"]
+  Core <-->|"who's where, tokens"| Zuna
+  Room <-->|"encrypted media"| LiveKit
+  Native -->|"encrypted screen"| LiveKit
+  Core -->|"key"| Native
+```
+
+**Keys.** A room's key comes straight from the channel's MLS group, for its current epoch, and is kept nowhere:
+
+```
+room key   = MLS-Exporter("zuna/voice/v1", epoch, 32)
+sender key = HKDF(room key, "zuna/voice/sender/v1|" + identity)
+```
+
+Each person's frames are under a key of their own, bound to who they are in the room (`<user>.<device>`), and carry the index of the epoch's key. Everyone in the group can work them all out, but LiveKit can't pass one person's voice off as another's, and a device can listen under a new key before it sends under it. That's how a change goes: whoever comes into the group or is removed from it moves it to a new epoch, every device starts listening under the new key as soon as it hears, and 1.5 seconds later it starts sending under it. Someone removed can go on hearing for those 1.5 seconds.
+
+**Who's there** is what each device tells the Zuna server over its socket, which passes it on to everyone. It's for showing who's in a channel, so it isn't a matter of trust: what a device can do in the room is up to LiveKit, from the token, and what it can hear is up to MLS. A device that goes quiet is taken out after 20 seconds, and being in a channel on a second device ends it on the first.
+
+**The microphone** goes through an AudioWorklet before it's published: RNNoise takes out noise and says how likely each 10 ms is to be speech, and a gate only lets speech through, holding 20 ms back so it opens before a word starts. Past the gate, the track is silent, which costs almost nothing to send. It can go by a level instead, or a key being held. The track stays the same when the device changes, so nothing has to be published again.
+
+**Screens** come from a native program where that's possible, as [SCREEN_SHARE.md](SCREEN_SHARE.md) explains, and from the browser otherwise.
 
 ## Sync
 
@@ -122,5 +165,6 @@ Clients know emotes by name. A message records the emotes it uses, so it keeps r
 | Interface | `node apps/desktop/test/ui-check.mjs` | Every screen in real Electron with live bots: chat-open speed, spacing, keyboard focus, plus screenshots for review |
 | Sending | `node apps/desktop/test/send-check.mjs` | What each frame paints while messages are sent in real Electron: no jumps or blanks, notices in place, always all the way down |
 | Attacks | `node apps/desktop/test/attack-check.mjs` | What a modified client could send, against real Electron: the app stays up, contacts nobody and starts again afterwards |
+| Voice | `node apps/desktop/test/voice-check.mjs` | Real apps against a real LiveKit: audio that decrypts on every side, noise kept out, a new key mid-call, cameras, screens both ways, push to talk |
 
 `npm run dev:server` opens a fully set up test server for UI work, using the bots in `packages/core/test/dev-bots.ts`. `CONTRIBUTING.md` describes it.

@@ -29,6 +29,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | All of crypto, server and core tests | `npm test` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Installers (`apps/desktop/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
+| Native screen capture, which goes into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 
@@ -53,6 +54,7 @@ Checks in real Electron, after `npm run build -w @zuna/desktop`:
 | `ui-check.mjs` | Any screen. It checks speed, spacing and focus, and saves a screenshot of each screen to look at |
 | `send-check.mjs` | The message list or message box. It checks what each painted frame shows |
 | `attack-check.mjs` | How messages are read or rendered, or the content security policy |
+| `voice-check.mjs` | Channels, or anything about voice: real apps against a real LiveKit, checking what audio and video really arrive |
 
 `packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`.
 
@@ -80,8 +82,12 @@ Rules the core depends on:
 - `ensureTreeClean` removes anyone who shouldn't hold a group's keys before this device encrypts.
 - Nothing local is erased on the server's word. Being signed out or removed keeps the data, for 30 days or until the person clears it.
 - What arrives decrypted is still untrusted, so it goes through `validate.ts` before anything shows it.
+- A channel is a group of kind `channel`, which an app takes part in only if it set `channels` on `ZunaClient`. Its roster only counts people whose proof of the community key checks out.
+- A voice channel's media key comes straight from the MLS exporter for the current epoch, and is never stored or handed on (`voiceKey`).
 
 **The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, `limited` and `publicLimited`. All SQL is in `internal/store`. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
+
+**Voice runs in the interface, not the core.** `packages/ui/src/voice` holds the LiveKit room, the microphone's audio worklet and the store. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
 
 **Crypto (`crypto/`).** The logic is in `mls.rs` and `primitives.rs`. `wasm.rs` binds it for the desktop and tests, and `native.rs` binds it through UniFFI for iOS.
 
@@ -118,6 +124,9 @@ Rules the core depends on:
 | Replacing an account's keys: links, slots, seal keys | `docs/ACCOUNT_KEY_ROTATION.md`, `packages/core/src/generations.ts`, `server/internal/api/generations.go` |
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts` (through `preview-proxy.ts`), `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
+| Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session.ts`, `server/internal/api/channels.go`, `packages/ui/src/features/voice` |
+| Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `packages/ui/src/voice`, `server/internal/api/voice.go` |
+| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |
 | Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
@@ -130,7 +139,9 @@ Rules the core depends on:
 ## Decisions to keep
 
 - One sidebar icon is one self-hosted install, with one account on it. No central service and no federation.
-- The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only, and there are no open channels.
+- The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only.
+- Channels are the open places: everyone on a server can see and join all of them, and only server admins make them. There are no private channels, since a group is that.
+- One voice channel at a time, on one device, across all servers.
 - Each server's admins pick one 7TV emote set. People can't add their own.
 - The web app is served by its own host, `zuna-web`, never by a chat server, and on an origin of its own (`docs/WEB_PLAN.md`).
 - Pinned messages live in the pins drawer, with no bar above the chat.

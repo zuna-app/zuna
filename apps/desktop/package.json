@@ -30,6 +30,7 @@
     "vite": "^7.3.7"
   },
   "dependencies": {
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "uiohook-napi": "1.5.5"
   }
 }

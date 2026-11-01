@@ -1,6 +1,6 @@
 # Roadmap
 
-Zuna 1.0 is text chat, with desktop apps for Windows, Linux and macOS and a native app for the iPhone and iPad. The design already allows for Android and calls. This page describes what's left and how they fit.
+Zuna 1.0 is chat, with text channels and voice channels on the desktop and the web, desktop apps for Windows, Linux and macOS, and a native app for the iPhone and iPad. The design already allows for Android, and for calls in direct messages and groups. This page describes what's left and how they fit.
 
 ## Phones
 
@@ -32,32 +32,16 @@ The iPhone app's approach carries over:
 
 ## Voice, video and screen sharing
 
-**The plan: LiveKit, encrypted end to end**
+**Voice channels are built, on the desktop and the web,** through [LiveKit](https://livekit.io), an open-source media server that can be self-hosted. [SELF_HOSTING.md](SELF_HOSTING.md#voice-channels) says how to run it, [ARCHITECTURE.md](ARCHITECTURE.md#channels-and-voice) how it works, and [SCREEN_SHARE.md](SCREEN_SHARE.md) how screens are shared.
 
-[LiveKit](https://livekit.io) is an open-source media server that can be self-hosted. Electron's Chromium includes full WebRTC and the Insertable Streams API that LiveKit's end-to-end encryption uses, which is one reason Zuna chose Electron.
-
-**Keys come from MLS.** A call's media key is exported from the conversation's MLS group:
-
-```
-call key = MLS-Exporter("zuna/call/v1", call_id, 32)
-```
-
-Membership changes rotate the MLS epoch, which rotates the call key. A removed member loses access to the call too, with no separate key system. Discord's DAVE protocol uses the same approach.
-
-**What needs building**
+**What's left**
 
 | Part | Work |
 |---|---|
-| Server | Optional `ZUNA_LIVEKIT_URL`, key and secret settings, plus an endpoint that issues a short-lived room token to members of a group. Servers without LiveKit work as they do today. |
-| Client core | Export call keys and rotate them on new epochs. |
-| Desktop | LiveKit's client SDK with its E2EE key provider, a call screen, and microphone and camera permissions. The macOS entitlements are already in place. On Linux, Chromium's `VaapiOnNvidiaGPUs` feature, switched on in `apps/desktop/src/main/index.ts` before the app is ready: without it, video from others decodes in software on NVIDIA, which costs about a quarter of a core for a 2560x1440 share at 60 fps. It goes through nvidia-vaapi-driver, and what it does where that isn't installed needs checking first. |
-| iPhone and iPad | LiveKit's Swift SDK with its E2EE key provider, a Calls tab, which the tab bar leaves room for, and CallKit, so calls ring like phone calls. |
-| Signaling | "Call started" and "call ended" as encrypted events in the conversation, so the server doesn't learn more than the LiveKit token request reveals. |
-| Self-hosting | A compose file with LiveKit as an optional second service. |
-
-LiveKit would see who is in a call and when, but not the media.
-
-**Screen sharing takes its own route on the desktop.** Chromium captures and encodes poorly on Linux: it reads every frame back to the CPU and has no supported hardware encoder there. So a native process captures and encodes on the GPU, and hands the result to LiveKit to carry, with viewers staying in Chromium. `poc/screenshare` is a working proof of concept, with its measurements and what it found.
+| iPhone and iPad | Channels and voice channels. LiveKit's Swift SDK has the per-participant keys it needs, and CallKit lets it keep going in the background. |
+| Calls in direct messages and groups | The same room and keys, from that conversation's MLS group, with something that rings. |
+| Linux decoding | Chromium's `VaapiOnNvidiaGPUs` feature, switched on in `apps/desktop/src/main/index.ts` before the app is ready: without it, video from others decodes in software on NVIDIA, which costs about a quarter of a core for a 2560x1440 share at 60 fps. It goes through nvidia-vaapi-driver, and what it does where that isn't installed needs checking first. |
+| Noise cancelling | RNNoise is cheap and needs no setup. DeepFilterNet cleans speech noticeably better, for more CPU and a far larger download, and would have to run off the audio thread. |
 
 ## Other ideas
 

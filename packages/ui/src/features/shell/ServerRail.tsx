@@ -1,18 +1,22 @@
+import type { AvatarRef } from "@zuna/core";
 import { Plus, Settings } from "lucide-react";
 import { motion, Reorder } from "motion/react";
 import { memo, useRef, type RefObject } from "react";
 import { Avatar, Tooltip } from "@/components/ui";
 import { countedUnread, useApp } from "@/state/store";
+import { selfIsSpeaking, useVoice } from "@/voice/store";
 
 const ServerButton = memo(function ServerButton({ serverId, dragged }: { serverId: string; dragged: RefObject<boolean> }) {
   const select = useApp((state) => state.selectServer);
   const server = useApp((state) => state.servers[serverId]);
   const active = useApp((state) => state.activeServerId === serverId);
   if (!server) return null;
-  const unread = server.conversations.reduce((sum, item) => sum + countedUnread(item), 0);
+  // In a channel, only what's said to someone counts, though anything new there shows.
+  const unread = server.conversations.reduce((sum, item) => sum + countedUnread(item), 0) + server.channels.reduce((sum, item) => sum + (!item.conversation || item.conversation.muted ? 0 : item.conversation.unreadMentions), 0);
+  const hasNew = unread > 0 || server.channels.some((item) => !!item.conversation && !item.conversation.muted && item.conversation.unread > 0);
   const { entry } = server;
   return (
-    <div className={`rail-item${active ? " is-active" : ""}${unread > 0 ? " has-unread" : ""}`}>
+    <div className={`rail-item${active ? " is-active" : ""}${hasNew ? " has-unread" : ""}`}>
       <span className="rail-pill" />
       <Tooltip text={entry.name} side="right">
         <button
@@ -50,6 +54,19 @@ const ServerEntry = memo(function ServerEntry({ serverId }: { serverId: string }
   );
 });
 
+/** Who you are, ringed while you're being heard in a voice channel. */
+function SelfButton({ userId, name, avatar }: { userId: string; name: string; avatar: AvatarRef | null }) {
+  const setOverlay = useApp((state) => state.setOverlay);
+  const speaking = useVoice((state) => state.status === "connected" && selfIsSpeaking(state));
+  return (
+    <Tooltip text={name} side="right">
+      <button onClick={() => setOverlay({ type: "settings", section: "profile" })} aria-label="Your profile" className={`rail-self${speaking ? " is-speaking" : ""}`}>
+        <Avatar name={name} seed={userId} avatar={avatar} size={32} />
+      </button>
+    </Tooltip>
+  );
+}
+
 export function ServerRail() {
   const order = useApp((state) => state.order);
   const servers = useApp((state) => state.servers);
@@ -79,13 +96,7 @@ export function ServerRail() {
             <Settings size={19} />
           </button>
         </Tooltip>
-        {selfUser && (
-          <Tooltip text={selfUser.displayName} side="right">
-            <button onClick={() => setOverlay({ type: "settings", section: "profile" })} aria-label="Your profile" className="rail-self">
-              <Avatar name={selfUser.displayName} seed={selfUser.id} avatar={selfUser.avatar} size={32} />
-            </button>
-          </Tooltip>
-        )}
+        {selfUser && <SelfButton userId={selfUser.id} name={selfUser.displayName} avatar={selfUser.avatar} />}
       </div>
     </nav>
   );

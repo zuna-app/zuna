@@ -22,6 +22,7 @@ import { copyText } from "@/lib/clipboard";
 import { formatUpcoming } from "@/lib/format";
 import { useActiveServer, useApp } from "@/state/store";
 import { JoinFlow } from "@/features/onboarding/Onboarding";
+import { ChannelDialog } from "@/features/voice/ChannelDialog";
 import { ServerSettings } from "./ServerSettings";
 import { ShareLocation } from "./ShareLocation";
 import { Settings } from "./Settings";
@@ -51,6 +52,7 @@ export function Overlays() {
       {overlay?.type === "image" && <ImageViewer key="image" url={overlay.url} name={overlay.name} onClose={close} />}
       {overlay?.type === "forward" && <ForwardPicker key="forward" serverId={overlay.serverId} groupId={overlay.groupId} ids={overlay.ids} onClose={close} />}
       {overlay?.type === "share-location" && <ShareLocation key="share-location" conversationKey={overlay.conversationKey} onClose={close} />}
+      {overlay?.type === "channel" && <ChannelDialog key="channel" channelId={overlay.channelId} channelType={overlay.channelType} onClose={close} />}
     </AnimatePresence>
   );
 }
@@ -234,7 +236,7 @@ function ForwardPicker({ serverId, groupId, ids, onClose }: { serverId: string; 
     .filter((server): server is NonNullable<typeof server> => !!server)
     .map((server) => ({
       server,
-      chats: server.conversations.filter((chat) => !server.prefs.hidden.includes(chat.key) && (!needle || chat.title.toLowerCase().includes(needle))),
+      chats: [...server.conversations, ...server.channels.flatMap((channel) => channel.conversation ?? [])].filter((chat) => !server.prefs.hidden.includes(chat.key) && (!needle || chat.title.toLowerCase().includes(needle))),
     }))
     .filter((section) => section.chats.length > 0);
 

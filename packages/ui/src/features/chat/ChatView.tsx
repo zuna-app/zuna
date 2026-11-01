@@ -1,5 +1,5 @@
 import type { ConversationView } from "@zuna/core";
-import { Ban, BadgeCheck, Bookmark, Copy, Forward, Lock, PanelRight, Pin, Search, ShieldAlert, Timer, Trash2, Upload, X } from "lucide-react";
+import { Ban, BadgeCheck, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Volume2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
@@ -27,6 +27,10 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
         <TypingDots />
       </span>
     );
+  }
+  if (conversation.kind === "channel") {
+    if (conversation.description) return <span key="status" className={statusClass} title={conversation.description}>{conversation.description}</span>;
+    return <span key="status" className={statusClass}>Everyone on this server</span>;
   }
   if (conversation.kind === "group") {
     const online = conversation.members.filter((member) => server?.users[member.userId]?.online).length;
@@ -57,7 +61,7 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
   const picked = items.filter((item) => ids.includes(item.id));
   const selfId = server?.self?.userId;
   const isAdmin = conversation.members.find((member) => member.userId === selfId)?.role === "admin";
-  const canDelete = picked.length > 0 && picked.every((item) => item.senderId === selfId || (conversation.kind === "group" && isAdmin));
+  const canDelete = picked.length > 0 && picked.every((item) => item.senderId === selfId || (conversation.kind !== "dm" && isAdmin));
   const stop = () => toggleSelected(listId, null);
 
   useEffect(() => {
@@ -117,7 +121,7 @@ function SelectionBar({ conversation, listId }: { conversation: ConversationView
   );
 }
 
-export function ChatView({ conversation }: { conversation: ConversationView }) {
+export function ChatView({ conversation, voice, onClose }: { conversation: ConversationView; /** It's the chat of a voice channel, beside its call. */ voice?: boolean; onClose?: () => void }) {
   const server = useActiveServer();
   const listId = listIdFor(conversation);
   const loadList = useApp((state) => state.loadList);
@@ -159,6 +163,10 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
               <span className="avatar saved-avatar" style={{ width: 36, height: 36 }}>
                 <Bookmark size={16} />
               </span>
+            ) : conversation.kind === "channel" ? (
+              <span className="avatar saved-avatar" style={{ width: 36, height: 36 }}>
+                {voice ? <Volume2 size={17} /> : <Hash size={17} />}
+              </span>
             ) : (
               <Avatar name={conversation.title} seed={conversation.peerId ?? conversation.groupId ?? ""} avatar={conversation.avatar} size={36} />
             )}
@@ -180,6 +188,13 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
             </span>
           </button>
           <div className="chat-actions">
+            {onClose && (
+              <Tooltip text="Hide chat">
+                <button className="icon-btn" onClick={onClose} aria-label="Hide chat">
+                  <X size={17} />
+                </button>
+              </Tooltip>
+            )}
             <Tooltip text="Search this chat">
               <button className={`icon-btn${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label="Search this chat" disabled={!conversation.groupId}>
                 <Search size={17} />
@@ -290,6 +305,11 @@ function EmptyChat({ conversation }: { conversation: ConversationView }) {
         <>
           <h3>Your saved messages</h3>
           <p>Keep notes, links and files here. They're encrypted and sync across your devices.</p>
+        </>
+      ) : conversation.kind === "channel" ? (
+        <>
+          <h3>Welcome to #{conversation.title}</h3>
+          <p>{conversation.description || "This is the start of this channel."} It's end-to-end encrypted: everyone on this server can read it, and the server itself can't.</p>
         </>
       ) : conversation.kind === "group" ? (
         <>
