@@ -434,16 +434,24 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ *store
 }
 
 func (s *Server) handleMessage(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
+	if message := s.visibleMessage(w, r, member); message != nil {
+		writeJSON(w, http.StatusOK, message)
+	}
+}
+
+// visibleMessage is the message a request is about, if this member may see it. What
+// came before they joined isn't there for them, whichever route they ask through.
+func (s *Server) visibleMessage(w http.ResponseWriter, r *http.Request, member *store.GroupMember) *store.Message {
 	message, err := s.db.Message(r.Context(), r.PathValue("id"), r.PathValue("mid"))
 	if err != nil {
 		writeFailure(w, err)
-		return
+		return nil
 	}
 	if message.Seq <= member.VisibleFromSeq {
 		writeError(w, http.StatusNotFound, "not_found", "That message isn't available to you.")
-		return
+		return nil
 	}
-	writeJSON(w, http.StatusOK, message)
+	return message
 }
 
 // broadcastMessage tells all of the group's devices about a message's new state.
@@ -530,9 +538,8 @@ func (s *Server) handleEditMessage(w http.ResponseWriter, r *http.Request, sess 
 func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
 	groupID := r.PathValue("id")
 	messageID := r.PathValue("mid")
-	existing, err := s.db.Message(r.Context(), groupID, messageID)
-	if err != nil {
-		writeFailure(w, err)
+	existing := s.visibleMessage(w, r, member)
+	if existing == nil {
 		return
 	}
 	group, err := s.db.Group(r.Context(), groupID)
@@ -559,8 +566,11 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 	writeJSON(w, http.StatusOK, message)
 }
 
-func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
 	groupID := r.PathValue("id")
+	if s.visibleMessage(w, r, member) == nil {
+		return
+	}
 	var body struct {
 		ID    string `json:"id"`
 		Epoch int64  `json:"epoch"`
@@ -587,8 +597,11 @@ func (s *Server) handleAddReaction(w http.ResponseWriter, r *http.Request, sess 
 	writeJSON(w, http.StatusOK, message)
 }
 
-func (s *Server) handleRemoveReaction(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+func (s *Server) handleRemoveReaction(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
 	groupID := r.PathValue("id")
+	if s.visibleMessage(w, r, member) == nil {
+		return
+	}
 	message, err := s.db.RemoveReaction(r.Context(), groupID, r.PathValue("mid"), r.PathValue("rid"), sess.UserID)
 	if err != nil {
 		writeFailure(w, err)
@@ -599,8 +612,11 @@ func (s *Server) handleRemoveReaction(w http.ResponseWriter, r *http.Request, se
 }
 
 func (s *Server) handlePin(pinned bool) memberHandler {
-	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
 		groupID := r.PathValue("id")
+		if s.visibleMessage(w, r, member) == nil {
+			return
+		}
 		message, err := s.db.SetPinned(r.Context(), groupID, r.PathValue("mid"), sess.UserID, pinned)
 		if err != nil {
 			writeFailure(w, err)

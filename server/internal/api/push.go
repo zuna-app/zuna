@@ -1,4 +1,4 @@
-package api
+﻿package api
 
 import (
 	"bytes"
@@ -36,6 +36,9 @@ const (
 	maxMutedGroups  = 10_000
 	pushTimeout     = 15 * time.Second
 	pushConcurrency = 16
+	// Past this a relay is far behind, and a notification is the one thing here that
+	// can go missing: the message itself is waiting on the server.
+	pushQueueLength = 4096
 )
 
 // pushLabel binds a sealed push to the registration it was sealed for.
@@ -177,12 +180,28 @@ const (
 	pushBackground pushKind = "background"
 )
 
+type pushJob struct {
+	target     store.PushRegistration
+	kind       pushKind
+	fields     map[string]string
+	collapseID string
+}
+
 func (s *Server) push(target store.PushRegistration, kind pushKind, fields map[string]string, collapseID string) {
-	s.pushSlots <- struct{}{}
-	go func() {
-		defer func() { <-s.pushSlots }()
-		s.sendPush(target, kind, fields, collapseID)
-	}()
+	s.pushers.Do(func() {
+		for range pushConcurrency {
+			go func() {
+				for job := range s.pushQueue {
+					s.sendPush(job.target, job.kind, job.fields, job.collapseID)
+				}
+			}()
+		}
+	})
+	select {
+	case s.pushQueue <- pushJob{target, kind, fields, collapseID}:
+	default:
+		slog.Warn("too many notifications waiting, so one was dropped", "relay", target.Relay)
+	}
 }
 
 func (s *Server) sendPush(target store.PushRegistration, kind pushKind, fields map[string]string, collapseID string) {

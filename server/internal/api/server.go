@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -95,6 +96,7 @@ type Server struct {
 	writeLimiter    *ratelimit.Keyed
 	socketLimiter   *ratelimit.Keyed
 	publicLimiter   *ratelimit.Keyed
+	pageLimiter     *ratelimit.Keyed
 	claimLimiter    *ratelimit.Keyed
 	targetLimiter   *ratelimit.Keyed
 	rotateLimiter   *ratelimit.Keyed
@@ -107,7 +109,8 @@ type Server struct {
 	commitHolds       *ratelimit.Backoff
 
 	pushClient *http.Client
-	pushSlots  chan struct{}
+	pushQueue  chan pushJob
+	pushers    sync.Once
 	notified   notifiedChats
 }
 
@@ -140,6 +143,7 @@ func New(cfg Config, db *store.DB) *Server {
 		writeLimiter:  ratelimit.NewKeyed(rate.Limit(50), 300),
 		socketLimiter: ratelimit.NewKeyed(rate.Limit(2), 60),
 		publicLimiter: ratelimit.NewKeyed(rate.Limit(5), 60),
+		pageLimiter:   ratelimit.NewKeyed(rate.Limit(20), 200),
 		claimLimiter:  ratelimit.NewKeyed(rate.Limit(5), 600),
 		targetLimiter: ratelimit.NewKeyed(rate.Every(2*time.Second), 20),
 		// Each rotation is a link for every contact to follow, so they stay rare.
@@ -153,7 +157,7 @@ func New(cfg Config, db *store.DB) *Server {
 		voidLimiter:       ratelimit.NewKeyed(rate.Every(10*time.Second), 5),
 		commitHolds:       ratelimit.NewBackoff(0, time.Minute, time.Hour),
 		pushClient:        &http.Client{Timeout: pushTimeout},
-		pushSlots:         make(chan struct{}, pushConcurrency),
+		pushQueue:         make(chan pushJob, pushQueueLength),
 	}
 }
 
@@ -297,11 +301,11 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	// Public
-	mux.HandleFunc("GET /{$}", s.handleHome)
+	mux.HandleFunc("GET /{$}", s.pageLimited(s.handleHome))
 	mux.HandleFunc("GET /invite/{code}", s.publicLimited(s.handleInvitePage))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
-	mux.HandleFunc("GET /api/info", s.handleInfo)
-	mux.HandleFunc("GET /api/icon", s.handleIcon)
+	mux.HandleFunc("GET /api/info", s.pageLimited(s.handleInfo))
+	mux.HandleFunc("GET /api/icon", s.pageLimited(s.handleIcon))
 	mux.HandleFunc("GET /api/invites/{code}", s.publicLimited(s.handleInviteInfo))
 	mux.HandleFunc("GET /api/emotes/{id}/{file}", func(w http.ResponseWriter, r *http.Request) {
 		s.emotes.ServeImage(w, r, r.PathValue("id"), r.PathValue("file"))
@@ -529,6 +533,18 @@ func (s *Server) limited(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) publicLimited(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.publicLimiter.Allow(s.callerKey(r)) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests. Please wait a moment and try again.")
+			return
+		}
+		next(w, r)
+	}
+}
+
+// pageLimited is for what's open to anyone and takes a few queries to answer. Every
+// app asks for these, so this only stops someone doing nothing else.
+func (s *Server) pageLimited(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.pageLimiter.Allow(s.callerKey(r)) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests. Please wait a moment and try again.")
 			return
 		}

@@ -1,4 +1,4 @@
-package api_test
+﻿package api_test
 
 // Each attack from the security audit that the server can stop, kept as a test
 // so it can't come back. The findings' numbers are in the audit's report.
@@ -609,6 +609,48 @@ func TestWrongPasswordsSlowDownForOneAccount(t *testing.T) {
 	}
 	if status, _ := h.do("POST", "/api/auth/login", "", map[string]any{"username": "someone-else", "auth_key": bytesOf(32, 0xff)}, nil); status != http.StatusUnauthorized {
 		t.Fatalf("another account gave %d", status)
+	}
+}
+
+// Z-60: what came before someone joined isn't there for them, whichever route they ask through.
+func TestAMessageFromBeforeJoiningIsNotThereWhicheverWayYouAsk(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := newGroup(h, owner)
+	old := owner.send(group, 0, store.NewID())
+	if status, resp := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("adding them: %d %v", status, resp)
+	}
+	base := "/api/groups/" + group + "/messages/" + old.ID
+	for name, call := range map[string]func() (int, map[string]any){
+		"reading": func() (int, map[string]any) { return h.do("GET", base, bob.token, nil, nil) },
+		"reacting": func() (int, map[string]any) {
+			return h.do("POST", base+"/reactions", bob.token, map[string]any{"id": store.NewID(), "epoch": 1, "data": []byte("x")}, nil)
+		},
+		"removing a reaction": func() (int, map[string]any) {
+			return h.do("DELETE", base+"/reactions/"+store.NewID(), bob.token, nil, nil)
+		},
+		"pinning":   func() (int, map[string]any) { return h.do("PUT", base+"/pin", bob.token, nil, nil) },
+		"unpinning": func() (int, map[string]any) { return h.do("DELETE", base+"/pin", bob.token, nil, nil) },
+		"deleting":  func() (int, map[string]any) { return h.do("DELETE", base, bob.token, nil, nil) },
+	} {
+		if status, resp := call(); status != http.StatusNotFound || resp["envelope"] != nil {
+			t.Errorf("%s gave %d %v", name, status, resp)
+		}
+	}
+}
+
+// Z-60: answering these takes a few queries each, for anyone who asks.
+func TestPublicPagesAreLimited(t *testing.T) {
+	h := newHarness(t)
+	limited := false
+	for range 400 {
+		status, _ := h.do("GET", "/api/info", "", nil, nil)
+		limited = limited || status == http.StatusTooManyRequests
+	}
+	if !limited {
+		t.Fatal("400 requests in a row weren't limited")
 	}
 }
 
