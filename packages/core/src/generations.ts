@@ -36,14 +36,19 @@ export interface NewSlot extends SlotPublic {
 export interface SlotSecrets {
   seal: Uint8Array;
   sign: Uint8Array;
+  /**
+   * The key the account began with. Anyone can seal a key to a slot, so this is what
+   * says whose account that key opens. Only a slot from before this has none.
+   */
+  root: Uint8Array | null;
 }
 
 /** Makes a slot. Its secrets are only ever kept encrypted under the key the secret derives. */
-export function createSlot(kind: SlotKind, slotKey: Uint8Array): { slot: NewSlot; secrets: SlotSecrets } {
+export function createSlot(kind: SlotKind, slotKey: Uint8Array, root: Uint8Array): { slot: NewSlot; secrets: SlotSecrets } {
   const seal = wasm.hpkeKeygen();
   const sign = wasm.signingKeygen();
-  const secrets: SlotSecrets = { seal: seal.secretKey as Uint8Array, sign: sign.secretKey as Uint8Array };
-  const json = JSON.stringify({ seal: toBase64(secrets.seal), sign: toBase64(secrets.sign) });
+  const secrets: SlotSecrets = { seal: seal.secretKey as Uint8Array, sign: sign.secretKey as Uint8Array, root };
+  const json = JSON.stringify({ seal: toBase64(secrets.seal), sign: toBase64(secrets.sign), root: toBase64(root) });
   return {
     slot: {
       kind,
@@ -57,7 +62,7 @@ export function createSlot(kind: SlotKind, slotKey: Uint8Array): { slot: NewSlot
 
 export function openSlot(kind: SlotKind, slotKey: Uint8Array, sealedSecret: Uint8Array): SlotSecrets {
   const json = JSON.parse(fromUtf8(wasm.aeadOpen(slotKey, sealedSecret, label(`zuna/account-slot/v1/secret|${kind}`))));
-  return { seal: fromBase64(json.seal), sign: fromBase64(json.sign) };
+  return { seal: fromBase64(json.seal), sign: fromBase64(json.sign), root: json.root ? fromBase64(json.root) : null };
 }
 
 const slotInfo = (kind: SlotKind, who: string, generation: number) => label(`zuna/account-slot/v1/key|${kind}|${who.toLowerCase()}|${generation}`);

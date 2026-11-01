@@ -21,7 +21,7 @@ import {
   type SignInTarget,
   type VaultCore,
 } from "./crypto";
-import { equalBytes, fromBase64, fromBase64Url, fromRecoveryText, toBase64, toBase64Url, toRecoveryText } from "./encoding";
+import { equalBytes, fromBase64, fromBase64Url, fromRecoveryText, toBase64, toBase64Url, toRecoveryText, utf8 } from "./encoding";
 import {
   ACCOUNT_PROTOCOL,
   EMPTY_LINK_HASH,
@@ -227,8 +227,8 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   // wrappers that can't be sealed to later.
   const server = input.invite?.server ?? (await api.info());
   const protocol = (server.account_protocol ?? 0) >= ACCOUNT_PROTOCOL ? ACCOUNT_PROTOCOL : undefined;
-  const passwordSlot = protocol ? createSlot("password", password.slotKey) : null;
-  const recoverySlot = protocol ? createSlot("recovery", recovery.slotKey) : null;
+  const passwordSlot = protocol ? createSlot("password", password.slotKey, core.rootPublic) : null;
+  const recoverySlot = protocol ? createSlot("recovery", recovery.slotKey, core.rootPublic) : null;
   if (passwordSlot && recoverySlot) {
     core.slots = { password: { seal: passwordSlot.slot.seal, sign: passwordSlot.slot.sign }, recovery: { seal: recoverySlot.slot.seal, sign: recoverySlot.slot.sign } };
   }
@@ -334,6 +334,12 @@ interface OpenedAccount {
   protocol?: number;
 }
 
+const ROOT_CHECK = utf8("zuna/account-slot/v1/root-check");
+
+/** Whether this core is really the account's: it has the key the account began with, and can sign with it. */
+const holdsRoot = (core: VaultCore, root: Uint8Array): boolean =>
+  equalBytes(core.rootPublic, root) && wasm.verify(root, ROOT_CHECK, wasm.sign(core.rootSecret, ROOT_CHECK));
+
 /** Opens what a sign-in handed over, by whichever way this secret's account key is wrapped now. */
 function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | RecoveryKeys, session: LoginResponse): OpenedAccount {
   if ((session.protocol ?? 0) < ACCOUNT_PROTOCOL) {
@@ -343,20 +349,13 @@ function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | 
   const generation = session.generation ?? 0;
   const payload = session.head_link ? decode(session.head_link.payload) : null;
   const linkHash = payload ? hash(payload) : EMPTY_LINK_HASH;
+  const secrets = session.slot ? openSlot(kind, keys.slotKey, decode(session.slot.sealed_secret)) : null;
   let accountKey: Uint8Array;
-  let slotSign: Uint8Array;
-  let newSlot: NewSlot | null = null;
-  if (session.slot) {
-    const secrets = openSlot(kind, keys.slotKey, decode(session.slot.sealed_secret));
+  if (secrets && session.slot) {
     accountKey = openFromSlot(secrets.seal, kind, target.username, generation, linkHash, decode(session.slot.sealed_key));
-    slotSign = secrets.sign;
   } else {
     const first = unwrapAccountKey(keys.wrapKey, decode(session.wrapped_key), kind);
     accountKey = generation > 0 ? openBridge(first, session.user_id, generation, decode(session.bridge)) : first;
-    // The secret is in hand, which is the only time this wrapper can become a slot.
-    const made = createSlot(kind, keys.slotKey);
-    newSlot = made.slot;
-    slotSign = made.secrets.sign;
   }
   if (generation > 0) {
     const link = payload && parseLinkPayload(payload);
@@ -366,7 +365,10 @@ function openAccount(target: SignInTarget, kind: SlotKind, keys: PasswordKeys | 
   }
   const core = openVaultCore(accountKey, decode(session.vault_core), generation, session.user_id);
   if (core.generation !== generation) throw new Error("What the server sent for this account doesn't fit together. Not continuing.");
-  return { accountKey, core, slotSign, newSlot, protocol: ACCOUNT_PROTOCOL };
+  if (secrets?.root && !holdsRoot(core, secrets.root)) throw new Error("What the server sent for this account doesn't fit together. Not continuing.");
+  // The secret is in hand, which is the only time a wrapper can become a slot, or a slot from before they said whose account they're for can say so.
+  const made = secrets?.root ? null : createSlot(kind, keys.slotKey, core.rootPublic);
+  return { accountKey, core, slotSign: secrets?.sign ?? made!.secrets.sign, newSlot: made?.slot ?? null, protocol: ACCOUNT_PROTOCOL };
 }
 
 /**
@@ -404,7 +406,7 @@ export function login(serverUrlInput: string, username: string, passwordText: st
     const { accountKey, core, slotSign, newSlot, protocol } = openAccount(target, "password", password, session);
     const device = await createDevice(api, core, session.user_id, slotSign, protocol);
     let plan: RotationPlan | undefined;
-    if (newSlot && core.generation > 0) {
+    if (newSlot && (core.generation > 0 || session.slot)) {
       plan = { slots: [newSlot] };
     } else if (newSlot) {
       core.slots = { ...core.slots, password: { seal: newSlot.seal, sign: newSlot.sign } };
@@ -456,7 +458,7 @@ export function recover(
     const kdfBody = { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism };
     let plan: RotationPlan | undefined;
     if (protocol) {
-      const slots = [createSlot("password", password.slotKey).slot];
+      const slots = [createSlot("password", password.slotKey, core.rootPublic).slot];
       if (newSlot) slots.push(newSlot);
       plan = { slots, password: { recovery_auth_key: recovery.authKey, kdf: { ...kdf }, auth_key: password.authKey } };
     } else {
@@ -486,7 +488,7 @@ export function recover(
 }
 
 /** What a rotation has to do to change the password, along with what proves the current one. */
-export async function planPasswordChange(api: Api, username: string, current: string, next: string): Promise<{ plan: RotationPlan; keys: PasswordKeys }> {
+export async function planPasswordChange(api: Api, username: string, current: string, next: string, core: VaultCore): Promise<{ plan: RotationPlan; keys: PasswordKeys }> {
   const target = { serverUrl: api.baseUrl, username };
   const params = await api.prelogin(username);
   const keys = derivePasswordKeys(
@@ -502,7 +504,7 @@ export async function planPasswordChange(api: Api, username: string, current: st
   const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
   const nextKeys = derivePasswordKeys(next, kdf, target);
   return {
-    plan: { slots: [createSlot("password", nextKeys.slotKey).slot], password: { current_auth_key: keys.authKey, kdf: { ...kdf }, auth_key: nextKeys.authKey } },
+    plan: { slots: [createSlot("password", nextKeys.slotKey, core.rootPublic).slot], password: { current_auth_key: keys.authKey, kdf: { ...kdf }, auth_key: nextKeys.authKey } },
     keys,
   };
 }
@@ -526,8 +528,8 @@ export async function planRecoveryChange(api: Api, username: string, current: st
   );
   const recoveryKey = wasm.randomBytes(RECOVERY_KEY_BYTES);
   const recovery = deriveRecoveryKeys(recoveryKey, target);
-  const slots = [createSlot("recovery", recovery.slotKey).slot];
-  if (!core.slots.password) slots.push(createSlot("password", keys.slotKey).slot);
+  const slots = [createSlot("recovery", recovery.slotKey, core.rootPublic).slot];
+  if (!core.slots.password) slots.push(createSlot("password", keys.slotKey, core.rootPublic).slot);
   return {
     plan: { slots, recovery: { current_auth_key: keys.authKey, recovery_auth_key: recovery.authKey }, once: true },
     keys,

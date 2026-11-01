@@ -11,7 +11,7 @@ import {
 import { normalizeServerUrl, Api, ApiError } from "./api";
 import { coreFromJson, coreToJson, randomId } from "./crypto";
 import type { RotationPlan } from "./generations";
-import { fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
+import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 import { migrate, type DbProvider, type LocalDb } from "./db";
 import type { FileAdapter } from "./files";
 import { findLink, makeLinkPreview, type WebAdapter } from "./links";
@@ -118,6 +118,11 @@ export class ZunaClient {
     return serverKeyFor(this.options.deviceKey, serverId);
   }
 
+  private storedAccount(serverId: string): AccountState {
+    const row = this.index.get<{ account: Uint8Array }>("SELECT account FROM servers WHERE id = ?", [serverId])!;
+    return decodeAccount(fromUtf8(wasm.aeadOpen(this.serverKey(serverId), row.account, label("account"))));
+  }
+
   private async createSession(serverId: string, account: AccountState): Promise<ServerSession> {
     const db = await this.options.db.open(serverDbName(serverId));
     migrate(db);
@@ -158,7 +163,13 @@ export class ZunaClient {
 
   private async addAccount(account: AccountState, isNewDevice: boolean, plan?: RotationPlan): Promise<string> {
     const existing = this.listServers().find((server) => server.url === account.serverUrl);
-    if (existing) await this.forgetServer(existing.id);
+    if (existing) {
+      // An account never begins with another key, so what's here isn't given up for a server that says it did.
+      if (existing.userId === account.userId && !equalBytes(this.storedAccount(existing.id).core.rootPublic, account.core.rootPublic)) {
+        throw new Error("What the server sent for this account doesn't match what this device knows about it. Nothing here was changed.");
+      }
+      await this.forgetServer(existing.id);
+    }
     const serverId = randomId();
     const sealed = wasm.aeadSeal(this.serverKey(serverId), utf8(encodeAccount(account)), label("account"));
     const info = await new Api(account.serverUrl).info();

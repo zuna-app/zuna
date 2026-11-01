@@ -7,9 +7,9 @@ import { join } from "node:path";
 import * as wasm from "@zuna/crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api, ApiError, decode } from "../src/api";
-import { createCertificate, openVaultItem, parseCertificate, randomId, sealVaultItem, derivePasswordKeys } from "../src/crypto";
+import { createCertificate, openVaultItem, parseCertificate, randomId, sealVaultCore, sealVaultItem, derivePasswordKeys, type VaultCore } from "../src/crypto";
 import { fromBase64, toBase64, utf8 } from "../src/encoding";
-import { keyCommitment, parseLinkPayload, sealBundle, signSealKey } from "../src/generations";
+import { EMPTY_LINK_HASH, hash, keyCommitment, openSlot, parseLinkPayload, sealBundle, sealToSlot, signSealKey } from "../src/generations";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -1496,6 +1496,122 @@ describe("verified contacts", () => {
     const phone = await secondDevice(erin, "erin-phone");
     await waitFor(() => sessionOf(phone).headGeneration(dave.userId) === 1, "the phone to follow");
     await waitFor(() => phone.session.safetyCheck(dave.userId)?.trust === "verified", "the phone to agree");
+  });
+});
+
+describe("signing in, against a server that chose the keys", () => {
+  const usernameOf = (app: TestApp) => app.session.getSelf().username;
+  const newDevice = async (name: string) => {
+    const app = await new TestApp(name).open();
+    open.push(app);
+    return app;
+  };
+
+  /** A core a server could make with what it holds: nothing of the account's, except its public keys. */
+  function fakeCore(generation: number, fields: Partial<VaultCore> = {}): VaultCore {
+    const identity = wasm.signingKeygen();
+    const hpke = wasm.hpkeKeygen();
+    return {
+      identityPublic: identity.publicKey,
+      identitySecret: identity.secretKey,
+      hpkePublic: hpke.publicKey,
+      hpkeSecret: hpke.secretKey,
+      communityKey: wasm.randomBytes(32),
+      generation,
+      rootPublic: identity.publicKey,
+      rootSecret: identity.secretKey,
+      olderKeys: {},
+      olderHpkeSecrets: [],
+      firstKey: null,
+      closedBelow: 0,
+      slots: {},
+      ...fields,
+    };
+  }
+
+  /** Anyone can seal to a slot. This does, and puts a core under the key it chose. */
+  function sealToPasswordSlot(app: TestApp, core: VaultCore): void {
+    const db = serverDatabase();
+    const { seal_key: seal } = db.prepare("SELECT seal_key FROM account_slots WHERE user_id = ? AND kind = 'password'").get(app.userId) as { seal_key: Uint8Array };
+    const chosen = wasm.randomBytes(32);
+    db.prepare("UPDATE account_slots SET sealed_key = ? WHERE user_id = ? AND kind = 'password'").run(sealToSlot(seal, "password", usernameOf(app), 0, EMPTY_LINK_HASH, chosen), app.userId);
+    db.prepare("UPDATE users SET vault_core = ? WHERE id = ?").run(sealVaultCore(chosen, core), app.userId);
+    db.close();
+  }
+
+  it("refuses an account key that opens a core of the server's own", async () => {
+    const dave = await person("dave");
+    sealToPasswordSlot(dave, fakeCore(0));
+    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("doesn't fit together");
+  });
+
+  it("refuses a core naming the account's real first key, without its secret", async () => {
+    const dave = await person("dave");
+    sealToPasswordSlot(dave, fakeCore(0, { rootPublic: sessionOf(dave).account.core.rootPublic }));
+    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("doesn't fit together");
+  });
+
+  it("refuses them at a later generation too, with a link saying the key is right", async () => {
+    const dave = await person("dave");
+    await dave.session.rotate();
+    const core = fakeCore(1, { rootPublic: sessionOf(dave).account.core.rootPublic });
+    const chosen = wasm.randomBytes(32);
+    const db = serverDatabase();
+    const { seal_key: seal } = db.prepare("SELECT seal_key FROM account_slots WHERE user_id = ? AND kind = 'password'").get(dave.userId) as { seal_key: Uint8Array };
+    const { payload } = db.prepare("SELECT payload FROM identity_links WHERE user_id = ? AND generation = 1").get(dave.userId) as { payload: Uint8Array };
+    const forged = utf8(JSON.stringify({ ...JSON.parse(new TextDecoder().decode(payload)), key_commit: toBase64(keyCommitment(chosen, dave.userId, 1)) }));
+    db.prepare("UPDATE identity_links SET payload = ? WHERE user_id = ? AND generation = 1").run(forged, dave.userId);
+    db.prepare("UPDATE account_slots SET sealed_key = ? WHERE user_id = ? AND kind = 'password'").run(sealToSlot(seal, "password", usernameOf(dave), 1, hash(forged), chosen), dave.userId);
+    db.prepare("UPDATE users SET vault_core = ? WHERE id = ?").run(sealVaultCore(chosen, core, dave.userId), dave.userId);
+    db.close();
+    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("doesn't fit together");
+  });
+
+  /** Puts back the slot as it was sealed before it said whose account it's for, as a server that kept a copy could. */
+  async function slotFromBefore(app: TestApp): Promise<{ slotKey: Uint8Array }> {
+    const username = usernameOf(app);
+    const params = await new Api(server.url).prelogin(username);
+    const { slotKey } = derivePasswordKeys(
+      "correct horse battery",
+      { salt: fromBase64(params.salt), memory: params.memory, iterations: params.iterations, parallelism: params.parallelism },
+      { serverUrl: server.url, username },
+    );
+    const db = serverDatabase();
+    const { sealed_secret: sealed } = db.prepare("SELECT sealed_secret FROM account_slots WHERE user_id = ? AND kind = 'password'").get(app.userId) as { sealed_secret: Uint8Array };
+    const secrets = openSlot("password", slotKey, sealed);
+    const older = wasm.aeadSeal(slotKey, utf8(JSON.stringify({ seal: toBase64(secrets.seal), sign: toBase64(secrets.sign) })), utf8("zuna/account-slot/v1/secret|password"));
+    db.prepare("UPDATE account_slots SET sealed_secret = ? WHERE user_id = ? AND kind = 'password'").run(older, app.userId);
+    db.close();
+    return { slotKey };
+  }
+
+  it("makes a slot say whose account it's for, the next time its secret is entered", async () => {
+    const dave = await person("dave");
+    const root = toBase64(sessionOf(dave).account.core.rootPublic);
+    const { slotKey } = await slotFromBefore(dave);
+    const phone = await secondDevice(dave, "dave-phone");
+    await atGeneration(phone, 1);
+    const db = serverDatabase();
+    const { sealed_secret: sealed } = db.prepare("SELECT sealed_secret FROM account_slots WHERE user_id = ? AND kind = 'password'").get(dave.userId) as { sealed_secret: Uint8Array };
+    db.close();
+    expect(toBase64(openSlot("password", slotKey, sealed).root!)).toBe(root);
+  });
+
+  it("gives up nothing on a device that already knows the account, whatever the slot says", async () => {
+    const dave = await person("dave");
+    const serverId = dave.serverId;
+    await slotFromBefore(dave);
+    sealToPasswordSlot(dave, fakeCore(0));
+    await expect(dave.client.login(server.url, usernameOf(dave), "correct horse battery")).rejects.toThrow("doesn't match what this device knows");
+    expect(dave.client.listServers().map((item) => item.id)).toEqual([serverId]);
+    expect(dave.client.session(serverId).getSelf().userId).toBe(dave.userId);
+  });
+
+  it("still lets the account's own new device in", async () => {
+    const dave = await person("dave");
+    const phone = await secondDevice(dave, "dave-phone");
+    expect(generationOf(phone)).toBe(0);
+    expect(toBase64(sessionOf(phone).account.core.rootPublic)).toBe(toBase64(sessionOf(dave).account.core.rootPublic));
   });
 });
 

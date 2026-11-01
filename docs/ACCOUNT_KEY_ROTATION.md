@@ -172,12 +172,13 @@ slot key    = HKDF(Argon2id master or recovery key, "zuna/slot/v1|kind|server|us
 seal pair   = hpkeKeygen()                  (X25519)
 sign pair   = signingKeygen()               (Ed25519)
 
-sealed_secret = AEAD(slot key, seal secret + sign secret)     changes only with the secret
-sealed_key    = HPKE(seal public, AK_g)                       changes every generation
+sealed_secret = AEAD(slot key, seal secret + sign secret + IK_0)   changes only with the secret
+sealed_key    = HPKE(seal public, AK_g)                            changes every generation
 ```
 
 - **A device making a generation** seals to the seal public key. It needs no secret, and no device ever stores a slot's secrets or the slot key.
 - **Someone signing in** gets `sealed_secret` and `sealed_key` from the server after proving the sign-in key, as they get the wrapper today. They derive the slot key, open the secret, and open the account key.
+- **That key could have been sealed by anyone,** the server included, so it only counts if it's the account's. `sealed_secret` names the root, and only that secret can write it, so whoever signs in requires a core that has the root and can sign with its secret. Without this, a server could seal a key of its own and put a core of its own under it, and a new device would believe everything from there on. A slot from before this names no root and is accepted, then replaced by a rotation, the next time its secret is entered. A server can still serve a copy of such a slot that it kept, so the check holds in full for accounts whose slots always named it.
 - **Changing the secret** replaces the slot, which needs a new generation so that the slot's new public key is announced through a link.
 - **Guessing passwords offline costs the same as today.** A server can test a guess against `sealed_secret`, at one Argon2id per guess, as it can test one against `wrapped_key_password` now. The limit at `SECURITY.md:108` doesn't change.
 - **The slot key has its own HKDF label** and is bound to the server and username, like the sign-in key (`crypto.ts:74`), rather than reusing `zuna/wrap/v1`.
@@ -406,7 +407,7 @@ A server could list a fake older device for someone, to force the root formula. 
 2. **Someone who knows the password or recovery key,** until it changes. No device stores the recovery key, so a password thief never sees it, and it needn't change with the password. A stolen recovery key needs replacing, and that remains the person's choice, in Settings as today.
 3. **A rotation by someone with a session.** Someone with the password can register a device and rotate first, leaving the real person's devices off the list. They could already remove those devices and change both secrets today (`api/accounts.go:666`, `api/accounts.go:453`, `api/accounts.go:497`). Rotation adds no power, and the devices dropped see themselves signed out. Question 9 asks whether the recovery key should outrank this.
 4. **Forks shown to anyone who hasn't got the real link.** A contact who sees the attacker's link first follows it until a shared tree or the emoji shows otherwise. This needs the old identity key and the server together. If the attacker also holds a stolen long-standing device, the fork even passes the continuity check, and a sibling that was offline during the real rotation can be misled too, into installing an account key the attacker chose. The server would then have to keep that sibling apart from the real chain, and every tree it shares with the person's other devices or with an updated contact gives the fork away.
-5. **A brand-new device being served an old generation.** It has nothing to compare with, so it believes the newest thing the server shows. It's found out quickly: an updated contact sees a certificate from an old generation that isn't carried, and removes and warns about it, and other devices of the account do the same.
+5. **A brand-new device being served an old generation, or keys chosen by a holder.** It has nothing to compare with, so it believes the newest thing the server shows. A server alone can only do this with generations that really happened. A holder, who has the root secret because every core does, can also make up a core and an account key the slot's check accepts, and read what that device then seals under it. It's found out quickly: an updated contact sees a certificate from an old generation that isn't carried, or one from a chain they don't hold, and removes and warns about it, and other devices of the account do the same. A device that already knows the account refuses a different root before erasing anything.
 6. **The bridge,** for accounts that still have one (section 11.1).
 7. **Older clients as contacts,** which go on trusting the root (section 11.3). In a group with an updated member, that member still removes the ghost and warns everyone concerned.
 8. **Forged old messages.** A removed device with old epoch keys and a colluding server can still present a message in an epoch before it left, which is possible today. `couldBeSent` only stops it for later epochs (`session.ts:2362`).
@@ -575,7 +576,7 @@ Existing accounts keep their old wrappers, so older clients aren't affected ther
 
 ### Stage 6: retiring compatibility
 
-**Change:** owner's decision 3. Stop signing with the root, remove the old routes and dual fields, and drop the root secret from the core.
+**Change:** owner's decision 3. Stop signing with the root, remove the old routes and dual fields, and drop the root secret from the core. Signing in checks that a core can sign with the root secret, so that has to change with it: to the link chain from the root, checked as far as the head's key commitment, which has to be available before a device exists.
 
 **Tests:** update the Stage 3 fixture so that old clients get `426`.
 
@@ -598,6 +599,7 @@ Existing accounts keep their old wrappers, so older clients aren't affected ther
 13. **Post-quantum.** Slots and bundles are classical X25519 and could be recorded now and opened later. MLS here is classical too (`mls.rs:15`), so this doesn't seem the place to start, but it's a long-lived key, so do you agree?
 14. **Rule 3, narrowed.** Section 7.4's rule 3 used to accept any device on an account lacking a slot, which let a server alone be sealed the new key. It now takes one this device already knew by the same key. Is that enough, and does the honest device left out (one nobody has seen, with no proof) always get back in?
 15. **Seal key generations.** A seal key now also has a signature saying its generation, and only what a device has seen counts. Is memory on each device enough, or should a rotation refuse a seal key from too far behind the current generation, at the cost of leaving out a device that's been away?
+16. **What a slot proves.** A slot's sealed secret now names the root, and whoever signs in requires a core that can sign with its secret. That stops a server alone, but not a holder, who has the root secret. Is there something a device can publish without the secret, that someone who signs in can check, that a holder can't make? Slots can't be rewritten without their secret, so it would have to come from the slot's public half or a link.
 
 ### For the owner
 
@@ -659,7 +661,7 @@ The slot's label uses the lowercase username because a new account's slots are m
 
 ```
 slot key      = HKDF(master or recovery key, no salt, "zuna/slot/v1|kind|server|username", 32)
-sealed_secret = AEAD(slot key, { seal, sign }, "zuna/account-slot/v1/secret|kind")
+sealed_secret = AEAD(slot key, { seal, sign, root }, "zuna/account-slot/v1/secret|kind")
 seal key sig  = Sign(device key, "zuna/device-seal/v1|user|device|" | seal public)
 enroll proof  = Sign(slot sign,  "zuna/device-enroll/v1|user|device|" | device key)
 ```

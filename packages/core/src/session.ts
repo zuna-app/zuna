@@ -4670,9 +4670,9 @@ export class ServerSession {
   }
 
   async changePassword(current: string, next: string): Promise<void> {
-    const { username, accountKey } = this.account;
+    const { username, accountKey, core } = this.account;
     if (!this.modern) return changePassword(this.api, username, accountKey, current, next);
-    const { plan, keys } = await planPasswordChange(this.api, username, current, next);
+    const { plan, keys } = await planPasswordChange(this.api, username, current, next, core);
     await this.rotateProving(plan, keys);
   }
 
