@@ -42,6 +42,7 @@ interface StoredUser {
   username: string;
   profile: Profile;
   devices: { id: string; signatureKey: string }[];
+  trust?: string;
 }
 
 interface StoredGroup {
@@ -97,6 +98,12 @@ export async function previewPush(
   const device = sender?.devices.find((item) => item.id === message.sender_device);
   const epochRow = db.get<{ key: Uint8Array }>("SELECT key FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, message.epoch]);
   if (!group || !sender || !device || !epochRow) return preview({});
+  // What the app wouldn't show as theirs isn't worded as theirs here either: a message
+  // from a device in an epoch after it left, or after its epoch ended (couldBeSent in
+  // session.ts), or from someone whose key changed in a way that doesn't follow.
+  const left = db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND device_id = ?", [groupId, message.sender_device]);
+  const next = db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1]);
+  if ((left && message.epoch >= left.epoch) || (next && message.seq >= next.seq) || sender.trust === "changed") return preview({});
   const epochKey = wasm.aeadOpen(key, epochRow.key, label("epoch"));
   const opened = openEnvelope<unknown>(
     epochKey,

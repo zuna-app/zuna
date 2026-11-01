@@ -737,6 +737,28 @@ describe("notifications from a push", () => {
     expect(preview.sender?.picture).toBeUndefined();
   });
 
+  it("says only that there's a message, when the app wouldn't trust whose it is", async () => {
+    alice.session.sendMessage(`user:${bob.userId}`, { text: "trust me" });
+    await waitFor(() => bob.texts(`user:${alice.userId}`).includes("trust me"), "delivery to bob");
+    const message = received(bob, "trust me");
+    const session = bob.session as any;
+    const generic = { body: "New message", decrypted: false };
+
+    const row = session.messageRow(message.groupId, message.id);
+    session.db.run("INSERT INTO device_departures(group_id, device_id, epoch) VALUES(?, ?, ?)", [message.groupId, row.sender_device, row.epoch]);
+    expect(await previewPush(extension(bob), bob.serverId, message.groupId, message.id)).toMatchObject(generic);
+    session.db.run("DELETE FROM device_departures WHERE group_id = ? AND device_id = ?", [message.groupId, row.sender_device]);
+
+    const sender = session.users.get(alice.userId);
+    const trust = sender.trust;
+    sender.trust = "changed";
+    session.persistUser(sender);
+    expect(await previewPush(extension(bob), bob.serverId, message.groupId, message.id)).toMatchObject(generic);
+    sender.trust = trust;
+    session.persistUser(sender);
+    expect(await previewPush(extension(bob), bob.serverId, message.groupId, message.id)).toMatchObject({ text: "trust me", decrypted: true });
+  });
+
   it("brings the sender's and the group's pictures when asked", async () => {
     const face = new Uint8Array(70_000).map((_, i) => (i * 7) & 255);
     const crest = new Uint8Array(500).fill(3);
