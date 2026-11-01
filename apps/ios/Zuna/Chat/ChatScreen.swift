@@ -89,13 +89,9 @@ struct ChatScreen: View {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 VStack(spacing: 0) {
-                    if conversation.unreadMentions > 0, let groupId = conversation.groupId {
-                        toMention(count: conversation.unreadMentions) {
-                            Task {
-                                guard let next = try? await model.core.session(serverId).nextUnreadMention(groupId) else { return }
-                                await model.jumpToMessage(serverId, groupId: groupId, messageId: next.id, seq: next.seq)
-                            }
-                        }
+                    if let groupId = conversation.groupId, conversation.kind == .group {
+                        MentionButton(serverId: serverId, groupId: groupId, conversation: conversation, atBottom: atBottom)
+                            .id(listId)
                     }
                     if let list, !atBottom || list.detached {
                         toBottom(unread: atBottom ? 0 : conversation.unread) {
@@ -372,31 +368,6 @@ struct ChatScreen: View {
         }
     }
 
-    /// As Telegram's "@": the oldest unread message that mentions you or replies to you, then the next.
-    private func toMention(count: Int, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: "at")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Theme.text1)
-                .frame(width: 42, height: 42)
-                .background(Theme.bg3, in: .circle)
-                .overlay(Circle().stroke(Theme.lineStrong))
-                .overlay(alignment: .top) {
-                    Text(count > 99 ? "99+" : "\(count)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(model.settings.accent.onAccent)
-                        .padding(.horizontal, 5)
-                        .frame(minHeight: 18)
-                        .background(model.settings.accent.color, in: .capsule)
-                        .offset(y: -9)
-                }
-        }
-        .buttonStyle(.plain)
-        .padding([.horizontal, .top], 12)
-        .accessibilityLabel("Go to the next message that mentions you, \(count) unread")
-        .accessibilityIdentifier(A11y.Chat.toMention)
-    }
-
     private func toBottom(unread: Int, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: "chevron.down")
@@ -449,6 +420,74 @@ struct ChatScreen: View {
 }
 
 /// The title and, under it, who's typing, members and online, or last seen, as on the desktop.
+/// As Telegram's "@": goes to the oldest message here that mentions you or replies
+/// to you, then the next. A chat opens at its newest message, which reads it, so it
+/// keeps to where the chat was read when it opened, and adds those that arrive while
+/// you're scrolled up, as the desktop does.
+private struct MentionButton: View {
+    let serverId: String
+    let groupId: String
+    let conversation: ConversationView
+    let atBottom: Bool
+    @Environment(AppModel.self) private var model
+    @State private var readAtOpen: Int
+    @State private var asked = false
+    @State private var mentions: [MessagePlace] = []
+
+    init(serverId: String, groupId: String, conversation: ConversationView, atBottom: Bool) {
+        self.serverId = serverId
+        self.groupId = groupId
+        self.conversation = conversation
+        self.atBottom = atBottom
+        _readAtOpen = State(initialValue: conversation.ownRead)
+    }
+
+    private struct Ask: Equatable {
+        let atBottom: Bool
+        let waiting: Int
+    }
+
+    var body: some View {
+        // A stack rather than a Group, which would pass the task to children it doesn't have yet.
+        VStack(spacing: 0) {
+            if let next = mentions.first {
+                Button {
+                    mentions.removeFirst()
+                    Task {
+                        try? await model.core.session(serverId).markMentionSeen(groupId, id: next.id)
+                        await model.jumpToMessage(serverId, groupId: groupId, messageId: next.id, seq: next.seq)
+                    }
+                } label: {
+                    Image(systemName: "at")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Theme.text1)
+                        .frame(width: 42, height: 42)
+                        .background(Theme.bg3, in: .circle)
+                        .overlay(Circle().stroke(Theme.lineStrong))
+                        .overlay(alignment: .top) {
+                            Text(mentions.count > 99 ? "99+" : "\(mentions.count)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(model.settings.accent.onAccent)
+                                .padding(.horizontal, 5)
+                                .frame(minHeight: 18)
+                                .background(model.settings.accent.color, in: .capsule)
+                                .offset(y: -9)
+                        }
+                }
+                .buttonStyle(.plain)
+                .padding([.horizontal, .top], 12)
+                .accessibilityLabel("Go to the next message that mentions you, \(mentions.count) left")
+                .accessibilityIdentifier(A11y.Chat.toMention)
+            }
+        }
+        .task(id: Ask(atBottom: atBottom, waiting: conversation.unreadMentions)) {
+            if asked && (atBottom || conversation.unreadMentions == 0) { return }
+            asked = true
+            if let found = try? await model.core.session(serverId).unreadMentions(groupId, after: readAtOpen) { mentions = found }
+        }
+    }
+}
+
 private struct ChatHeader: View {
     @Environment(AppModel.self) private var model
     let conversation: ConversationView

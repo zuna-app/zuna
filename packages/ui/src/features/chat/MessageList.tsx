@@ -87,11 +87,44 @@ const Header = ({ context }: { context?: { loading: boolean } }) => (
 
 const ListFooter = () => <div style={{ height: 10 }} />;
 
+/**
+ * As Telegram's "@": goes to the oldest message here that mentions you or replies
+ * to you, then the next. A chat opens at its newest message, which reads it, so it
+ * keeps to where the chat was read when it opened, and adds those that arrive
+ * while you're scrolled up.
+ */
+function MentionButton({ conversation, groupId, atBottom, raised }: { conversation: ConversationView; groupId: string; atBottom: boolean; raised: boolean }) {
+  const session = useApp((state) => state.session);
+  const jumpToMessage = useApp((state) => state.jumpToMessage);
+  const readAtOpen = useRef(conversation.ownRead);
+  const asked = useRef(false);
+  const [mentions, setMentions] = useState<{ id: string; seq: number }[]>([]);
+
+  useEffect(() => {
+    if (asked.current && (atBottom || conversation.unreadMentions === 0)) return;
+    asked.current = true;
+    void session().unreadMentions(groupId, readAtOpen.current).then(setMentions).catch(() => undefined);
+  }, [groupId, atBottom, conversation.unreadMentions, session]);
+
+  const next = mentions[0];
+  if (!next) return null;
+  const go = () => {
+    setMentions(mentions.slice(1));
+    void session().markMentionSeen(groupId, next.id).catch(() => undefined);
+    void jumpToMessage(groupId, next.id, next.seq);
+  };
+  return (
+    <button className={`to-bottom to-mention${raised ? " is-raised" : ""}`} onClick={go} aria-label={`Go to the next message that mentions you, ${mentions.length} left`}>
+      <AtSign size={21} strokeWidth={1.7} />
+      <span className="to-bottom-badge">{mentions.length > 99 ? "99+" : mentions.length}</span>
+    </button>
+  );
+}
+
 export function MessageList({ conversation, listId, emptyState }: { conversation: ConversationView; listId: string; emptyState: ReactNode }) {
   const list = useApp((state) => state.lists[listId]);
   const loadOlder = useApp((state) => state.loadOlder);
   const returnToLatest = useApp((state) => state.returnToLatest);
-  const jumpToMessage = useApp((state) => state.jumpToMessage);
   const jumpTarget = useApp((state) => state.jumpTarget);
   const windowFocused = useApp((state) => state.windowFocused);
   const session = useApp((state) => state.session);
@@ -347,13 +380,6 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     else goToNewest();
   };
 
-  // As Telegram's "@": the oldest unread message that mentions you or replies to you, then the next.
-  const toNextMention = async () => {
-    if (!conversation.groupId) return;
-    const next = await session().nextUnreadMention(conversation.groupId);
-    if (next) await jumpToMessage(conversation.groupId, next.id, next.seq);
-  };
-
   const firstIndex = list?.firstIndex ?? 0;
   const hasMore = !!list?.hasMore;
   const itemContent = useCallback(
@@ -427,15 +453,8 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         components={{ Header, Footer: ListFooter }}
         className="virtuoso"
       />
-      {conversation.unreadMentions > 0 && (
-        <button
-          className={`to-bottom to-mention${!atBottom || list.detached ? " is-raised" : ""}`}
-          onClick={() => void toNextMention()}
-          aria-label={`Go to the next message that mentions you, ${conversation.unreadMentions} unread`}
-        >
-          <AtSign size={21} strokeWidth={1.7} />
-          <span className="to-bottom-badge">{conversation.unreadMentions > 99 ? "99+" : conversation.unreadMentions}</span>
-        </button>
+      {conversation.groupId && (
+        <MentionButton key={listId} conversation={conversation} groupId={conversation.groupId} atBottom={atBottom} raised={!atBottom || list.detached} />
       )}
       {(!atBottom || list.detached) && (
         <button className="to-bottom" onClick={scrollToBottom} aria-label="Go to the newest messages">

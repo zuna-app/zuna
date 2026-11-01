@@ -161,19 +161,11 @@ struct ShareLocationSheet: View {
                     .foregroundStyle(Theme.text3)
                 Spacer()
                 if error != nil {
-                    Button("Try again") { attempt += 1 }
-                        .buttonStyle(.borderedProminent)
-                        .tint(model.settings.accent.color)
+                    PrimaryButton(title: "Try again") { attempt += 1 }
                 } else {
-                    Button {
-                        send()
-                    } label: {
-                        Text("Send location").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(model.settings.accent.color)
-                    .disabled(found == nil || sending)
-                    .accessibilityIdentifier(A11y.Composer.sendLocation)
+                    PrimaryButton(title: "Send location", busy: sending, action: send)
+                        .disabled(found == nil)
+                        .accessibilityIdentifier(A11y.Composer.sendLocation)
                 }
             }
             .padding(24)

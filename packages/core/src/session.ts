@@ -4224,23 +4224,25 @@ export class ServerSession {
   }
 
   /**
-   * The oldest unread message in a group that mentions this account or replies to it,
-   * as Telegram's "@" button finds it. It stops counting as waiting, so the next
-   * call finds the one after.
+   * The messages in a group after `after` that mention this account or reply to it,
+   * oldest first, leaving out those already jumped to. A chat opens at its newest
+   * message, which reads it, so the app asks from where it was read up to when it
+   * opened, and Telegram's "@" button still goes to each.
    */
-  nextUnreadMention(groupId: string): { id: string; seq: number } | null {
-    const group = this.groups.get(groupId);
-    if (group?.kind !== "group") return null;
-    const row = this.db.get<{ row_id: number; id: string; seq: number }>(
-      `SELECT m.row_id, m.id, m.seq FROM media d JOIN messages m ON m.row_id = d.row_id
+  unreadMentions(groupId: string, after: number): { id: string; seq: number }[] {
+    if (this.groups.get(groupId)?.kind !== "group") return [];
+    return this.db.all<{ id: string; seq: number }>(
+      `SELECT m.id, m.seq FROM media d JOIN messages m ON m.row_id = d.row_id
        WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0
-       ORDER BY m.seq LIMIT 1`,
-      [groupId, this.mentionTag, group.ownRead, this.account.userId],
+       ORDER BY m.seq LIMIT 500`,
+      [groupId, this.mentionTag, after, this.account.userId],
     );
-    if (!row) return null;
-    this.db.run("UPDATE messages SET mention_seen = 1 WHERE row_id = ?", [row.row_id]);
+  }
+
+  /** A mention that was jumped to, which no longer counts as waiting. */
+  markMentionSeen(groupId: string, id: string): void {
+    this.db.run("UPDATE messages SET mention_seen = 1 WHERE group_id = ? AND id = ?", [groupId, id]);
     this.emitConversations();
-    return { id: row.id, seq: row.seq };
   }
 
   getConversations(): ConversationView[] {

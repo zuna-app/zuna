@@ -82,8 +82,10 @@ public struct SessionCalls: Sendable {
 
     public func loadAround(_ groupId: String, seq: Int) async throws -> [MessageView] { try await call("loadAround", [groupId, seq]) }
     public func messageById(_ groupId: String, id: String) async throws -> MessageView? { try await call("messageById", [groupId, id]) }
-    /// The oldest unread message that mentions you or replies to you, which stops counting as waiting, so the next call finds the one after.
-    public func nextUnreadMention(_ groupId: String) async throws -> MessagePlace? { try await call("nextUnreadMention", [groupId]) }
+    /// The messages in a group after `after` that mention you or reply to you, oldest first, leaving out those already jumped to.
+    public func unreadMentions(_ groupId: String, after: Int) async throws -> [MessagePlace] { try await call("unreadMentions", [groupId, after]) }
+    /// A mention that was jumped to, which no longer counts as waiting.
+    public func markMentionSeen(_ groupId: String, id: String) async throws { try await run("markMentionSeen", [groupId, id]) }
     public func loadPins(_ groupId: String) async throws -> [MessageView] { try await call("loadPins", [groupId]) }
     public func search(_ query: String, groupId: String? = nil, limit: Int = 50) async throws -> [SearchResult] {
         try await call("search", groupId.map { [query, $0, limit] } ?? [query, String?.none, limit])

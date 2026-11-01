@@ -62,21 +62,27 @@ describe("unread mentions", () => {
     // What you write yourself never counts.
     expect(chat(carol).unreadMentions).toBe(0);
 
-    expect(bob.session.nextUnreadMention(groupId)).toEqual({ id: first.id, seq: first.seq });
+    const readAtOpen = chat(bob).ownRead;
+    expect(bob.session.unreadMentions(groupId, readAtOpen)).toEqual([
+      { id: first.id, seq: first.seq },
+      { id: second.id, seq: second.seq },
+    ]);
+    bob.session.markMentionSeen(groupId, first.id);
     expect(chat(bob).unreadMentions).toBe(1);
     // An edit doesn't make one you've looked at count again.
     alice.session.editMessage(groupId, first.id, "@bob look again", {}, [bob.userId]);
     await waitFor(() => !!latest(bob, "@bob look again"), "bob to get the edit");
     expect(chat(bob).unreadMentions).toBe(1);
 
-    expect(bob.session.nextUnreadMention(groupId)).toEqual({ id: second.id, seq: second.seq });
-    expect(chat(bob)).toMatchObject({ unreadMentions: 0, mentioned: false, unread: 4 });
-    expect(bob.session.nextUnreadMention(groupId)).toBeNull();
+    // Opening the chat reads it, and the "@" button still goes to the one left, from where it was read before.
+    await bob.session.markRead(groupId, chat(bob).lastMessage!.seq!);
+    expect(chat(bob)).toMatchObject({ unreadMentions: 0, mentioned: false, unread: 0 });
+    expect(bob.session.unreadMentions(groupId, readAtOpen)).toEqual([{ id: second.id, seq: second.seq }]);
+    bob.session.markMentionSeen(groupId, second.id);
+    expect(bob.session.unreadMentions(groupId, readAtOpen)).toEqual([]);
   });
 
   it("stop counting once the chat is read past them, on every device", async () => {
-    // Which ones were jumped to stays on that device, so this starts from a chat read through.
-    await bob.session.markRead(groupId, chat(bob).lastMessage!.seq!);
     const mention = await send(alice, "@bob once more", { mentions: [bob.userId] });
     expect(chat(bob).unreadMentions).toBe(1);
     const laptop = await new TestApp("bob-laptop").open();
@@ -97,7 +103,7 @@ describe("unread mentions", () => {
     await waitFor(() => alice.texts(`user:${bob.userId}`).includes("@alice an answer"), "alice to get the answer");
     const dm = alice.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!;
     expect(dm).toMatchObject({ unread: 1, unreadMentions: 0, mentioned: false });
-    expect(alice.session.nextUnreadMention(dm.groupId!)).toBeNull();
+    expect(alice.session.unreadMentions(dm.groupId!, 0)).toEqual([]);
   });
 
   it("are found again after the index is built anew", async () => {
