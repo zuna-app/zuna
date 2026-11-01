@@ -1,4 +1,4 @@
-// Package webhost serves Zuna's web app: its files, with the headers that keep
+﻿// Package webhost serves Zuna's web app: its files, with the headers that keep
 // it safe, and the link previews a page can't fetch for itself. It knows nothing
 // about chat servers and keeps nothing of anyone's.
 package webhost
@@ -60,6 +60,8 @@ type host struct {
 	csp       string
 	ip        *clientip.Resolver
 	limiter   *ratelimit.Keyed
+	daily     *ratelimit.Keyed
+	overall   *rate.Limiter
 	client    *http.Client
 	resolve   func(ctx context.Context, name string) ([]netip.Addr, error)
 	tlsConfig *tls.Config
@@ -85,6 +87,8 @@ func newHost(cfg Config) (*host, error) {
 		csp:     contentSecurityPolicy(cfg.Servers),
 		ip:      cfg.ClientIP,
 		limiter: ratelimit.NewKeyed(rate.Every(2*time.Second), 30),
+		daily:   ratelimit.NewKeyed(rate.Every(24*time.Hour/previewsPerDay), previewsPerDay),
+		overall: rate.NewLimiter(previewsPerSecond, previewBurst),
 		resolve: lookup,
 	}
 	if h.ip == nil {

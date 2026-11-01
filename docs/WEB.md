@@ -109,7 +109,7 @@ Each setting is a flag or an environment variable.
 
 ## Link previews
 
-A page can't read other sites, so `zuna-web` fetches pages for the previews people make while writing. It follows the desktop's rules: only HTTPS on the usual port, only public addresses, every redirect checked, at most 5 MiB, no cookies. The address a name leads to is checked as the connection is made. Only the app's own pages can ask, and each address is rate limited.
+A page can't read other sites, so `zuna-web` fetches pages for the previews people make while writing. It follows the desktop's rules: only HTTPS on the usual port, only public addresses, every redirect checked, at most 5 MiB, no cookies. The address a name leads to is checked as the connection is made. The app's own pages are the only ones a browser lets ask, but a script can send anything, so this makes the host a small public fetcher, with its address taking the blame. Each address is limited, by the moment and by the day, and so is the host overall.
 
 This means the host sees which links people preview. Websites see the host's address, not the person's. The chat server still never sees the links. To turn previews off, set `--previews off`.
 

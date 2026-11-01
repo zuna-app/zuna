@@ -1,4 +1,4 @@
-package webhost
+﻿package webhost
 
 import (
 	"context"
@@ -24,6 +24,11 @@ import (
 // leads to is checked as the connection is made, so it can't change in between.
 
 const (
+	// However many addresses ask, and however often one does over a day.
+	previewsPerSecond = 20
+	previewBurst      = 100
+	previewsPerDay    = 2000
+
 	previewMaxBytes     = 5 << 20
 	previewMaxRedirects = 5
 	previewTimeout      = 10 * time.Second
@@ -117,7 +122,10 @@ func (h *host) handlePreview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Not allowed", http.StatusForbidden)
 		return
 	}
-	if !h.limiter.Allow(clientip.Key(h.ip.Address(r))) {
+	// Scripts can send those headers too, so anyone can use this to fetch public pages
+	// with this host's address taking the blame. These are what stops that being worth it.
+	caller := clientip.Key(h.ip.Address(r))
+	if !h.limiter.Allow(caller) || !h.daily.Allow(caller) || !h.overall.Allow() {
 		http.Error(w, "Too many previews. Please wait a moment.", http.StatusTooManyRequests)
 		return
 	}

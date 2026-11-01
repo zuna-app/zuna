@@ -232,6 +232,26 @@ func TestPreviewsOnlyReachPublicHTTPS(t *testing.T) {
 	}
 }
 
+// Z-59: a script can ask as well as the app can, so there's a limit to what it gets.
+func TestPreviewsAreLimitedOverall(t *testing.T) {
+	h := newTestHost(t, Config{Previews: true, AllowLocal: true})
+	handler := h.handler()
+	limited := 0
+	for i := range 200 {
+		request := httptest.NewRequest("GET", "/_zuna/preview?url=https%3A%2F%2Fexample.com%2F&max=0", nil)
+		request.Header.Set("X-Zuna-Preview", "1")
+		request.RemoteAddr = "198.51." + strconv.Itoa(i/256) + "." + strconv.Itoa(i%256) + ":1234"
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code == http.StatusTooManyRequests {
+			limited++
+		}
+	}
+	if limited == 0 {
+		t.Fatal("200 previews from 200 addresses weren't limited")
+	}
+}
+
 // Z-54: the same list the clients go by.
 func TestPrivateAddressesMatchTheClients(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "..", "tests", "e2e", "fixtures", "addresses.json"))
