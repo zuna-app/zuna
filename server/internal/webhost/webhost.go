@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io/fs"
 	"mime"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -158,6 +159,14 @@ func contentSecurityPolicy(servers []string) string {
 	}, "; ")
 }
 
+// hostOf is the name a request was addressed to, without its port.
+func hostOf(r *http.Request) string {
+	if name, _, err := net.SplitHostPort(r.Host); err == nil {
+		return name
+	}
+	return r.Host
+}
+
 func (h *host) withHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		headers := w.Header()
@@ -168,7 +177,9 @@ func (h *host) withHeaders(next http.Handler) http.Handler {
 		headers.Set("Cross-Origin-Opener-Policy", "same-origin")
 		headers.Set("Cross-Origin-Resource-Policy", "same-origin")
 		headers.Set("Permissions-Policy", "microphone=(self), camera=(), geolocation=(), payment=(), usb=(), display-capture=()")
-		if r.TLS != nil {
+		// Behind a proxy there's no telling how a request arrived, but browsers ignore
+		// this over plain HTTP. Only for this machine would it stick to something else.
+		if !devHost(hostOf(r)) {
 			headers.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		next.ServeHTTP(w, r)

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -404,6 +405,16 @@ func (s *Server) Handler() http.Handler {
 	return s.withMiddleware(mux)
 }
 
+// forThisMachine reports whether a request was addressed to a name meaning this machine.
+func forThisMachine(r *http.Request) bool {
+	name := r.Host
+	if host, _, err := net.SplitHostPort(r.Host); err == nil {
+		name = host
+	}
+	name = strings.ToLower(name)
+	return name == "localhost" || strings.HasSuffix(name, ".localhost")
+}
+
 func (s *Server) withMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Authentication uses bearer tokens, never cookies, so allowing any
@@ -416,7 +427,9 @@ func (s *Server) withMiddleware(next http.Handler) http.Handler {
 		headers.Set("Access-Control-Max-Age", "86400")
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("Referrer-Policy", "no-referrer")
-		if r.TLS != nil {
+		// Behind a proxy there's no telling how a request arrived, but browsers ignore
+		// this over plain HTTP. Only for this machine would it stick to something else.
+		if !forThisMachine(r) {
 			headers.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		if r.Method == http.MethodOptions {

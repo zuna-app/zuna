@@ -85,7 +85,7 @@ It does two things.
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `no-referrer` |
 | `Permissions-Policy` | Microphone for itself, everything else off |
-| `Strict-Transport-Security` | When served over HTTPS |
+| `Strict-Transport-Security` | Unless it's on `localhost`. A proxy may be what ends TLS, and browsers ignore this over plain HTTP |
 | `Cache-Control` | `no-cache` for `index.html` and `version.json`, a year and `immutable` for hashed files |
 
 **It fetches pages for link previews,** at `GET /_zuna/preview?url=…&max=…`. This speaks exactly what `zuna-web://fetch` speaks on the desktop, so the core's `WebAdapter` doesn't change. The rules are the desktop's: only `https`, only public addresses, every redirect checked, at most 5 redirects and 5 MiB, 10 seconds, no cookies sent or kept, and its own user agent.
