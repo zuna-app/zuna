@@ -313,8 +313,8 @@ impl MlsClient {
 
     /// Returns `{ groupId, epoch }`.
     #[wasm_bindgen(js_name = joinFromWelcome)]
-    pub fn join_from_welcome(&self, welcome: &[u8]) -> JsResult<Object> {
-        let (group_id, epoch) = to_js(self.inner.join_from_welcome(welcome))?;
+    pub fn join_from_welcome(&self, welcome: &[u8], group_id: &[u8]) -> JsResult<Object> {
+        let (group_id, epoch) = to_js(self.inner.join_from_welcome(welcome, group_id))?;
         let object = Object::new();
         set(&object, "groupId", bytes(&group_id));
         set(&object, "epoch", JsValue::from(epoch as u32));

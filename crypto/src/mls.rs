@@ -159,7 +159,13 @@ impl MlsClient {
     pub fn generate_key_package(&self, last_resort: bool) -> Result<Vec<u8>> {
         let mut builder = KeyPackage::builder();
         if last_resort {
-            builder = builder.mark_as_last_resort();
+            // A leaf has to say it supports what its package carries, or nobody can add it.
+            let capabilities = Capabilities::builder()
+                .extensions(vec![ExtensionType::LastResort])
+                .build();
+            builder = builder
+                .leaf_node_capabilities(capabilities)
+                .mark_as_last_resort();
         }
         let bundle = builder
             .build(
@@ -319,13 +325,20 @@ impl MlsClient {
     }
 
     /// Joins from a Welcome. Returns the group ID and epoch.
-    pub fn join_from_welcome(&self, bytes: &[u8]) -> Result<(Vec<u8>, u64)> {
+    pub fn join_from_welcome(&self, bytes: &[u8], group_id: &[u8]) -> Result<(Vec<u8>, u64)> {
         let message = MlsMessageIn::tls_deserialize_exact(bytes).map_err(err("welcome decode"))?;
         let MlsMessageBodyIn::Welcome(welcome) = message.extract() else {
             return Err("expected a welcome".into());
         };
-        let group = StagedWelcome::build_from_welcome(&self.provider, &Self::join_config(), welcome)
-            .map_err(err("welcome process"))?
+        let builder = StagedWelcome::build_from_welcome(&self.provider, &Self::join_config(), welcome)
+            .map_err(err("welcome process"))?;
+        // Joining replaces what's held for the group a Welcome names, so one
+        // delivered as being for some other group mustn't get as far as that.
+        let names = builder.processed_welcome().unverified_group_info().group_id();
+        if names.as_slice() != group_id {
+            return Err("the welcome is for a different group".into());
+        }
+        let group = builder
             // A leaf that hasn't updated for months is still a valid member;
             // its lifetime shouldn't stop new people from joining the group.
             .skip_lifetime_validation()
@@ -505,7 +518,7 @@ mod tests {
         let kp = bob.generate_key_package(false).unwrap();
         let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
         alice.merge_pending(GROUP).unwrap();
-        let (id, _) = bob.join_from_welcome(&pending.welcome.unwrap()).unwrap();
+        let (id, _) = bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         assert_eq!(id, GROUP);
         (alice, bob)
     }
@@ -521,6 +534,29 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn a_welcome_delivered_as_another_groups_leaves_whats_held_alone() {
+        let alice = client("alice");
+        let bob = client("bob");
+        alice.create_group(GROUP).unwrap();
+        // A last-resort key package outlives the join, so the Welcome could be used again.
+        let kp = bob.generate_key_package(true).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        let welcome = pending.welcome.unwrap();
+        bob.join_from_welcome(&welcome, GROUP).unwrap();
+
+        let next = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        bob.process_commit(GROUP, &next.commit).unwrap();
+        let epoch = bob.epoch(GROUP).unwrap();
+
+        assert!(bob.join_from_welcome(&welcome, b"another group").is_err());
+        assert_eq!(bob.epoch(GROUP).unwrap(), epoch);
+        assert_eq!(exported(&alice), exported(&bob));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn commits_rotate_the_key_and_describe_the_change() {
         let (alice, bob) = pair();
         let before = exported(&alice);
@@ -530,7 +566,7 @@ mod tests {
         let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
         alice.merge_pending(GROUP).unwrap();
         let processed = bob.process_commit(GROUP, &pending.commit).unwrap();
-        carol.join_from_welcome(&pending.welcome.unwrap()).unwrap();
+        carol.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
 
         assert_eq!(processed.sender_credential, b"alice");
         assert_eq!(processed.added_credentials, vec![b"carol".to_vec()]);
@@ -648,7 +684,7 @@ mod tests {
         let kp = bob.generate_key_package(false).unwrap();
         let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
         alice.merge_pending(GROUP).unwrap();
-        bob.join_from_welcome(&pending.welcome.unwrap()).unwrap();
+        bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         let leaf = |client: &MlsClient, name: &[u8]| {
             client
                 .members(GROUP)
@@ -677,7 +713,7 @@ mod tests {
         let added = bob.commit_changes(GROUP, &[kp], &[]).unwrap();
         bob.merge_pending(GROUP).unwrap();
         alice.process_commit(GROUP, &added.commit).unwrap();
-        carol.join_from_welcome(&added.welcome.unwrap()).unwrap();
+        carol.join_from_welcome(&added.welcome.unwrap(), GROUP).unwrap();
         assert!(leaf(&carol, b"alice-new"));
         assert_eq!(exported(&alice), exported(&carol));
 
@@ -719,7 +755,7 @@ mod tests {
         let kp = bob.generate_key_package(false).unwrap();
         let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
         alice.merge_pending(GROUP).unwrap();
-        bob.join_from_welcome(&pending.welcome.unwrap()).unwrap();
+        bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         bob.take_changes();
         let before = exported(&bob);
         let epoch = bob.epoch(GROUP).unwrap();
@@ -756,7 +792,7 @@ mod tests {
 
         let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
         alice.merge_pending(GROUP).unwrap();
-        bob.join_from_welcome(&pending.welcome.unwrap()).unwrap();
+        bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         apply(bob.take_changes());
         let next = alice.commit_changes(GROUP, &[], &[]).unwrap();
         alice.merge_pending(GROUP).unwrap();

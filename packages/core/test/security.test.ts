@@ -1145,6 +1145,59 @@ describe("a server deciding that a group's history is shared (Z-44)", () => {
   });
 });
 
+describe("a Welcome delivered as being for another group (Z-46)", () => {
+  it("leaves what's held for the group it really names alone", async () => {
+    const victim = await person("nell");
+    const attacker = await person("otto");
+    const shared = await groupWith(victim, [attacker]);
+    const own = await attacker.session.createGroup("Otto's own", [], false);
+    const session = sessionOf(attacker);
+    const deviceId = sessionOf(victim).account.deviceId as string;
+    const packages = (await apiOf(attacker).claimKeyPackages(victim.userId)).filter((item) => item.device_id === deviceId).map((item) => decode(item.data));
+    // A group of the attacker's own with the shared group's ID, and a real commit for another carrying its Welcome.
+    const forger = new wasm.MlsClient(session.account.devicePublic, session.account.deviceSecret, session.account.certificate, []);
+    forger.createGroup(utf8(shared));
+    const forged = forger.commitChanges(utf8(shared), packages as unknown as any[], new Uint32Array(0)) as { welcome: Uint8Array };
+    const epoch = session.mlsEpoch(own) as number;
+    const pending = session.mls.commitChanges(utf8(own), [], new Uint32Array(0)) as { commit: Uint8Array; groupInfo: Uint8Array };
+    await apiOf(attacker).commit(own, {
+      expected_epoch: epoch,
+      commit: pending.commit,
+      group_info: pending.groupInfo,
+      kind: "members",
+      add_users: [victim.userId],
+      welcomes: [{ device_id: deviceId, data: forged.welcome }],
+    });
+    session.mls.mergePending(utf8(own));
+
+    const held = sessionOf(victim).mlsEpoch(shared) as number;
+    let lost = false;
+    const watch = setInterval(() => {
+      lost ||= !sessionOf(victim).hasMlsGroup(shared);
+    }, 1);
+    await sessionOf(victim).processWelcomes();
+    clearInterval(watch);
+    expect(lost).toBe(false);
+    expect(sessionOf(victim).mlsEpoch(shared)).toBe(held);
+  });
+});
+
+describe("someone with no one-time key packages left", () => {
+  it("can still be added to a group, with their last-resort package", async () => {
+    const owner = await person("pia");
+    const member = await person("quinn");
+    await waitFor(() => {
+      const row = withServerDatabase((db) => db.prepare("SELECT COUNT(*) AS n FROM key_packages k JOIN devices d ON d.id = k.device_id WHERE d.user_id = ? AND k.last_resort = 1").get(member.userId)) as { n: number };
+      return row.n === 1;
+    }, "their packages");
+    withServerDatabase((db) => db.prepare("DELETE FROM key_packages WHERE last_resort = 0 AND device_id IN (SELECT id FROM devices WHERE user_id = ?)").run(member.userId));
+    const groupId = await owner.session.createGroup("Last resort", [], false);
+    await owner.session.addMembers(groupId, [member.userId]);
+    await waitFor(() => sessionOf(member).hasMlsGroup(groupId), "them to join");
+    expect(sessionOf(member).mlsEpoch(groupId)).toBe(sessionOf(owner).mlsEpoch(groupId));
+  });
+});
+
 describe("what a server can learn from reactions and read positions, or change in them (Z-45)", () => {
   const THUMBS_UP = "\u{1F44D}";
 

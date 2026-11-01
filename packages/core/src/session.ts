@@ -2049,13 +2049,15 @@ export class ServerSession {
   private async topUpKeyPackages(): Promise<void> {
     const status = await this.api.keyPackageStatus();
     const needOneTime = status.count < KEY_PACKAGE_LOW ? KEY_PACKAGE_TARGET - status.count : 0;
-    const lastResortStale = Date.now() - status.last_resort_at > LAST_RESORT_MAX_AGE_MS;
+    // One made before this device set this nobody could add to a group, so it's replaced whatever its age.
+    const lastResortStale = !this.getKv<boolean>("last_resort_usable") || Date.now() - status.last_resort_at > LAST_RESORT_MAX_AGE_MS;
     if (needOneTime === 0 && !lastResortStale) return;
     const packages: Uint8Array[] = [];
     for (let i = 0; i < needOneTime; i++) packages.push(this.mls.generateKeyPackage(false));
     const lastResort = lastResortStale ? this.mls.generateKeyPackage(true) : undefined;
     this.saveMls();
     await this.api.addKeyPackages(packages, lastResort);
+    if (lastResort) this.setKv("last_resort_usable", true);
   }
 
   /**
@@ -2442,11 +2444,7 @@ export class ServerSession {
     let joined = false;
     if (!this.hasMlsGroup(welcome.group_id)) {
       try {
-        const result = this.mls.joinFromWelcome(decode(welcome.data)) as { groupId: Uint8Array; epoch: number };
-        if (fromUtf8(result.groupId) !== welcome.group_id) {
-          this.mls.deleteGroup(result.groupId);
-          throw new Error("the welcome was for a different conversation");
-        }
+        const result = this.mls.joinFromWelcome(decode(welcome.data), utf8(welcome.group_id)) as { epoch: number };
         this.saveMls();
         this.setJoinedEpoch(welcome.group_id, result.epoch);
         this.rememberCurrentEpochKey(welcome.group_id);

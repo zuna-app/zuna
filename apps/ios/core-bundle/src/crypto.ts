@@ -93,8 +93,8 @@ export class MlsClient {
   processCommit(groupId: Uint8Array, commit: Uint8Array): unknown {
     return this.call("processCommit", groupId, commit);
   }
-  joinFromWelcome(welcome: Uint8Array): unknown {
-    return this.call("joinFromWelcome", welcome);
+  joinFromWelcome(welcome: Uint8Array, groupId: Uint8Array): unknown {
+    return this.call("joinFromWelcome", welcome, groupId);
   }
   joinExternal(groupId: Uint8Array, groupInfo: Uint8Array): unknown {
     return this.call("joinExternal", groupId, groupInfo);

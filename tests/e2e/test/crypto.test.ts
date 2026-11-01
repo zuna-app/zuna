@@ -209,7 +209,7 @@ describe("MLS between a desktop and a phone", () => {
     expect(pending.welcome).toBeInstanceOf(Uint8Array);
     expect(desktop.mergePending(groupId)).toBe(1);
 
-    const joined = await phone("joinFromWelcome", bytes(pending.welcome!));
+    const joined = await phone("joinFromWelcome", bytes(pending.welcome!), bytes(groupId));
     await persistPhone();
     expect(joined).toEqual({ groupId, epoch: 1 });
     expect(await phone("hasGroup", bytes(groupId))).toBe(true);
@@ -247,7 +247,7 @@ describe("MLS between a desktop and a phone", () => {
 
     const processed = desktop.processCommit(groupId, pending.commit) as { addedCredentials: Uint8Array[] };
     expect(processed.addedCredentials).toEqual([utf8("carol")]);
-    expect((carol.joinFromWelcome(pending.welcome!) as { epoch: number }).epoch).toBe(3);
+    expect((carol.joinFromWelcome(pending.welcome!, groupId) as { epoch: number }).epoch).toBe(3);
     expect(carol.exportSecret(groupId, label, context, 32)).toEqual(desktop.exportSecret(groupId, label, context, 32));
     await expectSameSecret();
 

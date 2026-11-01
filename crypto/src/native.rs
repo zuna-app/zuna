@@ -339,8 +339,8 @@ impl MlsClient {
         })
     }
 
-    pub fn join_from_welcome(&self, welcome: Vec<u8>) -> NativeResult<JoinedGroup> {
-        let (group_id, epoch) = native(self.client().join_from_welcome(&welcome))?;
+    pub fn join_from_welcome(&self, welcome: Vec<u8>, group_id: Vec<u8>) -> NativeResult<JoinedGroup> {
+        let (group_id, epoch) = native(self.client().join_from_welcome(&welcome, &group_id))?;
         Ok(JoinedGroup { group_id, epoch })
     }
 

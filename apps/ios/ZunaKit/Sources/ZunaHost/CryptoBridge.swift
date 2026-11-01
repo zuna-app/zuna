@@ -211,7 +211,7 @@ final class CryptoBridge {
                 ("selfRemoved", JSValue(bool: processed.selfRemoved, in: context)),
             ])
         case "joinFromWelcome":
-            let joined = try client.joinFromWelcome(welcome: groupId())
+            let joined = try client.joinFromWelcome(welcome: groupId(), groupId: data(arg(1)))
             return object([("groupId", b(joined.groupId)), ("epoch", number(joined.epoch))])
         case "joinExternal":
             let joined = try client.joinExternal(groupId: groupId(), groupInfo: data(arg(1)))
