@@ -188,6 +188,8 @@ private struct MessageItem: View {
     let server: AppModel.ServerState
     let actions: ChatActions
     @State private var revealed: Set<Int> = []
+    /// A message from someone blocked shows as a line, as on the desktop, and itself only when asked.
+    @State private var showBlocked = false
 
     private var message: MessageView { context.message }
     private var own: Bool { context.own }
@@ -223,6 +225,24 @@ private struct MessageItem: View {
     }
 
     var body: some View {
+        if !own && server.isBlocked(message.senderId) && !showBlocked {
+            HStack(spacing: 6) {
+                if context.isGroup { Color.clear.frame(width: 32, height: 1) }
+                Label("A message from someone you blocked", systemImage: "nosign")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.text3)
+                Button("Show") { showBlocked = true }
+                    .font(.footnote.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 4)
+            .accessibilityIdentifier(A11y.Chat.blockedMessage)
+        } else {
+            bubbleRow
+        }
+    }
+
+    private var bubbleRow: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if own { Spacer(minLength: 48) }
             if !own && context.isGroup {
@@ -553,7 +573,7 @@ private struct ReplyQuote: View {
                 Text(name)
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(own ? Color.white : Theme.nameColor(reply.senderId.isEmpty ? "x" : reply.senderId))
-                Text(reply.deleted ? "Message deleted" : plainText(reply.text).isEmpty ? (reply.hasAttachment ? "Attachment" : "Tap to view") : plainText(reply.text))
+                Text(reply.deleted ? "Message deleted" : server.isBlocked(reply.senderId) ? "A message from someone you blocked" : plainText(reply.text).isEmpty ? (reply.hasAttachment ? "Attachment" : "Tap to view") : plainText(reply.text))
                     .font(.footnote)
                     .foregroundStyle(own ? Color.white.opacity(0.55) : Theme.text2)
                     .lineLimit(1)

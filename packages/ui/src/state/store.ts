@@ -131,9 +131,16 @@ function sortMessages(items: MessageView[]): MessageView[] {
   });
 }
 
-/** Whether a message counts as unread, as the core counts them: someone else's, after where you've read. */
-export function isUnread(message: MessageView, ownRead: number, selfId: string | undefined): boolean {
-  return message.seq !== null && message.seq > ownRead && message.senderId !== selfId && !message.id.startsWith("sys-") && message.deletedAt === null;
+/** Whether a message counts as unread, as the core counts them: someone else's, after where you've read, and not from someone you blocked. */
+export function isUnread(message: MessageView, ownRead: number, selfId: string | undefined, blocked: readonly string[] = []): boolean {
+  return (
+    message.seq !== null &&
+    message.seq > ownRead &&
+    message.senderId !== selfId &&
+    !message.id.startsWith("sys-") &&
+    message.deletedAt === null &&
+    !blocked.includes(message.senderId)
+  );
 }
 
 /** What a chat adds to the unread counts: its unread messages, or one if it's only marked unread, and nothing while it's muted. */
@@ -534,7 +541,7 @@ export const useApp = create<AppState>((set, get) => {
         const { activeServerId, servers } = get();
         const server = activeServerId ? servers[activeServerId] : undefined;
         const { ownRead = 0, unread = 0 } = server?.conversations.find((item) => item.groupId === groupId) ?? {};
-        const unreadIn = (messages: MessageView[]) => messages.filter((message) => isUnread(message, ownRead, server?.self?.userId)).length;
+        const unreadIn = (messages: MessageView[]) => messages.filter((message) => isUnread(message, ownRead, server?.self?.userId, server?.prefs.blocked)).length;
         for (let pages = 1; toUnread && page.hasMore && pages < UNREAD_PAGES && unreadIn(page.messages) < unread; pages++) {
           const oldest = page.messages.find((message) => message.seq !== null)?.seq;
           if (oldest == null || oldest <= ownRead + 1) break;

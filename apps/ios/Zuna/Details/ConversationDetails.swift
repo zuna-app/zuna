@@ -162,6 +162,28 @@ struct ConversationDetails: View {
             .foregroundStyle(Theme.text1)
             .listRowBackground(Theme.bg2)
 
+            // Nobody is told, so it needs no warning.
+            if let peer, !isSelf {
+                Section {
+                    if server.isBlocked(peer.id) {
+                        Button { model.setBlocked(peer.id, false, on: serverId) } label: {
+                            Label("Unblock \(peer.displayName)", systemImage: "nosign")
+                        }
+                        .foregroundStyle(Theme.text1)
+                    } else {
+                        Button(role: .destructive) { model.setBlocked(peer.id, true, on: serverId) } label: {
+                            Label("Block \(peer.displayName)", systemImage: "nosign")
+                        }
+                    }
+                } footer: {
+                    if !server.isBlocked(peer.id) {
+                        Text("You won't see their messages or hear about them. They aren't told.")
+                    }
+                }
+                .listRowBackground(Theme.bg2)
+                .accessibilityIdentifier(A11y.Details.block)
+            }
+
             if conversation.kind == .group {
                 Section {
                     Button(role: .destructive) { confirming = .leave } label: {
@@ -364,6 +386,11 @@ struct ConversationDetails: View {
         let serverId = server.entry.id
         Button("Message") { model.openChat("user:\(member.userId)") }
         Button("Verify security key") { sheet = .verify(member.userId) }
+        if server.isBlocked(member.userId) {
+            Button("Unblock") { model.setBlocked(member.userId, false, on: serverId) }
+        } else {
+            Button("Block") { model.setBlocked(member.userId, true, on: serverId) }
+        }
         if isAdmin, let groupId = conversation.groupId {
             Button(member.role == .admin ? "Remove admin" : "Make admin") {
                 run { try await model.core.session(serverId).setGroupRole(groupId, userId: member.userId, role: member.role == .admin ? .member : .admin) }

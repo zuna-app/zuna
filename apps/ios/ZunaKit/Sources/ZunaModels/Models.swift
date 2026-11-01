@@ -340,6 +340,8 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var markedUnread: Bool
     /// Notifies only about messages that mention you or reply to you, though its unread messages still count.
     public var mentionsOnly: Bool
+    /// A direct message with someone you blocked.
+    public var blocked: Bool
     public var members: [GroupMemberView]
     public var historyVisible: Bool
     public var readBy: [String: Int]
@@ -390,6 +392,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var markedUnread: [String]?
     /// Chats that notify only about messages that mention you or reply to you, by conversation key.
     public var mentionsOnly: [String]?
+    /// People whose messages are kept out of sight, unread counts and notifications, by user ID. Nobody else learns of it.
+    public var blocked: [String]?
     public var sendReadReceipts: Bool
 }
 

@@ -128,6 +128,8 @@ public struct SessionCalls: Sendable {
     public func unmute(_ conversationKey: String) async throws { try await run("unmute", [conversationKey]) }
     /// Marks a chat as unread by hand, or takes the mark off, on every device.
     public func setMarkedUnread(_ conversationKey: String, marked: Bool) async throws { try await run("setMarkedUnread", [conversationKey, marked]) }
+    /// Blocks someone, or unblocks them. Their messages stay, out of sight, unread counts and notifications; nobody else learns of it.
+    public func setBlocked(_ userId: String, blocked: Bool) async throws { try await run("setBlocked", [userId, blocked]) }
     /// Has a chat notify only about messages that mention you or reply to you, or about all of them again.
     public func setMentionsOnly(_ conversationKey: String, on: Bool) async throws { try await run("setMentionsOnly", [conversationKey, on]) }
     /// Reads a chat to its newest message without opening it, and takes off any mark of being unread.

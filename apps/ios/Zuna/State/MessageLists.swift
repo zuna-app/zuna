@@ -36,10 +36,10 @@ extension AppModel {
     /// How many pages a chat loads to open at its first unread message, which past that it opens without.
     private static let unreadPages = 20
 
-    /// Whether a message counts as unread, as the core counts them: someone else's, after where you've read.
-    static func isUnread(_ message: MessageView, ownRead: Int, selfId: String?) -> Bool {
+    /// Whether a message counts as unread, as the core counts them: someone else's, after where you've read, and not from someone you blocked.
+    static func isUnread(_ message: MessageView, ownRead: Int, selfId: String?, blocked: [String] = []) -> Bool {
         guard let seq = message.seq else { return false }
-        return seq > ownRead && message.senderId != selfId && !message.id.hasPrefix("sys-") && message.deletedAt == nil
+        return seq > ownRead && message.senderId != selfId && !message.id.hasPrefix("sys-") && message.deletedAt == nil && !blocked.contains(message.senderId)
     }
 
     /// The newest page, once per chat, and with unread messages the pages back to the
@@ -64,7 +64,7 @@ extension AppModel {
             let ownRead = conversation?.ownRead ?? 0
             var pages = 1
             while toUnread, page.hasMore, pages < Self.unreadPages,
-                  page.messages.count(where: { Self.isUnread($0, ownRead: ownRead, selfId: server?.me?.userId) }) < conversation?.unread ?? 0,
+                  page.messages.count(where: { Self.isUnread($0, ownRead: ownRead, selfId: server?.me?.userId, blocked: server?.prefs.blocked ?? []) }) < conversation?.unread ?? 0,
                   let oldest = page.messages.first(where: { $0.seq != nil })?.seq, oldest > ownRead + 1 {
                 let older = try await session.loadMessages(groupId, before: oldest)
                 page.messages = older.messages + page.messages

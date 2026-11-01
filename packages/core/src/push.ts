@@ -25,7 +25,7 @@ export interface PushPreview {
   decrypted: boolean;
   /** The chat is muted or notifies only about mentions, and the message doesn't mention you or reply to you. */
   muted: boolean;
-  /** Nothing to show: your own message, or one deleted since. */
+  /** Nothing to show: your own message, one deleted since, or one from someone you blocked. */
   hidden: boolean;
   /** For a notification laid out as a conversation: who wrote it, with their picture when asked for. */
   sender?: { id: string; name: string; picture?: string };
@@ -120,6 +120,7 @@ export async function previewPush(
 
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
+  if (prefs.blocked?.includes(message.sender_user)) return preview({ hidden: true });
   // A reply counts if this device holds the message replied to, as for the session's "@".
   const repliedTo = body.replyTo ? db.get<{ sender_user: string }>("SELECT sender_user FROM messages WHERE group_id = ? AND id = ?", [groupId, body.replyTo]) : undefined;
   const mentioned = (body.mentions ?? []).includes(account.userId) || repliedTo?.sender_user === account.userId;

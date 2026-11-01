@@ -2,6 +2,7 @@ import type { ConversationView, MessageView, SearchResult } from "@zuna/core";
 import { plainText } from "@zuna/core/plain-text";
 import {
   AtSign,
+  Ban,
   BadgeCheck,
   Bell,
   BellOff,
@@ -217,7 +218,28 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
       <SharedMediaRows conversation={conversation} />
       <DisappearingRow conversation={conversation} canChange />
       <PreferenceRows conversation={conversation} />
+      {peer && !isSelf && (
+        <div className="side-section">
+          <BlockRow userId={peer.id} name={peer.displayName} />
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Blocking someone, or unblocking them. Nobody is told, so it needs no warning. */
+function BlockRow({ userId, name }: { userId: string; name: string }) {
+  const session = useApp((state) => state.session);
+  const blocked = useActiveServer()?.prefs.blocked?.includes(userId) ?? false;
+  const { run } = useAction();
+  return (
+    <button className={`side-row is-button${blocked ? "" : " is-danger"}`} onClick={() => void run(() => session().setBlocked(userId, !blocked))}>
+      <Ban size={17} />
+      <span className="grow">
+        {blocked ? `Unblock ${name}` : `Block ${name}`}
+        {!blocked && <span className="side-row-hint">You won't see their messages or hear about them. They aren't told.</span>}
+      </span>
+    </button>
   );
 }
 
@@ -400,6 +422,13 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
           entries={[
             { label: "Message", icon: <Check size={15} />, onSelect: () => selectConversation(`user:${memberMenu.userId}`) },
             { label: "Verify security key", icon: <Shield size={15} />, onSelect: () => setOverlay({ type: "verify", userId: memberMenu.userId }) },
+            ...(memberMenu.userId !== selfId
+              ? [
+                  server?.prefs.blocked?.includes(memberMenu.userId)
+                    ? { label: "Unblock", icon: <Ban size={15} />, onSelect: () => void run(() => session().setBlocked(memberMenu.userId, false)) }
+                    : { label: "Block", icon: <Ban size={15} />, onSelect: () => void run(() => session().setBlocked(memberMenu.userId, true)) },
+                ]
+              : []),
             ...(isAdmin
               ? [
                   {

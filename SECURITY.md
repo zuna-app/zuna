@@ -22,7 +22,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Read state** | That someone's read position changed | The position itself |
 | **Typing** | That someone sent a typing signal | Nothing further; it's encrypted but has no other content |
 | **Presence** | Online status, last seen | Hidden from other members if you choose, but not from the server |
-| **Phone notifications** | Which devices get pushes, through which relay; until Apple lets the iPhone app filter notifications, which chats a phone muted and until when | What a push is about: it carries the message's IDs, sealed for the device |
+| **Phone notifications** | Which devices get pushes, through which relay; until Apple lets the iPhone app filter notifications, which chats a phone muted and until when, among them direct messages with people the person blocked, which look like any other muted chat | What a push is about: it carries the message's IDs, sealed for the device |
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |
 

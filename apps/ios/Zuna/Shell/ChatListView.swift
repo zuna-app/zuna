@@ -305,8 +305,9 @@ struct ChatListView: View {
             }
         }
         // Searching looks through hidden conversations too, so nothing gets lost.
+        // People you blocked only turn up in a search.
         if !needle.isEmpty { return (filtered, []) }
-        return (filtered.filter { !$0.hidden }, filtered.filter(\.hidden))
+        return (filtered.filter { !$0.hidden && !$0.blocked }, filtered.filter { $0.hidden && !$0.blocked })
     }
 
     private var filterBar: some View {
@@ -497,6 +498,12 @@ private struct ChatRow: View {
                 .font(.caption2)
                 .foregroundStyle(Theme.text3)
                 .accessibilityLabel("Muted")
+        }
+        if conversation.blocked {
+            Image(systemName: "nosign")
+                .font(.caption2)
+                .foregroundStyle(Theme.text3)
+                .accessibilityLabel("Blocked")
         }
     }
 

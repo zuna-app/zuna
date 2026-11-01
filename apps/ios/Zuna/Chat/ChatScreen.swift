@@ -130,6 +130,18 @@ struct ChatScreen: View {
                     .padding(.vertical, 14)
                     .background(Theme.bg1)
                     .accessibilityIdentifier(A11y.Composer.disabled)
+            } else if conversation.blocked, let peer {
+                HStack(spacing: 10) {
+                    Label("You blocked \(peer.displayName).", systemImage: "nosign")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.text2)
+                    Button("Unblock") { model.setBlocked(peer.id, false, on: serverId) }
+                        .font(.subheadline.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Theme.bg1)
+                .accessibilityIdentifier(A11y.Composer.disabled)
             } else if let selection, let list {
                 selectionBar(selection, server: server, conversation: conversation, list: list)
             } else {
@@ -185,7 +197,7 @@ struct ChatScreen: View {
         }
         // Files dragged onto the chat go into the composer, as on the desktop.
         .dropDestination(for: DroppedFile.self) { files, _ in
-            guard !(peer?.banned == true && !isSaved), !conversation.removed else { return false }
+            guard !(peer?.banned == true && !isSaved), !conversation.removed, !conversation.blocked else { return false }
             model.pendingAttachments += files.map(\.url)
             return true
         }

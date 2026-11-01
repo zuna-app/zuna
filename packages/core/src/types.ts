@@ -293,6 +293,8 @@ export interface ConversationView {
   markedUnread: boolean;
   /** Notifies only about messages that mention you or reply to you, though its unread messages still count. */
   mentionsOnly: boolean;
+  /** A direct message with someone you blocked. */
+  blocked: boolean;
   /** The group's membership: empty for a DM that has no group yet. */
   members: GroupMemberView[];
   historyVisible: boolean;
@@ -390,6 +392,8 @@ export interface Preferences {
   markedUnread?: string[];
   /** Chats that notify only about messages that mention you or reply to you, by conversation key. */
   mentionsOnly?: string[];
+  /** People whose messages are kept out of sight, unread counts and notifications, by user ID. Nobody else learns of it. */
+  blocked?: string[];
   sendReadReceipts: boolean;
 }
 

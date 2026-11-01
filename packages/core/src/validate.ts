@@ -330,6 +330,8 @@ export function parsePreferences(value: unknown): Partial<Preferences> {
   if (markedUnread) prefs.markedUnread = markedUnread;
   const mentionsOnly = strings(value.mentionsOnly);
   if (mentionsOnly) prefs.mentionsOnly = mentionsOnly;
+  const blocked = strings(value.blocked);
+  if (blocked) prefs.blocked = blocked;
   if (typeof value.sendReadReceipts === "boolean") prefs.sendReadReceipts = value.sendReadReceipts;
   return prefs;
 }

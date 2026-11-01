@@ -2,6 +2,7 @@ import type { ConversationView, MessageView, SearchResult, UserView } from "@zun
 import { plainText } from "@zuna/core/plain-text";
 import {
   AtSign,
+  Ban,
   BadgeCheck,
   Bookmark,
   BellOff,
@@ -103,6 +104,7 @@ const ConversationRow = memo(function ConversationRow({
             {peer?.trust === "verified" && <BadgeCheck size={14} className="conv-verified" />}
             {peer?.trust === "changed" && <ShieldAlert size={14} className="conv-warning" />}
             {item.muted && <BellOff size={12} className="conv-muted" />}
+            {item.blocked && <Ban size={12} className="conv-muted" aria-label="Blocked" />}
           </span>
           <span className="conv-time">{formatListTime(item.lastMessage?.createdAt ?? 0)}</span>
         </span>
@@ -209,9 +211,10 @@ export function ConversationList() {
     };
     const filtered = conversations.filter(matches);
     // Searching looks through hidden conversations too, so nothing gets lost.
+    // People you blocked only turn up in a search.
     return {
-      visible: needle ? filtered : filtered.filter((item) => !item.hidden),
-      hidden: needle ? [] : filtered.filter((item) => item.hidden),
+      visible: needle ? filtered : filtered.filter((item) => !item.hidden && !item.blocked),
+      hidden: needle ? [] : filtered.filter((item) => item.hidden && !item.blocked),
     };
   }, [conversations, query, filter, users]);
 

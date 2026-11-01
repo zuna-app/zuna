@@ -1,6 +1,7 @@
 import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView, SharedLocation, UserView } from "@zuna/core";
 import {
   AlertCircle,
+  Ban,
   Check,
   CheckCheck,
   CircleCheck,
@@ -545,6 +546,10 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const { run } = useAction();
   const selecting = useApp((state) => state.selection?.listId === listId);
   const selected = useApp((state) => state.selection?.listId === listId && state.selection.ids.includes(message.id));
+  // Someone blocked shows as a line, as in Discord, and their message only when asked.
+  const blockedSender = useServerField((server) => !own && (server.prefs.blocked?.includes(message.senderId) ?? false), false);
+  const blockedReply = useServerField((server) => !!message.reply && (server.prefs.blocked?.includes(message.reply.senderId) ?? false), false);
+  const [revealed, setRevealed] = useState(false);
 
   const selfId = baseContext.selfId;
   const canDelete = own || (isGroup && isGroupAdmin);
@@ -616,6 +621,19 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const body = renderBody();
 
   if (message.system) return <SystemMessage message={message} highlighted={highlighted} />;
+  if (blockedSender && !revealed) {
+    return (
+      <div className={`msg is-other is-blocked${highlighted ? " is-highlighted" : ""}`}>
+        {isGroup && <span className="msg-avatar" />}
+        <span className="msg-blocked">
+          <Ban size={13} /> A message from someone you blocked
+          <button className="link-button" onClick={() => setRevealed(true)}>
+            Show
+          </button>
+        </span>
+      </div>
+    );
+  }
 
   const toggleReaction = (key: string, emote?: EmoteRef) => {
     void run(() => session().toggleReaction(message.groupId, message.id, key, emote));
@@ -756,7 +774,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                   <span className="msg-reply-author" style={{ color: nameColor(message.reply.senderId || "x") }}>
                     {replyName}
                   </span>
-                  <span className="msg-reply-text truncate">{message.reply.deleted ? "Message deleted" : plainText(message.reply.text) || (message.reply.hasAttachment ? "Attachment" : "Tap to view")}</span>
+                  <span className="msg-reply-text truncate">{message.reply.deleted ? "Message deleted" : blockedReply ? "A message from someone you blocked" : plainText(message.reply.text) || (message.reply.hasAttachment ? "Attachment" : "Tap to view")}</span>
                 </button>
               )}
               {message.attachments.length > 0 && <Attachments message={message} serverId={serverId} flush={onlyImages} own={own} />}

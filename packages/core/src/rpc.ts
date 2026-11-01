@@ -63,7 +63,7 @@ const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   markMentionSeen: true, markVerified: true, mediaCounts: true, messageById: true, mute: true, nudge: true, prepareNewDevice: true, previewText: true, refreshEmotes: true,
   regenerateRecoveryKey: true, removeMember: true, reorderChannels: true, resume: true, retryMessage: true, revokeDevice: true, revokeInvite: true, rotate: true,
   safetyCheck: true, search: true, searchCoverage: true, sendMessage: true, sendTyping: true, sendWithAttachments: true, serverUrl: true,
-  setActive: true, setDisappearing: true, setEmoteSet: true, setGroupRole: true, setHideLastSeen: true, setMarkedUnread: true, setMentionsOnly: true, setPinned: true, setPush: true, setServerRole: true, setVoiceState: true,
+  setActive: true, setBlocked: true, setDisappearing: true, setEmoteSet: true, setGroupRole: true, setHideLastSeen: true, setMarkedUnread: true, setMentionsOnly: true, setPinned: true, setPush: true, setServerRole: true, setVoiceState: true,
   signOut: true, start: true, stop: true, suspend: true, syncGroup: true, toggleReaction: true, unbanUser: true, unmute: true, unreadMentions: true,
   updateChannel: true, updateGroupMeta: true, updatePreferences: true, updateProfile: true, updateServerIcon: true, updateServerSettings: true,
   voiceAccess: true, voiceDisconnect: true, voiceKey: true, voiceMute: true, voiceScreenAccess: true,

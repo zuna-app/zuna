@@ -181,6 +181,7 @@ function PrivacySection() {
   const [confirmingKeep, setConfirmingKeep] = useState(false);
   const self = server?.self ? server.users[server.self.userId] : null;
   if (!server || !self) return null;
+  const blocked = (server.prefs.blocked ?? []).flatMap((id) => server.users[id] ?? []).sort((a, b) => a.displayName.localeCompare(b.displayName));
   return (
     <>
       <h1>Privacy</h1>
@@ -191,6 +192,22 @@ function PrivacySection() {
       <SettingRow title="Show when I'm online" hint="If off, people see “last seen recently” instead of your status.">
         <Switch on={!self.hidesLastSeen} onChange={(value) => void run(() => session().setHideLastSeen(!value))} label="Show when I'm online" />
       </SettingRow>
+      <div className="settings-divider" />
+      <h3>Blocked people</h3>
+      {blocked.length === 0 && <p className="setting-hint">Nobody. You can block someone from their details in a chat, or from a group's members.</p>}
+      {blocked.map((user) => (
+        <div key={user.id} className="setting-row">
+          <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={32} />
+          <span className="grow">
+            <b>{user.displayName}</b>
+            <span className="setting-hint">@{user.username}</span>
+          </span>
+          <button className="btn btn-small" onClick={() => void run(() => session().setBlocked(user.id, false))}>
+            Unblock
+          </button>
+        </div>
+      ))}
+      <p className="setting-hint">You don't see messages from people you block, or hear about them. Nobody is told, and your server can't see who you block.</p>
       <div className="settings-divider" />
       <h3>On this device</h3>
       <SettingRow

@@ -117,6 +117,8 @@
 .msg-text { white-space: pre-wrap; }
 .text-block { display: block; }
 .text-block + .text-block { margin-top: 3px; }
+.msg-blocked { display: inline-flex; align-items: center; gap: 7px; padding: 3px 2px; color: var(--text-3); font-size: 12.5px; }
+.msg-blocked .link-button { font-size: 12.5px; }
 .msg-placeholder { display: inline-flex; align-items: center; gap: 7px; color: var(--text-2); font-size: 13.5px; }
 .msg.is-own .msg-placeholder { color: var(--bubble-own-faint); }
 .msg-placeholder.is-danger { color: #f4bcbe; }

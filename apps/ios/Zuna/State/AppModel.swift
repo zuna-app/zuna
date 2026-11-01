@@ -49,6 +49,10 @@ final class AppModel {
         var selfUser: UserView? {
             me.flatMap { users[$0.userId] }
         }
+
+        func isBlocked(_ userId: String) -> Bool {
+            prefs.blocked?.contains(userId) ?? false
+        }
     }
 
     struct Toast: Identifiable, Equatable {
@@ -463,6 +467,18 @@ final class AppModel {
         Task {
             do {
                 try await session.setMarkedUnread(key, marked: marked)
+            } catch {
+                toast("Couldn't save that: \(error)", .error)
+            }
+        }
+    }
+
+    /// Blocks someone, or unblocks them. Synced like the other preferences, and nobody is told.
+    func setBlocked(_ userId: String, _ blocked: Bool, on serverId: String) {
+        let session = core.session(serverId)
+        Task {
+            do {
+                try await session.setBlocked(userId, blocked: blocked)
             } catch {
                 toast("Couldn't save that: \(error)", .error)
             }

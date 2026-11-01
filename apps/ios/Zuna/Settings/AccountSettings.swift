@@ -144,6 +144,31 @@ struct PrivacyView: View {
                 Text("If off, people see \u{201C}last seen recently\u{201D} instead of your status.")
             }
             Section {
+                let blocked = (server?.prefs.blocked ?? []).compactMap { server?.users[$0] }
+                    .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+                if blocked.isEmpty {
+                    Text("Nobody. You can block someone from their details in a chat, or from a group's members.")
+                        .foregroundStyle(Theme.text2)
+                }
+                ForEach(blocked) { user in
+                    HStack(spacing: 12) {
+                        AvatarView(name: user.displayName, seed: user.id, source: user.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 32)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(user.displayName).foregroundStyle(Theme.text1)
+                            Text("@\(user.username)").font(.caption).foregroundStyle(Theme.text3)
+                        }
+                        Spacer()
+                        Button("Unblock") { model.setBlocked(user.id, false, on: serverId) }
+                            .buttonStyle(.borderless)
+                    }
+                }
+            } header: {
+                Text("Blocked people")
+            } footer: {
+                Text("You don't see messages from people you block, or hear about them. Nobody is told, and your server can't see who you block.")
+            }
+            .accessibilityIdentifier(A11y.Settings.blocked)
+            Section {
                 Toggle("Link previews", isOn: Binding(get: { model.settings.linkPreviews }, set: { model.settings.linkPreviews = $0 }))
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Settings.linkPreviews)

@@ -1,6 +1,7 @@
 // What each person decides about their own chats, end to end through a real
 // server: marking one as unread and having a group notify only about mentions,
-// each following them to their other devices, and who has read what in a group.
+// each following them to their other devices, who has read what in a group, and
+// blocking someone.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { previewPush } from "../src/push";
@@ -116,5 +117,45 @@ describe("who read a message in a group", () => {
 
     await carol.session.markRead(groupId, seq);
     await waitFor(() => (chat(alice, key).readBy[carol.userId] ?? 0) >= seq, "alice to see carol read it");
+  });
+});
+
+describe("blocking someone", () => {
+  it("keeps their messages out of counts and notifications, on every device, telling nobody", async () => {
+    const dm = `user:${carol.userId}`;
+    await bob.session.setBlocked(carol.userId, true);
+    expect(chat(bob, dm).blocked).toBe(true);
+    await waitFor(() => chat(bobLaptop, dm)?.blocked === true, "the laptop to see the block");
+    expect(chat(carol, `user:${bob.userId}`).blocked).toBe(false);
+
+    const groupId = await alice.session.createGroup("Mixed company", [bob.userId, carol.userId], false);
+    const group = `group:${groupId}`;
+    await waitFor(() => !!chat(bob, group)?.ready && !!chat(carol, group)?.ready, "everyone to join");
+    const before = notified(bob).length;
+    const typing = () => bob.events.filter((event) => event.type === "typing" && event.groupId === groupId).map((event) => (event as { userId: string }).userId);
+    carol.session.sendTyping(groupId);
+    carol.session.sendMessage(`user:${bob.userId}`, { text: "it's me" });
+    carol.session.sendMessage(group, { text: "@bob hello", mentions: [bob.userId] });
+    alice.session.sendTyping(groupId);
+    alice.session.sendMessage(group, { text: "hi all" });
+    await waitFor(() => bob.texts(group).includes("hi all") && bob.texts(group).includes("@bob hello") && bob.texts(dm).includes("it's me"), "delivery to bob");
+    await waitFor(() => notified(bob).length > before, "bob to hear from alice");
+    await waitFor(() => typing().includes(alice.userId), "alice's typing");
+
+    expect(notified(bob).slice(before).map((event) => event.body)).toEqual(["alice: hi all"]);
+    expect(typing()).not.toContain(carol.userId);
+    expect(chat(bob, dm)).toMatchObject({ unread: 0 });
+    expect(chat(bob, group)).toMatchObject({ unread: 1, unreadMentions: 0 });
+    expect(chat(bob, group).lastMessage?.text).toBe("hi all");
+    expect(bob.session.unreadMentions(groupId, 0)).toEqual([]);
+    const extension = { db: bob.db, deviceKey: bob.deviceKey };
+    expect(await previewPush(extension, bob.serverId, groupId, received(bob, "@bob hello").id)).toMatchObject({ hidden: true });
+    expect(await previewPush(extension, bob.serverId, groupId, received(bob, "hi all").id)).toMatchObject({ hidden: false, muted: false });
+
+    // Their messages were kept, and count again once they're unblocked.
+    await bobLaptop.session.setBlocked(carol.userId, false);
+    await waitFor(() => chat(bob, dm)?.blocked === false, "the unblock to reach bob");
+    expect(chat(bob, dm).unread).toBe(1);
+    expect(chat(bob, group)).toMatchObject({ unread: 2, unreadMentions: 1 });
   });
 });

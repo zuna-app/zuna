@@ -1,5 +1,5 @@
 import type { ConversationView } from "@zuna/core";
-import { BadgeCheck, Bookmark, Copy, Forward, Lock, PanelRight, Pin, Search, ShieldAlert, Timer, Trash2, Upload, X } from "lucide-react";
+import { Ban, BadgeCheck, Bookmark, Copy, Forward, Lock, PanelRight, Pin, Search, ShieldAlert, Timer, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
@@ -124,6 +124,7 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
   const togglePanel = useApp((state) => state.togglePanel);
   const panel = useApp((state) => state.panel);
   const setOverlay = useApp((state) => state.setOverlay);
+  const session = useApp((state) => state.session);
   const composer = useRef<ComposerHandle>(null);
   const [dragging, setDragging] = useState(false);
   const peer = conversation.peerId ? server?.users[conversation.peerId] : null;
@@ -222,6 +223,13 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
         ) : peer?.banned && !isSaved ? (
           <div className="composer-disabled">
             <X size={15} /> This person was removed from the server.
+          </div>
+        ) : conversation.blocked && peer ? (
+          <div className="composer-disabled">
+            <Ban size={15} /> You blocked {peer.displayName}.
+            <button className="btn btn-small" onClick={() => void session().setBlocked(peer.id, false)}>
+              Unblock
+            </button>
           </div>
         ) : (
           <Composer ref={composer} conversation={conversation} listId={listId} />

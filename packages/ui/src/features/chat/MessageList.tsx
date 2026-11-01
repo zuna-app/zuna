@@ -187,7 +187,8 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
   const unreadLine = useRef<string | null | undefined>(undefined);
   const openAtUnread = useRef(false);
   if (unreadLine.current === undefined && (items.length > 0 || list?.loaded)) {
-    const first = conversation.unread > 0 && !detached ? items.find((item) => isUnread(item, conversation.ownRead, selfId)) : undefined;
+    const blocked = useApp.getState().servers[useApp.getState().activeServerId ?? ""]?.prefs.blocked;
+    const first = conversation.unread > 0 && !detached ? items.find((item) => isUnread(item, conversation.ownRead, selfId, blocked)) : undefined;
     unreadLine.current = first?.id ?? null;
     openAtUnread.current = !!first;
   }

@@ -3765,7 +3765,7 @@ export class ServerSession {
     const sealed = decodeFrameData(data.data);
     const key = this.epochKey(data.group_id, signalEpoch(sealed));
     if (!key || !openSignal(key, "typing", data.group_id, sealed)) return;
-    if (data.user_id === this.account.userId) return;
+    if (data.user_id === this.account.userId || this.isBlocked(data.user_id)) return;
     this.emit({ type: "typing", serverId: this.serverId, groupId: data.group_id, userId: data.user_id });
   }
 
@@ -4209,6 +4209,7 @@ export class ServerSession {
     if (this.activeElsewhere && !this.active) return;
     const group = this.groups.get(view.groupId);
     if (!group) return;
+    if (this.isBlocked(view.senderId)) return;
     const key = this.conversationKey(group);
     const self = this.account.userId;
     const mentioned = view.mentions.includes(self) || view.reply?.senderId === self;
@@ -4288,25 +4289,39 @@ export class ServerSession {
   }
 
   private lastMessage(groupId: string): MessageView | null {
+    const blocked = this.notFromBlocked("sender_user");
     const row = this.db.get<MessageRow>(
-      `SELECT * FROM messages WHERE group_id = ? AND deleted_at IS NULL
+      `SELECT * FROM messages WHERE group_id = ? AND deleted_at IS NULL${blocked.sql}
        ORDER BY COALESCE(seq, 9007199254740991) DESC, created_at DESC LIMIT 1`,
-      [groupId],
+      [groupId, ...blocked.params],
     );
     return row ? this.toMessageView(row) : null;
   }
 
+  private isBlocked(userId: string): boolean {
+    return this.prefs.blocked?.includes(userId) ?? false;
+  }
+
+  /** A condition leaving out messages from people this account blocked, to add to a query's WHERE. */
+  private notFromBlocked(column: string): { sql: string; params: string[] } {
+    const blocked = this.prefs.blocked ?? [];
+    if (blocked.length === 0) return { sql: "", params: [] };
+    return { sql: ` AND ${column} NOT IN (${blocked.map(() => "?").join(",")})`, params: blocked };
+  }
+
   private unreadCount(group: CachedGroup): { unread: number; mentioned: boolean; unreadMentions: number } {
+    const blocked = this.notFromBlocked("sender_user");
     const rows = this.db.get<{ n: number }>(
       `SELECT COUNT(*) AS n FROM messages WHERE group_id = ? AND seq > ? AND sender_user != ?
-       AND deleted_at IS NULL AND id NOT LIKE 'sys-%'`,
-      [group.id, group.ownRead, this.account.userId],
+       AND deleted_at IS NULL AND id NOT LIKE 'sys-%'${blocked.sql}`,
+      [group.id, group.ownRead, this.account.userId, ...blocked.params],
     );
     // As in Telegram, only groups have them: everything in a direct message is for you.
+    const fromBlocked = this.notFromBlocked("m.sender_user");
     const mentions = group.kind === "dm" ? undefined : this.db.get<{ n: number }>(
       `SELECT COUNT(*) AS n FROM media d JOIN messages m ON m.row_id = d.row_id
-       WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0`,
-      [group.id, this.mentionTag, group.ownRead, this.account.userId],
+       WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0${fromBlocked.sql}`,
+      [group.id, this.mentionTag, group.ownRead, this.account.userId, ...fromBlocked.params],
     );
     const unreadMentions = mentions?.n ?? 0;
     return { unread: rows?.n ?? 0, mentioned: unreadMentions > 0, unreadMentions };
@@ -4319,11 +4334,12 @@ export class ServerSession {
    */
   unreadMentions(groupId: string, after: number): { id: string; seq: number }[] {
     if (this.groups.get(groupId)?.kind === "dm") return [];
+    const blocked = this.notFromBlocked("m.sender_user");
     return this.db.all<{ id: string; seq: number }>(
       `SELECT m.id, m.seq FROM media d JOIN messages m ON m.row_id = d.row_id
-       WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0
+       WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0${blocked.sql}
        ORDER BY m.seq LIMIT 500`,
-      [groupId, this.mentionTag, after, this.account.userId],
+      [groupId, this.mentionTag, after, this.account.userId, ...blocked.params],
     );
   }
 
@@ -4369,6 +4385,7 @@ export class ServerSession {
         hidden: this.prefs.hidden.includes(key),
         markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
         mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
+        blocked: this.isBlocked(user.id),
         members: [],
         historyVisible: false,
         readBy: {},
@@ -4421,6 +4438,7 @@ export class ServerSession {
       hidden: this.prefs.hidden.includes(key),
       markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
       mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
+      blocked: group.kind === "dm" && !!group.peerId && this.isBlocked(group.peerId),
       members: this.membersWithKeys(group),
       historyVisible: group.kind === "channel" || this.sharesHistory(group),
       readBy: group.readBy,
@@ -4463,7 +4481,7 @@ export class ServerSession {
     this.emit({ type: "preferences", serverId: this.serverId });
     this.emitConversations();
     this.watchMutes();
-    if (changes.muted || changes.mutedUntil) this.resendPush();
+    if (changes.muted || changes.mutedUntil || changes.blocked) this.resendPush();
     await this.putVault("prefs", utf8(JSON.stringify(this.prefs))).catch((error) => {
       console.warn("[zuna] saving preferences", error);
     });
@@ -4489,6 +4507,17 @@ export class ServerSession {
     const current = this.prefs.markedUnread ?? [];
     if (current.includes(key) === marked) return Promise.resolve();
     return this.updatePreferences({ markedUnread: marked ? [...current, key] : current.filter((other) => other !== key) });
+  }
+
+  /**
+   * Blocks someone, or unblocks them: their messages stay on this device but out of
+   * sight, unread counts and notifications. It's in the synced preferences, sealed
+   * in the vault, so neither they nor the server learn of it.
+   */
+  setBlocked(userId: string, blocked: boolean): Promise<void> {
+    const current = this.prefs.blocked ?? [];
+    if (userId === this.account.userId || current.includes(userId) === blocked) return Promise.resolve();
+    return this.updatePreferences({ blocked: blocked ? [...current, userId] : current.filter((other) => other !== userId) });
   }
 
   /** Has a chat notify only about messages that mention you or reply to you, or about all of them again. */
@@ -4565,7 +4594,9 @@ export class ServerSession {
     // Muted DMs are kept by the person's key; the server knows the DM's group.
     // A chat muted for a while is pushed again once its time is up, even while the app isn't running.
     const groupOf = (key: string) => this.groupForKey(key)?.id;
-    const muted = push.sendMuted ? this.prefs.muted.map(groupOf).filter((id): id is string => !!id) : [];
+    // A direct message with someone blocked is muted for good, which is all the server learns of it.
+    const quiet = [...this.prefs.muted, ...(this.prefs.blocked ?? []).map((userId) => `user:${userId}`)];
+    const muted = push.sendMuted ? [...new Set(quiet.map(groupOf).filter((id): id is string => !!id))] : [];
     const mutedUntil: Record<string, number> = {};
     for (const [key, until] of Object.entries(push.sendMuted ? (this.prefs.mutedUntil ?? {}) : {})) {
       const groupId = groupOf(key);

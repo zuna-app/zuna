@@ -115,7 +115,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             bridge.opened = true
             if !input.detached, input.conversation.unread > 0 {
                 let selfId = input.server.me?.userId
-                bridge.unreadLine = input.items.first { AppModel.isUnread($0, ownRead: input.conversation.ownRead, selfId: selfId) }?.id
+                let blocked = input.server.prefs.blocked ?? []
+                bridge.unreadLine = input.items.first { AppModel.isUnread($0, ownRead: input.conversation.ownRead, selfId: selfId, blocked: blocked) }?.id
                 openAt = bridge.unreadLine
             }
         }
