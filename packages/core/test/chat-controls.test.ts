@@ -133,14 +133,17 @@ describe("blocking someone", () => {
     await waitFor(() => !!chat(bob, group)?.ready && !!chat(carol, group)?.ready, "everyone to join");
     const before = notified(bob).length;
     const typing = () => bob.events.filter((event) => event.type === "typing" && event.groupId === groupId).map((event) => (event as { userId: string }).userId);
-    carol.session.sendTyping(groupId);
     carol.session.sendMessage(`user:${bob.userId}`, { text: "it's me" });
     carol.session.sendMessage(group, { text: "@bob hello", mentions: [bob.userId] });
-    alice.session.sendTyping(groupId);
     alice.session.sendMessage(group, { text: "hi all" });
     await waitFor(() => bob.texts(group).includes("hi all") && bob.texts(group).includes("@bob hello") && bob.texts(dm).includes("it's me"), "delivery to bob");
     await waitFor(() => notified(bob).length > before, "bob to hear from alice");
-    await waitFor(() => typing().includes(alice.userId), "alice's typing");
+    // Typing is never sent again if it's lost, so both keep at it, as someone still typing does.
+    await waitFor(() => {
+      carol.session.sendTyping(groupId);
+      alice.session.sendTyping(groupId);
+      return typing().includes(alice.userId);
+    }, "alice's typing");
 
     expect(notified(bob).slice(before).map((event) => event.body)).toEqual(["alice: hi all"]);
     expect(typing()).not.toContain(carol.userId);
