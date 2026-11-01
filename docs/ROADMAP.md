@@ -50,7 +50,7 @@ Membership changes rotate the MLS epoch, which rotates the call key. A removed m
 |---|---|
 | Server | Optional `ZUNA_LIVEKIT_URL`, key and secret settings, plus an endpoint that issues a short-lived room token to members of a group. Servers without LiveKit work as they do today. |
 | Client core | Export call keys and rotate them on new epochs. |
-| Desktop | LiveKit's client SDK with its E2EE key provider, a call screen, and microphone and camera permissions. The macOS entitlements are already in place. |
+| Desktop | LiveKit's client SDK with its E2EE key provider, a call screen, and microphone and camera permissions. The macOS entitlements are already in place. On Linux, Chromium's `VaapiOnNvidiaGPUs` feature, switched on in `apps/desktop/src/main/index.ts` before the app is ready: without it, video from others decodes in software on NVIDIA, which costs about a quarter of a core for a 2560x1440 share at 60 fps. It goes through nvidia-vaapi-driver, and what it does where that isn't installed needs checking first. |
 | iPhone and iPad | LiveKit's Swift SDK with its E2EE key provider, a Calls tab, which the tab bar leaves room for, and CallKit, so calls ring like phone calls. |
 | Signaling | "Call started" and "call ended" as encrypted events in the conversation, so the server doesn't learn more than the LiveKit token request reveals. |
 | Self-hosting | A compose file with LiveKit as an optional second service. |
