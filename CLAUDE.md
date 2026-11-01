@@ -93,7 +93,7 @@ Rules the core depends on:
 | `packages/core/src/types.ts` | `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift` |
 | A public `ServerSession` method the UI uses | `ZunaModels/CoreAPI.swift` |
 | Desktop markup (`lib/markup.tsx`) | `ZunaModels/Markup.swift`, and the golden file: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
-| A feature people can see | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md` |
+| A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
 | A database schema | Add to the end of `migrations` in `server/internal/store/store.go` or `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | The desktop's content security policy (`apps/desktop/src/main/index.ts`) | `contentSecurityPolicy` in `server/internal/webhost/webhost.go` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
@@ -105,7 +105,7 @@ Rules the core depends on:
 
 - **Read it before working on a feature people can see,** to learn what the other platforms do and where.
 - **Update it in the same commit** as any change that adds, changes or removes such a feature, on any platform.
-- **If you only build it on one platform,** mark the others `no` or `partial` and add it to Known gaps. Remove a gap in the commit that closes it.
+- **Always add to Known gaps whatever you build that isn't on every platform,** in the same commit, every time: a feature, a change to one, or a fix, including ones nobody sees, such as privacy and security fixes. Mark the others `no` or `partial`, and say what's missing and which file it would go in. Changes in `packages/core` reach every platform, but `packages/ui` is only the desktop and the web, and `apps/*` only its own. Never leave a gap for a later commit. Remove one in the commit that closes it.
 - **Only write what you've checked.** If you couldn't build or run a platform, as with Swift without a Mac, say so in that row's notes.
 - **When it disagrees with the code, the code is right.** Correct the file. `docs/IOS_PLAN.md` records iOS's design and test reports, but its parity tables aren't kept current.
 
