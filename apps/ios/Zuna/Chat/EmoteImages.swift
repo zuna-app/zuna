@@ -1,9 +1,11 @@
 import ImageIO
 import UIKit
+import ZunaHost
 import ZunaModels
 
 /// 7TV emotes, which each Zuna server serves and caches for its members
 /// (`/api/emotes/<id>/<1x|2x|3x>.webp`), decoded with their animation.
+/// The pictures come from disk, where each server's set is fetched ahead (EmoteFiles).
 @MainActor
 final class EmoteImages {
     enum Size: String {
@@ -21,6 +23,18 @@ final class EmoteImages {
     private var loading: [String: Task<UIImage?, Never>] = [:]
     /// Emotes that failed to load show their name instead, as on the desktop.
     private var failed: Set<String> = []
+    /// By server address: fetching its set ahead.
+    private var prefetching: [String: Task<Void, Never>] = [:]
+
+    /// A server's whole set onto disk in the background, so showing any of it asks the
+    /// server for nothing, as the desktop's prefetchEmotes does. A newer set takes over.
+    func prefetch(_ emotes: [Emote], serverUrl: String) {
+        prefetching[serverUrl]?.cancel()
+        let ids = emotes.map(\.id)
+        prefetching[serverUrl] = Task.detached(priority: .background) {
+            await EmoteFiles.shared.prefetch(ids, serverUrl: serverUrl)
+        }
+    }
 
     func cached(_ id: String, _ size: Size) -> UIImage? {
         cache.object(forKey: "\(id)/\(size.rawValue)" as NSString)
@@ -36,9 +50,7 @@ final class EmoteImages {
         if failed.contains(key) { return nil }
         if let task = loading[key] { return await task.value }
         let task = Task<UIImage?, Never>.detached(priority: .userInitiated) {
-            guard let url = URL(string: "\(serverUrl)/api/emotes/\(id)/\(size.rawValue).webp"),
-                  let (data, response) = try? await URLSession.shared.data(from: url),
-                  (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            guard let data = await EmoteFiles.shared.data(id, size.rawValue, serverUrl: serverUrl) else { return nil }
             return Self.decode(data)
         }
         loading[key] = task

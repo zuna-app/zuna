@@ -147,6 +147,9 @@ final class AppModel {
     @ObservationIgnored private var refreshesInFlight: Set<String> = []
     private var pendingRefreshes: Set<String> = []
     private var nextToast = 1
+    @ObservationIgnored private var emotePrefetch: Task<Void, Never>?
+    /// By server: the set last fetched ahead, so it's fetched again only when it changes.
+    @ObservationIgnored private var prefetchedEmotes: [String: String] = [:]
 
     init(core: CoreConnection) {
         self.core = core
@@ -175,6 +178,7 @@ final class AppModel {
                 loaded[entry.id] = await loadServer(entry)
             }
             servers = loaded
+            prefetchEmotesSoon()
             let previous = order
             order = entries.map(\.id).filter { loaded[$0] != nil }
             if order != previous { onServersChanged?() }
@@ -214,6 +218,22 @@ final class AppModel {
         } catch {
             toast("Couldn't load \(entry.name): \(error)", .error)
             return nil
+        }
+    }
+
+    /// Each server's whole emote set onto disk once the app has settled, and again when a
+    /// set changes, as the desktop's Shell does (useEmotePrefetch).
+    private func prefetchEmotesSoon() {
+        emotePrefetch?.cancel()
+        emotePrefetch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, !Task.isCancelled else { return }
+            for server in servers.values {
+                let set = "\(server.emotes.setId)/\(server.emotes.emotes.count)"
+                guard prefetchedEmotes[server.entry.id] != set else { continue }
+                prefetchedEmotes[server.entry.id] = set
+                EmoteImages.shared.prefetch(server.emotes.emotes, serverUrl: server.entry.url)
+            }
         }
     }
 
@@ -387,6 +407,7 @@ final class AppModel {
                 case "emotes":
                     let emotes = try await session.getEmotes()
                     servers[serverId]?.emotes = emotes
+                    prefetchEmotesSoon()
                 case "preferences":
                     let prefs = try await session.getPreferences()
                     servers[serverId]?.prefs = prefs
