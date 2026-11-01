@@ -573,7 +573,7 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
   const trust = check?.trust ?? user.trust;
 
   return (
-    <Modal title={isSelf ? "Your security key" : `Verify ${user.displayName}`} onClose={onClose} width={460}>
+    <Modal title={isSelf ? "Your security key" : `Verify ${user.displayName} (@${user.username})`} onClose={onClose} width={460}>
       {trust === "changed" && (
         <div className="notice is-danger">
           <ShieldAlert size={16} />

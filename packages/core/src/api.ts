@@ -4,6 +4,15 @@ import { fromBase64, toBase64 } from "./encoding";
 import { ACCOUNT_PROTOCOL } from "./generations";
 import type { Emote, Invite, ServerInfo } from "./types";
 
+/**
+ * A request's path, with whatever goes in it kept to one part of the path, whatever
+ * it says. Some of it comes from other people's messages, and the request carries
+ * this person's token.
+ */
+function at(parts: TemplateStringsArray, ...values: (string | number)[]): string {
+  return parts.reduce((path, part, index) => path + encodeURIComponent(values[index - 1]!) + part);
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -242,7 +251,7 @@ export class Api {
   // Server
   info = () => this.request<ServerInfo>("GET", "/api/info");
   inviteInfo = (code: string) =>
-    this.request<{ setup: boolean; server: ServerInfo }>("GET", `/api/invites/${encodeURIComponent(code)}`);
+    this.request<{ setup: boolean; server: ServerInfo }>("GET", at`/api/invites/${code}`);
 
   // Accounts
   prelogin = (username: string) => this.request<ApiKdf>("POST", "/api/auth/prelogin", { username });
@@ -265,13 +274,13 @@ export class Api {
 
   // Users and devices
   users = (since = 0) =>
-    this.request<{ users: ApiUser[]; online: string[]; now: number }>("GET", `/api/users?since=${since}`);
-  user = (id: string) => this.request<ApiUser>("GET", `/api/users/${id}`);
+    this.request<{ users: ApiUser[]; online: string[]; now: number }>("GET", at`/api/users?since=${since}`);
+  user = (id: string) => this.request<ApiUser>("GET", at`/api/users/${id}`);
   updateMe = (body: { profile?: Uint8Array; profile_sig?: Uint8Array; avatar_file?: string | null; hide_last_seen?: boolean }) =>
     this.request("PATCH", "/api/me", body);
   addDevice = (id: string, certificate: Uint8Array, signatureKey: Uint8Array, extra?: { generation: number; seal_key: Uint8Array; seal_sig: Uint8Array; enroll_proof?: Uint8Array }) =>
     this.request("POST", "/api/devices", { id, certificate, signature_key: signatureKey, ...extra });
-  revokeDevice = (id: string) => this.request("DELETE", `/api/devices/${id}`);
+  revokeDevice = (id: string) => this.request("DELETE", at`/api/devices/${id}`);
 
   // Key packages
   keyPackageStatus = () => this.request<{ count: number; last_resort_at: number }>("GET", "/api/key-packages/status");
@@ -280,17 +289,17 @@ export class Api {
   claimKeyPackages = async (userId: string) =>
     (await this.request<{ key_packages: { user_id: string; device_id: string; data: string }[] }>(
       "POST",
-      `/api/users/${userId}/key-packages/claim`,
+      at`/api/users/${userId}/key-packages/claim`,
       {},
     )).key_packages;
 
   // Vault
   vaultItems = async (since: number) =>
-    (await this.request<{ items: ApiVaultItem[] }>("GET", `/api/vault?since=${since}`)).items;
+    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/vault?since=${since}`)).items;
   putVaultItems = (items: { id: string; data: Uint8Array }[]) => this.request<{ seq: number }>("PUT", "/api/vault", { items });
   historyGrants = async () =>
     (await this.request<{ grants: { id: number; group_id: string; data: string }[] }>("GET", "/api/history-grants")).grants;
-  deleteHistoryGrant = (id: number) => this.request("DELETE", `/api/history-grants/${id}`);
+  deleteHistoryGrant = (id: number) => this.request("DELETE", at`/api/history-grants/${id}`);
 
   // Generations of an account's keys
   account = () => this.request<ApiAccount>("GET", "/api/v2/account");
@@ -302,17 +311,17 @@ export class Api {
   closeGeneration = (generation: number, vaultCore: Uint8Array) =>
     this.request("POST", "/api/v2/account/core", { generation, vault_core: vaultCore });
   setSealKey = (deviceId: string, sealKey: Uint8Array, sealSig: Uint8Array) =>
-    this.request("PUT", `/api/v2/devices/${deviceId}/seal-key`, { seal_key: sealKey, seal_sig: sealSig });
+    this.request("PUT", at`/api/v2/devices/${deviceId}/seal-key`, { seal_key: sealKey, seal_sig: sealSig });
   setCertificate = (deviceId: string, certificate: Uint8Array) =>
-    this.request("PUT", `/api/v2/devices/${deviceId}/certificate`, { certificate });
+    this.request("PUT", at`/api/v2/devices/${deviceId}/certificate`, { certificate });
   identityLinks = async (userId: string, after: number) =>
-    (await this.request<{ links: ApiLink[] }>("GET", `/api/users/${userId}/identity-links?after=${after}`)).links;
+    (await this.request<{ links: ApiLink[] }>("GET", at`/api/users/${userId}/identity-links?after=${after}`)).links;
   vaultItemsAtAnyGeneration = async (since: number) =>
-    (await this.request<{ items: ApiVaultItem[] }>("GET", `/api/v2/vault?since=${since}`)).items;
+    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/v2/vault?since=${since}`)).items;
   putVaultItemsAt = (generation: number, items: { id: string; data: Uint8Array }[]) =>
     this.request<{ seq: number }>("PUT", "/api/v2/vault", { generation, items });
   olderVaultItems = async (limit: number) =>
-    (await this.request<{ items: ApiVaultItem[] }>("GET", `/api/v2/vault/older?limit=${limit}`)).items;
+    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/v2/vault/older?limit=${limit}`)).items;
   resealVault = (generation: number, items: { id: string; data: Uint8Array }[], remove: string[]) =>
     this.request("POST", "/api/v2/vault/reseal", { generation, items, delete: remove });
   historyGrantsAtAnyGeneration = async () =>
@@ -320,28 +329,28 @@ export class Api {
 
   // Groups
   groups = async () => (await this.request<{ groups: ApiGroup[] }>("GET", "/api/groups")).groups;
-  group = (id: string) => this.request<ApiGroup>("GET", `/api/groups/${id}`);
+  group = (id: string) => this.request<ApiGroup>("GET", at`/api/groups/${id}`);
   createDm = (peerId: string) =>
     this.request<{ group: ApiGroup; created: boolean }>("POST", "/api/groups", { kind: "dm", peer_id: peerId });
   createGroup = (historyVisible: boolean) =>
     this.request<{ group: ApiGroup; created: boolean }>("POST", "/api/groups", { kind: "group", history_visible: historyVisible });
-  deleteGroup = (id: string) => this.request("DELETE", `/api/groups/${id}`);
+  deleteGroup = (id: string) => this.request("DELETE", at`/api/groups/${id}`);
   commit = (groupId: string, body: CommitRequest) =>
-    this.request<{ seq: number; epoch: number }>("POST", `/api/groups/${groupId}/commit`, body);
+    this.request<{ seq: number; epoch: number }>("POST", at`/api/groups/${groupId}/commit`, body);
   voidCommits = (groupId: string, fromEpoch: number, toEpoch: number, groupInfo: Uint8Array) =>
-    this.request("POST", `/api/groups/${groupId}/void-commits`, { from_epoch: fromEpoch, to_epoch: toEpoch, group_info: groupInfo });
+    this.request("POST", at`/api/groups/${groupId}/void-commits`, { from_epoch: fromEpoch, to_epoch: toEpoch, group_info: groupInfo });
   groupInfo = (groupId: string) =>
-    this.request<{ group_info: string | null; epoch: number }>("GET", `/api/groups/${groupId}/group-info`);
+    this.request<{ group_info: string | null; epoch: number }>("GET", at`/api/groups/${groupId}/group-info`);
   setGroupMeta = (groupId: string, meta: Uint8Array, epoch: number, historyVisible?: boolean) =>
-    this.request("PUT", `/api/groups/${groupId}/meta`, { meta, epoch, history_visible: historyVisible });
-  leaveGroup = (groupId: string) => this.request("POST", `/api/groups/${groupId}/leave`, {});
+    this.request("PUT", at`/api/groups/${groupId}/meta`, { meta, epoch, history_visible: historyVisible });
+  leaveGroup = (groupId: string) => this.request("POST", at`/api/groups/${groupId}/leave`, {});
   setGroupRole = (groupId: string, userId: string, role: "admin" | "member") =>
-    this.request("PUT", `/api/groups/${groupId}/members/${userId}/role`, { role });
-  setRead = (groupId: string, data: Uint8Array) => this.request("PUT", `/api/groups/${groupId}/read`, { data });
+    this.request("PUT", at`/api/groups/${groupId}/members/${userId}/role`, { role });
+  setRead = (groupId: string, data: Uint8Array) => this.request("PUT", at`/api/groups/${groupId}/read`, { data });
   changes = (groupId: string, after: number, limit = 200) =>
-    this.request<ApiChanges>("GET", `/api/groups/${groupId}/changes?after=${after}&limit=${limit}`);
+    this.request<ApiChanges>("GET", at`/api/groups/${groupId}/changes?after=${after}&limit=${limit}`);
   welcomes = async () => (await this.request<{ welcomes: ApiWelcome[] }>("GET", "/api/welcomes")).welcomes;
-  deleteWelcome = (id: number) => this.request("DELETE", `/api/welcomes/${id}`);
+  deleteWelcome = (id: number) => this.request("DELETE", at`/api/welcomes/${id}`);
 
   // Messages
   messages = async (groupId: string, options: { before?: number; around?: number; limit?: number }) => {
@@ -349,33 +358,33 @@ export class Api {
     if (options.before !== undefined) query.set("before", String(options.before));
     if (options.around !== undefined) query.set("around", String(options.around));
     if (options.limit !== undefined) query.set("limit", String(options.limit));
-    return (await this.request<{ messages: ApiMessage[] }>("GET", `/api/groups/${groupId}/messages?${query}`)).messages;
+    return (await this.request<{ messages: ApiMessage[] }>("GET", `${at`/api/groups/${groupId}/messages`}?${query}`)).messages;
   };
-  message = (groupId: string, id: string) => this.request<ApiMessage>("GET", `/api/groups/${groupId}/messages/${id}`);
+  message = (groupId: string, id: string) => this.request<ApiMessage>("GET", at`/api/groups/${groupId}/messages/${id}`);
   sendMessage = (groupId: string, body: { id: string; epoch: number; envelope: Uint8Array; file_ids?: string[] }) =>
-    this.request<ApiMessage>("POST", `/api/groups/${groupId}/messages`, body);
+    this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages`, body);
   editMessage = (groupId: string, id: string, epoch: number, envelope: Uint8Array) =>
-    this.request<ApiMessage>("PUT", `/api/groups/${groupId}/messages/${id}`, { epoch, envelope });
-  deleteMessage = (groupId: string, id: string) => this.request<ApiMessage>("DELETE", `/api/groups/${groupId}/messages/${id}`);
+    this.request<ApiMessage>("PUT", at`/api/groups/${groupId}/messages/${id}`, { epoch, envelope });
+  deleteMessage = (groupId: string, id: string) => this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${id}`);
   addReaction = (groupId: string, messageId: string, id: string, epoch: number, data: Uint8Array) =>
-    this.request<ApiMessage>("POST", `/api/groups/${groupId}/messages/${messageId}/reactions`, { id, epoch, data });
+    this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages/${messageId}/reactions`, { id, epoch, data });
   removeReaction = (groupId: string, messageId: string, id: string) =>
-    this.request<ApiMessage>("DELETE", `/api/groups/${groupId}/messages/${messageId}/reactions/${id}`);
+    this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${messageId}/reactions/${id}`);
   pin = (groupId: string, messageId: string, pinned: boolean) =>
-    this.request<ApiMessage>(pinned ? "PUT" : "DELETE", `/api/groups/${groupId}/messages/${messageId}/pin`);
+    this.request<ApiMessage>(pinned ? "PUT" : "DELETE", at`/api/groups/${groupId}/messages/${messageId}/pin`);
   pins = async (groupId: string) =>
-    (await this.request<{ messages: ApiMessage[] }>("GET", `/api/groups/${groupId}/pins`)).messages;
+    (await this.request<{ messages: ApiMessage[] }>("GET", at`/api/groups/${groupId}/pins`)).messages;
 
   // Files
   createFile = (chunkCount: number, totalSize: number) =>
     this.request<{ id: string }>("POST", "/api/files", { chunk_count: chunkCount, total_size: totalSize });
-  uploadChunk = (id: string, n: number, data: Uint8Array) => this.request("PUT", `/api/files/${id}/chunks/${n}`, undefined, data);
-  completeFile = (id: string, attach = false) => this.request("POST", `/api/files/${id}/complete${attach ? "?attach=1" : ""}`, {});
+  uploadChunk = (id: string, n: number, data: Uint8Array) => this.request("PUT", at`/api/files/${id}/chunks/${n}`, undefined, data);
+  completeFile = (id: string, attach = false) => this.request("POST", `${at`/api/files/${id}/complete`}${attach ? "?attach=1" : ""}`, {});
 
   async downloadChunk(id: string, n: number): Promise<Uint8Array> {
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}/api/files/${id}/chunks/${n}`, {
+      response = await fetch(`${this.baseUrl}${at`/api/files/${id}/chunks/${n}`}`, {
         headers: { Authorization: `Bearer ${this.token}` },
         signal: AbortSignal.timeout(120_000),
       });
@@ -388,21 +397,21 @@ export class Api {
 
   // Emotes
   emotes = () => this.request<{ set_id: string; set_name: string; emotes: Emote[] }>("GET", "/api/emotes");
-  emoteUrl = (id: string, size: 1 | 2 | 3 | 4 = 2) => `${this.baseUrl}/api/emotes/${id}/${size}x.webp`;
+  emoteUrl = (id: string, size: 1 | 2 | 3 | 4 = 2) => `${this.baseUrl}${at`/api/emotes/${id}`}/${size}x.webp`;
   iconUrl = () => `${this.baseUrl}/api/icon`;
 
   // Administration
   invites = async () => (await this.request<{ invites: Invite[] }>("GET", "/api/invites")).invites;
   createInvite = (maxUses: number, expiresInSeconds: number) =>
     this.request<{ code: string }>("POST", "/api/invites", { max_uses: maxUses, expires_in_seconds: expiresInSeconds });
-  revokeInvite = (code: string) => this.request("DELETE", `/api/invites/${encodeURIComponent(code)}`);
+  revokeInvite = (code: string) => this.request("DELETE", at`/api/invites/${code}`);
   updateSettings = (body: Record<string, unknown>) => this.request("PATCH", "/api/admin/settings", body);
   updateIcon = (image: Uint8Array | Blob) => this.request("PUT", "/api/admin/icon", undefined, image);
   setEmoteSet = (set: string) =>
     this.request<{ set_id: string; set_name: string; count: number }>("PUT", "/api/admin/emote-set", { set });
-  setRole = (userId: string, role: "admin" | "member") => this.request("PUT", `/api/admin/users/${userId}/role`, { role });
-  ban = (userId: string) => this.request("POST", `/api/admin/users/${userId}/ban`, {});
-  unban = (userId: string) => this.request("POST", `/api/admin/users/${userId}/unban`, {});
+  setRole = (userId: string, role: "admin" | "member") => this.request("PUT", at`/api/admin/users/${userId}/role`, { role });
+  ban = (userId: string) => this.request("POST", at`/api/admin/users/${userId}/ban`, {});
+  unban = (userId: string) => this.request("POST", at`/api/admin/users/${userId}/unban`, {});
 }
 
 export interface LoginResponse {

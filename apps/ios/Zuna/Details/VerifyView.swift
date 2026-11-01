@@ -42,7 +42,7 @@ struct VerifyView: View {
                 .padding(20)
             }
             .background(Theme.bg1)
-            .navigationTitle(isSelf ? "Your security key" : "Verify \(name)")
+            .navigationTitle(isSelf ? "Your security key" : "Verify \(name) (@\(user?.username ?? ""))")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
             .task(id: user?.trust) {

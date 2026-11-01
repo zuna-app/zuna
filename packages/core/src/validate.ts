@@ -22,6 +22,7 @@ const MAX_CHUNKS = 1 << 24;
 const MAX_PICTURE_SIDE = 1 << 20;
 
 const FILE_ID = /^[0-9a-f]*$/;
+const MESSAGE_ID = /^[0-9a-f]{32}$/;
 const EMOTE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
 const MIME = /^[A-Za-z0-9.+_-]+\/[A-Za-z0-9.+_-]+(?:\s*;.*)?$/;
@@ -36,6 +37,13 @@ const isCount = (value: unknown, max: number): value is number => typeof value =
 const isString = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
 
 const absent = (value: unknown): value is null | undefined => value === undefined || value === null;
+
+// What changes how the text around it reads, or hides in it. With these, "photo‮gnp.exe"
+// reads as if it ended in ".png". Joiners stay: some scripts and emoji need them.
+const HIDDEN_CHARACTERS = /[؜​‎‏‪-‮⁠⁦-⁩﻿]/g;
+
+/** A name to show, as what it really says. */
+const plainName = (name: string): string => name.replace(HIDDEN_CHARACTERS, "");
 
 /** A picture's side, kept only if it makes sense: nothing depends on it but the layout. */
 const side = (value: unknown): number | undefined => (typeof value === "number" && value > 0 && value <= MAX_PICTURE_SIDE ? value : undefined);
@@ -66,7 +74,7 @@ function parseAttachment(value: unknown): Attachment | null {
   if (!isCount(chunks, MAX_CHUNKS) || !isString(name, MAX_NAME_LENGTH)) return null;
   if (!isString(mime, MAX_MIME_LENGTH) || (mime !== "" && !MIME.test(mime))) return null;
   if (!isCount(size, Number.MAX_SAFE_INTEGER)) return null;
-  const attachment: Attachment = { fileId, key, prefix, chunks, name, mime: mime || "application/octet-stream", size };
+  const attachment: Attachment = { fileId, key, prefix, chunks, name: plainName(name), mime: mime || "application/octet-stream", size };
   const width = side(value.width);
   const height = side(value.height);
   if (width && height) {
@@ -109,7 +117,8 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   }
   if (!absent(value.replyTo)) {
     if (!isString(value.replyTo, MAX_ID_LENGTH)) return null;
-    body.replyTo = value.replyTo;
+    // Looked up on the server to show what's being replied to, so nothing else belongs here.
+    if (MESSAGE_ID.test(value.replyTo)) body.replyTo = value.replyTo;
   }
   if (!absent(value.emotes)) {
     if (!isObject(value.emotes)) return null;
@@ -173,7 +182,7 @@ export function parseSystemEvent(value: unknown): SystemEvent | null {
 /** A person's profile, or null if it isn't one. */
 export function parseProfile(value: unknown): Profile | null {
   if (!isObject(value) || !isString(value.displayName, MAX_NAME_LENGTH)) return null;
-  const profile: Profile = { displayName: value.displayName };
+  const profile: Profile = { displayName: plainName(value.displayName) };
   if (!absent(value.bio)) {
     if (!isString(value.bio, MAX_TEXT_LENGTH)) return null;
     profile.bio = value.bio;
@@ -201,7 +210,7 @@ export function parseGroupDetails(value: unknown): GroupDetails | null {
   const details: GroupDetails = {};
   if (!absent(value.name)) {
     if (!isString(value.name, MAX_NAME_LENGTH)) return null;
-    details.name = value.name;
+    details.name = plainName(value.name);
   }
   if (!absent(value.description)) {
     if (!isString(value.description, MAX_TEXT_LENGTH)) return null;

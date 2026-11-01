@@ -25,7 +25,7 @@ import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { allowLocalLinks, checkPreview, findLink, linkHost, previewable, privateAddress, readPage } from "../src/links";
 import { plainText } from "../src/plain-text";
 import { previewText } from "../src/notify";
-import { MAX_TEXT_LENGTH, parseMessageBody, parseProfile } from "../src/validate";
+import { MAX_TEXT_LENGTH, parseGroupDetails, parseMessageBody, parseProfile } from "../src/validate";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -1232,6 +1232,31 @@ describe("a server deciding that a group's history is shared (Z-44)", () => {
 
     await owner.session.addMembers(groupId, [joiner.userId]);
     await waitFor(async () => (await joiner.session.loadMessages(groupId)).messages.some((item) => item.text === OLD), "them to read older messages");
+  });
+});
+
+describe("what's in a request's path (Z-55)", () => {
+  it("stays in its one part of the path, whatever it says", async () => {
+    const dave = await person("yan");
+    const groupId = await groupWith(alice, [dave]);
+    await expect(apiOf(dave).message(groupId, `../../../users/${dave.userId}`)).rejects.toMatchObject({ status: 404 });
+    await expect(apiOf(dave).user(`${dave.userId}/key-packages/claim`)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("is never something a message chose to look up", () => {
+    expect(parseMessageBody({ text: "hi", replyTo: "../../users/me" })).toEqual({ text: "hi" });
+    expect(parseMessageBody({ text: "hi", replyTo: "a".repeat(32) })).toEqual({ text: "hi", replyTo: "a".repeat(32) });
+  });
+});
+
+describe("names that hide what they are (Z-56)", () => {
+  it("show as what they really say", () => {
+    const name = "photo‮gnp.exe";
+    expect(parseProfile({ displayName: "‎Al​ice⁦" })?.displayName).toBe("Alice");
+    expect(parseGroupDetails({ name: "Team‮" })?.name).toBe("Team");
+    expect(parseMessageBody({ attachments: [{ fileId: "ab", key: "", prefix: "", chunks: 1, name, mime: "", size: 1 }] })?.attachments?.[0]?.name).toBe("photognp.exe");
+    // Joiners are part of how some scripts and emoji are written.
+    expect(parseProfile({ displayName: "👩‍💻" })?.displayName).toBe("👩‍💻");
   });
 });
 
