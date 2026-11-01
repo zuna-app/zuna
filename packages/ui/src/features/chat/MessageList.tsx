@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui";
 import { formatDaySeparator, sameDay } from "@/lib/format";
 import { isUnread, useApp } from "@/state/store";
 import { MessageItem } from "./MessageItem";
+import { useDragPick } from "./use-drag-pick";
 
 function UndisplayableMessage() {
   return (
@@ -442,6 +443,8 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     return () => clearTimeout(timer);
   }, [jumpTarget?.nonce]);
 
+  const pickByDragging = useDragPick(listId, scroller);
+
   const scrollToBottom = () => {
     if (list?.detached) void returnToLatest(listId);
     else goToNewest();
@@ -504,7 +507,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
   const unreadBelow = !atBottom ? conversation.unread : 0;
 
   return (
-    <div className="message-list">
+    <div className="message-list" onMouseDown={pickByDragging}>
       <Virtuoso
         // The list stays through a first message's move to its new group, as this is one chat.
         key={list.detached ? "detached" : "latest"}

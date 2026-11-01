@@ -434,6 +434,12 @@ try {
   await sleep(150);
   const hiddenAfterReplying = await newestHidden();
   check("the newest message stays in place after replying", hiddenAfterReplying <= 0 && hiddenAfterReplying > -40, `${hiddenAfterReplying}px from the list's end`);
+  await page.locator(".msg", { hasText: "Works for me" }).first().locator(".msg-text").dblclick();
+  await page.locator(".composer-context", { hasText: "Replying to Priya" }).waitFor({ timeout: 5000 });
+  check("a double click on a message replies to it", await composerFocused());
+  check("a double click replies rather than selecting a word", await page.evaluate(() => !window.getSelection()?.toString()));
+  await page.keyboard.press("Escape");
+  await sleep(150);
   await openChat("Priya");
   await page.locator(".msg.is-own", { hasText: "Checking now" }).first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit" }).click();
@@ -579,6 +585,43 @@ try {
   await page.locator(".toast", { hasText: "Copied 2 messages" }).waitFor({ timeout: 5000 });
   check("copying several messages names their authors", (await electronApp.evaluate(({ clipboard }) => clipboard.readText())).includes("Sam Chen, ["));
   check("copying ends the selection", (await page.locator(".selection-bar").count()) === 0);
+  // Dragging across messages picks them, as in Telegram's desktop app.
+  const middleOf = async (text) => {
+    const box = await page.locator(".msg", { hasText: text }).first().locator(".bubble").boundingBox();
+    return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  };
+  const drag = async (from, ...through) => {
+    const start = await middleOf(from);
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    for (const text of through) {
+      const point = await middleOf(text);
+      await page.mouse.move(point.x, point.y, { steps: 8 });
+    }
+    await page.mouse.up();
+    await sleep(100);
+  };
+  const pickedCount = async () => ((await page.locator(".selection-bar").count()) ? await page.locator(".selection-count").innerText() : "none");
+  const text = await page.locator(".msg", { hasText: "nice view at sunrise" }).first().locator(".msg-text").boundingBox();
+  await page.mouse.move(text.x + 4, text.y + text.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(text.x + text.width - 4, text.y + text.height / 2, { steps: 8 });
+  await page.mouse.up();
+  check("a drag within a message still selects its text", (await pickedCount()) === "none" && (await page.evaluate(() => window.getSelection()?.toString() ?? "")).includes("nice view"));
+  await drag("Works for me", "Perfect. Booking", "Works for me");
+  check("a drag that comes back picks only where it started, not toggling it on letting go", (await pickedCount()).startsWith("1 message"), await pickedCount());
+  await page.keyboard.press("Escape");
+  await drag("Works for me", "Perfect. Booking");
+  check("dragging from one message onto another picks those between", (await pickedCount()).startsWith("3 messages"), await pickedCount());
+  const selectedText = await page.evaluate(() => {
+    const selection = window.getSelection();
+    return selection?.toString() ? `${JSON.stringify(selection.toString().slice(0, 60))} in .${selection.anchorNode?.parentElement?.className}, focus on .${document.activeElement?.className}` : "";
+  });
+  check("dragging across messages doesn't select their text", !selectedText, selectedText);
+  await shot("19h-dragged");
+  await drag("I'll bring the tent", "The one by the lake");
+  check("a drag from a picked message lets go of them", (await pickedCount()).startsWith("1 message"), await pickedCount());
+  await page.keyboard.press("Escape");
   await page.locator(".msg", { hasText: "Perfect. Booking" }).first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Select" }).click();
   await page.locator(".msg", { hasText: "The one by the lake" }).first().click();

@@ -102,7 +102,7 @@ Desktop and web only for now (see Known gaps). Paths are under `features/voice/`
 |---|---|---|---|---|---|---|
 | Message box: draft per chat, grows with its text | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Composer.swift`, `State/ComposerState.swift` | |
 | Outbox: sending, try again, discard | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/ChatScreen.swift` | The queue itself is in the core |
-| Reply and edit | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | iOS also swipes to reply. Each edit signs a `revision`, and a device keeps the latest it has seen (`nextRevision`, `editedSince` in the core) |
+| Reply and edit | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | iOS also swipes to reply, and the desktop and web reply on a double click on a bubble (`features/chat/MessageItem.tsx`), checked in `ui-check.mjs`. Each edit signs a `revision`, and a device keeps the latest it has seen (`nextRevision`, `editedSince` in the core) |
 | Autocomplete for `:emote` and `@person` | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Composer.swift` | |
 | Emoji and emote picker | yes | yes | yes | `features/chat/EmotePicker.tsx` | `Chat/EmojiPicker.swift` | |
 | Attachments: up to 10, previews, size limit | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/OutgoingFiles.swift`, `Chat/Composer.swift` | |
@@ -111,7 +111,7 @@ Desktop and web only for now (see Known gaps). Paths are under `features/voice/`
 | Refusing a message too long to send | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | The desktop checks first, iOS shows the core's error |
 | Message menu: reactions, copy, edit, pin, delete | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/ChatScreen.swift` | Deleting signs a deletion in the core (`deleteSigned`); a copy is only erased for one its author or a group admin signed, otherwise hidden and kept 30 days (`deletionProven`) |
 | Forwarding | yes | yes | yes | `features/overlays/Overlays.tsx` | `Chat/Forwarding.swift` | |
-| Picking several messages | yes | yes | yes | `features/chat/MessageItem.tsx`, `features/chat/Composer.tsx` | `Chat/ChatScreen.swift` | |
+| Picking several messages | yes | yes | yes | `features/chat/MessageItem.tsx`, `features/chat/ChatView.tsx` (`SelectionBar`), `features/chat/use-drag-pick.ts` | `Chat/ChatScreen.swift` | Desktop and web also by dragging across messages, as Telegram's desktop app: from one onto another picks those between, from a picked one lets go of them, near an edge the list scrolls, and within one message a drag still selects text. Desktop checked in `ui-check.mjs`; the web's drag not run |
 | Voice messages: recording | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Voice.swift` | By design: click to start on the desktop, hold on iOS |
 | Sharing a location: this device's position, shown before it's sent, from the attach menu | yes | yes | yes | `features/overlays/ShareLocation.tsx`, `lib/location.ts`, `features/chat/Composer.tsx` | `Chat/Location.swift` (`ShareLocationSheet`, `LocationFinder`), `Chat/Composer.swift` | `location` in the message body, checked in `validate.ts`. Desktop and web use the browser's geolocation: Electron allows it in `apps/desktop/src/main/index.ts`, `zuna-web` sends `geolocation=(self)`. Checked with the position emulated, in Electron on macOS (`ui-check.mjs`) and in Chromium and WebKit (`web-check.mjs`), so whether each OS gives Electron a real one is unchecked (see "The desktop on each OS"). iOS: CoreLocation, when in use; checked in the simulator on a Mac with a set location |
 | A shared location: a card with the coordinates and how far off they may be, opening a map | yes | yes | yes | `features/chat/MessageItem.tsx` (`LocationCard`) | `Chat/Location.swift` (`LocationCard`), `Chat/MessageRow.swift` | No map is drawn, as nothing in a message may load anything. Opens OpenStreetMap on the desktop and the web, Apple Maps on iOS |
@@ -154,6 +154,7 @@ These aren't gaps, so don't port them without being asked.
 
 - **Desktop only:** tray, title bar, automatic updates, system notifications and the unread badge, and Electron's fuses.
 - **Desktop and web:** the resizable sidebar, and the content security policy (sent by `zuna-web` on the web).
+- **Desktop and web:** mouse gestures in a chat: dragging across messages to pick them, and a double click to reply. iOS keeps tapping to pick and swiping to reply, as asked.
 - **Desktop only:** native screen capture, and push to talk from another window.
 - **Web only:** one tab at a time with "Use here", the unread count in the tab's title, the "Zuna was updated" reload prompt, and the "Make the window bigger" notice below 860 × 540.
 - **iOS only:** App lock with Face ID or passcode, the cover in the app switcher, the iPad split layout.

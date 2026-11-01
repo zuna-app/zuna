@@ -338,6 +338,8 @@ button.media-load:hover { background: rgba(0, 0, 0, 0.7); }
 }
 .msg-check.is-on { background: var(--accent); border-color: var(--accent); }
 .msg-check.is-disabled { opacity: 0.3; }
+/* Dragging across messages picks them, so no text is selected on the way. */
+.virtuoso.is-picking * { user-select: none; }
 
 .composer-disabled { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px; color: var(--text-2); font-size: 13.5px; }
 .composer-row { display: flex; align-items: flex-end; gap: 2px; padding: 8px 10px; }

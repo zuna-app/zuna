@@ -39,6 +39,7 @@ import { accuracyText, coordinatesText, mapLink } from "@/lib/location";
 import { downloadAttachment, loadsByItself, useDecryptedUrl } from "@/lib/media";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
+import { canActOn } from "./use-drag-pick";
 import { useMarkupContext } from "./use-markup-context";
 import { EmotePicker } from "./EmotePicker";
 
@@ -555,7 +556,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const selfId = baseContext.selfId;
   const canDelete = own || (isGroup && isGroupAdmin);
   const isDeleted = message.deletedAt !== null;
-  const canAct = message.seq !== null && !isDeleted && message.status === "sent";
+  const canAct = canActOn(message);
 
   const context = useMemo(
     () => ({
@@ -723,6 +724,9 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   ]
     .filter(Boolean)
     .join(" ");
+  // Not on something with its own click, such as a link, a picture or a reaction.
+  const repliesOnDoubleClick = (event: React.MouseEvent) =>
+    canAct && !selecting && !(event.target as Element).closest("button, a, input, textarea, video, audio, [role='slider']");
   const totalReactors = message.reactions.reduce((sum, reaction) => sum + reaction.userIds.length, 0);
 
   return (
@@ -747,7 +751,12 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       )}
       {!own && isGroup && <span className="msg-avatar">{lastInGroup && <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={32} />}</span>}
       <div className="msg-stack">
-        <div className={`bubble${message.status === "sending" ? " is-sending" : ""}${message.status === "failed" ? " is-failed" : ""}`}>
+        <div
+          className={`bubble${message.status === "sending" ? " is-sending" : ""}${message.status === "failed" ? " is-failed" : ""}`}
+          // A double click replies, as in Telegram, rather than selecting a word.
+          onMouseDown={(event) => event.detail > 1 && repliesOnDoubleClick(event) && event.preventDefault()}
+          onDoubleClick={(event) => repliesOnDoubleClick(event) && setReply(listId, message)}
+        >
           {!own && isGroup && !grouped && !jumbo && (
             <span className="msg-author" style={{ color: nameColor(message.senderId) }}>
               {senderName}

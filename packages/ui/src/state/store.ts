@@ -121,6 +121,8 @@ interface AppState {
   setEditing(listId: string, message: MessageView | null): void;
   /** Starts picking messages with this one, adds or removes one, or stops with null. */
   toggleSelected(listId: string, id: string | null): void;
+  /** Picks exactly these messages, or stops picking with none. */
+  setSelected(listId: string, ids: string[]): void;
   updateSettings(changes: Partial<AppSettings>): void;
   refreshConversations(serverId: string): void;
 }
@@ -724,6 +726,10 @@ export const useApp = create<AppState>((set, get) => {
         const ids = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
         return { selection: ids.length ? { listId, ids } : null };
       });
+    },
+
+    setSelected(listId, ids) {
+      set({ selection: ids.length ? { listId, ids } : null });
     },
 
     updateSettings(changes) {
