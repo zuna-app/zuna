@@ -177,6 +177,29 @@ try {
   await page.keyboard.press("Escape");
   await sleep(100);
   check("Escape in the message box closes the panel", (await page.locator(".side-panel").count()) === 0);
+
+  // Verifying someone
+  await page.locator(".conv-row", { hasText: "Priya" }).first().click();
+  await page.locator(".chat-title", { hasText: "Priya" }).waitFor({ timeout: 10_000 });
+  await page.locator(".chat-title").click();
+  await page.locator(".trust-card.trust-unverified").click();
+  await page.locator(".safety-cell").first().waitFor({ timeout: 10_000 });
+  await page.getByRole("button", { name: "They match" }).click();
+  await page.locator(".trust-card.trust-verified").waitFor({ timeout: 10_000 });
+  await page.locator(".safety-cell").first().waitFor({ state: "detached", timeout: 10_000 });
+  check("saying the emoji match verifies someone", true);
+  await page.locator(".trust-card.trust-verified").click();
+  await page.getByRole("button", { name: "Remove verification" }).click();
+  await page.locator(".trust-card.trust-unverified").waitFor({ timeout: 10_000 });
+  check("verification can be removed", true);
+  await page.keyboard.press("Escape");
+  await sleep(100);
+  await page.locator(".composer-input").click();
+  await page.keyboard.press("Escape");
+  await sleep(100);
+  check("the panel closes again after verifying", (await page.locator(".side-panel").count()) === 0);
+  await page.locator(".conv-row", { hasText: "Weekend trip" }).click();
+  await page.locator(".chat-title", { hasText: "Weekend trip" }).waitFor({ timeout: 10_000 });
   await page.evaluate(() => document.activeElement.blur());
   await page.keyboard.type("h");
   check("typing anywhere goes into the message box", (await page.locator(".composer-input").inputValue()) === "h");
