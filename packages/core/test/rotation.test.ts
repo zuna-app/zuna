@@ -846,7 +846,11 @@ describe("someone holding old keys, with the server's help", () => {
     const db = serverDatabase();
     db.prepare("UPDATE identity_links SET payload = ?, by_prev = ?, by_new = ?, by_device = ? WHERE user_id = ? AND generation = 1").run(fork.payload, fork.byPrev, fork.byNew, fork.byDevice, dave.userId);
     db.close();
-    await sessionOf(alice).followChain(dave.userId);
+    // A read of the chain already under way joins this one, and may have started before the forgery.
+    await waitFor(async () => {
+      await sessionOf(alice).followChain(dave.userId);
+      return sessionOf(alice).users.get(dave.userId).trust === "changed";
+    }, "alice to read the chain again");
     expect(alice.session.safetyCheck(dave.userId)!.trust).toBe("changed");
     expect(toBase64(sessionOf(alice).headOf(dave.userId).hash)).toBe(toBase64(held.hash));
     // What's shown to compare is the story being told now, and it doesn't match the real person's.
