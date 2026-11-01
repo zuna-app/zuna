@@ -3715,7 +3715,9 @@ export class ServerSession {
       return;
     }
     const existing = this.messageRow(message.group_id, message.id);
-    if (existing && existing.updated_seq >= message.updated_seq && existing.status !== "undecryptable" && existing.status !== "unverified") {
+    // A pin or unpin this device couldn't check yet, such as one under keys it didn't have then, is looked at again.
+    const pinUnsettled = !!existing && (existing.pinned_at === null) !== (message.pinned_at === null);
+    if (existing && existing.updated_seq >= message.updated_seq && existing.status !== "undecryptable" && existing.status !== "unverified" && !pinUnsettled) {
       return;
     }
     // A message's author never changes. A signature only proves who signed what's arriving now.

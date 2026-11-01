@@ -1572,6 +1572,15 @@ describe("a server pinning or unpinning a message", () => {
     expect(await pinned(member, groupId)).toEqual([]);
   });
 
+  it("checks a pin again that it couldn't check the first time", async () => {
+    const { owner, member, groupId, ids } = await inAGroup();
+    await owner.session.setPinned(groupId, ids[0]!, true);
+    await waitFor(async () => (await pinned(member, groupId)).includes(ids[0]!), "the pin");
+    // As if the keys for the pin's epoch hadn't been here when it arrived.
+    sessionOf(member).db.run("UPDATE messages SET pinned_at = NULL, pinned_by = NULL, pin_revision = NULL WHERE group_id = ? AND id = ?", [groupId, ids[0]]);
+    expect(await pinned(member, groupId)).toEqual([ids[0]]);
+  });
+
   it("needs the device's proof, not only its session token", async () => {
     const { owner, groupId, ids } = await inAGroup();
     await waitFor(() => !!apiOf(owner).prove, "the app to sign");
