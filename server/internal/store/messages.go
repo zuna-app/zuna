@@ -14,20 +14,20 @@ import (
 // so a client that was offline fetches the current state of whatever changed
 // instead of replaying each edit.
 type Message struct {
-	GroupID      string     `json:"group_id"`
-	ID           string     `json:"id"`
-	Seq          int64      `json:"seq"`
-	UpdatedSeq   int64      `json:"updated_seq"`
-	SenderUser   string     `json:"sender_user"`
-	SenderDevice string     `json:"sender_device"`
-	Epoch        int64      `json:"epoch"`
-	Envelope     []byte     `json:"envelope,omitempty"`
-	CreatedAt    int64      `json:"created_at"`
-	EditedAt     *int64     `json:"edited_at"`
-	DeletedAt    *int64     `json:"deleted_at"`
-	PinnedAt     *int64     `json:"pinned_at"`
-	PinnedBy     string     `json:"pinned_by,omitempty"`
-	DeletedBy    string     `json:"deleted_by,omitempty"`
+	GroupID      string `json:"group_id"`
+	ID           string `json:"id"`
+	Seq          int64  `json:"seq"`
+	UpdatedSeq   int64  `json:"updated_seq"`
+	SenderUser   string `json:"sender_user"`
+	SenderDevice string `json:"sender_device"`
+	Epoch        int64  `json:"epoch"`
+	Envelope     []byte `json:"envelope,omitempty"`
+	CreatedAt    int64  `json:"created_at"`
+	EditedAt     *int64 `json:"edited_at"`
+	DeletedAt    *int64 `json:"deleted_at"`
+	PinnedAt     *int64 `json:"pinned_at"`
+	PinnedBy     string `json:"pinned_by,omitempty"`
+	DeletedBy    string `json:"deleted_by,omitempty"`
 	// What the deleting device signed, which apps check before erasing their copies.
 	Deletion  []byte     `json:"deletion,omitempty"`
 	Reactions []Reaction `json:"reactions"`
