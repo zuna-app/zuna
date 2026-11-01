@@ -497,4 +497,6 @@ enum ChatRoute: Hashable {
     case chat(String)
     case details(String)
     case pins(String)
+    /// One kind of thing from a chat's details, such as its photos.
+    case media(String, SharedKind)
 }

@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// Details, groups, invites and verification, each checked from the desktop's side too.
@@ -186,6 +187,92 @@ final class DetailsTests: XCTestCase {
         try waitFor("the link to stop working") {
             (try? carol.callClient("previewInvite", [url])) == nil
         }
+    }
+
+    func testListsAChatsPhotosFilesAndLinksAsTheDesktopCountsThem() throws {
+        let alice = try Peer("alice")
+        let tag = UUID().uuidString.prefix(4)
+        let name = "Photo walk \(tag)"
+        let groupId = try XCTUnwrap(try alice.call("createGroup", [name, [bobId], true]) as? String)
+        let key = "group:\(groupId)"
+        let png = UIGraphicsImageRenderer(size: CGSize(width: 120, height: 90)).pngData { context in
+            UIColor.systemOrange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 120, height: 90))
+        }
+        let photo = "harbour-\(tag).png", file = "route-\(tag).txt"
+        try alice.sendImage(to: key, png: png, name: photo, width: 120, height: 90)
+        _ = try alice.call("sendWithAttachments", [
+            key,
+            [["blob": ["$blob": ["bytes": Data("Up the hill, then left.".utf8).base64EncodedString(), "type": "text/plain"]], "name": file, "mime": "text/plain"]],
+            [:],
+        ])
+        // The link in code doesn't count.
+        let linkId = try alice.send(to: key, ["text": "The route: https://maps.example/walk and `https://not.example`"])
+
+        try start()
+        open(key)
+        openDetails()
+        // The rows say what alice's desktop counts.
+        let counts = try XCTUnwrap(try alice.call("mediaCounts", [groupId]) as? [String: Int])
+        XCTAssertEqual(counts, ["photo": 1, "video": 0, "file": 1, "audio": 0, "voice": 0, "link": 1])
+        let photos = zuna.element(A11y.Details.shared("photo"))
+        try waitFor("the counts", timeout: 30) {
+            photos.exists && self.zuna.element(A11y.Details.shared("file")).exists && self.zuna.element(A11y.Details.shared("link")).exists
+        }
+        XCTAssertEqual(photos.label, "1 photo")
+        XCTAssertEqual(zuna.element(A11y.Details.shared("file")).label, "1 file")
+        XCTAssertEqual(zuna.element(A11y.Details.shared("link")).label, "1 shared link")
+        XCTAssertFalse(zuna.element(A11y.Details.shared("video")).exists)
+        XCTAssertFalse(zuna.element(A11y.Details.shared("groups")).exists)
+        zuna.screenshot("85-shared-media-rows")
+
+        // The photo opens decrypted in the viewer.
+        photos.tap()
+        let tile = zuna.element(A11y.Shared.item(photo))
+        XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        try waitFor("the photo to load") { tile.value as? String == "Loaded" }
+        zuna.screenshot("86-shared-photos")
+        tile.tap()
+        XCTAssertTrue(zuna.element(A11y.Chat.photoViewer).waitForExistence(timeout: 10))
+        zuna.app.buttons["Close"].tap()
+        try waitFor("the viewer to close") { !self.zuna.element(A11y.Chat.photoViewer).exists }
+        zuna.app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // The file, with who sent it.
+        zuna.element(A11y.Details.shared("file")).tap()
+        let row = zuna.element(A11y.Shared.item(file))
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        XCTAssertTrue(row.label.localizedCaseInsensitiveContains("alice"), row.label)
+        zuna.screenshot("87-shared-files")
+        zuna.app.navigationBars.buttons.element(boundBy: 0).tap()
+
+        // The link, where it really goes, and from its menu back to the message in the chat.
+        zuna.element(A11y.Details.shared("link")).tap()
+        let link = zuna.element(A11y.Shared.item(linkId))
+        XCTAssertTrue(link.waitForExistence(timeout: 10))
+        XCTAssertTrue(link.buttons["https://maps.example/walk"].exists)
+        XCTAssertFalse(link.buttons["https://not.example"].exists)
+        zuna.screenshot("88-shared-links")
+        link.press(forDuration: 1)
+        let showInChat = zuna.app.buttons["Show in chat"]
+        XCTAssertTrue(showInChat.waitForExistence(timeout: 5))
+        showInChat.tap()
+        XCTAssertTrue(zuna.element(A11y.Chat.screen).waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.element(A11y.Chat.message(linkId)).waitForExistence(timeout: 10))
+
+        // Alice's chat lists the group in common, and opens it.
+        zuna.app.navigationBars.buttons.element(boundBy: 0).tap()
+        open("user:\(aliceId)")
+        openDetails()
+        let groups = zuna.element(A11y.Details.shared("groups"))
+        XCTAssertTrue(groups.waitForExistence(timeout: 10))
+        groups.tap()
+        let group = zuna.element(A11y.Shared.group(key))
+        XCTAssertTrue(group.waitForExistence(timeout: 10))
+        zuna.screenshot("89-groups-in-common")
+        group.tap()
+        XCTAssertTrue(zuna.element(A11y.Chat.title).waitForExistence(timeout: 10))
+        try waitFor("the group to open") { self.zuna.element(A11y.Chat.title).label.contains(name) }
     }
 
     func testMutesFromTheDetails() throws {

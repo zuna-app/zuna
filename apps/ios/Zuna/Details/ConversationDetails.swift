@@ -15,6 +15,7 @@ struct ConversationDetails: View {
     @State private var confirming: Confirmation?
     @State private var photo: PhotosPickerItem?
     @State private var choosingPhoto = false
+    @State private var mediaCounts: MediaCounts?
 
     enum DetailsSheet: Identifiable {
         case verify(String), edit, addMembers
@@ -70,6 +71,7 @@ struct ConversationDetails: View {
                         .foregroundStyle(Theme.text2)
                 }
                 .listRowBackground(Theme.bg2)
+                sharedMedia(server, conversation)
                 members(server, conversation, selfId: selfId, isAdmin: isAdmin)
                 if isAdmin {
                     Section {
@@ -111,6 +113,9 @@ struct ConversationDetails: View {
                     .accessibilityIdentifier(A11y.Details.trust)
                 }
                 .listRowBackground(Theme.bg2)
+            }
+            if conversation.kind != .group {
+                sharedMedia(server, conversation)
             }
 
             Section {
@@ -161,6 +166,16 @@ struct ConversationDetails: View {
         }
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier(A11y.Details.screen)
+        .task(id: model.chatChange(serverId, conversation)) {
+            guard let groupId = conversation.groupId else {
+                mediaCounts = nil
+                return
+            }
+            // New messages come in bursts as history arrives, so counting again waits for a quiet moment.
+            if mediaCounts != nil { try? await Task.sleep(for: .milliseconds(150)) }
+            guard !Task.isCancelled, let counts = try? await model.core.session(serverId).mediaCounts(groupId), !Task.isCancelled else { return }
+            mediaCounts = counts
+        }
         .sheet(item: $sheet) { sheet in
             switch sheet {
             case let .verify(userId):
@@ -246,6 +261,28 @@ struct ConversationDetails: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Details.header)
+    }
+
+    // MARK: Shared media
+
+    /// How many photos, files, links and so on are in the chat, one row each, as in Telegram's details.
+    @ViewBuilder
+    private func sharedMedia(_ server: AppModel.ServerState, _ conversation: ConversationView) -> some View {
+        let groups = conversation.kind == .group ? [] : server.groupsInCommon(with: conversation.peerId)
+        let rows = SharedKind.allCases.map { ($0, $0.count(in: mediaCounts, groups: groups.count)) }.filter { $0.1 > 0 }
+        // All the rows at once, rather than the groups in common before the counts.
+        if conversation.groupId == nil || mediaCounts != nil, !rows.isEmpty {
+            Section {
+                ForEach(rows, id: \.0) { kind, count in
+                    NavigationLink(value: ChatRoute.media(conversation.key, kind)) {
+                        Label(kind.counted(count), systemImage: kind.icon)
+                    }
+                    .accessibilityIdentifier(A11y.Details.shared(kind.rawValue))
+                }
+            }
+            .foregroundStyle(Theme.text1)
+            .listRowBackground(Theme.bg2)
+        }
     }
 
     // MARK: Members

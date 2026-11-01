@@ -235,6 +235,16 @@ public enum Markup {
         return result
     }
 
+    // MARK: Shared links
+
+    /// The links a message shares, leaving out those in code and spoilers: the
+    /// twin of `sharedLinks` in packages/core/src/links.ts, which counts them.
+    public static func sharedLinks(_ text: String) -> [String] {
+        let visible = hiddenFromLinks.reduce(text) { replace($1, in: $0, with: " ") }
+        let ns = visible as NSString
+        return url.matches(in: visible, range: NSRange(location: 0, length: ns.length)).map { ns.substring(with: $0.range) }
+    }
+
     // MARK: Patterns
 
     /// JavaScript's `\s`, which differs a little from ICU's.
@@ -252,6 +262,8 @@ public enum Markup {
         "(?<![\(word)])https?://(?:[^\(space)<>\"'()]|\\([^\(space)<>\"'()]*\\))*(?:[^\(space)<>\"'.,;:!?()\\]}]|\\([^\(space)<>\"'()]*\\))",
         options: .caseInsensitive
     )
+    /// Code, whether or not its fence is closed, and spoilers, in the order the core takes them out.
+    private static let hiddenFromLinks = [regex(#"```[\s\S]*?(?:```|\z)"#), regex("`[^`\\n]*`"), regex(#"\|\|[\s\S]*?\|\|"#)]
     private static let mention = regex(#"^@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})([.,:;!?]*)$"#)
     private static let emojiOnly = regex("^(?:\\p{Extended_Pictographic}|\\p{Emoji_Component}|\\x{200D}|\\x{FE0F}|[\(space)])+$")
     /// Digits, # and * are emoji components only as part of a keycap, so a word needs a real emoji.

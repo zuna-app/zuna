@@ -89,9 +89,10 @@ public struct SessionCalls: Sendable {
     public func searchCoverage() async throws -> SearchCoverage { try await call("searchCoverage") }
     /// How many photos, files, links and so on a chat holds, among its messages on this device.
     public func mediaCounts(_ groupId: String) async throws -> MediaCounts { try await call("mediaCounts", [groupId]) }
-    /// A page of a chat's messages that hold one kind, newest first.
-    public func loadMedia(_ groupId: String, kind: MediaKind, before: Int? = nil) async throws -> MessagePage {
-        try await call("loadMedia", before.map { [groupId, kind, $0] } ?? [groupId, kind])
+    /// A page of a chat's messages that hold one kind, newest first: `limit` of them, or the core's page size.
+    public func loadMedia(_ groupId: String, kind: MediaKind, before: Int? = nil, limit: Int? = nil) async throws -> MessagePage {
+        // The core reads a missing `before` as the newest, but needs its default for a missing `limit`.
+        try await call("loadMedia", limit.map { [groupId, kind, before, $0] } ?? [groupId, kind, before])
     }
 
     /// Sends a message. `previewUrl` is a link whose preview is still being made:

@@ -131,6 +131,16 @@ enum A11y {
         static let addMembers = "details.addMembers"
         static let leave = "details.leave"
         static func member(_ id: String) -> String { "details.member.\(id)" }
+        /// The row for one kind of thing in the chat: `photo`, `file`, `groups` and so on.
+        static func shared(_ kind: String) -> String { "details.shared.\(kind)" }
+    }
+
+    /// A chat's photos, files, links and so on, and the groups in common.
+    enum Shared {
+        static let screen = "shared.screen"
+        /// An attachment, by its name, or a message's links, by the message's ID.
+        static func item(_ id: String) -> String { "shared.item.\(id)" }
+        static func group(_ key: String) -> String { "shared.group.\(key)" }
     }
 
     enum Verify {

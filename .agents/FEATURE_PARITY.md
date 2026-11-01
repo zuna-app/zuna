@@ -13,7 +13,6 @@ For agents, not people. `CLAUDE.md` says how to keep this current. Keep it terse
 
 Things one platform should have and doesn't.
 
-- **iOS: a chat's photos, files and links.** No screens for them yet. The core counts and pages them (`mediaCounts`, `loadMedia`, both in `apps/ios/ZunaKit/Sources/ZunaModels/CoreAPI.swift`), so only the rows and lists are missing, in `Details/ConversationDetails.swift`, with groups in common from the conversations' members.
 - **Web, Firefox: unchecked.** Nothing has been run in Firefox yet (see "Web check" above). Its `MediaRecorder` may only record WebM with Opus, which the iPhone app can't play (`apps/ios/Zuna/Chat/Voice.swift` plays AAC in MP4). `web-check.mjs` reports what each browser records and whether Apple's decoder reads it.
 
 ## Accounts and servers
@@ -95,7 +94,7 @@ Things one platform should have and doesn't.
 |---|---|---|---|---|---|---|
 | Details of a person | yes | yes | yes | `features/chat/SidePanel.tsx` | `Details/ConversationDetails.swift` | |
 | Details of a group: members, roles, leaving, deleting | yes | yes | yes | `features/chat/SidePanel.tsx` | `Details/ConversationDetails.swift` | |
-| A chat's photos, videos, files, audio files, shared links and voice messages, and groups in common, as in Telegram | yes | no | yes | `features/chat/SharedMedia.tsx` | | Counted and paged by the core from a local index (`packages/core/src/media.ts`, `mediaCounts`, `loadMedia`), sorted as the message shows attachments. A message with links counts once; links in code and spoilers don't count. No GIFs, which aren't a kind of their own. A video plays where it was sent; right click shows any item in the chat |
+| A chat's photos, videos, files, audio files, shared links and voice messages, and groups in common, as in Telegram | yes | yes | yes | `features/chat/SharedMedia.tsx` | `Details/SharedMedia.swift`, `Details/ConversationDetails.swift` | Counted and paged by the core from a local index (`packages/core/src/media.ts`, `mediaCounts`, `loadMedia`), sorted as the message shows attachments. A message with links counts once; links in code and spoilers don't count (iOS: `Markup.sharedLinks`, `Attachment.mediaKind` in `ZunaModels`). No GIFs, which aren't a kind of their own. A video plays where it was sent; right click shows any item in the chat, a long press on iOS. iOS opens files and audio files in QuickLook, as its chat does |
 | Labels when members and keys disagree | yes | yes | yes | `features/chat/SidePanel.tsx` | `Details/ConversationDetails.swift` | |
 | New group, adding members | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/GroupSheets.swift` | |
 | Invites | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/InviteSheet.swift` | |

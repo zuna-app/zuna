@@ -47,7 +47,7 @@ struct AttachmentsView: View {
     }
 }
 
-private extension Attachment {
+extension Attachment {
     /// Small enough to download and decrypt with no tap, as on the desktop. The file's
     /// chunks, unlike its stated size, can't be lied about: decrypting checks them.
     var loadsByItself: Bool { size <= 20 << 20 && chunks <= 21 }
