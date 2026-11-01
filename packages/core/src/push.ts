@@ -12,7 +12,7 @@ import { namesItsSender, openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
-import { isMuted, type AvatarRef, type Preferences, type Profile } from "./types";
+import { onlyMentionsNotify, type AvatarRef, type Preferences, type Profile } from "./types";
 import { parseMessageBody } from "./validate";
 
 export interface PushPreview {
@@ -23,7 +23,7 @@ export interface PushPreview {
   body: string;
   /** False when the message can't be read yet, such as in an epoch this device hasn't seen: the text is then generic. */
   decrypted: boolean;
-  /** The chat is muted and the message doesn't mention you. */
+  /** The chat is muted or notifies only about mentions, and the message doesn't mention you or reply to you. */
   muted: boolean;
   /** Nothing to show: your own message, or one deleted since. */
   hidden: boolean;
@@ -120,7 +120,9 @@ export async function previewPush(
 
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
   const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
-  const mentioned = (body.mentions ?? []).includes(account.userId);
+  // A reply counts if this device holds the message replied to, as for the session's "@".
+  const repliedTo = body.replyTo ? db.get<{ sender_user: string }>("SELECT sender_user FROM messages WHERE group_id = ? AND id = ?", [groupId, body.replyTo]) : undefined;
+  const mentioned = (body.mentions ?? []).includes(account.userId) || repliedTo?.sender_user === account.userId;
   const content = { text: body.text ?? "", attachments: body.attachments ?? [], location: body.location };
   const picture = async (avatar: AvatarRef | null | undefined) => {
     if (!pictures || !avatar || avatar.chunks > MAX_PICTURE_CHUNKS) return undefined;
@@ -140,7 +142,7 @@ export async function previewPush(
   return preview({
     ...notificationText(group.kind, group.meta.name, nameOf(sender), content),
     decrypted: true,
-    muted: !mentioned && isMuted(prefs, conversationKey!),
+    muted: !mentioned && onlyMentionsNotify(prefs, conversationKey!),
     sender: { id: message.sender_user, name: nameOf(sender), picture: await picture(sender.profile.avatar) },
     group: group.kind === "group" ? { name: group.meta.name || "Group", picture: await picture(group.meta.avatar) } : undefined,
     text: previewText(content),

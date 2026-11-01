@@ -136,6 +136,18 @@ struct ConversationDetails: View {
                 .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
                     MuteButtons(conversationKey: conversation.key, serverId: serverId)
                 }
+                if conversation.kind == .group {
+                    Toggle(isOn: Binding(get: { conversation.mentionsOnly }, set: { model.setMentionsOnly(conversation.key, $0, on: serverId) })) {
+                        Label {
+                            Text("Only mentions")
+                            Text("Notify only when someone mentions you or replies to you")
+                        } icon: {
+                            Image(systemName: "at")
+                        }
+                    }
+                    .tint(model.settings.accent.switchTint)
+                    .accessibilityIdentifier(A11y.Details.mentionsOnly)
+                }
                 Button {
                     model.toggle(.pinned, conversation.key, on: serverId)
                 } label: {

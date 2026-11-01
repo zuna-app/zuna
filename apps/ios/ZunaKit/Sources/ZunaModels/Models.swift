@@ -338,6 +338,8 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var hidden: Bool
     /// Marked as unread by hand, as in Telegram, until it's opened.
     public var markedUnread: Bool
+    /// Notifies only about messages that mention you or reply to you, though its unread messages still count.
+    public var mentionsOnly: Bool
     public var members: [GroupMemberView]
     public var historyVisible: Bool
     public var readBy: [String: Int]
@@ -386,6 +388,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var mutedUntil: [String: Double]?
     /// Chats marked as unread by hand, by conversation key.
     public var markedUnread: [String]?
+    /// Chats that notify only about messages that mention you or reply to you, by conversation key.
+    public var mentionsOnly: [String]?
     public var sendReadReceipts: Bool
 }
 

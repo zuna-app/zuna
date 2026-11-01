@@ -1,6 +1,7 @@
 import type { ConversationView, MessageView, SearchResult } from "@zuna/core";
 import { plainText } from "@zuna/core/plain-text";
 import {
+  AtSign,
   BadgeCheck,
   Bell,
   BellOff,
@@ -103,6 +104,16 @@ function PreferenceRows({ conversation }: { conversation: ConversationView }) {
           />
         )}
       </div>
+      {conversation.kind === "group" && (
+        <div className="side-row">
+          <AtSign size={17} />
+          <span className="grow">
+            Only mentions
+            <span className="side-row-hint">Notify only when someone mentions you or replies to you</span>
+          </span>
+          <Switch on={conversation.mentionsOnly} onChange={(on) => void session().setMentionsOnly(conversation.key, on)} label="Only mentions" />
+        </div>
+      )}
       <button className="side-row is-button" onClick={() => toggle("pinned")}>
         {conversation.pinned ? <PinOff size={17} /> : <Pin size={17} />}
         <span className="grow">{conversation.pinned ? "Unpin from top" : "Pin to top"}</span>

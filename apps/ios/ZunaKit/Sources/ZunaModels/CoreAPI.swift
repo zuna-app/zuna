@@ -128,6 +128,8 @@ public struct SessionCalls: Sendable {
     public func unmute(_ conversationKey: String) async throws { try await run("unmute", [conversationKey]) }
     /// Marks a chat as unread by hand, or takes the mark off, on every device.
     public func setMarkedUnread(_ conversationKey: String, marked: Bool) async throws { try await run("setMarkedUnread", [conversationKey, marked]) }
+    /// Has a chat notify only about messages that mention you or reply to you, or about all of them again.
+    public func setMentionsOnly(_ conversationKey: String, on: Bool) async throws { try await run("setMentionsOnly", [conversationKey, on]) }
     /// Reads a chat to its newest message without opening it, and takes off any mark of being unread.
     public func markChatRead(_ conversationKey: String) async throws { try await run("markChatRead", [conversationKey]) }
     public func setPinned(_ groupId: String, id: String, pinned: Bool) async throws { try await run("setPinned", [groupId, id, pinned]) }

@@ -291,6 +291,8 @@ export interface ConversationView {
   hidden: boolean;
   /** Marked as unread by hand, as in Telegram, until it's opened. */
   markedUnread: boolean;
+  /** Notifies only about messages that mention you or reply to you, though its unread messages still count. */
+  mentionsOnly: boolean;
   /** The group's membership: empty for a DM that has no group yet. */
   members: GroupMemberView[];
   historyVisible: boolean;
@@ -386,12 +388,19 @@ export interface Preferences {
   mutedUntil?: Record<string, number>;
   /** Chats marked as unread by hand, by conversation key. */
   markedUnread?: string[];
+  /** Chats that notify only about messages that mention you or reply to you, by conversation key. */
+  mentionsOnly?: string[];
   sendReadReceipts: boolean;
 }
 
 /** Whether a chat is muted now. */
 export function isMuted(prefs: Partial<Pick<Preferences, "muted" | "mutedUntil">>, key: string, now = Date.now()): boolean {
   return (prefs.muted ?? []).includes(key) || (prefs.mutedUntil?.[key] ?? 0) > now;
+}
+
+/** Whether a chat notifies only about messages that mention you or reply to you: it's muted, or set to mentions only. */
+export function onlyMentionsNotify(prefs: Partial<Pick<Preferences, "muted" | "mutedUntil" | "mentionsOnly">>, key: string, now = Date.now()): boolean {
+  return isMuted(prefs, key, now) || (prefs.mentionsOnly ?? []).includes(key);
 }
 
 export interface DeviceView {

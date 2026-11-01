@@ -157,7 +157,7 @@ import type {
   VoiceMember,
   VoiceUpdate,
 } from "./types";
-import { isMuted } from "./types";
+import { isMuted, onlyMentionsNotify } from "./types";
 
 const CHUNK_SIZE = 1 << 20;
 /** How often a claim of someone's key packages is tried while the server says to slow down, and how far apart: it allows one every 2 seconds then. */
@@ -4210,10 +4210,11 @@ export class ServerSession {
     const group = this.groups.get(view.groupId);
     if (!group) return;
     const key = this.conversationKey(group);
-    const mentioned = view.mentions.includes(this.account.userId);
-    if (isMuted(this.prefs, key) && !mentioned) return;
+    const self = this.account.userId;
+    const mentioned = view.mentions.includes(self) || view.reply?.senderId === self;
+    if (onlyMentionsNotify(this.prefs, key) && !mentioned) return;
     // Everything said in a channel isn't for everyone in it, as in Discord: only what's said to them.
-    if (group.kind === "channel" && !mentioned && view.reply?.senderId !== this.account.userId) return;
+    if (group.kind === "channel" && !mentioned) return;
     const sender = this.users.get(view.senderId);
     const senderName = sender?.profile.displayName || sender?.username || "Someone";
     const groupName = group.kind === "channel" ? `#${this.channels.get(group.id)?.details?.name ?? "channel"}` : group.meta.name;
@@ -4367,6 +4368,7 @@ export class ServerSession {
         mutedUntil: this.mutedUntil(key, now),
         hidden: this.prefs.hidden.includes(key),
         markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
+        mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
         members: [],
         historyVisible: false,
         readBy: {},
@@ -4418,6 +4420,7 @@ export class ServerSession {
       mutedUntil: this.mutedUntil(key, now),
       hidden: this.prefs.hidden.includes(key),
       markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
+      mentionsOnly: this.prefs.mentionsOnly?.includes(key) ?? false,
       members: this.membersWithKeys(group),
       historyVisible: group.kind === "channel" || this.sharesHistory(group),
       readBy: group.readBy,
@@ -4486,6 +4489,13 @@ export class ServerSession {
     const current = this.prefs.markedUnread ?? [];
     if (current.includes(key) === marked) return Promise.resolve();
     return this.updatePreferences({ markedUnread: marked ? [...current, key] : current.filter((other) => other !== key) });
+  }
+
+  /** Has a chat notify only about messages that mention you or reply to you, or about all of them again. */
+  setMentionsOnly(key: string, on: boolean): Promise<void> {
+    const current = this.prefs.mentionsOnly ?? [];
+    if (current.includes(key) === on) return Promise.resolve();
+    return this.updatePreferences({ mentionsOnly: on ? [...current, key] : current.filter((other) => other !== key) });
   }
 
   /** Reads a chat to its newest message without opening it, and takes off any mark of being unread. */

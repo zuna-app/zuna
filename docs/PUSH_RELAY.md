@@ -78,10 +78,10 @@ Then run `docker compose up -d`.
 
 ## The notification filtering entitlement
 
-Muted chats shouldn't notify, but an extension can hide a notification only with Apple's notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). Until Apple grants it, the app tells each server which chats are muted, and until when for a chat muted for a while, and the server skips them until then. Mentions in muted chats then don't notify.
+Muted chats shouldn't notify, but an extension can hide a notification only with Apple's notification filtering entitlement (`com.apple.developer.usernotifications.filtering`). Until Apple grants it, the app tells each server which chats are muted, and until when for a chat muted for a while, and the server skips them until then. Mentions in muted chats then don't notify. Groups set to notify only about mentions aren't sent at all, since the server can't tell which messages mention someone, so until then they notify about everything on the phone.
 
 The Account Holder applies at developer.apple.com/contact/request/notification-filtering. A description along these lines fits:
 
-> Zuna is an end-to-end encrypted messenger. Our servers can't read messages, so a push only says that a message arrived, and our Notification Service Extension fetches and decrypts it on the device. Whether to show it depends on things only the device knows, such as chats the person muted (unless the message mentions them), messages deleted before the push arrived, and messages the person already read on another device. Without filtering, we would have to tell our servers which chats each person muted.
+> Zuna is an end-to-end encrypted messenger. Our servers can't read messages, so a push only says that a message arrived, and our Notification Service Extension fetches and decrypts it on the device. Whether to show it depends on things only the device knows, such as chats the person muted or set to notify only about mentions (unless the message mentions them), messages deleted before the push arrived, and messages the person already read on another device. Without filtering, we would have to tell our servers which chats each person muted.
 
 Once it's granted, add the entitlement to `ZunaNotifications` in `apps/ios/project.yml` and set `PushStore.canFilter` to `true`. The extension then drops what shouldn't show, and the app stops sending muted chats to servers.

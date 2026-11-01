@@ -469,6 +469,18 @@ final class AppModel {
         }
     }
 
+    /// Has a group notify only about messages that mention you or reply to you. Synced like the other preferences.
+    func setMentionsOnly(_ key: String, _ on: Bool, on serverId: String) {
+        let session = core.session(serverId)
+        Task {
+            do {
+                try await session.setMentionsOnly(key, on: on)
+            } catch {
+                toast("Couldn't save that: \(error)", .error)
+            }
+        }
+    }
+
     /// Reads a chat to its newest message from the list, without opening it.
     func markChatRead(_ key: String, on serverId: String) {
         let session = core.session(serverId)

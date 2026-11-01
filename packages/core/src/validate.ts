@@ -328,6 +328,8 @@ export function parsePreferences(value: unknown): Partial<Preferences> {
   }
   const markedUnread = strings(value.markedUnread);
   if (markedUnread) prefs.markedUnread = markedUnread;
+  const mentionsOnly = strings(value.mentionsOnly);
+  if (mentionsOnly) prefs.mentionsOnly = mentionsOnly;
   if (typeof value.sendReadReceipts === "boolean") prefs.sendReadReceipts = value.sendReadReceipts;
   return prefs;
 }
