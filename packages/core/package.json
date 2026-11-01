@@ -11,6 +11,7 @@
     "./rpc": "./src/rpc.ts",
     "./plain-text": "./src/plain-text.ts",
     "./links": "./src/links.ts",
+    "./media": "./src/media.ts",
     "./validate": "./src/validate.ts",
     "./password": "./src/password.ts",
     "./types": "./src/types.ts"

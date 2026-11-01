@@ -167,16 +167,18 @@ export function linkHost(url: string): string {
   }
 }
 
-/** The first link in a message that can have a preview. Links in code and spoilers don't count. */
-export function findLink(text: string): string | null {
+/** The links a message shares, leaving out those in code and spoilers. */
+export function sharedLinks(text: string): string[] {
   const visible = text
     .replace(/```[\s\S]*?(?:```|$)/g, " ")
     .replace(/`[^`\n]*`/g, " ")
     .replace(/\|\|[\s\S]*?\|\|/g, " ");
-  for (const match of visible.matchAll(URL_PATTERN)) {
-    if (previewable(match[0])) return match[0];
-  }
-  return null;
+  return linksIn(visible);
+}
+
+/** The first link in a message that can have a preview. Links in code and spoilers don't count. */
+export function findLink(text: string): string | null {
+  return sharedLinks(text).find(previewable) ?? null;
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };

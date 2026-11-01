@@ -363,6 +363,19 @@ public struct SearchResult: Codable, Sendable, Equatable {
     public var conversationKey: String
 }
 
+/// What a chat's details list on their own, as Telegram does: its photos, files, links and so on.
+public enum MediaKind: String, Codable, Sendable, CaseIterable { case photo, video, file, audio, voice, link }
+
+/// How many of each kind a chat holds. A message with links counts once, however many it has.
+public struct MediaCounts: Codable, Sendable, Equatable {
+    public var photo: Int
+    public var video: Int
+    public var file: Int
+    public var audio: Int
+    public var voice: Int
+    public var link: Int
+}
+
 public struct ServerEntry: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var url: String

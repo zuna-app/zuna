@@ -26,8 +26,14 @@ export function tokenize(text: string): string[] {
 const hashToken = (searchKey: Uint8Array, token: string) =>
   `h${toHex(wasm.hkdfSha256(searchKey, NO_SALT, utf8(`zuna/search/v2|${token}`), 8))}`;
 
-/** Which way of hashing the local index was built with. A new one means building it again. */
-export const SEARCH_INDEX_VERSION = 2;
+/**
+ * Which way the local indexes were built: 2 hashes words as they are now, and 3
+ * adds what each message holds. A new one means building them again.
+ */
+export const SEARCH_INDEX_VERSION = 3;
+
+/** The keyed name a kind of attachment, or links, goes by in the local index. No word can have it. */
+export const mediaTag = (searchKey: Uint8Array, kind: string) => hashToken(searchKey, `~${kind}`);
 
 /** The tokens to store for a text: every word plus its prefixes. */
 export function indexTokens(searchKey: Uint8Array, text: string): string {

@@ -951,7 +951,7 @@ describe("the search index (Z-36)", () => {
     session.setKv("search_version", 1);
     await session.rebuildSearchIndex();
     expect(alice.session.search("quixotic").length).toBeGreaterThan(0);
-    expect(session.getKv("search_version")).toBe(2);
+    expect(session.getKv("search_version")).toBe(3);
   });
 });
 

@@ -87,6 +87,12 @@ public struct SessionCalls: Sendable {
         try await call("search", groupId.map { [query, $0, limit] } ?? [query, String?.none, limit])
     }
     public func searchCoverage() async throws -> SearchCoverage { try await call("searchCoverage") }
+    /// How many photos, files, links and so on a chat holds, among its messages on this device.
+    public func mediaCounts(_ groupId: String) async throws -> MediaCounts { try await call("mediaCounts", [groupId]) }
+    /// A page of a chat's messages that hold one kind, newest first.
+    public func loadMedia(_ groupId: String, kind: MediaKind, before: Int? = nil) async throws -> MessagePage {
+        try await call("loadMedia", before.map { [groupId, kind, $0] } ?? [groupId, kind])
+    }
 
     /// Sends a message. `previewUrl` is a link whose preview is still being made:
     /// the message waits a moment for it, so a link pasted and sent at once gets one.

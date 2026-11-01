@@ -109,7 +109,7 @@ A forwarded message is a new message from whoever forwarded it. On the same serv
 
 ### Data on your device
 
-Sensitive local data is encrypted with a device key held in your OS keychain (DPAPI, Keychain or Secret Service). The search index stores keyed hashes of words instead of readable text. If Linux has no keychain available, the app warns you in Settings, because this protection is weaker there.
+Sensitive local data is encrypted with a device key held in your OS keychain (DPAPI, Keychain or Secret Service). The search index stores keyed hashes of words instead of readable text, and the index of each message's photos, files and links names their kinds the same way, though how many a message has is in the clear. If Linux has no keychain available, the app warns you in Settings, because this protection is weaker there.
 
 The web app has no keychain to use, so its device key is in the browser's own storage, next to the data it protects. Anyone who can copy the browser's profile can read that data, and Settings says so.
 

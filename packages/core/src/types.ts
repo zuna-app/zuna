@@ -295,6 +295,12 @@ export interface SearchResult {
   conversationKey: string;
 }
 
+/** What a chat's details list on their own, as Telegram does: its photos, files, links and so on. */
+export type MediaKind = "photo" | "video" | "file" | "audio" | "voice" | "link";
+
+/** How many of each kind a chat holds. A message with links counts once, however many it has. */
+export type MediaCounts = Record<MediaKind, number>;
+
 export interface ServerEntry {
   id: string;
   url: string;

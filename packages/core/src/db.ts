@@ -119,6 +119,18 @@ const MIGRATIONS: string[] = [
   // When the server said a message was deleted, by this device's clock, without a
   // deletion its author or an admin signed. Its copy is hidden and kept until then.
   `ALTER TABLE messages ADD COLUMN unproven_delete_at INTEGER;`,
+  // How many photos, files, links and so on each message holds, for the lists in a
+  // chat's details. The kind is a keyed hash, as words are in the search index.
+  `
+  CREATE TABLE media (
+    row_id INTEGER NOT NULL,
+    group_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    count INTEGER NOT NULL,
+    PRIMARY KEY (row_id, kind)
+  );
+  CREATE INDEX media_group ON media(group_id, kind);
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

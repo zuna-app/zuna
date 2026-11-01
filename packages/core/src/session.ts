@@ -95,8 +95,9 @@ import { equalBytes, fromBase64, fromUtf8, toBase64, toBase64Url, u64Bytes, utf8
 import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
 import { linkInText } from "./links";
+import { MEDIA_KINDS, mediaIn } from "./media";
 import { notificationText, previewText } from "./notify";
-import { SEARCH_INDEX_VERSION, indexTokens, queryTokens } from "./search";
+import { SEARCH_INDEX_VERSION, indexTokens, mediaTag, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import {
   MAX_TEXT_LENGTH,
@@ -124,6 +125,8 @@ import type {
   GroupRole,
   Invite,
   LinkPreview,
+  MediaCounts,
+  MediaKind,
   MessageBody,
   MessageStatus,
   MessageView,
@@ -394,6 +397,8 @@ export class ServerSession {
   private info: ServerInfo | null = null;
   private emoteSet: EmoteSet = { set_id: "", set_name: "", emotes: [] };
   private searchKey: Uint8Array;
+  /** The keyed name of each kind in the local index of what messages hold. */
+  private mediaTags: Map<MediaKind, string>;
   private usersCursor = 0;
   private lastTypingSent = new Map<string, number>();
   private flushing: Promise<void> | null = null;
@@ -448,6 +453,7 @@ export class ServerSession {
     this.api = new Api(account.serverUrl);
     this.api.token = account.token;
     this.searchKey = wasm.hkdfSha256(dbKey, new Uint8Array(0), utf8("zuna/local/search"), 32);
+    this.mediaTags = new Map(MEDIA_KINDS.map((kind) => [kind, mediaTag(this.searchKey, kind)]));
 
     const state = this.db.all<{ k: Uint8Array; v: Uint8Array }>("SELECT k, v FROM mls_kv");
     this.mls = new wasm.MlsClient(
@@ -2544,6 +2550,7 @@ export class ServerSession {
     this.groups.delete(groupId);
     this.db.transaction(() => {
       this.db.run("DELETE FROM search WHERE rowid IN (SELECT row_id FROM messages WHERE group_id = ?)", [groupId]);
+      this.db.run("DELETE FROM media WHERE group_id = ?", [groupId]);
       this.db.run("DELETE FROM messages WHERE group_id = ?", [groupId]);
       this.db.run("DELETE FROM groups WHERE id = ?", [groupId]);
       this.db.run("DELETE FROM epoch_keys WHERE group_id = ?", [groupId]);
@@ -3781,11 +3788,8 @@ export class ServerSession {
       );
       rowId = this.db.get<{ row_id: number }>("SELECT row_id FROM messages WHERE group_id = ? AND id = ?", [message.group_id, message.id])!.row_id;
       this.db.run("DELETE FROM search WHERE rowid = ?", [rowId]);
-      if (body) {
-        const words = [body.text ?? "", ...(body.attachments ?? []).map((item) => item.name)].join(" ");
-        const tokens = indexTokens(this.searchKey, words);
-        if (tokens) this.db.run("INSERT INTO search(rowid, tokens) VALUES(?, ?)", [rowId, tokens]);
-      }
+      this.db.run("DELETE FROM media WHERE row_id = ?", [rowId]);
+      if (body) this.indexMessage(rowId, message.group_id, body);
       this.db.run("UPDATE groups SET last_activity_at = MAX(last_activity_at, ?) WHERE id = ?", [message.created_at, message.group_id]);
     });
 
@@ -4330,6 +4334,32 @@ export class ServerSession {
       done += Math.min(this.syncedSeq(group.id), group.seq);
     }
     return { done, total };
+  }
+
+  /** How many photos, files, links and so on a chat holds, among its messages on this device. */
+  mediaCounts(groupId: string): MediaCounts {
+    const counts = Object.fromEntries(MEDIA_KINDS.map((kind) => [kind, 0])) as MediaCounts;
+    const rows = this.db.all<{ kind: string; count: number }>(
+      `SELECT d.kind, SUM(d.count) AS count FROM media d JOIN messages m ON m.row_id = d.row_id
+       WHERE d.group_id = ? AND m.deleted_at IS NULL AND m.status = 'sent' GROUP BY d.kind`,
+      [groupId],
+    );
+    for (const row of rows) {
+      const kind = MEDIA_KINDS.find((item) => this.mediaTags.get(item) === row.kind);
+      if (kind) counts[kind] = Number(row.count);
+    }
+    return counts;
+  }
+
+  /** A page of a chat's messages that hold one kind, newest first, from those on this device. */
+  loadMedia(groupId: string, kind: MediaKind, before?: number, limit = PAGE_SIZE): { messages: MessageView[]; hasMore: boolean } {
+    const rows = this.db.all<MessageRow>(
+      `SELECT m.* FROM media d JOIN messages m ON m.row_id = d.row_id
+       WHERE d.group_id = ? AND d.kind = ? AND m.deleted_at IS NULL AND m.status = 'sent' AND m.seq < ?
+       ORDER BY m.seq DESC LIMIT ?`,
+      [groupId, this.mediaTags.get(kind) ?? "", before ?? Number.MAX_SAFE_INTEGER, limit + 1],
+    );
+    return { messages: rows.slice(0, limit).map((row) => this.toMessageView(row)), hasMore: rows.length > limit };
   }
 
   // --- Sending ---
@@ -5204,6 +5234,7 @@ export class ServerSession {
     if (this.getKv<number>("search_version") === SEARCH_INDEX_VERSION) return;
     try {
       this.db.run("DELETE FROM search");
+      this.db.run("DELETE FROM media");
       let after = 0;
       for (;;) {
         const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE row_id > ? AND body IS NOT NULL ORDER BY row_id LIMIT ?", [after, SEARCH_REBUILD_BATCH]);
@@ -5212,10 +5243,7 @@ export class ServerSession {
           for (const row of rows) {
             after = row.row_id;
             const body = this.storedBody(row);
-            if (!body) continue;
-            const words = [body.text ?? "", ...(body.attachments ?? []).map((item) => item.name)].join(" ");
-            const tokens = indexTokens(this.searchKey, words);
-            if (tokens) this.db.run("INSERT OR REPLACE INTO search(rowid, tokens) VALUES(?, ?)", [row.row_id, tokens]);
+            if (body) this.indexMessage(row.row_id, row.group_id, body);
           }
         });
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -5223,6 +5251,19 @@ export class ServerSession {
       this.setKv("search_version", SEARCH_INDEX_VERSION);
     } catch (error) {
       console.warn("[zuna] rebuilding the search index", error);
+    }
+  }
+
+  /**
+   * Indexes a message's words for search, and what it holds for its chat's details.
+   * The rebuild can reach a message ingested while it ran, so either may come second.
+   */
+  private indexMessage(rowId: number, groupId: string, body: MessageBody): void {
+    const words = [body.text ?? "", ...(body.attachments ?? []).map((item) => item.name)].join(" ");
+    const tokens = indexTokens(this.searchKey, words);
+    if (tokens) this.db.run("INSERT OR REPLACE INTO search(rowid, tokens) VALUES(?, ?)", [rowId, tokens]);
+    for (const [kind, count] of mediaIn(body)) {
+      this.db.run("INSERT OR REPLACE INTO media(row_id, group_id, kind, count) VALUES(?, ?, ?, ?)", [rowId, groupId, this.mediaTags.get(kind)!, count]);
     }
   }
 }
