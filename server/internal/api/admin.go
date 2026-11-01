@@ -12,7 +12,11 @@ import (
 	"zuna/server/internal/store"
 )
 
-const maxIconBytes = 2 << 20
+const (
+	maxIconBytes = 2 << 20
+	// A hundred years, far from where working out a date from it goes wrong.
+	maxRetentionDays = 36500
+)
 
 // ServerInfo is what anyone can learn about a server before signing up.
 type ServerInfo struct {
@@ -256,8 +260,8 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 		}
 	}
 	if body.RetentionDays != nil {
-		if *body.RetentionDays < 0 {
-			writeError(w, http.StatusBadRequest, "bad_request", "Retention can't be negative.")
+		if *body.RetentionDays < 0 || *body.RetentionDays > maxRetentionDays {
+			writeError(w, http.StatusBadRequest, "bad_request", "Messages can be kept for up to 100 years, or forever.")
 			return
 		}
 		// Shortening it permanently deletes older messages within the hour, so
