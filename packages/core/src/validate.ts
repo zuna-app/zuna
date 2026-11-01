@@ -326,6 +326,8 @@ export function parsePreferences(value: unknown): Partial<Preferences> {
   if (isObject(value.mutedUntil)) {
     prefs.mutedUntil = Object.fromEntries(Object.entries(value.mutedUntil).filter((entry): entry is [string, number] => typeof entry[1] === "number"));
   }
+  const markedUnread = strings(value.markedUnread);
+  if (markedUnread) prefs.markedUnread = markedUnread;
   if (typeof value.sendReadReceipts === "boolean") prefs.sendReadReceipts = value.sendReadReceipts;
   return prefs;
 }

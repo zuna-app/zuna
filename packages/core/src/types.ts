@@ -289,6 +289,8 @@ export interface ConversationView {
   /** When a chat muted for a while is heard again (ms), or null. */
   mutedUntil: number | null;
   hidden: boolean;
+  /** Marked as unread by hand, as in Telegram, until it's opened. */
+  markedUnread: boolean;
   /** The group's membership: empty for a DM that has no group yet. */
   members: GroupMemberView[];
   historyVisible: boolean;
@@ -382,6 +384,8 @@ export interface Preferences {
   muted: string[];
   /** Chats muted for a while: conversation key -> when it ends (ms). */
   mutedUntil?: Record<string, number>;
+  /** Chats marked as unread by hand, by conversation key. */
+  markedUnread?: string[];
   sendReadReceipts: boolean;
 }
 

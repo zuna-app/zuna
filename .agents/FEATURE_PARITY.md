@@ -42,6 +42,7 @@ Things one platform should have and doesn't.
 | "@" on a group with unread mentions of you or replies to you | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` (`badge`) | Groups only, and in muted ones too, as in Telegram |
 | Pin, hide, "Hidden (n)" | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
 | Mute for a time | yes | yes | yes | `lib/mute.ts` | `Shared/Mute.swift` | |
+| Mark as unread, mark as read without opening | yes | yes | yes | `features/shell/ConversationList.tsx` (`rowEntries`), `state/store.ts` (`countedUnread`, `selectConversation`) | `Shell/ChatListView.swift` (swipe and menu), `State/AppModel.swift` (`openChat`, `ServerState.unread`) | As in Telegram: a mark in the synced preferences (`markedUnread`, `setMarkedUnread` in the core), not a read position, so nobody else sees it. Opening the chat takes it off; it counts as one unread in the badges. "Mark as read" reads to the newest message (`markChatRead`). Only for chats with a group. Core in `chat-controls.test.ts`; iOS built, not checked on screen |
 | A preview for a message that can't be shown | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shared/Format.swift` | |
 
 ## Chat: reading

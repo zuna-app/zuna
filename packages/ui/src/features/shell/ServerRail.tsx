@@ -2,14 +2,14 @@ import { Plus, Settings } from "lucide-react";
 import { motion, Reorder } from "motion/react";
 import { memo, useRef, type RefObject } from "react";
 import { Avatar, Tooltip } from "@/components/ui";
-import { useApp } from "@/state/store";
+import { countedUnread, useApp } from "@/state/store";
 
 const ServerButton = memo(function ServerButton({ serverId, dragged }: { serverId: string; dragged: RefObject<boolean> }) {
   const select = useApp((state) => state.selectServer);
   const server = useApp((state) => state.servers[serverId]);
   const active = useApp((state) => state.activeServerId === serverId);
   if (!server) return null;
-  const unread = server.conversations.reduce((sum, item) => sum + (item.muted ? 0 : item.unread), 0);
+  const unread = server.conversations.reduce((sum, item) => sum + countedUnread(item), 0);
   const { entry } = server;
   return (
     <div className={`rail-item${active ? " is-active" : ""}${unread > 0 ? " has-unread" : ""}`}>

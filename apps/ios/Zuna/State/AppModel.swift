@@ -41,8 +41,9 @@ final class AppModel {
         }
 
         /// Unread messages outside muted conversations, for the list of servers.
+        /// A chat only marked as unread counts as one, as on the desktop.
         var unread: Int {
-            conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread) }
+            conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread > 0 ? $1.unread : $1.markedUnread ? 1 : 0) }
         }
 
         var selfUser: UserView? {
@@ -86,6 +87,10 @@ final class AppModel {
         tab = .chats
         showingServers = false
         chatPath = [.chat(conversationKey)]
+        // Opening a chat marked as unread takes the mark off, as in Telegram.
+        if let serverId = activeServerId, servers[serverId]?.conversations.first(where: { $0.key == conversationKey })?.markedUnread == true {
+            setMarkedUnread(conversationKey, false, on: serverId)
+        }
     }
 
     /// With more than one server, the Chats tab starts at the list of them, as
@@ -448,6 +453,30 @@ final class AppModel {
                 try await core.session(serverId).updatePreferences(changes)
             } catch {
                 toast("Couldn't save that: \(error)", .error)
+            }
+        }
+    }
+
+    /// Marks a chat as unread, or takes the mark off. Synced like the other preferences.
+    func setMarkedUnread(_ key: String, _ marked: Bool, on serverId: String) {
+        let session = core.session(serverId)
+        Task {
+            do {
+                try await session.setMarkedUnread(key, marked: marked)
+            } catch {
+                toast("Couldn't save that: \(error)", .error)
+            }
+        }
+    }
+
+    /// Reads a chat to its newest message from the list, without opening it.
+    func markChatRead(_ key: String, on serverId: String) {
+        let session = core.session(serverId)
+        Task {
+            do {
+                try await session.markChatRead(key)
+            } catch {
+                toast("Couldn't mark it as read: \(error)", .error)
             }
         }
     }

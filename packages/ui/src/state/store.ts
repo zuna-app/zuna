@@ -136,6 +136,12 @@ export function isUnread(message: MessageView, ownRead: number, selfId: string |
   return message.seq !== null && message.seq > ownRead && message.senderId !== selfId && !message.id.startsWith("sys-") && message.deletedAt === null;
 }
 
+/** What a chat adds to the unread counts: its unread messages, or one if it's only marked unread, and nothing while it's muted. */
+export function countedUnread(conversation: ConversationView): number {
+  if (conversation.muted) return 0;
+  return conversation.unread || (conversation.markedUnread ? 1 : 0);
+}
+
 function mentionMap(users: UserView[]): Map<string, string> {
   return new Map(users.map((user) => [user.username.toLowerCase(), user.id]));
 }
@@ -194,7 +200,7 @@ export const useApp = create<AppState>((set, get) => {
     let total = 0;
     for (const server of Object.values(servers)) {
       for (const conversation of server.conversations) {
-        if (!conversation.muted) total += conversation.unread;
+        total += countedUnread(conversation);
       }
     }
     platform.setUnreadCount(total);
@@ -505,6 +511,10 @@ export const useApp = create<AppState>((set, get) => {
       if (!serverId) return;
       patchServer(serverId, { activeKey: key });
       set({ panel: null });
+      // Opening a chat marked as unread takes the mark off, as in Telegram.
+      if (key && get().servers[serverId]?.conversations.find((item) => item.key === key)?.markedUnread) {
+        get().session().setMarkedUnread(key, false).catch(() => {});
+      }
     },
 
     async loadList(listId, groupId, toUnread = true) {

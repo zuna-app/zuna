@@ -209,6 +209,21 @@ struct ChatListView: View {
             .listRowSeparatorTint(Theme.line)
             .alignmentGuide(.listRowSeparatorLeading) { _ in 76 }
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                if conversation.unread > 0 || conversation.markedUnread {
+                    Button {
+                        model.markChatRead(conversation.key, on: server.entry.id)
+                    } label: {
+                        Label("Read", systemImage: "message.fill")
+                    }
+                    .tint(model.settings.accent.color)
+                } else if conversation.groupId != nil {
+                    Button {
+                        model.setMarkedUnread(conversation.key, true, on: server.entry.id)
+                    } label: {
+                        Label("Unread", systemImage: "message.badge.fill")
+                    }
+                    .tint(model.settings.accent.color)
+                }
                 Button {
                     model.toggle(.pinned, conversation.key, on: server.entry.id)
                 } label: {
@@ -235,6 +250,19 @@ struct ChatListView: View {
                 .tint(Theme.amber)
             }
             .contextMenu {
+                if conversation.unread > 0 || conversation.markedUnread {
+                    Button {
+                        model.markChatRead(conversation.key, on: server.entry.id)
+                    } label: {
+                        Label("Mark as read", systemImage: "checkmark.message")
+                    }
+                } else if conversation.groupId != nil {
+                    Button {
+                        model.setMarkedUnread(conversation.key, true, on: server.entry.id)
+                    } label: {
+                        Label("Mark as unread", systemImage: "message.badge")
+                    }
+                }
                 Button {
                     model.toggle(.pinned, conversation.key, on: server.entry.id)
                 } label: {
@@ -273,7 +301,7 @@ struct ChatListView: View {
             case .all: return true
             case .people: return item.kind == .dm
             case .groups: return item.kind == .group
-            case .unread: return item.unread > 0
+            case .unread: return item.unread > 0 || item.markedUnread
             }
         }
         // Searching looks through hidden conversations too, so nothing gets lost.
@@ -415,7 +443,7 @@ private struct ChatRow: View {
                     Spacer(minLength: 6)
                     Text(Format.listTime(conversation.lastMessage?.createdAt ?? 0))
                         .font(.subheadline)
-                        .foregroundStyle(conversation.unread > 0 && !conversation.muted ? Theme.text1 : Theme.text3)
+                        .foregroundStyle((conversation.unread > 0 || conversation.markedUnread) && !conversation.muted ? Theme.text1 : Theme.text3)
                         .monospacedDigit()
                 }
                 HStack(alignment: .top, spacing: 6) {
@@ -515,6 +543,12 @@ private struct ChatRow: View {
                 .background(conversation.muted ? Theme.bg5 : accent.color, in: .capsule)
                 .padding(.top, 2)
                 .accessibilityLabel("\(conversation.unread) unread")
+        } else if conversation.markedUnread {
+            Circle()
+                .fill(conversation.muted ? Theme.bg5 : model.settings.accent.color)
+                .frame(width: 22, height: 22)
+                .padding(.top, 2)
+                .accessibilityLabel("Marked as unread")
         } else if conversation.pinned {
             Image(systemName: "pin.fill")
                 .font(.caption)

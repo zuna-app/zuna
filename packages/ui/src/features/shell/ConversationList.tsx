@@ -5,12 +5,14 @@ import {
   BadgeCheck,
   Bookmark,
   BellOff,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   Eye,
   EyeOff,
   Link as LinkIcon,
   LogOut,
+  MessageSquareDot,
   Pin,
   PinOff,
   Search,
@@ -114,13 +116,14 @@ const ConversationRow = memo(function ConversationRow({
               preview || <span className="faint">{fallback}</span>
             )}
           </span>
-          {item.pinned && !item.unread && <Pin size={13} className="conv-pin" />}
+          {item.pinned && !item.unread && !item.markedUnread && <Pin size={13} className="conv-pin" />}
           {item.unreadMentions > 0 && (
             <span className="conv-badge conv-mention" aria-label="Mentions you">
               <AtSign size={12} strokeWidth={2.4} />
             </span>
           )}
           {item.unread > 0 && <span className={`conv-badge${item.muted ? " is-muted" : ""}`}>{item.unread > 99 ? "99+" : item.unread}</span>}
+          {item.unread === 0 && item.markedUnread && <span className={`conv-badge${item.muted ? " is-muted" : ""}`} aria-label="Marked as unread" />}
         </span>
       </span>
     </button>
@@ -201,7 +204,7 @@ export function ConversationList() {
       }
       if (filter === "people") return item.kind === "dm";
       if (filter === "groups") return item.kind === "group";
-      if (filter === "unread") return item.unread > 0;
+      if (filter === "unread") return item.unread > 0 || item.markedUnread;
       return true;
     };
     const filtered = conversations.filter(matches);
@@ -229,6 +232,11 @@ export function ConversationList() {
       icon: item.pinned ? <PinOff size={15} /> : <Pin size={15} />,
       onSelect: () => toggle("pinned", item.key),
     },
+    ...(item.unread > 0 || item.markedUnread
+      ? [{ label: "Mark as read", icon: <CheckCheck size={15} />, onSelect: () => void session().markChatRead(item.key) }]
+      : item.groupId
+        ? [{ label: "Mark as unread", icon: <MessageSquareDot size={15} />, onSelect: () => void session().setMarkedUnread(item.key, true) }]
+        : []),
     item.muted
       ? { label: "Unmute", icon: <Volume2 size={15} />, onSelect: () => void session().unmute(item.key) }
       : { label: "Mute", icon: <VolumeX size={15} />, submenu: muteEntries((until) => void session().mute(item.key, until)) },

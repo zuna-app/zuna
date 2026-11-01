@@ -336,6 +336,8 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     /// When a chat muted for a while is heard again (ms), or nil.
     public var mutedUntil: Double?
     public var hidden: Bool
+    /// Marked as unread by hand, as in Telegram, until it's opened.
+    public var markedUnread: Bool
     public var members: [GroupMemberView]
     public var historyVisible: Bool
     public var readBy: [String: Int]
@@ -382,6 +384,8 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var muted: [String]
     /// Chats muted for a while: conversation key -> when it ends (ms).
     public var mutedUntil: [String: Double]?
+    /// Chats marked as unread by hand, by conversation key.
+    public var markedUnread: [String]?
     public var sendReadReceipts: Bool
 }
 

@@ -4366,6 +4366,7 @@ export class ServerSession {
         muted: isMuted(this.prefs, key, now),
         mutedUntil: this.mutedUntil(key, now),
         hidden: this.prefs.hidden.includes(key),
+        markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
         members: [],
         historyVisible: false,
         readBy: {},
@@ -4416,6 +4417,7 @@ export class ServerSession {
       muted: isMuted(this.prefs, key, now),
       mutedUntil: this.mutedUntil(key, now),
       hidden: this.prefs.hidden.includes(key),
+      markedUnread: this.prefs.markedUnread?.includes(key) ?? false,
       members: this.membersWithKeys(group),
       historyVisible: group.kind === "channel" || this.sharesHistory(group),
       readBy: group.readBy,
@@ -4477,6 +4479,20 @@ export class ServerSession {
   unmute(key: string): Promise<void> {
     const mutedUntil = Object.fromEntries(Object.entries(this.prefs.mutedUntil ?? {}).filter(([other, end]) => other !== key && end > Date.now()));
     return this.updatePreferences({ muted: this.prefs.muted.filter((other) => other !== key), mutedUntil });
+  }
+
+  /** Marks a chat as unread by hand, or takes the mark off, on every device. */
+  setMarkedUnread(key: string, marked: boolean): Promise<void> {
+    const current = this.prefs.markedUnread ?? [];
+    if (current.includes(key) === marked) return Promise.resolve();
+    return this.updatePreferences({ markedUnread: marked ? [...current, key] : current.filter((other) => other !== key) });
+  }
+
+  /** Reads a chat to its newest message without opening it, and takes off any mark of being unread. */
+  async markChatRead(key: string): Promise<void> {
+    await this.setMarkedUnread(key, false);
+    const group = this.groupForKey(key);
+    if (group) await this.markRead(group.id, this.latestSeq(group.id));
   }
 
   private mutedUntil(key: string, now = Date.now()): number | null {
