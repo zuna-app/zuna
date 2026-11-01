@@ -41,6 +41,9 @@ struct ChatActions {
     var discard: (_ messageId: String) -> Void = { _ in }
     /// The full picker, for a reaction that isn't among the quick ones.
     var pickReaction: (_ messageId: String) -> Void = { _ in }
+    /// Who in this group has read a message, as far as their read receipts say.
+    var readers: (_ message: MessageView) -> [UserView] = { _ in [] }
+    var openChat: (_ conversationKey: String) -> Void = { _ in }
     /// You can delete others' messages here: you're an admin of this group.
     var isGroupAdmin = false
 }
@@ -291,6 +294,18 @@ private struct MessageItem: View {
         if canAct {
             Button(message.pinnedAt != nil ? "Unpin" : "Pin", systemImage: message.pinnedAt != nil ? "pin.slash" : "pin") {
                 actions.pin(message, message.pinnedAt == nil)
+            }
+        }
+        // As on the desktop, for your own messages in a group.
+        if canAct && own && context.isGroup {
+            let readers = actions.readers(message)
+            if !readers.isEmpty {
+                Menu("Read by \(readers.count)", systemImage: "checkmark.message") {
+                    ForEach(readers) { user in
+                        Button(user.displayName) { actions.openChat("user:\(user.id)") }
+                    }
+                }
+                .accessibilityIdentifier(A11y.Chat.readBy)
             }
         }
         if message.status == .failed {

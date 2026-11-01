@@ -74,6 +74,7 @@ enum A11y {
         static let status = "chat.status"
         static let banner = "chat.keyBanner"
         static let bannerVerify = "chat.keyBanner.verify"
+        static let readBy = "chat.readBy"
         static let toBottom = "chat.toBottom"
         static let toMention = "chat.toMention"
         static let unreadLine = "chat.unreadLine"

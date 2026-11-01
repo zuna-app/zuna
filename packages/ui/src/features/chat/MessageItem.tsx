@@ -1,7 +1,8 @@
-import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView, SharedLocation } from "@zuna/core";
+import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView, SharedLocation, UserView } from "@zuna/core";
 import {
   AlertCircle,
   Check,
+  CheckCheck,
   CircleCheck,
   Clock,
   Copy,
@@ -511,6 +512,19 @@ interface MessageItemProps {
   own: boolean;
 }
 
+/** Who in a group has read a message, as far as their read receipts say. People who turned them off never show. */
+function readersOf(serverId: string, message: MessageView): UserView[] {
+  const server = useApp.getState().servers[serverId];
+  const conversation = server?.conversations.find((item) => item.groupId === message.groupId);
+  const seq = message.seq;
+  if (!server || !conversation || seq === null) return [];
+  return conversation.members
+    .filter((member) => member.userId !== server.self?.userId && (conversation.readBy[member.userId] ?? 0) >= seq)
+    .map((member) => server.users[member.userId])
+    .filter((user): user is UserView => !!user)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
 export const MessageItem = memo(function MessageItem({ message, listId, isGroup, isGroupAdmin, readUpTo, grouped, lastInGroup, fresh, highlighted, own }: MessageItemProps) {
   const session = useApp((state) => state.session);
   const setReply = useApp((state) => state.setReply);
@@ -607,6 +621,8 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     void run(() => session().toggleReaction(message.groupId, message.id, key, emote));
   };
 
+  // Worked out as the menu opens, as in Telegram, for your own messages in a group.
+  const readers = menu.menu && own && isGroup && canAct ? readersOf(serverId, message) : [];
   const entries: MenuEntry[] = [
     ...(canAct ? [{ label: "Reply", icon: <CornerUpLeft size={15} />, onSelect: () => setReply(listId, message) }] : []),
     ...(canAct
@@ -631,6 +647,19 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
             label: message.pinnedAt ? "Unpin" : "Pin",
             icon: message.pinnedAt ? <PinOff size={15} /> : <Pin size={15} />,
             onSelect: () => void run(() => session().setPinned(message.groupId, message.id, !message.pinnedAt)),
+          },
+        ]
+      : []),
+    ...(readers.length > 0
+      ? [
+          {
+            label: `Read by ${readers.length}`,
+            icon: <CheckCheck size={15} />,
+            submenu: readers.map((user) => ({
+              label: user.displayName,
+              icon: <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={20} />,
+              onSelect: () => useApp.getState().selectConversation(`user:${user.id}`),
+            })),
           },
         ]
       : []),

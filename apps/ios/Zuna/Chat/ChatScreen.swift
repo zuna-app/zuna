@@ -264,6 +264,14 @@ struct ChatScreen: View {
             delete: { message in run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) } },
             discard: { id in run { try await model.core.session(serverId).discardMessage(listId, id: id) } },
             pickReaction: { sheet = .react(messageId: $0) },
+            readers: { message in
+                guard let seq = message.seq else { return [] }
+                return conversation.members
+                    .filter { $0.userId != server.me?.userId && (conversation.readBy[$0.userId] ?? 0) >= seq }
+                    .compactMap { server.users[$0.userId] }
+                    .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
+            },
+            openChat: { model.openChat($0) },
             isGroupAdmin: conversation.members.first { $0.userId == server.me?.userId }?.role == .admin
         )
         return MessageListView(

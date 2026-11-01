@@ -59,6 +59,7 @@ Things one platform should have and doesn't.
 | 7TV emotes: animated, zero-width, large, card | yes | yes | yes | `components/Emote.tsx` | `Chat/EmoteImages.swift`, `Chat/MessageText.swift` | The card opens on hover on the desktop, long press on iOS |
 | Whole emote set fetched in the background | yes | yes | yes | `lib/media.ts`, `features/shell/Shell.tsx` | `apps/ios/ZunaKit/Sources/ZunaHost/EmoteFiles.swift`, `Chat/EmoteImages.swift`, `State/AppModel.swift` | iOS keeps them on disk in Caches, since `URLSession`'s cache is too small. None on Low Data Mode, as the desktop skips it to save data |
 | Read ticks | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
+| Who read your message in a group: "Read by n" in its menu, each name opening a chat with them | yes | yes | yes | `features/chat/MessageItem.tsx` (`readersOf`) | `Chat/MessageRow.swift` (`menu`), `Chat/ChatScreen.swift` (`readers`) | From each member's read position (`readBy`), worked out as the menu opens; people who turned off read receipts never show. No times, as positions don't carry them. Core in `chat-controls.test.ts`; iOS built, not checked on screen |
 | Deleted, waiting for keys, unverified, invalid | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
 | Reply quote, jumping to the original | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
 | "Forwarded from" | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/Forwarding.swift` | |

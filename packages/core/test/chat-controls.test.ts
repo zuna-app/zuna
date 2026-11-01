@@ -1,6 +1,6 @@
 // What each person decides about their own chats, end to end through a real
 // server: marking one as unread and having a group notify only about mentions,
-// and that each follows them to their other devices.
+// each following them to their other devices, and who has read what in a group.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { previewPush } from "../src/push";
@@ -11,6 +11,7 @@ let server: TestServer;
 let alice: TestApp;
 let bob: TestApp;
 let bobLaptop: TestApp;
+let carol: TestApp;
 
 const chat = (app: TestApp, key: string) => app.session.getConversations().find((item) => item.key === key)!;
 const notified = (app: TestApp) => app.events.filter((event): event is Extract<CoreEvent, { type: "notify" }> => event.type === "notify");
@@ -32,11 +33,13 @@ beforeAll(async () => {
   await bob.register(invite, "bob");
   bobLaptop = await new TestApp("bob-laptop").open();
   await bobLaptop.login(server.url, "bob");
-  await waitFor(() => alice.session.getUsers().length === 2, "alice to see bob");
+  carol = await new TestApp("carol").open();
+  await carol.register(invite, "carol");
+  await waitFor(() => alice.session.getUsers().length === 3, "alice to see everyone");
 });
 
 afterAll(async () => {
-  for (const app of [alice, bob, bobLaptop]) app?.client.stop();
+  for (const app of [alice, bob, bobLaptop, carol]) app?.client.stop();
   await server?.stop();
 });
 
@@ -94,5 +97,24 @@ describe("a group that notifies only about mentions", () => {
     alice.session.sendMessage(key, { text: "back to normal" });
     await waitFor(() => notified(bob).some((event) => event.body === "alice: back to normal"), "bob to be told again");
     expect(await preview("back to normal")).toBe(false);
+  });
+});
+
+describe("who read a message in a group", () => {
+  it("is known for each member, and only as far as each has read", async () => {
+    const groupId = await alice.session.createGroup("Book club", [bob.userId, carol.userId], false);
+    const key = `group:${groupId}`;
+    await waitFor(() => !!chat(bob, key)?.ready && !!chat(carol, key)?.ready, "bob and carol to join");
+    const sent = await alice.session.sendMessage(key, { text: "chapter one done?" });
+    await waitFor(() => bob.texts(key).includes("chapter one done?") && carol.texts(key).includes("chapter one done?"), "delivery");
+    const seq = received(bob, "chapter one done?").seq!;
+
+    await bob.session.markRead(groupId, seq);
+    await waitFor(() => (chat(alice, key).readBy[bob.userId] ?? 0) >= seq, "alice to see bob read it");
+    expect(chat(alice, key).readBy[carol.userId] ?? 0).toBeLessThan(seq);
+    expect(received(alice, "chapter one done?").id).toBe(sent.id);
+
+    await carol.session.markRead(groupId, seq);
+    await waitFor(() => (chat(alice, key).readBy[carol.userId] ?? 0) >= seq, "alice to see carol read it");
   });
 });
