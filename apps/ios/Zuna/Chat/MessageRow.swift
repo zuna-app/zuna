@@ -244,6 +244,12 @@ private struct MessageItem: View {
     @ViewBuilder
     private var menu: some View {
         let canAct = message.seq != nil && !deleted && message.status == .sent
+        // There's no hovering here, so this is where the mark on the time gets explained.
+        if message.timeDiffers == true {
+            Button("The sender's device gives a very different time for this message.", systemImage: "exclamationmark.shield") {}
+                .disabled(true)
+            Divider()
+        }
         if canAct {
             ControlGroup {
                 ForEach(quickReactions, id: \.self) { emoji in
@@ -386,6 +392,9 @@ private struct MessageItem: View {
     /// The time and its marks, as the desktop shows them.
     private var meta: some View {
         HStack(spacing: 3) {
+            if message.timeDiffers == true {
+                Image(systemName: "exclamationmark.shield").font(.system(size: 9)).accessibilityLabel("The time of this message may not be right")
+            }
             if message.pinnedAt != nil {
                 Image(systemName: "pin.fill").font(.system(size: 9)).rotationEffect(.degrees(35))
             }
@@ -427,6 +436,7 @@ private struct MessageItem: View {
         let font = UIFont.systemFont(ofSize: 11)
         var width = (Format.time(message.createdAt) as NSString).size(withAttributes: [.font: font]).width
         if message.editedAt != nil { width += ("edited" as NSString).size(withAttributes: [.font: font]).width + 3 }
+        if message.timeDiffers == true { width += 12 }
         if message.pinnedAt != nil { width += 12 }
         if own { width += 21 }
         return ceil(width) + 8

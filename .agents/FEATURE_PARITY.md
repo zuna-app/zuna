@@ -11,7 +11,7 @@ For agents, not people. `CLAUDE.md` says how to keep this current. Keep it terse
 
 Things one platform should have and doesn't.
 
-- **iOS doesn't warn about a message's time.** The desktop flags a time far from what the sender's device signed. `MessageView.timeDiffers` is decoded in `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift`, but no screen uses it.
+None right now.
 
 ## Accounts and servers
 
@@ -62,7 +62,7 @@ Things one platform should have and doesn't.
 | Reactions | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageParts.swift` | |
 | System messages | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
 | "You were removed from this chat", with clearing | yes | yes | `features/chat/ChatView.tsx` | `Chat/ChatScreen.swift` | |
-| A warning when a message's time looks wrong | yes | no | `features/chat/MessageItem.tsx` | | See Known gaps |
+| A warning when a message's time looks wrong | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | iOS not compiled yet: written without a Mac. Explained in a tooltip on the desktop, in the long-press menu on iOS |
 
 ## Chat: writing and actions
 
