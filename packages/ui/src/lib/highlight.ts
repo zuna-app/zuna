@@ -80,6 +80,13 @@ function getHighlighter(): Promise<HighlighterCore> {
 
 const results = new Map<string, ThemedToken[][]>();
 
+// Anyone in a chat chooses what gets highlighted, on this thread, so only so much
+// is: past these, the rest of a block shows uncolored.
+const MAX_HIGHLIGHTED_CHARS = 20_000;
+const MAX_HIGHLIGHTED_LINES = 500;
+const MAX_TOKENIZED_LINE = 1_000;
+const LINE_TIME_LIMIT_MS = 50;
+
 /** Returns colored lines, or null for an unknown language. */
 export async function highlightCode(code: string, language: string): Promise<ThemedToken[][] | null> {
   const name = languageName(language);
@@ -91,8 +98,20 @@ export async function highlightCode(code: string, language: string): Promise<The
   if (!instance.getLoadedLanguages().includes(name)) {
     await instance.loadLanguage((await languages[name]!()).default);
   }
-  const { tokens } = instance.codeToTokens(code, { lang: name, theme: "github-dark-default" });
+  const lines = code.split("\n");
+  let count = 0;
+  let chars = 0;
+  while (count < lines.length && count < MAX_HIGHLIGHTED_LINES && chars + lines[count]!.length <= MAX_HIGHLIGHTED_CHARS) chars += lines[count++]!.length + 1;
+  const { tokens } = instance.codeToTokens(lines.slice(0, count).join("\n"), {
+    lang: name,
+    theme: "github-dark-default",
+    tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
+    tokenizeTimeLimit: LINE_TIME_LIMIT_MS,
+  });
+  const highlighted = count === 0 ? [] : tokens;
+  const rest = lines.slice(count).map((line): ThemedToken[] => [{ content: line, offset: 0 }]);
+  const all = [...highlighted, ...rest];
   if (results.size > 500) results.clear();
-  results.set(cacheKey, tokens);
-  return tokens;
+  results.set(cacheKey, all);
+  return all;
 }

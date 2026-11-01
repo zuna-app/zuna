@@ -96,6 +96,11 @@ const languageName = (language: string): string | null => {
 
 const g = globalThis as any;
 
+const MAX_HIGHLIGHTED_CHARS = 20_000;
+const MAX_HIGHLIGHTED_LINES = 500;
+const MAX_TOKENIZED_LINE = 1_000;
+const LINE_TIME_LIMIT_MS = 50;
+
 let highlighter: Promise<HighlighterCore> | null = null;
 
 /** Calls `done` with JSON lines of [text, color] pairs, null for a language the desktop doesn't color, or an error message. */
@@ -115,8 +120,20 @@ g.__zunaHighlight = (code: string, language: string, done: (result: string | nul
   highlighter
     .then(async (instance) => {
       if (!instance.getLoadedLanguages().includes(name)) await instance.loadLanguage(languages[name]!);
-      const { tokens } = instance.codeToTokens(code, { lang: name, theme: "github-dark-default" });
-      done(JSON.stringify(tokens.map((line) => line.map((token) => [token.content, token.color ?? null]))), null);
+      // The desktop's limits (packages/ui/src/lib/highlight.ts): past them, the rest shows uncolored.
+      const lines = code.split("\n");
+      let count = 0;
+      let chars = 0;
+      while (count < lines.length && count < MAX_HIGHLIGHTED_LINES && chars + lines[count]!.length <= MAX_HIGHLIGHTED_CHARS) chars += lines[count++]!.length + 1;
+      const { tokens } = instance.codeToTokens(lines.slice(0, count).join("\n"), {
+        lang: name,
+        theme: "github-dark-default",
+        tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
+        tokenizeTimeLimit: LINE_TIME_LIMIT_MS,
+      });
+      const highlighted = count === 0 ? [] : tokens.map((line) => line.map((token) => [token.content, token.color ?? null]));
+      const rest = lines.slice(count).map((line) => [[line, null]]);
+      done(JSON.stringify([...highlighted, ...rest]), null);
     })
     .catch((error: Error) => done(null, String(error?.stack ?? error)));
 };
