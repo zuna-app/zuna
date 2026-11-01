@@ -1095,10 +1095,14 @@ describe("what an account from before slots gets", () => {
 });
 
 describe("older apps", () => {
-  /** What an older app's requests look like, on an account that has rotated. */
+  /**
+   * What an older app's requests look like, on an account that has rotated. They're
+   * signed as the device signs, since one that has signed once always has to.
+   */
   async function olderApi(app: TestApp): Promise<Api> {
     const api = new Api(server.url);
     api.token = apiOf(app).token;
+    api.prove = apiOf(app).prove;
     return api;
   }
 

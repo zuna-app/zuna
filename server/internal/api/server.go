@@ -358,7 +358,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Encrypted per-user key vault
 	mux.HandleFunc("GET /api/vault", s.withDevice(s.handleVaultGet))
-	mux.HandleFunc("PUT /api/vault", s.withDevice(s.handleVaultPut))
+	mux.HandleFunc("PUT /api/vault", s.withDevice(s.proven(s.handleVaultPut)))
 	mux.HandleFunc("GET /api/history-grants", s.withDevice(s.handleHistoryGrants))
 	mux.HandleFunc("DELETE /api/history-grants/{id}", s.withDevice(s.handleDeleteHistoryGrant))
 
@@ -372,9 +372,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v2/devices/{id}/certificate", s.withDevice(s.handleCertificate))
 	mux.HandleFunc("GET /api/users/{id}/identity-links", s.withDevice(s.handleIdentityLinks))
 	mux.HandleFunc("GET /api/v2/vault", s.withDevice(s.handleVaultGetAnyGeneration))
-	mux.HandleFunc("PUT /api/v2/vault", s.withDevice(s.handleVaultPutAtGeneration))
+	mux.HandleFunc("PUT /api/v2/vault", s.withDevice(s.proven(s.handleVaultPutAtGeneration)))
 	mux.HandleFunc("GET /api/v2/vault/older", s.withDevice(s.handleVaultOlder))
-	mux.HandleFunc("POST /api/v2/vault/reseal", s.withDevice(s.handleVaultReseal))
+	mux.HandleFunc("POST /api/v2/vault/reseal", s.withDevice(s.proven(s.handleVaultReseal)))
 	mux.HandleFunc("GET /api/v2/history-grants", s.withDevice(s.handleHistoryGrantsAtAnyGeneration))
 
 	// Groups
@@ -386,8 +386,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/groups/{id}/void-commits", s.member(s.handleVoidCommits))
 	mux.HandleFunc("GET /api/groups/{id}/group-info", s.member(s.handleGroupInfo))
 	mux.HandleFunc("PUT /api/groups/{id}/meta", s.member(s.handleGroupMeta))
-	mux.HandleFunc("POST /api/groups/{id}/leave", s.member(s.handleLeave))
-	mux.HandleFunc("PUT /api/groups/{id}/members/{user}/role", s.member(s.handleGroupRole))
+	mux.HandleFunc("POST /api/groups/{id}/leave", s.member(s.provenMember(s.handleLeave)))
+	mux.HandleFunc("PUT /api/groups/{id}/members/{user}/role", s.member(s.provenMember(s.handleGroupRole)))
 	mux.HandleFunc("PUT /api/groups/{id}/read", s.member(s.handleRead))
 	mux.HandleFunc("GET /api/groups/{id}/changes", s.member(s.handleChanges))
 	mux.HandleFunc("GET /api/welcomes", s.withDevice(s.handleWelcomes))
@@ -417,8 +417,8 @@ func (s *Server) Handler() http.Handler {
 
 	// Server administration
 	mux.HandleFunc("GET /api/invites", s.withDevice(s.handleListInvites))
-	mux.HandleFunc("POST /api/invites", s.withDevice(s.handleCreateInvite))
-	mux.HandleFunc("DELETE /api/invites/{code}", s.withDevice(s.handleRevokeInvite))
+	mux.HandleFunc("POST /api/invites", s.withDevice(s.proven(s.handleCreateInvite)))
+	mux.HandleFunc("DELETE /api/invites/{code}", s.withDevice(s.proven(s.handleRevokeInvite)))
 	mux.HandleFunc("PATCH /api/admin/settings", s.admin(s.handleUpdateSettings))
 	mux.HandleFunc("PUT /api/admin/icon", s.admin(s.handleUpdateIcon))
 	mux.HandleFunc("PUT /api/admin/emote-set", s.admin(s.handleSetEmoteSet))

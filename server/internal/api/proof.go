@@ -24,8 +24,9 @@ import (
 const (
 	// How far a request's time may be from the server's.
 	proofWindow = 5 * time.Minute
-	// A signed request's body is read before its handler runs, so it can't be large.
-	maxProvenBody = 2 << 20
+	// A signed request's body is read before its handler runs, so it can't be larger
+	// than the largest a proven route takes, a vault write's.
+	maxProvenBody = maxVaultBody
 	// The signatures seen within the window, so that one can't be sent again.
 	maxSeenProofs = 100_000
 )
