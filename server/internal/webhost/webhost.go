@@ -178,7 +178,7 @@ func (h *host) withHeaders(next http.Handler) http.Handler {
 func (h *host) handleConfig(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
-	_ = json.NewEncoder(w).Encode(map[string]any{"previews": h.cfg.Previews, "server": h.cfg.Server})
+	_ = json.NewEncoder(w).Encode(map[string]any{"previews": h.cfg.Previews, "server": h.cfg.Server, "localLinks": h.cfg.AllowLocal})
 }
 
 var contentTypes = map[string]string{

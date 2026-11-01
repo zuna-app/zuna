@@ -138,13 +138,14 @@ func TestAnAppNeedsItsIndex(t *testing.T) {
 func TestConfigSaysWhatTheHostDoes(t *testing.T) {
 	handler := newTestHost(t, Config{Previews: true, Server: "https://chat.example.com"}).handler()
 	var config struct {
-		Previews bool   `json:"previews"`
-		Server   string `json:"server"`
+		Previews   bool   `json:"previews"`
+		Server     string `json:"server"`
+		LocalLinks bool   `json:"localLinks"`
 	}
 	if err := json.Unmarshal(get(t, handler, "/_zuna/config", nil).Body.Bytes(), &config); err != nil {
 		t.Fatal(err)
 	}
-	if !config.Previews || config.Server != "https://chat.example.com" {
+	if !config.Previews || config.Server != "https://chat.example.com" || config.LocalLinks {
 		t.Errorf("config %+v", config)
 	}
 }
