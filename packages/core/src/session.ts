@@ -3617,8 +3617,7 @@ export class ServerSession {
   private couldBeSent(message: ApiMessage): boolean {
     const left = this.departedAt(message.group_id, message.sender_device);
     if (left !== null && message.epoch >= left) return false;
-    if (message.edited_at) return true;
-    const next = this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
+    const next =this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
     return !next || message.seq < next.seq;
   }
 
