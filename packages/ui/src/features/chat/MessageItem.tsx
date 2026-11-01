@@ -18,6 +18,7 @@ import {
   RefreshCw,
   ShieldAlert,
   SmilePlus,
+  Timer,
   Trash2,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
@@ -30,6 +31,7 @@ import { Avatar, PopupMenu, Spinner, Tooltip, useAction, useContextMenu, type Me
 import { copyText } from "@/lib/clipboard";
 import { formatBytes, formatDuration, formatFull, formatTime, nameColor } from "@/lib/format";
 import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
+import { timerChangeText } from "@/lib/disappearing";
 import { downloadAttachment, loadsByItself, useDecryptedUrl } from "@/lib/media";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
@@ -77,6 +79,8 @@ function SystemMessage({ message, highlighted }: { message: MessageView; highlig
         return `${name(system.actorId)}'s security key changed since you verified it. You can compare keys again if you'd like.`;
       case "device_added":
         return `${name(system.actorId)} added a device`;
+      case "timer_changed":
+        return timerChangeText(name(system.actorId), system.seconds ?? 0);
     }
   }, "");
   const warning = message.system!.type === "unexpected_join" || message.system!.type === "identity_changed";
@@ -532,9 +536,14 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const meta = (
     <span
       className={`msg-meta${onlyImages ? " is-overlay" : ""}`}
-      title={message.timeDiffers ? `${formatFull(message.createdAt)}. The sender's device gives a very different time for this message.` : formatFull(message.createdAt)}
+      title={[
+        formatFull(message.createdAt),
+        message.timeDiffers ? ". The sender's device gives a very different time for this message." : "",
+        message.expiresAt ? `. Disappears ${formatFull(message.expiresAt)}.` : "",
+      ].join("")}
     >
       {message.timeDiffers && <ShieldAlert size={11} aria-label="The time of this message may not be right" />}
+      {message.expiresAt && <Timer size={10} className="msg-timer" aria-label="Disappears" />}
       {message.pinnedAt && <Pin size={10} className="msg-pinned" />}
       {message.editedAt && !isDeleted && <span>edited</span>}
       <span>{formatTime(message.createdAt)}</span>

@@ -8,6 +8,9 @@ import type { Attachment, AvatarRef, EarlierMessage, EmoteRef, ForwardInfo, Mess
 /** The longest message text anyone may send, and that clients agree to show. */
 export const MAX_TEXT_LENGTH = 100_000;
 
+/** The longest a disappearing message may last, in seconds: a year, as servers allow. */
+export const MAX_EXPIRES_IN = 366 * 24 * 60 * 60;
+
 const MAX_ATTACHMENTS = 32;
 const MAX_EMOTES = 2000;
 const MAX_MENTIONS = 2000;
@@ -101,7 +104,9 @@ export function parseAvatarRef(value: unknown): AvatarRef | null {
 function parseEarlier(value: unknown): EarlierMessage | null {
   if (!isObject(value) || !isString(value.id, MAX_ID_LENGTH) || !MESSAGE_ID.test(value.id)) return null;
   if (!isCount(value.epoch, Number.MAX_SAFE_INTEGER) || typeof value.at !== "number" || !Number.isFinite(value.at)) return null;
-  return { id: value.id, epoch: value.epoch, at: value.at };
+  const earlier: EarlierMessage = { id: value.id, epoch: value.epoch, at: value.at };
+  if (isCount(value.expiresIn, MAX_EXPIRES_IN) && value.expiresIn > 0) earlier.expiresIn = value.expiresIn;
+  return earlier;
 }
 
 function parseForwarded(value: unknown): ForwardInfo | null {
@@ -164,6 +169,7 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   if (isCount(value.revision, Number.MAX_SAFE_INTEGER)) body.revision = value.revision;
   const after = parseEarlier(value.after);
   if (after) body.after = after;
+  if (isCount(value.expiresIn, MAX_EXPIRES_IN) && value.expiresIn > 0) body.expiresIn = value.expiresIn;
   return body;
 }
 
@@ -177,6 +183,7 @@ const SYSTEM_TYPES = new Set<string>([
   "identity_changed",
   "identity_rotated",
   "group_created",
+  "timer_changed",
 ]);
 
 /** A notice this device wrote itself, read back from its own database. */
@@ -185,6 +192,7 @@ export function parseSystemEvent(value: unknown): SystemEvent | null {
   const system: SystemEvent = { type: value.type as SystemEvent["type"] };
   if (typeof value.actorId === "string") system.actorId = value.actorId;
   if (Array.isArray(value.targetIds)) system.targetIds = value.targetIds.filter((id): id is string => typeof id === "string");
+  if (isCount(value.seconds, MAX_EXPIRES_IN)) system.seconds = value.seconds;
   return system;
 }
 
@@ -211,6 +219,8 @@ export interface GroupDetails {
   avatar?: AvatarRef | null;
   /** Whether people added later get the group's history, as an admin signed it. */
   historyVisible?: boolean;
+  /** How long messages sent here last, in seconds, as an admin signed it. 0 or absent: they don't disappear. */
+  disappearAfter?: number;
 }
 
 /** A group's name, description and picture, or null if they aren't that. */
@@ -232,6 +242,7 @@ export function parseGroupDetails(value: unknown): GroupDetails | null {
     details.avatar = avatar;
   }
   if (typeof value.historyVisible === "boolean") details.historyVisible = value.historyVisible;
+  if (isCount(value.disappearAfter, MAX_EXPIRES_IN)) details.disappearAfter = value.disappearAfter;
   return details;
 }
 

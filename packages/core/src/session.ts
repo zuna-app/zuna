@@ -100,6 +100,7 @@ import { notificationText, previewText } from "./notify";
 import { SEARCH_INDEX_VERSION, indexTokens, mediaTag, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import {
+  MAX_EXPIRES_IN,
   MAX_TEXT_LENGTH,
   parseEmoteRef,
   parseGroupDetails,
@@ -178,6 +179,8 @@ const EARLIER_LOOKED_FOR_MS = 10 * 3600 * 1000;
 const EARLIER_LOOK_DELAY_MS = 3000;
 const SEARCH_REBUILD_BATCH = 200;
 const VAULT_BATCH = 200;
+/** The longest a timer waits, well short of where setTimeout overflows, after which it looks again. */
+const LONGEST_WAIT_MS = 24 * 3600 * 1000;
 /** The vault item that lists every pin and verification this account holds, and its preferences. */
 const MANIFEST_ID = "manifest";
 /** Past this, a manifest wouldn't fit in a vault item, and pins and verifications travel only one by one. */
@@ -309,6 +312,7 @@ interface MessageRow {
   body: Uint8Array | null;
   raw: Uint8Array | null;
   unproven_delete_at: number | null;
+  expires_at: number | null;
 }
 
 interface StoredBody extends MessageBody {
@@ -373,6 +377,16 @@ function readStoredBody(row: Pick<MessageRow, "id">, stored: StoredBody): Stored
   return body;
 }
 
+/**
+ * When a disappearing message goes, if it does: how long its sender's app said
+ * after it was sent. The earlier of the server's time and the sender's own counts,
+ * so neither can make it last longer than it says.
+ */
+function expiryOf(createdAt: number, body: MessageBody): number | null {
+  if (!body.expiresIn) return null;
+  return Math.min(createdAt, body.sentAt ?? createdAt) + body.expiresIn * 1000;
+}
+
 function assertSendable(body: MessageBody): void {
   if ((body.text?.length ?? 0) > MAX_TEXT_LENGTH) throw new Error("That message is too long. Try sending it as a file.");
 }
@@ -415,6 +429,9 @@ export class ServerSession {
   private flushRetry: ReturnType<typeof setTimeout> | undefined;
   /** Updates the conversations when the next chat muted for a while is heard again. */
   private muteTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Erases the next disappearing message when it's due, and when that is (ms). */
+  private expiryTimer: ReturnType<typeof setTimeout> | undefined;
+  private nextExpiry = Infinity;
   private reconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private stopped = false;
   /** Why the server says this session is over, if it has. */
@@ -503,6 +520,7 @@ export class ServerSession {
 
   private connect(): void {
     this.stopped = false;
+    this.expireMessages();
     this.setConnection("connecting");
     this.socket.start();
   }
@@ -513,6 +531,8 @@ export class ServerSession {
     clearTimeout(this.flushRetry);
     clearTimeout(this.missingTimer);
     clearTimeout(this.muteTimer);
+    clearTimeout(this.expiryTimer);
+    this.nextExpiry = Infinity;
     clearTimeout(this.signedOutRetry);
     clearTimeout(this.rotationTimer);
     clearTimeout(this.sealingTimer);
@@ -2452,8 +2472,10 @@ export class ServerSession {
       this.resealIfAdmin(group);
       return;
     }
+    const timerChanged = (details.disappearAfter ?? 0) !== this.disappearAfter(group);
     group.meta = details;
     group.metaVersion = signed.version;
+    if (timerChanged) this.noteTimerChange(group.id, signed.signer.userId, details.disappearAfter ?? 0);
   }
 
   private resealIfAdmin(group: CachedGroup): void {
@@ -3714,6 +3736,8 @@ export class ServerSession {
       console.warn("[zuna] the server sent something that isn't a message");
       return;
     }
+    // A disappearing message that went from here stays gone, whatever the server sends.
+    if (this.hasExpired(message.group_id, message.id)) return;
     const existing = this.messageRow(message.group_id, message.id);
     // A pin or unpin this device couldn't check yet, such as one under keys it didn't have then, is looked at again.
     const pinUnsettled = !!existing && (existing.pinned_at === null) !== (message.pinned_at === null);
@@ -3778,17 +3802,23 @@ export class ServerSession {
       ? this.sealJson("message", { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
       : (kept?.body ?? heldAfterLeaving);
     const pin = this.pinState(message, existing);
+    // When it was first seen to go is when it goes: an edit can't make it last longer.
+    const expiresAt = existing?.expires_at ?? (body ? expiryOf(message.created_at, body) : null);
+    if (expiresAt !== null && expiresAt <= Date.now()) {
+      this.eraseExpired(message.group_id, message.id);
+      return;
+    }
 
     let rowId: number;
     const isNew = !existing || existing.seq === null;
     this.db.transaction(() => {
       this.db.run(
-        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, unproven_delete_at)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, unproven_delete_at, expires_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(group_id, id) DO UPDATE SET seq = excluded.seq, updated_seq = excluded.updated_seq, sender_device = excluded.sender_device,
            epoch = excluded.epoch, created_at = excluded.created_at, edited_at = excluded.edited_at, deleted_at = excluded.deleted_at,
            pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, pin_revision = excluded.pin_revision, status = excluded.status, body = excluded.body, raw = excluded.raw,
-           unproven_delete_at = excluded.unproven_delete_at`,
+           unproven_delete_at = excluded.unproven_delete_at, expires_at = excluded.expires_at`,
         [
           message.group_id,
           message.id,
@@ -3807,6 +3837,7 @@ export class ServerSession {
           stored,
           kept ? kept.raw : raw,
           kept ? (kept.unproven_delete_at ?? Date.now()) : null,
+          expiresAt,
         ],
       );
       rowId = this.db.get<{ row_id: number }>("SELECT row_id FROM messages WHERE group_id = ? AND id = ?", [message.group_id, message.id])!.row_id;
@@ -3819,6 +3850,7 @@ export class ServerSession {
     const row = this.messageRow(message.group_id, message.id)!;
     const view = this.toMessageView(row);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: live && isNew });
+    if (expiresAt !== null && expiresAt < this.nextExpiry) this.expireMessages();
     // The first message in a new chat often beats its welcome, and only opens once that's in.
     const ref = `${message.group_id}/${message.id}`;
     if (live && isNew && status !== "sent") this.awaitingKeys.add(ref);
@@ -3835,7 +3867,9 @@ export class ServerSession {
    */
   private lookForEarlier(message: ApiMessage, body: MessageBody): void {
     const after = body.after!;
-    if (this.messageRow(message.group_id, after.id)) return;
+    if (this.messageRow(message.group_id, after.id) || this.hasExpired(message.group_id, after.id)) return;
+    // One that disappeared before it could arrive is simply gone.
+    if (after.expiresIn !== undefined && after.at + after.expiresIn * 1000 <= Date.now() + EARLIER_LOOK_DELAY_MS) return;
     const joined = this.joinedEpoch(message.group_id);
     if (joined === null || after.epoch < joined || body.sentAt === undefined) return;
     if (message.created_at < Date.now() - EARLIER_LOOKED_FOR_MS || body.sentAt - after.at > EARLIER_LOOKED_FOR_MS) return;
@@ -3966,6 +4000,69 @@ export class ServerSession {
     this.db.run("UPDATE messages SET body = NULL, raw = NULL, unproven_delete_at = NULL WHERE unproven_delete_at < ?", [Date.now() - REMOVED_KEPT_MS]);
   }
 
+  // --- Disappearing messages ---
+
+  private hasExpired(groupId: string, id: string): boolean {
+    return !!this.db.get("SELECT 1 FROM expired WHERE group_id = ? AND id = ?", [groupId, id]);
+  }
+
+  /**
+   * Erases a disappearing message from this device: its row, and what the search
+   * and the chat's details know of it. Only its ID stays, so it can't come back.
+   */
+  private eraseExpired(groupId: string, id: string): void {
+    const row = this.db.get<{ row_id: number }>("SELECT row_id FROM messages WHERE group_id = ? AND id = ?", [groupId, id]);
+    this.db.transaction(() => {
+      if (row) {
+        this.db.run("DELETE FROM search WHERE rowid = ?", [row.row_id]);
+        this.db.run("DELETE FROM media WHERE row_id = ?", [row.row_id]);
+        this.db.run("DELETE FROM messages WHERE row_id = ?", [row.row_id]);
+      }
+      this.db.run("INSERT OR IGNORE INTO expired(group_id, id) VALUES(?, ?)", [groupId, id]);
+    });
+    if (row) this.emit({ type: "message_removed", serverId: this.serverId, groupId, id });
+  }
+
+  /** Erases the disappearing messages that are due, and waits for the next. */
+  private expireMessages(): void {
+    clearTimeout(this.expiryTimer);
+    this.nextExpiry = Infinity;
+    const now = Date.now();
+    const due = this.db.all<{ group_id: string; id: string }>("SELECT group_id, id FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?", [now]);
+    for (const row of due) this.eraseExpired(row.group_id, row.id);
+    if (due.length > 0) this.emitConversations();
+    const next = this.db.get<{ at: number | null }>("SELECT MIN(expires_at) AS at FROM messages WHERE expires_at IS NOT NULL")?.at ?? null;
+    if (next === null || this.stopped) return;
+    this.nextExpiry = next;
+    this.expiryTimer = setTimeout(() => this.expireMessages(), Math.min(next - now + 50, LONGEST_WAIT_MS));
+  }
+
+  /** How long messages sent to a group now last, in seconds, or 0. */
+  private disappearAfter(group: CachedGroup | undefined): number {
+    return group?.meta.disappearAfter ?? 0;
+  }
+
+  /**
+   * Sets how long messages sent to a chat from now on last, in seconds, or 0 for
+   * as long as they're kept. In a group only its admins may, and in a direct
+   * message either person. It's signed with the chat's details, so nobody else's
+   * word changes it, and the messages already sent keep the time they had.
+   */
+  async setDisappearing(groupId: string, seconds: number): Promise<void> {
+    if (!Number.isSafeInteger(seconds) || seconds < 0 || seconds > MAX_EXPIRES_IN) throw new Error("Messages can't be set to last that long.");
+    const group = this.groups.get(groupId);
+    if (!group || group.removedAt) throw new Error("This chat can't be changed right now.");
+    if (!this.info?.disappearing) this.info = await this.api.info().catch(() => this.info);
+    if (!this.info?.disappearing) throw new Error("This server doesn't support disappearing messages yet. Ask its admin to update it.");
+    if (this.disappearAfter(group) === seconds) return;
+    await this.updateGroupMeta(groupId, { disappearAfter: seconds });
+  }
+
+  /** A line in the chat saying who changed how long messages last, and to what. */
+  private noteTimerChange(groupId: string, actorId: string, seconds: number): void {
+    this.addSystemRow(groupId, Date.now(), actorId, { type: "timer_changed", actorId, seconds });
+  }
+
   private retryUndecryptable(groupId: string): void {
     const rows = this.db.all<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND status IN ('undecryptable','unverified')", [groupId]);
     for (const row of rows) {
@@ -4066,6 +4163,7 @@ export class ServerSession {
       system: body.system ?? null,
       preview: body.preview ?? null,
       forwarded: body.forwarded ?? null,
+      expiresAt: row.expires_at,
     };
     if (body.sentAt !== undefined && Math.abs(body.sentAt - (row.edited_at ?? row.created_at)) > TIME_DIFFERS_MS) view.timeDiffers = true;
     return view;
@@ -4073,7 +4171,7 @@ export class ServerSession {
 
   private replyPreview(groupId: string, id: string): ReplyPreview {
     const row = this.messageRow(groupId, id);
-    if (!row) return { id, senderId: "", text: "", hasAttachment: false, deleted: false };
+    if (!row) return { id, senderId: "", text: "", hasAttachment: false, deleted: this.hasExpired(groupId, id) };
     if (!row.body || row.deleted_at !== null) return { id, senderId: row.sender_user, text: "", hasAttachment: false, deleted: row.deleted_at !== null };
     const body = this.storedBody(row);
     return {
@@ -4154,6 +4252,7 @@ export class ServerSession {
         ownRead: group.ownRead,
         ready: group.epoch > 0 && !group.removedAt,
         removed: !!group.removedAt,
+        disappearAfter: this.disappearAfter(group),
       });
     }
 
@@ -4183,6 +4282,7 @@ export class ServerSession {
         ownRead: 0,
         ready: false,
         removed: false,
+        disappearAfter: 0,
       });
     }
     return out.sort(
@@ -4632,8 +4732,9 @@ export class ServerSession {
       await this.withLock(entry.groupId, () =>
         this.sealAndRetry(entry.groupId, async (epoch, key) => {
           const row = this.messageRow(entry.groupId, entry.id);
-          const after = row ? this.storedBody(row)?.after : undefined;
-          const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after };
+          const held = row ? this.storedBody(row) : null;
+          // An edit says how long the message lasts as it first did, so it disappears all the same.
+          const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after: held?.after, expiresIn: held?.expiresIn };
           const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body));
           this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
         }),
@@ -4649,14 +4750,17 @@ export class ServerSession {
       this.moveLocalEcho(groupKey, groupId, entry.id);
       await this.sealAndRetry(groupId, async (epoch, key) => {
         const after = this.getKv<EarlierMessage>(`sent/${groupId}`) ?? undefined;
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after }));
+        // It lasts as long as the chat says when it goes, whenever it was written.
+        const expiresIn = this.disappearAfter(this.groups.get(groupId)) || undefined;
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after, expiresIn }));
         const saved = await this.api.sendMessage(groupId, {
           id: entry.id,
           epoch,
           envelope,
           file_ids: entry.fileIds?.length ? entry.fileIds : undefined,
+          expires_in: expiresIn,
         });
-        this.setKv(`sent/${groupId}`, { id: entry.id, epoch, at: Date.now() } satisfies EarlierMessage);
+        this.setKv(`sent/${groupId}`, { id: entry.id, epoch, at: Date.now(), expiresIn } satisfies EarlierMessage);
         this.ingest(saved, false);
       });
     });
@@ -5270,9 +5374,11 @@ export class ServerSession {
       await this.api.setGroupMeta(groupId, this.sealGroupDetails(groupId, key, epoch, meta, version), epoch, historyVisible);
     });
     const current = this.groups.get(groupId) ?? group;
+    const timerChanged = (meta.disappearAfter ?? 0) !== this.disappearAfter(current);
     current.meta = meta;
     current.metaVersion = version;
     this.persistGroup(current);
+    if (timerChanged) this.noteTimerChange(groupId, this.account.userId, meta.disappearAfter ?? 0);
     this.emitConversations();
   }
 

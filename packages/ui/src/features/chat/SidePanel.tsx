@@ -17,6 +17,7 @@ import {
   Shield,
   ShieldAlert,
   ShieldCheck,
+  Timer,
   Trash2,
   UserMinus,
   UserPlus,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Field, PopupMenu, Switch, Tooltip, useAction } from "@/components/ui";
+import { timerEntries, timerText } from "@/lib/disappearing";
 import { formatFull, formatLastSeen, formatListTime, nameColor } from "@/lib/format";
 import { prepareAvatar } from "@/lib/media";
 import { muteEntries, mutedUntilText } from "@/lib/mute";
@@ -113,6 +115,61 @@ function PreferenceRows({ conversation }: { conversation: ConversationView }) {
   );
 }
 
+/**
+ * How long messages sent here last. In a direct message either person can change
+ * it, and in a group its admins. Shown once the chat has started, on a server that
+ * removes them when they're due.
+ */
+function DisappearingRow({ conversation, canChange }: { conversation: ConversationView; canChange: boolean }) {
+  const server = useActiveServer();
+  const session = useApp((state) => state.session);
+  const { run } = useAction();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const supported = !!server?.info?.disappearing;
+  if (!conversation.groupId || !conversation.ready || (!supported && conversation.disappearAfter === 0)) return null;
+  const editable = canChange && supported;
+  const label = (
+    <>
+      <Timer size={17} />
+      <span className="grow">
+        Disappearing messages
+        <span className="side-hint">
+          {conversation.disappearAfter > 0
+            ? `New messages disappear ${timerText(conversation.disappearAfter)} after they're sent.`
+            : "New messages stay until they're deleted."}
+        </span>
+      </span>
+      <span className="faint">{timerText(conversation.disappearAfter)}</span>
+    </>
+  );
+  return (
+    <div className="side-section">
+      {editable ? (
+        <button
+          className="side-row is-button"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu({ x: rect.right, y: rect.bottom + 4 });
+          }}
+        >
+          {label}
+        </button>
+      ) : (
+        <div className="side-row">{label}</div>
+      )}
+      {menu && (
+        <PopupMenu
+          x={menu.x}
+          y={menu.y}
+          alignRight
+          entries={timerEntries(conversation.disappearAfter, (seconds) => void run(() => session().setDisappearing(conversation.groupId!, seconds)))}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </div>
+  );
+}
+
 function InfoContent({ conversation }: { conversation: ConversationView }) {
   const server = useActiveServer();
   const setOverlay = useApp((state) => state.setOverlay);
@@ -147,6 +204,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
         </div>
       )}
       <SharedMediaRows conversation={conversation} />
+      <DisappearingRow conversation={conversation} canChange />
       <PreferenceRows conversation={conversation} />
     </div>
   );
@@ -272,6 +330,8 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
           );
         })}
       </div>
+
+      <DisappearingRow conversation={conversation} canChange={isAdmin} />
 
       {isAdmin && (
         <div className="side-section">

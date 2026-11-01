@@ -455,6 +455,11 @@ ALTER TABLE devices ADD COLUMN signs_requests INTEGER NOT NULL DEFAULT 0;
 -- whose it was. Clients only show a pin someone's device signed.
 ALTER TABLE messages ADD COLUMN pin BLOB;
 ALTER TABLE messages ADD COLUMN pin_by TEXT;
+`, `
+-- When a disappearing message goes, as its sender's app asked. The server can't
+-- read how long a chat's messages last, only when each one is due.
+ALTER TABLE messages ADD COLUMN expires_at INTEGER;
+CREATE INDEX messages_expires ON messages(expires_at) WHERE expires_at IS NOT NULL;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

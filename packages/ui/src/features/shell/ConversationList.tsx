@@ -26,6 +26,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Avatar, ConnectionStatus, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
 import { refocusComposer } from "@/lib/focus";
+import { timerText } from "@/lib/disappearing";
 import { formatListTime } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
 import { platform } from "@/platform";
@@ -35,6 +36,7 @@ type Filter = "all" | "people" | "groups" | "unread";
 
 function previewFor(message: MessageView | null, users: Record<string, UserView>, selfId: string, kind: string): string {
   if (!message) return "";
+  if (message.system?.type === "timer_changed") return message.system.seconds ? `Messages disappear after ${timerText(message.system.seconds)}` : "Disappearing messages turned off";
   if (message.system) return "Membership changed";
   if (message.status === "undecryptable") return "Waiting for keys";
   if (message.status === "invalid" || message.status === "unverified") return "A message that couldn't be displayed";

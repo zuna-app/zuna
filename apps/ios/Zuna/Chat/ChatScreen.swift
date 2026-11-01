@@ -431,6 +431,10 @@ private struct ChatHeader: View {
                 if peer?.trust == .verified, !isSaved {
                     Image(systemName: "checkmark.seal.fill").font(.caption).foregroundStyle(Theme.text2).accessibilityLabel("Verified")
                 }
+                if conversation.disappearAfter > 0 {
+                    Image(systemName: "timer").font(.caption).foregroundStyle(Theme.text2)
+                        .accessibilityLabel("Messages disappear after \(Format.timer(conversation.disappearAfter))")
+                }
             }
             .accessibilityIdentifier(A11y.Chat.title)
             Text(status)

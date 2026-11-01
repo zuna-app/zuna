@@ -313,6 +313,34 @@ func TestCommitCompareAndSwapOrdersEpochs(t *testing.T) {
 	}
 }
 
+func TestDisappearingMessagesAreDueWhenTheirSenderAsked(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	path := "/api/groups/" + group.ID + "/messages"
+
+	var info api.ServerInfo
+	h.mustDo("GET", "/api/info", owner.token, nil, &info)
+	if info.Disappearing != 1 {
+		t.Fatal("the server should say it removes disappearing messages")
+	}
+	for _, seconds := range []int64{-1, 366*24*60*60 + 1} {
+		if status, _ := h.do("POST", path, owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "expires_in": seconds}, nil); status != http.StatusBadRequest {
+			t.Fatalf("expires_in %d gave %d", seconds, status)
+		}
+	}
+	var brief store.Message
+	h.mustDo("POST", path, owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "expires_in": 3600}, &brief)
+	if brief.ExpiresAt == nil || *brief.ExpiresAt != brief.CreatedAt+3600_000 {
+		t.Fatalf("expires_at = %v, want an hour after %d", brief.ExpiresAt, brief.CreatedAt)
+	}
+	if lasting := owner.send(group.ID, 1, store.NewID()); lasting.ExpiresAt != nil {
+		t.Fatal("a message sent without a timer shouldn't expire")
+	}
+}
+
 func TestMessageLifecycle(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()

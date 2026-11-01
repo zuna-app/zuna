@@ -242,12 +242,13 @@ func (s *Server) handleGroupMeta(w http.ResponseWriter, r *http.Request, _ *stor
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "Those group details are too large.")
 		return
 	}
+	// A direct message's two people are both its admins, and its details only say
+	// how long its messages last. Whether history is shared means nothing there.
 	if group, err := s.db.Group(r.Context(), groupID); err != nil {
 		writeFailure(w, err)
 		return
 	} else if group.Kind == "dm" {
-		writeError(w, http.StatusBadRequest, "bad_request", "A direct message has no details to change.")
-		return
+		body.HistoryVisible = nil
 	}
 	if err := s.db.SetGroupMeta(r.Context(), groupID, body.Meta, body.Epoch, body.HistoryVisible); err != nil {
 		writeFailure(w, err)
@@ -413,6 +414,8 @@ func (s *Server) handleDeleteWelcome(w http.ResponseWriter, r *http.Request, ses
 
 const (
 	maxEnvelopeBytes = 256 << 10
+	// The longest a disappearing message may last, in seconds: a year.
+	maxExpiresIn = 366 * 24 * 60 * 60
 	maxReactionBytes = 2 << 10
 	maxProofBytes    = 2 << 10
 	maxProofBody     = 8 << 10
@@ -478,12 +481,18 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		Epoch    int64    `json:"epoch"`
 		Envelope []byte   `json:"envelope"`
 		FileIDs  []string `json:"file_ids"`
+		// How long until a disappearing message goes, in seconds, as its sender's app asks.
+		ExpiresIn int64 `json:"expires_in"`
 	}
 	if !readJSON(w, r, &body) {
 		return
 	}
 	if !store.ValidID(body.ID) || len(body.Envelope) == 0 {
 		writeError(w, http.StatusBadRequest, "bad_request", "The message is incomplete.")
+		return
+	}
+	if body.ExpiresIn < 0 || body.ExpiresIn > maxExpiresIn {
+		writeError(w, http.StatusBadRequest, "bad_request", "That message can't disappear after so long.")
 		return
 	}
 	if len(body.Envelope) > maxEnvelopeBytes {
@@ -503,7 +512,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		SenderDevice: sess.DeviceID,
 		Epoch:        body.Epoch,
 		Envelope:     body.Envelope,
-	}, body.FileIDs, s.quotaBytes())
+	}, body.FileIDs, s.quotaBytes(), body.ExpiresIn*1000)
 	if err != nil {
 		writeFailure(w, err)
 		return

@@ -31,8 +31,10 @@ type Message struct {
 	// What the deleting device signed, which apps check before erasing their copies.
 	Deletion []byte `json:"deletion,omitempty"`
 	// What the device that last pinned or unpinned it signed, and whose that was.
-	Pin       []byte     `json:"pin,omitempty"`
-	PinBy     string     `json:"pin_by,omitempty"`
+	Pin   []byte `json:"pin,omitempty"`
+	PinBy string `json:"pin_by,omitempty"`
+	// When it disappears, as its sender's app asked, if it does.
+	ExpiresAt *int64     `json:"expires_at,omitempty"`
 	Reactions []Reaction `json:"reactions"`
 }
 
@@ -46,16 +48,17 @@ type Reaction struct {
 }
 
 const messageColumns = `group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope,
-	created_at, edited_at, deleted_at, pinned_at, pinned_by, deleted_by, deletion, pin, pin_by`
+	created_at, edited_at, deleted_at, pinned_at, pinned_by, deleted_by, deletion, pin, pin_by, expires_at`
 
 func scanMessage(row interface{ Scan(...any) error }) (*Message, error) {
 	var m Message
-	var edited, deleted, pinned sql.NullInt64
+	var edited, deleted, pinned, expires sql.NullInt64
 	var pinnedBy, deletedBy, pinBy sql.NullString
 	if err := row.Scan(&m.GroupID, &m.ID, &m.Seq, &m.UpdatedSeq, &m.SenderUser, &m.SenderDevice, &m.Epoch, &m.Envelope,
-		&m.CreatedAt, &edited, &deleted, &pinned, &pinnedBy, &deletedBy, &m.Deletion, &m.Pin, &pinBy); err != nil {
+		&m.CreatedAt, &edited, &deleted, &pinned, &pinnedBy, &deletedBy, &m.Deletion, &m.Pin, &pinBy, &expires); err != nil {
 		return nil, err
 	}
+	m.ExpiresAt = nullableInt(expires)
 	m.EditedAt = nullableInt(edited)
 	m.DeletedAt = nullableInt(deleted)
 	m.PinnedAt = nullableInt(pinned)
@@ -106,7 +109,8 @@ func currentEpoch(ctx context.Context, tx *sql.Tx, groupID string) (int64, error
 // CreateMessage stores a message. Sending the same ID twice returns the
 // existing message, with created false, which makes client retries safe. Content must be encrypted
 // under the group's current epoch, so a removed member's key is never reused.
-func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quota int64) (message *Message, created bool, err error) {
+// A message with expiresIn (ms) above zero disappears that long after it arrives.
+func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quota int64, expiresIn int64) (message *Message, created bool, err error) {
 	err = d.tx(ctx, func(tx *sql.Tx) error {
 		var existing string
 		err := tx.QueryRowContext(ctx, `SELECT sender_user FROM messages WHERE group_id = ? AND id = ?`, m.GroupID, m.ID).Scan(&existing)
@@ -135,8 +139,13 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quo
 			return err
 		}
 		now := Now()
-		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope, created_at)
-			VALUES(?,?,?,?,?,?,?,?,?)`, m.GroupID, m.ID, seq, seq, m.SenderUser, m.SenderDevice, m.Epoch, m.Envelope, now); err != nil {
+		var expiresAt *int64
+		if expiresIn > 0 {
+			at := now + expiresIn
+			expiresAt = &at
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope, created_at, expires_at)
+			VALUES(?,?,?,?,?,?,?,?,?,?)`, m.GroupID, m.ID, seq, seq, m.SenderUser, m.SenderDevice, m.Epoch, m.Envelope, now, expiresAt); err != nil {
 			return err
 		}
 		for _, fileID := range fileIDs {
@@ -548,6 +557,27 @@ func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]strin
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE created_at < ? AND pinned_at IS NULL`, cutoff); err != nil {
+			return err
+		}
+		fileIDs, err = unreferenced(ctx, tx, fileIDs)
+		return err
+	})
+	return fileIDs, err
+}
+
+// DeleteExpiredMessages removes the disappearing messages that are due by now,
+// pinned or not. It returns the files no message uses any more.
+func (d *DB) DeleteExpiredMessages(ctx context.Context, now int64) ([]string, error) {
+	var fileIDs []string
+	err := d.tx(ctx, func(tx *sql.Tx) error {
+		var err error
+		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT r.file_id FROM file_refs r
+			JOIN messages m ON m.group_id = r.group_id AND m.id = r.message_id
+			WHERE m.expires_at IS NOT NULL AND m.expires_at <= ?`, now)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ?`, now); err != nil {
 			return err
 		}
 		fileIDs, err = unreferenced(ctx, tx, fileIDs)

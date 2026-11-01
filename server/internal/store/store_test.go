@@ -34,7 +34,7 @@ func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
 		ownFile(t, db, file)
 		if _, _, err := db.CreateMessage(ctx, Message{
 			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
-		}, []string{file}, 0); err != nil {
+		}, []string{file}, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -56,6 +56,55 @@ func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
 	}
 	if _, err := db.Message(ctx, group, "old"); err == nil {
 		t.Fatal("the old message should be gone")
+	}
+}
+
+func TestDisappearingMessagesGoWhenDueEvenPinned(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	group, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(id, file string, expiresIn int64) *Message {
+		t.Helper()
+		ownFile(t, db, file)
+		message, _, err := db.CreateMessage(ctx, Message{
+			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
+		}, []string{file}, 0, expiresIn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return message
+	}
+	lasting := send("lasting", "file-lasting", 0)
+	brief := send("brief", "file-brief", 60_000)
+	if lasting.ExpiresAt != nil {
+		t.Fatal("a message without a timer shouldn't expire")
+	}
+	if brief.ExpiresAt == nil || *brief.ExpiresAt != brief.CreatedAt+60_000 {
+		t.Fatalf("expires_at = %v, want a minute after %d", brief.ExpiresAt, brief.CreatedAt)
+	}
+	if _, err := db.SetPinned(ctx, group, "brief", "u", true, Pin{}); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := db.DeleteExpiredMessages(ctx, brief.CreatedAt+59_000)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("before it's due: files = %v, err = %v", files, err)
+	}
+	files, err = db.DeleteExpiredMessages(ctx, brief.CreatedAt+60_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(files, []string{"file-brief"}) {
+		t.Fatalf("removed files = %v, want only the disappearing message's file", files)
+	}
+	if _, err := db.Message(ctx, group, "brief"); err == nil {
+		t.Fatal("the disappearing message should be gone, pinned or not")
+	}
+	if _, err := db.Message(ctx, group, "lasting"); err != nil {
+		t.Fatalf("the other message should stay: %v", err)
 	}
 }
 
@@ -137,7 +186,7 @@ func TestForwardedFilesStayUntilTheLastCopyIsGone(t *testing.T) {
 		t.Helper()
 		if _, _, err := db.CreateMessage(ctx, Message{
 			GroupID: group, ID: id, SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
-		}, files, 0); err != nil {
+		}, files, 0, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -322,6 +371,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE devices DROP COLUMN signs_requests;
 		ALTER TABLE messages DROP COLUMN pin;
 		ALTER TABLE messages DROP COLUMN pin_by;
+		DROP INDEX messages_expires;
+		ALTER TABLE messages DROP COLUMN expires_at;
 		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
@@ -436,7 +487,7 @@ func TestStorageIsRecounted(t *testing.T) {
 		return n
 	}
 	send := func(id string, quota int64) error {
-		_, _, err := db.CreateMessage(ctx, Message{GroupID: group.ID, ID: id, SenderUser: user, SenderDevice: "d", Envelope: make([]byte, 100)}, nil, quota)
+		_, _, err := db.CreateMessage(ctx, Message{GroupID: group.ID, ID: id, SenderUser: user, SenderDevice: "d", Envelope: make([]byte, 100)}, nil, quota, 0)
 		return err
 	}
 	if err := send("one", 250); err != nil {

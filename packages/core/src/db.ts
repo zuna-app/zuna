@@ -134,6 +134,14 @@ const MIGRATIONS: string[] = [
   // Which pin or unpin a member's device signed decides whether a message is pinned
   // here, and this is its revision. Null for a pin this device held from before pins were signed.
   `ALTER TABLE messages ADD COLUMN pin_revision INTEGER;`,
+  // When a disappearing message goes from this device, worked out from when it was
+  // sent and how long its sender's app said it lasts. `expired` holds the ones that
+  // went, so a copy the server sends again, or a reply to one, knows it's gone.
+  `
+  ALTER TABLE messages ADD COLUMN expires_at INTEGER;
+  CREATE INDEX messages_expiry ON messages(expires_at) WHERE expires_at IS NOT NULL;
+  CREATE TABLE expired (group_id TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (group_id, id));
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

@@ -127,6 +127,7 @@ enum A11y {
         static let trust = "details.trust"
         static let notifications = "details.notifications"
         static let history = "details.history"
+        static let disappearing = "details.disappearing"
         static let edit = "details.edit"
         static let addMembers = "details.addMembers"
         static let leave = "details.leave"

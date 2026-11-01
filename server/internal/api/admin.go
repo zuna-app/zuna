@@ -35,6 +35,9 @@ type ServerInfo struct {
 	AccountProtocol int `json:"account_protocol"`
 	// RequestProofs says this server takes requests signed by a device's key.
 	RequestProofs int `json:"request_proofs,omitempty"`
+	// Disappearing says this server removes disappearing messages when they're due,
+	// and keeps how long a direct message's messages last.
+	Disappearing int `json:"disappearing,omitempty"`
 	// CommunityKey is only present in open sign-up mode, where admins accepted
 	// that the server can read profiles. In invite mode it stays in invite links.
 	CommunityKey string `json:"community_key,omitempty"`
@@ -60,7 +63,7 @@ func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
 
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
-	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, RequestProofs: 1}
+	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, RequestProofs: 1, Disappearing: 1}
 	var err error
 	if info.Name, err = s.db.Setting(ctx, "name", "Zuna"); err != nil {
 		return nil, err

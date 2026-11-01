@@ -79,9 +79,30 @@ enum Format {
         return (String(first) + last).uppercased()
     }
 
+    /// How long a chat's messages last, in the desktop's words: "1 day", "2 weeks", or "Off" for 0.
+    static func timer(_ seconds: Int) -> String {
+        guard seconds > 0 else { return "Off" }
+        let units: [(Int, String)] = [(30 * 86400, "month"), (7 * 86400, "week"), (86400, "day"), (3600, "hour"), (60, "minute"), (1, "second")]
+        let (size, name) = units.first { seconds % $0.0 == 0 }!
+        let count = seconds / size
+        return "\(count) \(name)\(count == 1 ? "" : "s")"
+    }
+
+    /// The line in a chat when someone changes how long its messages last.
+    static func timerChange(_ who: String, seconds: Int) -> String {
+        seconds > 0 ? "\(who) set messages to disappear after \(timer(seconds))" : "\(who) turned off disappearing messages"
+    }
+
+    /// How long a chat's messages can be set to last, as the core offers: an hour, a day, a week and a month.
+    static let disappearingTimes = [3600, 86400, 7 * 86400, 30 * 86400]
+
     /// The preview under a conversation's title, as the desktop builds it.
     static func preview(_ message: MessageView?, users: [String: UserView], selfId: String, kind: GroupKind) -> (author: String?, body: String) {
         guard let message else { return (nil, "") }
+        if let system = message.system, system.type == .timerChanged {
+            let seconds = system.seconds ?? 0
+            return (nil, seconds > 0 ? "Messages disappear after \(timer(seconds))" : "Disappearing messages turned off")
+        }
         if message.system != nil { return (nil, "Membership changed") }
         if message.status == .undecryptable { return (nil, "Waiting for keys") }
         if message.status == .invalid || message.status == .unverified { return (nil, "A message that couldn't be displayed") }

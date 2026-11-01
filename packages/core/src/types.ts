@@ -21,6 +21,8 @@ export interface ServerInfo {
   account_protocol?: number;
   /** Whether this server takes requests signed by a device's key. Absent on one that doesn't. */
   request_proofs?: number;
+  /** Whether this server removes disappearing messages when they're due. Absent on one that doesn't. */
+  disappearing?: number;
 }
 
 export interface InvitePreview {
@@ -129,13 +131,20 @@ export interface MessageBody {
   revision?: number;
   /** The message the sender's device sent before this one here, signed with the rest, so a recipient can tell if the server held that one back. */
   after?: EarlierMessage;
+  /** How long after it's sent the message disappears, in seconds, signed with the rest. */
+  expiresIn?: number;
 }
+
+/** How long a chat's messages can be set to last, in seconds: an hour, a day, a week and a month. */
+export const DISAPPEARING_TIMES: readonly number[] = [3600, 86400, 7 * 86400, 30 * 86400];
 
 /** A message a device sent: its ID, its epoch, and when, by that device's clock (ms). */
 export interface EarlierMessage {
   id: string;
   epoch: number;
   at: number;
+  /** How long that one lasts, in seconds, if it disappears, so a recipient knows not to look for one that's gone. */
+  expiresIn?: number;
 }
 
 /**
@@ -181,9 +190,12 @@ export interface SystemEvent {
     | "unexpected_join"
     | "identity_changed"
     | "identity_rotated"
-    | "group_created";
+    | "group_created"
+    | "timer_changed";
   actorId?: string;
   targetIds?: string[];
+  /** For "timer_changed": how long messages now last, in seconds, or 0 for as long as they're kept. */
+  seconds?: number;
 }
 
 export interface ReplyPreview {
@@ -217,6 +229,8 @@ export interface MessageView {
   uploadProgress?: number;
   /** The time the sender's device signed is far from the server's. */
   timeDiffers?: boolean;
+  /** When it disappears from this device (ms), or null if it doesn't. */
+  expiresAt: number | null;
 }
 
 export interface GroupMemberView {
@@ -260,6 +274,8 @@ export interface ConversationView {
   ready: boolean;
   /** You're no longer in this conversation. Its messages stay until you clear them, or for a while. */
   removed: boolean;
+  /** How long messages sent here now last, in seconds, or 0 if they don't disappear. */
+  disappearAfter: number;
 }
 
 export interface Emote {

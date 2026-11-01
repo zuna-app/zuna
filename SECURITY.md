@@ -18,6 +18,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Reactions** | Who reacted to which message | Which reaction it was (with the exception under "Limits") |
 | **Files** | Size and uploader, and which messages share a file, so it knows a forwarded file is the same one | Name, type, content |
 | **Pins and deletes** | Which message was pinned or deleted | The message's content |
+| **Disappearing messages** | When each message is due to go, and so how long a chat's messages last | The setting itself, which is in the chat's encrypted details |
 | **Read state** | That someone's read position changed | The position itself |
 | **Typing** | That someone sent a typing signal | Nothing further; it's encrypted but has no other content |
 | **Presence** | Online status, last seen | Hidden from other members if you choose, but not from the server |
@@ -91,6 +92,10 @@ Display names and avatars are encrypted under a **community key**, carried in th
 
 If an admin turns on open sign-ups, there's no invite link to carry that key, so the app gives it to the server, and the settings screen says so. This exposes profiles, not messages.
 
+### Disappearing messages
+
+How long a chat's messages last is part of its details, signed by whoever set it: in a group only an admin's device counts, and in a direct message either person's. Each message then says how long it lasts, under its sender's signature, and tells the server when it's due. Every device erases its copy, with what search and the chat's details knew of it, once it's due, counting from the earlier of the server's time and the sender's own, so neither can make it last longer. An edit can't change it, and a copy the server sends again stays gone. The server removes its own copy and the message's files within a minute of that.
+
 ### Files
 
 Each file gets its own random key. It's split into 1 MiB chunks encrypted with XChaCha20-Poly1305 in the STREAM construction, which detects reordered, missing or truncated chunks. The key travels inside the encrypted message.
@@ -135,7 +140,7 @@ These are real limitations, stated plainly:
 - **An account from before sign-in keys were bound to their server can be taken with a copy of its database,** until that account next signs in, which binds its key. The server says how many it has when it starts. A backup of the server's data is worth protecting for this reason, among others.
 - **`zuna://` links can be claimed by another app** on iPhone, iPad and Linux. A link for an invite carries the community key, which protects profiles. Universal links can't help here, since each server is on a domain of its own that the app can't list in advance.
 - **The time shown comes from the server.** The sender's device also signs the time it sent a message, and the app flags a message if the two are far apart.
-- **Deleting is best effort.** "Delete for everyone" removes the server's copy and the copies on members' apps, but a modified client or a screenshot can keep it.
+- **Deleting is best effort.** "Delete for everyone" removes the server's copy and the copies on members' apps, but a modified client or a screenshot can keep it. Disappearing messages are the same, and so is a notification already shown. Apps from before disappearing messages keep them, and so does a sender's app that leaves out how long a message lasts.
 - **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.
 - **An invite link tells whoever has it which usernames are taken.** Signing up with a taken name says so, and doesn't use the invite up, so they can try names without joining. That's what any member sees in the list of people, and on a server with open sign-ups anyone can ask. Signing in doesn't say whether an account exists.
 - **A compromised device is out of scope.** Malware on your computer can read what you can read.

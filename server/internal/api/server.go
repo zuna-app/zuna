@@ -52,6 +52,8 @@ const (
 	emoteRefresh       = 6 * time.Hour
 	emoteRetry         = time.Minute
 	cleanupInterval    = time.Hour
+	// How often disappearing messages that are due are removed.
+	expiryInterval = time.Minute
 	// Friends behind one home router share an address, so this allows a burst.
 	defaultAuthBurst = 20
 	// How long a request's body may take. A part of a file gets longer, on a slow connection.
@@ -240,6 +242,28 @@ func (s *Server) RunBackground(ctx context.Context) {
 			}
 		}
 	}()
+	go func() {
+		ticker := time.NewTicker(expiryInterval)
+		defer ticker.Stop()
+		for {
+			s.removeExpired(ctx)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+}
+
+// removeExpired removes the disappearing messages that are due, and their files.
+func (s *Server) removeExpired(ctx context.Context) {
+	files, err := s.db.DeleteExpiredMessages(ctx, store.Now())
+	if err != nil {
+		slog.Warn("removing disappearing messages", "error", err)
+		return
+	}
+	s.removeFiles(ctx, files)
 }
 
 func (s *Server) cleanup(ctx context.Context) {

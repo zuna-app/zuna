@@ -55,6 +55,8 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var communityKey: String?
     public var accountProtocol: Int?
     public var requestProofs: Int?
+    /// Whether this server removes disappearing messages when they're due.
+    public var disappearing: Int?
 
     enum CodingKeys: String, CodingKey {
         case name, version, claimed, registration
@@ -67,6 +69,7 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case userCount = "user_count"
         case accountProtocol = "account_protocol"
         case requestProofs = "request_proofs"
+        case disappearing
         case communityKey = "community_key"
     }
 }
@@ -234,11 +237,14 @@ public struct SystemEvent: Codable, Sendable, Equatable, Hashable {
         case identityChanged = "identity_changed"
         case identityRotated = "identity_rotated"
         case groupCreated = "group_created"
+        case timerChanged = "timer_changed"
     }
 
     public var type: Kind
     public var actorId: String?
     public var targetIds: [String]?
+    /// For `timerChanged`: how long messages now last, in seconds, or 0 for as long as they're kept.
+    public var seconds: Int?
 }
 
 public struct ReplyPreview: Codable, Sendable, Equatable, Hashable {
@@ -272,6 +278,8 @@ public struct MessageView: Codable, Sendable, Equatable, Hashable, Identifiable 
     public var uploadProgress: Double?
     /// The time the sender's device signed is far from the server's.
     public var timeDiffers: Bool?
+    /// When it disappears from this device (ms), or nil if it doesn't.
+    public var expiresAt: Int?
 }
 
 public struct GroupMemberView: Codable, Sendable, Equatable, Hashable {
@@ -310,6 +318,8 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var ready: Bool
     /// You're no longer in this conversation. Its messages stay until you clear them, or for a while.
     public var removed: Bool
+    /// How long messages sent here now last, in seconds, or 0 if they don't disappear.
+    public var disappearAfter: Int
 
     public var id: String { key }
 }

@@ -1,8 +1,9 @@
 import type { ConversationView } from "@zuna/core";
-import { BadgeCheck, Bookmark, Copy, Forward, Lock, PanelRight, Pin, Search, ShieldAlert, Trash2, Upload, X } from "lucide-react";
+import { BadgeCheck, Bookmark, Copy, Forward, Lock, PanelRight, Pin, Search, ShieldAlert, Timer, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Avatar, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
+import { timerText } from "@/lib/disappearing";
 import { formatFull, formatLastSeen } from "@/lib/format";
 import { listIdFor, useActiveServer, useApp } from "@/state/store";
 import { Composer, type ComposerHandle } from "./Composer";
@@ -166,6 +167,11 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
                 {peer?.trust === "verified" && !isSaved && (
                   <Tooltip text="Security key verified">
                     <BadgeCheck size={14} className="conv-verified" />
+                  </Tooltip>
+                )}
+                {conversation.disappearAfter > 0 && (
+                  <Tooltip text={`Messages disappear after ${timerText(conversation.disappearAfter)}`}>
+                    <Timer size={14} className="chat-timer" aria-label={`Messages disappear after ${timerText(conversation.disappearAfter)}`} />
                   </Tooltip>
                 )}
               </span>

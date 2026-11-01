@@ -156,6 +156,9 @@ public struct SessionCalls: Sendable {
         try await run("updateGroupMeta", [groupId, changes, avatarArgument, history])
     }
 
+    /// Sets how long messages sent to a chat from now on last, in seconds, or 0 for as long as they're kept.
+    public func setDisappearing(_ groupId: String, seconds: Int) async throws { try await run("setDisappearing", [groupId, seconds]) }
+
     // MARK: Invites and verification
 
     public func invites() async throws -> [Invite] { try await call("invites") }

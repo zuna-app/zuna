@@ -156,6 +156,7 @@ private struct SystemRow: View {
         case .identityChanged: return "\(name(system.actorId))'s security key changed. Verify it before trusting new messages."
         case .identityRotated: return "\(name(system.actorId))'s security key changed since you verified it. You can compare keys again if you'd like."
         case .deviceAdded: return "\(name(system.actorId)) added a device"
+        case .timerChanged: return Format.timerChange(name(system.actorId), seconds: system.seconds ?? 0)
         }
     }
 }
@@ -399,6 +400,9 @@ private struct MessageItem: View {
             if message.pinnedAt != nil {
                 Image(systemName: "pin.fill").font(.system(size: 9)).rotationEffect(.degrees(35))
             }
+            if message.expiresAt != nil {
+                Image(systemName: "timer").font(.system(size: 9)).accessibilityLabel("Disappears")
+            }
             if message.editedAt != nil && !deleted { Text("edited") }
             Text(Format.time(message.createdAt))
             if own && !deleted { ticks }
@@ -439,6 +443,7 @@ private struct MessageItem: View {
         if message.editedAt != nil { width += ("edited" as NSString).size(withAttributes: [.font: font]).width + 3 }
         if message.timeDiffers == true { width += 12 }
         if message.pinnedAt != nil { width += 12 }
+        if message.expiresAt != nil { width += 12 }
         if own { width += 21 }
         return ceil(width) + 8
     }

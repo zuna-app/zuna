@@ -357,6 +357,8 @@ func TestACommitCantDoWhatTheAPIForbids(t *testing.T) {
 }
 
 // Z-21: both people in a DM are its admins, and neither may erase it for the other.
+// Its details only say how long its messages last, so either may change them, but
+// not make it share history.
 func TestADirectMessageIsntAnyonesToDelete(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
@@ -367,8 +369,13 @@ func TestADirectMessageIsntAnyonesToDelete(t *testing.T) {
 	if status, _ := h.do("DELETE", path, bob.token, nil, nil); status != http.StatusBadRequest {
 		t.Fatalf("deleting a DM gave %d", status)
 	}
-	if status, _ := h.do("PUT", path+"/meta", bob.token, map[string]any{"meta": []byte("x"), "epoch": 1}, nil); status != http.StatusBadRequest {
+	if status, _ := h.do("PUT", path+"/meta", bob.token, map[string]any{"meta": []byte("x"), "epoch": 1, "history_visible": true}, nil); status != http.StatusOK {
 		t.Fatalf("changing a DM's details gave %d", status)
+	}
+	var dm store.Group
+	h.mustDo("GET", path, owner.token, nil, &dm)
+	if string(dm.Meta) != "x" || dm.HistoryVisible {
+		t.Fatalf("the DM's details are %q, sharing history %v", dm.Meta, dm.HistoryVisible)
 	}
 	if status, _ := h.do("PUT", path+"/members/"+owner.userID+"/role", bob.token, map[string]any{"role": "member"}, nil); status != http.StatusBadRequest {
 		t.Fatalf("changing a role in a DM gave %d", status)

@@ -117,6 +117,7 @@ struct ConversationDetails: View {
             if conversation.kind != .group {
                 sharedMedia(server, conversation)
             }
+            disappearing(server, conversation, canChange: conversation.kind != .group || isAdmin)
 
             Section {
                 // Turning them off asks for how long.
@@ -400,6 +401,43 @@ struct ConversationDetails: View {
             }
         case let .remove(userId):
             run { try await session.removeMember(groupId, userId: userId) }
+        }
+    }
+
+    /// How long messages sent here last, as the desktop's side panel shows it: in a
+    /// direct message either person may change it, in a group its admins. Shown once
+    /// the chat has started, on a server that removes them when they're due.
+    @ViewBuilder
+    private func disappearing(_ server: AppModel.ServerState, _ conversation: ConversationView, canChange: Bool) -> some View {
+        let supported = (server.info?.disappearing ?? 0) >= 1
+        if let groupId = conversation.groupId, conversation.ready, supported || conversation.disappearAfter > 0 {
+            let current = conversation.disappearAfter
+            Section {
+                if canChange && supported {
+                    Picker(selection: Binding(get: { current }, set: { seconds in
+                        run { try await model.core.session(server.entry.id).setDisappearing(groupId, seconds: seconds) }
+                    })) {
+                        ForEach([0] + Format.disappearingTimes, id: \.self) { seconds in
+                            Text(Format.timer(seconds)).tag(seconds)
+                        }
+                    } label: {
+                        Label("Disappearing messages", systemImage: "timer")
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Theme.text2)
+                    .accessibilityIdentifier(A11y.Details.disappearing)
+                } else {
+                    LabeledContent {
+                        Text(Format.timer(current))
+                    } label: {
+                        Label("Disappearing messages", systemImage: "timer")
+                    }
+                    .accessibilityIdentifier(A11y.Details.disappearing)
+                }
+            } footer: {
+                Text(current > 0 ? "New messages disappear \(Format.timer(current)) after they're sent." : "New messages stay until they're deleted.")
+            }
+            .listRowBackground(Theme.bg2)
         }
     }
 
