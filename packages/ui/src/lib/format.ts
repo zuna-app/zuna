@@ -1,14 +1,21 @@
+import { platform } from "@/platform";
+
 // Times follow the system's clock, 12 or 24 hours, rather than the interface's language.
-const hour12 = window.zunaDesktop?.hour12;
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12 });
+// The host says which when the app starts, so the two formats that care are made on first use.
+let clockFormats: { time: Intl.DateTimeFormat; full: Intl.DateTimeFormat } | undefined;
+const clock = () =>
+  (clockFormats ??= {
+    time: new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hour12: platform?.hour12 }),
+    full: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", hour12: platform?.hour12 }),
+  });
+
 const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
 const fullDayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
 const fullDayYearFormat = new Intl.DateTimeFormat(undefined, { month: "long", day: "numeric", year: "numeric" });
-const fullFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short", hour12 });
 
-export const formatTime = (at: number) => timeFormat.format(at);
-export const formatFull = (at: number) => fullFormat.format(at);
+export const formatTime = (at: number) => clock().time.format(at);
+export const formatFull = (at: number) => clock().full.format(at);
 
 const startOfDay = (at: number) => {
   const date = new Date(at);
@@ -20,7 +27,7 @@ const startOfDay = (at: number) => {
 export function formatListTime(at: number): string {
   if (!at) return "";
   const days = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86_400_000);
-  if (days <= 0) return timeFormat.format(at);
+  if (days <= 0) return formatTime(at);
   if (days < 7) return weekdayFormat.format(at);
   return dayFormat.format(at);
 }
@@ -37,7 +44,7 @@ export const sameDay = (a: number, b: number) => startOfDay(a) === startOfDay(b)
 
 /** A moment still to come, with its date unless it's today. */
 export function formatUpcoming(at: number): string {
-  return sameDay(at, Date.now()) ? timeFormat.format(at) : `${dayFormat.format(at)}, ${timeFormat.format(at)}`;
+  return sameDay(at, Date.now()) ? formatTime(at) : `${dayFormat.format(at)}, ${formatTime(at)}`;
 }
 
 export function formatLastSeen(at: number | null, hidden: boolean): string {
@@ -48,7 +55,7 @@ export function formatLastSeen(at: number | null, hidden: boolean): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `last seen ${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86_400_000);
-  if (days === 1) return `last seen yesterday at ${timeFormat.format(at)}`;
+  if (days === 1) return `last seen yesterday at ${formatTime(at)}`;
   return `last seen ${dayFormat.format(at)}`;
 }
 

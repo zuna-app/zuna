@@ -1,5 +1,5 @@
 // Code highlighting for the iOS app: the desktop's Shiki setup (same engine,
-// theme, languages and aliases as apps/desktop/src/renderer/src/lib/highlight.ts),
+// theme, languages and aliases as packages/ui/src/lib/highlight.ts),
 // run in a JavaScriptCore context of its own so code blocks are colored exactly
 // as on the desktop. Every language is bundled, since JavaScriptCore can't load
 // modules on demand; the host loads this script only when a code block shows.

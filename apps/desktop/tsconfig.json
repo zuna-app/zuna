@@ -14,7 +14,7 @@
     "noEmit": true,
     "types": ["node", "vite/client"],
     "paths": {
-      "@/*": ["./src/renderer/src/*"]
+      "@/*": ["../../packages/ui/src/*"]
     }
   },
   "include": ["src", "*.ts"]

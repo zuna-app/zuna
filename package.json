@@ -20,7 +20,7 @@
     "test:crypto": "node scripts/test-crypto.mjs",
     "test:server": "node scripts/test-server.mjs",
     "test:core": "npm run test -w @zuna/core",
-    "typecheck": "npm run typecheck -w @zuna/core && npm run typecheck -w @zuna/desktop",
+    "typecheck": "npm run typecheck -w @zuna/core && npm run typecheck -w @zuna/ui && npm run typecheck -w @zuna/desktop",
     "dev:server": "node scripts/dev-server.mjs",
     "dev": "node scripts/dev-app.mjs",
     "dev:clean": "node scripts/dev-clean.mjs",

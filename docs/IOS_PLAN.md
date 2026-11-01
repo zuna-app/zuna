@@ -98,7 +98,7 @@ flowchart LR
 ### Storage
 
 - **SQLite amalgamation** at the same version as the desktop's `@sqlite.org/sqlite-wasm` (3.54), vendored as a C target with FTS5. This avoids depending on the system SQLite version for `contentless_delete`, which needs 3.43 or later.
-- **The `LocalDb` bridge** behaves like `apps/desktop/src/renderer/src/core/sqlite.ts`:
+- **The `LocalDb` bridge** behaves like `packages/ui/src/core/sqlite.ts`:
   - synchronous calls, nested transactions through a depth counter;
   - BLOBs returned as `Uint8Array`;
   - multi-statement `run` for migrations.
@@ -123,7 +123,7 @@ Decided on 2026-10-31: **the Zuna password is asked for once after every restart
 
 - **`ZunaModels`:** Codable mirrors of `packages/core/src/types.ts`. Drift is caught automatically by the tests.
 - **`CoreConnection`:** the Swift side of `connectCore`, giving async methods for the client and each session, plus a stream of events.
-- **`AppModel`** (`@Observable`) mirrors `apps/desktop/src/renderer/src/state/store.ts`: per-server state, message lists, debounced refreshes, typing expiry, upserts, jump targets, drafts, toasts.
+- **`AppModel`** (`@Observable`) mirrors `packages/ui/src/state/store.ts`: per-server state, message lists, debounced refreshes, typing expiry, upserts, jump targets, drafts, toasts.
 - **Navigation** (decided with the user on 2026-10-31):
   - The layout follows Telegram for iOS: the chat list, chat screen, bubbles, input bar, context menus and settings lists.
   - Servers are listed like Mail's mailboxes (changed from a Discord-like drawer on 2026-10-31, at the user's request for something more native to iOS). With more than one server, the Chats tab starts at the list of servers, with the newest message and unread count on each, and a server's chats are pushed over it; the server opened last opens again at launch. With one server, the Chats tab opens on its chats, and joining another is in the menu under the server's name.

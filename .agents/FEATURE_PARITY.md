@@ -3,7 +3,7 @@
 For agents, not people. `CLAUDE.md` says how to keep this current. Keep it terse.
 
 - **Status:** `yes`, `partial`, `no`. A row that's different by design says so in its notes.
-- **Paths:** desktop paths start at `apps/desktop/src/renderer/src/`, and iOS paths at `apps/ios/Zuna/`, unless they're written out in full.
+- **Paths:** desktop paths start at `packages/ui/src/`, and iOS paths at `apps/ios/Zuna/`, unless they're written out in full.
 - **Android** doesn't exist yet (`docs/ROADMAP.md`). Add a column when it does.
 - **Last full check:** 2026-11-01, by reading and searching the code on Windows. Nothing was run for it, and Swift can't be built on that machine, so iOS `yes` means the code is there. `docs/IOS_PLAN.md`'s phase reports record what iOS was tested with on a Mac.
 

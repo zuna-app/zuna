@@ -60,7 +60,9 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, and the threat model and known limits in `SECURITY.md`. Read both before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
 
-**One client core, three hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop (`apps/desktop/src/renderer/src/core`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
+**One client core, three hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop (`packages/ui/src/core/serve.ts`, started by `apps/desktop/src/renderer/src/worker.ts`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
+
+**The desktop's interface is `packages/ui`.** `@zuna/ui` holds the React screens and their state. It asks for anything outside the page, such as notifications or the device key, through the `Platform` its host passes to `startApp` (`packages/ui/src/platform.ts`). The desktop's is `apps/desktop/src/renderer/src/platform.ts`.
 
 **The UI talks to the core over RPC.** `rpc.ts` makes every public method of `ZunaClient` and `ServerSession` callable from the UI, and state comes back as `CoreEvent`s (`types.ts`). `ZunaClient` is one per device and holds one `ServerSession` per server joined.
 
@@ -110,7 +112,7 @@ Rules the core depends on:
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts` and `ZunaHost/WebBridge.swift` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |
-| Desktop UI state and screens | `renderer/src/state/store.ts` (zustand), `renderer/src/features/{chat,shell,overlays,onboarding}` |
+| Desktop UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
 | Adding bots or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md` |

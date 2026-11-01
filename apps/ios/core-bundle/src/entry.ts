@@ -1,7 +1,7 @@
 // The iOS app's copy of the client core. The host loads this bundle into
 // JavaScriptCore, calls __zunaBoot once, then passes RPC messages from each of
 // its channels to __zunaReceive. It plays the part of the desktop's Worker
-// (apps/desktop/src/renderer/src/core/worker.ts).
+// (packages/ui/src/core/serve.ts).
 
 import "./polyfills";
 import { ZunaClient, previewPush, type CoreEvent } from "@zuna/core";

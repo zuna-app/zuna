@@ -21,7 +21,7 @@ export default defineConfig({
     root: "src/renderer",
     plugins: [react() as never],
     resolve: {
-      alias: { "@": resolve(__dirname, "src/renderer/src") },
+      alias: { "@": resolve(__dirname, "../../packages/ui/src") },
     },
     optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
     worker: { format: "es" },

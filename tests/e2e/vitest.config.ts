@@ -1,14 +1,14 @@
 import { join } from "node:path";
 import { defineConfig } from "vitest/config";
 
-const desktopSrc = join(__dirname, "..", "..", "apps", "desktop", "src", "renderer", "src");
+const uiSrc = join(__dirname, "..", "..", "packages", "ui", "src");
 
 export default defineConfig({
   resolve: {
     alias: [
       // Golden files render the desktop's markup with stand-ins for these (golden/stubs.tsx).
       { find: /^@\/components\/(Emote|CodeBlock|Spoiler)$/, replacement: join(__dirname, "golden", "stubs.tsx") },
-      { find: /^@\//, replacement: `${desktopSrc}/` },
+      { find: /^@\//, replacement: `${uiSrc}/` },
     ],
   },
   esbuild: { jsx: "automatic" },

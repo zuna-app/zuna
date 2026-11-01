@@ -6,7 +6,7 @@
       "@/components/Emote": ["./golden/stubs.tsx"],
       "@/components/CodeBlock": ["./golden/stubs.tsx"],
       "@/components/Spoiler": ["./golden/stubs.tsx"],
-      "@/*": ["../../apps/desktop/src/renderer/src/*"]
+      "@/*": ["../../packages/ui/src/*"]
     }
   },
   "include": ["src", "test", "golden", "*.ts"]

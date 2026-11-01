@@ -13,7 +13,7 @@ import type {
   UserView,
 } from "@zuna/core";
 import { create } from "zustand";
-import { bootCore, desktop } from "@/core/bridge";
+import { platform } from "@/platform";
 import { playNotificationSound } from "@/lib/sound";
 import { loadSettings, type AppSettings } from "./settings";
 
@@ -186,7 +186,7 @@ export const useApp = create<AppState>((set, get) => {
         if (!conversation.muted) total += conversation.unread;
       }
     }
-    void desktop?.setBadge(total);
+    platform.setUnreadCount(total);
   };
 
   const upsertMessage = (message: MessageView) => {
@@ -335,16 +335,12 @@ export const useApp = create<AppState>((set, get) => {
     const isOpenAndVisible = state.windowFocused && state.activeServerId === event.serverId && server?.activeKey === event.conversationKey;
     if (isOpenAndVisible) return;
     const { settings } = state;
-    if (!settings.notifications) return;
+    if (!platform.notify || !settings.notifications) return;
     if (settings.notificationSound) playNotificationSound();
     const body = settings.notificationPreview === "full" ? event.body : "New message";
     const title = settings.notificationPreview === "none" ? "Zuna" : event.title;
     const route = { serverId: event.serverId, key: event.conversationKey };
-    if (desktop) {
-      void desktop.notify({ title, body, route });
-    } else if ("Notification" in window && Notification.permission === "granted") {
-      new Notification(title, { body });
-    }
+    platform.notify({ title, body, route });
   };
 
   return {
@@ -369,7 +365,7 @@ export const useApp = create<AppState>((set, get) => {
 
     async boot() {
       try {
-        const { core, keyProtected } = await bootCore(handleEvent);
+        const { core, keyProtected } = await platform.bootCore(handleEvent);
         set({ core, keyProtected });
         const entries = await core.client.listServers();
         for (const entry of entries) await loadServerState(entry);

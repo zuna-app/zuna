@@ -58,34 +58,15 @@ flowchart LR
 
 ### Shared interface: `@zuna/ui`
 
-`apps/desktop/src/renderer/src` moves to `packages/ui/src`. Everything it asks of Electron goes through one `Platform` object that each host passes in. Today those calls are spread across `App.tsx`, `store.ts`, `activity.ts`, `voice.ts`, `format.ts`, `Settings.tsx` and `Onboarding.tsx`, as `desktop?.…`.
+`apps/desktop/src/renderer/src` moved to `packages/ui/src` (done in W1). Everything it asks of Electron goes through one `Platform` object that each host passes to `startApp` (`packages/ui/src/platform.ts`):
 
-```ts
-interface Platform {
-  kind: "desktop" | "web";
-  hour12: boolean;
-  bootCore(onEvent: (event: CoreEvent) => void): Promise<BootResult>;
-  openExternal(url: string): void;
-  /** Desktop: dock, taskbar or tray. Web: the tab's title. */
-  setUnreadCount(count: number): void;
-  /** Missing on the web, and the Notifications settings go with it. */
-  notify?(payload: { title: string; body: string; route: unknown }): void;
-  microphone?(): Promise<boolean>;
-  idleState?(seconds: number): Promise<"active" | "idle" | "locked" | "unknown">;
-  onPresence?(listener: (state: "away" | "back") => void): () => void;
-  onFocus?(listener: (focused: boolean) => void): () => void;
-  takeDeepLink(): Promise<string | null>;
-  onDeepLink?(listener: (link: string) => void): () => void;
-  onOpenConversation?(listener: (route: unknown) => void): () => void;
-  setCloseToTray?(enabled: boolean): void;
-  /** What the Security screen warns about, if anything. */
-  keyWarning: string | null;
-}
-```
+- `bootCore` starts the host's worker. The shared worker code is `packages/ui/src/core/serve.ts`, so each host's worker only says how it fetches pages for previews.
+- `setUnreadCount` is the dock, taskbar or tray on the desktop, and the tab's title on the web.
+- `notify` is missing on the web, and the notification settings go with it.
+- `microphone`, `idleState`, `onPresence`, `onFocus`, the deep-link calls and `setCloseToTray` are optional. Whatever a host leaves out, the interface does without.
+- `keyWarning` is what Security says when the device key isn't protected.
 
-The desktop keeps `index.html`, `main.tsx`, `core/bridge.ts` and `core/worker.ts`, which make its `Platform`. `apps/web` has its own versions. The shared parts of the worker (SQLite on OPFS, shrinking preview pictures) move to `@zuna/ui` too, so each host's worker only says how it fetches pages.
-
-The move is one commit of renames, pulled and rebased right before it's pushed, so nothing in between is lost.
+The desktop keeps `index.html`, and its `main.tsx`, `platform.ts` and `worker.ts` in `apps/desktop/src/renderer/src` make its `Platform`. `apps/web` has its own versions.
 
 ### Web host: `zuna-web`
 
@@ -129,7 +110,7 @@ Settings, as flags or environment variables in the style of `zuna-server`:
 ### Storage
 
 - **The database** is the desktop's: SQLite WebAssembly in the OPFS pool (`core/sqlite.ts`). It needs `FileSystemSyncAccessHandle` in a worker, which the four browsers have.
-- **The device key** is 32 random bytes in IndexedDB. The dev-only key in `localStorage` from `bridge.ts` stays a development thing.
+- **The device key** is 32 random bytes in IndexedDB. The dev-only key in `localStorage` from the desktop's `platform.ts` stays a development thing.
 - **Asking to keep the data:** after the first sign-in the app calls `navigator.storage.persist()`. If a browser later clears the site's data anyway, the person signs in again and their history comes back from the vault, as on any new device. The lost browser stays in Devices until it's removed there.
 - **Safari** clears a site's storage after 7 days without a visit. That means signing in again, not losing messages. A one-line note on the sign-in screen says so in Safari.
 
@@ -172,7 +153,7 @@ The desktop tells the server when the person is at the computer, so their phone 
 | Where | What |
 |---|---|
 | `packages/ui` (new) | The renderer, moved from `apps/desktop/src/renderer/src`, and the `Platform` interface |
-| `apps/desktop` | `bridge.ts` and `worker.ts` make the desktop's `Platform`. No change people can see |
+| `apps/desktop` | `platform.ts` and `worker.ts` make the desktop's `Platform`. No change people can see |
 | `apps/web` (new) | `index.html`, `main.tsx`, the web `Platform`, its worker, the device key, the tab lock, the title and tests |
 | `server/cmd/zuna-web` (new) | The web host. The built app is copied into a gitignored folder there before building |
 | `server/internal/webhost` (new) | Its handlers and the preview fetcher, with Go tests |

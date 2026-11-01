@@ -4,7 +4,7 @@ import Observation
 import ZunaModels
 
 /// All UI state, kept in step with the core through its events. The iOS
-/// counterpart of the desktop's apps/desktop/src/renderer/src/state/store.ts.
+/// counterpart of the desktop's packages/ui/src/state/store.ts.
 @MainActor
 @Observable
 final class AppModel {

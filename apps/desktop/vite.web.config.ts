@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   root: "src/renderer",
   plugins: [react()],
-  resolve: { alias: { "@": resolve(__dirname, "src/renderer/src") } },
+  resolve: { alias: { "@": resolve(__dirname, "../../packages/ui/src") } },
   optimizeDeps: { exclude: ["@sqlite.org/sqlite-wasm"] },
   worker: { format: "es" },
   server: { port: 5173, strictPort: true },

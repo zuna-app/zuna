@@ -1,6 +1,6 @@
 import Foundation
 
-/// Message text parsed the way the desktop renders it (apps/desktop/src/renderer/src/lib/markup.tsx):
+/// Message text parsed the way the desktop renders it (packages/ui/src/lib/markup.tsx):
 /// fenced code, `>` quotes, then inline code, spoilers, bold, strikethrough,
 /// italics, links, @mentions and 7TV emotes. The UI turns the result into
 /// styled text; a golden corpus rendered by the desktop keeps the two in step.

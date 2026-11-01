@@ -1,7 +1,7 @@
 // Voice messages: recording from the microphone with a waveform, as in
 // Telegram, and playing one at a time.
 
-import { desktop } from "@/core/bridge";
+import { platform } from "@/platform";
 
 export interface VoiceRecording {
   blob: Blob;
@@ -65,7 +65,7 @@ export class VoiceRecorder {
 
   /** Starts recording, or throws with a message to show when the microphone isn't available. */
   static async start(onLevel: (level: number) => void = () => undefined): Promise<VoiceRecorder> {
-    if (desktop && !(await desktop.microphone())) {
+    if (platform.microphone && !(await platform.microphone())) {
       throw new Error("Zuna can't use the microphone. Allow it in your system's privacy settings.");
     }
     let stream: MediaStream;

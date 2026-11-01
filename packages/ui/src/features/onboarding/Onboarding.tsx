@@ -3,7 +3,7 @@
 import type { InvitePreview } from "@zuna/core";
 import { ArrowLeft, ArrowRight, Check, Copy, Download, KeyRound, Lock, Server, ShieldCheck, Users } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { desktop } from "@/core/bridge";
+import { platform } from "@/platform";
 import { Avatar, Field, Logo, PasswordField, Spinner } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
@@ -189,9 +189,7 @@ function StartStep({
             type="button"
             className="link-button"
             onClick={() => {
-              const docs = `${PROJECT_URL}/blob/main/docs/SELF_HOSTING.md`;
-              if (desktop) void desktop.openExternal(docs);
-              else window.open(docs, "_blank");
+              platform.openExternal(`${PROJECT_URL}/blob/main/docs/SELF_HOSTING.md`);
             }}
           >
             <Server size={14} /> Host your own server

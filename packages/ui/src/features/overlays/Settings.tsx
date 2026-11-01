@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { desktop } from "@/core/bridge";
+import { platform } from "@/platform";
 import { Avatar, Field, Logo, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
@@ -204,26 +204,33 @@ function PrivacySection() {
 function NotificationsSection() {
   const settings = useApp((state) => state.settings);
   const update = useApp((state) => state.updateSettings);
+  // The web app has no notifications of its own: its tab's title counts what's unread.
+  const notifies = !!platform.notify;
   return (
     <>
       <h1>Notifications</h1>
-      <p className="settings-lead">Previews are decrypted on this device. No notification service ever sees them.</p>
-      <SettingRow title="Desktop notifications">
-        <Switch
-          on={settings.notifications}
-          onChange={(value) => {
-            update({ notifications: value });
-            if (value && !desktop && "Notification" in window) void Notification.requestPermission();
-          }}
-          label="Desktop notifications"
-        />
-      </SettingRow>
-      <SettingRow title="Sound">
-        <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label="Notification sound" />
-      </SettingRow>
+      <p className="settings-lead">
+        {notifies
+          ? "Previews are decrypted on this device. No notification service ever sees them."
+          : "New messages are counted in this tab's title. While you're away from it, your phone gets notifications."}
+      </p>
+      {notifies && (
+        <>
+          <SettingRow title="Desktop notifications">
+            <Switch on={settings.notifications} onChange={(value) => update({ notifications: value })} label="Desktop notifications" />
+          </SettingRow>
+          <SettingRow title="Sound">
+            <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label="Notification sound" />
+          </SettingRow>
+        </>
+      )}
       <SettingRow
         title="Away from the computer after"
-        hint="Until then, notifications show here and your phone keeps quiet. Locking the screen counts as away right away."
+        hint={
+          notifies
+            ? "Until then, notifications show here and your phone keeps quiet. Locking the screen counts as away right away."
+            : "Until then, your phone keeps quiet. Leaving this tab counts as away right away."
+        }
       >
         <select
           className="select"
@@ -238,14 +245,16 @@ function NotificationsSection() {
           ))}
         </select>
       </SettingRow>
-      <SettingRow title="What notifications show" hint="Choose less if others can see your screen.">
-        <select className="select" style={{ width: 180 }} value={settings.notificationPreview} onChange={(event) => update({ notificationPreview: event.target.value as AppSettings["notificationPreview"] })}>
-          <option value="full">Sender and message</option>
-          <option value="sender">Sender only</option>
-          <option value="none">Nothing</option>
-        </select>
-      </SettingRow>
-      {desktop && (
+      {notifies && (
+        <SettingRow title="What notifications show" hint="Choose less if others can see your screen.">
+          <select className="select" style={{ width: 180 }} value={settings.notificationPreview} onChange={(event) => update({ notificationPreview: event.target.value as AppSettings["notificationPreview"] })}>
+            <option value="full">Sender and message</option>
+            <option value="sender">Sender only</option>
+            <option value="none">Nothing</option>
+          </select>
+        </SettingRow>
+      )}
+      {platform.setCloseToTray && (
         <SettingRow title="Keep running when closed" hint="Zuna stays in the system tray so messages still arrive.">
           <Switch on={settings.closeToTray} onChange={(value) => update({ closeToTray: value })} label="Keep running when closed" />
         </SettingRow>
@@ -339,10 +348,10 @@ function SecuritySection() {
   return (
     <>
       <h1>Security</h1>
-      {!keyProtected && desktop && (
+      {!keyProtected && platform.keyWarning && (
         <div className="notice is-warn">
           <Lock size={15} />
-          <span>Your system has no keychain available, so Zuna can't lock its local data to your login. Installing a secret service such as GNOME Keyring fixes this.</span>
+          <span>{platform.keyWarning}</span>
         </div>
       )}
       <SettingRow title="Your security key" hint="Compare it with friends to prove nobody is in between.">
@@ -408,10 +417,7 @@ function SecuritySection() {
 
 function AboutSection() {
   const server = useActiveServer();
-  const open = (url: string) => {
-    if (desktop) void desktop.openExternal(url);
-    else window.open(url, "_blank");
-  };
+  const open = (url: string) => platform.openExternal(url);
   return (
     <>
       <div className="about-hero">

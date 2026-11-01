@@ -1,7 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
-import { desktop } from "@/core/bridge";
 import { Logo, Toasts } from "@/components/ui";
 import { Onboarding } from "@/features/onboarding/Onboarding";
 import { Shell } from "@/features/shell/Shell";
@@ -9,19 +8,20 @@ import { Overlays } from "@/features/overlays/Overlays";
 import { applySettings, saveSettings } from "@/state/settings";
 import { useApp } from "@/state/store";
 import { watchActivity } from "@/state/activity";
+import { platform } from "@/platform";
 
 function TitleBar() {
-  const [platform, setPlatform] = useState<string | null>(null);
+  const [os, setOs] = useState<string | null>(null);
   const activeServer = useApp((state) => (state.activeServerId ? state.servers[state.activeServerId] : null));
   useEffect(() => {
-    void desktop?.platform().then(setPlatform);
+    void platform.os?.().then(setOs);
   }, []);
-  if (!desktop) return null;
+  if (!platform.titleBar) return null;
   const connection = activeServer?.connection;
   const status =
     connection === "connecting" ? "Connecting" : connection === "offline" ? "Waiting for network" : connection === "syncing" ? "Updating" : null;
   return (
-    <div className={`titlebar${platform === "darwin" ? " is-mac" : ""}`}>
+    <div className={`titlebar${os === "darwin" ? " is-mac" : ""}`}>
       <span className="titlebar-brand">
         <Logo size={14} />
         Zuna
@@ -67,26 +67,26 @@ export function App() {
   const setOverlay = useApp((state) => state.setOverlay);
 
   useEffect(() => {
-    document.body.classList.toggle("has-titlebar", !!desktop);
+    document.body.classList.toggle("has-titlebar", platform.titleBar);
     void boot();
   }, [boot]);
 
   useEffect(() => {
     applySettings(settings);
     saveSettings(settings);
-    void desktop?.setCloseToTray(settings.closeToTray);
+    platform.setCloseToTray?.(settings.closeToTray);
   }, [settings]);
 
   // OS integration: invite links and clicks on notifications.
   useEffect(() => {
     if (phase !== "ready") return;
     const openLink = (link: string) => setOverlay({ type: "add-server", link });
-    void desktop?.takeDeepLink().then((link) => {
+    void platform.takeDeepLink?.().then((link) => {
       if (link) openLink(link);
     });
     const removers = [
-      desktop?.onDeepLink(openLink),
-      desktop?.onOpenConversation((route) => {
+      platform.onDeepLink?.(openLink),
+      platform.onOpenConversation?.((route) => {
         const { serverId, key } = route as { serverId: string; key: string };
         useApp.getState().selectServer(serverId);
         useApp.getState().selectConversation(key);
@@ -102,13 +102,13 @@ export function App() {
   useEffect(() => {
     const setFocused = (focused: boolean) => useApp.setState({ windowFocused: focused });
     setFocused(document.hasFocus());
-    const removeDesktop = desktop?.onFocus(setFocused);
+    const removeHost = platform.onFocus?.(setFocused);
     const onFocus = () => setFocused(true);
     const onBlur = () => setFocused(false);
     window.addEventListener("focus", onFocus);
     window.addEventListener("blur", onBlur);
     return () => {
-      removeDesktop?.();
+      removeHost?.();
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
     };

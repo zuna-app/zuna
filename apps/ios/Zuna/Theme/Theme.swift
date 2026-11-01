@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// The desktop's design tokens (apps/desktop/src/renderer/src/styles/tokens.css),
+/// The desktop's design tokens (packages/ui/src/styles/tokens.css),
 /// so both apps look like the same product.
 enum Theme {
     // Surfaces: true neutrals, each step lighter than the last.
