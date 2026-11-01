@@ -272,11 +272,27 @@ describe("MLS between a desktop and a phone", () => {
     await expectSameSecret();
   });
 
+  it("gives its leaf a new certificate at its next commit, as after its account's keys are replaced", async () => {
+    const credentials = (members: unknown) => (members as { credential: Uint8Array }[]).map((member) => b64(member.credential));
+    expect(await phone("setCredential", bytes(utf8("bob, generation 1")))).toBeNull();
+    // A new key package has it right away.
+    expect(desktop.keyPackageCredential(await phone("generateKeyPackage", "false"))).toEqual(utf8("bob, generation 1"));
+    // The leaf has it once the phone commits, for the desktop too.
+    const pending = await phone("commitChanges", bytes(groupId), "[]", "new Uint32Array(0)");
+    expect(await phone("mergePending", bytes(groupId))).toBe(5);
+    await persistPhone();
+    desktop.processCommit(groupId, pending.commit);
+    expect(credentials(desktop.members(groupId))).toContain(b64(utf8("bob, generation 1")));
+    expect(credentials(desktop.members(groupId))).not.toContain(b64(utf8("bob")));
+    expect(await phone("members", bytes(groupId))).toEqual(plain(desktop.members(groupId)));
+    await expectSameSecret();
+  });
+
   it("learns that the desktop removed it", async () => {
     const pending = desktop.commitChanges(groupId, [], new Uint32Array([1])) as { commit: Uint8Array };
     desktop.mergePending(groupId);
     const processed = await phone("processCommit", bytes(groupId), bytes(pending.commit));
-    expect(processed).toMatchObject({ epoch: 5, selfRemoved: true, removedCredentials: [utf8("bob")] });
+    expect(processed).toMatchObject({ epoch: 6, selfRemoved: true, removedCredentials: [utf8("bob, generation 1")] });
     await phone("deleteGroup", bytes(groupId));
     expect(await phone("hasGroup", bytes(groupId))).toBe(false);
     // Calls on a group the phone doesn't have throw, as in the WebAssembly build.

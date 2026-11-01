@@ -394,6 +394,38 @@ describe("an iOS client with a desktop client", () => {
     });
   });
 
+  it("replaces its account's keys when it removes a device, and the desktop follows with no warning", async () => {
+    const generation = async () => ((await (alice.session as any).api.user(bobId)) as { key_generation?: number }).key_generation ?? 0;
+    const trust = () => alice.session.getUsers().find((user) => user.id === bobId)?.trust;
+    // The line goes in their chat, so there has to be one.
+    await phone.session.sendMessage(`user:${aliceId}`, { text: "before new keys" });
+    await waitFor(() => alice.texts(`user:${bobId}`).includes("before new keys"), "alice to read it");
+    const laptop = await new TestApp("bob-laptop").open();
+    try {
+      await laptop.login(server.url, "bob");
+      const laptopDevice = laptop.session.getSelf().deviceId;
+      await waitFor(async () => (await phone.session.getDevices()).some((device) => device.id === laptopDevice), "the phone to see the laptop");
+      const before = await generation();
+      const check = alice.session.safetyCheck(bobId)!;
+      await alice.session.markVerified(bobId, check.covers);
+      expect(trust()).toBe("verified");
+
+      await phone.session.revokeDevice(laptopDevice);
+      await waitFor(async () => (await generation()) > before, "the phone to replace its keys", 60_000);
+      // Its next message commits its new certificate first, which is how the desktop learns of it.
+      await phone.session.sendMessage(`user:${aliceId}`, { text: "with new keys" });
+      await waitFor(() => alice.texts(`user:${bobId}`).includes("with new keys"), "alice to read it");
+      // The phone is new to her, so her verification lapses, quietly: a line, not a warning.
+      await waitFor(() => trust() === "unverified", "the verification to lapse");
+      const dm = alice.session.getConversations().find((item) => item.key === `user:${bobId}`)!.groupId!;
+      await waitFor(async () => (await alice.session.loadMessages(dm)).messages.some((item) => item.system?.type === "identity_rotated"), "a line saying so");
+      alice.session.sendMessage(`user:${bobId}`, { text: "still reading you" });
+      await waitFor(async () => (await phone.texts(`user:${aliceId}`)).includes("still reading you"), "bob to read the answer");
+    } finally {
+      laptop.client.stop();
+    }
+  });
+
   it.runIf(phoneTarget === "simulator")("asks for the password once after the phone restarts", async () => {
     // Restarting only the app keeps it unlocked.
     await phone.restart();
