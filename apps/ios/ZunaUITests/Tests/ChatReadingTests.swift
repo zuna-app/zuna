@@ -43,7 +43,13 @@ final class ChatReadingTests: XCTestCase {
         try zuna.waitForChats()
         openChat(aliceKey)
 
-        XCTAssertTrue(message(reply).waitForExistence(timeout: 20))
+        // The chat opens at the first unread message, which other tests may have left above these.
+        let toBottom = zuna.element(A11y.Chat.toBottom)
+        try waitFor("the newest message", timeout: 20) {
+            if self.message(reply).exists { return true }
+            if toBottom.exists { toBottom.tap() }
+            return false
+        }
         XCTAssertTrue(text(styled).label.hasPrefix("Bold, italic, gone, code and https://example.com"), text(styled).label)
         XCTAssertTrue(text(emotes).label.contains("hi @bob"), text(emotes).label)
         XCTAssertTrue(message(jumbo).exists)
@@ -171,10 +177,38 @@ final class ChatReadingTests: XCTestCase {
         try waitFor("all of carol's messages", timeout: 60) {
             (try carol.conversation("user:\(self.bobId)")?["lastMessage"] as? [String: Any])?["text"] as? String == "History \(tag) 130"
         }
+
+        // Bob's laptop reads all but the last 20, and the phone opens at the first of
+        // those, under a line, as Telegram does.
+        let laptop = try Peer("bobLaptop")
+        var groupId = ""
+        try waitFor("the laptop to have carol's messages", timeout: 60) {
+            let chat = try laptop.conversation(carolKey)
+            groupId = chat?["groupId"] as? String ?? ""
+            return (chat?["lastMessage"] as? [String: Any])?["text"] as? String == "History \(tag) 130"
+        }
+        let page = try laptop.call("loadMessages", [groupId]) as? [String: Any]
+        let loaded = page?["messages"] as? [[String: Any]] ?? []
+        let readUpTo = loaded.first { $0["text"] as? String == "History \(tag) 110" }?["seq"] as? Int ?? 0
+        let firstUnread = loaded.first { $0["text"] as? String == "History \(tag) 111" }?["id"] as? String ?? ""
+        try laptop.call("markRead", [groupId, readUpTo])
+        let row = zuna.element(A11y.ChatList.row(carolKey))
+        try waitFor("the phone to have the laptop's place", timeout: 30) { row.label.contains("20 unread") }
         openChat(carolKey)
+        XCTAssertTrue(zuna.element(A11y.Chat.unreadLine).waitForExistence(timeout: 30))
+        XCTAssertTrue(message(firstUnread).isHittable)
+        zuna.screenshot("64-unread")
+
+        // The way down reads the rest.
+        let toBottom = zuna.element(A11y.Chat.toBottom)
+        XCTAssertTrue(toBottom.waitForExistence(timeout: 5))
+        toBottom.tap()
         let newest = zuna.app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", A11y.Chat.text(""), "History \(tag) 130")).firstMatch
-        XCTAssertTrue(newest.waitForExistence(timeout: 30))
+        try waitFor("the newest message") { newest.isHittable }
+        try waitFor("the laptop to see it all read", timeout: 20) {
+            try laptop.conversation(carolKey)?["unread"] as? Int == 0
+        }
 
         // Scrolling up loads the older pages, back to the first message.
         let list = zuna.element(A11y.Chat.list)
@@ -182,7 +216,6 @@ final class ChatReadingTests: XCTestCase {
             list.swipeDown(velocity: .fast)
             return self.message(first).exists
         }
-        let toBottom = zuna.element(A11y.Chat.toBottom)
         XCTAssertTrue(toBottom.waitForExistence(timeout: 5))
         zuna.screenshot("65-history")
 
@@ -193,6 +226,44 @@ final class ChatReadingTests: XCTestCase {
         XCTAssertTrue(toBottom.waitForExistence(timeout: 5))
         toBottom.tap()
         try waitFor("the newest message again") { newest.isHittable }
+    }
+
+    func testGoesToUnreadMentionsOneByOne() throws {
+        let alice = try Peer("alice")
+        let tag = UUID().uuidString.prefix(4)
+        let conversations = try alice.call("getConversations") as? [[String: Any]] ?? []
+        let weekend = try XCTUnwrap(conversations.first { $0["title"] as? String == "Weekend" }?["groupId"] as? String)
+        var mentions: [String] = []
+        for index in 1...60 {
+            if index % 20 == 0 {
+                mentions.append(try alice.send(to: "group:\(weekend)", ["text": "Mention \(tag) \(index) @bob", "mentions": [bobId]]))
+            } else {
+                try alice.send(to: "group:\(weekend)", ["text": "Plain \(tag) \(index)"])
+            }
+        }
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let row = zuna.element(A11y.ChatList.row("group:\(weekend)"))
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        try waitFor("all of alice's messages", timeout: 60) { row.label.contains("Mention \(tag) 60") }
+        openChat("group:\(weekend)")
+
+        // It opens at the first unread message, and "@" counts the mentions not on screen yet.
+        XCTAssertTrue(zuna.element(A11y.Chat.unreadLine).waitForExistence(timeout: 30))
+        let toMention = zuna.element(A11y.Chat.toMention)
+        XCTAssertTrue(toMention.waitForExistence(timeout: 10))
+        XCTAssertTrue(toMention.label.hasSuffix("3 left"), toMention.label)
+        zuna.screenshot("68-mentions")
+
+        // It goes to the oldest, and the rest are counted.
+        toMention.tap()
+        try waitFor("the oldest mention") { self.message(mentions[0]).isHittable }
+        try waitFor("two left") { toMention.label.hasSuffix("2 left") }
+
+        // At the newest message everything is read, and it goes.
+        zuna.element(A11y.Chat.toBottom).tap()
+        try waitFor("the button to go") { !toMention.exists }
     }
 
     func testOpensASearchHitAtTheMessage() throws {

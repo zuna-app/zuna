@@ -11,6 +11,8 @@ struct ChatScreen: View {
     @Environment(ImageStore.self) private var images
     @Environment(\.scenePhase) private var scenePhase
     @State private var atBottom = true
+    /// The newest message that's been on screen enough to count as read, from the list.
+    @State private var seen = 0
     @State private var highlighted: String?
     @State private var bridge = MessageListBridge()
     @State private var emoteCard: EmoteCardInfo?
@@ -90,7 +92,7 @@ struct ChatScreen: View {
                 }
                 VStack(spacing: 0) {
                     if let groupId = conversation.groupId, conversation.kind == .group {
-                        MentionButton(serverId: serverId, groupId: groupId, conversation: conversation, atBottom: atBottom)
+                        MentionButton(serverId: serverId, groupId: groupId, conversation: conversation, hidden: atBottom && list?.detached != true)
                             .id(listId)
                     }
                     if let list, !atBottom || list.detached {
@@ -213,11 +215,11 @@ struct ChatScreen: View {
                 .presentationDetents([.medium, .large])
             }
         }
-        .onChange(of: readKey(conversation, list)) {
-            markRead(serverId, conversation, list)
+        .onChange(of: ReadKey(seen: seen, ownRead: conversation.ownRead)) {
+            markRead(serverId, conversation)
         }
         .onChange(of: scenePhase) {
-            markRead(serverId, conversation, list)
+            markRead(serverId, conversation)
         }
     }
 
@@ -288,7 +290,8 @@ struct ChatScreen: View {
                     try? await Task.sleep(for: .seconds(1.2))
                     if highlighted == id { highlighted = nil }
                 }
-            }
+            },
+            onSeen: { seen = $0 }
         )
     }
 
@@ -397,60 +400,38 @@ struct ChatScreen: View {
     // MARK: Read receipts
 
     private struct ReadKey: Equatable {
-        let atBottom: Bool
-        let newest: Int
+        let seen: Int
         let ownRead: Int
-        let detached: Bool
     }
 
-    private func readKey(_ conversation: ConversationView, _ list: MessageList?) -> ReadKey {
-        ReadKey(atBottom: atBottom, newest: newestSeq(list), ownRead: conversation.ownRead, detached: list?.detached ?? false)
-    }
-
-    private func newestSeq(_ list: MessageList?) -> Int {
-        list?.items.last(where: { $0.seq != nil && !$0.id.hasPrefix("sys-") })?.seq ?? 0
-    }
-
-    /// Marks as read while the newest messages are on screen in the open app, as on the desktop.
-    private func markRead(_ serverId: String, _ conversation: ConversationView, _ list: MessageList?) {
-        guard atBottom, scenePhase == .active, let groupId = conversation.groupId, let list, !list.detached else { return }
-        let newest = newestSeq(list)
-        if newest > conversation.ownRead { model.markRead(serverId, groupId: groupId, seq: newest) }
+    /// Reads as far as has been on screen in the open app, as on the desktop. The list
+    /// says how far, which at the newest message is everything.
+    private func markRead(_ serverId: String, _ conversation: ConversationView) {
+        guard scenePhase == .active, let groupId = conversation.groupId, seen > conversation.ownRead else { return }
+        model.markRead(serverId, groupId: groupId, seq: seen)
     }
 }
 
-/// The title and, under it, who's typing, members and online, or last seen, as on the desktop.
-/// As Telegram's "@": goes to the oldest message here that mentions you or replies
-/// to you, then the next. A chat opens at its newest message, which reads it, so it
-/// keeps to where the chat was read when it opened, and adds those that arrive while
-/// you're scrolled up, as the desktop does.
+/// As Telegram's "@": goes to the oldest unread message here that mentions you or
+/// replies to you, then the next. Those read by scrolling past them drop out, and it
+/// goes at the newest message, where everything is read, as on the desktop.
 private struct MentionButton: View {
     let serverId: String
     let groupId: String
     let conversation: ConversationView
-    let atBottom: Bool
+    let hidden: Bool
     @Environment(AppModel.self) private var model
-    @State private var readAtOpen: Int
-    @State private var asked = false
     @State private var mentions: [MessagePlace] = []
 
-    init(serverId: String, groupId: String, conversation: ConversationView, atBottom: Bool) {
-        self.serverId = serverId
-        self.groupId = groupId
-        self.conversation = conversation
-        self.atBottom = atBottom
-        _readAtOpen = State(initialValue: conversation.ownRead)
-    }
-
     private struct Ask: Equatable {
-        let atBottom: Bool
+        let ownRead: Int
         let waiting: Int
     }
 
     var body: some View {
         // A stack rather than a Group, which would pass the task to children it doesn't have yet.
         VStack(spacing: 0) {
-            if let next = mentions.first {
+            if let next = mentions.first, !hidden {
                 Button {
                     mentions.removeFirst()
                     Task {
@@ -480,14 +461,14 @@ private struct MentionButton: View {
                 .accessibilityIdentifier(A11y.Chat.toMention)
             }
         }
-        .task(id: Ask(atBottom: atBottom, waiting: conversation.unreadMentions)) {
-            if asked && (atBottom || conversation.unreadMentions == 0) { return }
-            asked = true
-            if let found = try? await model.core.session(serverId).unreadMentions(groupId, after: readAtOpen) { mentions = found }
+        .task(id: Ask(ownRead: conversation.ownRead, waiting: conversation.unreadMentions)) {
+            let found = try? await model.core.session(serverId).unreadMentions(groupId, after: conversation.ownRead)
+            if let found, !Task.isCancelled { mentions = found }
         }
     }
 }
 
+/// The title and, under it, who's typing, members and online, or last seen, as on the desktop.
 private struct ChatHeader: View {
     @Environment(AppModel.self) private var model
     let conversation: ConversationView

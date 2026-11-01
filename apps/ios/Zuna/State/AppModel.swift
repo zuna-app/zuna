@@ -128,6 +128,8 @@ final class AppModel {
     var composers: [String: ComposerState] = [:]
     /// Where each chat was scrolled to, when it wasn't at the newest message: the message at the top of the screen.
     @ObservationIgnored var savedPositions: [String: String] = [:]
+    /// The furthest read position waiting to be sent for each chat, by `listKey`, while one is on its way.
+    @ObservationIgnored var readsWanted: [String: Int] = [:]
     private(set) var toasts: [Toast] = []
     var settings = AppSettings.load() {
         didSet { settings.save() }

@@ -4225,9 +4225,8 @@ export class ServerSession {
 
   /**
    * The messages in a group after `after` that mention this account or reply to it,
-   * oldest first, leaving out those already jumped to. A chat opens at its newest
-   * message, which reads it, so the app asks from where it was read up to when it
-   * opened, and Telegram's "@" button still goes to each.
+   * oldest first, leaving out those already jumped to. The app asks from where the
+   * chat is read, so those read by scrolling past them drop out of Telegram's "@".
    */
   unreadMentions(groupId: string, after: number): { id: string; seq: number }[] {
     if (this.groups.get(groupId)?.kind !== "group") return [];

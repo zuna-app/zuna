@@ -62,6 +62,8 @@
 .list-item { display: flow-root; padding: 0 10px 0 14px; }
 .day-sep { display: flex; justify-content: center; padding: 14px 0 8px; }
 .day-sep span { padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 500; color: var(--text-2); background: var(--bg-2); }
+/* Across the whole list, as Telegram's: the first unread message when the chat opened. */
+.unread-sep { margin: 12px -10px 4px -14px; padding: 4px 0; text-align: center; font-size: 12px; font-weight: 500; color: var(--text-2); background: var(--bg-2); }
 .system-row { display: flex; justify-content: center; padding: 5px 0; border-radius: var(--radius-m); transition: background 0.3s; }
 .system-row.is-highlighted { background: var(--hover-strong); }
 .system-pill {

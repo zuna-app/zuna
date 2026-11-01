@@ -76,6 +76,7 @@ enum A11y {
         static let bannerVerify = "chat.keyBanner.verify"
         static let toBottom = "chat.toBottom"
         static let toMention = "chat.toMention"
+        static let unreadLine = "chat.unreadLine"
         static func location(_ messageId: String) -> String { "chat.location.\(messageId)" }
         static let empty = "chat.empty"
         static let reply = "chat.reply"

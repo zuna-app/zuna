@@ -181,6 +181,11 @@ async function runIn(name) {
     const rowUnread = Number(await row.locator(".conv-badge").textContent());
     await row.click();
     await page.locator(".bubble").first().waitFor({ timeout: 10_000 });
+    // It opens at the first unread message, reading only what's on screen, and the way down reads the rest.
+    check("a chat with unread messages opens under a line", (await page.locator(".unread-sep").count()) === 1);
+    await sleep(500);
+    const down = page.locator(".to-bottom:not(.to-mention)");
+    if (await down.count()) await down.click();
     await sleep(1500);
     const after = await page.title();
     const expected = unread - rowUnread;

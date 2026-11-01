@@ -2,10 +2,15 @@ import SwiftUI
 import UIKit
 import ZunaModels
 
-/// What the chat screen can ask of its list.
+/// What the chat screen can ask of its list, and what it keeps for the list while the
+/// chat is open, as the list is made again after leaving a jump.
 @MainActor
 final class MessageListBridge {
     var scrollToBottom: () -> Void = {}
+    /// The list has been shown once, which is when it opens at the first unread message.
+    var opened = false
+    /// The first unread message when the chat opened, with a line above it until the chat is left.
+    var unreadLine: String?
 }
 
 /// The messages of a chat in a `UICollectionView` turned upside down, as chat
@@ -28,15 +33,26 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
 
     var model: AppModel!
     var images: ImageStore!
+    var bridge: MessageListBridge!
     var onAtBottomChange: (Bool) -> Void = { _ in }
     var onNearOldest: () -> Void = {}
     var onJumpHandled: (String) -> Void = { _ in }
+    /// The newest message that's been on screen enough to count as read.
+    var onSeen: (Int) -> Void = { _ in }
 
     private var collectionView: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
     private var input: Input?
     private var contexts: [String: MessageRowContext] = [:]
     private var atBottom = true
+    /// The message the list opened at, kept at the top of the screen as the list gets its
+    /// size, which SwiftUI gives it only after the first update, until someone scrolls.
+    private var openedAt: String?
+    private var placedHeight: CGFloat = 0
+    /// Gliding to the newest message, which keeping the list in place would cut short, as
+    /// reading on the way updates the list.
+    private var scrollingDown = false
+    private var seen = 0
     private var handledJump: Int?
     private var swiping: (cell: UICollectionViewCell, message: MessageView)?
     private let replyIcon = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill"))
@@ -92,6 +108,17 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         loadViewIfNeeded()
         let previous = self.input
         self.input = input
+        // A chat with unread messages opens at the first, as Telegram's does, under a line
+        // that stays until the chat is left. Decided once, from what's loaded then.
+        var openAt: String?
+        if !bridge.opened {
+            bridge.opened = true
+            if !input.detached, input.conversation.unread > 0 {
+                let selfId = input.server.me?.userId
+                bridge.unreadLine = input.items.first { AppModel.isUnread($0, ownRead: input.conversation.ownRead, selfId: selfId) }?.id
+                openAt = bridge.unreadLine
+            }
+        }
         rebuildContexts()
         let ids = input.items.reversed().map(\.id)
         let oldIds = dataSource.snapshot().itemIdentifiers
@@ -104,23 +131,30 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         // New messages at the bottom slide in while you're there; anything else just appears.
         let newAtBottom = oldIds.first.map { ids.first != $0 && ids.contains($0) } ?? false
         let animate = newAtBottom && atBottom && !model.reduceMotion
-        let anchor = atBottom || oldIds.isEmpty ? nil : visibleAnchor()
+        let anchor = atBottom || oldIds.isEmpty || scrollingDown ? nil : visibleAnchor()
         // Coming back to a chat that was scrolled up shows the same messages again.
-        let saved = oldIds.isEmpty && !input.detached ? model.savedPositions[input.listKey] : nil
+        if oldIds.isEmpty, !input.detached {
+            openedAt = openAt ?? model.savedPositions[input.listKey]
+        }
         dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
             guard let self else { return }
             if let anchor { restore(anchor) }
-            if let saved, let index = dataSource.snapshot().indexOfItem(saved) {
-                collectionView.layoutIfNeeded()
-                // Upside down, the bottom of the scroll view is the top of the screen.
-                collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .bottom, animated: false)
-            }
+            if oldIds.isEmpty { placeOpening() }
             // Sending always brings you to the newest message.
             if let newest = input.items.last, newest.id != oldIds.first, newest.senderId == input.server.me?.userId, previous != nil {
                 scrollToBottom(animated: true)
             }
             handleJump()
+            noteSeen()
         }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard view.window != nil, collectionView.bounds.height != placedHeight else { return }
+        placedHeight = collectionView.bounds.height
+        placeOpening()
+        noteSeen()
     }
 
     /// Grouping and day separators depend on the neighbors, so every row's context is rebuilt.
@@ -142,6 +176,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 own: message.senderId == selfId,
                 isGroup: input.conversation.kind == .group,
                 readUpTo: readUpTo,
+                unreadLine: message.id == bridge.unreadLine,
                 highlighted: input.highlighted == message.id,
                 selecting: input.selection != nil,
                 selected: input.selection?.contains(message.id) ?? false
@@ -169,13 +204,26 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     }
 
     func scrollToBottom(animated: Bool) {
-        collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: animated)
+        openedAt = nil
+        let bottom = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
+        scrollingDown = animated && collectionView.contentOffset != bottom
+        collectionView.setContentOffset(bottom, animated: animated)
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        scrollingDown = false
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        openedAt = nil
+        scrollingDown = false
     }
 
     private func handleJump() {
         guard let jump = input?.jump, jump.nonce != handledJump,
               let index = dataSource.snapshot().indexOfItem(jump.messageId) else { return }
         handledJump = jump.nonce
+        openedAt = nil
         collectionView.layoutIfNeeded()
         collectionView.scrollToItem(at: IndexPath(item: index, section: 0), at: .centeredVertically, animated: false)
         DispatchQueue.main.async { [weak self] in self?.onJumpHandled(jump.messageId) }
@@ -194,6 +242,46 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         collectionView.layoutIfNeeded()
         guard let attributes = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0)) else { return }
         collectionView.contentOffset.y = attributes.frame.minY - anchor.offset
+    }
+
+    /// Puts the message the list opened at at the top of the screen, or as near as the list
+    /// goes. The rows on the way settle their sizes as they're laid out, so a second pass puts it right.
+    private func placeOpening() {
+        guard let openedAt, let index = dataSource.snapshot().indexOfItem(openedAt) else { return }
+        for _ in 0..<2 {
+            collectionView.layoutIfNeeded()
+            guard let frame = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame else { return }
+            let inset = collectionView.adjustedContentInset
+            let lowest = -inset.top
+            let highest = max(lowest, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
+            // Upside down, the top of the screen is the bottom of the scroll view.
+            collectionView.contentOffset.y = min(max(frame.maxY - collectionView.bounds.height, lowest), highest)
+        }
+    }
+
+    /// Tells the screen the newest message that's been on screen enough to count as read:
+    /// all of it, or most of the screen, as on the desktop. At the newest message, everything.
+    private func noteSeen() {
+        // Before the list is on screen it has no size of its own yet.
+        guard view.window != nil, placedHeight > 0, let input else { return }
+        var newest = 0
+        if atBottom, !input.detached {
+            newest = input.items.last { $0.seq != nil && !$0.id.hasPrefix("sys-") }?.seq ?? 0
+        } else {
+            // Upside down, a row's bottom on screen is the top of its frame.
+            let bounds = collectionView.bounds
+            for indexPath in collectionView.indexPathsForVisibleItems {
+                guard let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame,
+                      frame.maxY > bounds.minY, frame.minY < bounds.maxY,
+                      frame.minY >= bounds.minY - 1 || frame.maxY >= bounds.midY,
+                      let id = dataSource.itemIdentifier(for: indexPath), !id.hasPrefix("sys-"),
+                      let seq = contexts[id]?.message.seq else { continue }
+                newest = max(newest, seq)
+            }
+        }
+        guard newest != seen else { return }
+        seen = newest
+        DispatchQueue.main.async { [weak self] in self?.onSeen(newest) }
     }
 
     // MARK: Swipe to reply
@@ -248,6 +336,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             atBottom = bottom
             DispatchQueue.main.async { [weak self] in self?.onAtBottomChange(bottom) }
         }
+        noteSeen()
         let remaining = scrollView.contentSize.height - (scrollView.contentOffset.y + scrollView.bounds.height)
         if remaining < 800 {
             DispatchQueue.main.async { [weak self] in self?.onNearOldest() }
@@ -285,11 +374,13 @@ struct MessageListView: UIViewControllerRepresentable {
     let onAtBottomChange: (Bool) -> Void
     let onNearOldest: () -> Void
     let onJumpHandled: (String) -> Void
+    let onSeen: (Int) -> Void
 
     func makeUIViewController(context: Context) -> MessageListController {
         let controller = MessageListController()
         controller.model = model
         controller.images = images
+        controller.bridge = bridge
         bridge.scrollToBottom = { [weak controller] in controller?.scrollToBottom(animated: true) }
         return controller
     }
@@ -298,6 +389,7 @@ struct MessageListView: UIViewControllerRepresentable {
         controller.onAtBottomChange = onAtBottomChange
         controller.onNearOldest = onNearOldest
         controller.onJumpHandled = onJumpHandled
+        controller.onSeen = onSeen
         controller.update(input)
     }
 }

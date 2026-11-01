@@ -13,6 +13,8 @@ struct MessageRowContext {
     let isGroup: Bool
     /// The highest message anyone else has read, for the read ticks.
     let readUpTo: Int
+    /// The first unread message when the chat opened, with a line above it.
+    let unreadLine: Bool
     let highlighted: Bool
     /// Messages are being picked to act on together, and whether this one is.
     let selecting: Bool
@@ -55,6 +57,20 @@ struct MessageRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if context.unreadLine {
+                // Across the whole list, as Telegram's.
+                Text("Unread messages")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.text2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .background(Theme.bg2)
+                    .padding(.horizontal, -8)
+                    .padding(.top, 12)
+                    .padding(.bottom, 4)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(A11y.Chat.unreadLine)
+            }
             if context.showDay {
                 Text(Format.daySeparator(context.message.createdAt))
                     .font(.caption.weight(.medium))

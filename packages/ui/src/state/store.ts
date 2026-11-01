@@ -100,7 +100,8 @@ interface AppState {
   setServerOrder(order: string[]): void;
   saveServerOrder(): void;
   selectConversation(key: string | null): void;
-  loadList(listId: string, groupId: string | null): Promise<void>;
+  /** The newest page, and with unread messages, the pages back to the first of them unless `toUnread` is false. */
+  loadList(listId: string, groupId: string | null, toUnread?: boolean): Promise<void>;
   loadOlder(listId: string): Promise<void>;
   jumpToMessage(groupId: string, messageId: string, seq?: number | null): Promise<void>;
   returnToLatest(listId: string): Promise<void>;
@@ -118,6 +119,8 @@ interface AppState {
 }
 
 export const BASE_INDEX = 1_000_000;
+/** How many pages a chat loads to open at its first unread message, which past that it opens without. */
+const UNREAD_PAGES = 20;
 
 function sortMessages(items: MessageView[]): MessageView[] {
   return items.sort((a, b) => {
@@ -126,6 +129,11 @@ function sortMessages(items: MessageView[]): MessageView[] {
     if (a.seq === null && b.seq === null) return a.createdAt - b.createdAt;
     return a.seq === null ? 1 : -1;
   });
+}
+
+/** Whether a message counts as unread, as the core counts them: someone else's, after where you've read. */
+export function isUnread(message: MessageView, ownRead: number, selfId: string | undefined): boolean {
+  return message.seq !== null && message.seq > ownRead && message.senderId !== selfId && !message.id.startsWith("sys-") && message.deletedAt === null;
 }
 
 function mentionMap(users: UserView[]): Map<string, string> {
@@ -499,7 +507,7 @@ export const useApp = create<AppState>((set, get) => {
       set({ panel: null });
     },
 
-    async loadList(listId, groupId) {
+    async loadList(listId, groupId, toUnread = true) {
       const existing = get().lists[listId];
       if (existing?.loaded || existing?.loading) return;
       set((state) => ({ lists: { ...state.lists, [listId]: { ...(existing ?? emptyList()), loading: true } } }));
@@ -512,6 +520,18 @@ export const useApp = create<AppState>((set, get) => {
       }
       try {
         const page = await get().session().loadMessages(groupId);
+        // A chat opens at its first unread message, so the pages back to it come first, all at once.
+        const { activeServerId, servers } = get();
+        const server = activeServerId ? servers[activeServerId] : undefined;
+        const { ownRead = 0, unread = 0 } = server?.conversations.find((item) => item.groupId === groupId) ?? {};
+        const unreadIn = (messages: MessageView[]) => messages.filter((message) => isUnread(message, ownRead, server?.self?.userId)).length;
+        for (let pages = 1; toUnread && page.hasMore && pages < UNREAD_PAGES && unreadIn(page.messages) < unread; pages++) {
+          const oldest = page.messages.find((message) => message.seq !== null)?.seq;
+          if (oldest == null || oldest <= ownRead + 1) break;
+          const older = await get().session().loadMessages(groupId, oldest);
+          page.messages = [...older.messages, ...page.messages];
+          page.hasMore = older.hasMore;
+        }
         set((state) => {
           const current = state.lists[listId] ?? emptyList();
           const byId = new Map(page.messages.map((message) => [message.id, message]));
@@ -590,7 +610,7 @@ export const useApp = create<AppState>((set, get) => {
         delete lists[listId];
         return { lists };
       });
-      await get().loadList(listId, listId);
+      await get().loadList(listId, listId, false);
     },
 
     setOverlay(overlay) {

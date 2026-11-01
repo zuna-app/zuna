@@ -383,6 +383,73 @@ try {
   check("a pinned message is listed in the panel", true);
   await page.getByLabel("Pinned messages", { exact: true }).click();
 
+  // A chat with a lot unread opens at the first of them, under a line, and reads only
+  // what's been on screen, as Telegram's does.
+  await openChat("Lena");
+  await page.locator(".composer-input").click();
+  await sendText("count to 80");
+  await page.locator(".msg.is-own", { hasText: "count to 80" }).waitFor({ timeout: 5000 });
+  await openChat("Jordan");
+  const lenaRow = page.locator(".conv-row").filter({ has: page.locator(".conv-title", { hasText: "Lena" }) }).first();
+  const lenaUnread = async () => Number((await lenaRow.locator(".conv-badge").allTextContents())[0] ?? 0);
+  for (let i = 0; i < 300 && (await lenaUnread()) < 80; i++) await sleep(100);
+  await sleep(300);
+  // Only a focused window reads, and the window the check drives may not have it.
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await opened("open-unread-chat", "Lena", { atEnd: false });
+  const line = await page.evaluate(() => {
+    const view = document.querySelector("[data-virtuoso-scroller]").getBoundingClientRect();
+    const separator = document.querySelector(".unread-sep");
+    const text = separator?.closest(".list-item").querySelector(".msg-text");
+    const time = text?.querySelector(".msg-meta")?.textContent ?? "";
+    return separator && { top: Math.round(separator.getBoundingClientRect().top - view.top), text: text?.textContent.slice(0, -time.length || undefined).trim() };
+  });
+  check("a chat with unread messages opens at the first, under a line", !!line && line.top >= 0 && line.top < 30 && line.text === "Count 1", JSON.stringify(line));
+  await page.screenshot({ path: join(output, "unread.png") });
+  await sleep(1000);
+  const readOnOpening = await lenaUnread();
+  check("opening it reads only what's on screen", readOnOpening > 20 && readOnOpening < 80, `${readOnOpening} of 80 left`);
+  check("the way down shows how many are unread", (await page.locator(".to-bottom .to-bottom-badge").textContent()) === String(readOnOpening));
+  await page.locator("[data-virtuoso-scroller]").hover();
+  await page.mouse.wheel(0, 600);
+  await sleep(1000);
+  const readOnScrolling = await lenaUnread();
+  check("scrolling down reads what comes on screen", readOnScrolling > 0 && readOnScrolling < readOnOpening, `${readOnOpening}, then ${readOnScrolling} left`);
+  await page.locator(".to-bottom").click();
+  await sleep(1000);
+  check("the way down reads the rest", (await lenaUnread()) === 0, `${await lenaUnread()} left`);
+  await openChat("Jordan");
+  await page.waitForTimeout(300);
+  await opened("open-read-chat", "Lena");
+  check("once read, it opens at the newest message without the line", (await page.locator(".unread-sep").count()) === 0);
+
+  // In a group, "@" goes to each unread mention of you that hasn't been on screen, oldest first.
+  await openChat("Probe group");
+  await page.locator(".composer-input").click();
+  await sendText("count to 60");
+  await page.locator(".msg.is-own", { hasText: "count to 60" }).waitFor({ timeout: 5000 });
+  await openChat("Jordan");
+  const probeRow = page.locator(".conv-row").filter({ has: page.locator(".conv-title", { hasText: "Probe group" }) }).first();
+  for (let i = 0; i < 300 && Number((await probeRow.locator(".conv-badge:not(.conv-mention)").allTextContents())[0] ?? 0) < 60; i++) await sleep(100);
+  await sleep(300);
+  await openChat("Probe group");
+  const toMention = page.locator(".to-mention");
+  await toMention.waitFor({ timeout: 5000 });
+  const mentionsLeft = async () => ((await toMention.count()) ? Number(await toMention.locator(".to-bottom-badge").textContent()) : 0);
+  const waiting = await mentionsLeft();
+  check("\"@\" counts the mentions that haven't been on screen", waiting >= 2 && waiting <= 3, `${waiting}`);
+  await page.screenshot({ path: join(output, "mentions.png") });
+  await toMention.click();
+  const mentioned = page.locator(".msg.is-highlighted", { hasText: "@" });
+  await mentioned.waitFor({ timeout: 5000 });
+  const mentionText = await mentioned.locator(".msg-text").textContent();
+  await sleep(800);
+  check("\"@\" goes to the oldest first, then counts the rest", mentionText.startsWith(`Count ${80 - waiting * 20} `) && (await mentionsLeft()) === waiting - 1, `${mentionText}, ${await mentionsLeft()} left`);
+  await page.locator(".to-bottom:not(.to-mention)").click();
+  await sleep(1000);
+  check("at the newest message \"@\" goes", (await toMention.count()) === 0 && (await probeRow.locator(".conv-badge").count()) === 0);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+
   // Scrolled up, a message from someone stays below and sending comes back down.
   await openChat("Probe group");
   await page.waitForTimeout(400);

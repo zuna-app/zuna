@@ -5,7 +5,7 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
 import { formatDaySeparator, sameDay } from "@/lib/format";
-import { useApp } from "@/state/store";
+import { isUnread, useApp } from "@/state/store";
 import { MessageItem } from "./MessageItem";
 
 function UndisplayableMessage() {
@@ -33,6 +33,8 @@ const DRAWN_AHEAD_PX = 800;
  * when that one's height turns out different, and it would jump.
  */
 const LOAD_AHEAD_PX = DRAWN_AHEAD_PX * 3;
+/** How long reading waits after the last read position was sent before sending a further one. */
+const READ_EVERY_MS = 250;
 
 /** The message at the top of the list, and how far into it the list starts. */
 interface Place {
@@ -50,6 +52,18 @@ function placeIn(scroller: HTMLElement): Place | null {
     if (box.bottom > top) return { id: row.dataset.id!, offset: top - box.top };
   }
   return null;
+}
+
+/** The newest message that's been on screen enough to count as read: all of it, or most of the screen. */
+function seenIn(scroller: HTMLElement): number {
+  const view = scroller.getBoundingClientRect();
+  let seen = 0;
+  for (const row of scroller.querySelectorAll<HTMLElement>(".list-item[data-seq]")) {
+    const box = row.getBoundingClientRect();
+    if (box.top >= view.bottom) break;
+    if (box.bottom > view.top && (box.bottom <= view.bottom + 1 || box.top <= view.top + view.height / 2)) seen = Math.max(seen, Number(row.dataset.seq));
+  }
+  return seen;
 }
 
 /** How many rows can fill the window at the smallest they get, and a few more. */
@@ -88,26 +102,26 @@ const Header = ({ context }: { context?: { loading: boolean } }) => (
 const ListFooter = () => <div style={{ height: 10 }} />;
 
 /**
- * As Telegram's "@": goes to the oldest message here that mentions you or replies
- * to you, then the next. A chat opens at its newest message, which reads it, so it
- * keeps to where the chat was read when it opened, and adds those that arrive
- * while you're scrolled up.
+ * As Telegram's "@": goes to the oldest unread message here that mentions you or
+ * replies to you, then the next. Those read by scrolling past them drop out, and it
+ * goes at the newest message, where everything is read.
  */
-function MentionButton({ conversation, groupId, atBottom, raised }: { conversation: ConversationView; groupId: string; atBottom: boolean; raised: boolean }) {
+function MentionButton({ conversation, groupId, hidden, raised }: { conversation: ConversationView; groupId: string; hidden: boolean; raised: boolean }) {
   const session = useApp((state) => state.session);
   const jumpToMessage = useApp((state) => state.jumpToMessage);
-  const readAtOpen = useRef(conversation.ownRead);
-  const asked = useRef(false);
+  const asked = useRef(0);
   const [mentions, setMentions] = useState<{ id: string; seq: number }[]>([]);
 
   useEffect(() => {
-    if (asked.current && (atBottom || conversation.unreadMentions === 0)) return;
-    asked.current = true;
-    void session().unreadMentions(groupId, readAtOpen.current).then(setMentions).catch(() => undefined);
-  }, [groupId, atBottom, conversation.unreadMentions, session]);
+    const ask = ++asked.current;
+    void session()
+      .unreadMentions(groupId, conversation.ownRead)
+      .then((found) => ask === asked.current && setMentions(found))
+      .catch(() => undefined);
+  }, [groupId, conversation.ownRead, conversation.unreadMentions, session]);
 
   const next = mentions[0];
-  if (!next) return null;
+  if (!next || hidden) return null;
   const go = () => {
     setMentions(mentions.slice(1));
     void session().markMentionSeen(groupId, next.id).catch(() => undefined);
@@ -167,8 +181,18 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     primed.current = !!list && (primed.current || list.loaded);
   }, [items, list]);
 
-  // A jump shows a window of older messages, and leaving one comes back at the newest.
+  // A chat with unread messages opens at the first, as Telegram's does, under a line
+  // that stays there until the chat is left. Decided once, from what's loaded then.
   const detached = !!list?.detached;
+  const unreadLine = useRef<string | null | undefined>(undefined);
+  const openAtUnread = useRef(false);
+  if (unreadLine.current === undefined && (items.length > 0 || list?.loaded)) {
+    const first = conversation.unread > 0 && !detached ? items.find((item) => isUnread(item, conversation.ownRead, selfId)) : undefined;
+    unreadLine.current = first?.id ?? null;
+    openAtUnread.current = !!first;
+  }
+
+  // A jump shows a window of older messages, and leaving one comes back at the newest.
   useLayoutEffect(() => {
     if (!detached) return;
     stuck.current = false;
@@ -188,10 +212,19 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
   // The older ones join once someone scrolls towards them, as Virtuoso moving the
   // list to make room for them would otherwise compete with keeping it in place.
   if (heldBack.current === null && items.length > 0 && !detached) {
-    const place = savedPositions.get(listId);
+    // The first unread message goes at the top as a saved place would, with enough
+    // before it to fill the screen when only a few come after it.
+    const unreadIndex = openAtUnread.current ? items.findIndex((item) => item.id === unreadLine.current) : -1;
+    openAtUnread.current = false;
+    const place = unreadIndex >= 0 ? { id: unreadLine.current!, offset: 0 } : savedPositions.get(listId);
     const index = place ? items.findIndex((item) => item.id === place.id) : -1;
-    heldBack.current = index >= 0 ? index : Math.max(0, items.length - firstRows());
+    const fill = Math.max(0, items.length - firstRows());
+    heldBack.current = index < 0 ? fill : unreadIndex >= 0 ? Math.min(index, fill) : index;
     anchor.current = index >= 0 ? { ...place! } : null;
+    if (unreadIndex >= 0 && stuck.current) {
+      stuck.current = false;
+      setAtBottom(false);
+    }
     if (place && index < 0) {
       stuck.current = true;
       setAtBottom(true);
@@ -236,7 +269,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     [listId],
   );
 
-  // Mark as read while the newest messages are on screen in a focused window.
+  // Read as far as has been on screen in a focused window, which at the newest message is everything.
   const newestSeq = useMemo(() => {
     for (let i = items.length - 1; i >= 0; i--) {
       const item = items[i]!;
@@ -244,12 +277,31 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     }
     return 0;
   }, [items]);
+  const [onScreen, setOnScreen] = useState(0);
+  const reading = useRef({ want: 0, busy: false });
   useEffect(() => {
-    if (!atBottom || !windowFocused || !conversation.groupId || list?.detached) return;
-    if (newestSeq > conversation.ownRead) {
-      void session().markRead(conversation.groupId, newestSeq).catch(() => undefined);
-    }
-  }, [atBottom, windowFocused, newestSeq, conversation.ownRead, conversation.groupId, list?.detached, session]);
+    const groupId = conversation.groupId;
+    const upTo = atBottom && !detached ? newestSeq : onScreen;
+    if (!windowFocused || !groupId || upTo <= conversation.ownRead) return;
+    // One position at a time, as the server keeps the last it gets. While scrolling,
+    // the furthest so far goes once the one before it is done.
+    const state = reading.current;
+    state.want = Math.max(state.want, upTo);
+    if (state.busy) return;
+    state.busy = true;
+    const remote = session();
+    const send = () => {
+      const seq = state.want;
+      void remote
+        .markRead(groupId, seq)
+        .catch(() => undefined)
+        .finally(() => {
+          if (state.want > seq) setTimeout(send, READ_EVERY_MS);
+          else state.busy = false;
+        });
+    };
+    send();
+  }, [atBottom, detached, windowFocused, newestSeq, onScreen, conversation.ownRead, conversation.groupId, session]);
 
   // Whenever anything changes size (a new message, a picture loading, the message
   // box growing, a reply bar opening) this runs before the frame is painted. On the
@@ -284,6 +336,11 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       const last = list?.parentElement?.lastElementChild;
       return glide?.playState === "running" && last instanceof HTMLElement ? last.offsetTop + last.offsetHeight : element.scrollHeight;
     };
+    let seeing = 0;
+    const noteSeen = () => {
+      cancelAnimationFrame(seeing);
+      setOnScreen(seenIn(element));
+    };
     const settle = () => {
       const grownBy = element.clientHeight - height;
       const windowResized = window.innerHeight !== windowHeight;
@@ -299,6 +356,12 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         const by = row ? row.getBoundingClientRect().top - element.getBoundingClientRect().top + place.offset : -grownBy;
         if (by) element.scrollTop += by;
         ownTop = element.scrollTop;
+        // With too little after it to reach the top, the place is at the newest message.
+        if (row && contentEnd() - element.clientHeight - element.scrollTop <= 1) {
+          stuck.current = true;
+          setAtBottom(true);
+        }
+        noteSeen();
         return;
       }
       const end = contentEnd() - element.clientHeight;
@@ -314,6 +377,8 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       if (element.scrollHeight <= element.clientHeight) loadMore.current();
     };
     const onScroll = () => {
+      cancelAnimationFrame(seeing);
+      seeing = requestAnimationFrame(noteSeen);
       const top = element.scrollTop;
       const own = ownTop !== null && Math.abs(top - ownTop) < 1;
       ownTop = null;
@@ -339,6 +404,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     stopWatching.current = () => {
       observer.disconnect();
       glide?.cancel();
+      cancelAnimationFrame(seeing);
       element.removeEventListener("scroll", onScroll);
       for (const input of inputs) element.removeEventListener(input, onHand);
     };
@@ -392,7 +458,12 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       // And it most likely follows on from them, so it keeps its size when they arrive.
       const grouped = !showDay && (previous ? continues(previous, message) : hasMore && !detached);
       return (
-        <div className="list-item" data-id={message.id}>
+        <div className="list-item" data-id={message.id} data-seq={message.seq !== null && !message.id.startsWith("sys-") ? message.seq : undefined}>
+          {message.id === unreadLine.current && (
+            <div className="unread-sep">
+              <span>Unread messages</span>
+            </div>
+          )}
           {showDay && (
             <div className="day-sep">
               <span>{formatDaySeparator(message.createdAt)}</span>
@@ -454,7 +525,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         className="virtuoso"
       />
       {conversation.groupId && (
-        <MentionButton key={listId} conversation={conversation} groupId={conversation.groupId} atBottom={atBottom} raised={!atBottom || list.detached} />
+        <MentionButton key={listId} conversation={conversation} groupId={conversation.groupId} hidden={atBottom && !list.detached} raised={!atBottom || list.detached} />
       )}
       {(!atBottom || list.detached) && (
         <button className="to-bottom" onClick={scrollToBottom} aria-label="Go to the newest messages">

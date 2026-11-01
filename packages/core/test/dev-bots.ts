@@ -202,7 +202,21 @@ function keepAnswering(bots: TestApp[]): void {
         if (message.senderId === bot.userId || message.system || seen.has(`${bot.name}:${message.id}`)) continue;
         seen.add(`${bot.name}:${message.id}`);
         const conversation = bot.session.getConversations().find((item) => item.groupId === message.groupId);
-        if (!conversation || conversation.kind !== "dm") continue;
+        if (!conversation) continue;
+        // "count to 80" fills the chat with that many messages, for a chat with a lot unread.
+        // In a group Lena answers, and every twentieth mentions whoever asked.
+        const count = /^count to (\d+)$/.exec(message.text)?.[1];
+        if (count && (conversation.kind === "dm" || bot.name === "lena")) {
+          const asker = bot.session.getUsers().find((user) => user.id === message.senderId)?.username;
+          await sleep(1000);
+          for (let i = 1; i <= Math.min(Number(count), 500); i++) {
+            const mention = conversation.kind === "group" && i % 20 === 0;
+            bot.session.sendMessage(conversation.key, mention ? { text: `Count ${i} @${asker}`, mentions: [message.senderId] } : { text: `Count ${i}` });
+            await sleep(20);
+          }
+          continue;
+        }
+        if (conversation.kind !== "dm") continue;
         await bot.session.markRead(message.groupId, message.seq ?? 0);
         await sleep(400);
         bot.session.sendTyping(message.groupId);

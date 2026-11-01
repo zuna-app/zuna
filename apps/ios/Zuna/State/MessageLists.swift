@@ -33,8 +33,18 @@ extension AppModel {
         lists[Self.listKey(serverId, listId)]
     }
 
-    /// The newest page, once per chat; later changes arrive as events.
-    func loadList(_ serverId: String, _ listId: String, groupId: String?) async {
+    /// How many pages a chat loads to open at its first unread message, which past that it opens without.
+    private static let unreadPages = 20
+
+    /// Whether a message counts as unread, as the core counts them: someone else's, after where you've read.
+    static func isUnread(_ message: MessageView, ownRead: Int, selfId: String?) -> Bool {
+        guard let seq = message.seq else { return false }
+        return seq > ownRead && message.senderId != selfId && !message.id.hasPrefix("sys-") && message.deletedAt == nil
+    }
+
+    /// The newest page, once per chat, and with unread messages the pages back to the
+    /// first of them unless `toUnread` is false; later changes arrive as events.
+    func loadList(_ serverId: String, _ listId: String, groupId: String?, toUnread: Bool = true) async {
         let key = Self.listKey(serverId, listId)
         if let existing = lists[key], existing.loaded || existing.loading { return }
         lists[key, default: MessageList()].loading = true
@@ -46,7 +56,21 @@ extension AppModel {
             return
         }
         do {
-            let page = try await core.session(serverId).loadMessages(groupId)
+            let session = core.session(serverId)
+            var page = try await session.loadMessages(groupId)
+            // A chat opens at its first unread message, so the pages back to it come first, all at once.
+            let server = servers[serverId]
+            let conversation = server?.conversations.first { $0.groupId == groupId }
+            let ownRead = conversation?.ownRead ?? 0
+            var pages = 1
+            while toUnread, page.hasMore, pages < Self.unreadPages,
+                  page.messages.count(where: { Self.isUnread($0, ownRead: ownRead, selfId: server?.me?.userId) }) < conversation?.unread ?? 0,
+                  let oldest = page.messages.first(where: { $0.seq != nil })?.seq, oldest > ownRead + 1 {
+                let older = try await session.loadMessages(groupId, before: oldest)
+                page.messages = older.messages + page.messages
+                page.hasMore = older.hasMore
+                pages += 1
+            }
             var current = lists[key] ?? MessageList()
             var byId = Dictionary(page.messages.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
             for item in current.items where byId[item.id] == nil { byId[item.id] = item }
@@ -108,11 +132,27 @@ extension AppModel {
     /// Leaves a detached window for the newest messages.
     func returnToLatest(_ serverId: String, _ listId: String) async {
         lists[Self.listKey(serverId, listId)] = nil
-        await loadList(serverId, listId, groupId: listId)
+        await loadList(serverId, listId, groupId: listId, toUnread: false)
     }
 
+    /// One read position at a time, as the server keeps the last it gets. While scrolling,
+    /// the furthest so far goes once the one before it is done, as on the desktop.
     func markRead(_ serverId: String, groupId: String, seq: Int) {
-        Task { try? await core.session(serverId).markRead(groupId, seq: seq) }
+        let key = Self.listKey(serverId, groupId)
+        if let wanted = readsWanted[key] {
+            readsWanted[key] = max(wanted, seq)
+            return
+        }
+        readsWanted[key] = seq
+        Task {
+            var sent = 0
+            while let wanted = readsWanted[key], wanted > sent {
+                sent = wanted
+                try? await core.session(serverId).markRead(groupId, seq: wanted)
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            readsWanted[key] = nil
+        }
     }
 
     // MARK: Events
