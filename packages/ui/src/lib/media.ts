@@ -60,6 +60,89 @@ export function useDecryptedUrl(serverId: string | null, ref: AvatarRef | Attach
   return { url, failed };
 }
 
+/** A frame's shorter side, enough for a tile on a sharp screen. */
+const FRAME_SIDE = 260;
+const frames = new Map<string, Promise<string>>();
+const readyFrames = new Map<string, string>();
+
+function takeFrame(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement("video");
+    let done = false;
+    const finish = (frame?: string) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      video.removeAttribute("src");
+      video.load();
+      if (frame) resolve(frame);
+      else reject(new Error("That video couldn't be read."));
+    };
+    const timer = setTimeout(finish, 10_000);
+    video.preload = "auto";
+    video.muted = true;
+    video.onloadedmetadata = () => {
+      if (!video.videoWidth) finish();
+      else video.currentTime = momentIn(Number.isFinite(video.duration) ? video.duration : undefined);
+    };
+    video.onseeked = () => {
+      try {
+        const ratio = Math.min(1, FRAME_SIDE / Math.min(video.videoWidth, video.videoHeight));
+        finish(drawFrame(video, ratio).toDataURL("image/jpeg", 0.8));
+      } catch {
+        finish();
+      }
+    };
+    video.onerror = () => finish();
+    video.src = url;
+  });
+}
+
+function fetchFrame(serverId: string, attachment: Attachment): Promise<string> {
+  const cached = frames.get(attachment.fileId);
+  if (cached) {
+    frames.delete(attachment.fileId);
+    frames.set(attachment.fileId, cached);
+    return cached;
+  }
+  const pending = fetchDecrypted(serverId, attachment)
+    .then(takeFrame)
+    .then((frame) => {
+      readyFrames.set(attachment.fileId, frame);
+      return frame;
+    });
+  frames.set(attachment.fileId, pending);
+  pending.catch(() => frames.delete(attachment.fileId));
+  if (frames.size > MAX_CACHED) {
+    const oldestId = frames.keys().next().value as string;
+    frames.delete(oldestId);
+    readyFrames.delete(oldestId);
+  }
+  return pending;
+}
+
+/**
+ * A frame from a video sent in a message, as a picture, for a tile too small to
+ * play it in. A video element in each would hold a decoder each, and there are
+ * only so many. Null until it's here, and for a video this device can't decode.
+ */
+export function useVideoFrame(serverId: string | null, attachment: Attachment | null, enabled = true): string | null {
+  const fileId = attachment?.fileId;
+  const [frame, setFrame] = useState<string | null>(() => (fileId && readyFrames.get(fileId)) || null);
+  useEffect(() => {
+    setFrame((fileId && readyFrames.get(fileId)) || null);
+    if (!serverId || !attachment?.fileId || !enabled) return;
+    let cancelled = false;
+    fetchFrame(serverId, attachment)
+      .then((value) => !cancelled && setFrame(value))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [serverId, fileId, enabled]);
+  return frame;
+}
+
 // Pictures from a joined server, such as emotes and server icons, are fetched
 // here and shown from memory. The content security policy lets images come from
 // nowhere else, so nothing in a message can make the app contact anyone.
@@ -254,6 +337,19 @@ const POSTER_STEPS = [
 ];
 const POSTER_LENGTH = 22 << 10;
 
+/** Where a video's picture comes from: a moment in, since many videos start on a black frame. */
+const momentIn = (duration: number | undefined) => Math.min(0.5, (duration ?? 0) / 3);
+
+function drawFrame(video: HTMLVideoElement, ratio: number): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(video.videoWidth * ratio));
+  canvas.height = Math.max(1, Math.round(video.videoHeight * ratio));
+  const context = canvas.getContext("2d")!;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 function readMediaDetails(file: File): Promise<Partial<PreparedFile>> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
@@ -282,21 +378,14 @@ function readMediaDetails(file: File): Promise<Partial<PreparedFile>> {
         height: video.videoHeight || undefined,
       };
       if (!isVideo || !video.videoWidth) finish();
-      // A moment in, since many videos start on a black frame.
-      else video.currentTime = Math.min(0.5, (details.duration ?? 0) / 3);
+      else video.currentTime = momentIn(details.duration);
     };
     element.onseeked = () => {
       const video = element as HTMLVideoElement;
       try {
         for (const { size, quality } of POSTER_STEPS) {
           const ratio = Math.min(1, size / Math.max(video.videoWidth, video.videoHeight));
-          const canvas = document.createElement("canvas");
-          canvas.width = Math.max(1, Math.round(video.videoWidth * ratio));
-          canvas.height = Math.max(1, Math.round(video.videoHeight * ratio));
-          const context = canvas.getContext("2d")!;
-          context.imageSmoothingQuality = "high";
-          context.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const poster = canvas.toDataURL("image/jpeg", quality);
+          const poster = drawFrame(video, ratio).toDataURL("image/jpeg", quality);
           if (poster.length <= POSTER_LENGTH) {
             details.thumb = poster;
             break;

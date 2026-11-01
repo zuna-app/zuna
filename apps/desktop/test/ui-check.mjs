@@ -255,6 +255,35 @@ try {
   await page.keyboard.type("Here is the list");
   await page.keyboard.press("Enter");
   await page.locator(".file-card").last().waitFor({ timeout: 15_000 });
+  // A second and a half of a moving square, recorded here.
+  const webmBase64 = await page.evaluate(async () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 640;
+    canvas.height = 360;
+    const context = canvas.getContext("2d");
+    const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType: "video/webm" });
+    const parts = [];
+    recorder.ondataavailable = (event) => parts.push(event.data);
+    const stopped = new Promise((resolve) => (recorder.onstop = resolve));
+    recorder.start();
+    for (let frame = 0; frame < 45; frame++) {
+      context.fillStyle = "#2f6f5e";
+      context.fillRect(0, 0, 640, 360);
+      context.fillStyle = "#f2c14e";
+      context.fillRect(frame * 10, 120, 120, 120);
+      await new Promise((resolve) => setTimeout(resolve, 33));
+    }
+    recorder.stop();
+    await stopped;
+    const bytes = new Uint8Array(await new Blob(parts).arrayBuffer());
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  });
+  await page.locator('input[type="file"]').setInputFiles([{ name: "square.webm", mimeType: "video/webm", buffer: Buffer.from(webmBase64, "base64") }]);
+  await page.locator(".file-chip").waitFor();
+  await page.keyboard.press("Enter");
+  await page.locator("video.media-video").last().waitFor({ timeout: 15_000 });
   await sleep(500);
   check("the message box stays focused while sending files", await composerFocused());
   await shot("07b-media");
@@ -320,7 +349,17 @@ try {
   await page.locator(".chat-title").click();
   await page.locator(".side-row", { hasText: "1 photo" }).waitFor();
   const personRows = await page.locator(".side-panel .side-row.is-button").allInnerTexts();
-  check("a person's details count what was sent and the groups in common", ["1 photo", "1 file", "1 group in common"].every((row) => personRows.includes(row)), personRows.join(", "));
+  check("a person's details count what was sent and the groups in common", ["1 photo", "1 video", "1 file", "1 group in common"].every((row) => personRows.includes(row)), personRows.join(", "));
+  await page.locator(".side-row", { hasText: "1 video" }).click();
+  await page.locator(".shared-tile-full").waitFor({ timeout: 15_000 });
+  await sleep(150);
+  const videoTile = await page.locator(".shared-tile").evaluate((tile) => ({
+    frame: tile.querySelector(".shared-tile-full")?.naturalWidth ?? 0,
+    poster: tile.querySelector(".shared-tile-thumb") ? getComputedStyle(tile.querySelector(".shared-tile-thumb")).filter : "none",
+  }));
+  check("a video's tile shows a frame from it, with its picture sharp", videoTile.frame > 0 && videoTile.poster === "none", JSON.stringify(videoTile));
+  await shot("11d-person-videos");
+  await page.getByLabel("Back to details").click();
   await page.locator(".side-row", { hasText: "1 file" }).click();
   await page.locator(".shared-item .file-card", { hasText: "packing-list.txt" }).waitFor();
   await sleep(150);

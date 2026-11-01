@@ -6,7 +6,7 @@ import { AlertCircle, Download, File as FileIcon, Headphones, Image as ImageIcon
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Spinner } from "@/components/ui";
 import { avatarColor, formatDuration, formatFull, nameColor } from "@/lib/format";
-import { loadsByItself, useDecryptedUrl } from "@/lib/media";
+import { loadsByItself, useDecryptedUrl, useVideoFrame } from "@/lib/media";
 import { useActiveServer, useApp } from "@/state/store";
 import { AudioAttachment, FileAttachment, VoiceAttachment } from "./MessageItem";
 
@@ -261,7 +261,10 @@ function MediaTile({ message, attachment, video }: { message: MessageView; attac
   const ref = useRef<HTMLButtonElement>(null);
   const seen = useSeen(ref);
   const [wanted, setWanted] = useState(() => loadsByItself(attachment));
-  const { url, failed } = useDecryptedUrl(serverId, attachment, !video && seen && wanted);
+  const { url, failed } = useDecryptedUrl(serverId, video ? null : attachment, seen && wanted);
+  // A video without a frame, too big to load by itself or one this device can't decode, keeps its picture.
+  const frame = useVideoFrame(serverId, video ? attachment : null, seen && wanted);
+  const picture = video ? frame : url;
   const { show, onContextMenu, menu } = useShowInChat(message);
   return (
     <>
@@ -273,8 +276,8 @@ function MediaTile({ message, attachment, video }: { message: MessageView; attac
         title={formatFull(message.createdAt)}
         aria-label={video ? `Show ${attachment.name} in the chat` : wanted ? `Open ${attachment.name}` : `Load ${attachment.name}`}
       >
-        {attachment.thumb && <img className="shared-tile-thumb" src={attachment.thumb} alt="" draggable={false} />}
-        {url && <img className="shared-tile-full" src={url} alt="" draggable={false} />}
+        {attachment.thumb && <img className={`shared-tile-thumb${video ? " is-poster" : ""}`} src={attachment.thumb} alt="" draggable={false} />}
+        {picture && <img className="shared-tile-full" src={picture} alt="" draggable={false} />}
         {video && (
           <>
             <span className="shared-tile-play">
