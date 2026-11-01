@@ -70,7 +70,7 @@ The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, and th
 
 **The UI talks to the core over RPC.** `rpc.ts` makes every public method of `ZunaClient` and `ServerSession` callable from the UI, and state comes back as `CoreEvent`s (`types.ts`). `ZunaClient` is one per device and holds one `ServerSession` per server joined.
 
-**`packages/core/src/session.ts` is the heart of it,** at about 3,600 lines. It's divided by `// --- Name ---` markers, so search for those instead of reading it through: Lifecycle, Users, Vault, Epoch keys, Key packages, Groups (state, joining, applying changes), Reconciling MLS with the roster, Realtime frames, Ingesting messages, Conversations, Reading messages, Sending, Files, Group management, Administration, Search index.
+**`packages/core/src/session.ts` is the heart of it,** at about 3,600 lines. It's divided by `// --- Name ---` markers, so search for those instead of reading it through: Lifecycle, Users, Vault, Account generations, Epoch keys, Key packages, Groups (state, joining, applying changes), Reconciling MLS with the roster, Realtime frames, Ingesting messages, Conversations, Reading messages, Sending, Files, Group management, Administration, Search index.
 
 Rules the core depends on:
 
@@ -115,6 +115,7 @@ Rules the core depends on:
 |---|---|
 | Sign-up, sign-in, recovery, password change | `packages/core/src/account.ts`, `server/internal/api/accounts.go` |
 | Key derivation, envelopes, grants, certificates | `packages/core/src/crypto.ts` |
+| Replacing an account's keys: links, slots, seal keys | `docs/ACCOUNT_KEY_ROTATION.md`, `packages/core/src/generations.ts`, `server/internal/api/generations.go` |
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts`, `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |

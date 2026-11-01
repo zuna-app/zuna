@@ -80,8 +80,11 @@ password --Argon2id--> master --HKDF--> auth key   (proves identity to the serve
 
 recovery key --HKDF--> recovery auth key, recovery wrap key
 
-account key (random)
-  |- vault core: identity key, HPKE key, community key
+password or recovery key --> slot key --> slot's secrets (sealed on the server)
+                                           \--> account key (sealed to the slot's public key)
+
+account key (random, one per generation)
+  |- vault core: identity key, HPKE key, community key, older keys
   \- vault items: every epoch's content key, preferences, verifications
 
 MLS epoch --exporter--> content key --> messages, reactions, group details, read state, typing
@@ -89,7 +92,9 @@ MLS epoch --exporter--> content key --> messages, reactions, group details, read
 file key (random, per file) --> STREAM-encrypted chunks
 ```
 
-Each device also has an MLS signing key, certified by the identity key.
+Each device also has an MLS signing key, certified by the identity key, and a seal key that new account keys are sealed to.
+
+An account's keys are replaced as **generations**, in the background, whenever a device goes or a secret changes. Each publishes a link, signed by the old and new identity keys and by a device, which lists the devices that stay. Older clients go on seeing the first identity key and a signature by it. `docs/ACCOUNT_KEY_ROTATION.md` has the design, and what happens at each step.
 
 History reaches new members with an **HPKE-sealed grant**: an admin seals the group's older content keys to the new member's public key. The new member's device merges them into their vault.
 
