@@ -1,6 +1,6 @@
 # Web app: plan
 
-Status: W0 to W5 done 2026-11-01, see "Results". W6 waits for a decision. It replaced the old "No browser client" decision in `CLAUDE.md` and "Why there's no web client" in `SECURITY.md`. How to run it is in [WEB.md](WEB.md).
+Status: W0 to W5 done 2026-11-01, see "Results". W6 was decided against. It replaced the old "No browser client" decision in `CLAUDE.md` and "Why there's no web client" in `SECURITY.md`. How to run it is in [WEB.md](WEB.md).
 
 Scope: everything the desktop app does, in a browser, like web.telegram.org. **Notifications are left out on purpose:** no system notifications, no sound, no badge. The tab's title shows the unread count instead: `(3) Zuna`.
 
@@ -10,7 +10,7 @@ Scope: everything the desktop app does, in a browser, like web.telegram.org. **N
 - **Fully self-hosted.** One binary, `zuna-web`, serves the app's files with strict security headers and fetches pages for link previews. It contacts nothing else: no CDN, no analytics, no third-party fonts.
 - **One interface for desktop and web.** The renderer moves into a shared package, `@zuna/ui`. Desktop and web are two hosts of it, the way `@zuna/core` already has three hosts. Parity is then structural: a feature added once appears in both.
 - **The core runs unchanged.** It already runs in a Worker with SQLite WebAssembly on OPFS, and `npm run dev:web` already shows the UI in a browser. What's missing is what Electron provides: the device key, link-preview fetching, single-instance, and the security headers.
-- **The chat server needs no changes.** It already allows any origin, because sign-in uses bearer tokens and never cookies (`withMiddleware` in `server/internal/api/server.go`, `handleWebSocket` in `hub.go`). One optional change is proposed: an "Open in browser" button on invite pages.
+- **The chat server needs no changes.** It already allows any origin, because sign-in uses bearer tokens and never cookies (`withMiddleware` in `server/internal/api/server.go`, `handleWebSocket` in `hub.go`). An "Open in browser" button on invite pages was considered and left out (W6).
 - **Browsers:** current Chrome, Edge, Firefox and Safari.
 - **Layout:** the desktop's, at 860 × 540 or more. A narrower window shows a "Make the window wider" notice. Phones have the iOS app.
 
@@ -157,7 +157,6 @@ The desktop tells the server when the person is at the computer, so their phone 
 | `apps/web` (new) | `index.html`, `main.tsx`, the web `Platform`, its worker, the device key, the tab lock, the title and tests |
 | `server/cmd/zuna-web` (new) | The web host. The built app is copied into a gitignored folder there before building |
 | `server/internal/webhost` (new) | Its handlers and the preview fetcher, with Go tests |
-| `server/internal/api/pages.go` (optional) | `ZUNA_WEB_URL` adds "Open in browser" to invite pages |
 | `scripts/build-web.mjs` (new) | `npm run build:web`: builds the app, then `zuna-web` for each platform, into `dist/web` |
 | `scripts/dev-web.mjs` (new) | `npm run dev:web` at the root: Vite on port 5174 with `/_zuna` sent to a local `zuna-web`. It replaces the desktop's `dev:web` |
 | `deploy/` | `docker-compose.web.yml`, `zuna-web.service` and a Dockerfile |
@@ -212,8 +211,8 @@ Each phase ends with its checks passing and is committed and pushed in small ste
 - The Dockerfile, compose file and systemd unit, `build:web`, CI on tags, the checksum list and the script that checks a running instance.
 - All the docs in the table above.
 
-**W6, optional. "Open in browser" on invite pages.**
-- Only if the chat server should know about a web app. It's the one change to the server, behind `ZUNA_WEB_URL`, and off by default.
+**W6, not done. "Open in browser" on invite pages.**
+- Decided against on 2026-11-01. The chat server stays unaware of any web app, and people paste an invite link into the web app themselves, or open `#join=<invite link>`.
 
 ## Risks and open questions
 
