@@ -55,6 +55,76 @@ jobs:
             ghcr.io/${{ steps.owner.outputs.name }}/zuna-server:latest
             ghcr.io/${{ steps.owner.outputs.name }}/zuna-server:${{ github.ref_name }}
 
+  # zuna-web for each platform, with the web app inside, and the list of the app's
+  # files that scripts/check-web.mjs compares a running copy with.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-bindgen
+        run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)"
+      - run: npm ci
+      - run: npm run build:crypto
+      - run: ZUNA_VERSION="${GITHUB_REF_NAME#v}" npm run build:web
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web
+          path: dist/web/*
+          if-no-files-found: error
+
+  web-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Install wasm-bindgen
+        run: cargo install wasm-bindgen-cli --locked --version "$(grep -A1 'name = "wasm-bindgen"' crypto/Cargo.lock | grep version | cut -d'"' -f2)"
+      - run: npm ci
+      - run: npm run build:crypto
+      # Puts the app in server/cmd/zuna-web/site, where the image's build finds it.
+      - run: npm run build -w @zuna/web && cp -R apps/web/dist/. server/cmd/zuna-web/site/
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - id: owner
+        run: echo "name=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: server
+          file: server/Dockerfile.web
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: VERSION=${{ github.ref_name }}
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.name }}/zuna-web:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/zuna-web:${{ github.ref_name }}
+
   desktop:
     strategy:
       fail-fast: false
@@ -125,7 +195,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [server, image, desktop]
+    needs: [server, image, web, web-image, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write

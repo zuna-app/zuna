@@ -123,7 +123,7 @@ Rules the core depends on:
 | Desktop UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
 | Adding bots or data to a server | `packages/core/test/dev-bots.ts` |
-| Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md` |
+| Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
 | What's planned | `docs/ROADMAP.md` |
 
 ## Decisions to keep

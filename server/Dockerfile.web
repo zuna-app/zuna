@@ -1,0 +1,22 @@
+# zuna-web with the web app inside it: one static binary, like the server's image.
+# The app has to be built first, which puts it in cmd/zuna-web/site:
+#
+#   npm run build:web && docker build -f server/Dockerfile.web server
+FROM golang:1.26-alpine@sha256:a2012b4a1d1f9f7e9f44e0d39b805a901e856b1dd80b4e6ee4338db547050308 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN test -f cmd/zuna-web/site/index.html || (echo "Build the web app first with npm run build:web, which puts it in cmd/zuna-web/site." && exit 1)
+ARG VERSION=docker
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /zuna-web ./cmd/zuna-web
+RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
+
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+COPY --from=build /zuna-web /zuna-web
+# Only automatic HTTPS keeps anything here: its certificates.
+COPY --from=build --chown=65532:65532 /out/data /data
+ENV ZUNA_WEB_DATA=/data
+VOLUME /data
+EXPOSE 80 443 8080
+ENTRYPOINT ["/zuna-web"]

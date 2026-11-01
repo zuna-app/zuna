@@ -23,7 +23,9 @@ flowchart LR
 |---|---|---|---|
 | Crypto core | `crypto/` | Rust, OpenMLS, WebAssembly | One audited MLS implementation, reusable natively on mobile |
 | Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so it can power a mobile app |
-| Desktop app | `apps/desktop/` | Electron, React, Motion | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for future calls |
+| Interface | `packages/ui/` | React, Motion | The desktop's screens, shared with the web app. Each host gives it a `Platform` for what's outside the page |
+| Desktop app | `apps/desktop/` | Electron | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for future calls |
+| Web app | `apps/web/`, `server/cmd/zuna-web` | The same interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
 | Server | `server/` | Go, pure-Go SQLite | A single static binary for every platform, with no dependencies to install |
 
 The core runs in a Worker so that cryptography and database work can never block scrolling or animation. The whole client core runs headless in Node, and the end-to-end tests use it to drive a real server.
@@ -93,7 +95,7 @@ History reaches new members with an **HPKE-sealed grant**: an admin seals the gr
 
 ## Local storage
 
-SQLite runs as WebAssembly in the Worker, with files in the origin-private file system. The core encrypts sensitive columns itself with a key derived from the device key in the OS keychain. MLS state is stored as an encrypted key-value table, with changes written atomically after each operation.
+SQLite runs as WebAssembly in the Worker, with files in the origin-private file system. The core encrypts sensitive columns itself with a key derived from the device key in the OS keychain, or in IndexedDB in the web app, which has no keychain. MLS state is stored as an encrypted key-value table, with changes written atomically after each operation.
 
 Search uses an FTS5 table holding keyed hashes of words and their prefixes, which supports prefix search without readable text on disk.
 

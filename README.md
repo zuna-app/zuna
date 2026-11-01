@@ -87,7 +87,7 @@ The [self-hosting guide](docs/SELF_HOSTING.md) covers all of it, with the single
 
 ## Join a server
 
-1. Install the desktop app from the [releases page](https://github.com/SocketByte/zuna-chat/releases). The iPhone and iPad app comes through TestFlight and the App Store later.
+1. Install the desktop app from the [releases page](https://github.com/SocketByte/zuna-chat/releases). The iPhone and iPad app comes through TestFlight and the App Store later. If you'd rather use a browser, a server's admins can also host the [web app](docs/WEB.md), which is the desktop app without notifications.
 2. Paste the invite link someone sent you.
 3. Pick a name and password, and save your recovery key.
 
@@ -118,6 +118,7 @@ npm test
 ## Documentation
 
 - [Self-hosting guide](docs/SELF_HOSTING.md)
+- [Hosting the web app](docs/WEB.md)
 - [Running Zuna on Linux without Docker](docs/LINUX.md)
 - [The push relay for phone notifications](docs/PUSH_RELAY.md)
 - [Security model](SECURITY.md)

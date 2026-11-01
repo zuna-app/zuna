@@ -1,0 +1,30 @@
+# The web app behind a reverse proxy you already run (Caddy, nginx, Traefik),
+# which handles HTTPS. Give it a domain of its own, never the chat server's
+# (docs/WEB.md). zuna-web listens on plain HTTP, only on this machine.
+#
+#   docker compose -f docker-compose.web-proxy.yml up -d
+#
+# Then send https://web.chat.example.com to 127.0.0.1:8081.
+
+services:
+  zuna-web:
+    # Build the app first: npm run build:web
+    build:
+      context: ../server
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      ZUNA_WEB_LISTEN: ":8080"
+      ZUNA_WEB_TRUST_PROXY: "true"
+      ZUNA_WEB_SERVER: ${ZUNA_WEB_SERVER:-}
+      ZUNA_WEB_SERVERS: ${ZUNA_WEB_SERVERS:-}
+      ZUNA_WEB_PREVIEWS: ${ZUNA_WEB_PREVIEWS:-on}

@@ -91,6 +91,8 @@ Each file gets its own random key. It's split into 1 MiB chunks encrypted with X
 
 The sender's device makes a link's preview while they write: it fetches the page, and the title, description and a small picture travel encrypted inside the message. Recipients never contact the site, and the server never sees the link. The site sees the sender's IP address, as it would if they opened the link. Pages are fetched without cookies, only over HTTPS, and only from public addresses: redirects are checked one at a time, and names that lead to this machine or a private network are refused. A determined attacker controlling a site's DNS could still try to switch where it points between the check and the fetch, though HTTPS certificates make that hard to use. Previews can be turned off on each device.
 
+In the web app, the page can't fetch other sites, so its host, `zuna-web`, fetches pages for it by the same rules, and only on port 443. It checks the address a name leads to as it connects, which closes the gap above. The web app's host therefore sees which links are previewed, and sites see the host's address instead of the sender's. The chat server still never sees them. A host can turn previews off.
+
 A preview's title and picture are the sender's claim about the page, like the message's text, so a card can say anything. The app only shows a preview for a whole link in the message's own text, always shows which site that link really goes to, and requires its picture to be inline: a preview can't make your device load anything.
 
 ### Forwarding
@@ -100,6 +102,8 @@ A forwarded message is a new message from whoever forwarded it. On the same serv
 ### Data on your device
 
 Sensitive local data is encrypted with a device key held in your OS keychain (DPAPI, Keychain or Secret Service). The search index stores keyed hashes of words instead of readable text. If Linux has no keychain available, the app warns you in Settings, because this protection is weaker there.
+
+The web app has no keychain to use, so its device key is in the browser's own storage, next to the data it protects. Anyone who can copy the browser's profile can read that data, and Settings says so.
 
 ## Limits
 
@@ -117,11 +121,20 @@ These are real limitations, stated plainly:
 - **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.
 - **A compromised device is out of scope.** Malware on your computer can read what you can read.
 
-## Why there's no web client
+## The web app
 
-A web app's code comes from the server on every visit. A malicious or hacked server could quietly send code that steals keys, which defeats the purpose of end-to-end encryption. Installed apps avoid this.
+A web app's code comes from its host on every visit. A malicious or hacked host could quietly send code that steals keys, which defeats the purpose of end-to-end encryption. Installed apps avoid this, so they remain the safer choice. The web app is for people who host it themselves, or trust whoever does as they'd trust their own computer.
 
-That only holds if the app you installed is genuine, so **install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases)**. Each release lists SHA-256 checksums for its files. Signed Windows and macOS builds update themselves, and only ever to an update signed by the same publisher. Linux builds don't update themselves yet.
+What limits the risk:
+
+- **The web app's host is never a chat server.** It runs as its own program, `zuna-web`, on an address of its own. A chat server, or someone who breaks into one, can't change the code, and its pages can't reach the web app's storage.
+- **It loads nothing from anyone else.** Every file comes from its host, under the desktop's content security policy: no inline scripts, and images only from memory. The host also sends `frame-ancestors 'none'`, `X-Frame-Options`, `Cross-Origin-Opener-Policy` and `nosniff`, and pages it fetches for previews are marked so they can never run as pages there.
+- **A copy can be checked.** Each release lists the SHA-256 of every file the web app serves, and `scripts/check-web.mjs` compares a running copy with it. This shows what the host serves when you check, not what it serves to everyone at every moment.
+- **Its local data is weaker,** as described under "Data on your device".
+
+`docs/WEB.md` says how to run it.
+
+Installed apps only hold their advantage if the app you installed is genuine, so **install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases)**. Each release lists SHA-256 checksums for its files. Signed Windows and macOS builds update themselves, and only ever to an update signed by the same publisher. Linux builds don't update themselves yet.
 
 ## Electron hardening
 

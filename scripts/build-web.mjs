@@ -1,5 +1,5 @@
 // Builds the web app, then zuna-web with the app inside it, for every supported
-// platform, into dist/web. files.sha256 lists every file the app serves, so a
+// platform, into dist/web. zuna-web-files.sha256 lists every file the app serves, so a
 // running copy can be checked against a release (scripts/check-web.mjs).
 import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -38,7 +38,7 @@ mkdirSync(out, { recursive: true });
 const sums = filesIn(built)
   .map((path) => `${createHash("sha256").update(readFileSync(path)).digest("hex")}  ${relative(built, path).split(sep).join("/")}`)
   .sort((a, b) => a.slice(66).localeCompare(b.slice(66)));
-writeFileSync(join(out, "files.sha256"), `${sums.join("\n")}\n`);
+writeFileSync(join(out, "zuna-web-files.sha256"), `${sums.join("\n")}\n`);
 
 for (const [goos, goarch] of targets) {
   const name = `zuna-web-${goos}-${goarch}${goos === "windows" ? ".exe" : ""}`;

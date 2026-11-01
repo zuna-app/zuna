@@ -1,0 +1,39 @@
+# The web app, on a domain of its own, never the chat server's (docs/WEB.md).
+# Run with:  ZUNA_WEB_DOMAIN=web.chat.example.com docker compose -f docker-compose.web.yml up -d
+#
+# The domain must point at this machine, with ports 80 and 443 free for it.
+# Certificates are obtained and renewed automatically. If a chat server or
+# another site already has those ports, use docker-compose.web-proxy.yml.
+
+services:
+  zuna-web:
+    # Build the app first: npm run build:web
+    build:
+      context: ../server
+      dockerfile: Dockerfile.web
+    # Or use a published image instead of building:
+    # image: ghcr.io/socketbyte/zuna-web:latest
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ZUNA_WEB_DOMAIN: ${ZUNA_WEB_DOMAIN:?Set ZUNA_WEB_DOMAIN to the web app's domain}
+      # Filled in on the sign-in form, such as https://chat.example.com.
+      ZUNA_WEB_SERVER: ${ZUNA_WEB_SERVER:-}
+      # If set, the only servers the app may connect to, separated by commas.
+      ZUNA_WEB_SERVERS: ${ZUNA_WEB_SERVERS:-}
+      # "off" stops this host fetching pages for link previews.
+      ZUNA_WEB_PREVIEWS: ${ZUNA_WEB_PREVIEWS:-on}
+    volumes:
+      - zuna-web-data:/data
+
+volumes:
+  zuna-web-data:

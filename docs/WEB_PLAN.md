@@ -1,6 +1,6 @@
 # Web app: plan
 
-Status: agreed 2026-11-01, in progress. It replaces the old "No browser client" decision in `CLAUDE.md` and "Why there's no web client" in `SECURITY.md`.
+Status: W0 to W5 done 2026-11-01, see "Results". W6 waits for a decision. It replaced the old "No browser client" decision in `CLAUDE.md` and "Why there's no web client" in `SECURITY.md`. How to run it is in [WEB.md](WEB.md).
 
 Scope: everything the desktop app does, in a browser, like web.telegram.org. **Notifications are left out on purpose:** no system notifications, no sound, no badge. The tab's title shows the unread count instead: `(3) Zuna`.
 
@@ -222,3 +222,27 @@ Each phase ends with its checks passing and is committed and pushed in small ste
 - **Rolling back `zuna-web`.** A database written by a newer version may not open in an older one. The app should say so, not fail.
 - **Keyboard shortcuts.** `Ctrl+K` and `Cmd+K` can be taken from the browser, but each shortcut is checked in W2. Browser-reserved ones like `Cmd+W` aren't used by the desktop.
 - **Storage limits.** The browsers give a site a share of the disk, from about 10% in Firefox to about 60% in Chrome and Safari. Files are only kept in memory, so this is very likely enough, but W4 checks a large account.
+
+## Results (2026-11-01)
+
+Built and checked on macOS 27.0.1, Apple silicon.
+
+- **W1, shared interface.** `packages/ui` holds the screens, behind `Platform`. The desktop's smoke, ui, send and attack checks pass before and after, with matching screenshots, and so do the golden markup tests.
+- **W2, the web app.** `apps/web`. Everything in "Everything else Electron does" is in place.
+- **W3, `zuna-web`.** `server/cmd/zuna-web` and `server/internal/webhost`, with Go tests for the headers, caching, compression, settings, and previews: private addresses, names leading to them, redirects, size, content types, cookies, other sites asking and rate limits.
+- **W4, web checks.** `apps/web/test/web-check.mjs` passes in Chromium and WebKit. It found two problems, now fixed. Safari keeps no files for a private window, so the app now says so instead of failing to start. And a new device key can't read a database left from an old one, so that database is removed and the person signs in again.
+- **W5, deploying and docs.** `npm run build:web` builds `zuna-web` for five platforms with `zuna-web-files.sha256`, and `scripts/check-web.mjs` tells a release's copy from a changed one. Both were run here. `docs/WEB.md`, `SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/SELF_HOSTING.md`, `README.md` and `CLAUDE.md` describe it.
+
+Not checked:
+
+- **Firefox.** Neither Playwright's Firefox nor Mozilla's starts on macOS 27 ("Could not find profile folder", even with a clean environment). `web-check.mjs firefox` should run on another machine. The voice message risk below is still open.
+- **`server/Dockerfile.web`, the compose files and `deploy/zuna-web.service`.** There's no Docker or systemd on this Mac.
+- **The release and CI changes.** They only run on `v*` tags and pull requests.
+- **Background tabs.** Whether Chrome's Memory Saver discards an idle tab holding a Web Lock and a WebSocket hasn't been measured.
+
+Decided along the way:
+
+- `zuna-web` only previews port 443, unlike the desktop, so a host can't be used to probe other ports.
+- `zuna-web --dev` tells the app it may preview this machine, as a development build of the desktop does. Released hosts don't.
+- The update check compares `version.json` with what the tab first saw, instead of building the version into the app.
+

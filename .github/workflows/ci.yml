@@ -40,6 +40,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:core
       - run: npm run build -w @zuna/desktop
+      - run: npm run build -w @zuna/web
 
   # Known advisories in what's shipped.
   advisories:
