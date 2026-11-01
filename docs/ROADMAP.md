@@ -57,6 +57,8 @@ Membership changes rotate the MLS epoch, which rotates the call key. A removed m
 
 LiveKit would see who is in a call and when, but not the media.
 
+**Screen sharing takes its own route on the desktop.** Chromium captures and encodes poorly on Linux: it reads every frame back to the CPU and has no supported hardware encoder there. So a native process captures and encodes on the GPU, and hands the result to LiveKit to carry, with viewers staying in Chromium. `poc/screenshare` is a working proof of concept, with its measurements and what it found.
+
 ## Other ideas
 
 - **Automatic updates** with `electron-updater`, which needs a signed release pipeline first.
