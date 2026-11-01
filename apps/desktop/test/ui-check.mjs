@@ -337,6 +337,25 @@ try {
   await page.getByLabel("Settings", { exact: true }).click();
   await sleep(150);
   await shot("13-settings");
+  // Removing metadata from files is on, and turning it off asks first.
+  await page.locator(".settings-nav-item", { hasText: "Privacy" }).click();
+  const metadataSwitch = page.getByRole("switch", { name: "Remove metadata from files" });
+  check("metadata is removed from files by default", (await metadataSwitch.getAttribute("aria-checked")) === "true");
+  await metadataSwitch.click();
+  await page.locator(".modal", { hasText: "Send files with their metadata?" }).waitFor();
+  await sleep(150);
+  await shot("13b-keep-metadata");
+  await page.keyboard.press("Escape");
+  await sleep(150);
+  check(
+    "Escape closes the question, not settings, and leaves metadata removed",
+    (await page.getByRole("dialog").count()) === 0 && (await page.locator(".settings-layer").count()) === 1 && (await metadataSwitch.getAttribute("aria-checked")) === "true",
+  );
+  await metadataSwitch.click();
+  await page.getByRole("button", { name: "Turn off" }).click();
+  check("turning it off takes a yes", (await metadataSwitch.getAttribute("aria-checked")) === "false");
+  await metadataSwitch.click();
+  check("turning it back on doesn't ask", (await page.getByRole("dialog").count()) === 0 && (await metadataSwitch.getAttribute("aria-checked")) === "true");
   await page.getByText("Appearance", { exact: true }).click();
   await sleep(100);
   await shot("14-appearance");

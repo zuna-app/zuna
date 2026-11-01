@@ -238,7 +238,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
           conversation.key,
           sending.map(({ blob, name, mime, width, height, thumb, duration }) => ({ blob, name, mime, width, height, thumb, duration })),
           body,
-          options,
+          { ...options, keepMetadata: !settings.removeMetadata },
         )
         .catch((error: Error) => toast(error.message, "error"));
     } else {

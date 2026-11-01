@@ -13,6 +13,8 @@ export interface AppSettings {
   awayAfterMinutes: 1 | 3 | 5 | 10;
   /** This device fetches a page to preview the first link in a message being written. */
   linkPreviews: boolean;
+  /** Before a file is sent, this device takes out where, when and on what it was made. */
+  removeMetadata: boolean;
 }
 
 const KEY = "zuna-settings";
@@ -28,6 +30,7 @@ const DEFAULTS: AppSettings = {
   enterToSend: true,
   awayAfterMinutes: 3,
   linkPreviews: true,
+  removeMetadata: true,
 };
 
 const ACCENTS: AppSettings["accent"][] = ["neutral", "blue", "green", "red", "amber"];

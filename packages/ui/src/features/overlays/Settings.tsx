@@ -18,7 +18,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { platform } from "@/platform";
-import { Avatar, Field, Logo, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
+import { Avatar, Field, Logo, Modal, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
 import { formatFull, MIN_PASSWORD } from "@/lib/format";
@@ -178,6 +178,7 @@ function PrivacySection() {
   const settings = useApp((state) => state.settings);
   const update = useApp((state) => state.updateSettings);
   const { run } = useAction();
+  const [confirmingKeep, setConfirmingKeep] = useState(false);
   const self = server?.self ? server.users[server.self.userId] : null;
   if (!server || !self) return null;
   return (
@@ -198,7 +199,58 @@ function PrivacySection() {
       >
         <Switch on={settings.linkPreviews} onChange={(value) => update({ linkPreviews: value })} label="Link previews" />
       </SettingRow>
+      <SettingRow
+        title="Remove metadata from files"
+        hint="Before a file is sent, this device takes out where and when it was made, the camera or phone and its serial number, the program, and editing history. Photos: JPEG, PNG, WebP, GIF, HEIC and AVIF. Videos: MP4, MOV, 3GP, WebM and MKV. Drawings: SVG. Other files are sent as they are."
+      >
+        <Switch
+          on={settings.removeMetadata}
+          onChange={(value) => (value ? update({ removeMetadata: true }) : setConfirmingKeep(true))}
+          label="Remove metadata from files"
+        />
+      </SettingRow>
+      {confirmingKeep && (
+        <KeepMetadataConfirm
+          onCancel={() => setConfirmingKeep(false)}
+          onConfirm={() => {
+            update({ removeMetadata: false });
+            setConfirmingKeep(false);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/** Turning metadata removal off says what it shows, and waits to be sure. */
+function KeepMetadataConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  // Escape closes this, not the settings behind it.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      onCancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onCancel]);
+  return (
+    <Modal
+      title="Send files with their metadata?"
+      onClose={onCancel}
+      width={440}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel} autoFocus>Cancel</button>
+          <button className="btn btn-danger" onClick={onConfirm}>Turn off</button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5 }}>
+        Photos and videos from phones usually record where they were taken, to within a few meters, and when. With this off, everyone in a chat you send them to can see that, along with the camera or phone and its serial number, the program used, and what was changed in it. So can anyone they pass the files on to.
+      </p>
+      <p className="muted" style={{ fontSize: 13.5 }}>Your server still can't see any of it, as files are encrypted. This is only for this device, and for files you send from now on.</p>
+    </Modal>
   );
 }
 

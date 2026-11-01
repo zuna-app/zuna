@@ -134,7 +134,7 @@ Rules the core depends on:
 - Each server's admins pick one 7TV emote set. People can't add their own.
 - The web app is served by its own host, `zuna-web`, never by a chat server, and on an origin of its own (`docs/WEB_PLAN.md`).
 - Pinned messages live in the pins drawer, with no bar above the chat.
-- Security fixes may not add a step, prompt or setting for people using the app.
+- Security fixes may not add a step, prompt or setting for people using the app. The one exception is removing metadata from files: a switch in Privacy, on by default, that explains what turning it off shows and asks to be sure.
 
 ## Gotchas
 
