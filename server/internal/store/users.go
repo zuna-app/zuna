@@ -309,8 +309,8 @@ func (d *DB) UserCount(ctx context.Context) (int, error) {
 }
 
 // UpdateProfile stores the user's encrypted profile. An avatar must be the
-// user's own file. It returns the avatar this replaced, if nothing else uses it,
-// so it can be deleted.
+// user's own finished upload. It returns the avatar this replaced, if nothing
+// else uses it, so it can be deleted.
 func (d *DB) UpdateProfile(ctx context.Context, userID string, profile, profileSig []byte, avatarFile *string) (string, error) {
 	var old sql.NullString
 	var orphaned []string
@@ -320,8 +320,9 @@ func (d *DB) UpdateProfile(ctx context.Context, userID string, profile, profileS
 		}
 		if avatarFile != nil && (!old.Valid || old.String != *avatarFile) {
 			var owner string
-			err := tx.QueryRowContext(ctx, `SELECT owner_id FROM files WHERE id = ?`, *avatarFile).Scan(&owner)
-			if errors.Is(err, sql.ErrNoRows) || (err == nil && owner != userID) {
+			var completed sql.NullInt64
+			err := tx.QueryRowContext(ctx, `SELECT owner_id, completed_at FROM files WHERE id = ?`, *avatarFile).Scan(&owner, &completed)
+			if errors.Is(err, sql.ErrNoRows) || (err == nil && (owner != userID || !completed.Valid)) {
 				return ErrForbidden
 			}
 			if err != nil {

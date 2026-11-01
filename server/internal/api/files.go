@@ -19,6 +19,8 @@ const (
 	plainChunkBytes = 1 << 20
 	chunkOverhead   = 256
 	maxChunkBytes   = plainChunkBytes + chunkOverhead
+	// Uploads stop with this much of the disk still free, so the database can go on writing.
+	defaultMinFreeDiskMB = 1 << 10
 )
 
 func (s *Server) fileDir(id string) string {
@@ -32,6 +34,20 @@ func (s *Server) chunkPath(id string, n int) string {
 func (s *Server) maxUploadBytes(r *http.Request) (int64, error) {
 	mb, err := s.intSetting(r.Context(), "max_upload_mb", defaultUploadMB)
 	return int64(mb) << 20, err
+}
+
+// diskIsFull reports whether uploads should stop, and says so if they should. Not
+// being able to tell is no reason to stop anyone.
+func (s *Server) diskIsFull(w http.ResponseWriter) bool {
+	if s.cfg.MinFreeDiskMB < 0 {
+		return false
+	}
+	free, err := freeDiskBytes(s.cfg.DataDir)
+	if err != nil || free >= uint64(s.cfg.MinFreeDiskMB)<<20 {
+		return false
+	}
+	writeError(w, http.StatusInsufficientStorage, "storage_full", "This server is out of storage for files. Ask its admin to make some room.")
+	return true
 }
 
 func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *store.Session) {
@@ -53,22 +69,14 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *
 		return
 	}
 	// Every part but the last is full, so the size says how many parts there can be.
-	if body.ChunkCount < 1 || body.TotalSize < 1 || body.TotalSize > int64(body.ChunkCount)*maxChunkBytes ||
-		int64(body.ChunkCount-1)*plainChunkBytes >= body.TotalSize {
+	// The count is held to the limit first, so that nothing below can overflow.
+	if int64(body.ChunkCount) > limit/plainChunkBytes+1 || body.ChunkCount < 1 || body.TotalSize < 1 ||
+		body.TotalSize > int64(body.ChunkCount)*maxChunkBytes || int64(body.ChunkCount-1)*plainChunkBytes >= body.TotalSize {
 		writeError(w, http.StatusBadRequest, "bad_request", "The file description isn't valid.")
 		return
 	}
-	if s.cfg.UserQuotaMB > 0 {
-		used, err := s.db.StorageUsed(r.Context(), sess.UserID)
-		if err != nil {
-			writeFailure(w, err)
-			return
-		}
-		if used+body.TotalSize > int64(s.cfg.UserQuotaMB)<<20 {
-			writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded",
-				"You've used all the storage this server gives each person. Deleting messages with files frees some.")
-			return
-		}
+	if s.diskIsFull(w) {
+		return
 	}
 	id := store.NewID()
 	if err := s.db.CreateFile(r.Context(), store.File{
@@ -76,7 +84,7 @@ func (s *Server) handleCreateFile(w http.ResponseWriter, r *http.Request, sess *
 		OwnerID:    sess.UserID,
 		ChunkCount: body.ChunkCount,
 		TotalSize:  body.TotalSize,
-	}); err != nil {
+	}, s.quotaBytes()); err != nil {
 		writeFailure(w, err)
 		return
 	}
@@ -138,6 +146,19 @@ func (s *Server) handleUploadChunk(w http.ResponseWriter, r *http.Request, sess 
 	}
 	if file.OwnerID != sess.UserID || file.CompletedAt != nil {
 		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
+		return
+	}
+	limit, err := s.maxUploadBytes(r)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	// An upload described before the count was held to the limit may still be around.
+	if int64(file.ChunkCount) > limit/plainChunkBytes+1 {
+		writeError(w, http.StatusForbidden, "forbidden", "This upload can't be changed.")
+		return
+	}
+	if s.diskIsFull(w) {
 		return
 	}
 	// A slow connection gets longer for this than for an ordinary request.

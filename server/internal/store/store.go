@@ -23,6 +23,7 @@ var (
 	ErrNotFound  = errors.New("not found")
 	ErrConflict  = errors.New("conflict")
 	ErrForbidden = errors.New("forbidden")
+	ErrQuota     = errors.New("over quota")
 )
 
 // EpochConflictError reports that a commit or message targeted an old epoch.

@@ -168,7 +168,7 @@ func TestAttachedFilesAreExemptFromCleanup(t *testing.T) {
 	ctx := context.Background()
 	db := openTestDB(t)
 	for _, id := range []string{"kept", "abandoned"} {
-		if err := db.CreateFile(ctx, File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1}); err != nil {
+		if err := db.CreateFile(ctx, File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1}, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -194,10 +194,13 @@ func TestAttachedFilesAreExemptFromCleanup(t *testing.T) {
 	}
 }
 
-// ownFile makes a file belonging to the user these tests send messages as.
+// ownFile makes a finished upload belonging to the user these tests send messages as.
 func ownFile(t *testing.T, db *DB, id string) {
 	t.Helper()
-	if err := db.CreateFile(context.Background(), File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1}); err != nil {
+	if err := db.CreateFile(context.Background(), File{ID: id, OwnerID: "u", ChunkCount: 1, TotalSize: 1}, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CompleteFile(context.Background(), id); err != nil {
 		t.Fatal(err)
 	}
 }

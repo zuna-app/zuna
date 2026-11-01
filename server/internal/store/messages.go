@@ -526,12 +526,12 @@ func unreferenced(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, 
 }
 
 // mayShareFile reports whether a message from this user may use a file: their
-// own upload, or one already in a conversation they belong to, which is how a
-// forwarded message shares its original's files.
+// own finished upload, or one already in a conversation they belong to, which is
+// how a forwarded message shares its original's files.
 func mayShareFile(ctx context.Context, tx *sql.Tx, fileID, userID string) (bool, error) {
 	var allowed int
 	err := tx.QueryRowContext(ctx, `SELECT
-		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND owner_id = ?2) OR
+		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND owner_id = ?2 AND completed_at IS NOT NULL) OR
 		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
 			WHERE r.file_id = ?1 AND m.user_id = ?2)`, fileID, userID).Scan(&allowed)
 	return allowed != 0, err
@@ -549,10 +549,24 @@ type File struct {
 	Received int64 `json:"-"`
 }
 
-func (d *DB) CreateFile(ctx context.Context, f File) error {
-	_, err := d.sql.ExecContext(ctx, `INSERT INTO files(id, owner_id, chunk_count, total_size, created_at) VALUES(?,?,?,?,?)`,
-		f.ID, f.OwnerID, f.ChunkCount, f.TotalSize, Now())
-	return err
+// CreateFile records a new upload, unless that would take its owner past quota,
+// where zero is no limit. Both happen in one transaction, so uploads started
+// together can't each get past it.
+func (d *DB) CreateFile(ctx context.Context, f File, quota int64) error {
+	return d.tx(ctx, func(tx *sql.Tx) error {
+		if quota > 0 {
+			var used int64
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(MAX(total_size, received)), 0) FROM files WHERE owner_id = ?`, f.OwnerID).Scan(&used); err != nil {
+				return err
+			}
+			if used+f.TotalSize > quota {
+				return ErrQuota
+			}
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO files(id, owner_id, chunk_count, total_size, created_at) VALUES(?,?,?,?,?)`,
+			f.ID, f.OwnerID, f.ChunkCount, f.TotalSize, Now())
+		return err
+	})
 }
 
 func (d *DB) File(ctx context.Context, id string) (*File, error) {
@@ -577,13 +591,6 @@ func (d *DB) MayReadFile(ctx context.Context, fileID, userID string) (bool, erro
 		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
 			WHERE r.file_id = ?1 AND m.user_id = ?2)`, fileID, userID).Scan(&allowed)
 	return allowed != 0, err
-}
-
-// StorageUsed is how many bytes of files someone has uploaded or is uploading.
-func (d *DB) StorageUsed(ctx context.Context, userID string) (int64, error) {
-	var total int64
-	err := d.sql.QueryRowContext(ctx, `SELECT COALESCE(SUM(total_size), 0) FROM files WHERE owner_id = ?`, userID).Scan(&total)
-	return total, err
 }
 
 // AddReceived records a part of an upload arriving, which may replace an

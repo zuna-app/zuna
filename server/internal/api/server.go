@@ -74,6 +74,8 @@ type Config struct {
 	AuthBurst int
 	// UserQuotaMB limits one person's files together. Zero is the default, and negative none.
 	UserQuotaMB int
+	// MinFreeDiskMB is how much of the disk uploads leave free. Zero is the default, and negative no limit.
+	MinFreeDiskMB int
 	// PushRelays are the relays this server sends notifications through, by
 	// address. Phones register with one of them; none turns pushes off.
 	PushRelays []string
@@ -111,6 +113,9 @@ func New(cfg Config, db *store.DB) *Server {
 	if cfg.UserQuotaMB == 0 {
 		cfg.UserQuotaMB = defaultUserQuotaMB
 	}
+	if cfg.MinFreeDiskMB == 0 {
+		cfg.MinFreeDiskMB = defaultMinFreeDiskMB
+	}
 	callers, err := clientip.New(cfg.TrustProxy, cfg.TrustedProxies)
 	if err != nil {
 		panic(err)
@@ -140,6 +145,14 @@ func New(cfg Config, db *store.DB) *Server {
 
 // Emotes exposes the emote service, so tests can point it at a fake 7TV.
 func (s *Server) Emotes() *emotes.Service { return s.emotes }
+
+// quotaBytes is what one person may keep here, or zero for no limit.
+func (s *Server) quotaBytes() int64 {
+	if s.cfg.UserQuotaMB < 0 {
+		return 0
+	}
+	return int64(s.cfg.UserQuotaMB) << 20
+}
 
 // EnsureSetupInvite creates the one-time owner invite for an unclaimed server.
 func (s *Server) EnsureSetupInvite(ctx context.Context) (string, error) {
@@ -551,6 +564,9 @@ func writeFailure(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "forbidden", "You don't have permission to do this.")
 	case errors.Is(err, store.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict", "That's already taken.")
+	case errors.Is(err, store.ErrQuota):
+		writeError(w, http.StatusRequestEntityTooLarge, "quota_exceeded",
+			"You've used all the storage this server gives each person. Deleting messages with files frees some.")
 	default:
 		slog.Error("request failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal", "Something went wrong on the server.")

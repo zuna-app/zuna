@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -813,5 +815,66 @@ func TestNewAccountsSayTheirSignInKeysAreBound(t *testing.T) {
 	}
 	if unbound != 0 {
 		t.Fatalf("%d unbound accounts", unbound)
+	}
+}
+
+// Z-42: limits that are multiplied can overflow, and the disk has to outlast them.
+func TestFileLimitsDontOverflow(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 2 })
+	owner := h.owner()
+	h.mustDo("PATCH", "/api/admin/settings", owner.token, map[string]any{"max_upload_mb": 1}, nil)
+	// (2^44) * 1 MiB wraps around to nothing, which used to get through.
+	for _, count := range []int64{1 << 44, (1 << 44) + 1, (1 << 44) * 3, 1 << 62} {
+		if status, _ := h.do("POST", "/api/files", owner.token, map[string]any{"chunk_count": count, "total_size": 1}, nil); status != http.StatusBadRequest {
+			t.Fatalf("%d chunks for one byte gave %d", count, status)
+		}
+	}
+}
+
+func TestAnUnfinishedUploadCantBeKeptForGood(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	var created struct {
+		ID string `json:"id"`
+	}
+	h.mustDo("POST", "/api/files", owner.token, map[string]any{"chunk_count": 2, "total_size": (1 << 20) + 11}, &created)
+	if status, _ := h.do("PATCH", "/api/me", owner.token, map[string]any{"profile": []byte("p"), "avatar_file": created.ID}, nil); status != http.StatusForbidden {
+		t.Fatalf("an unfinished upload as an avatar gave %d", status)
+	}
+	dm := owner.dm(owner.userID)
+	if status, _ := owner.commit(dm.ID, 0, nil); status >= 300 {
+		t.Fatalf("starting a chat gave %d", status)
+	}
+	status, _ := h.do("POST", "/api/groups/"+dm.ID+"/messages", owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "file_ids": []string{created.ID}}, nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("an unfinished upload in a message gave %d", status)
+	}
+}
+
+func TestUploadsStopBeforeTheDiskIsFull(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.MinFreeDiskMB = 1 << 40 })
+	owner := h.owner()
+	if status, resp := h.do("POST", "/api/files", owner.token, map[string]any{"chunk_count": 1, "total_size": 10}, nil); status != http.StatusInsufficientStorage || resp["error"] != "storage_full" {
+		t.Fatalf("with no room left gave %d %v", status, resp)
+	}
+}
+
+func TestParallelUploadsCantPassTheQuota(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.UserQuotaMB = 4 })
+	owner := h.owner()
+	var wg sync.WaitGroup
+	var accepted atomic.Int64
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if status, _ := h.do("POST", "/api/files", owner.token, map[string]any{"chunk_count": 1, "total_size": 1 << 20}, nil); status == http.StatusCreated {
+				accepted.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if accepted.Load() != 4 {
+		t.Fatalf("%d uploads of 1 MiB accepted under a 4 MiB quota", accepted.Load())
 	}
 }
