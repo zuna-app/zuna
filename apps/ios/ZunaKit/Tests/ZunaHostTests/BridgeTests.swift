@@ -91,12 +91,20 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(result.toString(), "1")
     }
 
-    /// A few from tests/e2e/fixtures/addresses.json, the list the core and the web host go by.
-    func testPrivateAddressesMatchTheCore() {
-        for address in ["10.0.0.1", "192.0.2.1", "198.51.100.1", "203.0.113.1", "::1", "::ffff:7f00:1", "0:0:0:0:0:0:0:1", "64:ff9b::808:808", "2001::1", "2001:db8::1", "2002:7f00:1::1", "fec0::1", "feff::1", "::bad::"] {
+    /// The whole of tests/e2e/fixtures/addresses.json, the list the core and the web host go by.
+    func testPrivateAddressesMatchTheCore() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/e2e/fixtures/addresses.json")
+        let addresses = try JSONDecoder().decode([String: [String]].self, from: Data(contentsOf: url))
+        let refused = try XCTUnwrap(addresses["private"])
+        let allowed = try XCTUnwrap(addresses["public"])
+        XCTAssertFalse(refused.isEmpty)
+        XCTAssertFalse(allowed.isEmpty)
+        for address in refused + ["::bad::"] {
             XCTAssertTrue(WebBridge.privateAddress(address), address)
         }
-        for address in ["8.8.8.8", "192.0.1.1", "::ffff:808:808", "2606:4700:4700::1111", "2001:4860:4860::8888"] {
+        for address in allowed {
             XCTAssertFalse(WebBridge.privateAddress(address), address)
         }
     }
