@@ -14,6 +14,8 @@ const flags = {
   // What the viewer tries to decrypt with: the right key, another one, or none, which
   // is what the server sees.
   'viewer-key': 'right',
+  // Chromium features for the viewer, such as VaapiOnNvidiaGPUs.
+  'viewer-features': '',
 }
 for (let i = 2; i < process.argv.length; i += 2) {
   const name = process.argv[i].replace(/^--/, '')
@@ -92,10 +94,10 @@ function electronPath() {
 
 // What the GPU says it's doing, as the check that this really is hardware encoding.
 function nvidiaEncoderStats() {
-  const result = spawnSync('nvidia-smi', ['--query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency,utilization.encoder,utilization.gpu', '--format=csv,noheader,nounits'], { encoding: 'utf8' })
+  const result = spawnSync('nvidia-smi', ['--query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency,utilization.encoder,utilization.decoder,utilization.gpu', '--format=csv,noheader,nounits'], { encoding: 'utf8' })
   if (result.status !== 0) return null
-  const [sessions, fps, latencyUs, encoderUtilization, gpuUtilization] = result.stdout.trim().split(',').map(Number)
-  return { sessions, fps, latencyUs, encoderUtilization, gpuUtilization }
+  const [sessions, fps, latencyUs, encoderUtilization, decoderUtilization, gpuUtilization] = result.stdout.trim().split(',').map(Number)
+  return { sessions, fps, latencyUs, encoderUtilization, decoderUtilization, gpuUtilization }
 }
 
 // On Linux the compositor does part of the work, such as reading each frame back from
@@ -128,6 +130,38 @@ function cpuSeconds(pid) {
   }
 }
 
+// A process and all it started, such as Electron's page and its GPU process, which is
+// where the viewer decodes.
+function treeCpuSeconds(root) {
+  const parents = new Map()
+  for (const pid of readdirSync('/proc').filter((entry) => /^\d+$/.test(entry))) {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+      parents.set(pid, stat.slice(stat.lastIndexOf(') ') + 2).split(' ')[1])
+    } catch {
+      // It ended while this looked.
+    }
+  }
+  let total = 0
+  for (const pid of parents.keys()) {
+    let at = pid
+    while (at && at !== root && at !== '1') at = parents.get(at)
+    if (at === root) total += cpuSeconds(pid) ?? 0
+  }
+  return total
+}
+
+// The cores used from one call to the next.
+function cpuMeter(read) {
+  let before = { at: performance.now(), cpu: read() }
+  return () => {
+    const now = { at: performance.now(), cpu: read() }
+    const cores = now.cpu !== null && before.cpu !== null ? (now.cpu - before.cpu) / ((now.at - before.at) / 1000) : null
+    before = now
+    return cores
+  }
+}
+
 const mean = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null)
 const max = (values) => (values.length ? Math.max(...values) : null)
 const sum = (values) => values.reduce((total, value) => total + value, 0)
@@ -146,6 +180,7 @@ async function main() {
   const viewerStats = []
   const gpuStats = []
   const compositorStats = []
+  const viewerCpuStats = []
   const joinResults = []
   const run = { label, flags, description: null, colours: null, firstFrameMs: null, errors: [] }
 
@@ -188,14 +223,17 @@ async function main() {
     `--label=${label}`, `--seconds=${seconds}`, `--results=${resultsDir}`, `--joins=${flags.joins}`, `--motion=${flags.motion}`,
     ...(viewerKey ? [`--e2ee-key=${viewerKey}`] : []),
     ...(flags.display ? [`--display=${flags.display}`] : []),
+    ...(flags['viewer-features'] ? [`--features=${flags['viewer-features']}`] : []),
   ]
   let viewerStarted = false
+  let viewerCores = null
   const startViewer = () => {
     viewerStarted = true
     // Timed from here, since on Linux the portal's dialog comes first and waits for as
     // long as the person takes.
     if (seconds > 0) setTimeout(finish, seconds * 1000)
-    start('viewer', electronPath(), viewerArgs, onViewerLine)
+    const viewer = start('viewer', electronPath(), viewerArgs, onViewerLine)
+    if (!isWindows) viewerCores = cpuMeter(() => treeCpuSeconds(String(viewer.pid)))
   }
   const onViewerLine = (line) => {
     const message = parse(line)
@@ -226,27 +264,25 @@ async function main() {
   }
 
   const compositor = findCompositor()
-  let compositorBefore = compositor && { at: performance.now(), cpu: cpuSeconds(compositor.pid) }
+  const compositorCores = compositor && cpuMeter(() => cpuSeconds(compositor.pid))
   const sampler = setInterval(() => {
     const sample = nvidiaEncoderStats()
     if (sample) gpuStats.push(sample)
-    if (compositor) {
-      const now = { at: performance.now(), cpu: cpuSeconds(compositor.pid) }
-      // Only once the viewer runs, and not while the portal's dialog waits.
-      if (viewerStarted && now.cpu !== null && compositorBefore.cpu !== null)
-        compositorStats.push({ name: compositor.name, cpuCores: (now.cpu - compositorBefore.cpu) / ((now.at - compositorBefore.at) / 1000) })
-      compositorBefore = now
-    }
+    // Only once the viewer runs, and not while the portal's dialog waits.
+    const compositorNow = compositorCores ? compositorCores() : null
+    if (viewerStarted && compositorNow !== null) compositorStats.push({ name: compositor.name, cpuCores: compositorNow })
+    const viewerNow = viewerCores ? viewerCores() : null
+    if (viewerNow !== null) viewerCpuStats.push(viewerNow)
   }, 1000)
 
   await finished
   clearInterval(sampler)
   await stopAll()
 
-  writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats, joinResults)
+  writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats, viewerCpuStats, joinResults)
 }
 
-function writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats, joinResults) {
+function writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats, viewerCpuStats, joinResults) {
   // The start is a ramp, and the steady part is what these numbers describe.
   const settled = (stats) => stats.slice(Math.min(10, Math.floor(stats.length / 3)))
   const steadyPublisher = settled(publisherStats)
@@ -279,7 +315,7 @@ function writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats
       idrLeftAlone: publisherStats.at(-1)?.idrLeftAlone ?? 0,
     },
     compositor: steadyCompositor.length ? { name: steadyCompositor[0].name, cpuCores: mean(steadyCompositor.map((sample) => sample.cpuCores)) } : null,
-    gpu: steadyGpu.length ? { encoderUtilization: mean(steadyGpu.map((sample) => sample.encoderUtilization)), sessions: max(steadyGpu.map((sample) => sample.sessions)), reportedFps: mean(steadyGpu.map((sample) => sample.fps)) } : null,
+    gpu: steadyGpu.length ? { encoderUtilization: mean(steadyGpu.map((sample) => sample.encoderUtilization)), decoderUtilization: mean(steadyGpu.map((sample) => sample.decoderUtilization)), sessions: max(steadyGpu.map((sample) => sample.sessions)), reportedFps: mean(steadyGpu.map((sample) => sample.fps)) } : null,
     viewer: {
       fps: mean(steadyViewer.map((stats) => stats.fps)),
       kbps: mean(steadyViewer.map((stats) => stats.kbps)),
@@ -296,6 +332,7 @@ function writeReport(run, publisherStats, viewerStats, gpuStats, compositorStats
       framesDropped: sum(steadyViewer.map((stats) => stats.framesDropped)),
       pli: sum(viewerStats.map((stats) => stats.pli)),
       packetsLost: sum(viewerStats.map((stats) => stats.packetsLost)),
+      cpuCores: mean(settled(viewerCpuStats)),
       colourWorst: run.colours ? Math.max(...run.colours.map((swatch) => swatch.worst)) : null,
     },
     colours: run.colours,
