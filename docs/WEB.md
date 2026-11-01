@@ -33,6 +33,16 @@ Current Chrome, Edge, Firefox and Safari can all run it. Two things to know:
 
 `zuna-web` is one file with the web app inside it. Get it from a release, or build it with `npm run build:web`, which puts it in `dist/web` for each platform.
 
+### With deploy/update.sh
+
+On a Linux machine with systemd, the script that installs and updates the chat server can build and run the web app too, behind your reverse proxy:
+
+```bash
+sudo /opt/zuna/deploy/update.sh --server chat.example.com --web web.chat.example.com
+```
+
+[LINUX.md](LINUX.md) covers it, and the proxy settings for the web app's domain.
+
 ### With its own HTTPS
 
 On a machine where ports 80 and 443 are free, with the domain pointing at it:

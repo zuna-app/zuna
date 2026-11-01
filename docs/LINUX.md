@@ -1,9 +1,9 @@
 # Running Zuna on Linux without Docker
 
-`deploy/update.sh` builds Zuna from this repository and runs it as systemd services. It can run the chat server, the push relay ([PUSH_RELAY.md](PUSH_RELAY.md)), or both on one machine. They speak plain HTTP, for your own reverse proxy to put HTTPS in front, on this machine or another one. The same command installs and updates:
+`deploy/update.sh` builds Zuna from this repository and runs it as systemd services. It can run the chat server, the push relay ([PUSH_RELAY.md](PUSH_RELAY.md)), the web app ([WEB.md](WEB.md)), or any of them on one machine. They speak plain HTTP, for your own reverse proxy to put HTTPS in front, on this machine or another one. The same command installs and updates:
 
 - **Pulls** the latest code, and if the script itself changed, runs the new version.
-- **Builds** the server and the relay with Go. It installs Go if the machine doesn't have it.
+- **Builds** the server and the relay with Go. It installs Go if the machine doesn't have it. The web app also needs Node and Rust, which it installs only when you run the web app.
 - **Installs** the binaries, users, folders, settings and services.
 - **Restarts** each service and checks that it answers. If a new build doesn't start, it puts the previous one back.
 
@@ -12,8 +12,8 @@ It doesn't set up a reverse proxy or a firewall: those are yours.
 ## What you need
 
 - **A Linux machine with systemd,** such as Debian, Ubuntu or Fedora. The script installs git and curl with apt or dnf if they're missing.
-- **About 1 GB of memory for building.** On a smaller machine, add a swap file first.
-- **A reverse proxy** with a domain for each part, such as `chat.example.com` for the server and `push.example.com` for the relay.
+- **About 1 GB of memory for building,** or 2 GB with the web app, which also needs about 2 GB of disk for its tools. On a smaller machine, add a swap file first.
+- **A reverse proxy** with a domain for each part, such as `chat.example.com` for the server, `push.example.com` for the relay and `web.chat.example.com` for the web app. The web app's has to be its own, never the server's.
 - **For the relay,** an APNs key from the Apple Developer account that publishes the app. See [What it needs](PUSH_RELAY.md#what-it-needs).
 
 ## Installing
@@ -38,11 +38,20 @@ sudo /opt/zuna/deploy/update.sh --server chat.example.com --relay push.example.c
 
 The relay can also run on its own machine, with only `--relay`, `--apns-key` and `--apns-key-id`. Without an APNs key, the relay runs and phones can register, but pushes fail until you add one.
 
+To let people use Zuna in a browser too, add the web app, on a domain of its own:
+
+```bash
+sudo /opt/zuna/deploy/update.sh --server chat.example.com --web web.chat.example.com
+```
+
+Its sign-in form starts with the server on this machine. The first build of the web app takes about 15 minutes on a machine with 4 cores, and longer on a smaller one, because it installs Node, Rust and `wasm-bindgen` and compiles the encryption core. Later updates reuse them and take seconds. [WEB.md](WEB.md) says what to know before offering the web app to people.
+
 The domains are where people reach Zuna through your proxy. The server puts its domain in invite links. On this machine:
 
 - the server listens on port 8080;
 - the relay listens on port 8090;
-- both listen on every address, so a proxy on another machine can reach them.
+- the web app listens on port 8081;
+- all of them listen only on this machine, unless you say otherwise with `--listen`.
 
 The script prints the addresses to point the proxy at. When the server starts for the first time, the script also prints a one-time setup link. Once the proxy is set up, paste the link into the Zuna app to create the owner account, as in [Finish setup](SELF_HOSTING.md#finish-setup). If you miss it:
 
@@ -59,6 +68,8 @@ For each domain, the proxy must:
 - **add the client's address to `X-Forwarded-For`,** which both services use for rate limiting. Only the entries the proxy added count, so a caller can't make up their own;
 - **allow request bodies of at least 2 MB.** Files upload in 1 MiB chunks, so the limit doesn't need to match the largest file.
 
+The web app's domain needs only HTTPS and `X-Forwarded-For`. Don't add security headers there: the web app sends its own, and a proxy that changes them can weaken them.
+
 With `10.0.0.5` standing for this machine's address:
 
 **Caddy**
@@ -69,6 +80,10 @@ chat.example.com {
 
 push.example.com {
     reverse_proxy 10.0.0.5:8090
+}
+
+web.chat.example.com {
+    reverse_proxy 10.0.0.5:8081
 }
 ```
 
@@ -103,15 +118,27 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
+
+server {
+    listen 443 ssl;
+    server_name web.chat.example.com;
+    # your ssl_certificate lines here
+
+    location / {
+        proxy_pass http://10.0.0.5:8081;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
 ```
 
 **By default the services listen only on this machine,** which is right for a proxy on the same machine. For a proxy on another machine, listen on this machine's private address with `--listen 10.0.0.5`, or on every address with `--listen 0.0.0.0`, and keep these in mind:
 
 - **They speak plain HTTP,** and sign-in tokens pass over it. Keep the two machines on a private network, or put TLS between them, for example with WireGuard.
-- **Let only the proxy reach ports 8080 and 8090.** With ufw, and `10.0.0.2` standing for the proxy's address:
+- **Let only the proxy reach ports 8080, 8090 and 8081.** With ufw, and `10.0.0.2` standing for the proxy's address:
 
   ```bash
-  sudo ufw allow from 10.0.0.2 to any port 8080,8090 proto tcp
+  sudo ufw allow from 10.0.0.2 to any port 8080,8090,8081 proto tcp
   ```
 
 - **Only a trusted proxy can name a caller's address.** That's this machine and private networks by default. A connection from anywhere else is taken at face value, so a public proxy needs `--trusted-proxies 203.0.113.7`, or its callers all count as one address for rate limits. A list replaces the default, so it's also how to narrow it down to exactly your proxy.
@@ -138,12 +165,16 @@ Run the script again with the option you're changing. The others stay as they we
 | Add or replace the APNs key | `--apns-key AuthKey_….p8 --apns-key-id …` |
 | Let the server use a relay on another machine | `--push-relays https://push.example.com` |
 | Turn phone notifications off | `--push-relays off` |
+| Add the web app to a machine that runs the server | `--web web.chat.example.com` |
+| Start the web app's sign-in form with another server | `--web-server https://chat.example.com` |
+| Let the web app connect only to some servers | `--web-servers https://chat.example.com`, or `--web-servers any` to allow any again |
+| Stop the web app's host fetching pages for link previews | `--web-previews off` |
 | Listen somewhere else | `--listen 10.0.0.5` for a proxy on another machine, or `--listen 127.0.0.1` for one on this machine |
 | Say exactly which proxies to trust | `--trusted-proxies 203.0.113.7,10.0.0.0/24` |
-| Use other ports | `--server-port 9080`, `--relay-port 9090` |
+| Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
 | Build what's checked out, without pulling | `--no-pull` |
 
-The script writes `/etc/zuna/zuna.env` and `/etc/zuna/push.env` the first time, and again only when you pass options that change them. Anything else you add to them by hand stays, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration). Restart the service after editing them:
+The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env` and `/etc/zuna/zuna-web.env` the first time, and again only when you pass options that change them. Anything else you add to them by hand stays, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration). Restart the service after editing them:
 
 ```bash
 sudo systemctl restart zuna
@@ -155,9 +186,11 @@ sudo systemctl restart zuna
 |---|---|
 | Chat server | `/usr/local/bin/zuna-server`, service `zuna`, settings `/etc/zuna/zuna.env`, data `/var/lib/zuna` |
 | Push relay | `/usr/local/bin/zuna-push`, service `zuna-push`, settings `/etc/zuna/push.env`, handle key `/var/lib/zuna-push/handle.key` |
+| Web app | `/usr/local/bin/zuna-web`, with the app inside it, service `zuna-web`, settings `/etc/zuna/zuna-web.env`. It keeps no data |
+| What the web app is built with | Node in `/usr/local/node`, Rust and `wasm-bindgen` in the builder's `~/.cargo`, and a copy of the code in its `~/.cache/zuna-web-build` |
 | APNs key | `/etc/zuna/apns.p8`, readable only by the relay |
 | What the script set up | `/etc/zuna/update.conf` |
-| The previous build | `/usr/local/bin/zuna-server.previous` and `zuna-push.previous` |
+| The previous build | `/usr/local/bin/zuna-server.previous`, `zuna-push.previous` and `zuna-web.previous` |
 
 **Back up** `/var/lib/zuna`, as described in [Backups](SELF_HOSTING.md#backups), and `/var/lib/zuna-push/handle.key`. If the handle key is lost, every phone's registration breaks until its app registers again, which it does when it next opens.
 
@@ -171,8 +204,13 @@ journalctl -u zuna -f
 journalctl -u zuna-push -f
 ```
 
+```bash
+journalctl -u zuna-web -f
+```
+
 - **The app can't connect:** check that the proxy forwards WebSockets, and that `https://chat.example.com/healthz` answers through it.
-- **The build runs out of memory:** add swap, or build on a bigger machine.
+- **The build runs out of memory:** add swap, or build on a bigger machine. The web app's encryption core needs the most.
+- **The web app says it has to be opened over HTTPS:** reach it through the proxy, at `https://web.chat.example.com`, not at its port.
 - **Phones don't get notifications:**
   - the server's `ZUNA_PUSH_RELAYS` must list the relay's public address. By default it lists the project's relay, `https://relay.mgalazka.pl`, and the script sets it to the relay on the same machine;
   - the relay needs an APNs key;

@@ -34,6 +34,8 @@ export default defineConfig({
     assetsInlineLimit: 0,
     outDir: "dist",
     emptyOutDir: true,
+    // The app and the C++ grammar for code blocks are big, and only load once.
+    chunkSizeWarningLimit: 1024,
   },
   server: {
     port: 5174,
