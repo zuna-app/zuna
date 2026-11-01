@@ -36,3 +36,7 @@ apps/ios/.e2e/
 
 # Local tool configuration
 .claude/
+
+# zuna-web: scripts/build-web.mjs copies the built app here to build it in
+server/cmd/zuna-web/site/*
+!server/cmd/zuna-web/site/.gitkeep
