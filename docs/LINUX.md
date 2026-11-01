@@ -151,9 +151,9 @@ sudo /opt/zuna/deploy/update.sh
 
 It remembers what runs on the machine, in `/etc/zuna/update.conf`. Add `--test` to run the server's tests before installing anything. If a new build doesn't start, the script prints the service's log, puts the previous build back and exits with an error.
 
-The script runs as root, but building doesn't: that's done by the checkout's owner, or by a `zuna-build` user if root owns it, since it runs code from the repository.
+The script runs as root, but building doesn't: that's done by a `zuna-build` user, since it runs code from the repository. So that the script itself can't be changed by anyone else, it refuses to run from a checkout that someone other than root can write to, and says how to fix that. `--allow-user-checkout` runs it anyway, and has the checkout's owner build, at the cost of them being root at the next update.
 
-**Only install what's been signed, if you like.** By default the script builds the branch's newest commit, so someone who took over the repository would be running code on every server that updates. With `--signed-tags`, it builds the newest `v*` tag instead, and only if `git verify-tag` accepts its signature, so nothing runs before that's checked. It needs tags signed by a key you've told git to trust: the signer's key in the checkout owner's GPG keyring, or `gpg.ssh.allowedSignersFile` for SSH signatures. The choice is remembered like the other options.
+**What gets installed.** Until there's something signed to go by, the script builds the branch's newest commit and warns about it, so someone who took over the repository would be running code on every server that updates. Tell git to trust the signer's key, with the key in root's GPG keyring or `gpg.ssh.allowedSignersFile` for SSH signatures. The next update that finds a `v*` tag whose signature checks out builds that, and from then on only that: nothing is built or run until `git verify-tag` accepts the newest tag's signature, and an update with no such tag changes nothing. `--signed-tags` asks for this from the start, and `--follow-branch` goes back to the branch. Each is remembered like the other options.
 
 ## Changing things later
 

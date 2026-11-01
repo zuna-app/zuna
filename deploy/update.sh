@@ -41,8 +41,12 @@
 #   --server-port PORT   the server's port (default 8080)
 #   --relay-port PORT    the relay's port (default 8090)
 #   --web-port PORT      the web app's port (default 8081)
-#   --signed-tags        build the newest release tag, only if its signature
-#                        checks out, instead of the branch's newest commit
+#   --signed-tags        only ever build the newest release tag, if its signature
+#                        checks out. This happens by itself, once there's a tag
+#                        signed by a key this machine trusts
+#   --follow-branch      build the branch's newest commit, whatever tags there are
+#   --allow-user-checkout  run even though someone other than root can change this
+#                        checkout, and so what this script does as root
 #   --no-pull            build what's checked out, without pulling
 #   --test               run the server's tests before installing
 set -euo pipefail
@@ -74,6 +78,7 @@ APNS_KEY_ID=""
 LISTEN=127.0.0.1
 TRUSTED_PROXIES=""
 SIGNED_TAGS=0
+ALLOW_USER_CHECKOUT=0
 SERVER_PORT=8080
 RELAY_PORT=8090
 WEB_PORT=8081
@@ -105,6 +110,8 @@ while [ $# -gt 0 ]; do
     --relay-port) RELAY_PORT="${2:?--relay-port needs a port}"; RELAY_CHANGED=1; shift 2 ;;
     --web-port) WEB_PORT="${2:?--web-port needs a port}"; WEB_CHANGED=1; shift 2 ;;
     --signed-tags) SIGNED_TAGS=1; shift ;;
+    --follow-branch) SIGNED_TAGS=branch; shift ;;
+    --allow-user-checkout) ALLOW_USER_CHECKOUT=1; shift ;;
     --no-pull) PULL=0; shift ;;
     --test) TEST=1; shift ;;
     -h | --help) awk 'NR > 1 && /^set -euo/ { exit } NR > 1' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -151,6 +158,14 @@ esac
 # The checkout's owner pulls and builds, so the checkout stays theirs.
 OWNER="$(stat -c %U "$SRC")"
 OWNER_HOME="$(getent passwd "$OWNER" | cut -d: -f6)"
+# This script runs as root, from this checkout, so whoever can change it is root at
+# the next update. An edit may already have removed this check, so what this is for
+# is getting a machine out of that position before anyone has.
+if [ "$ALLOW_USER_CHECKOUT" != 1 ]; then
+  if [ "$OWNER" != root ] || [ -n "$(find "$SRC/deploy/update.sh" "$SRC/.git" -maxdepth 0 -perm /022 2>/dev/null)" ]; then
+    fail "someone other than root can change $SRC, and through it what this script does as root. Fix that with: sudo chown -R root:root $SRC && sudo chmod -R go-w $SRC. Or, if that's how you want it, run this with --allow-user-checkout."
+  fi
+fi
 as_owner() {
   if [ "$OWNER" = root ]; then
     "$@"
@@ -275,15 +290,33 @@ as_web_builder() {
 if [ "$PULL" = 1 ]; then
   step "Pulling updates"
   before="$(sha256sum "$SRC/deploy/update.sh")"
-  if [ "$SIGNED_TAGS" = 1 ]; then
-    # Nothing is built or run until its signature checks out. See docs/LINUX.md.
+  if [ "$SIGNED_TAGS" != branch ]; then
     as_owner git -C "$SRC" fetch --tags --force
     tag="$(as_owner git -C "$SRC" tag --list 'v*' --sort=-v:refname | head -n1)"
+    # The first signature that checks out here is what every update after it has to
+    # have, so taking over the repository can't simply go back to not signing.
+    if [ "$SIGNED_TAGS" != 1 ] && [ -n "$tag" ] && as_owner git -C "$SRC" verify-tag "$tag" >/dev/null 2>&1; then
+      echo "Release tags here are signed by a key this machine trusts, so from now on only those are installed."
+      SIGNED_TAGS=1
+      ARGS+=(--signed-tags)
+    fi
+  fi
+  if [ "$SIGNED_TAGS" = 1 ]; then
+    # Nothing is built or run until its signature checks out. See docs/LINUX.md.
     [ -n "$tag" ] || fail "there's no release tag to update to."
     as_owner git -C "$SRC" verify-tag "$tag" || fail "the signature of $tag doesn't check out, so nothing was changed."
     as_owner git -C "$SRC" checkout --quiet --detach "$tag"
     echo "Verified $tag"
   else
+    if [ "$SIGNED_TAGS" != branch ]; then
+      echo "Warning: no release tag here is signed by a key this machine trusts, so this is building"
+      echo "the branch's newest commit, with nothing to say who wrote it. See docs/LINUX.md."
+    fi
+    # Going back to the branch, after building a tag left no branch checked out.
+    if ! as_owner git -C "$SRC" symbolic-ref -q HEAD >/dev/null; then
+      branch="$(as_owner git -C "$SRC" symbolic-ref --short refs/remotes/origin/HEAD)"
+      as_owner git -C "$SRC" checkout --quiet "${branch#origin/}"
+    fi
     as_owner git -C "$SRC" pull --ff-only
   fi
   # A newer version of this script finishes the job.
@@ -354,6 +387,7 @@ APNS_KEY_ID="$APNS_KEY_ID"
 LISTEN="$LISTEN"
 TRUSTED_PROXIES="$TRUSTED_PROXIES"
 SIGNED_TAGS="$SIGNED_TAGS"
+ALLOW_USER_CHECKOUT="$ALLOW_USER_CHECKOUT"
 SERVER_PORT="$SERVER_PORT"
 RELAY_PORT="$RELAY_PORT"
 WEB_PORT="$WEB_PORT"
