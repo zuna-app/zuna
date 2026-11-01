@@ -290,7 +290,7 @@ static int open_graph(zuna_encoder *e) {
     inputs->name = av_strdup("out");
     inputs->filter_ctx = e->graph_sink;
 
-    const char *description = dmabuf ? "hwmap=mode=read:derive_device=vaapi,scale_vaapi=format=nv12:out_color_matrix=bt709:out_range=tv"
+    const char *description = dmabuf ? "hwmap=derive_device=vaapi,scale_vaapi=format=nv12:out_color_matrix=bt709:out_range=tv"
                                      : "hwupload,scale_vaapi=format=nv12:out_color_matrix=bt709:out_range=tv";
     result = avfilter_graph_parse_ptr(e->graph, description, &inputs, &outputs, NULL);
     avfilter_inout_free(&outputs);

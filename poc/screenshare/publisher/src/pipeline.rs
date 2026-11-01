@@ -38,6 +38,7 @@ const PACKET_WAIT: Duration = Duration::from_millis(40);
 const BITRATE_MIN_GAP: Duration = Duration::from_secs(2);
 const BITRATE_MIN_CHANGE: f64 = 1.25;
 const BITRATE_URGENT_DROP: f64 = 0.6;
+#[cfg_attr(not(feature = "livekit"), allow(dead_code))]
 const BITRATE_FLOOR: u64 = 500_000;
 
 /// libwebrtc starts low and probes upward, so a frame sized for the cap would only queue.
@@ -81,6 +82,7 @@ pub struct Pipeline {
     started: Instant,
     started_wall_us: i64,
     last_encode: Option<Instant>,
+    frame_due: Instant,
     last_change: Instant,
     key_pending: bool,
     last_key: Option<Instant>,
@@ -109,6 +111,7 @@ impl Pipeline {
             started: now,
             started_wall_us: wall.as_micros() as i64,
             last_encode: None,
+            frame_due: now,
             last_change: now,
             key_pending: false,
             last_key: None,
@@ -124,8 +127,9 @@ impl Pipeline {
     }
 
     /// The earliest a new frame should be encoded.
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn next_due(&self) -> Instant {
-        self.last_encode.map_or_else(Instant::now, |last| last + self.interval)
+        self.frame_due
     }
 
     /// How long the capture can wait for a new frame before calling `on_idle`.
@@ -177,6 +181,10 @@ impl Pipeline {
         self.drain(began)?;
         let took = began.elapsed();
         self.last_encode = Some(began);
+        // Counted from when the last frame was due and not from when it went, or waking
+        // a little late each time would add up to a lower frame rate.
+        let next = self.frame_due + self.interval;
+        self.frame_due = if next > began { next } else { began + self.interval };
         self.window.encode_time += took;
         self.window.encode_time_max = self.window.encode_time_max.max(took);
         if repeat {
@@ -278,6 +286,7 @@ impl Pipeline {
         &self.encoder.codec
     }
 
+    #[cfg_attr(not(feature = "livekit"), allow(irrefutable_let_patterns))]
     pub fn finish(&mut self) {
         if let Sink::File { prepared, raw } = &mut self.sink {
             let _ = prepared.flush();

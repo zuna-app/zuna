@@ -96,7 +96,7 @@ app.whenReady().then(async () => {
       writeFileSync(join(resultsDir, `${name}.png`), Buffer.from(data, 'base64'))
     } else if (message.startsWith('@@')) {
       process.stdout.write(`${message.slice(2)}\n`)
-    } else {
+    } else if (event.level === 'error') {
       process.stderr.write(`[page] ${message}\n`)
     }
   })

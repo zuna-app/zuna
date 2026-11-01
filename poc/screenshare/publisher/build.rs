@@ -51,14 +51,15 @@ fn build_encoder_library(manifest: &Path, ffmpeg: &Path, out: &Path, program_dir
             .arg(format!("/LIBPATH:{}", ffmpeg.join("lib").display()))
             .args(["avcodec.lib", "avutil.lib"]);
     } else {
-        // -Bsymbolic and $ORIGIN keep it to its own FFmpeg, however it gets loaded.
+        // An old-style rpath, since FFmpeg's libraries need each other and the new kind
+        // applies only to this library's direct dependencies.
         command
             .args(["-shared", "-fPIC", "-fvisibility=hidden"])
             .arg(&source)
             .arg("-o")
             .arg(program_dir.join("libzuna_encoder.so"))
             .arg(format!("-L{}", ffmpeg.join("lib").display()))
-            .args(["-lavcodec", "-lavfilter", "-lavutil", "-Wl,-Bsymbolic"])
+            .args(["-lavcodec", "-lavfilter", "-lavutil", "-Wl,-Bsymbolic", "-Wl,--disable-new-dtags"])
             .arg(format!("-Wl,-rpath,{}", ffmpeg.join("lib").display()));
     }
     let status = command.status().expect("Couldn't run the C compiler");

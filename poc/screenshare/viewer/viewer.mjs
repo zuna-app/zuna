@@ -210,10 +210,10 @@ async function reportStats() {
   const fields = {
     fps: delta('framesDecoded') / seconds,
     kbps: (delta('bytesReceived') * 8) / seconds / 1000,
+    framesDecoded: now.framesDecoded ?? 0,
+    bytesReceived: now.bytesReceived ?? 0,
     width: now.frameWidth,
     height: now.frameHeight,
-    decoder: now.decoderImplementation,
-    powerEfficient: now.powerEfficientDecoder,
     codec: now.codecMime,
     fmtp: now.codecFmtp,
     decodeMs: decoded ? (delta('totalDecodeTime') / decoded) * 1000 : null,
@@ -237,7 +237,6 @@ async function reportStats() {
   report('viewer', fields)
   hud.textContent = [
     `${fields.codec ?? '?'}  ${fields.width}x${fields.height}  ${e2eeKey ? 'E2EE on' : 'E2EE off'}`,
-    `decoder   ${fields.decoder}`,
     `fps       ${fields.fps.toFixed(1)}`,
     `bitrate   ${(fields.kbps / 1000).toFixed(1)} Mbit/s`,
     `latency   ${fields.latencyMs ?? '?'} ms  (p95 ${fields.latencyP95Ms ?? '?'} ms)`,
@@ -325,10 +324,8 @@ async function main() {
   await room.connect(params.get('url'), params.get('token'))
   report('connected', { participants: room.remoteParticipants.size })
 
-  const shownAfter = await firstFrame(room)
-  report('firstFrame', { ms: shownAfter })
-  video.requestVideoFrameCallback(onVideoFrame)
-
+  // From here and not the first frame, so that a viewer who can't decrypt anything
+  // still reports the bytes it receives.
   setInterval(reportStats, 1000)
   // Halfway through, for looking at what the text really looks like after a while.
   const seconds = Number(params.get('seconds'))
@@ -336,6 +333,10 @@ async function main() {
     setTimeout(() => saveFrame(`${label}-received`), (seconds * 1000) / 2)
     setTimeout(() => report('colours', { swatches: lastColours }), seconds * 900)
   }
+
+  const shownAfter = await firstFrame(room)
+  report('firstFrame', { ms: shownAfter })
+  video.requestVideoFrameCallback(onVideoFrame)
 }
 
 main().catch((error) => {

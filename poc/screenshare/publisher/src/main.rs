@@ -268,9 +268,14 @@ fn run(args: Args) -> Result<()> {
 }
 
 fn main() -> ExitCode {
-    // Stays above INFO even when asked for more of this program's logs, since the
-    // native frame cryptor has been reported to log key material at that level.
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).filter_module("libwebrtc", log::LevelFilter::Warn).init();
+    // libwebrtc's logs stay off whatever RUST_LOG says, since the native frame cryptor
+    // has been reported to log key material. ZUNA_WEBRTC_LOG lets them through, which
+    // is how scripts/key-log-check.mjs looks for that.
+    let mut logger = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"));
+    if std::env::var_os("ZUNA_WEBRTC_LOG").is_none() {
+        logger.filter_module("libwebrtc", log::LevelFilter::Off);
+    }
+    logger.init();
 
     let args = match parse_args() {
         Ok(args) => args,

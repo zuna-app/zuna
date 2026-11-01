@@ -11,6 +11,9 @@ import { ensureFfmpeg, ensureLiveKit, isWindows, root } from './deps.mjs'
 const flags = {
   encoder: 'auto', fps: '60', bitrate: '20000', seconds: '0', e2ee: 'yes', label: '', joins: '0',
   input: 'gpu', 'idr-fix': 'yes', display: '', crop: '', motion: '1', build: 'yes', 'keyframe-seconds': '10',
+  // What the viewer tries to decrypt with: the right key, another one, or none, which
+  // is what the server sees.
+  'viewer-key': 'right',
 }
 for (let i = 2; i < process.argv.length; i += 2) {
   const name = process.argv[i].replace(/^--/, '')
@@ -25,6 +28,7 @@ const seconds = Number(flags.seconds)
 const label = flags.label || `${flags.encoder}-${flags.input}-${flags.fps}fps-${flags.bitrate}k`
 const resultsDir = join(root, 'results')
 const e2eeKey = flags.e2ee === 'yes' ? 'stand-in-for-a-key-from-mls-exporter' : ''
+const viewerKey = { right: e2eeKey, wrong: 'some-other-key-entirely', none: '' }[flags['viewer-key']]
 
 // cl.exe doesn't take paths over 260 characters, and LiveKit's headers go past that
 // from a target folder this deep in a checkout.
@@ -53,6 +57,8 @@ function start(name, command, args, onLine, env) {
   children.push(child)
   createInterface({ input: child.stdout }).on('line', onLine)
   createInterface({ input: child.stderr }).on('line', (line) => {
+    // LiveKit in development mode logs every packet's worth of detail.
+    if (name === 'livekit' && !/\t(WARN|ERROR)\t/.test(line)) return
     if (!/^\s*$/.test(line)) console.error(`[${name}] ${line}`)
   })
   return child
@@ -121,15 +127,17 @@ async function main() {
   if (flags.crop) publisherArgs.push('--crop', flags.crop)
 
   const startPublisher = (display) => {
-    start('publisher', publisherPath, [...publisherArgs, '--monitor-at', `${display.x + 1},${display.y + 1}`], (line) => {
+    const where = display ? ['--monitor-at', `${display.x + 1},${display.y + 1}`] : []
+    start('publisher', publisherPath, [...publisherArgs, ...where], (line) => {
       const message = parse(line)
       if (message?.type === 'ready') {
         run.description = message.description
         console.log(`Publishing: ${message.description}, ${message.e2ee ? 'encrypted' : 'not encrypted'}`)
+        if (!isWindows) startViewer()
       } else if (message?.type === 'stats') {
         publisherStats.push(message)
       }
-    }).on('exit', (code) => {
+    }, { LD_LIBRARY_PATH: join(root, '.deps', 'ffmpeg', 'lib') }).on('exit', (code) => {
       if (code) {
         run.errors.push(`The publisher exited with ${code}`)
         finish()
@@ -140,15 +148,16 @@ async function main() {
   const viewerArgs = [
     join(root, 'viewer', 'main.cjs'),
     `--label=${label}`, `--seconds=${seconds}`, `--results=${resultsDir}`, `--joins=${flags.joins}`, `--motion=${flags.motion}`,
-    ...(e2eeKey ? [`--e2ee-key=${e2eeKey}`] : []),
+    ...(viewerKey ? [`--e2ee-key=${viewerKey}`] : []),
     ...(flags.display ? [`--display=${flags.display}`] : []),
   ]
-  start('viewer', electronPath(), viewerArgs, (line) => {
+  const startViewer = () => start('viewer', electronPath(), viewerArgs, (line) => {
     const message = parse(line)
     if (!message) return
     switch (message.type) {
-      case 'display': startPublisher(message); break
-      case 'viewer': viewerStats.push(message); console.log(`  ${message.width}x${message.height} ${message.fps.toFixed(0)} fps ${(message.kbps / 1000).toFixed(1)} Mbit/s, ${message.latencyMs ?? '?'} ms, decoder ${message.decoder}`); break
+      // On Windows the viewer says where it is, and the publisher captures that monitor.
+      case 'display': if (isWindows) startPublisher(message); break
+      case 'viewer': viewerStats.push(message); console.log(`  ${message.width}x${message.height} ${message.fps.toFixed(0)} fps ${(message.kbps / 1000).toFixed(1)} Mbit/s, ${message.latencyMs ?? '?'} ms`); break
       case 'firstFrame': run.firstFrameMs = message.ms; break
       case 'colours': run.colours = message.swatches; break
       case 'join': joinResults.push(message); console.log(`  Join ${message.attempt + 1}: first frame after ${message.firstFrameMs === null ? 'nothing in 15 s' : `${Math.round(message.firstFrameMs)} ms`}, ${message.pli} PLI`); break
@@ -157,6 +166,16 @@ async function main() {
       default: break
     }
   })
+
+  // On Linux the portal's dialog comes first, since the test window covers a whole
+  // monitor and could hide it. Pick the monitor that window then opens on, which is
+  // the last one unless --display says otherwise.
+  if (isWindows) {
+    startViewer()
+  } else {
+    console.log('Choose what to share in the dialog: the monitor the test window will open on.')
+    startPublisher()
+  }
 
   const sampler = setInterval(() => {
     const sample = nvidiaEncoderStats()
@@ -183,7 +202,6 @@ function writeReport(run, publisherStats, viewerStats, gpuStats, joinResults) {
     label: run.label,
     description: run.description,
     errors: run.errors,
-    decoder: steadyViewer.at(-1)?.decoder,
     codec: steadyViewer.at(-1)?.codec,
     fmtp: steadyViewer.at(-1)?.fmtp,
     size: steadyViewer.at(-1) && `${steadyViewer.at(-1).width}x${steadyViewer.at(-1).height}`,
@@ -207,6 +225,8 @@ function writeReport(run, publisherStats, viewerStats, gpuStats, joinResults) {
     viewer: {
       fps: mean(steadyViewer.map((stats) => stats.fps)),
       kbps: mean(steadyViewer.map((stats) => stats.kbps)),
+      framesDecoded: viewerStats.at(-1)?.framesDecoded ?? 0,
+      bytesReceived: viewerStats.at(-1)?.bytesReceived ?? 0,
       decodeMs: mean(present(steadyViewer.map((stats) => stats.decodeMs))),
       jitterBufferMs: mean(present(steadyViewer.map((stats) => stats.jitterBufferMs))),
       latencyMs: mean(present(steadyViewer.map((stats) => stats.latencyMs))),

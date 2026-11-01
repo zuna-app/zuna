@@ -9,6 +9,7 @@ use std::{
 
 use libloading::Library;
 
+#[cfg(windows)]
 pub const INPUT_D3D11: c_int = 0;
 pub const INPUT_CPU: c_int = 1;
 #[cfg(target_os = "linux")]
@@ -72,9 +73,22 @@ const LIBRARY: &str = "zuna_encoder.dll";
 #[cfg(not(windows))]
 const LIBRARY: &str = "libzuna_encoder.so";
 
+#[cfg(windows)]
+fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloading::Error> {
+    unsafe { Library::new(path) }
+}
+
+/// DEEPBIND has it look in its own FFmpeg first. Without that, libwebrtc's copy would
+/// win if this program ever exported it, and it's a different version of FFmpeg.
+#[cfg(not(windows))]
+fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloading::Error> {
+    let flags = libc::RTLD_NOW | libc::RTLD_LOCAL | libc::RTLD_DEEPBIND;
+    unsafe { libloading::os::unix::Library::open(Some(path), flags) }.map(Library::from)
+}
+
 fn load_api() -> Result<Api> {
     let path = std::env::current_exe().map_err(|error| error.to_string())?.with_file_name(LIBRARY);
-    let library = unsafe { Library::new(&path) }.map_err(|error| format!("Loading {}: {error}", path.display()))?;
+    let library = open_library(&path).map_err(|error| format!("Loading {}: {error}", path.display()))?;
     macro_rules! get {
         ($name:literal) => {
             *unsafe { library.get($name) }.map_err(|error| format!("{}: {error}", String::from_utf8_lossy($name)))?

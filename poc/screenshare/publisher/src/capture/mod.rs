@@ -2,6 +2,9 @@
 mod linux;
 #[cfg(target_os = "linux")]
 mod pipewire;
+// Plain Rust, so that its tests can run on any platform.
+#[cfg(any(test, target_os = "linux"))]
+mod pod;
 #[cfg(windows)]
 mod windows;
 
