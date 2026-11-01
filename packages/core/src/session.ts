@@ -118,6 +118,7 @@ import type {
   ConversationView,
   CoreEvent,
   DeviceView,
+  EarlierMessage,
   Emote,
   EmoteRef,
   EmoteSet,
@@ -167,6 +168,14 @@ const REMOVED_KEPT_MS = 30 * 24 * 3600 * 1000;
 const SIGNED_OUT_RETRY_MS = 5 * 60 * 1000;
 /** Past this, the time a device signed and the time the server says it got the message look wrong. */
 const TIME_DIFFERS_MS = 24 * 3600 * 1000;
+/**
+ * How recent a message must be, and the one its device sent before it, for that one
+ * to be looked for when it's missing. Twice this is well within the shortest time a
+ * server may keep messages for, a day, so what's missing wasn't simply expired.
+ */
+const EARLIER_LOOKED_FOR_MS = 10 * 3600 * 1000;
+/** How long to wait before looking, so that what's still arriving can arrive. */
+const EARLIER_LOOK_DELAY_MS = 3000;
 const SEARCH_REBUILD_BATCH = 200;
 const VAULT_BATCH = 200;
 /** The vault item that lists every pin and verification this account holds, and its preferences. */
@@ -419,6 +428,9 @@ export class ServerSession {
   private treeUsersCache = new Map<string, Set<string>>();
   /** Leaves already warned about, so one ghost makes one warning. */
   private warnedLeaves = new Set<string>();
+  /** Messages that later ones say were sent, and that haven't arrived, by group and ID. */
+  private missing = new Map<string, { groupId: string; id: string; userId: string }>();
+  private missingTimer: ReturnType<typeof setTimeout> | undefined;
   private manifest: TrustManifest | null = null;
   private manifestWrite: Promise<void> = Promise.resolve();
   private resealing = new Set<string>();
@@ -499,6 +511,7 @@ export class ServerSession {
     this.stopped = true;
     this.socket.stop();
     clearTimeout(this.flushRetry);
+    clearTimeout(this.missingTimer);
     clearTimeout(this.muteTimer);
     clearTimeout(this.signedOutRetry);
     clearTimeout(this.rotationTimer);
@@ -3809,6 +3822,48 @@ export class ServerSession {
     if (live && isNew && status !== "sent") this.awaitingKeys.add(ref);
     const fresh = live ? isNew : status === "sent" && this.awaitingKeys.delete(ref);
     if (fresh && status === "sent" && message.sender_user !== this.account.userId) this.maybeNotify(view);
+    if (body?.after) this.lookForEarlier(message, body);
+  }
+
+  /**
+   * A message names the one its device sent before it here, so if that one never
+   * arrived, the server may be holding it back. It's asked for, and if the server
+   * says there's no such message, the person is told. Only for one sent while this
+   * device was in the conversation, and recently, so it can't have expired.
+   */
+  private lookForEarlier(message: ApiMessage, body: MessageBody): void {
+    const after = body.after!;
+    if (this.messageRow(message.group_id, after.id)) return;
+    const joined = this.joinedEpoch(message.group_id);
+    if (joined === null || after.epoch < joined || body.sentAt === undefined) return;
+    if (message.created_at < Date.now() - EARLIER_LOOKED_FOR_MS || body.sentAt - after.at > EARLIER_LOOKED_FOR_MS) return;
+    this.missing.set(`${message.group_id}/${after.id}`, { groupId: message.group_id, id: after.id, userId: message.sender_user });
+    clearTimeout(this.missingTimer);
+    this.missingTimer = setTimeout(() => void this.findMissing(), EARLIER_LOOK_DELAY_MS);
+  }
+
+  /** Looks for the messages later ones named, once caught up with their conversations. */
+  private async findMissing(): Promise<void> {
+    const missing = [...this.missing.values()].filter((item) => !this.messageRow(item.groupId, item.id));
+    this.missing.clear();
+    for (const groupId of new Set(missing.map((item) => item.groupId))) {
+      await this.syncGroup(groupId).catch(() => undefined);
+    }
+    for (const item of missing) {
+      const group = this.groups.get(item.groupId);
+      if (this.stopped || !group || group.removedAt || group.doubtful || this.messageRow(item.groupId, item.id)) continue;
+      try {
+        this.ingest(await this.api.message(item.groupId, item.id), false);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 404) continue;
+        const name = this.users.get(item.userId)?.profile.displayName || "Someone";
+        this.warnOnce(
+          `held-back/${item.groupId}/${item.id}`,
+          `${name}'s app says they sent a message in one of your conversations that never reached you, and the server says there's no such message.`,
+          item.userId,
+        );
+      }
+    }
   }
 
   /**
@@ -4574,7 +4629,9 @@ export class ServerSession {
     if (entry.kind === "edit") {
       await this.withLock(entry.groupId, () =>
         this.sealAndRetry(entry.groupId, async (epoch, key) => {
-          const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id) };
+          const row = this.messageRow(entry.groupId, entry.id);
+          const after = row ? this.storedBody(row)?.after : undefined;
+          const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after };
           const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body));
           this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
         }),
@@ -4589,13 +4646,15 @@ export class ServerSession {
       await this.rotateIfOld(groupId);
       this.moveLocalEcho(groupKey, groupId, entry.id);
       await this.sealAndRetry(groupId, async (epoch, key) => {
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody(body));
+        const after = this.getKv<EarlierMessage>(`sent/${groupId}`) ?? undefined;
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after }));
         const saved = await this.api.sendMessage(groupId, {
           id: entry.id,
           epoch,
           envelope,
           file_ids: entry.fileIds?.length ? entry.fileIds : undefined,
         });
+        this.setKv(`sent/${groupId}`, { id: entry.id, epoch, at: Date.now() } satisfies EarlierMessage);
         this.ingest(saved, false);
       });
     });

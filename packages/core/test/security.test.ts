@@ -1581,6 +1581,58 @@ describe("a server pinning or unpinning a message", () => {
   });
 });
 
+describe("a server holding back a message", () => {
+  /** As if `app` never got a message: gone from its database, and so from what it shows. */
+  const neverArrived = (app: TestApp, groupId: string, id: string) => sessionOf(app).db.run("DELETE FROM messages WHERE group_id = ? AND id = ?", [groupId, id]);
+
+  async function sent(from: TestApp, to: TestApp, groupId: string, text: string): Promise<string> {
+    const { id } = from.session.sendMessage(`group:${groupId}`, { text });
+    await waitFor(() => to.texts(`group:${groupId}`).includes(text), "delivery");
+    return id;
+  }
+
+  it("asks for one the next message from its device names, and shows it", async () => {
+    const owner = await person("kai");
+    const member = await person("lea");
+    const groupId = await groupWith(owner, [member]);
+    await sent(owner, member, groupId, "one");
+    const two = await sent(owner, member, groupId, "two");
+    neverArrived(member, groupId, two);
+    await sent(owner, member, groupId, "three");
+    await sessionOf(member).findMissing();
+    expect(member.texts(`group:${groupId}`)).toContain("two");
+    expect(warned(member, "never reached you")).toBe(false);
+  });
+
+  it("says so when the server says there's no such message", async () => {
+    const owner = await person("milo");
+    const member = await person("nell");
+    const groupId = await groupWith(owner, [member]);
+    await sent(owner, member, groupId, "one");
+    const two = await sent(owner, member, groupId, "two");
+    neverArrived(member, groupId, two);
+    withServerDatabase((db) => db.prepare("DELETE FROM messages WHERE group_id = ? AND id = ?").run(groupId, two));
+    await sent(owner, member, groupId, "three");
+    await sessionOf(member).findMissing();
+    expect(warned(member, "never reached you")).toBe(true);
+    expect(warned(member, "says there's no such message")).toBe(true);
+  });
+
+  it("doesn't look for one from before this device was in the conversation", async () => {
+    const owner = await person("odin");
+    const first = await person("pia");
+    const groupId = await groupWith(owner, [first]);
+    await sent(owner, first, groupId, "before you came");
+    const later = await person("quin");
+    await owner.session.addMembers(groupId, [later.userId]);
+    await waitFor(() => (sessionOf(later) as any).hasMlsGroup(groupId), "their keys");
+    await sent(owner, later, groupId, "welcome");
+    expect(sessionOf(later).missing.size).toBe(0);
+    await sessionOf(later).findMissing();
+    expect(warned(later, "never reached you")).toBe(false);
+  });
+});
+
 describe("a session token on its own", () => {
   it("can't remove a device once the app has signed a request, and the app still can", async () => {
     const owner = await person("fran");

@@ -30,7 +30,7 @@ Things one platform should have and doesn't.
 | Sign out, erasing local data | yes | yes | yes | `features/overlays/ServerSettings.tsx`, `features/shell/Shell.tsx` | `Settings/ServerSettingsView.swift`, `State/AppModel.swift` | |
 | Signed out by the server: data kept, sign in again or clear | yes | yes | yes | `features/shell/Shell.tsx` | `Shell/ChatListView.swift` | |
 | Connection state | yes | yes | yes | `App.tsx` | `Shell/ChatListView.swift`, `Shell/ServerListView.swift` | The web has no title bar, so it shows at the top of the conversation list (`components/ui.tsx`, `ConnectionStatus`) |
-| Security alerts from the core | yes | yes | yes | `state/store.ts` | `State/AppModel.swift` | |
+| Security alerts from the core | yes | yes | yes | `state/store.ts` | `State/AppModel.swift` | Among them, a message the server denies that the next one from its device names (`after` in each body; `lookForEarlier`, `findMissing` in the core) |
 
 ## Conversation list
 

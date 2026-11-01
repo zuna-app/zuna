@@ -127,6 +127,15 @@ export interface MessageBody {
   sentAt?: number;
   /** Which edit this is, signed with the rest: higher for each later one, and absent before any. */
   revision?: number;
+  /** The message the sender's device sent before this one here, signed with the rest, so a recipient can tell if the server held that one back. */
+  after?: EarlierMessage;
+}
+
+/** A message a device sent: its ID, its epoch, and when, by that device's clock (ms). */
+export interface EarlierMessage {
+  id: string;
+  epoch: number;
+  at: number;
 }
 
 /**

@@ -3,7 +3,7 @@
 // of the app sees it. A malformed message must never be able to break the app.
 
 import { checkPreview } from "./links";
-import type { Attachment, AvatarRef, EmoteRef, ForwardInfo, MessageBody, Preferences, Profile, SystemEvent } from "./types";
+import type { Attachment, AvatarRef, EarlierMessage, EmoteRef, ForwardInfo, MessageBody, Preferences, Profile, SystemEvent } from "./types";
 
 /** The longest message text anyone may send, and that clients agree to show. */
 export const MAX_TEXT_LENGTH = 100_000;
@@ -98,6 +98,12 @@ export function parseAvatarRef(value: unknown): AvatarRef | null {
   return { fileId, key, prefix, chunks, mime };
 }
 
+function parseEarlier(value: unknown): EarlierMessage | null {
+  if (!isObject(value) || !isString(value.id, MAX_ID_LENGTH) || !MESSAGE_ID.test(value.id)) return null;
+  if (!isCount(value.epoch, Number.MAX_SAFE_INTEGER) || typeof value.at !== "number" || !Number.isFinite(value.at)) return null;
+  return { id: value.id, epoch: value.epoch, at: value.at };
+}
+
 function parseForwarded(value: unknown): ForwardInfo | null {
   if (!isObject(value)) return null;
   return isString(value.userId, MAX_ID_LENGTH) ? { userId: value.userId } : {};
@@ -156,6 +162,8 @@ export function parseMessageBody(value: unknown): MessageBody | null {
   }
   if (typeof value.sentAt === "number" && Number.isFinite(value.sentAt)) body.sentAt = value.sentAt;
   if (isCount(value.revision, Number.MAX_SAFE_INTEGER)) body.revision = value.revision;
+  const after = parseEarlier(value.after);
+  if (after) body.after = after;
   return body;
 }
 
