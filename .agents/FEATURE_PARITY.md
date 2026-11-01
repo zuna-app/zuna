@@ -99,7 +99,7 @@ Things one platform should have and doesn't.
 | Labels when members and keys disagree | yes | yes | yes | `features/chat/SidePanel.tsx` | `Details/ConversationDetails.swift` | |
 | New group, adding members | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/GroupSheets.swift` | |
 | Invites | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/InviteSheet.swift` | |
-| Emoji verification | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/VerifyView.swift` | Its title has the username as well as the name. Swift not built on Windows |
+| Emoji verification | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/VerifyView.swift` | Its title has the username as well as the name. "They match" waits for the emoji. iOS run on a Mac in `ZunaUITests/Tests/DetailsTests.swift` |
 
 ## Settings and administration
 

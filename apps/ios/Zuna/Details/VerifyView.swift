@@ -117,6 +117,8 @@ struct VerifyView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(model.settings.accent.color)
                 .foregroundStyle(model.settings.accent.onAccent)
+                // Until the emoji are here, there's nothing to say matches.
+                .disabled(check == nil)
                 .accessibilityIdentifier(A11y.Verify.match)
             }
             .disabled(busy)
