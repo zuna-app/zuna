@@ -54,6 +54,9 @@ export class MlsClient {
     native.mlsFree(this.handle);
   }
 
+  setCredential(credential: Uint8Array): void {
+    this.call("setCredential", credential);
+  }
   takeChanges(): { set: [Uint8Array, Uint8Array][]; deleted: Uint8Array[] } {
     return this.call("takeChanges");
   }

@@ -203,6 +203,11 @@ impl MlsClient {
         }
     }
 
+    #[wasm_bindgen(js_name = setCredential)]
+    pub fn set_credential(&mut self, credential: Vec<u8>) {
+        self.inner.set_credential(credential);
+    }
+
     /// Returns `{ set: [[key, value], ...], deleted: [key, ...] }`.
     #[wasm_bindgen(js_name = takeChanges)]
     pub fn take_changes(&mut self) -> Object {

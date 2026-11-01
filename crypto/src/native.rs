@@ -253,6 +253,10 @@ impl MlsClient {
         })
     }
 
+    pub fn set_credential(&self, credential: Vec<u8>) {
+        self.client().set_credential(credential);
+    }
+
     pub fn take_changes(&self) -> StateChanges {
         let changes = self.client().take_changes();
         StateChanges {

@@ -161,6 +161,9 @@ final class CryptoBridge {
         let groupId = { data(arg(0)) }
 
         switch method {
+        case "setCredential":
+            client.setCredential(credential: data(arg(0)))
+            return JSValue(undefinedIn: context)
         case "takeChanges":
             let changes = client.takeChanges()
             return object([

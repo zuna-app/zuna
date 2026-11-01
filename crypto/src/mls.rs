@@ -112,6 +112,12 @@ impl MlsClient {
         changes
     }
 
+    /// Replaces the device certificate this client uses from now on: in new key
+    /// packages, in joining, and in this device's leaf at its next commit in each group.
+    pub fn set_credential(&mut self, credential: Vec<u8>) {
+        self.credential.credential = BasicCredential::new(credential).into();
+    }
+
     /// Goes back to the state of the last `take_changes`, undoing whatever
     /// happened since, such as a join the server then refused.
     pub fn rollback(&self) {
@@ -217,11 +223,22 @@ impl MlsClient {
         let mut group = self.load(group_id)?;
         let adds = self.parse_key_packages(key_packages)?;
         let removes = remove_leaves.iter().map(|i| LeafNodeIndex::new(*i));
+        let leaf_is_behind = group
+            .own_leaf_node()
+            .is_some_and(|leaf| leaf.credential() != &self.credential.credential);
+        let leaf_parameters = if leaf_is_behind {
+            LeafNodeParameters::builder()
+                .with_credential_with_key(self.credential.clone())
+                .build()
+        } else {
+            LeafNodeParameters::default()
+        };
         let bundle = group
             .commit_builder()
             .propose_adds(adds)
             .propose_removals(removes)
             .force_self_update(true)
+            .leaf_node_parameters(leaf_parameters)
             .load_psks(self.provider.storage())
             .map_err(err("commit psks"))?
             .build(
@@ -619,6 +636,56 @@ mod tests {
         let device = MlsClient::new(public.clone(), secret, b"device".to_vec(), vec![]);
         let package = device.generate_key_package(false).unwrap();
         assert_eq!(device.key_package_signature_key(&package).unwrap(), public);
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn a_commit_gives_a_leaf_its_new_certificate() {
+        let (public, secret) = signing_keygen().unwrap();
+        let mut alice = MlsClient::new(public, secret, b"alice-old".to_vec(), vec![]);
+        let bob = client("bob");
+        alice.create_group(GROUP).unwrap();
+        let kp = bob.generate_key_package(false).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        bob.join_from_welcome(&pending.welcome.unwrap()).unwrap();
+        let leaf = |client: &MlsClient, name: &[u8]| {
+            client
+                .members(GROUP)
+                .unwrap()
+                .into_iter()
+                .any(|member| member.credential == name)
+        };
+        assert!(leaf(&bob, b"alice-old"));
+
+        alice.set_credential(b"alice-new".to_vec());
+        // A new package has it right away.
+        let package = alice.generate_key_package(false).unwrap();
+        assert_eq!(alice.key_package_credential(&package).unwrap(), b"alice-new");
+        // The leaf has it after the next commit, for everyone including someone
+        // who joins afterwards, and the group's keys stay in step.
+        let update = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        bob.process_commit(GROUP, &update.commit).unwrap();
+        assert!(leaf(&alice, b"alice-new"));
+        assert!(leaf(&bob, b"alice-new"));
+        assert!(!leaf(&bob, b"alice-old"));
+        assert_eq!(exported(&alice), exported(&bob));
+
+        let carol = client("carol");
+        let kp = carol.generate_key_package(false).unwrap();
+        let added = bob.commit_changes(GROUP, &[kp], &[]).unwrap();
+        bob.merge_pending(GROUP).unwrap();
+        alice.process_commit(GROUP, &added.commit).unwrap();
+        carol.join_from_welcome(&added.welcome.unwrap()).unwrap();
+        assert!(leaf(&carol, b"alice-new"));
+        assert_eq!(exported(&alice), exported(&carol));
+
+        let dave = client("dave");
+        let info = alice.export_group_info(GROUP).unwrap();
+        let (commit, _) = dave.join_external(GROUP, &info).unwrap();
+        alice.process_commit(GROUP, &commit).unwrap();
+        assert!(leaf(&dave, b"alice-new"));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
