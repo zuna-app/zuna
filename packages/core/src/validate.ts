@@ -191,6 +191,8 @@ export interface GroupDetails {
   name?: string;
   description?: string;
   avatar?: AvatarRef | null;
+  /** Whether people added later get the group's history, as an admin signed it. */
+  historyVisible?: boolean;
 }
 
 /** A group's name, description and picture, or null if they aren't that. */
@@ -211,6 +213,7 @@ export function parseGroupDetails(value: unknown): GroupDetails | null {
     if (!avatar) return null;
     details.avatar = avatar;
   }
+  if (typeof value.historyVisible === "boolean") details.historyVisible = value.historyVisible;
   return details;
 }
 

@@ -34,6 +34,7 @@ import {
   coreFromJson,
   coreToJson,
   createCertificate,
+  frameSigned,
   namesItsSender,
   openEnvelope,
   openHistoryGrant,
@@ -45,6 +46,7 @@ import {
   parseCertificate,
   randomId,
   reactionId,
+  readSigned,
   readSignedGroupDetails,
   safetyEmoji,
   sealEnvelope,
@@ -241,6 +243,7 @@ interface CachedGroup {
   metaEpoch: number | null;
   /** The newest version of the group's signed details seen, so an older copy isn't taken for new. */
   metaVersion?: number;
+  /** What the server said when this group was first seen. Details from before this setting was signed go by this. */
   historyVisible: boolean;
   createdAt: number;
   members: GroupMemberView[];
@@ -2184,7 +2187,7 @@ export class ServerSession {
       metaBlob: api.meta,
       metaEpoch: api.meta_epoch,
       metaVersion: previous?.metaVersion ?? 0,
-      historyVisible: api.history_visible,
+      historyVisible: previous?.historyVisible ?? api.history_visible,
       createdAt: api.created_at,
       members: listed.map((member) => ({ userId: member.user_id, role: member.role, joinedAt: member.joined_at })),
       readStates: Object.fromEntries(listed.map((member) => [member.user_id, member.read_state])),
@@ -2261,10 +2264,17 @@ export class ServerSession {
     }
   }
 
-  /** Seals a group's details for an epoch, signed by this device. */
+  /** Seals a group's details for an epoch, signed by this device. Whether history is shared goes with them. */
   private sealGroupDetails(groupId: string, key: Uint8Array, epoch: number, meta: GroupMeta, version: number): Uint8Array {
     const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
-    return sealSignal(key, "meta", groupId, epoch, signGroupDetails(groupId, meta, version, signer, this.account.deviceSecret));
+    const group = this.groups.get(groupId);
+    const details: GroupMeta = { ...meta, historyVisible: meta.historyVisible ?? (group ? this.sharesHistory(group) : false) };
+    return sealSignal(key, "meta", groupId, epoch, signGroupDetails(groupId, details, version, signer, this.account.deviceSecret));
+  }
+
+  /** Whether someone added to a group gets its history. That's an admin's choice, and never only the server's word. */
+  private sharesHistory(group: CachedGroup): boolean {
+    return group.meta.historyVisible ?? group.historyVisible;
   }
 
   /**
@@ -2289,14 +2299,23 @@ export class ServerSession {
 
   private applyReadState(group: CachedGroup, userId: string, sealed: Uint8Array): void {
     if (sealed.length < 5) return;
-    const accountSealed = sealed[0] === 1;
-    const body = sealed.subarray(1);
-    // A position sealed to this account stays as it was until it's next written, so
-    // it may be under an older key. The worst a stolen one can do is mark things read.
-    const keys = accountSealed ? [this.account.accountKey, ...Object.values(this.account.core.olderKeys)] : [this.epochKey(group.id, signalEpoch(body))];
     let seq: number | null = null;
-    for (const key of keys) {
-      if (key && seq === null) seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
+    const signed = readSigned(sealed);
+    if (signed) {
+      const device = this.users.get(userId)?.devices.get(signed.deviceId);
+      const key = this.epochKey(group.id, signed.epoch);
+      if (!device || !key) return;
+      const opened = openEnvelope<unknown>(key, device.signatureKey, "read", group.id, userId, signed.epoch, signed.envelope);
+      seq = opened.ok ? parseReadState(opened.value) : null;
+    } else {
+      const accountSealed = sealed[0] === 1;
+      const body = sealed.subarray(1);
+      // A position sealed to this account stays as it was until it's next written, so
+      // it may be under an older key. The worst a stolen one can do is mark things read.
+      const keys = accountSealed ? [this.account.accountKey, ...Object.values(this.account.core.olderKeys)] : [this.epochKey(group.id, signalEpoch(body))];
+      for (const key of keys) {
+        if (key && seq === null) seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
+      }
     }
     if (seq === null) return;
     if (userId === this.account.userId) {
@@ -3446,17 +3465,30 @@ export class ServerSession {
     return this.db.get<MessageRow>("SELECT * FROM messages WHERE group_id = ? AND id = ?", [groupId, id]);
   }
 
+  /** What a reaction is, if it's what it says: the signature says whose it is, and the authenticated data which message it's on. */
+  private openReaction(groupId: string, messageId: string, reaction: ApiReaction): ReturnType<typeof parseReaction> {
+    const key = this.epochKey(groupId, reaction.epoch);
+    if (!key) return null;
+    const data = decode(reaction.data);
+    const signed = readSigned(data);
+    if (signed) {
+      const device = this.users.get(reaction.user_id)?.devices.get(signed.deviceId);
+      if (!device || signed.epoch !== reaction.epoch) return null;
+      const opened = openEnvelope<{ id?: unknown }>(key, device.signatureKey, "reaction", groupId, messageId, reaction.epoch, signed.envelope);
+      return opened.ok && opened.value?.id === reaction.id ? parseReaction(opened.value) : null;
+    }
+    // From before reactions were signed, with only its ID to say whose it is.
+    const opened = parseReaction(openSignal<unknown>(key, "reaction", groupId, data));
+    return opened && reactionId(reaction.user_id, messageId, opened.key) === reaction.id ? opened : null;
+  }
+
   private openReactions(groupId: string, messageId: string, raw: ApiReaction[]): ReactionView[] {
     const grouped = new Map<string, ReactionView>();
     for (const reaction of raw) {
-      const key = this.epochKey(groupId, reaction.epoch);
-      if (!key) continue;
-      const opened = parseReaction(openSignal<unknown>(key, "reaction", groupId, decode(reaction.data)));
+      const opened = this.openReaction(groupId, messageId, reaction);
       if (!opened) continue;
-      // The ID commits to the reacting user, so reactions can't be reattributed.
-      if (reactionId(reaction.user_id, messageId, opened.key) !== reaction.id) continue;
       const entry = grouped.get(opened.key) ?? { key: opened.key, emote: opened.emote, userIds: [] };
-      entry.userIds.push(reaction.user_id);
+      if (!entry.userIds.includes(reaction.user_id)) entry.userIds.push(reaction.user_id);
       grouped.set(opened.key, entry);
     }
     return [...grouped.values()];
@@ -3761,7 +3793,7 @@ export class ServerSession {
         mutedUntil: this.mutedUntil(key, now),
         hidden: this.prefs.hidden.includes(key),
         members: this.membersWithKeys(group),
-        historyVisible: group.historyVisible,
+        historyVisible: this.sharesHistory(group),
         readBy: group.readBy,
         ownRead: group.ownRead,
         ready: group.epoch > 0 && !group.removedAt,
@@ -4363,17 +4395,23 @@ export class ServerSession {
   }
 
   async toggleReaction(groupId: string, messageId: string, key: string, emote?: EmoteRef): Promise<void> {
-    const id = reactionId(this.account.userId, messageId, key);
+    const { userId, deviceId, deviceSecret } = this.account;
     const row = this.messageRow(groupId, messageId);
     const current = row ? (this.storedBody(row)?.reactions ?? []) : [];
-    const already = current.some((item) => item.key === key && item.userIds.includes(this.account.userId));
+    const already = current.some((item) => item.key === key && item.userIds.includes(userId));
     await this.withLock(groupId, async () => {
       if (already) {
-        this.ingest(await this.api.removeReaction(groupId, messageId, id), false);
+        // Another device may have made it, or two devices the same one, and only an open reaction says what it is.
+        const { reactions } = await this.api.message(groupId, messageId);
+        for (const reaction of reactions) {
+          if (reaction.user_id !== userId || this.openReaction(groupId, messageId, reaction)?.key !== key) continue;
+          this.ingest(await this.api.removeReaction(groupId, messageId, reaction.id), false);
+        }
         return;
       }
+      const id = randomId();
       await this.sealAndRetry(groupId, async (epoch, epochKey) => {
-        const data = sealSignal(epochKey, "reaction", groupId, epoch, { key, emote });
+        const data = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }));
         this.ingest(await this.api.addReaction(groupId, messageId, id, epoch, data), false);
       });
     });
@@ -4396,15 +4434,20 @@ export class ServerSession {
     this.persistGroup(group);
     this.emitConversations();
     const epoch = this.rememberCurrentEpochKey(groupId);
-    // When receipts are off the position is sealed to our own account key, so
-    // our other devices stay in sync while nobody else can read it.
-    const receipts = this.prefs.sendReadReceipts;
-    const key = receipts ? this.epochKey(groupId, epoch) : this.account.accountKey;
-    if (!key) return;
-    const sealed = sealSignal(key, "read", groupId, epoch, { seq });
-    const framed = new Uint8Array(sealed.length + 1);
-    framed[0] = receipts ? 0 : 1;
-    framed.set(sealed, 1);
+    const { userId, deviceId, deviceSecret, accountKey } = this.account;
+    let framed: Uint8Array;
+    if (this.prefs.sendReadReceipts) {
+      const key = this.epochKey(groupId, epoch);
+      if (!key) return;
+      framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", groupId, userId, epoch, { seq }));
+    } else {
+      // The position is sealed to our own account key, so our other devices stay
+      // in sync while nobody else can read it.
+      const sealed = sealSignal(accountKey, "read", groupId, epoch, { seq });
+      framed = new Uint8Array(sealed.length + 1);
+      framed[0] = 1;
+      framed.set(sealed, 1);
+    }
     await this.api.setRead(groupId, framed).catch((error) => console.warn("[zuna] read state", error));
   }
 
@@ -4670,7 +4713,7 @@ export class ServerSession {
     const groupId = created.group.id;
     this.applyGroup(created.group);
     await this.withLock(groupId, async () => {
-      await this.initGroup(created.group, memberIds, { name, avatar });
+      await this.initGroup(created.group, memberIds, { name, avatar, historyVisible });
       this.addSystemRow(groupId, Date.now(), this.account.userId, { type: "group_created", actorId: this.account.userId });
     });
     this.emitConversations();
@@ -4681,13 +4724,13 @@ export class ServerSession {
     await this.withLock(groupId, async () => {
       await this.commitWithRetry(groupId, async () => {
         const group = await this.api.group(groupId);
-        this.applyGroup(group);
+        const cached = this.applyGroup(group);
         const missing = userIds.filter((id) => !group.members.some((member) => member.user_id === id));
         const packages: { deviceId: string; data: Uint8Array }[] = [];
         for (const userId of missing) packages.push(...(await this.claimKeyPackages(userId)));
         if (packages.length === 0) throw new Error("Those people have no devices available to add.");
         let grants: { user_id: string; data: Uint8Array }[] | undefined;
-        if (group.history_visible) {
+        if (this.sharesHistory(cached)) {
           // Hand older epoch keys to each new member, sealed so that only they can read them.
           grants = [];
           const keys = this.allEpochKeys(groupId);
@@ -4750,6 +4793,7 @@ export class ServerSession {
     const group = this.groups.get(groupId);
     if (!group) return;
     const meta: GroupMeta = { ...group.meta, ...changes };
+    if (historyVisible !== undefined) meta.historyVisible = historyVisible;
     if (avatarBlob) {
       const ref = await this.uploadBlob(avatarBlob, undefined, true);
       meta.avatar = { ...ref, mime: this.files.type(avatarBlob) || "image/webp" };

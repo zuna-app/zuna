@@ -419,6 +419,26 @@ export function openSignal<T>(key: Uint8Array, kind: ContentKind, groupId: strin
   }
 }
 
+const SIGNED_SIGNAL = 2;
+
+/**
+ * A reaction or a read position, as an envelope its device signed. What says whose
+ * it is, and what it's about, is the signature and the authenticated data, so the
+ * server can't pass it off as someone else's or move it to another message.
+ */
+export function frameSigned(deviceId: string, epoch: number, envelope: Uint8Array): Uint8Array {
+  const device = utf8(deviceId);
+  return concat(new Uint8Array([SIGNED_SIGNAL, device.length]), device, u32Bytes(epoch), envelope);
+}
+
+/** What `frameSigned` made, or null for what isn't one: anything from before, whose first byte is never this. */
+export function readSigned(framed: Uint8Array): { deviceId: string; epoch: number; envelope: Uint8Array } | null {
+  if (framed[0] !== SIGNED_SIGNAL || framed.length < 2) return null;
+  const end = 2 + framed[1]!;
+  if (framed.length < end + 4) return null;
+  return { deviceId: fromUtf8(framed.subarray(2, end)), epoch: readU32(framed.subarray(end)), envelope: framed.subarray(end + 4) };
+}
+
 // --- History sharing ---
 
 /** A device, for saying who signed something. */
@@ -514,7 +534,7 @@ export function readSignedGroupDetails(groupId: string, value: unknown): SignedG
 
 // --- Reactions ---
 
-/** A deterministic ID makes reacting idempotent: the same reaction can't exist twice. */
+/** The ID of a reaction from before they were signed. Anyone could work out what one was from it, so new ones have a random ID. */
 export function reactionId(userId: string, messageId: string, key: string): string {
   return toHex(wasm.sha256(utf8(`zuna/reaction/v1|${userId}|${messageId}|${key}`)).subarray(0, 16));
 }

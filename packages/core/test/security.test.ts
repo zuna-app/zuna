@@ -14,6 +14,7 @@ import {
   derivePasswordKeys,
   parseCertificate,
   randomId,
+  reactionId,
   sealEnvelope,
   sealSignal,
   sealVaultItem,
@@ -1103,5 +1104,133 @@ describe("a copy of the database replacing someone's sign-in key (Z-41)", () => 
     open.push(phone);
     await phone.login(server.url, username);
     expect(phone.session.getSelf().userId).toBe(owner.userId);
+  });
+});
+
+describe("a server deciding that a group's history is shared (Z-44)", () => {
+  const OLD = "said before anyone new came";
+
+  const grantCount = (groupId: string) =>
+    (withServerDatabase((db) => db.prepare("SELECT COUNT(*) AS n FROM history_grants WHERE group_id = ?").get(groupId)) as { n: number }).n;
+
+  it("gets nothing the group's admin didn't choose to share", async () => {
+    const owner = await person("hana");
+    const member = await person("ivan");
+    const joiner = await person("jude");
+    const groupId = await groupWith(owner, [member]);
+    owner.session.sendMessage(`group:${groupId}`, { text: OLD });
+    await waitFor(() => member.texts(`group:${groupId}`).includes(OLD), "delivery");
+    withServerDatabase((db) => db.prepare("UPDATE groups SET history_visible = 1 WHERE id = ?").run(groupId));
+
+    await owner.session.addMembers(groupId, [joiner.userId]);
+    await waitFor(() => sessionOf(joiner).hasMlsGroup(groupId), "them to join");
+    expect(grantCount(groupId)).toBe(0);
+    expect(owner.session.getConversations().find((item) => item.groupId === groupId)?.historyVisible).toBe(false);
+  });
+
+  it("shares it when an admin turns that on, and everyone goes by what they signed", async () => {
+    const owner = await person("kira");
+    const member = await person("liam");
+    const joiner = await person("mona");
+    const groupId = await groupWith(owner, [member]);
+    owner.session.sendMessage(`group:${groupId}`, { text: OLD });
+    await waitFor(() => member.texts(`group:${groupId}`).includes(OLD), "delivery");
+
+    await owner.session.updateGroupMeta(groupId, {}, undefined, true);
+    await waitFor(() => member.session.getConversations().find((item) => item.groupId === groupId)?.historyVisible === true, "the other member to see it");
+    withServerDatabase((db) => db.prepare("UPDATE groups SET history_visible = 0 WHERE id = ?").run(groupId));
+
+    await owner.session.addMembers(groupId, [joiner.userId]);
+    await waitFor(async () => (await joiner.session.loadMessages(groupId)).messages.some((item) => item.text === OLD), "them to read older messages");
+  });
+});
+
+describe("what a server can learn from reactions and read positions, or change in them (Z-45)", () => {
+  const THUMBS_UP = "\u{1F44D}";
+
+  async function threeAndAMessage(): Promise<{ ann: TestApp; rob: TestApp; zed: TestApp; groupId: string; messageId: string }> {
+    const [ann, rob, zed] = [await person("ann"), await person("rob"), await person("zed")];
+    const groupId = await groupWith(ann, [rob, zed]);
+    const { id } = ann.session.sendMessage(`group:${groupId}`, { text: "lunch?" });
+    await waitFor(() => rob.texts(`group:${groupId}`).includes("lunch?") && zed.texts(`group:${groupId}`).includes("lunch?"), "delivery");
+    return { ann, rob, zed, groupId, messageId: id };
+  }
+
+  const storedReactions = (messageId: string) =>
+    withServerDatabase((db) => db.prepare("SELECT id, user_id, epoch, data, created_at FROM reactions WHERE message_id = ?").all(messageId)) as unknown as {
+      id: string;
+      user_id: string;
+      epoch: number;
+      data: Uint8Array;
+      created_at: number;
+    }[];
+
+  const onWire = (row: ReturnType<typeof storedReactions>[number]) => ({ ...row, data: toBase64(new Uint8Array(row.data)) });
+
+  it("can't tell which reaction it was from its ID", async () => {
+    const { ann, rob, groupId, messageId } = await threeAndAMessage();
+    await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
+    expect(storedReactions(messageId)[0]!.id).not.toBe(reactionId(rob.userId, messageId, THUMBS_UP));
+    await waitFor(async () => {
+      const view = await ann.session.messageById(groupId, messageId);
+      return view?.reactions[0]?.key === THUMBS_UP && view.reactions[0].userIds[0] === rob.userId;
+    }, "them to see it");
+  });
+
+  it("can't pass a reaction off as someone else's, or move it to another message", async () => {
+    const { ann, rob, zed, groupId, messageId } = await threeAndAMessage();
+    await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
+    const wire = onWire(storedReactions(messageId)[0]!);
+    const shown = (message: string, reaction: typeof wire) => sessionOf(zed).openReactions(groupId, message, [reaction]);
+    await sessionOf(zed).ensureUser(rob.userId, true);
+
+    expect(shown(messageId, wire)).toHaveLength(1);
+    expect(shown(messageId, { ...wire, user_id: ann.userId })).toEqual([]);
+    expect(shown(randomId(), wire)).toEqual([]);
+    expect(shown(messageId, { ...wire, id: randomId() })).toEqual([]);
+  });
+
+  it("doesn't get to show one person's reaction twice", async () => {
+    const { rob, zed, groupId, messageId } = await threeAndAMessage();
+    await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
+    const wire = onWire(storedReactions(messageId)[0]!);
+    await sessionOf(zed).ensureUser(rob.userId, true);
+    expect(sessionOf(zed).openReactions(groupId, messageId, [wire, wire])[0].userIds).toEqual([rob.userId]);
+  });
+
+  it("removes a reaction another of the person's devices made", async () => {
+    const { rob, groupId, messageId } = await threeAndAMessage();
+    const phone = await new TestApp("rob-phone").open();
+    open.push(phone);
+    await phone.login(server.url, rob.session.getSelf().username);
+    await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
+    await waitFor(async () => (await phone.session.messageById(groupId, messageId))?.reactions.length === 1, "the phone to see it");
+    await phone.session.toggleReaction(groupId, messageId, THUMBS_UP);
+    await waitFor(async () => (await rob.session.messageById(groupId, messageId))?.reactions.length === 0, "the reaction to go");
+    expect(storedReactions(messageId)).toEqual([]);
+  });
+
+  it("removes one from before reactions were signed", async () => {
+    const { rob, groupId, messageId } = await threeAndAMessage();
+    const session = sessionOf(rob);
+    const epoch = session.mlsEpoch(groupId);
+    const id = reactionId(rob.userId, messageId, THUMBS_UP);
+    await apiOf(rob).addReaction(groupId, messageId, id, epoch, sealSignal(session.epochKey(groupId, epoch), "reaction", groupId, epoch, { key: THUMBS_UP }));
+    await waitFor(async () => (await rob.session.messageById(groupId, messageId))?.reactions[0]?.key === THUMBS_UP, "it to show");
+    await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
+    expect(storedReactions(messageId)).toEqual([]);
+  });
+
+  it("can't pass one person's read position off as another's", async () => {
+    const { ann, rob, zed, groupId, messageId } = await threeAndAMessage();
+    await waitFor(() => (sessionOf(rob).messageRow(groupId, messageId)?.seq ?? 0) > 0, "its place");
+    const seq = sessionOf(rob).messageRow(groupId, messageId).seq as number;
+    await rob.session.markRead(groupId, seq);
+    await waitFor(() => sessionOf(ann).groups.get(groupId).readBy[rob.userId] === seq, "them to see it");
+
+    const { read_state } = withServerDatabase((db) => db.prepare("SELECT read_state FROM group_members WHERE group_id = ? AND user_id = ?").get(groupId, rob.userId)) as { read_state: Uint8Array };
+    const group = sessionOf(ann).groups.get(groupId);
+    sessionOf(ann).applyReadState(group, zed.userId, new Uint8Array(read_state));
+    expect(group.readBy[zed.userId] ?? 0).toBe(0);
   });
 });
