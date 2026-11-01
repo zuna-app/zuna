@@ -15,6 +15,8 @@ Things one platform should have and doesn't.
 
 - **Web, Firefox: unchecked.** Nothing has been run in Firefox yet (see "Web check" above). Its `MediaRecorder` may only record WebM with Opus, which the iPhone app can't play (`apps/ios/Zuna/Chat/Voice.swift` plays AAC in MP4). `web-check.mjs` reports what each browser records and whether Apple's decoder reads it.
 
+- **iOS: whole emote set not fetched in the background.** Desktop and web do it, so showing an emote asks the server for nothing (`lib/media.ts`, `prefetchEmotes`). iOS fetches each picture when first shown, so the server can see that, and `URLSession`'s default cache is too small to fetch ahead into: it needs a disk cache of its own (`Chat/EmoteImages.swift`).
+
 ## Accounts and servers
 
 | Feature | Desktop | iOS | Web | Desktop and web code | iOS code | Notes |
@@ -52,6 +54,7 @@ Things one platform should have and doesn't.
 | Markup | yes | yes | yes | `lib/markup.tsx` | `apps/ios/ZunaKit/Sources/ZunaModels/Markup.swift`, `Chat/MessageText.swift` | Kept in step by the golden files |
 | Code blocks with highlighting | yes | yes | yes | `components/CodeBlock.tsx` | `Chat/MessageParts.swift`, `apps/ios/ZunaKit/Sources/ZunaHost/Highlighter.swift` | |
 | 7TV emotes: animated, zero-width, large, card | yes | yes | yes | `components/Emote.tsx` | `Chat/EmoteImages.swift`, `Chat/MessageText.swift` | The card opens on hover on the desktop, long press on iOS |
+| Whole emote set fetched in the background | yes | no | yes | `lib/media.ts`, `features/shell/Shell.tsx` | | See Known gaps |
 | Read ticks | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
 | Deleted, waiting for keys, unverified, invalid | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
 | Reply quote, jumping to the original | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
@@ -96,7 +99,7 @@ Things one platform should have and doesn't.
 | Labels when members and keys disagree | yes | yes | yes | `features/chat/SidePanel.tsx` | `Details/ConversationDetails.swift` | |
 | New group, adding members | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/GroupSheets.swift` | |
 | Invites | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/InviteSheet.swift` | |
-| Emoji verification | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/VerifyView.swift` | |
+| Emoji verification | yes | yes | yes | `features/overlays/Overlays.tsx` | `Details/VerifyView.swift` | Its title has the username as well as the name. Swift not built on Windows |
 
 ## Settings and administration
 

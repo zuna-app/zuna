@@ -14,8 +14,8 @@ Please report security issues privately through GitHub's "Report a vulnerability
 |---|---|---|
 | **Accounts** | Username, role, sign-up date, which devices exist | Password, display name, avatar, bio |
 | **Conversations** | Who is in each conversation | Group names, pictures and descriptions |
-| **Messages** | Who sent one, when, to which conversation, and its rough size (padded to 256-byte blocks) | Text, replies, mentions, formatting, emotes used, links and their previews, whether and from whom it was forwarded |
-| **Reactions** | Who reacted to which message | Which reaction it was |
+| **Messages** | Who sent one, when, to which conversation, and its rough size (padded to 256-byte blocks) | Text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, whether and from whom it was forwarded |
+| **Reactions** | Who reacted to which message | Which reaction it was (with the exception under "Limits") |
 | **Files** | Size and uploader, and which messages share a file, so it knows a forwarded file is the same one | Name, type, content |
 | **Pins and deletes** | Which message was pinned or deleted | The message's content |
 | **Read state** | That someone's read position changed | The position itself |
@@ -37,7 +37,7 @@ Each device is its own member of each group. Keys change at every membership cha
 
 ### Message content
 
-Each MLS epoch exports a content key (RFC 9420 section 8.5). Messages are encrypted under it with XChaCha20-Poly1305 and signed with the sender's device key (Ed25519). The signature matters because all members share the content key: without it, any member could impersonate another.
+Each MLS epoch exports a content key (RFC 9420 section 8.5). Messages are encrypted under it with XChaCha20-Poly1305 and signed with the sender's device key (Ed25519). The signature matters because all members share the content key: without it, any member could impersonate another. What's signed says who wrote it as well as what it says, so a server can't put one person's words under another's name, even with a member's help. Reactions and read positions are signed the same way, and say which message or person they're about.
 
 Using exported keys rather than MLS's per-message ratchet is a deliberate trade-off, and it's what makes history on new devices possible:
 
@@ -55,7 +55,7 @@ Your password never leaves your device. A key derived from it authenticates you,
 
 ### Identity and devices
 
-Each account has one long-term Ed25519 **identity key**. Each device's MLS credential is a certificate signed by it, naming the key that device signs with. Certificates are public, so holding one proves nothing: clients check every member of every group, whenever a group's tree may have changed and before encrypting anything, against the identity key they know for that person, and that the member really signs with the key its certificate names. So without that identity key, the server can't add a device to anyone's account or to any group. Whoever tries is removed, and everyone is warned.
+Each account has one long-term Ed25519 **identity key**. Each device's MLS credential is a certificate signed by it, naming the key that device signs with. Certificates are public, so holding one proves nothing: clients check every member of every group, whenever a group's tree may have changed and before encrypting anything, against the identity key they know for that person, and that the member really signs with the key its certificate names. So without that identity key, the server can't add a device to anyone's account. Whoever tries is removed, and everyone is warned. A leaf nobody can check yet counts for nothing, and nothing is encrypted to a group while one is on its roster. A server can make accounts of its own, as it can sign anyone up. It can put one in a group, where it shows as having joined, but never in a direct message: a direct message's two people are settled when a device first sees it, and anyone else in its tree is removed.
 
 Clients pin the first identity key they see for each person, and share those pins, and what you've verified, with your other devices through your encrypted vault. An account moves on from that key only by a signed chain that starts from it. Anything else, including two chains for the same person, produces a loud warning, including on a new device of yours.
 
@@ -93,7 +93,7 @@ Each file gets its own random key. It's split into 1 MiB chunks encrypted with X
 
 ### Link previews
 
-The sender's device makes a link's preview while they write: it fetches the page, and the title, description and a small picture travel encrypted inside the message. Recipients never contact the site, and the server never sees the link. The site sees the sender's IP address, as it would if they opened the link. Pages are fetched without cookies, only over HTTPS, and only from public addresses: redirects are checked one at a time, and names that lead to this machine or a private network are refused. A determined attacker controlling a site's DNS could still try to switch where it points between the check and the fetch, though HTTPS certificates make that hard to use. Previews can be turned off on each device.
+The sender's device makes a link's preview while they write: it fetches the page, and the title, description and a small picture travel encrypted inside the message. Recipients never contact the site, and the server never sees the link. The site sees the sender's IP address, as it would if they opened the link, and from when the link is typed, even if the message is never sent. Pages are fetched without cookies, only over HTTPS, and only from public addresses: redirects are checked one at a time, and names that lead to this machine or a private network are refused. A determined attacker controlling a site's DNS could still try to switch where it points between the check and the fetch, though HTTPS certificates make that hard to use. Previews can be turned off on each device.
 
 In the web app, the page can't fetch other sites, so its host, `zuna-web`, fetches pages for it by the same rules, and only on port 443. It checks the address a name leads to as it connects, which closes the gap above. The web app's host therefore sees which links are previewed, and sites see the host's address instead of the sender's. The chat server still never sees them. A host can turn previews off.
 
@@ -120,9 +120,14 @@ These are real limitations, stated plainly:
 - **A contact can't always tell a real change of key from a stolen one.** Someone with your old identity key and a malicious server's help can show a false chain to a contact who hasn't seen the real one. The first one a contact sees stays, a second produces a warning, and comparing emoji shows which is real.
 - **People on older versions of the app aren't protected by key replacement.** They go on trusting your first identity key. Anyone on a current version in the same chat still removes a device signed by it, and warns about it.
 - **Metadata is visible to the server.** See the table above.
-- **Group permissions are enforced by the server, and checked by clients where MLS allows.** It decides who may add and remove members. A malicious server can't add someone invisibly, but it could allow actions a client's interface wouldn't offer. Those appear in the conversation.
+- **Group permissions are enforced by the server, and checked by clients where MLS allows.** It decides who may add and remove members. A malicious server can't add someone invisibly, but it could allow actions a client's interface wouldn't offer. Those appear in the conversation. Whether a group shares its history with people added later is an admin's signed choice, not the server's.
+- **A member can hold up a group for a while.** MLS can't let the server check a commit, so a member can send one nobody can apply. Any member's app then undoes it, without anyone doing anything, back to what the server held before, and whoever sent it has to wait longer each time. The same undoing means a member can make another wait, by undoing their commits. An admin can remove someone doing either, and a plain member can't undo an admin's commit.
 - **A kicked member keeps the community key.** They could still read profile data if they had access to the server's database. They lose access to the server itself and to new messages.
 - **The server can withhold or delay delivery.** It can also serve an old version of an edited message, or claim a message was deleted. It can't forge content.
+- **What older apps wrote says less.** A message from an app too old to sign who wrote it can be put under another member's name by a server with that member's help, and a reaction from before they were signed can be worked out from its ID. New ones can't.
+- **A server can see some emote pictures being fetched.** The desktop and web apps fetch a server's whole emote set in the background, so showing an emote asks the server for nothing. An emote from outside the current set is still fetched when a message first shows it, and so is every emote on iPhone and iPad, which tells the server which emote, from which address, and roughly when.
+- **An account from before sign-in keys were bound to their server can be taken with a copy of its database,** until that account next signs in, which binds its key. The server says how many it has when it starts. A backup of the server's data is worth protecting for this reason, among others.
+- **`zuna://` links can be claimed by another app** on iPhone, iPad and Linux. A link for an invite carries the community key, which protects profiles. Universal links can't help here, since each server is on a domain of its own that the app can't list in advance.
 - **The time shown comes from the server.** The sender's device also signs the time it sent a message, and the app flags a message if the two are far apart.
 - **Deleting is best effort.** "Delete for everyone" removes the server's copy and the copies on members' apps, but a modified client or a screenshot can keep it.
 - **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.

@@ -119,7 +119,7 @@ The attackers that matter most are combinations: the old-key holder with the rea
 | **Device certificates** | Reissued, lazily | Each device publishes a new one after installing the generation, and puts it in its leaves at its next commit. Being carried keeps the old one valid until then. A device that updates also reissues its certificate once at generation 0, so others can tell it understands chains (section 9.4). |
 | **History grants** | No | Pending grants open with the retained HPKE secrets. New ones go to the new key. |
 | **Password and recovery slots** | The sealed key every generation, the key pair only when the secret changes | Section 7. |
-| **Device seal keys** | After each generation, by the device itself, keeping the last one for a rotation already under way | So a copy of a device, taken once without it being removed, stops being useful from the rotation after next. |
+| **Device seal keys** | After each generation, by the device itself, keeping the last one for a rotation already under way | So a copy of a device, taken once without it being removed, stops being useful from the rotation after next. Each says which generation it's from, signed, and a device making a rotation refuses one older than it has seen, so a server can't offer an old one again. Only what this device has seen counts, so one that's never seen a newer one can't tell. |
 | **Device signing keys** | No | These are the continuity contacts can check, and the MLS leaf's key. |
 | **Sign-in keys** | Only when the password or recovery key changes | As today. |
 | **Sessions** | Those with no device end, as on a password change today | `store/users.go:436`. Sessions of removed devices end when they're removed, as today. |
@@ -128,6 +128,8 @@ The attackers that matter most are combinations: the old-key holder with the rea
 | **Local database key, push key** | No | Per device. A removed device's push registration is already deleted. |
 
 ## 6. When it triggers
+
+A server alone can say a device was removed, and each rotation costs every contact a link to follow. So past 5 in an hour, one for a removal waits its turn, and the person is told. It's never skipped.
 
 | Event | Who rotates | Notes |
 |---|---|---|
@@ -201,11 +203,11 @@ A device making a generation only carries a device if one of these is true:
 
 1. The previous link already carried it.
 2. It has a valid enrollment proof from a slot this device has pinned.
-3. The account still lacks a slot, so an honest device may have no proof to show: it could have signed in with an old client, or with a wrapper of the old kind.
+3. The account still lacks a slot, so an honest device may have no proof to show, and this device already knew that device by the same signing key. A device nobody here has seen, on an account like that, isn't carried. It can't show it's real, and a server could otherwise make one to be given the new key. It catches up from a device that has seen it, or when it gets a proof.
 
 Anything else isn't carried, is revoked in the same transaction, and raises the warning that already exists for a device that isn't really someone's (`session.ts:1025`). The same check applies to leaves of this person's own devices, so a ghost of yourself gets removed from any tree you share, even if its certificate is valid. It also applies to whoever signed a link (section 9.1).
 
-So once an account has both slots, a stolen identity key and a malicious server can't get a fake device the new account key, unless the attacker also knows the password or recovery key. Rule 3 is a real gap, and it's one more reason an account without both slots is marked "not evicted" in section 11.1.
+So a stolen identity key and a malicious server can't get a fake device the new account key, unless the attacker also knows the password or recovery key. On an account without both slots, they can still have someone's device carried that they copied before its keys changed, under rule 3, which is one more reason such an account is marked "not evicted" in section 11.1.
 
 ### 7.5 Alternatives considered
 
@@ -594,6 +596,8 @@ Existing accounts keep their old wrappers, so older clients aren't affected ther
 11. **Credential changes in MLS.** Is changing a `BasicCredential` in a self-update, keeping the signature key, sound in RFC 9420 terms, given that the tree check is what validates it? OpenMLS 0.9.2 accepts it, including for members who joined afterwards by Welcome and by external commit (`a_commit_gives_a_leaf_its_new_certificate` in `mls.rs`), which says it works, not that it's sound.
 12. **Seal keys.** Do you agree with rejecting the conversion of Ed25519 device keys to X25519 (section 7.5), given that it would remove the late-delivery case entirely?
 13. **Post-quantum.** Slots and bundles are classical X25519 and could be recorded now and opened later. MLS here is classical too (`mls.rs:15`), so this doesn't seem the place to start, but it's a long-lived key, so do you agree?
+14. **Rule 3, narrowed.** Section 7.4's rule 3 used to accept any device on an account lacking a slot, which let a server alone be sealed the new key. It now takes one this device already knew by the same key. Is that enough, and does the honest device left out (one nobody has seen, with no proof) always get back in?
+15. **Seal key generations.** A seal key now also has a signature saying its generation, and only what a device has seen counts. Is memory on each device enough, or should a rotation refuse a seal key from too far behind the current generation, at the cost of leaving out a device that's been away?
 
 ### For the owner
 
