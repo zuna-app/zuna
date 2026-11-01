@@ -1085,3 +1085,23 @@ describe("a server rewriting who said what (Z-40)", () => {
     expect(sessionOf(eve).messageRow(groupId, id).status).toBe("unverified");
   });
 });
+
+describe("a copy of the database replacing someone's sign-in key (Z-41)", () => {
+  it("can't, for an account whose keys are bound to this server", async () => {
+    const owner = await person("omar");
+    const username = owner.session.getSelf().username;
+    const stored = withServerDatabase((db) => db.prepare("SELECT auth_hash FROM users WHERE id = ?").get(owner.userId)) as { auth_hash: Uint8Array };
+    const post = (path: string, body: unknown) => fetch(`${server.url}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const { challenge } = (await (await post("/api/auth/upgrade-challenge", { username, kind: "password" })).json()) as { challenge: string };
+    const info = `zuna/auth-upgrade/v1|password|${server.url}|${username.toLowerCase()}|${challenge}`;
+    const proof = wasm.hkdfSha256(new Uint8Array(stored.auth_hash), new Uint8Array(0), utf8(info), 32);
+    const attackerKey = wasm.randomBytes(32);
+    const reply = await post("/api/auth/upgrade", { username, kind: "password", origin: server.url, challenge, proof: toBase64(proof), auth_key: toBase64(attackerKey) });
+    expect(reply.status).toBe(401);
+    expect((await post("/api/auth/login", { username, auth_key: toBase64(attackerKey), client: 2 })).status).toBe(401);
+    const phone = await new TestApp("omar-phone").open();
+    open.push(phone);
+    await phone.login(server.url, username);
+    expect(phone.session.getSelf().userId).toBe(owner.userId);
+  });
+});

@@ -244,6 +244,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   const created = await api.register({
     invite_code: input.invite?.code ?? "",
     username: input.username,
+    keys_bound: true,
     kdf: { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism },
     auth_key: password.authKey,
     recovery_auth_key: recovery.authKey,

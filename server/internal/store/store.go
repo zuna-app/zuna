@@ -409,6 +409,12 @@ CREATE TABLE account_bundles (
 
 -- Removals from before this are nobody's cue to rotate.
 INSERT OR IGNORE INTO settings(key, value) VALUES('account_protocol_since', CAST(CAST(strftime('%s', 'now') AS INTEGER) * 1000 AS TEXT));
+`, `
+-- Whether a sign-in key is known to be the kind bound to this server. Only one
+-- that isn't may still be moved by a proof of the older key, which anyone with a
+-- copy of this database could also make.
+ALTER TABLE users ADD COLUMN auth_bound INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN recovery_bound INTEGER NOT NULL DEFAULT 0;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

@@ -272,13 +272,13 @@ func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
 			}
 		}
 		if p := rotation.Password; p != nil {
-			if _, err := tx.ExecContext(ctx, `UPDATE users SET kdf_salt = ?, kdf_memory = ?, kdf_iterations = ?, kdf_parallelism = ?, auth_hash = ?, auth_salt = ? WHERE id = ?`,
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET kdf_salt = ?, kdf_memory = ?, kdf_iterations = ?, kdf_parallelism = ?, auth_hash = ?, auth_salt = ?, auth_bound = 1 WHERE id = ?`,
 				p.KDF.Salt, p.KDF.Memory, p.KDF.Iterations, p.KDF.Parallelism, p.AuthHash, p.AuthSalt, rotation.UserID); err != nil {
 				return err
 			}
 		}
 		if r := rotation.Recovery; r != nil {
-			if _, err := tx.ExecContext(ctx, `UPDATE users SET recovery_hash = ?, recovery_salt = ? WHERE id = ?`, r.Hash, r.Salt, rotation.UserID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE users SET recovery_hash = ?, recovery_salt = ?, recovery_bound = 1 WHERE id = ?`, r.Hash, r.Salt, rotation.UserID); err != nil {
 				return err
 			}
 		}

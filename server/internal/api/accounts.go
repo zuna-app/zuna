@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
@@ -154,6 +155,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		VaultCore          []byte          `json:"vault_core"`
 		Profile            []byte          `json:"profile"`
 		Slots              []store.Slot    `json:"slots"`
+		KeysBound          bool            `json:"keys_bound"`
 	}
 	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
 		return
@@ -203,6 +205,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		VaultCore:          body.VaultCore,
 		Profile:            body.Profile,
 		Slots:              body.Slots,
+		KeysBound:          body.KeysBound,
 	}, body.InviteCode)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "invalid_invite", "This invite link has expired or was already used.")
@@ -310,6 +313,14 @@ func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, creds *sto
 	if client < accountProtocol && (creds.KeyGeneration > 0 || len(wrapped) == 0) {
 		writeUpdateRequired(w)
 		return
+	}
+	// An updated app only ever signs in with a key bound to this server, so from
+	// here on there's no older key to move on from.
+	if bound := creds.AuthBound; client >= accountProtocol && ((kind == "password" && !bound) || (kind == "recovery" && !creds.RecoveryBound)) {
+		if err := s.db.MarkSignInKeyBound(r.Context(), creds.UserID, kind); err != nil {
+			writeFailure(w, err)
+			return
+		}
 	}
 	token, err := s.newSession(r, creds.UserID)
 	if err != nil {
@@ -440,9 +451,15 @@ func (s *Server) handleUpgradeKey(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
-	stored := creds.AuthHash
+	stored, bound := creds.AuthHash, creds.AuthBound
 	if body.Kind == "recovery" {
-		stored = creds.RecoveryHash
+		stored, bound = creds.RecoveryHash, creds.RecoveryBound
+	}
+	// The proof is made from the stored hash, which a copy of this database also
+	// has, so it can only ever count for a key that has yet to move.
+	if bound {
+		refuse()
+		return
 	}
 	info := "zuna/auth-upgrade/v1|" + body.Kind + "|" + body.Origin + "|" + strings.ToLower(body.Username) + "|" + base64.StdEncoding.EncodeToString(body.Challenge)
 	expected, err := hkdf.Key(sha256.New, stored, nil, info, 32)
@@ -464,7 +481,17 @@ func (s *Server) handleUpgradeKey(w http.ResponseWriter, r *http.Request) {
 		writeFailure(w, err)
 		return
 	}
+	// Whoever knew the older key may have left a session behind, as with a new password.
+	if err := s.db.DeleteDevicelessSessions(r.Context(), creds.UserID, []byte{}); err != nil {
+		writeFailure(w, err)
+		return
+	}
 	writeOK(w)
+}
+
+// UnboundAccounts is how many accounts here still have a sign-in key of the older kind.
+func (s *Server) UnboundAccounts(ctx context.Context) (int, error) {
+	return s.db.UnboundAccounts(ctx)
 }
 
 func (s *Server) credentialsOf(r *http.Request, sess *store.Session) (*store.Credentials, error) {

@@ -741,3 +741,77 @@ func TestUpgradingASignInKeyProvesItWithoutSendingIt(t *testing.T) {
 		t.Fatal("an unknown name should get a stable salt")
 	}
 }
+
+// Z-41: the proof of an older key is made from the stored hash, so a copy of the
+// database can make it. Once a key is bound to this server, that's no use.
+func TestAStoredHashCantReplaceASignInKey(t *testing.T) {
+	h := newHarness(t)
+	h.owner()
+	hashOf := func(key []byte, salt []byte) []byte {
+		sum := sha256.Sum256(append(append([]byte{}, salt...), key...))
+		return sum[:]
+	}
+	replace := func(kind string, stored []byte) int {
+		var out struct {
+			Challenge []byte `json:"challenge"`
+		}
+		h.mustDo("POST", "/api/auth/upgrade-challenge", "", map[string]any{"username": "owner", "kind": kind}, &out)
+		info := "zuna/auth-upgrade/v1|" + kind + "|http://test|owner|" + base64.StdEncoding.EncodeToString(out.Challenge)
+		proof, err := hkdf.Key(sha256.New, stored, nil, info, 32)
+		if err != nil {
+			t.Fatal(err)
+		}
+		status, _ := h.do("POST", "/api/auth/upgrade", "", map[string]any{
+			"username": "owner", "kind": kind, "origin": "http://test", "challenge": out.Challenge, "proof": proof, "auth_key": bytesOf(32, 0x66),
+		}, nil)
+		return status
+	}
+	saltOf := func(kind string) []byte {
+		var out struct {
+			Salt []byte `json:"salt"`
+		}
+		h.mustDo("POST", "/api/auth/upgrade-challenge", "", map[string]any{"username": "owner", "kind": kind}, &out)
+		return out.Salt
+	}
+
+	// An updated app signing in shows the key is bound.
+	password, recovery := bytesOf(32, 'o'), bytesOf(32, 'o'+1)
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": password, "client": 2}, nil)
+	if status := replace("password", hashOf(password, saltOf("password"))); status != http.StatusUnauthorized {
+		t.Fatalf("a proof from the stored hash of a bound key gave %d", status)
+	}
+	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": password, "client": 2}, nil)
+
+	// The recovery key is its own: it moves until it's been used by an updated app.
+	if status := replace("recovery", hashOf(recovery, saltOf("recovery"))); status != http.StatusOK {
+		t.Fatalf("moving a recovery key gave %d", status)
+	}
+	if status := replace("recovery", hashOf(bytesOf(32, 0x66), saltOf("recovery"))); status != http.StatusUnauthorized {
+		t.Fatalf("moving it a second time gave %d", status)
+	}
+}
+
+func TestNewAccountsSayTheirSignInKeysAreBound(t *testing.T) {
+	h := newHarness(t)
+	h.mustDo("POST", "/api/auth/register", "", map[string]any{
+		"invite_code":          h.invite,
+		"username":             "newcomer",
+		"kdf":                  map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
+		"auth_key":             bytesOf(32, 'n'),
+		"recovery_auth_key":    bytesOf(32, 'r'),
+		"wrapped_key_password": []byte("wrapped-pw"),
+		"wrapped_key_recovery": []byte("wrapped-rec"),
+		"identity_key":         bytesOf(32, 1),
+		"hpke_key":             bytesOf(32, 2),
+		"hpke_key_sig":         bytesOf(64, 3),
+		"vault_core":           []byte("vault"),
+		"keys_bound":           true,
+	}, nil)
+	unbound, err := h.srv.UnboundAccounts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unbound != 0 {
+		t.Fatalf("%d unbound accounts", unbound)
+	}
+}
