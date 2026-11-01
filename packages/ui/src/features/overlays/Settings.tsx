@@ -21,7 +21,8 @@ import { platform } from "@/platform";
 import { Avatar, Field, Logo, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
-import { formatFull, MIN_PASSWORD, passwordStrength } from "@/lib/format";
+import { formatFull, MIN_PASSWORD } from "@/lib/format";
+import { usePasswordStrength } from "@/lib/password";
 import { prepareAvatar } from "@/lib/media";
 import type { AppSettings } from "@/state/settings";
 import { useActiveServer, useApp } from "@/state/store";
@@ -343,7 +344,8 @@ function SecuritySection() {
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const { busy, run } = useAction();
-  const strength = passwordStrength(next);
+  const self = server?.self ? server.users[server.self.userId] : undefined;
+  const strength = usePasswordStrength(next, [server?.self?.username ?? "", self?.displayName ?? ""]);
 
   return (
     <>
@@ -367,7 +369,7 @@ function SecuritySection() {
       <div>
         <button
           className="btn"
-          disabled={!current || next.length < MIN_PASSWORD || strength.score < 2 || busy}
+          disabled={!current || next.length < MIN_PASSWORD || !strength.current || strength.score < 2 || busy}
           onClick={() =>
             run(async () => {
               await session().changePassword(current, next);

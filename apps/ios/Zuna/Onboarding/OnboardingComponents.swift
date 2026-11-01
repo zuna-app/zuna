@@ -1,4 +1,5 @@
 import SwiftUI
+import ZunaHost
 import ZunaModels
 
 /// The parts the join screens share: a header, fields, the strength meter and the main button.
@@ -87,12 +88,34 @@ struct FormField<Field: View>: View {
     }
 }
 
+/// A password's strength, kept with the password it's for, so that nothing goes
+/// ahead on a rating of what was typed a moment ago.
+@MainActor
+@Observable
+final class PasswordRating {
+    private(set) var strength = PasswordMeter.Strength.none
+    private var rated = ""
+
+    /// `related` is what anyone guessing would try first: the username and display name.
+    func rate(_ password: String, related: [String]) async {
+        let strength = await PasswordMeter.shared.strength(password, related: related)
+        guard !Task.isCancelled else { return }
+        self.strength = strength
+        rated = password
+    }
+
+    /// Whether `password` has been rated, and is strong enough.
+    func accepts(_ password: String) -> Bool {
+        !password.isEmpty && rated == password && strength.score >= 2
+    }
+}
+
 /// How hard a new password is to guess, as on the desktop: four bars and a word.
 struct StrengthMeter: View {
-    let password: String
+    let rating: PasswordRating
 
     var body: some View {
-        let strength = AccountRules.passwordStrength(password)
+        let strength = rating.strength
         let colors = [Theme.bg5, Theme.red, Theme.amber, Theme.text2, Theme.green]
         HStack(spacing: 10) {
             HStack(spacing: 4) {

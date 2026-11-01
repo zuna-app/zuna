@@ -1,29 +1,32 @@
 import XCTest
+import ZunaHost
 import ZunaModels
 
 /// Sign-up must judge passwords and suggest usernames as the desktop does.
 /// Expected values come from running the desktop's functions in Node.
 final class AccountRulesTests: XCTestCase {
-    func testRatesPasswordsLikeTheDesktop() {
-        let cases: [(String, Int, String)] = [
-            ("", 0, ""),
-            ("short", 1, "Too easy to guess"),
-            ("aaaaaaaaaaaa", 1, "Too easy to guess"),
-            ("password12345", 3, "Good"),
-            ("correct horse battery", 4, "Strong"),
-            ("Tr0ub4dor&3", 4, "Strong"),
-            ("hunter2hunter2", 4, "Strong"),
-            ("zażółć gęślą jaźń", 4, "Strong"),
-            ("abcdefghij", 2, "Could be stronger"),
-            ("abcdefghij1234", 3, "Good"),
-            ("AbCdEfGhIjKl", 3, "Good"),
-            ("x9$Lq!2vR#pW", 4, "Strong"),
-            ("ZunaZunaZuna1", 2, "Could be stronger"),
-            ("Ab1!", 1, "Too easy to guess"),
-            ("longpasswordwithoutanythingelse", 4, "Strong"),
+    /// The meter is the desktop's own estimator, run in JavaScriptCore.
+    func testRatesPasswordsLikeTheDesktop() async {
+        let cases: [(String, [String], Int, String)] = [
+            ("", [], 0, ""),
+            ("short", [], 1, "Too easy to guess"),
+            ("aaaaaaaaaaaa", [], 1, "Too easy to guess"),
+            ("Haslo123!", [], 1, "Too easy to guess"),
+            ("Summer2024!", [], 1, "Too easy to guess"),
+            ("Zaq12wsx", [], 1, "Too easy to guess"),
+            ("password12345", [], 1, "Too easy to guess"),
+            ("DanaScully1!", ["dana_scully", "Dana Scully"], 1, "Too easy to guess"),
+            ("correct horse battery", [], 3, "Good"),
+            ("Tr0ub4dor&3", [], 2, "Could be stronger"),
+            ("zażółć gęślą jaźń", [], 4, "Strong"),
+            ("kot w butach", [], 2, "Could be stronger"),
+            ("k7Rm2pQx9z", [], 2, "Could be stronger"),
+            ("Gdansk#Lato77", [], 3, "Good"),
+            ("x9$Lq!2vR#pW", [], 3, "Good"),
+            ("purple monkey dishwasher", [], 4, "Strong"),
         ]
-        for (password, score, label) in cases {
-            let strength = AccountRules.passwordStrength(password)
+        for (password, related, score, label) in cases {
+            let strength = await PasswordMeter.shared.strength(password, related: related)
             XCTAssertEqual(strength.score, score, "for \(password.debugDescription)")
             XCTAssertEqual(strength.label, label, "for \(password.debugDescription)")
         }

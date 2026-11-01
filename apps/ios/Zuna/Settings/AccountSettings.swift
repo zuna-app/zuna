@@ -174,6 +174,7 @@ struct SecurityView: View {
     @State private var devices: [DeviceView] = []
     @State private var current = ""
     @State private var next = ""
+    @State private var rating = PasswordRating()
     @State private var recoveryPassword = ""
     @State private var recoveryKey: String?
     @State private var busy = false
@@ -181,7 +182,7 @@ struct SecurityView: View {
     @State private var removing: DeviceView?
 
     var body: some View {
-        let strength = AccountRules.passwordStrength(next)
+        let strength = rating.strength
         List {
             Section {
                 Button {
@@ -225,8 +226,12 @@ struct SecurityView: View {
                 SecureField("New password", text: $next)
                     .textContentType(.newPassword)
                     .accessibilityIdentifier(A11y.Settings.newPassword)
+                    .task(id: next) {
+                        let me = model.servers[serverId]?.me
+                        await rating.rate(next, related: [me?.username ?? "", me.flatMap { model.servers[serverId]?.users[$0.userId]?.displayName } ?? ""])
+                    }
                 Button("Change password") { changePassword() }
-                    .disabled(current.isEmpty || next.count < AccountRules.minimumPasswordLength || strength.score < 2 || busy)
+                    .disabled(current.isEmpty || next.count < AccountRules.minimumPasswordLength || !rating.accepts(next) || busy)
                     .accessibilityIdentifier(A11y.Settings.changePassword)
             } header: {
                 Text("Change password")

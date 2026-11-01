@@ -7,7 +7,8 @@ import { platform } from "@/platform";
 import { Avatar, Field, Logo, PasswordField, Spinner } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
-import { MIN_PASSWORD, passwordStrength } from "@/lib/format";
+import { MIN_PASSWORD } from "@/lib/format";
+import { usePasswordStrength } from "@/lib/password";
 import { useApp } from "@/state/store";
 
 type Step =
@@ -217,8 +218,8 @@ function suggestUsername(name: string): string {
     .slice(0, 32);
 }
 
-function StrengthMeter({ password }: { password: string }) {
-  const { score, label } = passwordStrength(password);
+function StrengthMeter({ strength }: { strength: { score: number; label: string } }) {
+  const { score, label } = strength;
   const colors = ["var(--bg-5)", "var(--red)", "var(--amber)", "var(--text-2)", "var(--green)"];
   return (
     <div className="strength" aria-live="polite">
@@ -251,8 +252,8 @@ function InviteStep({
   const server = preview.server;
 
   const validUsername = /^[A-Za-z0-9_][A-Za-z0-9_.-]{1,31}$/.test(username);
-  const strength = passwordStrength(password);
-  const canSubmit = displayName.trim() && validUsername && password.length >= MIN_PASSWORD && strength.score >= 2 && !busy;
+  const strength = usePasswordStrength(password, [username, displayName]);
+  const canSubmit = displayName.trim() && validUsername && password.length >= MIN_PASSWORD && strength.current && strength.score >= 2 && !busy;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -320,7 +321,7 @@ function InviteStep({
           autoComplete="new-password"
           onChange={(event) => setPassword(event.target.value)}
         />
-        <StrengthMeter password={password} />
+        <StrengthMeter strength={strength} />
       </div>
       <div className="notice">
         <Lock size={15} />
@@ -494,7 +495,7 @@ function RecoverStep({
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const strength = passwordStrength(password);
+  const strength = usePasswordStrength(password, [username]);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -516,10 +517,10 @@ function RecoverStep({
       <Field label="Recovery key" className="input mono" value={key} autoFocus spellCheck={false} onChange={(event) => setKey(event.target.value)} />
       <div className="field">
         <PasswordField label="New password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
-        <StrengthMeter password={password} />
+        <StrengthMeter strength={strength} />
       </div>
       {error && <div className="field-error">{error}</div>}
-      <button className="btn btn-primary btn-large btn-block" disabled={!key || password.length < MIN_PASSWORD || strength.score < 2 || busy}>
+      <button className="btn btn-primary btn-large btn-block" disabled={!key || password.length < MIN_PASSWORD || !strength.current || strength.score < 2 || busy}>
         {busy ? <Spinner /> : "Recover account"}
       </button>
     </form>

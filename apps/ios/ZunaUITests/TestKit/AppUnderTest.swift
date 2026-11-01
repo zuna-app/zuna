@@ -249,7 +249,10 @@ final class AppUnderTest {
 
         type("Fox Mulder", into: A11y.Onboarding.displayName)
         type(password, into: A11y.Onboarding.password)
-        element(A11y.Onboarding.create).tap()
+        // The password is rated a moment after it's typed.
+        let create = element(A11y.Onboarding.create)
+        try waitFor("the password to be rated") { create.isEnabled }
+        create.tap()
         XCTAssertTrue(element(A11y.Onboarding.recoveryKey).waitForExistence(timeout: 30))
         declineSavingPassword()
         toggle(A11y.Onboarding.keyStored)

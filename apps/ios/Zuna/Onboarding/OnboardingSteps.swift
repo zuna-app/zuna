@@ -131,6 +131,7 @@ struct InviteStep: View {
     @State private var username = ""
     @State private var usernameEdited = false
     @State private var password = ""
+    @State private var rating = PasswordRating()
     @State private var error: String?
     @State private var busy = false
 
@@ -138,7 +139,7 @@ struct InviteStep: View {
         !displayName.trimmingCharacters(in: .whitespaces).isEmpty
             && AccountRules.isValidUsername(username)
             && password.count >= AccountRules.minimumPasswordLength
-            && AccountRules.passwordStrength(password).score >= 2
+            && rating.accepts(password)
             && !busy
     }
 
@@ -192,7 +193,10 @@ struct InviteStep: View {
                         .accessibilityLabel("Password")
                         .accessibilityIdentifier(A11y.Onboarding.password)
                 }
-                StrengthMeter(password: password)
+                StrengthMeter(rating: rating)
+                    .task(id: [password, username, displayName]) {
+                        await rating.rate(password, related: [username, displayName])
+                    }
             }
             Label("Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it.", systemImage: "lock.fill")
                 .font(.footnote)
@@ -460,11 +464,12 @@ struct RecoverStep: View {
     @Environment(AppModel.self) private var model
     @State private var key = ""
     @State private var password = ""
+    @State private var rating = PasswordRating()
     @State private var error: String?
     @State private var busy = false
 
     private var canSubmit: Bool {
-        !key.isEmpty && password.count >= AccountRules.minimumPasswordLength && AccountRules.passwordStrength(password).score >= 2 && !busy
+        !key.isEmpty && password.count >= AccountRules.minimumPasswordLength && rating.accepts(password) && !busy
     }
 
     var body: some View {
@@ -491,7 +496,10 @@ struct RecoverStep: View {
                         .accessibilityLabel("New password")
                         .accessibilityIdentifier(A11y.Onboarding.newPassword)
                 }
-                StrengthMeter(password: password)
+                StrengthMeter(rating: rating)
+                    .task(id: password) {
+                        await rating.rate(password, related: [username])
+                    }
             }
             if let error {
                 Text(error)

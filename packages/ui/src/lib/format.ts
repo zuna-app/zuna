@@ -103,20 +103,3 @@ export const nameColor = (seed: string): string => NAME_COLORS[colorIndex(seed, 
 /** The shortest password allowed when signing up or changing it. */
 export const MIN_PASSWORD = 8;
 
-/** Rates a password from 0 to 4 by estimating how hard it is to guess. */
-export function passwordStrength(password: string): { score: number; label: string } {
-  if (!password) return { score: 0, label: "" };
-  let alphabet = 0;
-  if (/[a-z]/.test(password)) alphabet += 26;
-  if (/[A-Z]/.test(password)) alphabet += 26;
-  if (/[0-9]/.test(password)) alphabet += 10;
-  if (/[^a-zA-Z0-9]/.test(password)) alphabet += 20;
-  let bits = password.length * Math.log2(Math.max(alphabet, 2));
-  if (/^(.)\1+$/.test(password)) bits = 4;
-  if (/(password|qwerty|123456|letmein|admin|welcome|zuna)/i.test(password)) bits -= 24;
-  if (/^[a-z]+\d{0,4}$/i.test(password)) bits *= 0.65;
-  if (bits < 28) return { score: 1, label: "Too easy to guess" };
-  if (bits < 42) return { score: 2, label: "Could be stronger" };
-  if (bits < 60) return { score: 3, label: "Good" };
-  return { score: 4, label: "Strong" };
-}

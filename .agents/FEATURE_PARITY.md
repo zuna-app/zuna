@@ -22,7 +22,7 @@ Things one platform should have and doesn't.
 | Join by invite link with a preview, or an open server by address | yes | yes | yes | `features/onboarding/Onboarding.tsx` | `Onboarding/OnboardingSteps.swift`, `Onboarding/JoinFlow.swift` | |
 | `zuna://` links | yes | yes | no | `App.tsx`, `apps/desktop/src/main/index.ts` | `ZunaApp.swift` | Web: by design, `#join=<invite link>` instead (`apps/web/src/platform.ts`) |
 | Set up a new server | yes | yes | yes | `features/onboarding/Onboarding.tsx` | `Onboarding/JoinFlow.swift` | |
-| Sign up: 8+ character password, strength meter | yes | yes | yes | `lib/format.ts` | `apps/ios/ZunaKit/Sources/ZunaModels/AccountRules.swift` | |
+| Sign up: 8+ character password, strength meter | yes | yes | yes | `lib/password.ts` | `apps/ios/ZunaKit/Sources/ZunaHost/PasswordMeter.swift` | One estimator, `packages/core/src/password.ts` (zxcvbn-ts, common, English and Polish lists; under 10^9 guesses refused), also for recovery and changing the password. iOS runs it from `zuna-password.js` in its own JSContext. iOS checked with `swift test` on a Mac against the desktop's values |
 | Recovery key shown and saved | yes | yes | yes | `features/onboarding/Onboarding.tsx` | `Onboarding/OnboardingSteps.swift` | Desktop saves a file, iOS uses the share sheet. The web downloads the file |
 | Sign in, recovery with a new password | yes | yes | yes | `features/onboarding/Onboarding.tsx` | `Onboarding/OnboardingSteps.swift` | |
 | Several servers, unread count per server | yes | yes | yes | `features/shell/ServerRail.tsx` | `Shell/ServerListView.swift`, `Shell/MainView.swift` | By design: a rail on the desktop, a list like Mail's mailboxes on iOS |

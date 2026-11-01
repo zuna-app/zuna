@@ -115,7 +115,7 @@ The web app has no keychain to use, so its device key is in the browser's own st
 
 These are real limitations, stated plainly:
 
-- **A malicious server can try to guess weak passwords.** It holds what's needed to test guesses offline. Argon2id slows this down and sign-up rejects very weak passwords, but a long, unique password is your real protection.
+- **A malicious server can try to guess weak passwords.** It holds what's needed to test guesses offline. Argon2id slows this down, and the app refuses a new password that lists of common passwords, words and names would guess within about a billion tries, but a long, unique password is your real protection.
 - **Stealing your account key exposes your history.** Anyone with your password or recovery key, combined with the server's data, can read everything you had access to. Stored history has no forward secrecy; this is the cost of history on new devices.
 - **Replacing your keys only takes effect once the secret has changed.** If you think your password or recovery key was stolen, change them and remove any device you don't recognize in Settings. Removing a device evicts someone who has that device but not your password, and changing your password evicts someone who only had that. What they could already read, they keep.
 - **Accounts from before key replacement keep a weakness until you next enter both secrets.** A recovery key's wrapper can't be converted without the recovery key, so until you use it or replace it in Settings, new account keys are also sealed under your first account key. Someone with a copy of that key who also has the server's data can then still read new items. An honest server keeps them out. New accounts don't have this limit.

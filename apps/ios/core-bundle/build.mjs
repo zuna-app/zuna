@@ -9,6 +9,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const resources = join(here, "..", "ZunaKit", "Sources", "ZunaHost", "Resources");
 const outfile = join(resources, "zuna-core.js");
 const highlightFile = join(resources, "zuna-highlight.js");
+const passwordFile = join(resources, "zuna-password.js");
 
 await build({
   entryPoints: [join(here, "src", "entry.ts")],
@@ -38,4 +39,19 @@ await build({
   logLevel: "warning",
 });
 
-console.log(`> wrote ${outfile} and ${highlightFile}`);
+// The password meter's word lists, in a context of their own too: they're large, and
+// the core also runs in the notification extension, which has little memory.
+await build({
+  entryPoints: [join(here, "src", "password.ts")],
+  outfile: passwordFile,
+  bundle: true,
+  format: "iife",
+  platform: "neutral",
+  mainFields: ["module", "main"],
+  target: "safari18",
+  minify: true,
+  legalComments: "none",
+  logLevel: "warning",
+});
+
+console.log(`> wrote ${outfile}, ${highlightFile} and ${passwordFile}`);

@@ -96,6 +96,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertTrue(recover.waitForExistence(timeout: 5))
         zuna.type(key, into: A11y.Onboarding.recoveryInput)
         zuna.type("a whole new password", into: A11y.Onboarding.newPassword)
+        try waitFor("the new password to be rated") { recover.isEnabled }
         zuna.screenshot("45-recover")
         recover.tap()
         try zuna.waitForChats(timeout: 30)
