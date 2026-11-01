@@ -54,6 +54,10 @@ function serve() {
   })
 }
 
+// On Linux the script that started this stops it with SIGTERM, which Electron takes
+// its time over, and then exits. A write after that has nobody to go to.
+for (const stream of [process.stdout, process.stderr]) stream.on('error', () => app.exit(0))
+
 // Keeps Chromium from throttling or re-timing the page that the numbers come from.
 app.commandLine.appendSwitch('disable-frame-rate-limit')
 app.commandLine.appendSwitch('disable-background-timer-throttling')
