@@ -460,6 +460,23 @@ ALTER TABLE messages ADD COLUMN pin_by TEXT;
 -- read how long a chat's messages last, only when each one is due.
 ALTER TABLE messages ADD COLUMN expires_at INTEGER;
 CREATE INDEX messages_expires ON messages(expires_at) WHERE expires_at IS NOT NULL;
+`, `
+-- Channels are groups anyone on the server can join, listed for everyone. Their
+-- names are sealed with the community key, which the server doesn't hold. A member's
+-- proof says they hold it too, and other members check it, so the server can't put a
+-- stranger on a channel's roster. Someone waiting for a channel's older keys is
+-- answered by whichever member comes across it first.
+CREATE TABLE channels (
+	id TEXT PRIMARY KEY REFERENCES groups(id) ON DELETE CASCADE,
+	type TEXT NOT NULL,
+	position INTEGER NOT NULL,
+	user_limit INTEGER NOT NULL DEFAULT 0,
+	details BLOB NOT NULL,
+	created_by TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+ALTER TABLE group_members ADD COLUMN proof BLOB;
+ALTER TABLE group_members ADD COLUMN history_wanted INTEGER NOT NULL DEFAULT 0;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

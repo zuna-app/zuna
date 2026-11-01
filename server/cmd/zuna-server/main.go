@@ -44,6 +44,10 @@ type config struct {
 	authBurst      int
 	userQuotaMB    int
 	pushRelays     string
+	liveKitURL     string
+	liveKitInternal string
+	liveKitKey     string
+	liveKitSecret  string
 }
 
 // splitList reads a comma-separated list of addresses. "off" is none.
@@ -83,6 +87,10 @@ func parseFlags() config {
 	quota, _ := strconv.Atoi(os.Getenv("ZUNA_USER_QUOTA_MB"))
 	flag.IntVar(&cfg.userQuotaMB, "user-quota-mb", quota, "how many MB of files each person may keep, or -1 for no limit (default 10240) (env ZUNA_USER_QUOTA_MB)")
 	flag.StringVar(&cfg.pushRelays, "push-relays", envOr("ZUNA_PUSH_RELAYS", defaultPushRelay), `comma-separated push relays that may wake phones for new messages, or "off" (env ZUNA_PUSH_RELAYS)`)
+	flag.StringVar(&cfg.liveKitURL, "livekit-url", os.Getenv("ZUNA_LIVEKIT_URL"), "LiveKit server for voice channels, as apps reach it, such as wss://voice.example.com (env ZUNA_LIVEKIT_URL)")
+	flag.StringVar(&cfg.liveKitInternal, "livekit-internal-url", os.Getenv("ZUNA_LIVEKIT_INTERNAL_URL"), "how this server reaches LiveKit, if not by that address (env ZUNA_LIVEKIT_INTERNAL_URL)")
+	flag.StringVar(&cfg.liveKitKey, "livekit-key", os.Getenv("ZUNA_LIVEKIT_KEY"), "LiveKit API key (env ZUNA_LIVEKIT_KEY)")
+	flag.StringVar(&cfg.liveKitSecret, "livekit-secret", os.Getenv("ZUNA_LIVEKIT_SECRET"), "LiveKit API secret (env ZUNA_LIVEKIT_SECRET)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -146,6 +154,11 @@ func run(cfg config) error {
 		AuthBurst:      cfg.authBurst,
 		UserQuotaMB:    cfg.userQuotaMB,
 		PushRelays:     splitList(cfg.pushRelays),
+
+		LiveKitURL:         cfg.liveKitURL,
+		LiveKitInternalURL: cfg.liveKitInternal,
+		LiveKitKey:         cfg.liveKitKey,
+		LiveKitSecret:      cfg.liveKitSecret,
 	}, db)
 	// For tests only: a stand-in for 7TV, so emote tests don't depend on the internet.
 	if base := os.Getenv("ZUNA_7TV_API"); base != "" {

@@ -78,6 +78,10 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request, sess 
 		writeError(w, http.StatusBadRequest, "bad_request", "A direct message can't be deleted. You can hide it instead.")
 		return
 	}
+	if group.Kind == "channel" {
+		writeError(w, http.StatusBadRequest, "bad_request", "A channel is deleted through the server's channels.")
+		return
+	}
 	if member.Role != "admin" && sess.Role != "owner" {
 		writeError(w, http.StatusForbidden, "forbidden", "Only an admin of this conversation can delete it.")
 		return
@@ -280,6 +284,10 @@ func (s *Server) handleLeave(w http.ResponseWriter, r *http.Request, sess *store
 		writeError(w, http.StatusBadRequest, "bad_request", "A direct message can't be left. You can hide it instead.")
 		return
 	}
+	if group.Kind == "channel" {
+		writeError(w, http.StatusBadRequest, "bad_request", "A channel can't be left. You can mute it instead.")
+		return
+	}
 	if len(group.Members) == 1 {
 		files, err := s.db.DeleteGroup(r.Context(), groupID)
 		if err != nil {
@@ -337,8 +345,8 @@ func (s *Server) handleGroupRole(w http.ResponseWriter, r *http.Request, _ *stor
 	if group, err := s.db.Group(r.Context(), groupID); err != nil {
 		writeFailure(w, err)
 		return
-	} else if group.Kind == "dm" {
-		writeError(w, http.StatusBadRequest, "bad_request", "A direct message has no roles to change.")
+	} else if group.Kind != "group" {
+		writeError(w, http.StatusBadRequest, "bad_request", "Only a group has roles to change.")
 		return
 	}
 	if err := s.db.SetGroupMemberRole(r.Context(), groupID, r.PathValue("user"), body.Role); err != nil {
@@ -369,6 +377,10 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request, sess *store.
 	if err != nil {
 		writeFailure(w, err)
 		return
+	}
+	// Nobody has read ticks in a channel, so where someone is goes only to their own devices.
+	if group, err := s.db.Group(r.Context(), groupID); err == nil && group.Kind == "channel" {
+		members = []string{sess.UserID}
 	}
 	s.hub.ToUsersExcept(members, sess.DeviceID, Event{Type: "read", Data: map[string]any{
 		"group_id": groupID,
@@ -518,7 +530,8 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
-	if created {
+	// The phone apps have no channels yet, and only a device could tell if one mentions someone.
+	if group, err := s.db.Group(r.Context(), groupID); created && err == nil && group.Kind != "channel" {
 		s.pushMessage(groupID, message)
 	}
 	writeJSON(w, http.StatusCreated, message)
@@ -558,8 +571,8 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 		writeFailure(w, err)
 		return
 	}
-	// In a DM only the sender can delete; in a group, its admins can moderate.
-	canModerate := group.Kind == "group" && member.Role == "admin"
+	// In a DM only the sender can delete; in a group or channel, its admins can moderate.
+	canModerate := group.Kind != "dm" && member.Role == "admin"
 	if existing.SenderUser != sess.UserID && !canModerate {
 		writeError(w, http.StatusForbidden, "forbidden", "You can only delete your own messages.")
 		return

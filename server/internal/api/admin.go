@@ -38,6 +38,10 @@ type ServerInfo struct {
 	// Disappearing says this server removes disappearing messages when they're due,
 	// and keeps how long a direct message's messages last.
 	Disappearing int `json:"disappearing,omitempty"`
+	// Channels says this server has channels. Voice says it has a media server for
+	// those that are voice channels, and without one they can't be joined.
+	Channels int `json:"channels,omitempty"`
+	Voice    int `json:"voice,omitempty"`
 	// CommunityKey is only present in open sign-up mode, where admins accepted
 	// that the server can read profiles. In invite mode it stays in invite links.
 	CommunityKey string `json:"community_key,omitempty"`
@@ -63,7 +67,10 @@ func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
 
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
-	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, RequestProofs: 1, Disappearing: 1}
+	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, RequestProofs: 1, Disappearing: 1, Channels: 1}
+	if s.liveKitConfigured() {
+		info.Voice = 1
+	}
 	var err error
 	if info.Name, err = s.db.Setting(ctx, "name", "Zuna"); err != nil {
 		return nil, err
@@ -380,6 +387,11 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *sto
 		writeFailure(w, err)
 		return
 	}
+	// A channel's admins are the server's.
+	if err := s.db.SetChannelRoles(r.Context(), targetID, body.Role); err != nil {
+		writeFailure(w, err)
+		return
+	}
 	s.broadcastUser(r, targetID)
 	writeOK(w)
 }
@@ -410,6 +422,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 		writeFailure(w, err)
 		return
 	}
+	s.endVoiceFor(r.Context(), targetID, "banned")
 	s.hub.ToUsers([]string{targetID}, Event{Type: "force_logout", Data: map[string]string{"reason": "banned"}})
 	s.hub.Disconnect(targetID, "")
 	s.broadcastUser(r, targetID)

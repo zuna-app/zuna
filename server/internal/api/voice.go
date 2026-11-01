@@ -1,0 +1,496 @@
+package api
+
+import (
+	"bytes"
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"zuna/server/internal/store"
+)
+
+const (
+	// A token only has to last until it's used: LiveKit keeps a connected
+	// participant's fresh by itself.
+	voiceTokenTTL  = 5 * time.Minute
+	liveKitTimeout = 5 * time.Second
+	// A device that lost its connection to this server may still be in the room, and
+	// usually comes straight back, so it isn't taken out of the channel straight away.
+	voiceSocketGrace = 20 * time.Second
+)
+
+// What someone in a voice channel may publish, as LiveKit names them. Being muted
+// by an admin takes the microphone out of this, which LiveKit itself enforces.
+var (
+	voiceSources      = []string{"MICROPHONE", "CAMERA", "SCREEN_SHARE", "SCREEN_SHARE_AUDIO"}
+	mutedVoiceSources = []string{"CAMERA", "SCREEN_SHARE", "SCREEN_SHARE_AUDIO"}
+	screenSources     = []string{"SCREEN_SHARE", "SCREEN_SHARE_AUDIO"}
+)
+
+// voiceUpdate is what a device says about itself in a voice channel.
+type voiceUpdate struct {
+	Muted    bool `json:"muted"`
+	Deafened bool `json:"deafened"`
+	Camera   bool `json:"camera"`
+	Screen   bool `json:"screen"`
+}
+
+// VoiceState is one device in a voice channel, as it says. That's enough for showing
+// who's there, which is all this is for: what a device can really do in the room is
+// up to LiveKit, and what it can hear is up to MLS.
+type VoiceState struct {
+	ChannelID   string `json:"channel_id"`
+	UserID      string `json:"user_id"`
+	DeviceID    string `json:"device_id"`
+	Muted       bool   `json:"muted"`
+	Deafened    bool   `json:"deafened"`
+	ServerMuted bool   `json:"server_muted"`
+	Camera      bool   `json:"camera"`
+	Screen      bool   `json:"screen"`
+	Since       int64  `json:"since"`
+}
+
+// voiceChange is the frame that tells everyone a device's state, or that it left.
+type voiceChange struct {
+	ChannelID string      `json:"channel_id"`
+	DeviceID  string      `json:"device_id"`
+	UserID    string      `json:"user_id"`
+	State     *VoiceState `json:"state"`
+}
+
+// voiceRooms is who's in the voice channels. It's kept in memory, since apps say
+// again when they reconnect, and a restart ends nothing in LiveKit.
+type voiceRooms struct {
+	mu     sync.Mutex
+	states map[string]*VoiceState
+	// People an admin has muted, until one unmutes them.
+	muted  map[string]bool
+	timers map[string]*time.Timer
+}
+
+func newVoiceRooms() *voiceRooms {
+	return &voiceRooms{states: map[string]*VoiceState{}, muted: map[string]bool{}, timers: map[string]*time.Timer{}}
+}
+
+func (v *voiceRooms) all() []VoiceState {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	states := make([]VoiceState, 0, len(v.states))
+	for _, state := range v.states {
+		states = append(states, *state)
+	}
+	sort.Slice(states, func(i, j int) bool { return states[i].Since < states[j].Since })
+	return states
+}
+
+func (v *voiceRooms) isMuted(userID string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.muted[userID]
+}
+
+// countIn is how many other people are in a channel.
+func (v *voiceRooms) countIn(channelID, exceptUser string) int {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	people := map[string]bool{}
+	for _, state := range v.states {
+		if state.ChannelID == channelID && state.UserID != exceptUser {
+			people[state.UserID] = true
+		}
+	}
+	return len(people)
+}
+
+func (v *voiceRooms) deviceIn(channelID, deviceID string) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	state := v.states[deviceID]
+	return state != nil && state.ChannelID == channelID
+}
+
+func (v *voiceRooms) stopTimer(deviceID string) {
+	if timer := v.timers[deviceID]; timer != nil {
+		timer.Stop()
+		delete(v.timers, deviceID)
+	}
+}
+
+// liveKitConfigured reports whether voice channels can be joined here.
+func (s *Server) liveKitConfigured() bool {
+	return s.cfg.LiveKitURL != "" && s.cfg.LiveKitKey != "" && s.cfg.LiveKitSecret != ""
+}
+
+func (s *Server) liveKitToken(identity string, video map[string]any) (string, error) {
+	now := time.Now()
+	return signLiveKitToken(s.cfg.LiveKitSecret, map[string]any{
+		"iss":   s.cfg.LiveKitKey,
+		"sub":   identity,
+		"nbf":   now.Add(-time.Minute).Unix(),
+		"exp":   now.Add(voiceTokenTTL).Unix(),
+		"video": video,
+	})
+}
+
+// signLiveKitToken makes the JWT LiveKit takes, signed with the secret it shares with this server.
+func signLiveKitToken(secret string, claims map[string]any) (string, error) {
+	payload, err := json.Marshal(claims)
+	if err != nil {
+		return "", err
+	}
+	encode := base64.RawURLEncoding.EncodeToString
+	unsigned := encode([]byte(`{"alg":"HS256","typ":"JWT"}`)) + "." + encode(payload)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(unsigned))
+	return unsigned + "." + encode(mac.Sum(nil)), nil
+}
+
+// voiceIdentity is who a device is in a room. It says nothing but IDs, and the
+// names are in a profile only members can read. Apps derive each sender's key from
+// it, so LiveKit can't pass off one person's media as another's.
+func voiceIdentity(userID, deviceID string) string { return userID + "." + deviceID }
+
+// voiceChannel is the voice channel a request is about, or nothing after saying what's wrong.
+func (s *Server) voiceChannel(w http.ResponseWriter, r *http.Request) *store.Channel {
+	channel, err := s.db.Channel(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeFailure(w, err)
+		return nil
+	}
+	if channel.Type != "voice" {
+		writeError(w, http.StatusBadRequest, "bad_request", "That isn't a voice channel.")
+		return nil
+	}
+	return channel
+}
+
+// handleVoiceToken lets a member into a voice channel's room on the media server,
+// which can only ever see encrypted media. The keys come from the channel's MLS group.
+func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
+	if !s.liveKitConfigured() {
+		writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
+		return
+	}
+	if !s.voiceLimiter.Allow(sess.UserID) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
+		return
+	}
+	channel := s.voiceChannel(w, r)
+	if channel == nil {
+		return
+	}
+	if channel.UserLimit > 0 && member.Role != "admin" && s.voice.countIn(channel.ID, sess.UserID) >= channel.UserLimit {
+		writeError(w, http.StatusForbidden, "channel_full", "This voice channel is full.")
+		return
+	}
+	sources := voiceSources
+	if s.voice.isMuted(sess.UserID) {
+		sources = mutedVoiceSources
+	}
+	identity := voiceIdentity(sess.UserID, sess.DeviceID)
+	token, err := s.liveKitToken(identity, map[string]any{
+		"room":              channel.ID,
+		"roomJoin":          true,
+		"canPublish":        true,
+		"canSubscribe":      true,
+		"canPublishData":    false,
+		"canPublishSources": sources,
+	})
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"url": s.cfg.LiveKitURL, "token": token, "identity": identity, "server_muted": s.voice.isMuted(sess.UserID)})
+}
+
+// handleScreenToken is for a native process that shares this device's screen as a
+// participant of its own, which can only publish a screen.
+func (s *Server) handleScreenToken(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+	if !s.liveKitConfigured() {
+		writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
+		return
+	}
+	if !s.voiceLimiter.Allow(sess.UserID) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
+		return
+	}
+	channel := s.voiceChannel(w, r)
+	if channel == nil {
+		return
+	}
+	if !s.voice.deviceIn(channel.ID, sess.DeviceID) {
+		writeError(w, http.StatusConflict, "not_in_voice", "Join the voice channel to share your screen.")
+		return
+	}
+	identity := voiceIdentity(sess.UserID, sess.DeviceID) + ".screen"
+	token, err := s.liveKitToken(identity, map[string]any{
+		"room":              channel.ID,
+		"roomJoin":          true,
+		"canPublish":        true,
+		"canSubscribe":      false,
+		"canPublishData":    false,
+		"canPublishSources": screenSources,
+	})
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"url": s.cfg.LiveKitURL, "token": token, "identity": identity})
+}
+
+// updateVoice takes what a device says it's doing in a voice channel. Being in one
+// on a second device ends it on the first, which is told why.
+func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
+	if frame.Voice == nil || frame.GroupID == "" {
+		s.leaveVoice(c.userID, c.deviceID)
+		return
+	}
+	if !store.ValidID(frame.GroupID) {
+		return
+	}
+	if _, err := s.db.Membership(ctx, frame.GroupID, c.userID); err != nil {
+		return
+	}
+	channel, err := s.db.Channel(ctx, frame.GroupID)
+	if err != nil || channel.Type != "voice" {
+		return
+	}
+
+	s.voice.mu.Lock()
+	s.voice.stopTimer(c.deviceID)
+	previous := s.voice.states[c.deviceID]
+	// A move to another channel counts as leaving the first.
+	var leftChannel string
+	if previous != nil && previous.ChannelID != frame.GroupID {
+		leftChannel = previous.ChannelID
+		previous = nil
+	}
+	state := &VoiceState{
+		ChannelID:   frame.GroupID,
+		UserID:      c.userID,
+		DeviceID:    c.deviceID,
+		Muted:       frame.Voice.Muted,
+		Deafened:    frame.Voice.Deafened,
+		ServerMuted: s.voice.muted[c.userID],
+		Camera:      frame.Voice.Camera,
+		Screen:      frame.Voice.Screen,
+		Since:       store.Now(),
+	}
+	if previous != nil {
+		state.Since = previous.Since
+	}
+	s.voice.states[c.deviceID] = state
+	// Only a person's latest device stays in.
+	var others []*VoiceState
+	for device, other := range s.voice.states {
+		if other.UserID == c.userID && device != c.deviceID {
+			others = append(others, other)
+			delete(s.voice.states, device)
+			s.voice.stopTimer(device)
+		}
+	}
+	s.voice.mu.Unlock()
+
+	if leftChannel != "" {
+		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: leftChannel, DeviceID: c.deviceID, UserID: c.userID}})
+	}
+	for _, other := range others {
+		s.hub.ToDevice(other.UserID, other.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": other.ChannelID, "reason": "elsewhere"}})
+		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: other.ChannelID, DeviceID: other.DeviceID, UserID: other.UserID}})
+	}
+	s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID, State: state}})
+}
+
+func (s *Server) leaveVoice(userID, deviceID string) {
+	s.voice.mu.Lock()
+	s.voice.stopTimer(deviceID)
+	state := s.voice.states[deviceID]
+	delete(s.voice.states, deviceID)
+	s.voice.mu.Unlock()
+	if state != nil {
+		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: deviceID, UserID: userID}})
+	}
+}
+
+// voiceSocketClosed gives a device a moment to come back before saying it left.
+func (s *Server) voiceSocketClosed(c *conn) {
+	s.voice.mu.Lock()
+	defer s.voice.mu.Unlock()
+	if s.voice.states[c.deviceID] == nil {
+		return
+	}
+	s.voice.stopTimer(c.deviceID)
+	s.voice.timers[c.deviceID] = time.AfterFunc(voiceSocketGrace, func() {
+		if !s.hub.DeviceConnected(c.userID, c.deviceID) {
+			s.leaveVoice(c.userID, c.deviceID)
+		}
+	})
+}
+
+// endVoiceFor takes someone out of every room, and tells them why.
+func (s *Server) endVoiceFor(ctx context.Context, userID, reason string) {
+	s.voice.mu.Lock()
+	var ended []*VoiceState
+	for device, state := range s.voice.states {
+		if state.UserID == userID {
+			ended = append(ended, state)
+			delete(s.voice.states, device)
+			s.voice.stopTimer(device)
+		}
+	}
+	s.voice.mu.Unlock()
+	for _, state := range ended {
+		s.removeFromRoom(ctx, state)
+		s.hub.ToDevice(state.UserID, state.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": state.ChannelID, "reason": reason}})
+		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID}})
+	}
+}
+
+// endVoiceIn empties a channel's room, when the channel is going.
+func (s *Server) endVoiceIn(ctx context.Context, channelID string) {
+	s.voice.mu.Lock()
+	var ended []*VoiceState
+	for device, state := range s.voice.states {
+		if state.ChannelID == channelID {
+			ended = append(ended, state)
+			delete(s.voice.states, device)
+			s.voice.stopTimer(device)
+		}
+	}
+	s.voice.mu.Unlock()
+	if s.liveKitConfigured() {
+		if err := s.callLiveKit(ctx, channelID, "DeleteRoom", map[string]any{"room": channelID}); err != nil {
+			slog.Warn("closing a voice channel's room", "error", err)
+		}
+	}
+	for _, state := range ended {
+		s.hub.ToDevice(state.UserID, state.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": channelID, "reason": "deleted"}})
+		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: channelID, DeviceID: state.DeviceID, UserID: state.UserID}})
+	}
+}
+
+func (s *Server) handleVoiceDisconnect(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	target := r.PathValue("user")
+	if _, allowed, err := s.canModerate(r, sess, target); err != nil {
+		writeFailure(w, err)
+		return
+	} else if !allowed {
+		writeError(w, http.StatusForbidden, "forbidden", "You can't disconnect this person.")
+		return
+	}
+	s.endVoiceFor(r.Context(), target, "disconnected")
+	writeOK(w)
+}
+
+func (s *Server) handleVoiceMute(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	target := r.PathValue("user")
+	var body struct {
+		Muted bool `json:"muted"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	if _, allowed, err := s.canModerate(r, sess, target); err != nil {
+		writeFailure(w, err)
+		return
+	} else if !allowed {
+		writeError(w, http.StatusForbidden, "forbidden", "You can't mute this person.")
+		return
+	}
+	s.voice.mu.Lock()
+	if body.Muted {
+		s.voice.muted[target] = true
+	} else {
+		delete(s.voice.muted, target)
+	}
+	var changed []VoiceState
+	for _, state := range s.voice.states {
+		if state.UserID == target {
+			state.ServerMuted = body.Muted
+			changed = append(changed, *state)
+		}
+	}
+	s.voice.mu.Unlock()
+	sources := voiceSources
+	if body.Muted {
+		sources = mutedVoiceSources
+	}
+	for index := range changed {
+		state := &changed[index]
+		if s.liveKitConfigured() {
+			err := s.callLiveKit(r.Context(), state.ChannelID, "UpdateParticipant", map[string]any{
+				"room":     state.ChannelID,
+				"identity": voiceIdentity(state.UserID, state.DeviceID),
+				"permission": map[string]any{
+					"can_subscribe":       true,
+					"can_publish":         true,
+					"can_publish_data":    false,
+					"can_publish_sources": sources,
+				},
+			})
+			if err != nil {
+				slog.Warn("muting someone in a voice channel", "error", err)
+			}
+		}
+		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID, State: state}})
+	}
+	writeOK(w)
+}
+
+// removeFromRoom takes a device and its screen share out of a room.
+func (s *Server) removeFromRoom(ctx context.Context, state *VoiceState) {
+	if !s.liveKitConfigured() {
+		return
+	}
+	identity := voiceIdentity(state.UserID, state.DeviceID)
+	for _, who := range []string{identity, identity + ".screen"} {
+		// One that isn't there is the usual answer for a screen share.
+		if err := s.callLiveKit(ctx, state.ChannelID, "RemoveParticipant", map[string]any{"room": state.ChannelID, "identity": who}); err != nil {
+			slog.Debug("removing someone from a voice channel's room", "error", err)
+		}
+	}
+}
+
+// callLiveKit calls LiveKit's room service with a token good for one room.
+func (s *Server) callLiveKit(ctx context.Context, room, method string, body any) error {
+	token, err := s.liveKitToken("zuna-server", map[string]any{"room": room, "roomAdmin": true, "roomCreate": true})
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	base := s.cfg.LiveKitInternalURL
+	if base == "" {
+		base = s.cfg.LiveKitURL
+	}
+	base = strings.TrimRight(base, "/")
+	base = strings.Replace(strings.Replace(base, "wss://", "https://", 1), "ws://", "http://", 1)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/twirp/livekit.RoomService/"+method, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := s.liveKit.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	detail, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("livekit %s: %d: %s", method, response.StatusCode, detail)
+	}
+	return nil
+}

@@ -83,6 +83,13 @@ type Config struct {
 	// PushRelays are the relays this server sends notifications through, by
 	// address. Phones register with one of them; none turns pushes off.
 	PushRelays []string
+	// LiveKitURL is the media server voice channels use, as apps reach it. Without
+	// one, voice channels can be made but not joined.
+	LiveKitURL string
+	// LiveKitInternalURL is how this server reaches it, if that's not the same.
+	LiveKitInternalURL string
+	LiveKitKey         string
+	LiveKitSecret      string
 }
 
 type Server struct {
@@ -113,6 +120,10 @@ type Server struct {
 	commitHolds       *ratelimit.Backoff
 
 	proofs seenProofs
+
+	voice        *voiceRooms
+	voiceLimiter *ratelimit.Keyed
+	liveKit      *http.Client
 
 	pushClient *http.Client
 	pushQueue  chan pushJob
@@ -168,6 +179,9 @@ func New(cfg Config, db *store.DB) *Server {
 		userCommitLimiter: ratelimit.NewKeyed(rate.Limit(5), 300),
 		voidLimiter:       ratelimit.NewKeyed(rate.Every(10*time.Second), 5),
 		commitHolds:       ratelimit.NewBackoff(0, time.Minute, time.Hour),
+		voice:             newVoiceRooms(),
+		voiceLimiter:      ratelimit.NewKeyed(rate.Limit(1), 20),
+		liveKit:           &http.Client{Timeout: liveKitTimeout},
 		pushClient:        &http.Client{Timeout: pushTimeout},
 		pushQueue:         make(chan pushJob, pushQueueLength),
 	}
@@ -416,6 +430,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/groups/{id}/changes", s.member(s.handleChanges))
 	mux.HandleFunc("GET /api/welcomes", s.withDevice(s.handleWelcomes))
 	mux.HandleFunc("DELETE /api/welcomes/{id}", s.withDevice(s.handleDeleteWelcome))
+
+	// Channels, which anyone on the server can list and join
+	mux.HandleFunc("GET /api/channels", s.withDevice(s.handleChannels))
+	mux.HandleFunc("POST /api/channels", s.admin(s.handleCreateChannel))
+	mux.HandleFunc("PUT /api/channels/order", s.admin(s.handleOrderChannels))
+	mux.HandleFunc("PATCH /api/channels/{id}", s.admin(s.handleUpdateChannel))
+	mux.HandleFunc("DELETE /api/channels/{id}", s.admin(s.handleDeleteChannel))
+	mux.HandleFunc("POST /api/channels/{id}/join", s.withDevice(s.handleJoinChannel))
+	mux.HandleFunc("POST /api/channels/{id}/history-grants", s.member(s.handleChannelHistoryGrant))
+
+	// Voice, through a media server that only ever carries encrypted media
+	mux.HandleFunc("POST /api/channels/{id}/voice", s.member(s.handleVoiceToken))
+	mux.HandleFunc("POST /api/channels/{id}/voice/screen", s.member(s.handleScreenToken))
+	mux.HandleFunc("POST /api/channels/{id}/voice/users/{user}/disconnect", s.admin(s.handleVoiceDisconnect))
+	mux.HandleFunc("PUT /api/channels/{id}/voice/users/{user}/mute", s.admin(s.handleVoiceMute))
 
 	// Messages
 	mux.HandleFunc("GET /api/groups/{id}/messages", s.member(s.handleMessages))

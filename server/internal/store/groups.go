@@ -12,7 +12,7 @@ import (
 // has advanced, but not its name, avatar or content.
 type Group struct {
 	ID             string        `json:"id"`
-	Kind           string        `json:"kind"` // "dm" or "group"
+	Kind           string        `json:"kind"` // "dm", "group" or "channel"
 	Epoch          int64         `json:"epoch"`
 	Seq            int64         `json:"seq"`
 	Meta           []byte        `json:"meta"`
@@ -29,6 +29,10 @@ type GroupMember struct {
 	JoinedAt       int64  `json:"joined_at"`
 	VisibleFromSeq int64  `json:"visible_from_seq"`
 	ReadState      []byte `json:"read_state"`
+	// In a channel: that they hold the community key, for other members to check.
+	Proof []byte `json:"proof,omitempty"`
+	// In a channel: they're waiting for a member to hand them its older keys.
+	HistoryWanted bool `json:"history_wanted,omitempty"`
 }
 
 // GroupEvent is an entry in a group's ordered log: an MLS commit, or a roster
@@ -192,7 +196,7 @@ func (d *DB) Group(ctx context.Context, id string) (*Group, error) {
 }
 
 func (d *DB) groupMembers(ctx context.Context, groupID string) ([]GroupMember, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT user_id, role, joined_at, visible_from_seq, read_state
+	rows, err := d.sql.QueryContext(ctx, `SELECT user_id, role, joined_at, visible_from_seq, read_state, proof, history_wanted
 		FROM group_members WHERE group_id = ? ORDER BY joined_at`, groupID)
 	if err != nil {
 		return nil, err
@@ -201,7 +205,7 @@ func (d *DB) groupMembers(ctx context.Context, groupID string) ([]GroupMember, e
 	members := []GroupMember{}
 	for rows.Next() {
 		var m GroupMember
-		if err := rows.Scan(&m.UserID, &m.Role, &m.JoinedAt, &m.VisibleFromSeq, &m.ReadState); err != nil {
+		if err := rows.Scan(&m.UserID, &m.Role, &m.JoinedAt, &m.VisibleFromSeq, &m.ReadState, &m.Proof, &m.HistoryWanted); err != nil {
 			return nil, err
 		}
 		members = append(members, m)
@@ -309,7 +313,8 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		if (len(c.AddUsers) > 0 || len(c.RemoveUsers) > 0) && role != "admin" {
 			return ErrForbidden
 		}
-		if kind == "dm" && (len(c.AddUsers) > 0 || len(c.RemoveUsers) > 0) {
+		// Who's in a channel is up to each person, and only a ban takes them out.
+		if kind != "group" && (len(c.AddUsers) > 0 || len(c.RemoveUsers) > 0) {
 			return ErrForbidden
 		}
 		// Older clients seal the details again with every commit, whoever makes
@@ -632,6 +637,14 @@ func (d *DB) RemoveMember(ctx context.Context, groupID, actor, target string) (*
 func (d *DB) PromoteIfNoAdmin(ctx context.Context, groupID string) (bool, error) {
 	var promoted bool
 	err := d.tx(ctx, func(tx *sql.Tx) error {
+		// A channel's admins are the server's, however many of them are in it.
+		var kind string
+		if err := tx.QueryRowContext(ctx, `SELECT kind FROM groups WHERE id = ?`, groupID).Scan(&kind); err != nil {
+			return err
+		}
+		if kind == "channel" {
+			return nil
+		}
 		var admins int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM group_members WHERE group_id = ? AND role = 'admin'`, groupID).Scan(&admins); err != nil {
 			return err

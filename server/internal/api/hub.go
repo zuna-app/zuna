@@ -126,6 +126,33 @@ func (h *Hub) ToUsersExcept(users []string, exceptDevice string, event Event) {
 	}
 }
 
+// ToDevice sends an event to one device of a user.
+func (h *Hub) ToDevice(userID, deviceID string, event Event) {
+	frame := encodeEvent(event)
+	if frame == nil {
+		return
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.conns[userID] {
+		if c.deviceID == deviceID {
+			c.deliver(frame)
+		}
+	}
+}
+
+// DeviceConnected reports whether a device has a live connection.
+func (h *Hub) DeviceConnected(userID, deviceID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for c := range h.conns[userID] {
+		if c.deviceID == deviceID {
+			return true
+		}
+	}
+	return false
+}
+
 // ToAll sends an event to everyone connected.
 func (h *Hub) ToAll(event Event) {
 	frame := encodeEvent(event)
@@ -332,6 +359,8 @@ type clientFrame struct {
 	GroupID string `json:"group_id,omitempty"`
 	Data    []byte `json:"data,omitempty"`
 	Active  bool   `json:"active,omitempty"`
+	// What someone is doing in the voice channel named by GroupID, or nothing if they left.
+	Voice *voiceUpdate `json:"voice,omitempty"`
 }
 
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -370,6 +399,7 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		close:    cancel,
 	}
 	s.hub.add(c, user.HideLastSeen)
+	defer s.voiceSocketClosed(c)
 	defer s.hub.remove(c)
 
 	go s.writeLoop(ctx, ws, c)
@@ -452,6 +482,8 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 			s.relayTyping(ctx, c, frame)
 		case "active":
 			s.hub.SetActive(c, frame.Active)
+		case "voice":
+			s.updateVoice(ctx, c, frame)
 		case "ping":
 			c.deliver(pongFrame)
 		}
