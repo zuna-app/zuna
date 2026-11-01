@@ -494,6 +494,16 @@ private struct ChatRow: View {
 
     @ViewBuilder
     private var badge: some View {
+        if conversation.unreadMentions > 0 {
+            // A mention stands out even in a muted chat, as in Telegram.
+            Image(systemName: "at")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(model.settings.accent.onAccent)
+                .frame(width: 22, height: 22)
+                .background(model.settings.accent.color, in: .circle)
+                .padding(.top, 2)
+                .accessibilityLabel("Mentions you")
+        }
         if conversation.unread > 0 {
             let accent = model.settings.accent
             Text(conversation.unread > 99 ? "99+" : "\(conversation.unread)")

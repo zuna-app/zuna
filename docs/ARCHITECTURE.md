@@ -103,7 +103,7 @@ History reaches new members with an **HPKE-sealed grant**: an admin seals the gr
 
 SQLite runs as WebAssembly in the Worker, with files in the origin-private file system. The core encrypts sensitive columns itself with a key derived from the device key in the OS keychain, or in IndexedDB in the web app, which has no keychain. MLS state is stored as an encrypted key-value table, with changes written atomically after each operation.
 
-Search uses an FTS5 table holding keyed hashes of words and their prefixes, which supports prefix search without readable text on disk. A second table counts each message's photos, videos, files, audio files, voice messages and links, for the lists in a chat's details, naming each kind by a keyed hash the same way.
+Search uses an FTS5 table holding keyed hashes of words and their prefixes, which supports prefix search without readable text on disk. A second table counts each message's photos, videos, files, audio files, voice messages and links, for the lists in a chat's details, and marks the ones that mention you or reply to you, for jumping to unread mentions, naming each kind by a keyed hash the same way.
 
 ## Emotes
 

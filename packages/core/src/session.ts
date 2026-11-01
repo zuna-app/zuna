@@ -423,6 +423,8 @@ export class ServerSession {
   private searchKey: Uint8Array;
   /** The keyed name of each kind in the local index of what messages hold. */
   private mediaTags: Map<MediaKind, string>;
+  /** The same index's keyed name for a message that mentions this account or replies to it. */
+  private mentionTag: string;
   private usersCursor = 0;
   private lastTypingSent = new Map<string, number>();
   private flushing: Promise<void> | null = null;
@@ -484,6 +486,7 @@ export class ServerSession {
     this.api.token = account.token;
     this.searchKey = wasm.hkdfSha256(dbKey, new Uint8Array(0), utf8("zuna/local/search"), 32);
     this.mediaTags = new Map(MEDIA_KINDS.map((kind) => [kind, mediaTag(this.searchKey, kind)]));
+    this.mentionTag = mediaTag(this.searchKey, "mention");
 
     const state = this.db.all<{ k: Uint8Array; v: Uint8Array }>("SELECT k, v FROM mls_kv");
     this.mls = new wasm.MlsClient(
@@ -4203,13 +4206,39 @@ export class ServerSession {
     return row ? this.toMessageView(row) : null;
   }
 
-  private unreadCount(group: CachedGroup): { unread: number; mentioned: boolean } {
+  private unreadCount(group: CachedGroup): { unread: number; mentioned: boolean; unreadMentions: number } {
     const rows = this.db.get<{ n: number }>(
       `SELECT COUNT(*) AS n FROM messages WHERE group_id = ? AND seq > ? AND sender_user != ?
        AND deleted_at IS NULL AND id NOT LIKE 'sys-%'`,
       [group.id, group.ownRead, this.account.userId],
     );
-    return { unread: rows?.n ?? 0, mentioned: false };
+    const mentions = this.db.get<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM media d JOIN messages m ON m.row_id = d.row_id
+       WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0`,
+      [group.id, this.mentionTag, group.ownRead, this.account.userId],
+    );
+    const unreadMentions = mentions?.n ?? 0;
+    return { unread: rows?.n ?? 0, mentioned: unreadMentions > 0, unreadMentions };
+  }
+
+  /**
+   * The oldest unread message here that mentions this account or replies to it,
+   * as Telegram's "@" button finds it. It stops counting as waiting, so the next
+   * call finds the one after.
+   */
+  nextUnreadMention(groupId: string): { id: string; seq: number } | null {
+    const group = this.groups.get(groupId);
+    if (!group) return null;
+    const row = this.db.get<{ row_id: number; id: string; seq: number }>(
+      `SELECT m.row_id, m.id, m.seq FROM media d JOIN messages m ON m.row_id = d.row_id
+       WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0
+       ORDER BY m.seq LIMIT 1`,
+      [groupId, this.mentionTag, group.ownRead, this.account.userId],
+    );
+    if (!row) return null;
+    this.db.run("UPDATE messages SET mention_seen = 1 WHERE row_id = ?", [row.row_id]);
+    this.emitConversations();
+    return { id: row.id, seq: row.seq };
   }
 
   getConversations(): ConversationView[] {
@@ -4221,7 +4250,7 @@ export class ServerSession {
     for (const group of this.groups.values()) {
       const key = this.conversationKey(group);
       const last = this.lastMessage(group.id);
-      const { unread, mentioned } = this.unreadCount(group);
+      const { unread, mentioned, unreadMentions } = this.unreadCount(group);
       let title = group.meta.name || "Group";
       let avatar: AvatarRef | null = group.meta.avatar ?? null;
       if (group.kind === "dm" && group.peerId) {
@@ -4242,6 +4271,7 @@ export class ServerSession {
         lastActivityAt: last?.createdAt ?? group.createdAt,
         unread,
         mentioned,
+        unreadMentions,
         pinned: this.prefs.pinned.includes(key),
         muted: isMuted(this.prefs, key, now),
         mutedUntil: this.mutedUntil(key, now),
@@ -4272,6 +4302,7 @@ export class ServerSession {
         lastActivityAt: 0,
         unread: 0,
         mentioned: false,
+        unreadMentions: 0,
         pinned: this.prefs.pinned.includes(key),
         muted: isMuted(this.prefs, key, now),
         mutedUntil: this.mutedUntil(key, now),
@@ -5506,5 +5537,15 @@ export class ServerSession {
     for (const [kind, count] of mediaIn(body)) {
       this.db.run("INSERT OR REPLACE INTO media(row_id, group_id, kind, count) VALUES(?, ?, ?, ?)", [rowId, groupId, this.mediaTags.get(kind)!, count]);
     }
+    if (this.mentionsSelf(groupId, body)) {
+      this.db.run("INSERT OR REPLACE INTO media(row_id, group_id, kind, count) VALUES(?, ?, ?, 1)", [rowId, groupId, this.mentionTag]);
+    }
+  }
+
+  /** Whether a message mentions this account, or replies to one of its messages, as far as this device knows. */
+  private mentionsSelf(groupId: string, body: MessageBody): boolean {
+    const self = this.account.userId;
+    if (body.mentions?.includes(self)) return true;
+    return !!body.replyTo && this.messageRow(groupId, body.replyTo)?.sender_user === self;
   }
 }

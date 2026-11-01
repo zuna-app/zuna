@@ -88,12 +88,22 @@ struct ChatScreen: View {
                 } else {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                if let list, !atBottom || list.detached {
-                    toBottom(unread: atBottom ? 0 : conversation.unread) {
-                        if list.detached {
-                            Task { await model.returnToLatest(serverId, listId) }
-                        } else {
-                            bridge.scrollToBottom()
+                VStack(spacing: 0) {
+                    if conversation.unreadMentions > 0, let groupId = conversation.groupId {
+                        toMention(count: conversation.unreadMentions) {
+                            Task {
+                                guard let next = try? await model.core.session(serverId).nextUnreadMention(groupId) else { return }
+                                await model.jumpToMessage(serverId, groupId: groupId, messageId: next.id, seq: next.seq)
+                            }
+                        }
+                    }
+                    if let list, !atBottom || list.detached {
+                        toBottom(unread: atBottom ? 0 : conversation.unread) {
+                            if list.detached {
+                                Task { await model.returnToLatest(serverId, listId) }
+                            } else {
+                                bridge.scrollToBottom()
+                            }
                         }
                     }
                 }
@@ -360,6 +370,31 @@ struct ChatScreen: View {
                 model.toast(OnboardingText.describe(error), .error)
             }
         }
+    }
+
+    /// As Telegram's "@": the oldest unread message that mentions you or replies to you, then the next.
+    private func toMention(count: Int, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "at")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(Theme.text1)
+                .frame(width: 42, height: 42)
+                .background(Theme.bg3, in: .circle)
+                .overlay(Circle().stroke(Theme.lineStrong))
+                .overlay(alignment: .top) {
+                    Text(count > 99 ? "99+" : "\(count)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(model.settings.accent.onAccent)
+                        .padding(.horizontal, 5)
+                        .frame(minHeight: 18)
+                        .background(model.settings.accent.color, in: .capsule)
+                        .offset(y: -9)
+                }
+        }
+        .buttonStyle(.plain)
+        .padding([.horizontal, .top], 12)
+        .accessibilityLabel("Go to the next message that mentions you, \(count) unread")
+        .accessibilityIdentifier(A11y.Chat.toMention)
     }
 
     private func toBottom(unread: Int, action: @escaping () -> Void) -> some View {

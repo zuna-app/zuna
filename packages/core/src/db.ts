@@ -142,6 +142,9 @@ const MIGRATIONS: string[] = [
   CREATE INDEX messages_expiry ON messages(expires_at) WHERE expires_at IS NOT NULL;
   CREATE TABLE expired (group_id TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (group_id, id));
   `,
+  // A mention of this account, or a reply to it, that was jumped to before the chat
+  // was read that far, so it no longer counts as waiting.
+  `ALTER TABLE messages ADD COLUMN mention_seen INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export function migrate(db: LocalDb): void {

@@ -1,5 +1,5 @@
 import type { ConversationView, MessageView } from "@zuna/core";
-import { ChevronDown } from "lucide-react";
+import { AtSign, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -91,6 +91,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
   const list = useApp((state) => state.lists[listId]);
   const loadOlder = useApp((state) => state.loadOlder);
   const returnToLatest = useApp((state) => state.returnToLatest);
+  const jumpToMessage = useApp((state) => state.jumpToMessage);
   const jumpTarget = useApp((state) => state.jumpTarget);
   const windowFocused = useApp((state) => state.windowFocused);
   const session = useApp((state) => state.session);
@@ -346,6 +347,13 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
     else goToNewest();
   };
 
+  // As Telegram's "@": the oldest unread message that mentions you or replies to you, then the next.
+  const toNextMention = async () => {
+    if (!conversation.groupId) return;
+    const next = await session().nextUnreadMention(conversation.groupId);
+    if (next) await jumpToMessage(conversation.groupId, next.id, next.seq);
+  };
+
   const firstIndex = list?.firstIndex ?? 0;
   const hasMore = !!list?.hasMore;
   const itemContent = useCallback(
@@ -419,6 +427,16 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
         components={{ Header, Footer: ListFooter }}
         className="virtuoso"
       />
+      {conversation.unreadMentions > 0 && (
+        <button
+          className={`to-bottom to-mention${!atBottom || list.detached ? " is-raised" : ""}`}
+          onClick={() => void toNextMention()}
+          aria-label={`Go to the next message that mentions you, ${conversation.unreadMentions} unread`}
+        >
+          <AtSign size={21} strokeWidth={1.7} />
+          <span className="to-bottom-badge">{conversation.unreadMentions > 99 ? "99+" : conversation.unreadMentions}</span>
+        </button>
+      )}
       {(!atBottom || list.detached) && (
         <button className="to-bottom" onClick={scrollToBottom} aria-label="Go to the newest messages">
           <ChevronDown size={30} strokeWidth={1.5} />

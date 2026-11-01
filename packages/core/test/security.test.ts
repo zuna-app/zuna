@@ -25,6 +25,7 @@ import {
 import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
 import { allowLocalLinks, checkPreview, findLink, linkHost, previewable, privateAddress, readPage } from "../src/links";
 import { plainText } from "../src/plain-text";
+import { SEARCH_INDEX_VERSION } from "../src/search";
 import { previewText } from "../src/notify";
 import { MAX_TEXT_LENGTH, parseGroupDetails, parseMessageBody, parseProfile } from "../src/validate";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
@@ -951,7 +952,7 @@ describe("the search index (Z-36)", () => {
     session.setKv("search_version", 1);
     await session.rebuildSearchIndex();
     expect(alice.session.search("quixotic").length).toBeGreaterThan(0);
-    expect(session.getKv("search_version")).toBe(3);
+    expect(session.getKv("search_version")).toBe(SEARCH_INDEX_VERSION);
   });
 });
 

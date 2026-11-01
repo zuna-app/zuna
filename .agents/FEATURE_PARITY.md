@@ -39,6 +39,7 @@ Things one platform should have and doesn't.
 | Everyone and groups, saved messages, rows with previews and unread counts | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
 | Filters: All, People, Groups, Unread | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
 | Search people, groups and messages | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
+| "@" on a chat with unread mentions of you or replies to you | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` (`badge`) | Shows in muted chats too, as in Telegram |
 | Pin, hide, "Hidden (n)" | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shell/ChatListView.swift` | |
 | Mute for a time | yes | yes | yes | `lib/mute.ts` | `Shared/Mute.swift` | |
 | A preview for a message that can't be shown | yes | yes | yes | `features/shell/ConversationList.tsx` | `Shared/Format.swift` | |
@@ -49,6 +50,7 @@ Things one platform should have and doesn't.
 |---|---|---|---|---|---|---|
 | Header, status, changed-key banner | yes | yes | yes | `features/chat/ChatView.tsx` | `Chat/ChatScreen.swift` | |
 | Message list: days, grouping, jumping, scroll button | yes | yes | yes | `features/chat/MessageList.tsx` | `Chat/MessageListController.swift`, `Chat/MessageRow.swift` | |
+| "@" button: jumps to the oldest unread message that mentions you or replies to you, then the next, with a count | yes | yes | yes | `features/chat/MessageList.tsx` (`toNextMention`) | `Chat/ChatScreen.swift` (`toMention`) | Counted from the local index (`unreadMentions`, `nextUnreadMention` in the core). A reply counts if this device holds the message replied to. Which ones were jumped to stays on that device; reading past them clears them everywhere. iOS built and unit-tested on a Mac, but not seen on screen |
 | Markup | yes | yes | yes | `lib/markup.tsx` | `apps/ios/ZunaKit/Sources/ZunaModels/Markup.swift`, `Chat/MessageText.swift` | Kept in step by the golden files |
 | Code blocks with highlighting | yes | yes | yes | `components/CodeBlock.tsx` | `Chat/MessageParts.swift`, `apps/ios/ZunaKit/Sources/ZunaHost/Highlighter.swift` | Only the first 500 lines or 20,000 characters are colored, and lines up to 1,000 characters; the same limits in `lib/highlight.ts` and `apps/ios/core-bundle/src/highlight.ts`. The desktop and the web color 50 lines at a time, giving the interface its turn between; iOS does it off the main thread |
 | 7TV emotes: animated, zero-width, large, card | yes | yes | yes | `components/Emote.tsx` | `Chat/EmoteImages.swift`, `Chat/MessageText.swift` | The card opens on hover on the desktop, long press on iOS |

@@ -305,7 +305,10 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var lastMessage: MessageView?
     public var lastActivityAt: Int
     public var unread: Int
+    /// Whether any of those mention you or reply to you.
     public var mentioned: Bool
+    /// How many unread messages mention you or reply to you, and haven't been jumped to.
+    public var unreadMentions: Int
     public var pinned: Bool
     public var muted: Bool
     /// When a chat muted for a while is heard again (ms), or nil.

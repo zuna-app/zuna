@@ -259,7 +259,10 @@ export interface ConversationView {
   lastMessage: MessageView | null;
   lastActivityAt: number;
   unread: number;
+  /** Whether any of those mention you or reply to you. */
   mentioned: boolean;
+  /** How many unread messages mention you or reply to you, and haven't been jumped to. */
+  unreadMentions: number;
   pinned: boolean;
   muted: boolean;
   /** When a chat muted for a while is heard again (ms), or null. */

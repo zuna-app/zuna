@@ -27,10 +27,11 @@ const hashToken = (searchKey: Uint8Array, token: string) =>
   `h${toHex(wasm.hkdfSha256(searchKey, NO_SALT, utf8(`zuna/search/v2|${token}`), 8))}`;
 
 /**
- * Which way the local indexes were built: 2 hashes words as they are now, and 3
- * adds what each message holds. A new one means building them again.
+ * Which way the local indexes were built: 2 hashes words as they are now, 3
+ * adds what each message holds, and 4 which ones mention this account or reply
+ * to it. A new one means building them again.
  */
-export const SEARCH_INDEX_VERSION = 3;
+export const SEARCH_INDEX_VERSION = 4;
 
 /** The keyed name a kind of attachment, or links, goes by in the local index. No word can have it. */
 export const mediaTag = (searchKey: Uint8Array, kind: string) => hashToken(searchKey, `~${kind}`);

@@ -52,6 +52,7 @@
   transition: background 0.1s; animation: fade-in 0.1s;
 }
 .to-bottom:hover { background: #45454b; }
+.to-mention.is-raised { bottom: 66px; }
 .to-bottom-badge {
   position: absolute; top: -7px; left: 50%; transform: translateX(-50%); min-width: 18px; height: 18px; padding: 0 5px;
   border-radius: 9px; background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 600; line-height: 18px;

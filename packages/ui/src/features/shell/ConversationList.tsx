@@ -1,6 +1,7 @@
 import type { ConversationView, MessageView, SearchResult, UserView } from "@zuna/core";
 import { plainText } from "@zuna/core/plain-text";
 import {
+  AtSign,
   BadgeCheck,
   Bookmark,
   BellOff,
@@ -112,6 +113,11 @@ const ConversationRow = memo(function ConversationRow({
             )}
           </span>
           {item.pinned && !item.unread && <Pin size={13} className="conv-pin" />}
+          {item.unreadMentions > 0 && (
+            <span className="conv-badge conv-mention" aria-label="Mentions you">
+              <AtSign size={12} strokeWidth={2.4} />
+            </span>
+          )}
           {item.unread > 0 && <span className={`conv-badge${item.muted ? " is-muted" : ""}`}>{item.unread > 99 ? "99+" : item.unread}</span>}
         </span>
       </span>

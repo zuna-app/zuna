@@ -82,6 +82,8 @@ public struct SessionCalls: Sendable {
 
     public func loadAround(_ groupId: String, seq: Int) async throws -> [MessageView] { try await call("loadAround", [groupId, seq]) }
     public func messageById(_ groupId: String, id: String) async throws -> MessageView? { try await call("messageById", [groupId, id]) }
+    /// The oldest unread message that mentions you or replies to you, which stops counting as waiting, so the next call finds the one after.
+    public func nextUnreadMention(_ groupId: String) async throws -> MessagePlace? { try await call("nextUnreadMention", [groupId]) }
     public func loadPins(_ groupId: String) async throws -> [MessageView] { try await call("loadPins", [groupId]) }
     public func search(_ query: String, groupId: String? = nil, limit: Int = 50) async throws -> [SearchResult] {
         try await call("search", groupId.map { [query, $0, limit] } ?? [query, String?.none, limit])
@@ -293,6 +295,12 @@ public struct OutgoingFile: Codable, Sendable, Equatable {
 }
 
 /// A group's name and description; nil fields stay as they are.
+/// Where a message is in its chat, to jump to it.
+public struct MessagePlace: Codable, Sendable, Equatable {
+    public var id: String
+    public var seq: Int
+}
+
 public struct GroupMetaChanges: Codable, Sendable, Equatable {
     public var name: String?
     public var description: String?
