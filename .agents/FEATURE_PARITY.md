@@ -73,7 +73,7 @@ Things one platform should have and doesn't.
 |---|---|---|---|---|---|---|
 | Message box: draft per chat, grows with its text | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Composer.swift`, `State/ComposerState.swift` | |
 | Outbox: sending, try again, discard | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/ChatScreen.swift` | The queue itself is in the core |
-| Reply and edit | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | iOS also swipes to reply |
+| Reply and edit | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | iOS also swipes to reply. Each edit signs a `revision`, and a device keeps the latest it has seen (`nextRevision`, `editedSince` in the core) |
 | Autocomplete for `:emote` and `@person` | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Composer.swift` | |
 | Emoji and emote picker | yes | yes | yes | `features/chat/EmotePicker.tsx` | `Chat/EmojiPicker.swift` | |
 | Attachments: up to 10, previews, size limit | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/OutgoingFiles.swift`, `Chat/Composer.swift` | |

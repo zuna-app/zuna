@@ -3716,6 +3716,8 @@ export class ServerSession {
     // group's admin, signed does that. Otherwise the copy is hidden, and kept a while.
     const kept = message.deleted_at !== null && existing && (existing.body || existing.raw) && !this.deletionProven(message) ? existing : null;
     let heldAfterLeaving: Uint8Array | null = null;
+    // A later edit this device holds, kept with how it arrived when the server sends an earlier one.
+    let laterEdit: MessageRow | null = null;
     if (!message.deleted_at && message.envelope) {
       const envelope = decode(message.envelope);
       const key = this.epochKey(message.group_id, message.epoch);
@@ -3738,6 +3740,9 @@ export class ServerSession {
             status = "unverified";
             raw = envelope;
             heldAfterLeaving = existing!.body;
+          } else if (parsed && existing && this.editedSince(existing, parsed)) {
+            laterEdit = existing;
+            body = { ...this.storedBody(existing)!, rawReactions: message.reactions };
           } else if (parsed) {
             body = { ...parsed, rawReactions: message.reactions };
           } else {
@@ -3773,10 +3778,10 @@ export class ServerSession {
           message.seq,
           message.updated_seq,
           message.sender_user,
-          message.sender_device,
-          message.epoch,
+          laterEdit ? laterEdit.sender_device : message.sender_device,
+          laterEdit ? laterEdit.epoch : message.epoch,
           message.created_at,
-          message.edited_at,
+          laterEdit ? laterEdit.edited_at : message.edited_at,
           message.deleted_at,
           message.pinned_at,
           message.pinned_by ?? null,
@@ -3825,6 +3830,16 @@ export class ServerSession {
    * arriving late, or one made after with the server's help, and this can't tell.
    * The copy held stays, so trying again later still finds the change.
    */
+  /**
+   * Whether this device holds a later edit than what's arriving. The server can
+   * send any version its author signed, so it could bring back what an edit
+   * replaced, but not on a device that has seen the edit.
+   */
+  private editedSince(existing: MessageRow, parsed: MessageBody): boolean {
+    if (existing.status !== "sent" || existing.seq === null || !existing.body) return false;
+    return (parsed.revision ?? 0) < (this.storedBody(existing)?.revision ?? 0);
+  }
+
   private changedAfterLeaving(message: ApiMessage, existing: MessageRow | undefined, parsed: MessageBody): boolean {
     if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_device) === null) return false;
     const held = parseMessageBody(this.openJson<StoredBody>("message", existing.body));
@@ -4522,7 +4537,8 @@ export class ServerSession {
     if (entry.kind === "edit") {
       await this.withLock(entry.groupId, () =>
         this.sealAndRetry(entry.groupId, async (epoch, key) => {
-          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(entry.body));
+          const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id) };
+          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body));
           this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
         }),
       );
@@ -4547,6 +4563,18 @@ export class ServerSession {
       });
     });
     this.emitConversations();
+  }
+
+  /**
+   * An edit's revision, worked out as it goes rather than when it was made, so
+   * it's after whatever arrived meanwhile. It's this device's time unless that's
+   * behind the last revision, so an edit from a device whose clock is behind still
+   * comes after, and one queued on a device offline comes after edits made since.
+   */
+  private nextRevision(groupId: string, id: string): number {
+    const row = this.messageRow(groupId, id);
+    const held = row ? (this.storedBody(row)?.revision ?? 0) : 0;
+    return Math.max(held + 1, Date.now());
   }
 
   /** What goes under this device's signature: the message, when it was sent, and who's sending it. */

@@ -125,6 +125,8 @@ export interface MessageBody {
   forwarded?: ForwardInfo;
   /** When the sender's device sent it (ms), signed with the rest, unlike the server's time. */
   sentAt?: number;
+  /** Which edit this is, signed with the rest: higher for each later one, and absent before any. */
+  revision?: number;
 }
 
 /**

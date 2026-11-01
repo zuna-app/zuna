@@ -1348,6 +1348,47 @@ describe("a message the server says was edited (Z-53)", () => {
   });
 });
 
+describe("a server bringing back what an edit replaced", () => {
+  it("can't, on a device that has seen the edit, and later edits still arrive", async () => {
+    const owner = await person("fern");
+    const member = await person("gus");
+    const groupId = await groupWith(owner, [member]);
+    const sent = owner.session.sendMessage(`group:${groupId}`, { text: "we meet at noon" });
+    await waitFor(() => member.texts(`group:${groupId}`).includes("we meet at noon"), "delivery");
+    const original = withServerDatabase((db) => db.prepare("SELECT envelope FROM messages WHERE group_id = ? AND id = ?").get(groupId, sent.id)) as { envelope: Uint8Array };
+    owner.session.editMessage(groupId, sent.id, "we meet at three", {}, []);
+    await waitFor(() => member.texts(`group:${groupId}`).includes("we meet at three"), "the edit");
+
+    withServerDatabase((db) => {
+      const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
+      db.prepare("UPDATE messages SET envelope = ?, edited_at = NULL, updated_seq = ? WHERE group_id = ? AND id = ?").run(original.envelope, seq, groupId, sent.id);
+    });
+    await sessionOf(member).pullChanges(groupId);
+    expect(member.texts(`group:${groupId}`)).toContain("we meet at three");
+    expect(member.texts(`group:${groupId}`)).not.toContain("we meet at noon");
+    expect((await member.session.messageById(groupId, sent.id))?.editedAt).toBeTruthy();
+
+    owner.session.editMessage(groupId, sent.id, "we meet at four", {}, []);
+    await waitFor(() => member.texts(`group:${groupId}`).includes("we meet at four"), "the next edit");
+  });
+
+  it("puts each edit after the last, whatever the editing device's clock says", async () => {
+    const owner = await person("hana");
+    const groupId = await groupWith(owner, []);
+    const sent = owner.session.sendMessage(`group:${groupId}`, { text: "draft" });
+    await waitFor(() => sessionOf(owner).messageRow(groupId, sent.id)?.seq != null, "delivery");
+    expect(sessionOf(owner).nextRevision(groupId, sent.id)).toBeGreaterThanOrEqual(Date.now() - 1000);
+    owner.session.editMessage(groupId, sent.id, "draft two", {}, []);
+    await waitFor(() => sessionOf(owner).storedBody(sessionOf(owner).messageRow(groupId, sent.id))?.revision !== undefined, "the edit");
+    const revision = sessionOf(owner).storedBody(sessionOf(owner).messageRow(groupId, sent.id)).revision as number;
+    // As if the edit had come from a device whose clock is an hour ahead.
+    const row = sessionOf(owner).messageRow(groupId, sent.id);
+    const ahead = { ...sessionOf(owner).storedBody(row), revision: revision + 3600_000 };
+    sessionOf(owner).db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [sessionOf(owner).sealJson("message", ahead), groupId, sent.id]);
+    expect(sessionOf(owner).nextRevision(groupId, sent.id)).toBe(revision + 3600_001);
+  });
+});
+
 describe("a server saying a message was deleted", () => {
   /** What a malicious server writes to delete a message, with whatever proof it has. */
   function serverDeletes(groupId: string, messageId: string, by: string, deletion: Uint8Array | null): void {

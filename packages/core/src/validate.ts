@@ -155,6 +155,7 @@ export function parseMessageBody(value: unknown): MessageBody | null {
     if (forwarded) body.forwarded = forwarded;
   }
   if (typeof value.sentAt === "number" && Number.isFinite(value.sentAt)) body.sentAt = value.sentAt;
+  if (isCount(value.revision, Number.MAX_SAFE_INTEGER)) body.revision = value.revision;
   return body;
 }
 
