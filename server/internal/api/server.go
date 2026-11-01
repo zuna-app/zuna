@@ -94,6 +94,8 @@ type Server struct {
 	authLimiter     *ratelimit.Keyed
 	messageLimiter  *ratelimit.Keyed
 	writeLimiter    *ratelimit.Keyed
+	readLimiter     *ratelimit.Keyed
+	emoteLimiter    *ratelimit.Keyed
 	socketLimiter   *ratelimit.Keyed
 	publicLimiter   *ratelimit.Keyed
 	pageLimiter     *ratelimit.Keyed
@@ -140,7 +142,13 @@ func New(cfg Config, db *store.DB) *Server {
 		authLimiter:    ratelimit.NewKeyed(rate.Every(6*time.Second), cfg.AuthBurst),
 		messageLimiter: ratelimit.NewKeyed(rate.Limit(15), 60),
 		// Far beyond what using the app needs, even while uploading a large file.
-		writeLimiter:  ratelimit.NewKeyed(rate.Limit(50), 300),
+		writeLimiter: ratelimit.NewKeyed(rate.Limit(50), 300),
+		// Reads too, some of which load every user and device, so that one person
+		// can't keep the server busy. Catching up after a month, or fetching a large
+		// file, stays well inside them.
+		readLimiter: ratelimit.NewKeyed(rate.Limit(100), 2000),
+		// Apps fetch a server's whole emote set at once, by address, signed in or not.
+		emoteLimiter:  ratelimit.NewKeyed(rate.Limit(100), 3000),
 		socketLimiter: ratelimit.NewKeyed(rate.Limit(2), 60),
 		publicLimiter: ratelimit.NewKeyed(rate.Limit(5), 60),
 		pageLimiter:   ratelimit.NewKeyed(rate.Limit(20), 200),
@@ -313,6 +321,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/icon", s.pageLimited(s.handleIcon))
 	mux.HandleFunc("GET /api/invites/{code}", s.publicLimited(s.handleInviteInfo))
 	mux.HandleFunc("GET /api/emotes/{id}/{file}", func(w http.ResponseWriter, r *http.Request) {
+		if !s.emoteLimiter.Allow(s.callerKey(r)) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "Too many requests. Please wait a moment and try again.")
+			return
+		}
 		s.emotes.ServeImage(w, r, r.PathValue("id"), r.PathValue("file"))
 	})
 	mux.HandleFunc("GET /api/ws", s.handleWebSocket)
@@ -481,6 +493,10 @@ func (s *Server) authed(next authedHandler) http.HandlerFunc {
 		}
 		if r.Method != http.MethodGet && !s.writeLimiter.Allow(sess.UserID) {
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes at once. Please wait a moment.")
+			return
+		}
+		if r.Method == http.MethodGet && !s.readLimiter.Allow(sess.UserID) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many requests at once. Please wait a moment.")
 			return
 		}
 		next(w, r, sess)

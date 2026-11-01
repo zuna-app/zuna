@@ -970,6 +970,37 @@ func TestJoiningWithoutHistoryGivesNoEventsOrFilesFromBefore(t *testing.T) {
 	}
 }
 
+// Reading costs the server too, and some reads load every user, so one person
+// can't ask without end, and neither can one address for emotes.
+func TestReadsAreLimited(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	limited := false
+	for range 2500 {
+		if status, _, _ := h.raw("GET", "/api/users/"+owner.userID, owner.token, nil, nil); status == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("reads were never limited")
+	}
+	if status, _ := h.do("GET", "/api/users/"+owner.userID, bob.token, nil, nil); status != http.StatusOK {
+		t.Fatalf("someone else reading gave %d", status)
+	}
+	limited = false
+	for range 3500 {
+		if status, _, _ := h.raw("GET", "/api/emotes/0123456789abcdef/1x.webp", "", nil, nil); status == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("emote requests were never limited")
+	}
+}
+
 // Z-48: going back too many days wraps around to a date in the future.
 func TestRetentionCantWrapAround(t *testing.T) {
 	h := newHarness(t)
