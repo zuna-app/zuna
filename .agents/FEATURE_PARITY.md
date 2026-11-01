@@ -52,7 +52,7 @@ Desktop and web only for now (see Known gaps). Paths are under `features/voice/`
 | Muting someone for everyone, and disconnecting them, for server admins | yes | no | yes | `features/voice/VoiceStage.tsx`, `server/internal/api/voice.go` | LiveKit enforces it, as their token no longer allows a microphone |
 | Cameras | yes | no | yes | `voice/room.ts` | Checked with Chromium's fake camera |
 | Sharing a screen natively, on the GPU | yes | no | no | `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts`, `features/voice/ScreenPicker.tsx` | Windows and Linux, whole screens. Run from the app on Windows with NVENC only; Linux only in `poc/screenshare`. See `docs/SCREEN_SHARE.md` |
-| Sharing through the browser, with its sound on Windows | yes | no | yes | `voice/room.ts`, `apps/desktop/src/main/index.ts` (`setDisplayMediaRequestHandler`) | Windows on the desktop, whatever isn't native, and everything on the web, which uses the browser's own picker. Whether the sound leaves out this call (`restrictOwnAudio`) hasn't been heard; macOS hasn't been run |
+| Sharing through the browser, with its sound on Windows | yes | no | yes | `voice/room.ts`, `apps/desktop/src/main/index.ts` (`setDisplayMediaRequestHandler`) | Windows on the desktop, whatever isn't native, and everything on the web, which uses the browser's own picker. `restrictOwnAudio` leaves out Zuna and keeps other programs, measured in Electron on Windows. macOS has not been run |
 | Voice and video settings, with a microphone test and a live meter | yes | no | yes | `features/voice/VoiceSettings.tsx` | Per device |
 
 ## Conversation list
