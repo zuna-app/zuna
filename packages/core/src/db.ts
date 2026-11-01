@@ -131,6 +131,9 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX media_group ON media(group_id, kind);
   `,
+  // Which pin or unpin a member's device signed decides whether a message is pinned
+  // here, and this is its revision. Null for a pin this device held from before pins were signed.
+  `ALTER TABLE messages ADD COLUMN pin_revision INTEGER;`,
 ];
 
 export function migrate(db: LocalDb): void {

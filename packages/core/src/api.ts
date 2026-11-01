@@ -144,6 +144,9 @@ export interface ApiMessage {
   deleted_by?: string;
   /** What the deleting device signed, from apps that sign deletions. */
   deletion?: string;
+  /** What the device that last pinned or unpinned it signed, from apps that sign pins, and whose it was. */
+  pin?: string;
+  pin_by?: string;
   reactions: ApiReaction[];
 }
 
@@ -403,8 +406,8 @@ export class Api {
     this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages/${messageId}/reactions`, { id, epoch, data });
   removeReaction = (groupId: string, messageId: string, id: string) =>
     this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${messageId}/reactions/${id}`);
-  pin = (groupId: string, messageId: string, pinned: boolean) =>
-    this.request<ApiMessage>(pinned ? "PUT" : "DELETE", at`/api/groups/${groupId}/messages/${messageId}/pin`);
+  pin = (groupId: string, messageId: string, pinned: boolean, epoch: number, pin: Uint8Array) =>
+    this.request<ApiMessage>(pinned ? "PUT" : "DELETE", at`/api/groups/${groupId}/messages/${messageId}/pin`, { epoch, pin });
   pins = async (groupId: string) =>
     (await this.request<{ messages: ApiMessage[] }>("GET", at`/api/groups/${groupId}/pins`)).messages;
 

@@ -341,6 +341,7 @@ describe("notices", () => {
     db.exec("DROP TABLE identity_chain; DROP TABLE identity_state; DROP TABLE device_first_leaf");
     db.exec("ALTER TABLE messages DROP COLUMN unproven_delete_at");
     db.exec("DROP TABLE media");
+    db.exec("ALTER TABLE messages DROP COLUMN pin_revision");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
     const rows = db.prepare("SELECT id, seq FROM messages ORDER BY row_id").all() as { id: string; seq: number | null }[];

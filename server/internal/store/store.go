@@ -450,6 +450,11 @@ ALTER TABLE messages ADD COLUMN deletion BLOB;
 -- Whether a device has signed a request with its key, after which the requests
 -- that need one must always come signed.
 ALTER TABLE devices ADD COLUMN signs_requests INTEGER NOT NULL DEFAULT 0;
+`, `
+-- What the device that last pinned or unpinned a message signed to say so, and
+-- whose it was. Clients only show a pin someone's device signed.
+ALTER TABLE messages ADD COLUMN pin BLOB;
+ALTER TABLE messages ADD COLUMN pin_by TEXT;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

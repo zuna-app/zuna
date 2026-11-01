@@ -29,7 +29,10 @@ type Message struct {
 	PinnedBy     string `json:"pinned_by,omitempty"`
 	DeletedBy    string `json:"deleted_by,omitempty"`
 	// What the deleting device signed, which apps check before erasing their copies.
-	Deletion  []byte     `json:"deletion,omitempty"`
+	Deletion []byte `json:"deletion,omitempty"`
+	// What the device that last pinned or unpinned it signed, and whose that was.
+	Pin       []byte     `json:"pin,omitempty"`
+	PinBy     string     `json:"pin_by,omitempty"`
 	Reactions []Reaction `json:"reactions"`
 }
 
@@ -43,14 +46,14 @@ type Reaction struct {
 }
 
 const messageColumns = `group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope,
-	created_at, edited_at, deleted_at, pinned_at, pinned_by, deleted_by, deletion`
+	created_at, edited_at, deleted_at, pinned_at, pinned_by, deleted_by, deletion, pin, pin_by`
 
 func scanMessage(row interface{ Scan(...any) error }) (*Message, error) {
 	var m Message
 	var edited, deleted, pinned sql.NullInt64
-	var pinnedBy, deletedBy sql.NullString
+	var pinnedBy, deletedBy, pinBy sql.NullString
 	if err := row.Scan(&m.GroupID, &m.ID, &m.Seq, &m.UpdatedSeq, &m.SenderUser, &m.SenderDevice, &m.Epoch, &m.Envelope,
-		&m.CreatedAt, &edited, &deleted, &pinned, &pinnedBy, &deletedBy, &m.Deletion); err != nil {
+		&m.CreatedAt, &edited, &deleted, &pinned, &pinnedBy, &deletedBy, &m.Deletion, &m.Pin, &pinBy); err != nil {
 		return nil, err
 	}
 	m.EditedAt = nullableInt(edited)
@@ -58,6 +61,7 @@ func scanMessage(row interface{ Scan(...any) error }) (*Message, error) {
 	m.PinnedAt = nullableInt(pinned)
 	m.PinnedBy = pinnedBy.String
 	m.DeletedBy = deletedBy.String
+	m.PinBy = pinBy.String
 	m.Reactions = []Reaction{}
 	return &m, nil
 }
@@ -261,7 +265,7 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Del
 		if _, err := tx.ExecContext(ctx, `DELETE FROM file_refs WHERE group_id = ? AND message_id = ?`, groupID, id); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, deleted_at = ?, pinned_at = NULL, pinned_by = NULL, updated_seq = ?,
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, deleted_at = ?, pinned_at = NULL, pinned_by = NULL, pin = NULL, pin_by = NULL, updated_seq = ?,
 			deleted_by = NULLIF(?, ''), deletion = ? WHERE group_id = ? AND id = ?`, Now(), seq, deletion.By, deletion.Proof, groupID, id); err != nil {
 			return err
 		}
@@ -353,18 +357,36 @@ func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID,
 	return d.Message(ctx, groupID, messageID)
 }
 
-func (d *DB) SetPinned(ctx context.Context, groupID, messageID, userID string, pinned bool) (*Message, error) {
+// Pin is what a device signed to pin or unpin a message, under the epoch it names.
+// Apps from before pins were signed send none.
+type Pin struct {
+	Epoch int64
+	Proof []byte
+}
+
+func (d *DB) SetPinned(ctx context.Context, groupID, messageID, userID string, pinned bool, pin Pin) (*Message, error) {
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
 		}
+		// A proof is only made under the current epoch, as content is.
+		if pin.Proof != nil {
+			current, err := currentEpoch(ctx, tx, groupID)
+			if err != nil {
+				return err
+			}
+			if current != pin.Epoch {
+				return &EpochConflictError{Current: current}
+			}
+		}
+		pinBy := sql.NullString{String: userID, Valid: pin.Proof != nil}
 		var err error
 		if pinned {
-			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = ?, pinned_by = ? WHERE group_id = ? AND id = ?`,
-				Now(), userID, groupID, messageID)
+			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = ?, pinned_by = ?, pin = ?, pin_by = ? WHERE group_id = ? AND id = ?`,
+				Now(), userID, pin.Proof, pinBy, groupID, messageID)
 		} else {
-			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = NULL, pinned_by = NULL WHERE group_id = ? AND id = ?`,
-				groupID, messageID)
+			_, err = tx.ExecContext(ctx, `UPDATE messages SET pinned_at = NULL, pinned_by = NULL, pin = ?, pin_by = ? WHERE group_id = ? AND id = ?`,
+				pin.Proof, pinBy, groupID, messageID)
 		}
 		if err != nil {
 			return err

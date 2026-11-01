@@ -295,6 +295,7 @@ interface MessageRow {
   deleted_at: number | null;
   pinned_at: number | null;
   pinned_by: string | null;
+  pin_revision: number | null;
   status: MessageStatus;
   body: Uint8Array | null;
   raw: Uint8Array | null;
@@ -3761,16 +3762,17 @@ export class ServerSession {
     const stored = body
       ? this.sealJson("message", { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
       : (kept?.body ?? heldAfterLeaving);
+    const pin = this.pinState(message, existing);
 
     let rowId: number;
     const isNew = !existing || existing.seq === null;
     this.db.transaction(() => {
       this.db.run(
-        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, status, body, raw, unproven_delete_at)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, pin_revision, status, body, raw, unproven_delete_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(group_id, id) DO UPDATE SET seq = excluded.seq, updated_seq = excluded.updated_seq, sender_device = excluded.sender_device,
            epoch = excluded.epoch, created_at = excluded.created_at, edited_at = excluded.edited_at, deleted_at = excluded.deleted_at,
-           pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, status = excluded.status, body = excluded.body, raw = excluded.raw,
+           pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, pin_revision = excluded.pin_revision, status = excluded.status, body = excluded.body, raw = excluded.raw,
            unproven_delete_at = excluded.unproven_delete_at`,
         [
           message.group_id,
@@ -3783,8 +3785,9 @@ export class ServerSession {
           message.created_at,
           laterEdit ? laterEdit.edited_at : message.edited_at,
           message.deleted_at,
-          message.pinned_at,
-          message.pinned_by ?? null,
+          pin.at,
+          pin.by,
+          pin.revision,
           kept ? kept.status : status,
           stored,
           kept ? kept.raw : raw,
@@ -3844,6 +3847,40 @@ export class ServerSession {
     if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_device) === null) return false;
     const held = parseMessageBody(this.openJson<StoredBody>("message", existing.body));
     return !!held && JSON.stringify(held) !== JSON.stringify(parsed);
+  }
+
+  /**
+   * Whether a message is pinned, when and by whom, as a member's device signed it,
+   * under an epoch from before that device left. The server's word alone changes
+   * nothing, and a pin or unpin only replaces one this device holds if it's later.
+   * A pin from before pins were signed stays while the server keeps it, but only on
+   * a device that already had it.
+   */
+  private pinState(message: ApiMessage, existing: MessageRow | undefined): { at: number | null; by: string | null; revision: number | null } {
+    const none = { at: null, by: null, revision: null };
+    if (message.deleted_at !== null) return none;
+    const held = existing ? { at: existing.pinned_at, by: existing.pinned_by, revision: existing.pin_revision } : none;
+    const signed = this.openPin(message);
+    if (signed && signed.revision >= (held.revision ?? 0)) {
+      return signed.pinned ? { at: signed.revision, by: signed.by, revision: signed.revision } : { ...none, revision: signed.revision };
+    }
+    if (held.revision === null) return held.at !== null && message.pinned_at !== null ? held : none;
+    return held;
+  }
+
+  private openPin(message: ApiMessage): { by: string; pinned: boolean; revision: number } | null {
+    if (!message.pin || !message.pin_by) return null;
+    const signed = readSigned(decode(message.pin));
+    if (!signed) return null;
+    const key = this.epochKey(message.group_id, signed.epoch);
+    const device = this.users.get(message.pin_by)?.devices.get(signed.deviceId);
+    if (!key || !device) return null;
+    const left = this.departedAt(message.group_id, signed.deviceId);
+    if (left !== null && signed.epoch >= left) return null;
+    const opened = openEnvelope<{ by?: unknown; pinned?: unknown; revision?: unknown }>(key, device.signatureKey, "pin", message.group_id, message.id, signed.epoch, signed.envelope);
+    if (!opened.ok || opened.value?.by !== message.pin_by || typeof opened.value.pinned !== "boolean") return null;
+    const { revision } = opened.value;
+    return typeof revision === "number" && Number.isSafeInteger(revision) && revision > 0 ? { by: message.pin_by, pinned: opened.value.pinned, revision } : null;
   }
 
   /**
@@ -4706,8 +4743,17 @@ export class ServerSession {
     );
   }
 
+  /** This device signs the pin, so other members' apps can tell it from the server's word. */
   async setPinned(groupId: string, id: string, pinned: boolean): Promise<void> {
-    this.ingest(await this.api.pin(groupId, id, pinned), false);
+    const { userId, deviceId, deviceSecret } = this.account;
+    await this.withLock(groupId, () =>
+      this.sealAndRetry(groupId, async (epoch, epochKey) => {
+        // After the pin this device holds, whatever its clock says, as with edits.
+        const revision = Math.max((this.messageRow(groupId, id)?.pin_revision ?? 0) + 1, Date.now());
+        const pin = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }));
+        this.ingest(await this.api.pin(groupId, id, pinned, epoch, pin), false);
+      }),
+    );
   }
 
   async toggleReaction(groupId: string, messageId: string, key: string, emote?: EmoteRef): Promise<void> {

@@ -414,8 +414,8 @@ func (s *Server) handleDeleteWelcome(w http.ResponseWriter, r *http.Request, ses
 const (
 	maxEnvelopeBytes = 256 << 10
 	maxReactionBytes = 2 << 10
-	maxDeletionBytes = 2 << 10
-	maxDeletionBody  = 8 << 10
+	maxProofBytes    = 2 << 10
+	maxProofBody     = 8 << 10
 )
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
@@ -561,10 +561,10 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 		Epoch    *int64 `json:"epoch"`
 		Deletion []byte `json:"deletion"`
 	}
-	if r.ContentLength != 0 && !readJSONUpTo(w, r, maxDeletionBody, &body) {
+	if r.ContentLength != 0 && !readJSONUpTo(w, r, maxProofBody, &body) {
 		return
 	}
-	if (body.Deletion == nil) != (body.Epoch == nil) || len(body.Deletion) > maxDeletionBytes {
+	if (body.Deletion == nil) != (body.Epoch == nil) || len(body.Deletion) > maxProofBytes {
 		writeError(w, http.StatusBadRequest, "bad_request", "The deletion isn't valid.")
 		return
 	}
@@ -636,7 +636,24 @@ func (s *Server) handlePin(pinned bool) memberHandler {
 		if s.visibleMessage(w, r, member) == nil {
 			return
 		}
-		message, err := s.db.SetPinned(r.Context(), groupID, r.PathValue("mid"), sess.UserID, pinned)
+		// Apps that sign pins send what their device signed, which other members
+		// check before showing the pin. Older apps send nothing.
+		var body struct {
+			Epoch *int64 `json:"epoch"`
+			Pin   []byte `json:"pin"`
+		}
+		if r.ContentLength != 0 && !readJSONUpTo(w, r, maxProofBody, &body) {
+			return
+		}
+		if (body.Pin == nil) != (body.Epoch == nil) || len(body.Pin) > maxProofBytes {
+			writeError(w, http.StatusBadRequest, "bad_request", "The pin isn't valid.")
+			return
+		}
+		pin := store.Pin{Proof: body.Pin}
+		if body.Epoch != nil {
+			pin.Epoch = *body.Epoch
+		}
+		message, err := s.db.SetPinned(r.Context(), groupID, r.PathValue("mid"), sess.UserID, pinned, pin)
 		if err != nil {
 			writeFailure(w, err)
 			return

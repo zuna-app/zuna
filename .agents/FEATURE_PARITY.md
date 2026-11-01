@@ -84,7 +84,7 @@ Things one platform should have and doesn't.
 | Picking several messages | yes | yes | yes | `features/chat/MessageItem.tsx`, `features/chat/Composer.tsx` | `Chat/ChatScreen.swift` | |
 | Voice messages: recording | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Voice.swift` | By design: click to start on the desktop, hold on iOS |
 | Link previews while writing | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | |
-| Pinned messages, in a list only | yes | yes | yes | `features/chat/SidePanel.tsx` | `Chat/ChatExtras.swift` | |
+| Pinned messages, in a list only | yes | yes | yes | `features/chat/SidePanel.tsx` | `Chat/ChatExtras.swift` | Pins and unpins are signed in the core (`setPinned`); only one a member's device signed counts, and only a later one replaces it (`pinState`) |
 | Search in a chat | yes | yes | yes | `features/chat/SidePanel.tsx` | `Chat/ChatExtras.swift` | |
 | Keyboard shortcuts | yes | yes | yes | `features/chat/Composer.tsx`, `lib/focus.ts` | `Chat/Composer.swift` | iOS: hardware keyboards only |
 

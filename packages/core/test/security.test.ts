@@ -1500,6 +1500,87 @@ describe("an edit from a device that has left", () => {
   });
 });
 
+describe("a server pinning or unpinning a message", () => {
+  const pinned = async (app: TestApp, groupId: string) => (await app.session.loadPins(groupId)).map((message) => message.id);
+
+  /** What a malicious server writes to pin or unpin a message, with whatever proof it has. */
+  function serverPins(groupId: string, messageId: string, by: string | null, pin: Uint8Array | null): void {
+    withServerDatabase((db) => {
+      const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
+      db.prepare("UPDATE messages SET pinned_at = ?, pinned_by = ?, pin = ?, pin_by = ?, updated_seq = ? WHERE group_id = ? AND id = ?").run(
+        by ? Date.now() : null,
+        by,
+        pin,
+        pin ? by : null,
+        seq,
+        groupId,
+        messageId,
+      );
+    });
+  }
+
+  const proofOf = (groupId: string, messageId: string) =>
+    withServerDatabase((db) => (db.prepare("SELECT pin FROM messages WHERE group_id = ? AND id = ?").get(groupId, messageId) as { pin: Uint8Array }).pin);
+
+  async function inAGroup() {
+    const owner = await person("ines");
+    const member = await person("jory");
+    const groupId = await groupWith(owner, [member]);
+    const ids: string[] = [];
+    for (const text of ["first", "second"]) {
+      ids.push(owner.session.sendMessage(`group:${groupId}`, { text }).id);
+      await waitFor(() => member.texts(`group:${groupId}`).includes(text), "delivery");
+    }
+    return { owner, member, groupId, ids };
+  }
+
+  it("shows a pin someone's device signed, with who pinned it", async () => {
+    const { owner, member, groupId, ids } = await inAGroup();
+    await member.session.setPinned(groupId, ids[0]!, true);
+    await waitFor(async () => (await pinned(owner, groupId)).includes(ids[0]!), "the pin");
+    expect((await owner.session.loadPins(groupId))[0]?.pinnedBy).toBe(member.userId);
+    await owner.session.setPinned(groupId, ids[0]!, false);
+    await waitFor(async () => (await pinned(member, groupId)).length === 0, "the unpin");
+  });
+
+  it("ignores a pin nobody signed, or one signed for another message", async () => {
+    const { owner, member, groupId, ids } = await inAGroup();
+    serverPins(groupId, ids[0]!, owner.userId, null);
+    await sessionOf(member).pullChanges(groupId);
+    expect(await pinned(member, groupId)).toEqual([]);
+
+    await owner.session.setPinned(groupId, ids[1]!, true);
+    await waitFor(async () => (await pinned(member, groupId)).includes(ids[1]!), "the real pin");
+    serverPins(groupId, ids[0]!, owner.userId, proofOf(groupId, ids[1]!));
+    await sessionOf(member).pullChanges(groupId);
+    expect(await pinned(member, groupId)).toEqual([ids[1]]);
+  });
+
+  it("keeps a pin the server drops on its own, and an unpin it tries to take back", async () => {
+    const { owner, member, groupId, ids } = await inAGroup();
+    await owner.session.setPinned(groupId, ids[0]!, true);
+    await waitFor(async () => (await pinned(member, groupId)).includes(ids[0]!), "the pin");
+    const proof = proofOf(groupId, ids[0]!);
+    serverPins(groupId, ids[0]!, null, null);
+    await sessionOf(member).pullChanges(groupId);
+    expect(await pinned(member, groupId)).toEqual([ids[0]]);
+
+    await owner.session.setPinned(groupId, ids[0]!, false);
+    await waitFor(async () => (await pinned(member, groupId)).length === 0, "the unpin");
+    serverPins(groupId, ids[0]!, owner.userId, proof);
+    await sessionOf(member).pullChanges(groupId);
+    expect(await pinned(member, groupId)).toEqual([]);
+  });
+
+  it("needs the device's proof, not only its session token", async () => {
+    const { owner, groupId, ids } = await inAGroup();
+    await waitFor(() => !!apiOf(owner).prove, "the app to sign");
+    const response = await fetch(`${server.url}/api/groups/${groupId}/messages/${ids[0]}/pin`, { method: "PUT", headers: { Authorization: `Bearer ${apiOf(owner).token}` } });
+    expect(response.status).toBe(401);
+    expect((await response.json()).error).toBe("proof_required");
+  });
+});
+
 describe("a session token on its own", () => {
   it("can't remove a device once the app has signed a request, and the app still can", async () => {
     const owner = await person("fran");

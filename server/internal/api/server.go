@@ -401,8 +401,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}", s.member(s.provenMember(s.handleDeleteMessage)))
 	mux.HandleFunc("POST /api/groups/{id}/messages/{mid}/reactions", s.member(s.handleAddReaction))
 	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}/reactions/{rid}", s.member(s.handleRemoveReaction))
-	mux.HandleFunc("PUT /api/groups/{id}/messages/{mid}/pin", s.member(s.handlePin(true)))
-	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}/pin", s.member(s.handlePin(false)))
+	mux.HandleFunc("PUT /api/groups/{id}/messages/{mid}/pin", s.member(s.provenMember(s.handlePin(true))))
+	mux.HandleFunc("DELETE /api/groups/{id}/messages/{mid}/pin", s.member(s.provenMember(s.handlePin(false))))
 	mux.HandleFunc("GET /api/groups/{id}/pins", s.member(s.handlePins))
 
 	// Files (always encrypted by the client before upload)

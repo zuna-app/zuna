@@ -40,7 +40,7 @@ func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
 	}
 	send("old", "file-old")
 	send("pinned", "file-pinned")
-	if _, err := db.SetPinned(ctx, group, "pinned", "u", true); err != nil {
+	if _, err := db.SetPinned(ctx, group, "pinned", "u", true, Pin{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,6 +320,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE messages DROP COLUMN deleted_by;
 		ALTER TABLE messages DROP COLUMN deletion;
 		ALTER TABLE devices DROP COLUMN signs_requests;
+		ALTER TABLE messages DROP COLUMN pin;
+		ALTER TABLE messages DROP COLUMN pin_by;
 		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
