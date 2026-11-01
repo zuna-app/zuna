@@ -91,6 +91,22 @@ final class BridgeTests: XCTestCase {
         XCTAssertEqual(result.toString(), "1")
     }
 
+    /// A few from tests/e2e/fixtures/addresses.json, the list the core and the web host go by.
+    func testPrivateAddressesMatchTheCore() {
+        for address in ["10.0.0.1", "192.0.2.1", "198.51.100.1", "203.0.113.1", "::1", "::ffff:7f00:1", "0:0:0:0:0:0:0:1", "64:ff9b::808:808", "2001::1", "2001:db8::1", "2002:7f00:1::1", "fec0::1", "feff::1", "::bad::"] {
+            XCTAssertTrue(WebBridge.privateAddress(address), address)
+        }
+        for address in ["8.8.8.8", "192.0.1.1", "::ffff:808:808", "2606:4700:4700::1111", "2001:4860:4860::8888"] {
+            XCTAssertFalse(WebBridge.privateAddress(address), address)
+        }
+    }
+
+    func testPreviewsOnlyGoToTheUsualPort() {
+        XCTAssertFalse(WebBridge.previewable(URL(string: "https://example.com:8443/")))
+        XCTAssertFalse(WebBridge.previewable(URL(string: "https://me:secret@example.com/")))
+        XCTAssertTrue(WebBridge.previewable(URL(string: "https://example.com:443/")))
+    }
+
     func testDatabaseErrorsBecomeExceptions() throws {
         XCTAssertThrowsError(try run("__zunaDb.all(__zunaDb.open('bad'), 'SELECT * FROM missing', [])"))
     }

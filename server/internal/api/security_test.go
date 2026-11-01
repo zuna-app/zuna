@@ -612,6 +612,26 @@ func TestWrongPasswordsSlowDownForOneAccount(t *testing.T) {
 	}
 }
 
+// Z-51: behind a proxy this can't tell how a request arrived, and browsers only heed this over HTTPS.
+func TestStrictTransportIsSentExceptToThisMachine(t *testing.T) {
+	h := newHarness(t)
+	for host, want := range map[string]bool{"chat.example.com": true, "chat.example.com:8443": true, "localhost:8787": false, "app.localhost": false} {
+		req, err := http.NewRequest("GET", h.url+"/api/info", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = host
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got := resp.Header.Get("Strict-Transport-Security") != ""; got != want {
+			t.Errorf("%s: sent %v", host, got)
+		}
+	}
+}
+
 // A commit whose ciphertext is as large as someone likes.
 func largeCommitFrame(groupID string, epoch int64, size int) []byte {
 	frame := mlsHeader(2)

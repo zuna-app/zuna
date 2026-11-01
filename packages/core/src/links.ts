@@ -20,6 +20,7 @@ const IMAGE_SIZE = 600;
 const TITLE_LENGTH = 200;
 const DESCRIPTION_LENGTH = 400;
 const SITE_LENGTH = 100;
+const MAX_TAG_LENGTH = 256 << 10;
 
 // The same links the message text shows as links, on the desktop (lib/markup.tsx) and the phone (Markup.swift).
 // Brackets that pair up stay in a link, as in Wikipedia's addresses; one around it doesn't.
@@ -40,7 +41,7 @@ export function allowLocalLinks(allowed: boolean): void {
 function privateIpv4(host: string): boolean {
   const match = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
   if (!match) return false;
-  const [a, b] = [Number(match[1]), Number(match[2])];
+  const [a, b, c] = [Number(match[1]), Number(match[2]), Number(match[3])];
   return (
     a === 0 ||
     a === 10 ||
@@ -48,23 +49,71 @@ function privateIpv4(host: string): boolean {
     (a === 100 && b >= 64 && b <= 127) ||
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
     (a === 192 && b === 168) ||
     (a === 198 && (b === 18 || b === 19)) ||
+    (a === 198 && b === 51 && c === 100) ||
+    (a === 203 && b === 0 && c === 113) ||
     a >= 224
   );
 }
 
-function privateIpv6(host: string): boolean {
-  const address = host.toLowerCase();
-  // Written with an IPv4 address inside, in the two ways URLs and resolvers do it.
-  const dotted = address.match(/^::(?:ffff:)?(\d+\.\d+\.\d+\.\d+)$/);
-  if (dotted) return privateIpv4(dotted[1]!);
-  const mapped = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-  if (mapped) {
-    const [high, low] = [parseInt(mapped[1]!, 16), parseInt(mapped[2]!, 16)];
-    return privateIpv4(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+/** An IPv6 address as its 16 bytes, or null if it isn't one. It can be written many ways, so its text says little. */
+function ipv6Bytes(address: string): Uint8Array | null {
+  let text = address.toLowerCase();
+  const dotted = text.match(/^(.*:)(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (dotted) {
+    const [a, b, c, d] = dotted.slice(2).map(Number) as [number, number, number, number];
+    if (Math.max(a, b, c, d) > 255) return null;
+    text = `${dotted[1]}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
   }
-  return address === "::" || address === "::1" || /^f[cd]/.test(address) || /^fe[89ab]/.test(address) || /^ff/.test(address);
+  const halves = text.split("::");
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves[1] ? halves[1].split(":") : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 2 ? missing < 1 : missing !== 0) return null;
+  const groups = [...head, ...new Array<string>(missing).fill("0"), ...tail];
+  const bytes = new Uint8Array(16);
+  for (const [index, group] of groups.entries()) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null;
+    bytes[index * 2] = parseInt(group, 16) >> 8;
+    bytes[index * 2 + 1] = parseInt(group, 16) & 255;
+  }
+  return bytes;
+}
+
+function inRange(bytes: Uint8Array, network: string, bits: number): boolean {
+  const start = ipv6Bytes(network)!;
+  for (let index = 0; index < 16; index++) {
+    const used = Math.min(Math.max(bits - index * 8, 0), 8);
+    const mask = (0xff << (8 - used)) & 0xff;
+    if ((bytes[index]! & mask) !== (start[index]! & mask)) return false;
+  }
+  return true;
+}
+
+// Besides this machine and private networks: documentation, and the ways of carrying
+// IPv4 inside IPv6, which can lead anywhere in IPv4 with none of the checks on it.
+const PRIVATE_IPV6: readonly (readonly [string, number])[] = [
+  ["::", 96],
+  ["64:ff9b::", 96],
+  ["64:ff9b:1::", 48],
+  ["100::", 64],
+  ["2001::", 32],
+  ["2001:db8::", 32],
+  ["2002::", 16],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["fec0::", 10],
+  ["ff00::", 8],
+];
+
+function privateIpv6(host: string): boolean {
+  const bytes = ipv6Bytes(host);
+  if (!bytes) return true;
+  if (inRange(bytes, "::ffff:0:0", 96)) return privateIpv4([...bytes.subarray(12)].join("."));
+  return PRIVATE_IPV6.some(([network, bits]) => inRange(bytes, network, bits));
 }
 
 /** Whether an address, as a resolver gives it, is on this machine or a private network. */
@@ -79,8 +128,9 @@ function localName(host: string): boolean {
 }
 
 /**
- * Whether a link may be fetched for a preview: HTTPS to somewhere public. Pages
- * can redirect anywhere, so this is checked again for every address along the way.
+ * Whether a link may be fetched for a preview: HTTPS to somewhere public, on the
+ * usual port. Pages can redirect anywhere, so this is checked again for every address
+ * along the way. They could otherwise have someone's device look for open ports.
  */
 export function previewable(url: string): boolean {
   try {
@@ -90,7 +140,7 @@ export function previewable(url: string): boolean {
       const local = ["localhost", "127.0.0.1", "[::1]"].includes(host) || host.endsWith(".localhost");
       if (local) return parsed.protocol === "https:" || parsed.protocol === "http:";
     }
-    if (parsed.protocol !== "https:") return false;
+    if (parsed.protocol !== "https:" || parsed.port !== "" || parsed.username !== "" || parsed.password !== "") return false;
     if (host.startsWith("[")) return !privateIpv6(host.slice(1, -1));
     return !privateIpv4(host) && !localName(host);
   } catch {
@@ -149,10 +199,39 @@ function clean(value: string | undefined, max: number): string | undefined {
 
 function attributes(tag: string): Map<string, string> {
   const found = new Map<string, string>();
-  for (const match of tag.matchAll(/([a-z:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/gi)) {
-    found.set(match[1]!.toLowerCase(), decodeEntities(match[2] ?? match[3] ?? match[4] ?? ""));
+  // A name always matches, value or not, so that a long one is only looked at once.
+  for (const match of tag.matchAll(/([a-z:_-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/gi)) {
+    const value = match[2] ?? match[3] ?? match[4];
+    if (value !== undefined) found.set(match[1]!.toLowerCase(), decodeEntities(value));
   }
   return found;
+}
+
+// Pages come from anyone, and the patterns that would find these in one expression
+// take minutes on a page that's nothing but "<meta", so each search picks up where
+// the last one ended.
+
+/** The meta tags in a page's head. */
+function metaTags(head: string): string[] {
+  const tags: string[] = [];
+  const start = /<meta\b/gi;
+  for (let match = start.exec(head); match; match = start.exec(head)) {
+    const end = head.indexOf(">", match.index);
+    if (end < 0) break;
+    if (end - match.index <= MAX_TAG_LENGTH) tags.push(head.slice(match.index, end + 1));
+    start.lastIndex = end + 1;
+  }
+  return tags;
+}
+
+/** What's in a page's first title tag. */
+function titleIn(head: string): string | undefined {
+  const open = head.search(/<title\b/i);
+  const start = open < 0 ? -1 : head.indexOf(">", open);
+  if (start < 0) return undefined;
+  const text = head.slice(start + 1);
+  const end = text.search(/<\/title>/i);
+  return end < 0 ? undefined : text.slice(0, end);
 }
 
 /** What a page says about itself, from its Open Graph and other meta tags. */
@@ -160,14 +239,14 @@ export function readPage(html: string, pageUrl: string): { title?: string; descr
   const end = html.search(/<\/head\s*>|<body[\s>]/i);
   const head = end > 0 ? html.slice(0, end) : html;
   const meta = new Map<string, string>();
-  for (const match of head.matchAll(/<meta\b[^>]*>/gi)) {
-    const tag = attributes(match[0]);
+  for (const found of metaTags(head)) {
+    const tag = attributes(found);
     const name = (tag.get("property") ?? tag.get("name"))?.toLowerCase();
     const content = tag.get("content");
     if (name && content && !meta.has(name)) meta.set(name, content);
   }
-  const titleTag = head.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
-  const first = (...names: string[]) => names.map((name) => meta.get(name)).find((value) => value?.trim());
+  const titleTag = titleIn(head);
+  const first =(...names: string[]) => names.map((name) => meta.get(name)).find((value) => value?.trim());
   let image = first("og:image:secure_url", "og:image", "og:image:url", "twitter:image", "twitter:image:src");
   try {
     image = image ? new URL(image, pageUrl).toString() : undefined;

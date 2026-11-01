@@ -56,7 +56,7 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     static func previewable(_ url: URL?) -> Bool {
         guard let url, let host = url.host?.lowercased() else { return false }
         if isTestPage(host) { return url.scheme == "https" || url.scheme == "http" }
-        guard url.scheme == "https" else { return false }
+        guard url.scheme == "https", url.user == nil, url.password == nil, url.port == nil || url.port == 443 else { return false }
         if host.contains(":") || host.allSatisfy({ $0.isNumber || $0 == "." }) { return !privateAddress(host) }
         let name = host.hasSuffix(".") ? String(host.dropLast()) : host
         let local = [".localhost", ".local", ".internal", ".intranet", ".lan", ".home", ".corp", ".home.arpa"]
@@ -65,23 +65,42 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
     /// Whether an address, as a resolver gives it, is on this device or a private network (privateAddress in links.ts).
     static func privateAddress(_ address: String) -> Bool {
-        let text = address.lowercased()
-        if text.contains(":") {
-            if text.hasPrefix("::ffff:") || (text.hasPrefix("::") && text.contains(".")) {
-                let inner = String(text.dropFirst(text.hasPrefix("::ffff:") ? 7 : 2))
-                if inner.contains(".") { return privateAddress(inner) }
-                let parts = inner.split(separator: ":").compactMap { Int($0, radix: 16) }
-                guard parts.count == 2 else { return true }
-                return privateAddress("\(parts[0] >> 8).\(parts[0] & 255).\(parts[1] >> 8).\(parts[1] & 255)")
+        if address.contains(":") {
+            guard let bytes = ipv6Bytes(address) else { return true }
+            if inRange(bytes, ipv6Bytes("::ffff:0:0") ?? [], bits: 96) {
+                return privateAddress(bytes[12...].map { String($0) }.joined(separator: "."))
             }
-            return text == "::" || text == "::1" || text.hasPrefix("fc") || text.hasPrefix("fd") || text.hasPrefix("fe8") || text.hasPrefix("fe9")
-                || text.hasPrefix("fea") || text.hasPrefix("feb") || text.hasPrefix("ff")
+            return privateIPv6.contains { inRange(bytes, $0.network, bits: $0.bits) }
         }
-        let parts = text.split(separator: ".").compactMap { Int($0) }
-        guard parts.count == 4 else { return true }
-        let (a, b) = (parts[0], parts[1])
+        let parts = address.split(separator: ".").compactMap { Int($0) }
+        guard parts.count == 4, parts.allSatisfy({ (0...255).contains($0) }) else { return true }
+        let (a, b, c) = (parts[0], parts[1], parts[2])
         return a == 0 || a == 10 || a == 127 || (a == 100 && (64...127).contains(b)) || (a == 169 && b == 254)
-            || (a == 172 && (16...31).contains(b)) || (a == 192 && b == 168) || (a == 198 && (b == 18 || b == 19)) || a >= 224
+            || (a == 172 && (16...31).contains(b)) || (a == 192 && b == 0 && (c == 0 || c == 2)) || (a == 192 && b == 168)
+            || (a == 198 && (b == 18 || b == 19)) || (a == 198 && b == 51 && c == 100) || (a == 203 && b == 0 && c == 113) || a >= 224
+    }
+
+    /// Besides this device and private networks: documentation, and the ways of carrying
+    /// IPv4 inside IPv6, which can lead anywhere in IPv4 with none of the checks on it.
+    private static let privateIPv6: [(network: [UInt8], bits: Int)] = [
+        ("::", 96), ("64:ff9b::", 96), ("64:ff9b:1::", 48), ("100::", 64), ("2001::", 32), ("2001:db8::", 32),
+        ("2002::", 16), ("fc00::", 7), ("fe80::", 10), ("fec0::", 10), ("ff00::", 8),
+    ].map { (network: ipv6Bytes($0.0) ?? [], bits: $0.1) }
+
+    private static func ipv6Bytes(_ text: String) -> [UInt8]? {
+        var address = in6_addr()
+        guard inet_pton(AF_INET6, text, &address) == 1 else { return nil }
+        return withUnsafeBytes(of: address) { Array($0) }
+    }
+
+    private static func inRange(_ bytes: [UInt8], _ network: [UInt8], bits: Int) -> Bool {
+        guard bytes.count == 16, network.count == 16 else { return false }
+        for index in 0..<16 {
+            let used = min(max(bits - index * 8, 0), 8)
+            let mask = UInt8(truncatingIfNeeded: 0xff << (8 - used))
+            if bytes[index] & mask != network[index] & mask { return false }
+        }
+        return true
     }
 
     /// Whether a link leads somewhere public: a public name can point at this

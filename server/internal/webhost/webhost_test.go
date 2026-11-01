@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -226,6 +228,46 @@ func TestPreviewsOnlyReachPublicHTTPS(t *testing.T) {
 		parsed, _ := url.Parse(link)
 		if !h.previewable(parsed) {
 			t.Errorf("%s was refused", link)
+		}
+	}
+}
+
+// Z-54: the same list the clients go by.
+func TestPrivateAddressesMatchTheClients(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "..", "tests", "e2e", "fixtures", "addresses.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var addresses struct {
+		Private []string `json:"private"`
+		Public  []string `json:"public"`
+	}
+	if err := json.Unmarshal(data, &addresses); err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range addresses.Private {
+		if !privateAddress(netip.MustParseAddr(address)) {
+			t.Errorf("%s counted as public", address)
+		}
+	}
+	for _, address := range addresses.Public {
+		if privateAddress(netip.MustParseAddr(address)) {
+			t.Errorf("%s counted as private", address)
+		}
+	}
+}
+
+// Z-51: behind a proxy this can't tell how a request arrived, and browsers only heed this over HTTPS.
+func TestStrictTransportIsSentExceptToThisMachine(t *testing.T) {
+	h := newTestHost(t, Config{})
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})
+	for host, want := range map[string]bool{"chat.example.com": true, "chat.example.com:8443": true, "localhost:5174": false, "app.localhost": false} {
+		request := httptest.NewRequest("GET", "/", nil)
+		request.Host = host
+		recorder := httptest.NewRecorder()
+		h.withHeaders(next).ServeHTTP(recorder, request)
+		if got := recorder.Header().Get("Strict-Transport-Security") != ""; got != want {
+			t.Errorf("%s: sent %v", host, got)
 		}
 	}
 }

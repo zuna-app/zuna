@@ -2,6 +2,7 @@
 // against a real server and real MLS, kept here so they can't come back. The
 // findings' numbers are in the audit's report.
 
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -21,7 +22,7 @@ import {
   verifyCertificate,
 } from "../src/crypto";
 import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
-import { allowLocalLinks, checkPreview, findLink, linkHost, previewable, privateAddress } from "../src/links";
+import { allowLocalLinks, checkPreview, findLink, linkHost, previewable, privateAddress, readPage } from "../src/links";
 import { plainText } from "../src/plain-text";
 import { previewText } from "../src/notify";
 import { MAX_TEXT_LENGTH, parseMessageBody, parseProfile } from "../src/validate";
@@ -799,13 +800,55 @@ describe("what a link preview can reach and claim (Z-19, Z-22)", () => {
     }
   });
 
-  it("knows what a resolver's answer means", () => {
-    for (const address of ["127.0.0.1", "10.1.2.3", "192.168.0.1", "169.254.1.1", "::1", "fe80::1", "fd00::1", "::ffff:10.0.0.1", "::ffff:a00:1"]) {
+  it("knows what a resolver's answer means (Z-54)", () => {
+    // The server's previews go by the same list.
+    const addresses = JSON.parse(readFileSync(join(__dirname, "../../../tests/e2e/fixtures/addresses.json"), "utf8")) as { private: string[]; public: string[] };
+    for (const address of addresses.private) {
       expect(privateAddress(address), address).toBe(true);
     }
-    for (const address of ["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111"]) {
+    for (const address of addresses.public) {
       expect(privateAddress(address), address).toBe(false);
     }
+    for (const nonsense of ["1:2", "::1::", "1:2:3:4:5:6:7:8:9", "fe80::1%eth0", "::g", "::ffff:999.0.0.1"]) {
+      expect(privateAddress(nonsense), nonsense).toBe(true);
+    }
+  });
+
+  it("only goes to the usual port, with no one's name in the link (Z-54)", () => {
+    allowLocalLinks(false);
+    try {
+      for (const url of ["https://example.com:8443/", "https://example.com:22/", "https://me:secret@example.com/", "https://[64:ff9b::a00:1]/", "https://[2002:a00:1::]/"]) {
+        expect(previewable(url), url).toBe(false);
+      }
+      expect(previewable("https://example.com:443/")).toBe(true);
+    } finally {
+      allowLocalLinks(true);
+    }
+  });
+
+  it("doesn't get stuck on a page written to take it forever (Z-52)", () => {
+    const size = 2 << 20;
+    for (const page of [
+      "<meta".repeat(size / 5),
+      "<title".repeat(size / 6),
+      `<meta ${"a".repeat(size)}>`,
+      `<meta ${'a="b" '.repeat(size / 6)}>`,
+      `<meta ${"a ".repeat(size / 2)}>`,
+      `<meta ${"a= ".repeat(size / 3)}>`,
+      `<title>${"</title".repeat(size / 7)}`,
+    ]) {
+      const started = Date.now();
+      readPage(page, "https://example.com/");
+      expect(Date.now() - started).toBeLessThan(1000);
+    }
+  });
+
+  it("still reads a page as it's written", () => {
+    const found = readPage(
+      `<html><head><TITLE lang="en">The &amp; title</TITLE><meta name=description content='A page'><meta property="og:image" content="/p.png"/></head><body><meta name="description" content="not this">`,
+      "https://example.com/a",
+    );
+    expect(found).toEqual({ title: "The & title", description: "A page", siteName: undefined, image: "https://example.com/p.png" });
   });
 
   it("only accepts a preview for a whole link in the text", () => {
@@ -1189,6 +1232,29 @@ describe("a server deciding that a group's history is shared (Z-44)", () => {
 
     await owner.session.addMembers(groupId, [joiner.userId]);
     await waitFor(async () => (await joiner.session.loadMessages(groupId)).messages.some((item) => item.text === OLD), "them to read older messages");
+  });
+});
+
+describe("a message the server says was edited (Z-53)", () => {
+  it("gets no further than one that wasn't, for being sent under an epoch that had ended", async () => {
+    const owner = await person("vera");
+    const member = await person("wes");
+    const groupId = await groupWith(owner, [member]);
+    const session = sessionOf(member);
+    const epoch = session.mlsEpoch(groupId) as number;
+    const sent = owner.session.sendMessage(`group:${groupId}`, { text: "typo heer" });
+    await waitFor(() => member.texts(`group:${groupId}`).includes("typo heer"), "delivery");
+    const later = await person("xan");
+    await owner.session.addMembers(groupId, [later.userId]);
+    await waitFor(() => session.mlsEpoch(groupId) > epoch, "the next epoch");
+    const start = session.db.get("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, epoch + 1]).seq as number;
+
+    const message = { group_id: groupId, sender_device: "d".repeat(32), epoch, seq: start + 5, edited_at: Date.now() };
+    expect(session.couldBeSent(message)).toBe(false);
+    // An edit keeps its place in the group, from before that epoch ended.
+    owner.session.editMessage(groupId, sent.id, "typo here", {}, []);
+    await waitFor(() => member.texts(`group:${groupId}`).includes("typo here"), "the edit");
+    expect(session.messageRow(groupId, sent.id).status).toBe("sent");
   });
 });
 

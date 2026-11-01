@@ -16,8 +16,15 @@ var reserved = []netip.Prefix{
 	netip.MustParsePrefix("198.51.100.0/24"),
 	netip.MustParsePrefix("203.0.113.0/24"),
 	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("64:ff9b::/96"), // NAT64, which can lead anywhere in IPv4
+	netip.MustParsePrefix("::/96"),
+	// The ways of carrying IPv4 inside IPv6, which can lead anywhere in IPv4.
+	netip.MustParsePrefix("64:ff9b::/96"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("2001::/32"),
+	netip.MustParsePrefix("2002::/16"),
+	netip.MustParsePrefix("100::/64"),
 	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("fec0::/10"),
 }
 
 // privateAddress reports whether an address is on this machine or a network a
