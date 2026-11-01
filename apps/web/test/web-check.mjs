@@ -218,6 +218,17 @@ async function runIn(name) {
     await page.locator(".msg.is-own .media-full").last().waitFor({ timeout: 20_000 });
     check("a picture is sent and shown", true);
 
+    // The chat's photos and links, from its details
+    await page.locator(".chat-title").click();
+    await page.locator(".side-row", { hasText: "shared link" }).click();
+    await page.locator(".shared-link-title", { hasText: "The quiet side of the lake" }).waitFor({ timeout: 10_000 });
+    await page.getByLabel("Back to details").click();
+    await page.locator(".side-row", { hasText: "1 photo" }).click();
+    await page.locator(".shared-tile-full").waitFor({ timeout: 15_000 });
+    check("the chat's details list its links and photos", true);
+    await page.screenshot({ path: prefix("03b-shared") });
+    await page.locator(".side-head").getByLabel("Close").click();
+
     // Voice messages: what each browser can record, and whether an iPhone could play it
     const formats = await page.evaluate(() =>
       ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus"].filter((type) => window.MediaRecorder?.isTypeSupported(type)),

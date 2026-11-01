@@ -5,6 +5,7 @@ import {
   Bell,
   BellOff,
   Camera,
+  ChevronLeft,
   Crown,
   Eye,
   EyeOff,
@@ -29,6 +30,7 @@ import { formatFull, formatLastSeen, formatListTime, nameColor } from "@/lib/for
 import { prepareAvatar } from "@/lib/media";
 import { muteEntries, mutedUntilText } from "@/lib/mute";
 import { useActiveServer, useApp } from "@/state/store";
+import { SharedMediaContent, SharedMediaRows, sharedTitle } from "./SharedMedia";
 
 export function SidePanel({ conversation }: { conversation: ConversationView }) {
   const panel = useApp((state) => state.panel);
@@ -37,7 +39,16 @@ export function SidePanel({ conversation }: { conversation: ConversationView }) 
     <aside className="side-panel">
       <div className="side-panel-inner">
         <header className="side-head">
-          <h3>{panel?.type === "search" ? "Search this chat" : panel?.type === "pins" ? "Pinned messages" : conversation.kind === "group" ? "Group details" : "Details"}</h3>
+          {panel?.type === "media" ? (
+            <h3 className="row" style={{ gap: 4 }}>
+              <button className="icon-btn is-small" onClick={() => setPanel({ type: "info" })} aria-label="Back to details">
+                <ChevronLeft size={17} />
+              </button>
+              {sharedTitle(panel.kind)}
+            </h3>
+          ) : (
+            <h3>{panel?.type === "search" ? "Search this chat" : panel?.type === "pins" ? "Pinned messages" : conversation.kind === "group" ? "Group details" : "Details"}</h3>
+          )}
           <button className="icon-btn is-small" onClick={() => setPanel(null)} aria-label="Close">
             <X size={16} />
           </button>
@@ -45,6 +56,7 @@ export function SidePanel({ conversation }: { conversation: ConversationView }) 
         {panel?.type === "info" && <InfoContent conversation={conversation} />}
         {panel?.type === "search" && <SearchContent conversation={conversation} />}
         {panel?.type === "pins" && <PinsContent conversation={conversation} />}
+        {panel?.type === "media" && <SharedMediaContent key={panel.kind} conversation={conversation} kind={panel.kind} />}
       </div>
     </aside>
   );
@@ -134,6 +146,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
           </button>
         </div>
       )}
+      <SharedMediaRows conversation={conversation} />
       <PreferenceRows conversation={conversation} />
     </div>
   );
@@ -216,6 +229,8 @@ function GroupInfo({ conversation }: { conversation: ConversationView }) {
         <Lock size={15} />
         <span>The server can see who is in this group, but not its name, picture or messages.</span>
       </div>
+
+      <SharedMediaRows conversation={conversation} />
 
       <div className="side-section">
         <h4 className="row" style={{ justifyContent: "space-between" }}>

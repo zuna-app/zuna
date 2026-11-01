@@ -270,8 +270,8 @@ export class TestApp {
   }
 }
 
-/** A solid PNG, as a page's picture would be. */
-export function png(width: number, height: number): Uint8Array {
+/** A PNG, solid as a page's picture would be, or with each pixel's color given. */
+export function png(width: number, height: number, color?: (x: number, y: number) => [number, number, number]): Uint8Array {
   const chunk = (type: string, data: Uint8Array) => {
     const out = Buffer.alloc(12 + data.length);
     out.writeUInt32BE(data.length, 0);
@@ -285,7 +285,10 @@ export function png(width: number, height: number): Uint8Array {
   header.writeUInt32BE(height, 4);
   header.set([8, 2, 0, 0, 0], 8);
   const rows = Buffer.alloc((width * 3 + 1) * height, 0x7a);
-  for (let row = 0; row < height; row++) rows[row * (width * 3 + 1)] = 0;
+  for (let row = 0; row < height; row++) {
+    rows[row * (width * 3 + 1)] = 0;
+    if (color) for (let x = 0; x < width; x++) rows.set(color(x, row), row * (width * 3 + 1) + 1 + x * 3);
+  }
   return Buffer.concat([
     Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     chunk("IHDR", header),

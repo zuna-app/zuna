@@ -10,7 +10,8 @@
 
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { TestApp, loadCrypto, sleep, waitFor } from "./helpers";
+import { toBase64 } from "../src/encoding";
+import { TestApp, loadCrypto, png, sleep, waitFor } from "./helpers";
 
 const CODE_SAMPLE = `Here's the retry logic:
 \`\`\`rust
@@ -26,6 +27,27 @@ async fn fetch_with_retry(url: &str, attempts: u32) -> Result<String, Error> {
 }
 \`\`\`
 Should cover the **flaky** network case. See https://example.com/notes`;
+
+/** A photo of the lake: sky, a hill and water, the hill where `ridge` puts it. */
+function lakePhoto(name: string, ridge: number) {
+  const scene = (width: number, height: number) =>
+    png(width, height, (x, y) => {
+      const u = x / width;
+      const v = y / height;
+      const hill = 0.5 - 0.12 * Math.sin(u * Math.PI * 2 + ridge);
+      if (v < hill) return [Math.round(110 + 90 * v), Math.round(150 + 70 * v), 215];
+      if (v < 0.62) return [52, Math.round(96 + 30 * u), 60];
+      return [40, Math.round(84 + 40 * (v - 0.62)), Math.round(130 + 60 * (v - 0.62))];
+    });
+  return {
+    blob: new Blob([new Uint8Array(scene(480, 360))], { type: "image/png" }),
+    name,
+    mime: "image/png",
+    width: 480,
+    height: 360,
+    thumb: `data:image/png;base64,${toBase64(scene(32, 24))}`,
+  };
+}
 
 const PEOPLE = [
   ["sam", "Sam Chen"],
@@ -100,6 +122,11 @@ async function startConversations(bots: TestApp[]): Promise<void> {
   await priya.session.toggleReaction(groupId, firstId, "😂");
   await sam.session.setPinned(groupId, firstId, true);
   jordan.session.sendMessage(groupKey, { text: "Love it. I'll bring coffee too", replyTo: firstId });
+  await sleep(120);
+  await sam.session.sendWithAttachments(groupKey, [lakePhoto("lake-morning.png", 0), lakePhoto("lake-evening.png", 2)], { text: "From last year 🏕️" });
+  const list = new TextEncoder().encode("Tent\nSleeping bags\nCoffee\nSpeaker\n");
+  await jordan.session.sendWithAttachments(groupKey, [{ blob: new Blob([list], { type: "text/plain" }), name: "packing-list.txt", mime: "text/plain" }], {});
+  marek.session.sendMessage(groupKey, { text: "The forecast: https://example.com/weather/lake" });
 }
 
 /**
@@ -129,7 +156,7 @@ async function createWorld(world: string): Promise<TestApp[]> {
   await waitFor(() => owner.texts(`user:${person("priya").userId}`).length >= 1, "the owner to receive Priya's message");
   await waitFor(() => {
     const group = owner.session.getConversations().find((item) => item.kind === "group");
-    return !!group && group.title === "Weekend trip" && owner.texts(group.key).length >= 8;
+    return !!group && group.title === "Weekend trip" && owner.texts(group.key).length >= 11;
   }, "the owner to receive the group");
   await (owner.session as any).uploadEpochKeys();
   owner.client.stop();

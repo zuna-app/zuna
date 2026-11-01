@@ -6,6 +6,7 @@ import type {
   ConversationView,
   CoreEvent,
   EmoteSet,
+  MediaKind,
   MessageView,
   Preferences,
   ServerEntry,
@@ -65,7 +66,8 @@ export type Overlay =
   | { type: "forward"; serverId: string; groupId: string; ids: string[] }
   | null;
 
-export type Panel = { type: "info" } | { type: "search" } | { type: "pins" } | null;
+/** "media" is one kind of thing from the chat, opened from its details. */
+export type Panel = { type: "info" } | { type: "search" } | { type: "pins" } | { type: "media"; kind: MediaKind | "groups" } | null;
 
 interface AppState {
   phase: "booting" | "ready" | "failed";

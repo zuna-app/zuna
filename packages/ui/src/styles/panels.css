@@ -117,3 +117,35 @@
 .current-set > svg { color: var(--text-2); flex: none; }
 .emote-preview { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 6px; padding: 10px; border-radius: var(--radius-m); background: var(--bg-2); }
 .emote-preview .emote { width: 100%; aspect-ratio: 1; height: auto; }
+
+/* A chat's photos, files and links, opened from its details, as in Telegram. */
+.shared-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; border-radius: var(--radius-m); overflow: hidden; }
+.shared-tile { position: relative; display: block; overflow: hidden; aspect-ratio: 1; background: var(--bg-3); }
+.shared-tile-thumb, .shared-tile-full { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.shared-tile-thumb { filter: blur(8px); transform: scale(1.1); }
+.shared-tile-full { animation: fade-in 0.12s; }
+.shared-tile:hover::after { content: ""; position: absolute; inset: 0; background: rgba(255, 255, 255, 0.07); }
+.shared-tile-play {
+  position: absolute; left: 50%; top: 50%; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%;
+  display: grid; place-items: center; background: rgba(0, 0, 0, 0.55); color: #fff;
+}
+.shared-tile .media-badge { top: auto; left: 4px; bottom: 4px; }
+.shared-list { display: flex; flex-direction: column; gap: 1px; }
+.shared-month { font-size: 12px; font-weight: 500; color: var(--text-3); padding: 10px 8px 4px; }
+.shared-month:first-child { padding-top: 2px; }
+.shared-item { display: flex; flex-direction: column; gap: 3px; padding: 6px 8px; border-radius: var(--radius-m); }
+.shared-item:hover { background: var(--hover); }
+.shared-item .file-card { width: 100%; }
+.shared-item .voice { min-width: 0; }
+.shared-meta { display: block; font-size: 12px; color: var(--text-3); }
+.shared-link { flex-direction: row; align-items: flex-start; gap: 10px; }
+.shared-link-image { flex: none; width: 44px; height: 44px; border-radius: var(--radius-m); object-fit: cover; }
+.shared-link-image.is-letter { display: grid; place-items: center; font-size: 18px; font-weight: 600; color: #fff; }
+.shared-link-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.shared-link-title { font-size: 13.5px; font-weight: 550; }
+.shared-link-description {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere;
+}
+.shared-link-url { display: block; font-size: 12.5px; }
+.shared-more { display: grid; place-items: center; min-height: 36px; }

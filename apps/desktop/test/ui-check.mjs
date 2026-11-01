@@ -293,9 +293,39 @@ try {
   await page.locator(".chat-title").click();
   await sleep(250);
   await shot("11-group-details");
+
+  // A chat's photos, files and links, from its details
+  const groupRows = await page.locator(".side-panel .side-row.is-button").allInnerTexts();
+  check("a group's details count its photos, files and links", ["2 photos", "1 file", "1 shared link"].every((row) => groupRows.includes(row)), groupRows.join(", "));
+  await page.locator(".side-row", { hasText: "2 photos" }).click();
+  await page.locator(".shared-tile-full").nth(1).waitFor({ timeout: 15_000 });
+  check("its photos open as a grid", (await page.locator(".shared-tile").count()) === 2);
+  await sleep(150);
+  await shot("11b-group-photos");
+  await page.locator(".shared-tile").first().click();
+  await page.locator(".image-viewer").waitFor();
   await page.keyboard.press("Escape");
+  await page.getByLabel("Back to details").click();
+  await page.locator(".side-row", { hasText: "1 shared link" }).click();
+  await page.locator(".shared-link-url", { hasText: "example.com/weather" }).waitFor();
+  await sleep(150);
+  await shot("11c-group-links");
+  await page.locator(".shared-link").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Show in chat" }).click();
+  await page.locator(".msg.is-highlighted", { hasText: "The forecast" }).waitFor({ timeout: 5000 });
+  check("a shared link shows its message in the chat", true);
+  await page.keyboard.press("Escape");
+
   await openChat("Priya");
   await page.locator(".chat-title").click();
+  await page.locator(".side-row", { hasText: "1 photo" }).waitFor();
+  const personRows = await page.locator(".side-panel .side-row.is-button").allInnerTexts();
+  check("a person's details count what was sent and the groups in common", ["1 photo", "1 file", "1 group in common"].every((row) => personRows.includes(row)), personRows.join(", "));
+  await page.locator(".side-row", { hasText: "1 file" }).click();
+  await page.locator(".shared-item .file-card", { hasText: "packing-list.txt" }).waitFor();
+  await sleep(150);
+  await shot("11d-person-files");
+  await page.getByLabel("Back to details").click();
   await page.getByText("Not verified yet").click();
   await sleep(250);
   await shot("12-verify");
@@ -419,6 +449,15 @@ try {
   check("a voice message plays, filling its waveform", true);
   await shot("19g-voice");
   await voice.locator(".voice-play").click();
+  await page.getByLabel("Details", { exact: true }).click();
+  await page.locator(".side-row", { hasText: "1 voice message" }).click();
+  const listedVoice = page.locator(".shared-item .voice");
+  await listedVoice.locator(".voice-play").click();
+  await listedVoice.locator(".voice-play[aria-label='Pause']").waitFor({ timeout: 10_000 });
+  check("a voice message plays from the chat's details", true);
+  await shot("19g2-voice-in-details");
+  await listedVoice.locator(".voice-play").click();
+  await page.locator(".side-head").getByLabel("Close").click();
 
   // The desktop records AAC in MP4, which Apple's decoder (and so the iPhone app) reads,
   // and plays what the iPhone app records, AAC made by Apple's encoder.

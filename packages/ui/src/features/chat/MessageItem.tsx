@@ -216,7 +216,7 @@ function VideoAttachment({ attachment, serverId, uploadProgress }: { attachment:
 }
 
 /** A sound file, which plays once it's pressed. */
-function AudioAttachment({ attachment, serverId, uploadProgress }: { attachment: Attachment; serverId: string; uploadProgress?: number }) {
+export function AudioAttachment({ attachment, serverId, uploadProgress }: { attachment: Attachment; serverId: string; uploadProgress?: number }) {
   const [load, setLoad] = useState(false);
   const uploading = !attachment.fileId;
   const { url, failed } = useDecryptedUrl(serverId, attachment, load && !uploading);
@@ -237,7 +237,7 @@ function AudioAttachment({ attachment, serverId, uploadProgress }: { attachment:
 }
 
 /** A voice message, as in Telegram: play, a waveform that fills as it plays and seeks on a click, and the time. */
-function VoiceAttachment({ attachment, serverId, own, uploadProgress }: { attachment: Attachment; serverId: string; own: boolean; uploadProgress?: number }) {
+export function VoiceAttachment({ attachment, serverId, own, uploadProgress }: { attachment: Attachment; serverId: string; own: boolean; uploadProgress?: number }) {
   const [load, setLoad] = useState(false);
   const { url, failed } = useDecryptedUrl(serverId, attachment, load && !!attachment.fileId);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -325,7 +325,7 @@ function VoiceAttachment({ attachment, serverId, own, uploadProgress }: { attach
   );
 }
 
-function FileAttachment({ attachment, serverId, uploadProgress }: { attachment: Attachment; serverId: string; uploadProgress?: number }) {
+export function FileAttachment({ attachment, serverId, uploadProgress }: { attachment: Attachment; serverId: string; uploadProgress?: number }) {
   const { busy, run } = useAction();
   const uploading = !attachment.fileId;
   return (

@@ -184,7 +184,7 @@ export function ChatView({ conversation }: { conversation: ConversationView }) {
               </button>
             </Tooltip>
             <Tooltip text="Details">
-              <button className={`icon-btn${panel?.type === "info" ? " is-active" : ""}`} onClick={() => togglePanel("info")} aria-label="Details">
+              <button className={`icon-btn${panel?.type === "info" || panel?.type === "media" ? " is-active" : ""}`} onClick={() => togglePanel("info")} aria-label="Details">
                 <PanelRight size={17} />
               </button>
             </Tooltip>
