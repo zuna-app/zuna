@@ -662,13 +662,18 @@ func (s *Server) broadcastUser(r *http.Request, userID string) {
 
 // seenByOthers is what other people get to know about a user. When each of
 // their devices was last used is for them alone: it would give away the last
-// seen time they may have chosen to hide.
+// seen time they may have chosen to hide. So is when they removed one: others
+// only need to know that it's gone.
 func seenByOthers(user *store.PublicUser) *store.PublicUser {
 	view := *user
 	view.Devices = slices.Clone(user.Devices)
+	gone := int64(1)
 	for i := range view.Devices {
 		view.Devices[i].CreatedAt = 0
 		view.Devices[i].LastSeenAt = 0
+		if view.Devices[i].RevokedAt != nil {
+			view.Devices[i].RevokedAt = &gone
+		}
 	}
 	return &view
 }

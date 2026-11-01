@@ -1008,6 +1008,23 @@ func TestDeviceTimesAreOnlyForTheirOwner(t *testing.T) {
 	if device := seen(bob); device.LastSeenAt == 0 {
 		t.Fatal("people should still see their own devices' times")
 	}
+	// That a device was removed is everyone's to know, but not when.
+	other := bob.anotherDevice()
+	h.mustDo("DELETE", "/api/devices/"+other.device, bob.token, nil, nil)
+	var one store.PublicUser
+	h.mustDo("GET", "/api/users/"+bob.userID, owner.token, nil, &one)
+	found := false
+	for _, device := range one.Devices {
+		if device.ID == other.device {
+			found = true
+			if device.RevokedAt == nil || *device.RevokedAt != 1 {
+				t.Fatalf("someone else sees when it was removed: %+v", device)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the removed device isn't listed")
+	}
 }
 
 // Z-24: nothing tells an outsider which usernames exist, or what's running here.
