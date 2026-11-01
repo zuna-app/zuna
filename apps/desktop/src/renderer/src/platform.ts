@@ -30,26 +30,9 @@ declare global {
   }
 }
 
-/** Outside Electron (UI development only) there's no OS keychain to ask. */
-function browserDeviceKey(): DeviceInfo {
-  const stored = localStorage.getItem("zuna-dev-device-key");
-  const key = stored ? Uint8Array.from(atob(stored), (c) => c.charCodeAt(0)) : crypto.getRandomValues(new Uint8Array(32));
-  if (!stored) localStorage.setItem("zuna-dev-device-key", btoa(String.fromCharCode(...key)));
-  return { key, protected: false, deviceName: "Browser", localLinks: true };
-}
-
 export function desktopPlatform(): Platform {
-  const desktop = window.zunaDesktop;
-  if (!desktop) {
-    return {
-      hour12: undefined,
-      titleBar: false,
-      bootCore: (onEvent) => connectWorker(startWorker(), browserDeviceKey(), onEvent),
-      openExternal: (url) => void window.open(url, "_blank", "noopener,noreferrer"),
-      setUnreadCount: () => undefined,
-      keyWarning: null,
-    };
-  }
+  // The preload script always provides it. In a browser, use apps/web instead.
+  const desktop = window.zunaDesktop!;
   return {
     hour12: desktop.hour12,
     titleBar: true,

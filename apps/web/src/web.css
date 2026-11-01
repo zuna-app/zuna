@@ -1,0 +1,6 @@
+/* What only the web app shows: the screen in place of the app when another tab runs it. */
+
+#tab-screen { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: var(--bg-0); padding: 24px; }
+#tab-screen[hidden] { display: none; }
+.tab-screen-card { width: min(440px, 100%); }
+.tab-screen-card .btn { margin-top: 10px; }

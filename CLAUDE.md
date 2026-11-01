@@ -23,12 +23,12 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 |---|---|
 | Test server, set up with bots and an owner account (port 8787) | `npm run dev:server` |
 | Desktop app with live reload | `npm run dev` |
-| UI in a browser, at `http://localhost:5173` | `npm run dev:web -w @zuna/desktop` |
+| Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
 | Type checks, core and desktop | `npm run typecheck` |
 | All of crypto, server and core tests | `npm test` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
-| Installers (`apps/desktop/release`), server binaries (`dist/server`) | `npm run dist`, `npm run build:server` |
+| Installers (`apps/desktop/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 
@@ -60,9 +60,11 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, and the threat model and known limits in `SECURITY.md`. Read both before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
 
-**One client core, three hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop (`packages/ui/src/core/serve.ts`, started by `apps/desktop/src/renderer/src/worker.ts`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
+**One client core, four hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop and the web (`packages/ui/src/core/serve.ts`, started by each app's `worker.ts`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
-**The desktop's interface is `packages/ui`.** `@zuna/ui` holds the React screens and their state. It asks for anything outside the page, such as notifications or the device key, through the `Platform` its host passes to `startApp` (`packages/ui/src/platform.ts`). The desktop's is `apps/desktop/src/renderer/src/platform.ts`.
+**The desktop and the web app share one interface, `packages/ui`.** `@zuna/ui` holds the React screens and their state. It asks for anything outside the page, such as notifications or the device key, through the `Platform` its host passes to `startApp` (`packages/ui/src/platform.ts`). The desktop's is `apps/desktop/src/renderer/src/platform.ts`, and the web's is `apps/web/src/platform.ts`.
+
+**The web app is served by `zuna-web`** (`server/cmd/zuna-web`, `server/internal/webhost`), a program of its own on its own address. It serves the built app with the desktop's content security policy, and fetches pages for link previews. `docs/WEB_PLAN.md` has the design.
 
 **The UI talks to the core over RPC.** `rpc.ts` makes every public method of `ZunaClient` and `ServerSession` callable from the UI, and state comes back as `CoreEvent`s (`types.ts`). `ZunaClient` is one per device and holds one `ServerSession` per server joined.
 
@@ -91,6 +93,8 @@ Rules the core depends on:
 | Desktop markup (`lib/markup.tsx`) | `ZunaModels/Markup.swift`, and the golden file: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
 | A feature people can see | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md` |
 | A database schema | Add to the end of `migrations` in `server/internal/store/store.go` or `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
+| The desktop's content security policy (`apps/desktop/src/main/index.ts`) | `contentSecurityPolicy` in `server/internal/webhost/webhost.go` |
+| Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
 | Anything `SECURITY.md` or the docs claim | Those docs |
 
 ## Feature parity
@@ -110,8 +114,10 @@ Rules the core depends on:
 | Sign-up, sign-in, recovery, password change | `packages/core/src/account.ts`, `server/internal/api/accounts.go` |
 | Key derivation, envelopes, grants, certificates | `packages/core/src/crypto.ts` |
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
-| Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts` and `ZunaHost/WebBridge.swift` |
+| Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts`, `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |
+| Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |
+| Web host: headers, content security policy, previews | `server/internal/webhost` |
 | Desktop UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
 | Adding bots or data to a server | `packages/core/test/dev-bots.ts` |

@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex" />
+    <title>Zuna</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <style>
+      html, body { background: #0f0f11; }
+      /* The desktop's layout needs the desktop window's smallest size. */
+      .narrow-notice { display: none; }
+      @media (max-width: 859px), (max-height: 539px) {
+        .narrow-notice {
+          display: grid; place-items: center; position: fixed; inset: 0; z-index: 1000; padding: 24px;
+          background: #0f0f11; color: #ececee; text-align: center; font: 15px/1.5 system-ui, sans-serif;
+        }
+        .narrow-notice h3 { margin: 0 0 6px; font-size: 18px; font-weight: 600; }
+        .narrow-notice p { margin: 0; color: #a0a0a6; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="tab-screen" hidden></div>
+    <div class="narrow-notice" role="alert">
+      <div>
+        <h3>Make the window bigger</h3>
+        <p>Zuna needs a window at least 860 pixels wide and 540 pixels tall.</p>
+      </div>
+    </div>
+    <noscript>Zuna needs JavaScript.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

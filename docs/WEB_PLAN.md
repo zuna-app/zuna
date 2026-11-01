@@ -110,7 +110,7 @@ Settings, as flags or environment variables in the style of `zuna-server`:
 ### Storage
 
 - **The database** is the desktop's: SQLite WebAssembly in the OPFS pool (`core/sqlite.ts`). It needs `FileSystemSyncAccessHandle` in a worker, which the four browsers have.
-- **The device key** is 32 random bytes in IndexedDB. The dev-only key in `localStorage` from the desktop's `platform.ts` stays a development thing.
+- **The device key** is 32 random bytes in IndexedDB (`apps/web/src/device.ts`). The desktop's `dev:web`, with its dev-only key in `localStorage`, is gone: `npm run dev:web` now runs the web app.
 - **Asking to keep the data:** after the first sign-in the app calls `navigator.storage.persist()`. If a browser later clears the site's data anyway, the person signs in again and their history comes back from the vault, as on any new device. The lost browser stays in Devices until it's removed there.
 - **Safari** clears a site's storage after 7 days without a visit. That means signing in again, not losing messages. A one-line note on the sign-in screen says so in Safari.
 

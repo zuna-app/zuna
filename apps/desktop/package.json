@@ -11,7 +11,6 @@
   "type": "module",
   "scripts": {
     "dev": "node ../../scripts/dev-app.mjs",
-    "dev:web": "vite --config vite.web.config.ts",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "electron-vite build && electron-builder --publish never",
