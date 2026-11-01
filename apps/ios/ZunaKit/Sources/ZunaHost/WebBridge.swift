@@ -6,8 +6,9 @@ import UniformTypeIdentifiers
 /// Link previews: fetches the page a link points to, and shrinks its picture,
 /// for the core's `WebAdapter` (links.ts). Requests keep no cookies or cache,
 /// stop after the bytes a preview needs, and follow only redirects to
-/// addresses previews allow. Results go back on the core's queue through
-/// `__zunaWebDone`.
+/// addresses previews allow. What they fetched only goes back if every
+/// connection really went somewhere public. Results go back on the core's
+/// queue through `__zunaWebDone`.
 final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     private static let userAgent = "Mozilla/5.0 (compatible; Zuna link preview)"
     private static let maxRedirects = 5
@@ -33,6 +34,10 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         let maxBytes: Int
         var data = Data()
         var redirects = 0
+        /// Whether every connection went somewhere public, once the session says where they went.
+        var wentPublic: Bool?
+        /// How the task ended, once it has.
+        var ended: (response: URLResponse?, error: Error?)?
     }
 
     private var fetches: [Int: Fetch] = [:]
@@ -101,6 +106,18 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
             if bytes[index] & mask != network[index] & mask { return false }
         }
         return true
+    }
+
+    /// Whether each connection a fetch made went where previews may go, by the
+    /// address the network says it reached. A name checked beforehand can lead
+    /// somewhere else by the time it's used. A proxy's own address says nothing
+    /// about where it went, and an address the system doesn't give can't be checked,
+    /// so those go by the check beforehand.
+    static func wentPublic(_ connections: [(host: String?, address: String?, proxy: Bool)]) -> Bool {
+        connections.allSatisfy { connection in
+            if connection.proxy || isTestPage(connection.host?.lowercased() ?? "") { return true }
+            return connection.address.map { !privateAddress($0) } ?? true
+        }
     }
 
     /// Whether a link leads somewhere public: a public name can point at this
@@ -184,19 +201,38 @@ final class WebBridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {
         fetches[dataTask.taskIdentifier] = fetch
         // Only as much as a preview needs, however large the page is.
         if fetch.data.count >= fetch.maxBytes {
-            finish(dataTask, error: nil)
             dataTask.cancel()
         }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        finish(task, error: error)
+    func urlSession(_ session: URLSession, task: URLSessionTask, didFinishCollecting metrics: URLSessionTaskMetrics) {
+        let connections = metrics.transactionMetrics.filter { $0.resourceFetchType == .networkLoad }.map {
+            (host: $0.request.url?.host, address: $0.remoteAddress, proxy: $0.isProxyConnection)
+        }
+        fetches[task.taskIdentifier]?.wentPublic = Self.wentPublic(connections)
+        finish(task.taskIdentifier)
     }
 
-    private func finish(_ task: URLSessionTask, error: Error?) {
-        guard let fetch = fetches.removeValue(forKey: task.taskIdentifier) else { return }
-        let response = task.response as? HTTPURLResponse
-        guard error == nil, let response, (200..<300).contains(response.statusCode), Self.previewable(response.url) else {
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        fetches[task.taskIdentifier]?.ended = (task.response, error)
+        finish(task.taskIdentifier)
+        // The metrics come first. Should they never come, the fetch can't be checked, so it's refused.
+        let identifier = task.taskIdentifier
+        queue.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, let fetch = self.fetches[identifier], fetch.wentPublic == nil else { return }
+            self.fetches[identifier]?.wentPublic = false
+            self.finish(identifier)
+        }
+    }
+
+    /// Sends back what was fetched, once the task has ended and where it went is known.
+    private func finish(_ identifier: Int) {
+        guard let fetch = fetches[identifier], let ended = fetch.ended, let wentPublic = fetch.wentPublic else { return }
+        fetches.removeValue(forKey: identifier)
+        // A task cancelled for having all a preview needs ended well.
+        let error = fetch.data.count >= fetch.maxBytes ? nil : ended.error
+        let response = ended.response as? HTTPURLResponse
+        guard wentPublic, error == nil, let response, (200..<300).contains(response.statusCode), Self.previewable(response.url) else {
             deliver("__zunaWebDone", [fetch.id, "", "", NSNull(), error?.localizedDescription ?? "The page isn't available."])
             return
         }

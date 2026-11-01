@@ -1,4 +1,5 @@
 import JavaScriptCore
+import Network
 import XCTest
 @testable import ZunaHost
 
@@ -113,6 +114,59 @@ final class BridgeTests: XCTestCase {
         XCTAssertFalse(WebBridge.previewable(URL(string: "https://example.com:8443/")))
         XCTAssertFalse(WebBridge.previewable(URL(string: "https://me:secret@example.com/")))
         XCTAssertTrue(WebBridge.previewable(URL(string: "https://example.com:443/")))
+    }
+
+    /// A name checked beforehand can lead somewhere else by the time it's fetched, so it's where the fetch went that counts.
+    func testPreviewsOnlyKeepWhatCameFromSomewherePublic() {
+        XCTAssertTrue(WebBridge.wentPublic([(host: "example.com", address: "93.184.216.34", proxy: false)]))
+        XCTAssertFalse(WebBridge.wentPublic([(host: "example.com", address: "127.0.0.1", proxy: false)]))
+        XCTAssertFalse(WebBridge.wentPublic([
+            (host: "example.com", address: "93.184.216.34", proxy: false),
+            (host: "example.org", address: "fd00::1", proxy: false),
+        ]))
+        XCTAssertFalse(WebBridge.wentPublic([(host: "example.com", address: "::ffff:10.0.0.1", proxy: false)]))
+        // A proxy's own address is no answer, and neither is none at all: those go by the check beforehand.
+        XCTAssertTrue(WebBridge.wentPublic([(host: "example.com", address: "10.0.0.8", proxy: true)]))
+        XCTAssertTrue(WebBridge.wentPublic([(host: "example.com", address: nil, proxy: false)]))
+    }
+
+    /// The real thing, over a real connection: a page comes back once where it came from is known.
+    /// Test builds may fetch this machine's own pages, as `isTestPage` says.
+    func testAPreviewArrivesOnceItsConnectionIsChecked() throws {
+        let page = "<title>Here</title>"
+        let parameters = NWParameters.tcp
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        let listener = try NWListener(using: parameters)
+        listener.newConnectionHandler = { connection in
+            connection.start(queue: .global())
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { _, _, _, _ in
+                let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n\(page)"
+                connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+            }
+        }
+        let ready = expectation(description: "listening")
+        listener.stateUpdateHandler = { if case .ready = $0 { ready.fulfill() } }
+        listener.start(queue: .global())
+        wait(for: [ready], timeout: 5)
+        defer { listener.cancel() }
+
+        let queue = DispatchQueue(label: "web-test")
+        let done = expectation(description: "the page")
+        var result: [Any] = []
+        let bridge = WebBridge(queue: queue) { _, arguments in
+            result = arguments
+            done.fulfill()
+        }
+        let context = JSContext()!
+        let object = JSValue(newObjectIn: context)!
+        bridge.install(into: object)
+        let address = "http://127.0.0.1:\(listener.port!.rawValue)/"
+        queue.async { _ = object.objectForKeyedSubscript("webFetch").call(withArguments: [1, address, 60000]) }
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(result.count, 5)
+        XCTAssertTrue(result.last is NSNull, "\(result)")
+        XCTAssertEqual(result[1] as? String, address)
+        XCTAssertEqual((result[3] as? Data).map { String(decoding: $0, as: UTF8.self) }, page)
     }
 
     func testDatabaseErrorsBecomeExceptions() throws {

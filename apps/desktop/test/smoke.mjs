@@ -7,6 +7,7 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { connect } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,6 +69,23 @@ try {
   const sandboxed = await page.evaluate(() => typeof require === "undefined" && typeof process === "undefined");
   if (!sandboxed) throw new Error("the renderer can reach Node, so it isn't sandboxed");
   console.log("renderer sandboxed: yes");
+
+  // Previews connect through the main process's proxy, which only reaches public addresses.
+  // This build may reach this machine by name, for its test pages, but not a name that leads there.
+  const proxy = await electronApp.evaluate(({ session }) => session.fromPartition("zuna-web-checked").resolveProxy("https://example.com/"));
+  const proxyPort = Number(proxy.match(/^PROXY 127\.0\.0\.1:(\d+)$/)?.[1]);
+  if (!proxyPort) throw new Error(`previews don't go through their proxy: ${proxy}`);
+  for (const target of ["10.0.0.1:443", "[fd00::1]:443", "192.168.1.1:443", "localtest.me:443", "example.com:22"]) {
+    const answer = await new Promise((resolve) => {
+      const socket = connect(proxyPort, "127.0.0.1", () => socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\n\r\n`));
+      let text = "";
+      socket.on("data", (chunk) => (text += chunk));
+      socket.on("close", () => resolve(text));
+      socket.on("error", () => resolve(text));
+    });
+    if (!String(answer).startsWith("HTTP/1.1 403")) throw new Error(`the preview proxy let ${target} through: ${answer}`);
+  }
+  console.log("previews only connect where they're checked: yes");
 
   await page.getByLabel("Invite link").fill(link, { timeout: 30_000 });
   await page.screenshot({ path: join(shots, "1-welcome.png") });

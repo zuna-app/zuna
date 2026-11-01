@@ -23,6 +23,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { allowLocalLinks, previewable, privateAddress } from "@zuna/core/links";
+import { startPreviewProxy } from "./preview-proxy";
 import { startUpdates } from "./updates";
 
 const APP_SCHEME = "zuna-app";
@@ -89,6 +90,9 @@ const WEB_MAX_BYTES = 5 << 20;
 const WEB_MAX_REDIRECTS = 5;
 const WEB_USER_AGENT = "Mozilla/5.0 (compatible; Zuna link preview)";
 
+/** A development build's test pages, on this machine. */
+const testPage = (host: string) => isDev && (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost"));
+
 /**
  * Whether an address may be fetched for a preview: the name itself, and where it
  * leads. A public name can point at this machine or a private network, and what a
@@ -97,7 +101,7 @@ const WEB_USER_AGENT = "Mozilla/5.0 (compatible; Zuna link preview)";
 async function safeToFetch(web: Electron.Session, url: string): Promise<boolean> {
   if (!previewable(url)) return false;
   const host = new URL(url).hostname;
-  if (isDev && (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost"))) return true;
+  if (testPage(host)) return true;
   if (host.startsWith("[") || /^\d+\.\d+\.\d+\.\d+$/.test(host)) return true;
   try {
     const { endpoints } = await web.resolveHost(host);
@@ -163,26 +167,38 @@ function fetchForPreview(web: Electron.Session, url: string, maxBytes: number): 
   });
 }
 
-/**
- * Link previews. The core runs in a worker, which can't read other sites, so
- * it fetches pages through here: zuna-web://fetch/?url=…&max=…. Requests go
- * out from a session of their own without cookies, and only to the addresses
- * previews allow.
- */
-function serveWeb(): void {
-  const web = session.fromPartition(WEB_SCHEME);
+/** A session for previews, with no cookies. */
+function previewSession(partition: string): Electron.Session {
+  const web = session.fromPartition(partition);
   web.setUserAgent(WEB_USER_AGENT);
   web.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = Object.fromEntries(Object.entries(details.responseHeaders ?? {}).filter(([name]) => name.toLowerCase() !== "set-cookie"));
     callback({ responseHeaders });
   });
+  return web;
+}
+
+/**
+ * Link previews. The core runs in a worker, which can't read other sites, so
+ * it fetches pages through here: zuna-web://fetch/?url=…&max=…. Requests go
+ * out from a session of their own without cookies, and only to the addresses
+ * previews allow. They connect through `startPreviewProxy`, which reaches the
+ * address it checked, unless the system has a proxy for that link, which is
+ * then where they go, as before.
+ */
+function serveWeb(): void {
+  const proxied = previewSession(WEB_SCHEME);
+  const checked = previewSession(`${WEB_SCHEME}-checked`);
+  const ready = startPreviewProxy(testPage).then(({ port }) => checked.setProxy({ proxyRules: `https=127.0.0.1:${port}` }));
   protocol.handle(WEB_SCHEME, async (request) => {
     const params = new URL(request.url).searchParams;
     const target = params.get("url") ?? "";
     const maxBytes = Math.min(Number(params.get("max")) || 0, WEB_MAX_BYTES);
-    if (maxBytes <= 0 || !(await safeToFetch(web, target))) return new Response("Not allowed", { status: 400 });
+    if (maxBytes <= 0 || !(await safeToFetch(proxied, target))) return new Response("Not allowed", { status: 400 });
     try {
-      const page = await fetchForPreview(web, target, maxBytes);
+      await ready;
+      const direct = (await session.defaultSession.resolveProxy(target)) === "DIRECT";
+      const page = await fetchForPreview(direct ? checked : proxied, target, maxBytes);
       return new Response(new Uint8Array(page.body), {
         headers: {
           "content-type": page.type,

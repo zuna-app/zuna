@@ -117,7 +117,7 @@ Rules the core depends on:
 | Key derivation, envelopes, grants, certificates | `packages/core/src/crypto.ts` |
 | Replacing an account's keys: links, slots, seal keys | `docs/ACCOUNT_KEY_ROTATION.md`, `packages/core/src/generations.ts`, `server/internal/api/generations.go` |
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
-| Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts`, `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
+| Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts` (through `preview-proxy.ts`), `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |
 | Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |
 | Web host: headers, content security policy, previews | `server/internal/webhost` |

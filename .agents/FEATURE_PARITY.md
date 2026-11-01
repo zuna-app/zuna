@@ -83,7 +83,7 @@ Things one platform should have and doesn't.
 | Forwarding | yes | yes | yes | `features/overlays/Overlays.tsx` | `Chat/Forwarding.swift` | |
 | Picking several messages | yes | yes | yes | `features/chat/MessageItem.tsx`, `features/chat/Composer.tsx` | `Chat/ChatScreen.swift` | |
 | Voice messages: recording | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Voice.swift` | By design: click to start on the desktop, hold on iOS |
-| Link previews while writing | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | |
+| Link previews while writing | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | Where each fetch really connected is checked: the desktop dials through `apps/desktop/src/main/preview-proxy.ts` unless the system has a proxy for the link, iOS reads `URLSessionTaskMetrics` in `apps/ios/ZunaKit/Sources/ZunaHost/WebBridge.swift` (checked with `swift test` on a Mac), the web host as it dials (`server/internal/webhost/address.go`) |
 | Pinned messages, in a list only | yes | yes | yes | `features/chat/SidePanel.tsx` | `Chat/ChatExtras.swift` | Pins and unpins are signed in the core (`setPinned`); only one a member's device signed counts, and only a later one replaces it (`pinState`) |
 | Search in a chat | yes | yes | yes | `features/chat/SidePanel.tsx` | `Chat/ChatExtras.swift` | |
 | Keyboard shortcuts | yes | yes | yes | `features/chat/Composer.tsx`, `lib/focus.ts` | `Chat/Composer.swift` | iOS: hardware keyboards only |
