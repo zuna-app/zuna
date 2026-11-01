@@ -67,6 +67,8 @@ export interface ZunaClientOptions {
   files?: FileAdapter;
   /** How link previews fetch pages. Without it, links have no previews. */
   web?: WebAdapter;
+  /** The app shows channels. One that doesn't takes no part in them, so its device does no work for them. */
+  channels?: boolean;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -134,6 +136,7 @@ export class ZunaClient {
       (event) => this.handle(event),
       this.options.deviceName,
       this.options.files,
+      this.options.channels ?? false,
     );
     // Nothing is erased on the server's word: that's for the person to decide.
     session.onSignedOut = (reason) => {

@@ -141,8 +141,8 @@ export class TestServer {
   private process: ChildProcess | null = null;
   private dir = "";
 
-  /** `pushRelays` are the relays the server may send notifications through. */
-  constructor(private readonly options: { pushRelays?: string[] } = {}) {}
+  /** `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use. */
+  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string } = {}) {}
 
   async start(): Promise<void> {
     const binary = buildServer();
@@ -152,6 +152,7 @@ export class TestServer {
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
     // Never the project's real relay, which is the default.
     args.push("--push-relays", this.options.pushRelays?.join(",") || "off");
+    if (this.options.liveKit) args.push("--livekit-url", this.options.liveKit, "--livekit-key", "key", "--livekit-secret", "a-long-enough-secret-for-signing-tokens");
     this.process = spawn(binary, args, {
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -193,6 +194,8 @@ export class TestApp {
   serverId = "";
   /** How link previews fetch pages, if this app makes them. */
   web?: WebAdapter;
+  /** Whether this app shows channels, as the desktop and web apps do and the phone apps don't yet. */
+  channels = true;
 
   /** Given a folder, the app keeps its data there and can be reopened by a later process. */
   constructor(
@@ -210,6 +213,7 @@ export class TestApp {
       deviceName: this.name,
       onEvent: (event) => this.events.push(event),
       web: this.web,
+      channels: this.channels,
     });
     await this.client.open();
     const first = this.client.listServers()[0];

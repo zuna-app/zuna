@@ -2,6 +2,7 @@
 // with backoff. Whatever is missed while it's down comes from the change feed.
 
 import { fromBase64, toBase64 } from "./encoding";
+import type { VoiceUpdate } from "./types";
 
 const BACKOFF_MS = [500, 1000, 2000, 5000, 10_000, 20_000, 30_000];
 const PING_INTERVAL_MS = 25_000;
@@ -63,6 +64,11 @@ export class Socket {
   setActive(active: boolean): void {
     this.active = active;
     if (this.connected) this.ws!.send(JSON.stringify({ t: "active", active }));
+  }
+
+  /** What this device is doing in a voice channel, or that it left. */
+  sendVoice(channelId: string | null, voice: VoiceUpdate | null): void {
+    if (this.connected) this.ws!.send(JSON.stringify({ t: "voice", group_id: channelId ?? "", voice: voice ?? undefined }));
   }
 
   sendTyping(groupId: string, data: Uint8Array): void {

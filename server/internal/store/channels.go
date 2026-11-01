@@ -61,8 +61,7 @@ func (d *DB) Channel(ctx context.Context, id string) (*Channel, error) {
 
 // CreateChannel makes a channel at the end of the list, with its creator as its
 // first member. Everyone else joins by themselves.
-func (d *DB) CreateChannel(ctx context.Context, creator, channelType string, details []byte, userLimit int, proof []byte) (*Channel, error) {
-	id := NewID()
+func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit int, proof []byte) (*Channel, error) {
 	now := Now()
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		var count, last int64
@@ -73,6 +72,9 @@ func (d *DB) CreateChannel(ctx context.Context, creator, channelType string, det
 			return ErrLimit
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO groups(id, kind, history_visible, created_by, created_at) VALUES(?, 'channel', 1, ?, ?)`, id, creator, now); err != nil {
+			if isUniqueViolation(err) {
+				return ErrConflict
+			}
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(id, type, position, user_limit, details, created_by, created_at) VALUES(?,?,?,?,?,?,?)`,

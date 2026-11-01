@@ -34,7 +34,9 @@ func (s *Server) broadcastChannels() {
 }
 
 func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	// The app names it, since what it seals is bound to the name.
 	var body struct {
+		ID        string `json:"id"`
 		Type      string `json:"type"`
 		Details   []byte `json:"details"`
 		UserLimit int    `json:"user_limit"`
@@ -43,11 +45,11 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
 	}
-	if !validChannelType(body.Type) || !validUserLimit(body.UserLimit) || len(body.Details) == 0 || len(body.Details) > maxChannelDetails || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
+	if !store.ValidID(body.ID) || !validChannelType(body.Type) || !validUserLimit(body.UserLimit) || len(body.Details) == 0 || len(body.Details) > maxChannelDetails || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
-	channel, err := s.db.CreateChannel(r.Context(), sess.UserID, body.Type, body.Details, body.UserLimit, body.Proof)
+	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.Proof)
 	if err != nil {
 		writeFailure(w, err)
 		return

@@ -12,6 +12,7 @@ import {
   decode,
   encodeBody,
   type ApiAccount,
+  type ApiChannel,
   type ApiDevice,
   type ApiEvent,
   type ApiGroup,
@@ -19,7 +20,9 @@ import {
   type ApiMessage,
   type ApiReaction,
   type ApiUser,
+  type ApiVoiceState,
 } from "./api";
+import { channelProof, openChannelDetails, sealChannelDetails } from "./channels";
 import {
   changePassword,
   inviteLink,
@@ -100,9 +103,11 @@ import { withoutMetadata, type ByteSource } from "./metadata";
 import { notificationText, previewText } from "./notify";
 import { SEARCH_INDEX_VERSION, indexTokens, mediaTag, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
+import { VOICE_LABEL, voiceIdentity } from "./voice";
 import {
   MAX_EXPIRES_IN,
   MAX_TEXT_LENGTH,
+  parseChannelDetails,
   parseEmoteRef,
   parseGroupDetails,
   parseMessageBody,
@@ -111,11 +116,14 @@ import {
   parseReaction,
   parseReadState,
   parseSystemEvent,
+  type ChannelDetails,
   type GroupDetails,
 } from "./validate";
 import type {
   Attachment,
   AvatarRef,
+  ChannelType,
+  ChannelView,
   ConnectionState,
   ConversationView,
   CoreEvent,
@@ -145,6 +153,9 @@ import type {
   SystemEvent,
   TrustState,
   UserView,
+  VoiceAccess,
+  VoiceMember,
+  VoiceUpdate,
 } from "./types";
 import { isMuted } from "./types";
 
@@ -163,6 +174,8 @@ const EPOCH_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
 const PAGE_SIZE = 50;
 const TYPING_THROTTLE_MS = 3000;
 const RECONCILE_JITTER_MS = 2500;
+/** How long members wait to hand someone a channel's older keys, so that one of them does. */
+const GRANT_JITTER_MS = 2000;
 const MAX_COMMIT_ATTEMPTS = 6;
 /** How long the messages of a chat you were removed from stay, unless you clear them first. */
 const REMOVED_KEPT_MS = 30 * 24 * 3600 * 1000;
@@ -258,7 +271,7 @@ type GroupMeta = GroupDetails;
 
 interface CachedGroup {
   id: string;
-  kind: "dm" | "group";
+  kind: "dm" | "group" | "channel";
   peerId: string | null;
   epoch: number;
   seq: number;
@@ -283,6 +296,16 @@ interface CachedGroup {
   pendingRemovals?: Record<string, { actor: string; seq: number; at: number }>;
   /** A DM the server listed more than two people in, seen before anyone's known to be its other person. It's not used. */
   doubtful?: boolean;
+  /** In a channel: who's waiting for a member to hand them its older keys. */
+  historyWanted?: string[];
+}
+
+/** A channel as the server listed it, and what its sealed details turned out to say. */
+interface CachedChannel {
+  api: ApiChannel;
+  details: ChannelDetails | null;
+  /** The newest version of its details seen, so an older copy isn't taken for new. */
+  version: number;
 }
 
 /** One leaf of a group's MLS tree, and whether it really is the device it says. */
@@ -472,6 +495,13 @@ export class ServerSession {
   private sealing = false;
   /** Removals from before this server kept generations are nobody's cue to rotate. */
   private protocolSince: number | null = null;
+  private channels = new Map<string, CachedChannel>();
+  /** Who's in the voice channels, by device. */
+  private voiceStates = new Map<string, ApiVoiceState>();
+  /** The voice channel this device is in, what it says it's doing there, and the epoch its key was last for. */
+  private activeVoice: { channelId: string; update: VoiceUpdate; epoch: number } | null = null;
+  private joiningChannels: Promise<void> | null = null;
+  private grantTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Called when the server told us this session is over (banned, revoked). */
   onSignedOut: ((reason: string) => void) | null = null;
   /** Called when a session that seemed to be over turns out to be working. */
@@ -487,6 +517,8 @@ export class ServerSession {
     private readonly emit: (event: CoreEvent) => void,
     private readonly deviceName: string,
     private readonly files: FileAdapter = blobFiles,
+    /** The app shows channels. One that doesn't takes no part in them. */
+    private readonly channelsOn: boolean = false,
   ) {
     this.api = new Api(account.serverUrl);
     this.api.token = account.token;
@@ -549,6 +581,8 @@ export class ServerSession {
     this.sealingTimer = undefined;
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
     this.reconcileTimers.clear();
+    for (const timer of this.grantTimers.values()) clearTimeout(timer);
+    this.grantTimers.clear();
   }
 
   /**
@@ -617,6 +651,8 @@ export class ServerSession {
       this.onSignedIn?.();
     }
     this.setConnection("syncing");
+    // The server only gives a device that went quiet a moment to come back.
+    if (this.activeVoice) this.socket.sendVoice(this.activeVoice.channelId, this.activeVoice.update);
     try {
       await this.syncAll();
       if (this.socket.connected) this.setConnection("online");
@@ -660,7 +696,8 @@ export class ServerSession {
     // A group that arrives while the list is on its way won't be in it, so only
     // groups we already knew about can have been taken away.
     const known = [...this.groups.keys()];
-    const groups = await this.api.groups();
+    // An app that doesn't show channels takes no part in them.
+    const groups = (await this.api.groups()).filter((group) => group.kind !== "channel" || this.channelsOn);
     const seen = new Set(groups.map((group) => group.id));
     for (const group of groups) this.applyGroup(group);
     for (const id of known) {
@@ -668,6 +705,10 @@ export class ServerSession {
     }
     this.emitConversations();
     for (const group of groups) await this.syncGroup(group.id);
+    await this.syncChannels().catch((error) => {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      console.warn("[zuna] catching up on channels", error);
+    });
     // After joining, since a grant is only good for epochs before this device came in.
     await this.processHistoryGrants();
     await this.topUpKeyPackages();
@@ -712,6 +753,7 @@ export class ServerSession {
       }
       for (const key of changes.deleted) this.db.run("DELETE FROM mls_kv WHERE k = ?", [key]);
     });
+    this.noticeVoiceEpoch();
   }
 
   private loadCache(): void {
@@ -745,6 +787,7 @@ export class ServerSession {
     this.emoteSet = this.getKv<EmoteSet>("emotes") ?? this.emoteSet;
     const names = this.getKv<Record<string, string>>("device_names") ?? {};
     for (const [id, name] of Object.entries(names)) this.deviceNames.set(id, name);
+    if (this.channelsOn) this.applyChannels(this.getKv<ApiChannel[]>("channels") ?? [], false);
   }
 
   private persistUser(user: CachedUser): void {
@@ -1288,7 +1331,9 @@ export class ServerSession {
   private async grantAuthentic(groupId: string, grant: ReturnType<typeof openHistoryGrant>): Promise<boolean> {
     const group = await this.api.group(groupId);
     this.applyGroup(group);
-    if (group.members.find((member) => member.user_id === grant.signer.userId)?.role !== "admin") return false;
+    // Everyone in a channel may read all of it, so any of them can hand on its keys.
+    const signer = group.members.find((member) => member.user_id === grant.signer.userId);
+    if (group.kind === "channel" ? !signer : signer?.role !== "admin") return false;
     const device = (await this.ensureUser(grant.signer.userId, true))?.devices.get(grant.signer.deviceId);
     return !!device && grant.signedBy(device.signatureKey);
   }
@@ -2401,7 +2446,14 @@ export class ServerSession {
         this.warnOnce(`dm-roster/${api.id}`, "The server listed someone else in one of your direct messages. They were left out, and any keys they got are being taken back.");
       }
     }
-    const listed = api.members.filter((member) => kind !== "dm" || member.user_id === selfId || member.user_id === peerId);
+    let listed = api.members.filter((member) => kind !== "dm" || member.user_id === selfId || member.user_id === peerId);
+    if (kind === "channel") {
+      // Nobody without the community key can be on a channel's roster, and leaving them
+      // off it means they're taken out of its tree, whatever the server says.
+      const held = listed.filter((member) => this.holdsCommunityKey(api.id, member.user_id, member.proof));
+      if (held.length !== listed.length) this.warnOnce(`channel-roster/${api.id}/${listed.length - held.length}`, "The server listed someone in a channel who isn't really part of this server. They were left out, and any keys they got are being taken back.");
+      listed = held;
+    }
     const group: CachedGroup = {
       id: api.id,
       kind,
@@ -2422,10 +2474,12 @@ export class ServerSession {
       removedAt: null,
       pendingRemovals: previous?.pendingRemovals,
       doubtful,
+      historyWanted: listed.filter((member) => member.history_wanted).map((member) => member.user_id),
     };
     this.groups.set(api.id, group);
     this.refreshGroupSecrets(group);
     this.persistGroup(group);
+    if (group.historyWanted?.length) this.scheduleHistoryGrants(group.id);
     return group;
   }
 
@@ -2780,7 +2834,7 @@ export class ServerSession {
             ? `A device claiming to be ${owner}'s isn't really theirs, and it tried to join one of your conversations. It's being removed.`
             : "A device with an invalid certificate tried to join one of your conversations. It's being removed.",
       });
-      if (member.userId) {
+      if (member.userId && this.groups.get(groupId)?.kind !== "channel") {
         this.addSystemRow(groupId, Date.now(), member.userId, { type: "unexpected_join", actorId: member.userId });
       }
     }
@@ -2841,7 +2895,8 @@ export class ServerSession {
   private noteArrivalsAtJoin(groupId: string): void {
     const known = this.knownMembers(groupId);
     const inTree = this.treeUsers(groupId);
-    if (known.size > 0) {
+    // Anyone on the server can come into a channel.
+    if (known.size > 0 && this.groups.get(groupId)?.kind !== "channel") {
       for (const userId of inTree) {
         if (!known.has(userId) && userId !== this.account.userId) this.addSystemRow(groupId, Date.now(), userId, { type: "unexpected_join", actorId: userId });
       }
@@ -2903,7 +2958,7 @@ export class ServerSession {
   private async initGroup(group: ApiGroup, extraUsers: string[], meta?: GroupMeta): Promise<void> {
     const cached = this.groups.get(group.id);
     const selfId = this.account.userId;
-    if (cached?.kind !== "dm" && group.created_by !== selfId) throw new Error("This conversation hasn't been started yet.");
+    if (cached?.kind !== "dm" && cached?.kind !== "channel" && group.created_by !== selfId) throw new Error("This conversation hasn't been started yet.");
     const targets = cached?.kind === "dm" ? this.dmPeople(cached) : [...new Set([selfId, ...extraUsers])];
 
     const groupBytes = utf8(group.id);
@@ -2911,8 +2966,9 @@ export class ServerSession {
     this.mls.createGroup(groupBytes);
     this.saveMls();
 
+    // Every device comes into a channel by itself, if its app shows channels at all.
     const packages: { deviceId: string; data: Uint8Array }[] = [];
-    for (const userId of targets) {
+    for (const userId of cached?.kind === "channel" ? [] : targets) {
       packages.push(...(await this.claimKeyPackages(userId, this.account.deviceId)));
     }
     const pending = this.mls.commitChanges(groupBytes, packages.map((item) => item.data) as unknown as any[], new Uint32Array(0)) as {
@@ -3165,6 +3221,8 @@ export class ServerSession {
       if (inTree.has(target)) continue;
       changed = true;
       delete pending[target];
+      // A channel doesn't say each time someone's banned from the server.
+      if (group.kind === "channel") continue;
       if (target === actor) {
         this.addSystemRow(groupId, at, target, { type: "member_left", actorId: target }, seq);
       } else {
@@ -3283,6 +3341,8 @@ export class ServerSession {
     this.rememberCurrentEpochKey(groupId);
     void this.uploadEpochKeys().catch(() => undefined);
     await this.checkTree(groupId);
+    // Nobody is added to a channel: they come in by themselves, so that's when to look at whether they should have.
+    if (processed.isExternal && this.groups.get(groupId)?.kind === "channel") this.scheduleReconcile(groupId);
     this.recordDepartures(groupId, processed.epoch, processed.removedCredentials);
     await this.checkCommitAuthority(event, processed);
     this.describeCommit(event, processed, usersBefore);
@@ -3388,6 +3448,11 @@ export class ServerSession {
     const known = this.knownMembers(groupId);
     const senderCert = parseCertificate(processed.senderCredential);
     const inTree = new Set(this.treeUsers(groupId));
+    // Anyone on the server comes and goes from a channel, with no notice each time.
+    if (this.groups.get(groupId)?.kind === "channel") {
+      this.setKnownMembers(groupId, inTree);
+      return;
+    }
 
     const addedUsers = new Set<string>();
     for (const credential of processed.addedCredentials) {
@@ -3579,6 +3644,7 @@ export class ServerSession {
         void this.onLiveEvent(data as ApiEvent).catch((error) => console.warn("[zuna] event", error));
         break;
       case "group": {
+        if ((data as ApiGroup).kind === "channel" && !this.channelsOn) break;
         const known = this.groups.has((data as ApiGroup).id);
         this.applyGroup(data as ApiGroup);
         this.emitConversations();
@@ -3590,6 +3656,15 @@ export class ServerSession {
         break;
       case "welcome":
         void this.processWelcomes().then(() => this.processHistoryGrants()).catch((error) => console.warn("[zuna] welcome", error));
+        break;
+      case "channels":
+        void this.syncChannels().catch((error) => console.warn("[zuna] channels", error));
+        break;
+      case "voice":
+        this.onVoiceFrame(data);
+        break;
+      case "voice_ended":
+        this.onVoiceEnded(data);
         break;
       case "read":
         this.onLiveRead(data);
@@ -4005,7 +4080,7 @@ export class ServerSession {
     if (!opened.ok || opened.value?.by !== message.deleted_by) return false;
     if (message.deleted_by === message.sender_user) return true;
     const group = this.groups.get(message.group_id);
-    return group?.kind === "group" && this.isGroupAdmin(group, message.deleted_by);
+    return !!group && group.kind !== "dm" && this.isGroupAdmin(group, message.deleted_by);
   }
 
   /** A copy kept after a deletion nobody proved goes once that's long enough ago. */
@@ -4137,9 +4212,12 @@ export class ServerSession {
     const key = this.conversationKey(group);
     const mentioned = view.mentions.includes(this.account.userId);
     if (isMuted(this.prefs, key) && !mentioned) return;
+    // Everything said in a channel isn't for everyone in it, as in Discord: only what's said to them.
+    if (group.kind === "channel" && !mentioned && view.reply?.senderId !== this.account.userId) return;
     const sender = this.users.get(view.senderId);
     const senderName = sender?.profile.displayName || sender?.username || "Someone";
-    const { title, body } = notificationText(group.kind, group.meta.name, senderName, view);
+    const groupName = group.kind === "channel" ? `#${this.channels.get(group.id)?.details?.name ?? "channel"}` : group.meta.name;
+    const { title, body } = notificationText(group.kind, groupName, senderName, view);
     this.emit({ type: "notify", serverId: this.serverId, title, body, conversationKey: key, groupId: view.groupId, messageId: view.id });
   }
 
@@ -4224,7 +4302,7 @@ export class ServerSession {
       [group.id, group.ownRead, this.account.userId],
     );
     // As in Telegram, only groups have them: everything in a direct message is for you.
-    const mentions = group.kind !== "group" ? undefined : this.db.get<{ n: number }>(
+    const mentions = group.kind === "dm" ? undefined : this.db.get<{ n: number }>(
       `SELECT COUNT(*) AS n FROM media d JOIN messages m ON m.row_id = d.row_id
        WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0`,
       [group.id, this.mentionTag, group.ownRead, this.account.userId],
@@ -4239,7 +4317,7 @@ export class ServerSession {
    * chat is read, so those read by scrolling past them drop out of Telegram's "@".
    */
   unreadMentions(groupId: string, after: number): { id: string; seq: number }[] {
-    if (this.groups.get(groupId)?.kind !== "group") return [];
+    if (this.groups.get(groupId)?.kind === "dm") return [];
     return this.db.all<{ id: string; seq: number }>(
       `SELECT m.id, m.seq FROM media d JOIN messages m ON m.row_id = d.row_id
        WHERE d.group_id = ? AND d.kind = ? AND m.seq > ? AND m.sender_user != ? AND m.deleted_at IS NULL AND m.mention_seen = 0
@@ -4261,42 +4339,10 @@ export class ServerSession {
     const now = Date.now();
 
     for (const group of this.groups.values()) {
-      const key = this.conversationKey(group);
-      const last = this.lastMessage(group.id);
-      const { unread, mentioned, unreadMentions } = this.unreadCount(group);
-      let title = group.meta.name || "Group";
-      let avatar: AvatarRef | null = group.meta.avatar ?? null;
-      if (group.kind === "dm" && group.peerId) {
-        usersWithDm.add(group.peerId);
-        const peer = this.users.get(group.peerId);
-        title = group.peerId === selfId ? "Saved messages" : peer?.profile.displayName || peer?.username || "Unknown";
-        avatar = peer?.profile.avatar ?? null;
-      }
-      out.push({
-        key,
-        kind: group.kind,
-        groupId: group.id,
-        peerId: group.peerId,
-        title,
-        avatar,
-        description: group.meta.description ?? "",
-        lastMessage: last,
-        lastActivityAt: last?.createdAt ?? group.createdAt,
-        unread,
-        mentioned,
-        unreadMentions,
-        pinned: this.prefs.pinned.includes(key),
-        muted: isMuted(this.prefs, key, now),
-        mutedUntil: this.mutedUntil(key, now),
-        hidden: this.prefs.hidden.includes(key),
-        members: this.membersWithKeys(group),
-        historyVisible: this.sharesHistory(group),
-        readBy: group.readBy,
-        ownRead: group.ownRead,
-        ready: group.epoch > 0 && !group.removedAt,
-        removed: !!group.removedAt,
-        disappearAfter: this.disappearAfter(group),
-      });
+      // Channels come with getChannels, and an app that doesn't ask for them doesn't see them.
+      if (group.kind === "channel") continue;
+      if (group.kind === "dm" && group.peerId) usersWithDm.add(group.peerId);
+      out.push(this.conversationOf(group, now));
     }
 
     // Everyone on the server is a conversation from the start.
@@ -4335,6 +4381,50 @@ export class ServerSession {
         b.lastActivityAt - a.lastActivityAt ||
         a.title.localeCompare(b.title),
     );
+  }
+
+  private conversationOf(group: CachedGroup, now: number): ConversationView {
+    const key = this.conversationKey(group);
+    const last = this.lastMessage(group.id);
+    const { unread, mentioned, unreadMentions } = this.unreadCount(group);
+    let title = group.meta.name || "Group";
+    let description = group.meta.description ?? "";
+    let avatar: AvatarRef | null = group.meta.avatar ?? null;
+    if (group.kind === "dm" && group.peerId) {
+      const peer = this.users.get(group.peerId);
+      title = group.peerId === this.account.userId ? "Saved messages" : peer?.profile.displayName || peer?.username || "Unknown";
+      avatar = peer?.profile.avatar ?? null;
+    } else if (group.kind === "channel") {
+      const details = this.channels.get(group.id)?.details;
+      title = details?.name ?? "Channel";
+      description = details?.topic ?? "";
+    }
+    return {
+      key,
+      kind: group.kind,
+      groupId: group.id,
+      peerId: group.peerId,
+      title,
+      avatar,
+      description,
+      lastMessage: last,
+      lastActivityAt: last?.createdAt ?? group.createdAt,
+      unread,
+      mentioned,
+      unreadMentions,
+      pinned: this.prefs.pinned.includes(key),
+      muted: isMuted(this.prefs, key, now),
+      mutedUntil: this.mutedUntil(key, now),
+      hidden: this.prefs.hidden.includes(key),
+      members: this.membersWithKeys(group),
+      historyVisible: group.kind === "channel" || this.sharesHistory(group),
+      readBy: group.readBy,
+      ownRead: group.ownRead,
+      // A device comes into a channel by itself, some time after others started it.
+      ready: group.epoch > 0 && !group.removedAt && (group.kind !== "channel" || this.hasMlsGroup(group.id)),
+      removed: !!group.removedAt,
+      disappearAfter: this.disappearAfter(group),
+    };
   }
 
   /**
@@ -5020,7 +5110,8 @@ export class ServerSession {
     const epoch = this.rememberCurrentEpochKey(group.id);
     const { userId, deviceId, deviceSecret, accountKey } = this.account;
     let framed: Uint8Array;
-    if (this.prefs.sendReadReceipts) {
+    // Nobody has read ticks in a channel, so where someone is stays their own.
+    if (this.prefs.sendReadReceipts && group.kind !== "channel") {
       const key = this.epochKey(group.id, epoch);
       if (!key) return;
       framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }));
@@ -5473,6 +5564,305 @@ export class ServerSession {
 
   async setGroupRole(groupId: string, userId: string, role: GroupRole): Promise<void> {
     await this.api.setGroupRole(groupId, userId, role);
+  }
+
+  // --- Channels ---
+
+  /** Whether someone on a channel's roster showed they hold the community key. */
+  private holdsCommunityKey(channelId: string, userId: string, proof: string | null | undefined): boolean {
+    return !!proof && equalBytes(decode(proof), channelProof(this.account.core.communityKey, channelId, userId));
+  }
+
+  /** Takes on what the server lists, believing only the details a device of someone here signed. */
+  private applyChannels(list: ApiChannel[], save = true): void {
+    const versions = this.getKv<Record<string, number>>("channel_versions") ?? {};
+    const next = new Map<string, CachedChannel>();
+    for (const api of list) {
+      const previous = this.channels.get(api.id);
+      let details = previous?.details ?? null;
+      let version = Math.max(previous?.version ?? 0, versions[api.id] ?? 0);
+      const signed = openChannelDetails(this.account.core.communityKey, api.id, decode(api.details));
+      if (signed && signed.version >= version) {
+        const device = this.users.get(signed.signer.userId)?.devices.get(signed.signer.deviceId);
+        const parsed = parseChannelDetails(signed.details);
+        if (device && parsed && signed.signedBy(device.signatureKey)) {
+          details = parsed;
+          version = signed.version;
+        } else if (!device) {
+          // Not known yet. Looked up, and read again once that's done.
+          void this.ensureUser(signed.signer.userId, true)
+            .then((user) => {
+              if (!user?.devices.has(signed.signer.deviceId)) return;
+              this.applyChannels([...this.channels.values()].map((channel) => channel.api));
+              void this.joinChannels();
+            })
+            .catch(() => undefined);
+        }
+      }
+      next.set(api.id, { api, details, version });
+      versions[api.id] = version;
+    }
+    this.channels = next;
+    if (!save) return;
+    this.setKv("channels", list);
+    this.setKv("channel_versions", versions);
+    this.emit({ type: "channels", serverId: this.serverId });
+  }
+
+  /** The server's channels and who's in them, then joining any this device isn't in yet. */
+  private async syncChannels(): Promise<void> {
+    if (!this.channelsOn || !this.info?.channels) return;
+    const { channels, voice } = await this.api.channels();
+    this.applyChannels(channels);
+    this.voiceStates = new Map(voice.map((state) => [state.device_id, state]));
+    this.emit({ type: "channels", serverId: this.serverId });
+    await this.joinChannels();
+  }
+
+  /** One at a time, since each is a commit everyone in that channel has to work through. */
+  private joinChannels(): Promise<void> {
+    this.joiningChannels ??= this.joinMissingChannels().finally(() => {
+      this.joiningChannels = null;
+    });
+    return this.joiningChannels;
+  }
+
+  private async joinMissingChannels(): Promise<void> {
+    // Looks again each time, since more may be made meanwhile, and tries each once.
+    const tried = new Set<string>();
+    for (;;) {
+      const id = [...this.channels.keys()].find((id) => {
+        const group = this.groups.get(id);
+        // One whose details don't open would mean this device doesn't hold the same community key as the others.
+        return !tried.has(id) && !!this.channels.get(id)?.details && (!group || group.removedAt || !this.hasMlsGroup(id));
+      });
+      if (!id || this.stopped) return;
+      tried.add(id);
+      await this.joinChannel(id).catch((error) => console.warn("[zuna] joining a channel", error));
+    }
+  }
+
+  /** Comes into a channel. It needs no other member online, though only one can hand over its history. */
+  private async joinChannel(id: string): Promise<void> {
+    const self = this.account.userId;
+    const held = this.groups.get(id);
+    if (!held || held.removedAt || !held.members.some((member) => member.userId === self)) {
+      const { group } = await this.api.joinChannel(id, channelProof(this.account.core.communityKey, id, self), true);
+      if (group.kind !== "channel" || group.id !== id) throw new Error("The server's answer about this channel doesn't hold together.");
+      this.applyGroup(group);
+    }
+    await this.withLock(id, () => this.ensureReady(id));
+    void this.uploadEpochKeys().catch(() => undefined);
+    this.emitConversations();
+  }
+
+  /** Someone is waiting for a channel's older keys. Whichever member's device gets there first hands them over. */
+  private scheduleHistoryGrants(groupId: string): void {
+    if (this.grantTimers.has(groupId) || this.stopped) return;
+    const timer = setTimeout(() => {
+      this.grantTimers.delete(groupId);
+      void this.withLock(groupId, () => this.grantChannelHistory(groupId)).catch((error) => console.warn("[zuna] handing on a channel's keys", error));
+    }, Math.random() * GRANT_JITTER_MS);
+    this.grantTimers.set(groupId, timer);
+  }
+
+  private async grantChannelHistory(groupId: string): Promise<void> {
+    const group = this.groups.get(groupId);
+    if (group?.kind !== "channel" || group.removedAt || !this.hasMlsGroup(groupId)) return;
+    const inTree = new Set(this.treeUsers(groupId));
+    const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
+    for (const userId of group.historyWanted ?? []) {
+      // Only once they're really in: until then, it's only the server saying so. Their commit will bring this back.
+      if (userId === this.account.userId || !inTree.has(userId)) continue;
+      const user = await this.ensureUser(userId, true);
+      if (!user) continue;
+      const apiUser = await this.api.user(userId);
+      // A chain's newest link names this key itself, and was checked when it came.
+      if (!this.headOf(userId) && !verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;
+      const sealed = sealHistoryGrant(user.hpkeKey, groupId, userId, signer, this.account.deviceSecret, this.allEpochKeys(groupId));
+      await this.api.grantChannelHistory(groupId, userId, sealed);
+    }
+  }
+
+  /** Every channel on this server, in order. */
+  getChannels(): ChannelView[] {
+    const now = Date.now();
+    return [...this.channels.values()]
+      .sort((a, b) => a.api.position - b.api.position || a.api.created_at - b.api.created_at)
+      .map(({ api, details }) => {
+        const group = this.groups.get(api.id);
+        return {
+          id: api.id,
+          type: api.type,
+          key: `group:${api.id}`,
+          name: details?.name ?? "",
+          topic: details?.topic ?? "",
+          category: details?.category ?? "",
+          bitrate: details?.bitrate ?? 0,
+          position: api.position,
+          userLimit: api.user_limit,
+          unreadable: !details,
+          conversation: group && !group.removedAt ? this.conversationOf(group, now) : null,
+        };
+      });
+  }
+
+  /** Makes a channel, for a server admin. Everyone else's apps join it by themselves. */
+  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number }): Promise<string> {
+    const id = randomId();
+    const details = parseChannelDetails(input);
+    if (!details) throw new Error("A channel needs a name.");
+    const { communityKey } = this.account.core;
+    const sealed = sealChannelDetails(communityKey, id, details, 1, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
+    const created = await this.api.createChannel({ id, type: input.type, details: sealed, user_limit: input.userLimit ?? 0, proof: channelProof(communityKey, id, this.account.userId) });
+    if (created.group.id !== id || created.group.kind !== "channel" || created.channel.id !== id) {
+      throw new Error("The channel wasn't created: the server's answer doesn't hold together.");
+    }
+    this.applyGroup(created.group);
+    await this.withLock(id, () => this.initGroup(created.group, []));
+    this.channels.set(id, { api: created.channel, details, version: 1 });
+    this.applyChannels([...this.channels.values()].map((channel) => channel.api));
+    this.emitConversations();
+    return id;
+  }
+
+  /** Changes what a channel says about itself, for a server admin. */
+  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number }): Promise<void> {
+    const channel = this.channels.get(id);
+    if (!channel) throw new Error("That channel doesn't exist.");
+    const { userLimit, ...text } = changes;
+    const details = parseChannelDetails({ ...channel.details, ...text });
+    if (!details) throw new Error("A channel needs a name.");
+    const version = channel.version + 1;
+    const sealed = sealChannelDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
+    await this.api.updateChannel(id, sealed, userLimit);
+    this.channels.set(id, { api: { ...channel.api, details: toBase64(sealed), user_limit: userLimit ?? channel.api.user_limit }, details, version });
+    this.applyChannels([...this.channels.values()].map((item) => item.api));
+    this.emitConversations();
+  }
+
+  async reorderChannels(ids: string[]): Promise<void> {
+    for (const [position, id] of ids.entries()) {
+      const channel = this.channels.get(id);
+      if (channel) channel.api = { ...channel.api, position };
+    }
+    this.emit({ type: "channels", serverId: this.serverId });
+    await this.api.orderChannels(ids);
+  }
+
+  async deleteChannel(id: string): Promise<void> {
+    await this.api.deleteChannel(id);
+    this.channels.delete(id);
+    this.removeGroupLocally(id);
+    this.emit({ type: "channels", serverId: this.serverId });
+  }
+
+  // --- Voice ---
+
+  private voiceMember(state: ApiVoiceState): VoiceMember {
+    return {
+      channelId: state.channel_id,
+      userId: state.user_id,
+      deviceId: state.device_id,
+      muted: state.muted,
+      deafened: state.deafened,
+      serverMuted: state.server_muted,
+      camera: state.camera,
+      screen: state.screen,
+      since: state.since,
+    };
+  }
+
+  /** Who's in the voice channels, as each device says. */
+  getVoiceMembers(): VoiceMember[] {
+    return [...this.voiceStates.values()].map((state) => this.voiceMember(state));
+  }
+
+  private onVoiceFrame(data: { channel_id: string; device_id: string; user_id: string; state: ApiVoiceState | null }): void {
+    if (!this.channelsOn) return;
+    if (data.state) this.voiceStates.set(data.device_id, data.state);
+    else this.voiceStates.delete(data.device_id);
+    this.emit({
+      type: "voice",
+      serverId: this.serverId,
+      channelId: data.channel_id,
+      userId: data.user_id,
+      deviceId: data.device_id,
+      member: data.state ? this.voiceMember(data.state) : null,
+    });
+  }
+
+  private onVoiceEnded(data: { channel_id: string; reason: string }): void {
+    if (!this.channelsOn) return;
+    if (this.activeVoice?.channelId === data.channel_id) this.activeVoice = null;
+    this.emit({ type: "voice_ended", serverId: this.serverId, channelId: data.channel_id, reason: data.reason });
+  }
+
+  /** Tells the app when the voice channel this device is in has moved to a new key. */
+  private noticeVoiceEpoch(): void {
+    const voice = this.activeVoice;
+    if (!voice || !this.hasMlsGroup(voice.channelId)) return;
+    const epoch = this.mlsEpoch(voice.channelId);
+    if (epoch === voice.epoch) return;
+    voice.epoch = epoch;
+    this.emit({ type: "voice_key", serverId: this.serverId, channelId: voice.channelId });
+  }
+
+  private async readyForVoice(channelId: string): Promise<void> {
+    if (this.groups.get(channelId)?.kind !== "channel") await this.joinChannel(channelId);
+    else if (!this.hasMlsGroup(channelId)) await this.withLock(channelId, () => this.ensureReady(channelId));
+  }
+
+  /** How to reach a voice channel's room. It lets this device in, and nothing else: its media is under keys only members have. */
+  async voiceAccess(channelId: string): Promise<VoiceAccess> {
+    await this.readyForVoice(channelId);
+    const access = await this.api.voiceToken(channelId);
+    if (access.identity !== voiceIdentity(this.account.userId, this.account.deviceId)) throw new Error("The server's answer about this voice channel doesn't hold together.");
+    return { url: access.url, token: access.token, identity: access.identity, serverMuted: access.server_muted };
+  }
+
+  /** The same for sharing a screen from a native process, as a participant that can do nothing else. */
+  async voiceScreenAccess(channelId: string): Promise<VoiceAccess> {
+    const access = await this.api.screenToken(channelId);
+    if (access.identity !== `${voiceIdentity(this.account.userId, this.account.deviceId)}.screen`) throw new Error("The server's answer about this voice channel doesn't hold together.");
+    return { url: access.url, token: access.token, identity: access.identity, serverMuted: false };
+  }
+
+  /**
+   * A voice channel's media key for its current epoch, straight from MLS. It's kept
+   * nowhere, unlike the keys to messages, so a later member or a stolen vault can't
+   * open a recording of a call. Anyone who shouldn't be in the group goes first.
+   */
+  async voiceKey(channelId: string): Promise<{ epoch: number; key: Uint8Array }> {
+    return this.withLock(channelId, async () => {
+      if (this.groups.get(channelId)?.kind !== "channel" || !this.hasMlsGroup(channelId)) throw new Error("This device isn't in that channel yet.");
+      await this.pullChanges(channelId);
+      await this.ensureTreeClean(channelId);
+      const epoch = this.mlsEpoch(channelId);
+      return { epoch, key: this.mls.exportSecret(utf8(channelId), VOICE_LABEL, u64Bytes(epoch), 32) };
+    });
+  }
+
+  /** What this device is doing in a voice channel, for everyone to see, or null once it's left. */
+  setVoiceState(channelId: string | null, update: VoiceUpdate | null): void {
+    if (!channelId || !update) {
+      this.activeVoice = null;
+      this.socket.sendVoice(null, null);
+      return;
+    }
+    const epoch = this.hasMlsGroup(channelId) ? this.mlsEpoch(channelId) : 0;
+    this.activeVoice = { channelId, update, epoch: this.activeVoice?.channelId === channelId ? this.activeVoice.epoch : epoch };
+    this.socket.sendVoice(channelId, update);
+  }
+
+  /** Takes someone out of a voice channel, for a server admin. */
+  async voiceDisconnect(channelId: string, userId: string): Promise<void> {
+    await this.api.voiceDisconnect(channelId, userId);
+  }
+
+  /** Mutes someone until an admin unmutes them. It's the media server that makes this stick. */
+  async voiceMute(channelId: string, userId: string, muted: boolean): Promise<void> {
+    await this.api.voiceMute(channelId, userId, muted);
   }
 
   // --- Emotes ---

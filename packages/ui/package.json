@@ -15,9 +15,11 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.0",
     "@fontsource-variable/jetbrains-mono": "^5.2.0",
+    "@jitsi/rnnoise-wasm": "0.2.1",
     "@sqlite.org/sqlite-wasm": "3.54.1-build1",
     "@zuna/core": "*",
     "@zuna/crypto": "*",
+    "livekit-client": "2.23.0",
     "lucide-react": "^1.65.0",
     "motion": "^14.9.0",
     "react": "^19.3.1",

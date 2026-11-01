@@ -35,6 +35,20 @@ const THUMB = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
 
 type Fields = Record<string, unknown>;
 
+/** A channel's details: what it's called, what it's for and where it goes. */
+export interface ChannelDetails {
+  name: string;
+  topic?: string;
+  category?: string;
+  /** For a voice channel: how good its audio is, in kbit/s. */
+  bitrate?: number;
+}
+
+const MAX_CHANNEL_NAME = 100;
+const MAX_CHANNEL_TOPIC = 1024;
+const MAX_VOICE_BITRATE = 512;
+const MIN_VOICE_BITRATE = 8;
+
 const isObject = (value: unknown): value is Fields => !!value && typeof value === "object" && !Array.isArray(value);
 
 const isCount = (value: unknown, max: number): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= max;
@@ -262,6 +276,24 @@ export function parseGroupDetails(value: unknown): GroupDetails | null {
   }
   if (typeof value.historyVisible === "boolean") details.historyVisible = value.historyVisible;
   if (isCount(value.disappearAfter, MAX_EXPIRES_IN)) details.disappearAfter = value.disappearAfter;
+  return details;
+}
+
+/** A channel's details, as someone's device signed them, or null if they make no sense. */
+export function parseChannelDetails(value: unknown): ChannelDetails | null {
+  if (!isObject(value) || !isString(value.name, MAX_CHANNEL_NAME)) return null;
+  const name = plainName(value.name).trim();
+  if (!name) return null;
+  const details: ChannelDetails = { name };
+  if (!absent(value.topic)) {
+    if (!isString(value.topic, MAX_CHANNEL_TOPIC)) return null;
+    details.topic = value.topic;
+  }
+  if (!absent(value.category)) {
+    if (!isString(value.category, MAX_CHANNEL_NAME)) return null;
+    details.category = plainName(value.category).trim();
+  }
+  if (isCount(value.bitrate, MAX_VOICE_BITRATE) && value.bitrate >= MIN_VOICE_BITRATE) details.bitrate = value.bitrate;
   return details;
 }
 

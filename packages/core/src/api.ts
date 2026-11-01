@@ -104,11 +104,15 @@ export interface ApiMember {
   joined_at: number;
   visible_from_seq: number;
   read_state: string | null;
+  /** In a channel: that they hold the community key. */
+  proof?: string | null;
+  /** In a channel: they're waiting for a member to hand them its older keys. */
+  history_wanted?: boolean;
 }
 
 export interface ApiGroup {
   id: string;
-  kind: "dm" | "group";
+  kind: "dm" | "group" | "channel";
   epoch: number;
   seq: number;
   meta: string | null;
@@ -117,6 +121,28 @@ export interface ApiGroup {
   created_by: string;
   created_at: number;
   members: ApiMember[];
+}
+
+export interface ApiChannel {
+  id: string;
+  type: "text" | "voice";
+  position: number;
+  user_limit: number;
+  details: string;
+  created_by: string;
+  created_at: number;
+}
+
+export interface ApiVoiceState {
+  channel_id: string;
+  user_id: string;
+  device_id: string;
+  muted: boolean;
+  deafened: boolean;
+  server_muted: boolean;
+  camera: boolean;
+  screen: boolean;
+  since: number;
 }
 
 export interface ApiReaction {
@@ -384,6 +410,25 @@ export class Api {
     this.request<ApiChanges>("GET", at`/api/groups/${groupId}/changes?after=${after}&limit=${limit}`);
   welcomes = async () => (await this.request<{ welcomes: ApiWelcome[] }>("GET", "/api/welcomes")).welcomes;
   deleteWelcome = (id: number) => this.request("DELETE", at`/api/welcomes/${id}`);
+
+  // Channels and voice
+  channels = () => this.request<{ channels: ApiChannel[]; voice: ApiVoiceState[] }>("GET", "/api/channels");
+  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; proof: Uint8Array }) =>
+    this.request<{ channel: ApiChannel; group: ApiGroup }>("POST", "/api/channels", body);
+  updateChannel = (id: string, details: Uint8Array, userLimit?: number) =>
+    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit });
+  orderChannels = (ids: string[]) => this.request("PUT", "/api/channels/order", { ids });
+  deleteChannel = (id: string) => this.request("DELETE", at`/api/channels/${id}`);
+  joinChannel = (id: string, proof: Uint8Array, wantHistory: boolean) =>
+    this.request<{ group: ApiGroup }>("POST", at`/api/channels/${id}/join`, { proof, want_history: wantHistory });
+  grantChannelHistory = (id: string, userId: string, data: Uint8Array) =>
+    this.request("POST", at`/api/channels/${id}/history-grants`, { user_id: userId, data });
+  voiceToken = (id: string) =>
+    this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/channels/${id}/voice`, {});
+  screenToken = (id: string) =>
+    this.request<{ url: string; token: string; identity: string }>("POST", at`/api/channels/${id}/voice/screen`, {});
+  voiceDisconnect = (id: string, userId: string) => this.request("POST", at`/api/channels/${id}/voice/users/${userId}/disconnect`, {});
+  voiceMute = (id: string, userId: string, muted: boolean) => this.request("PUT", at`/api/channels/${id}/voice/users/${userId}/mute`, { muted });
 
   // Messages
   messages = async (groupId: string, options: { before?: number; around?: number; limit?: number }) => {

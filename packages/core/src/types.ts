@@ -2,7 +2,8 @@
 
 export type Role = "owner" | "admin" | "member";
 export type GroupRole = "admin" | "member";
-export type GroupKind = "dm" | "group";
+export type GroupKind = "dm" | "group" | "channel";
+export type ChannelType = "text" | "voice";
 
 export interface ServerInfo {
   name: string;
@@ -23,6 +24,10 @@ export interface ServerInfo {
   request_proofs?: number;
   /** Whether this server removes disappearing messages when they're due. Absent on one that doesn't. */
   disappearing?: number;
+  /** Whether this server has channels. Absent on one that doesn't. */
+  channels?: number;
+  /** Whether this server has a media server, without which voice channels can't be joined. */
+  voice?: number;
 }
 
 export interface InvitePreview {
@@ -297,6 +302,63 @@ export interface ConversationView {
   disappearAfter: number;
 }
 
+/**
+ * A channel anyone on the server can see and join. Its details are sealed with the
+ * community key, so the server can't read them. Once joined, it's a conversation.
+ */
+export interface ChannelView {
+  id: string;
+  type: ChannelType;
+  /** `group:<id>`, as a conversation's key. */
+  key: string;
+  /** What it's called, or empty if what the server gave couldn't be read or checked. */
+  name: string;
+  topic: string;
+  /** The heading it goes under, or empty for the usual one. */
+  category: string;
+  /** For a voice channel: how good its audio is, in kbit/s, or 0 for the usual. */
+  bitrate: number;
+  position: number;
+  /** For a voice channel: how many people fit, or 0 for no limit. */
+  userLimit: number;
+  /** The details couldn't be read or checked, so they aren't shown. */
+  unreadable: boolean;
+  /** Null until this device has joined it, which it does by itself. */
+  conversation: ConversationView | null;
+}
+
+/** Someone's device in a voice channel, as it says. */
+export interface VoiceMember {
+  channelId: string;
+  userId: string;
+  deviceId: string;
+  muted: boolean;
+  deafened: boolean;
+  /** Muted by an admin, which LiveKit itself enforces. */
+  serverMuted: boolean;
+  camera: boolean;
+  screen: boolean;
+  /** When they came in (ms). */
+  since: number;
+}
+
+/** What this device is doing in a voice channel, for everyone to see. */
+export interface VoiceUpdate {
+  muted: boolean;
+  deafened: boolean;
+  camera: boolean;
+  screen: boolean;
+}
+
+/** How to reach a voice channel's room. The token only lets this device in: media keys come from MLS. */
+export interface VoiceAccess {
+  url: string;
+  token: string;
+  identity: string;
+  /** An admin has muted this person, so the microphone won't be let through. */
+  serverMuted: boolean;
+}
+
 export interface Emote {
   id: string;
   name: string;
@@ -377,6 +439,14 @@ export interface Progress {
 export type CoreEvent =
   | { type: "connection"; serverId: string; state: ConnectionState }
   | { type: "conversations"; serverId: string }
+  /** The channels changed. */
+  | { type: "channels"; serverId: string }
+  /** Someone's device came, went or changed in a voice channel. */
+  | { type: "voice"; serverId: string; channelId: string; userId: string; deviceId: string; member: VoiceMember | null }
+  /** Who's in the voice channel this device is in changed, so its media key did too. */
+  | { type: "voice_key"; serverId: string; channelId: string }
+  /** This device has been taken out of a voice channel. */
+  | { type: "voice_ended"; serverId: string; channelId: string; reason: string }
   | { type: "message"; serverId: string; message: MessageView; isNew: boolean }
   | { type: "message_removed"; serverId: string; groupId: string; id: string }
   | { type: "message_moved"; serverId: string; fromGroupId: string; message: MessageView }

@@ -26,7 +26,7 @@ func (c *client) createChannel(kind string, limit int) *store.Channel {
 	c.h.t.Helper()
 	var out channelResult
 	c.h.mustDo("POST", "/api/channels", c.token, map[string]any{
-		"type": kind, "details": []byte("sealed"), "user_limit": limit, "proof": []byte("proof-" + c.userID),
+		"id": store.NewID(), "type": kind, "details": []byte("sealed"), "user_limit": limit, "proof": []byte("proof-" + c.userID),
 	}, &out)
 	return out.Channel
 }
@@ -69,12 +69,12 @@ func TestOnlyAdminsMakeChannelsAndAnyoneCanJoin(t *testing.T) {
 	member := h.register("member", owner.newInvite())
 
 	if status, _ := h.do("POST", "/api/channels", member.token, map[string]any{
-		"type": "text", "details": []byte("sealed"), "proof": []byte("proof"),
+		"id": store.NewID(), "type": "text", "details": []byte("sealed"), "proof": []byte("proof"),
 	}, nil); status != http.StatusForbidden {
 		t.Fatalf("a member making a channel got %d", status)
 	}
 	if status, _ := h.do("POST", "/api/channels", owner.token, map[string]any{
-		"type": "stage", "details": []byte("sealed"), "proof": []byte("proof"),
+		"id": store.NewID(), "type": "stage", "details": []byte("sealed"), "proof": []byte("proof"),
 	}, nil); status != http.StatusBadRequest {
 		t.Fatalf("a channel of an unknown type got %d", status)
 	}
@@ -211,7 +211,7 @@ func TestChannelMessagesArentPushedOrReadByOthers(t *testing.T) {
 	ws := owner.connect()
 	h.mustDo("PUT", "/api/groups/"+channel.ID+"/read", member.token, map[string]any{"data": []byte("position")}, nil)
 	// The next thing the owner hears is this, and not where the member has read to.
-	h.mustDo("POST", "/api/channels", owner.token, map[string]any{"type": "text", "details": []byte("sealed"), "proof": []byte("proof")}, nil)
+	owner.createChannel("text", 0)
 	for {
 		event := ws.next()
 		if event == "read" {

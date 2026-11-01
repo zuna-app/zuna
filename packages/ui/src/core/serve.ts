@@ -67,6 +67,7 @@ export function serveCoreWorker(fetchPage?: WebAdapter["fetch"]): void {
       await initCrypto({ module_or_path: wasmUrl });
       const db = await openSqliteProvider();
       const client = new ZunaClient({
+        channels: true,
         db,
         deviceKey: boot.deviceKey,
         deviceName: boot.deviceName,

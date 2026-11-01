@@ -14,7 +14,8 @@
     "./media": "./src/media.ts",
     "./validate": "./src/validate.ts",
     "./password": "./src/password.ts",
-    "./types": "./src/types.ts"
+    "./types": "./src/types.ts",
+    "./voice": "./src/voice.ts"
   },
   "scripts": {
     "test": "vitest run",

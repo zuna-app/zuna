@@ -25,7 +25,7 @@ export function previewText(view: Preview): string {
 
 /** The title and text of a notification: the sender in a DM, the group with the sender's name otherwise. */
 export function notificationText(
-  kind: "dm" | "group",
+  kind: "dm" | "group" | "channel",
   groupName: string | undefined,
   senderName: string,
   view: Preview,
