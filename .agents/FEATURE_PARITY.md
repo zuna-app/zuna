@@ -79,7 +79,7 @@ Things one platform should have and doesn't.
 | Attachments: up to 10, previews, size limit | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/OutgoingFiles.swift`, `Chat/Composer.swift` | |
 | Pasting and dragging files in | yes | yes | yes | `features/chat/ChatView.tsx`, `features/chat/Composer.tsx` | `Chat/Composer.swift`, `Chat/ChatScreen.swift` | iOS pastes pictures, and dragging is mostly for iPad |
 | Refusing a message too long to send | yes | yes | yes | `features/chat/Composer.tsx` | `State/ComposerState.swift` | The desktop checks first, iOS shows the core's error |
-| Message menu: reactions, copy, edit, pin, delete | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/ChatScreen.swift` | |
+| Message menu: reactions, copy, edit, pin, delete | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/ChatScreen.swift` | Deleting signs a deletion in the core (`deleteSigned`); a copy is only erased for one its author or a group admin signed, otherwise hidden and kept 30 days (`deletionProven`) |
 | Forwarding | yes | yes | yes | `features/overlays/Overlays.tsx` | `Chat/Forwarding.swift` | |
 | Picking several messages | yes | yes | yes | `features/chat/MessageItem.tsx`, `features/chat/Composer.tsx` | `Chat/ChatScreen.swift` | |
 | Voice messages: recording | yes | yes | yes | `features/chat/Composer.tsx` | `Chat/Voice.swift` | By design: click to start on the desktop, hold on iOS |

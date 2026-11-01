@@ -339,6 +339,7 @@ describe("notices", () => {
     add("still-sending", null, 500);
     db.exec("DROP TABLE joined_epochs; DROP TABLE epoch_starts; DROP TABLE device_departures; ALTER TABLE pinned_identities DROP COLUMN uploaded");
     db.exec("DROP TABLE identity_chain; DROP TABLE identity_state; DROP TABLE device_first_leaf");
+    db.exec("ALTER TABLE messages DROP COLUMN unproven_delete_at");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
     const rows = db.prepare("SELECT id, seq FROM messages ORDER BY row_id").all() as { id: string; seq: number | null }[];

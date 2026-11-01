@@ -293,6 +293,7 @@ interface MessageRow {
   status: MessageStatus;
   body: Uint8Array | null;
   raw: Uint8Array | null;
+  unproven_delete_at: number | null;
 }
 
 interface StoredBody extends MessageBody {
@@ -456,6 +457,7 @@ export class ServerSession {
   start(): void {
     this.markStaleSendsFailed();
     this.forgetOldRemovedGroups();
+    this.forgetUnprovenDeletions();
     void this.rebuildSearchIndex();
     this.connect();
   }
@@ -3556,6 +3558,9 @@ export class ServerSession {
     let status: MessageStatus = "sent";
     let body: StoredBody | null = null;
     let raw: Uint8Array | null = null;
+    // Nothing local is erased on the server's word: only a deletion its author, or a
+    // group's admin, signed does that. Otherwise the copy is hidden, and kept a while.
+    const kept = message.deleted_at !== null && existing && (existing.body || existing.raw) && !this.deletionProven(message) ? existing : null;
     if (!message.deleted_at && message.envelope) {
       const envelope = decode(message.envelope);
       const key = this.epochKey(message.group_id, message.epoch);
@@ -3591,17 +3596,18 @@ export class ServerSession {
     }
     const stored = body
       ? this.sealJson("message", { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
-      : null;
+      : (kept?.body ?? null);
 
     let rowId: number;
     const isNew = !existing || existing.seq === null;
     this.db.transaction(() => {
       this.db.run(
-        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, status, body, raw)
-         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, edited_at, deleted_at, pinned_at, pinned_by, status, body, raw, unproven_delete_at)
+         VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
          ON CONFLICT(group_id, id) DO UPDATE SET seq = excluded.seq, updated_seq = excluded.updated_seq, sender_device = excluded.sender_device,
            epoch = excluded.epoch, created_at = excluded.created_at, edited_at = excluded.edited_at, deleted_at = excluded.deleted_at,
-           pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, status = excluded.status, body = excluded.body, raw = excluded.raw`,
+           pinned_at = excluded.pinned_at, pinned_by = excluded.pinned_by, status = excluded.status, body = excluded.body, raw = excluded.raw,
+           unproven_delete_at = excluded.unproven_delete_at`,
         [
           message.group_id,
           message.id,
@@ -3615,9 +3621,10 @@ export class ServerSession {
           message.deleted_at,
           message.pinned_at,
           message.pinned_by ?? null,
-          status,
+          kept ? kept.status : status,
           stored,
-          raw,
+          kept ? kept.raw : raw,
+          kept ? (kept.unproven_delete_at ?? Date.now()) : null,
         ],
       );
       rowId = this.db.get<{ row_id: number }>("SELECT row_id FROM messages WHERE group_id = ? AND id = ?", [message.group_id, message.id])!.row_id;
@@ -3652,6 +3659,32 @@ export class ServerSession {
     if (left !== null && message.epoch >= left) return false;
     const next =this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
     return !next || message.seq < next.seq;
+  }
+
+  /**
+   * Whether a deletion is what its author, or in a group one of its admins, asked
+   * for: their device signed it, under an epoch from before that device left.
+   * Who's an admin is the server's word, as it is for history grants.
+   */
+  private deletionProven(message: ApiMessage): boolean {
+    if (!message.deletion || !message.deleted_by) return false;
+    const signed = readSigned(decode(message.deletion));
+    if (!signed) return false;
+    const key = this.epochKey(message.group_id, signed.epoch);
+    const device = this.users.get(message.deleted_by)?.devices.get(signed.deviceId);
+    if (!key || !device) return false;
+    const left = this.departedAt(message.group_id, signed.deviceId);
+    if (left !== null && signed.epoch >= left) return false;
+    const opened = openEnvelope<{ by?: unknown }>(key, device.signatureKey, "deletion", message.group_id, message.id, signed.epoch, signed.envelope);
+    if (!opened.ok || opened.value?.by !== message.deleted_by) return false;
+    if (message.deleted_by === message.sender_user) return true;
+    const group = this.groups.get(message.group_id);
+    return group?.kind === "group" && this.isGroupAdmin(group, message.deleted_by);
+  }
+
+  /** A copy kept after a deletion nobody proved goes once that's long enough ago. */
+  private forgetUnprovenDeletions(): void {
+    this.db.run("UPDATE messages SET body = NULL, raw = NULL, unproven_delete_at = NULL WHERE unproven_delete_at < ?", [Date.now() - REMOVED_KEPT_MS]);
   }
 
   private retryUndecryptable(groupId: string): void {
@@ -3731,7 +3764,8 @@ export class ServerSession {
   }
 
   private toMessageView(row: MessageRow): MessageView {
-    const stored = this.storedBody(row);
+    // A copy kept after a deletion the server claimed stays out of sight.
+    const stored = row.deleted_at === null ? this.storedBody(row) : {};
     const body: StoredBody = stored ?? {};
     const view: MessageView = {
       id: row.id,
@@ -3761,7 +3795,7 @@ export class ServerSession {
   private replyPreview(groupId: string, id: string): ReplyPreview {
     const row = this.messageRow(groupId, id);
     if (!row) return { id, senderId: "", text: "", hasAttachment: false, deleted: false };
-    if (!row.body) return { id, senderId: row.sender_user, text: "", hasAttachment: false, deleted: row.deleted_at !== null };
+    if (!row.body || row.deleted_at !== null) return { id, senderId: row.sender_user, text: "", hasAttachment: false, deleted: row.deleted_at !== null };
     const body = this.storedBody(row);
     return {
       id,
@@ -4426,14 +4460,25 @@ export class ServerSession {
   }
 
   async deleteMessage(groupId: string, id: string): Promise<void> {
-    this.ingest(await this.api.deleteMessage(groupId, id), false);
+    await this.deleteSigned(groupId, id);
     this.emitConversations();
   }
 
   /** Deletes several messages for everyone, in order. */
   async deleteMessages(groupId: string, ids: string[]): Promise<void> {
-    for (const id of ids) this.ingest(await this.api.deleteMessage(groupId, id), false);
+    for (const id of ids) await this.deleteSigned(groupId, id);
     this.emitConversations();
+  }
+
+  /** This device signs the deletion, so other members' apps can tell it from the server's word before erasing their copies. */
+  private async deleteSigned(groupId: string, id: string): Promise<void> {
+    const { userId, deviceId, deviceSecret } = this.account;
+    await this.withLock(groupId, () =>
+      this.sealAndRetry(groupId, async (epoch, epochKey) => {
+        const deletion = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "deletion", groupId, id, epoch, { by: userId }));
+        this.ingest(await this.api.deleteMessage(groupId, id, epoch, deletion), false);
+      }),
+    );
   }
 
   async setPinned(groupId: string, id: string, pinned: boolean): Promise<void> {

@@ -147,14 +147,14 @@ func TestForwardedFilesStayUntilTheLastCopyIsGone(t *testing.T) {
 	send(first, "forwarded-here", "photo")
 	send(second, "forwarded-there", "photo", "notes")
 
-	_, files, err := db.DeleteMessage(ctx, first, "original")
+	_, files, err := db.DeleteMessage(ctx, first, "original", Deletion{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(files) != 0 {
 		t.Fatalf("removed files = %v, but the forwarded copies still use them", files)
 	}
-	if _, files, err = db.DeleteMessage(ctx, first, "forwarded-here"); err != nil || len(files) != 0 {
+	if _, files, err = db.DeleteMessage(ctx, first, "forwarded-here", Deletion{}); err != nil || len(files) != 0 {
 		t.Fatalf("removed files = %v (%v), but the other group still uses the photo", files, err)
 	}
 	files, err = db.DeleteGroup(ctx, second)
@@ -317,6 +317,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE devices DROP COLUMN seal_generation;
 		ALTER TABLE devices DROP COLUMN seal_proof;
 		DROP TABLE sign_in_attempts;
+		ALTER TABLE messages DROP COLUMN deleted_by;
+		ALTER TABLE messages DROP COLUMN deletion;
 		INSERT INTO groups(id, kind, created_by, created_at) VALUES('g', 'group', 'u', 1);
 		INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, file_ids)
 			VALUES('g', 'm', 1, 1, 'u', 'd', 0, 1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
@@ -333,7 +335,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 	}
 	defer db.Close()
 
-	_, files, err := db.DeleteMessage(ctx, "g", "m")
+	_, files, err := db.DeleteMessage(ctx, "g", "m", Deletion{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +448,7 @@ func TestStorageIsRecounted(t *testing.T) {
 	if n := stored(); n != 200 {
 		t.Fatalf("%d bytes counted", n)
 	}
-	if _, _, err := db.DeleteMessage(ctx, group.ID, "one"); err != nil {
+	if _, _, err := db.DeleteMessage(ctx, group.ID, "one", Deletion{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.RecountStorage(ctx); err != nil {

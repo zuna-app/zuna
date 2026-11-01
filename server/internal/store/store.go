@@ -441,6 +441,11 @@ CREATE TABLE sign_in_attempts (
 	until_at INTEGER NOT NULL,
 	seen_at INTEGER NOT NULL
 );
+`, `
+-- Who deleted a message, and what their device signed to say so, which clients
+-- check before erasing their own copies. The server can't read or forge it.
+ALTER TABLE messages ADD COLUMN deleted_by TEXT;
+ALTER TABLE messages ADD COLUMN deletion BLOB;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

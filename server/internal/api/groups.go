@@ -414,6 +414,8 @@ func (s *Server) handleDeleteWelcome(w http.ResponseWriter, r *http.Request, ses
 const (
 	maxEnvelopeBytes = 256 << 10
 	maxReactionBytes = 2 << 10
+	maxDeletionBytes = 2 << 10
+	maxDeletionBody  = 8 << 10
 )
 
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
@@ -553,7 +555,24 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusForbidden, "forbidden", "You can only delete your own messages.")
 		return
 	}
-	message, files, err := s.db.DeleteMessage(r.Context(), groupID, messageID)
+	// Apps that sign deletions send what their device signed, which other members
+	// check before erasing their copies. Older apps send nothing.
+	var body struct {
+		Epoch    *int64 `json:"epoch"`
+		Deletion []byte `json:"deletion"`
+	}
+	if r.ContentLength != 0 && !readJSONUpTo(w, r, maxDeletionBody, &body) {
+		return
+	}
+	if (body.Deletion == nil) != (body.Epoch == nil) || len(body.Deletion) > maxDeletionBytes {
+		writeError(w, http.StatusBadRequest, "bad_request", "The deletion isn't valid.")
+		return
+	}
+	deletion := store.Deletion{By: sess.UserID, Proof: body.Deletion}
+	if body.Epoch != nil {
+		deletion.Epoch = *body.Epoch
+	}
+	message, files, err := s.db.DeleteMessage(r.Context(), groupID, messageID, deletion)
 	if err != nil {
 		writeFailure(w, err)
 		return

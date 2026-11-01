@@ -13,6 +13,7 @@ import {
   createCertificate,
   deriveRecoveryKeys,
   derivePasswordKeys,
+  frameSigned,
   parseCertificate,
   randomId,
   reactionId,
@@ -1319,6 +1320,88 @@ describe("a message the server says was edited (Z-53)", () => {
     owner.session.editMessage(groupId, sent.id, "typo here", {}, []);
     await waitFor(() => member.texts(`group:${groupId}`).includes("typo here"), "the edit");
     expect(session.messageRow(groupId, sent.id).status).toBe("sent");
+  });
+});
+
+describe("a server saying a message was deleted", () => {
+  /** What a malicious server writes to delete a message, with whatever proof it has. */
+  function serverDeletes(groupId: string, messageId: string, by: string, deletion: Uint8Array | null): void {
+    withServerDatabase((db) => {
+      const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
+      db.prepare("UPDATE messages SET envelope = NULL, deleted_at = ?, updated_seq = ?, deleted_by = ?, deletion = ? WHERE group_id = ? AND id = ?").run(
+        Date.now(),
+        seq,
+        by,
+        deletion,
+        groupId,
+        messageId,
+      );
+    });
+  }
+
+  /** A deletion `app`'s device signs, of whichever message it likes. */
+  function signedDeletion(app: TestApp, groupId: string, messageId: string): Uint8Array {
+    const session = sessionOf(app);
+    const epoch = session.mlsEpoch(groupId) as number;
+    const { deviceId, deviceSecret } = session.account;
+    return frameSigned(deviceId, epoch, sealEnvelope(session.epochKey(groupId, epoch), deviceSecret, "deletion", groupId, messageId, epoch, { by: app.userId }));
+  }
+
+  async function threeInAGroup() {
+    const admin = await person("yara");
+    const member = await person("zack");
+    const other = await person("abel");
+    const groupId = await groupWith(admin, [member, other]);
+    return { admin, member, other, groupId };
+  }
+
+  async function sentAndSeen(from: TestApp, to: TestApp[], groupId: string, text: string): Promise<string> {
+    const sent = from.session.sendMessage(`group:${groupId}`, { text });
+    for (const app of to) await waitFor(() => app.texts(`group:${groupId}`).includes(text), "delivery");
+    return sent.id;
+  }
+
+  it("only hides a copy when nobody who could delete it signed that, and keeps it for 30 days", async () => {
+    const { admin, member, groupId } = await threeInAGroup();
+    const id = await sentAndSeen(admin, [member], groupId, "evidence of something");
+    serverDeletes(groupId, id, admin.userId, null);
+    await sessionOf(member).pullChanges(groupId);
+    expect(member.texts(`group:${groupId}`)).not.toContain("evidence of something");
+    expect((await member.session.messageById(groupId, id))?.deletedAt).toBeTruthy();
+    expect(sessionOf(member).messageRow(groupId, id).body).not.toBeNull();
+    expect(member.session.search("evidence")).toEqual([]);
+
+    sessionOf(member).db.run("UPDATE messages SET unproven_delete_at = ? WHERE group_id = ? AND id = ?", [Date.now() - 31 * 24 * 3600 * 1000, groupId, id]);
+    sessionOf(member).forgetUnprovenDeletions();
+    expect(sessionOf(member).messageRow(groupId, id).body).toBeNull();
+  });
+
+  it("doesn't take a plain member's signature for someone else's message, or one made for another message", async () => {
+    const { admin, member, other, groupId } = await threeInAGroup();
+    const id = await sentAndSeen(admin, [member, other], groupId, "not yours to delete");
+    serverDeletes(groupId, id, member.userId, signedDeletion(member, groupId, id));
+    await sessionOf(other).pullChanges(groupId);
+    expect(sessionOf(other).messageRow(groupId, id).body).not.toBeNull();
+
+    const own = await sentAndSeen(member, [other], groupId, "deleting this one");
+    const another = await sentAndSeen(member, [other], groupId, "but not this one");
+    serverDeletes(groupId, another, member.userId, signedDeletion(member, groupId, own));
+    await sessionOf(other).pullChanges(groupId);
+    expect(sessionOf(other).messageRow(groupId, another).body).not.toBeNull();
+  });
+
+  it("erases the copy when its author or a group's admin deleted it", async () => {
+    const { admin, member, other, groupId } = await threeInAGroup();
+    const own = await sentAndSeen(member, [other], groupId, "my own mistake");
+    await member.session.deleteMessage(groupId, own);
+    await waitFor(() => sessionOf(other).messageRow(groupId, own)?.deleted_at !== null, "the deletion");
+    expect(sessionOf(other).messageRow(groupId, own).body).toBeNull();
+
+    const moderated = await sentAndSeen(member, [other], groupId, "against the rules");
+    await admin.session.deleteMessage(groupId, moderated);
+    await waitFor(() => sessionOf(other).messageRow(groupId, moderated)?.deleted_at !== null, "the deletion");
+    expect(sessionOf(other).messageRow(groupId, moderated).body).toBeNull();
+    expect(sessionOf(admin).messageRow(groupId, moderated).body).toBeNull();
   });
 });
 

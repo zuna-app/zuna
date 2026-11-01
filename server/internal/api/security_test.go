@@ -894,6 +894,35 @@ func TestOneIPv6TunnelCountsAsOneCallerForSigningIn(t *testing.T) {
 	}
 }
 
+// What a deleting device signed reaches every member with the deletion, and only
+// for the epoch the group is at, as content does.
+func TestADeletionCarriesWhatItsDeviceSigned(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	group := newGroup(h, owner)
+	base := "/api/groups/" + group + "/messages/"
+	first := owner.send(group, 0, store.NewID())
+	if status, _ := h.do("DELETE", base+first.ID, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil); status != http.StatusConflict {
+		t.Fatalf("a proof for another epoch gave %d", status)
+	}
+	if status, _ := h.do("DELETE", base+first.ID, owner.token, map[string]any{"deletion": []byte("signed")}, nil); status != http.StatusBadRequest {
+		t.Fatalf("a proof without its epoch gave %d", status)
+	}
+	var deleted store.Message
+	if status, _ := h.do("DELETE", base+first.ID, owner.token, map[string]any{"epoch": 0, "deletion": []byte("signed")}, &deleted); status != http.StatusOK {
+		t.Fatalf("deleting gave %d", status)
+	}
+	if string(deleted.Deletion) != "signed" || deleted.DeletedBy != owner.userID || deleted.DeletedAt == nil {
+		t.Fatalf("the deletion came back as %+v", deleted)
+	}
+	// An older app sends nothing, and still deletes.
+	second := owner.send(group, 0, store.NewID())
+	var unproven store.Message
+	if status, _ := h.do("DELETE", base+second.ID, owner.token, nil, &unproven); status != http.StatusOK || unproven.Deletion != nil || unproven.DeletedBy != owner.userID {
+		t.Fatalf("deleting without a proof gave %d %+v", status, unproven)
+	}
+}
+
 // Z-48: going back too many days wraps around to a date in the future.
 func TestRetentionCantWrapAround(t *testing.T) {
 	h := newHarness(t)

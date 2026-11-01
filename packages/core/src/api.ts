@@ -140,6 +140,9 @@ export interface ApiMessage {
   deleted_at: number | null;
   pinned_at: number | null;
   pinned_by?: string;
+  deleted_by?: string;
+  /** What the deleting device signed, from apps that sign deletions. */
+  deletion?: string;
   reactions: ApiReaction[];
 }
 
@@ -367,7 +370,8 @@ export class Api {
     this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages`, body);
   editMessage = (groupId: string, id: string, epoch: number, envelope: Uint8Array) =>
     this.request<ApiMessage>("PUT", at`/api/groups/${groupId}/messages/${id}`, { epoch, envelope });
-  deleteMessage = (groupId: string, id: string) => this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${id}`);
+  deleteMessage = (groupId: string, id: string, epoch: number, deletion: Uint8Array) =>
+    this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${id}`, { epoch, deletion });
   addReaction = (groupId: string, messageId: string, id: string, epoch: number, data: Uint8Array) =>
     this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages/${messageId}/reactions`, { id, epoch, data });
   removeReaction = (groupId: string, messageId: string, id: string) =>

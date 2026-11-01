@@ -116,6 +116,9 @@ const MIGRATIONS: string[] = [
   );
   CREATE TABLE device_first_leaf (user_id TEXT NOT NULL, device_id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, device_id));
   `,
+  // When the server said a message was deleted, by this device's clock, without a
+  // deletion its author or an admin signed. Its copy is hidden and kept until then.
+  `ALTER TABLE messages ADD COLUMN unproven_delete_at INTEGER;`,
 ];
 
 export function migrate(db: LocalDb): void {

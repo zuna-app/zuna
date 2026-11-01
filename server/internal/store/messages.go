@@ -27,7 +27,10 @@ type Message struct {
 	DeletedAt    *int64     `json:"deleted_at"`
 	PinnedAt     *int64     `json:"pinned_at"`
 	PinnedBy     string     `json:"pinned_by,omitempty"`
-	Reactions    []Reaction `json:"reactions"`
+	DeletedBy    string     `json:"deleted_by,omitempty"`
+	// What the deleting device signed, which apps check before erasing their copies.
+	Deletion  []byte     `json:"deletion,omitempty"`
+	Reactions []Reaction `json:"reactions"`
 }
 
 // Reaction is an encrypted reaction; the server can't tell which emote it is.
@@ -40,20 +43,21 @@ type Reaction struct {
 }
 
 const messageColumns = `group_id, id, seq, updated_seq, sender_user, sender_device, epoch, envelope,
-	created_at, edited_at, deleted_at, pinned_at, pinned_by`
+	created_at, edited_at, deleted_at, pinned_at, pinned_by, deleted_by, deletion`
 
 func scanMessage(row interface{ Scan(...any) error }) (*Message, error) {
 	var m Message
 	var edited, deleted, pinned sql.NullInt64
-	var pinnedBy sql.NullString
+	var pinnedBy, deletedBy sql.NullString
 	if err := row.Scan(&m.GroupID, &m.ID, &m.Seq, &m.UpdatedSeq, &m.SenderUser, &m.SenderDevice, &m.Epoch, &m.Envelope,
-		&m.CreatedAt, &edited, &deleted, &pinned, &pinnedBy); err != nil {
+		&m.CreatedAt, &edited, &deleted, &pinned, &pinnedBy, &deletedBy, &m.Deletion); err != nil {
 		return nil, err
 	}
 	m.EditedAt = nullableInt(edited)
 	m.DeletedAt = nullableInt(deleted)
 	m.PinnedAt = nullableInt(pinned)
 	m.PinnedBy = pinnedBy.String
+	m.DeletedBy = deletedBy.String
 	m.Reactions = []Reaction{}
 	return &m, nil
 }
@@ -211,7 +215,15 @@ func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID stri
 
 // DeleteMessage erases the ciphertext and leaves a tombstone so every client
 // removes it too. It returns the message and the files that are now orphaned.
-func (d *DB) DeleteMessage(ctx context.Context, groupID, id string) (*Message, []string, error) {
+// Deletion says who deleted a message and, from apps that sign it, the proof
+// their device made, under the group's epoch at the time.
+type Deletion struct {
+	By    string
+	Epoch int64
+	Proof []byte
+}
+
+func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Deletion) (*Message, []string, error) {
 	var fileIDs []string
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		var deleted sql.NullInt64
@@ -224,6 +236,16 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string) (*Message, [
 		}
 		if deleted.Valid {
 			return nil
+		}
+		// A proof is only made under the current epoch, as content is.
+		if deletion.Proof != nil {
+			current, err := currentEpoch(ctx, tx, groupID)
+			if err != nil {
+				return err
+			}
+			if current != deletion.Epoch {
+				return &EpochConflictError{Current: current}
+			}
 		}
 		fileIDs, err = collectStrings(ctx, tx, `SELECT file_id FROM file_refs WHERE group_id = ? AND message_id = ?`, groupID, id)
 		if err != nil {
@@ -239,8 +261,8 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string) (*Message, [
 		if _, err := tx.ExecContext(ctx, `DELETE FROM file_refs WHERE group_id = ? AND message_id = ?`, groupID, id); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, deleted_at = ?, pinned_at = NULL, pinned_by = NULL, updated_seq = ?
-			WHERE group_id = ? AND id = ?`, Now(), seq, groupID, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET envelope = NULL, deleted_at = ?, pinned_at = NULL, pinned_by = NULL, updated_seq = ?,
+			deleted_by = NULLIF(?, ''), deletion = ? WHERE group_id = ? AND id = ?`, Now(), seq, deletion.By, deletion.Proof, groupID, id); err != nil {
 			return err
 		}
 		fileIDs, err = unreferenced(ctx, tx, fileIDs)
