@@ -2489,13 +2489,16 @@ export class ServerSession {
       const opened = openEnvelope<unknown>(key, device.signatureKey, "read", group.id, userId, signed.epoch, signed.envelope);
       seq = opened.ok ? parseReadState(opened.value) : null;
     } else {
-      const accountSealed = sealed[0] === 1;
+      // Unsigned, it can only be this account's own, sealed to its key so its other
+      // devices keep up. Apps from before positions were signed sealed others' with the
+      // group's key, which any member holds, saying nothing of whose they were, so the
+      // server could have put one under anyone's name.
+      if (sealed[0] !== 1 || userId !== this.account.userId) return;
       const body = sealed.subarray(1);
       // A position sealed to this account stays as it was until it's next written, so
       // it may be under an older key. The worst a stolen one can do is mark things read.
-      const keys = accountSealed ? [this.account.accountKey, ...Object.values(this.account.core.olderKeys)] : [this.epochKey(group.id, signalEpoch(body))];
-      for (const key of keys) {
-        if (key && seq === null) seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
+      for (const key of [this.account.accountKey, ...Object.values(this.account.core.olderKeys)]) {
+        if (seq === null) seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
       }
     }
     if (seq === null) return;

@@ -1619,4 +1619,28 @@ describe("what a server can learn from reactions and read positions, or change i
     sessionOf(ann).applyReadState(group, zed.userId, new Uint8Array(read_state));
     expect(group.readBy[zed.userId] ?? 0).toBe(0);
   });
+
+  it("takes an unsigned position only as this account's own", async () => {
+    const { ann, rob, zed, groupId, messageId } = await threeAndAMessage();
+    await waitFor(() => (sessionOf(ann).messageRow(groupId, messageId)?.seq ?? 0) > 0, "its place");
+    const seq = sessionOf(ann).messageRow(groupId, messageId).seq as number;
+    const group = sessionOf(ann).groups.get(groupId);
+    const epoch = sessionOf(rob).mlsEpoch(groupId);
+    const framed = (first: number, sealed: Uint8Array) => new Uint8Array([first, ...sealed]);
+
+    // As an app from before positions were signed wrote one, under the group's key, which
+    // any member can make, for whoever the server then says: someone else, or ann herself.
+    const legacy = framed(0, sealSignal(sessionOf(rob).epochKey(groupId, epoch), "read", groupId, epoch, { seq: seq + 100 }));
+    sessionOf(ann).applyReadState(group, zed.userId, legacy);
+    sessionOf(ann).applyReadState(group, ann.userId, legacy);
+    expect(group.readBy[zed.userId] ?? 0).toBe(0);
+    expect(group.ownRead).toBeLessThan(seq + 100);
+
+    // Ann's own, sealed to her account so that her other devices keep up, is hers alone.
+    const own = framed(1, sealSignal(sessionOf(ann).account.accountKey, "read", groupId, epoch, { seq: seq + 50 }));
+    sessionOf(ann).applyReadState(group, zed.userId, own);
+    expect(group.readBy[zed.userId] ?? 0).toBe(0);
+    sessionOf(ann).applyReadState(group, ann.userId, own);
+    expect(group.ownRead).toBe(seq + 50);
+  });
 });
