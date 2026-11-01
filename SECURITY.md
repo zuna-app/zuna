@@ -137,6 +137,7 @@ These are real limitations, stated plainly:
 - **The time shown comes from the server.** The sender's device also signs the time it sent a message, and the app flags a message if the two are far apart.
 - **Deleting is best effort.** "Delete for everyone" removes the server's copy and the copies on members' apps, but a modified client or a screenshot can keep it.
 - **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.
+- **An invite link tells whoever has it which usernames are taken.** Signing up with a taken name says so, and doesn't use the invite up, so they can try names without joining. That's what any member sees in the list of people, and on a server with open sign-ups anyone can ask. Signing in doesn't say whether an account exists.
 - **A compromised device is out of scope.** Malware on your computer can read what you can read.
 
 ## The web app
