@@ -14,6 +14,7 @@ import { ZunaClient } from "../src/client";
 import type { DbProvider, LocalDb, SqlValue } from "../src/db";
 import { toBase64 } from "../src/encoding";
 import { allowLocalLinks, type WebAdapter } from "../src/links";
+import { rotationTiming } from "../src/session";
 import type { CoreEvent } from "../src/types";
 
 const require = createRequire(import.meta.url);
@@ -25,6 +26,10 @@ export function loadCrypto(): void {
   initCryptoSync({ module: readFileSync(join(root, "packages", "crypto", "pkg", "zuna_crypto_bg.wasm")) });
   // Tests serve their pages from this machine, which a released app won't fetch.
   allowLocalLinks(true);
+  // Nobody here has half a minute to wait for a device to take over a rotation.
+  rotationTiming.gatherMs = 20;
+  rotationTiming.takeoverMs = 200;
+  rotationTiming.retryMs = 200;
 }
 
 class MemoryDb implements LocalDb {
@@ -223,6 +228,15 @@ export class TestApp {
   async register(link: string, username: string, password = "correct horse battery"): Promise<string> {
     const preview = await this.client.previewInvite(link);
     const result = await this.client.register(preview, username, password, { displayName: username });
+    this.serverId = result.serverId;
+    await this.online();
+    return result.recoveryKey;
+  }
+
+  /** Signs up as an app from before slots would have, leaving the account as it would be today. */
+  async registerAsBefore(link: string, username: string, password = "correct horse battery"): Promise<string> {
+    const preview = await this.client.previewInvite(link);
+    const result = await this.client.register({ ...preview, server: { ...preview.server, account_protocol: undefined } }, username, password, { displayName: username });
     this.serverId = result.serverId;
     await this.online();
     return result.recoveryKey;

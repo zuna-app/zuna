@@ -53,6 +53,7 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var emoteSetName: String
     public var userCount: Int
     public var communityKey: String?
+    public var accountProtocol: Int?
 
     enum CodingKeys: String, CodingKey {
         case name, version, claimed, registration
@@ -63,6 +64,7 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case emoteSetId = "emote_set_id"
         case emoteSetName = "emote_set_name"
         case userCount = "user_count"
+        case accountProtocol = "account_protocol"
         case communityKey = "community_key"
     }
 }
@@ -228,6 +230,7 @@ public struct SystemEvent: Codable, Sendable, Equatable, Hashable {
         case deviceAdded = "device_added"
         case unexpectedJoin = "unexpected_join"
         case identityChanged = "identity_changed"
+        case identityRotated = "identity_rotated"
         case groupCreated = "group_created"
     }
 

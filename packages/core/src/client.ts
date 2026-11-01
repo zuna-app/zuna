@@ -8,8 +8,9 @@ import {
   register,
   type AccountState,
 } from "./account";
-import { normalizeServerUrl, Api } from "./api";
-import { randomId, type VaultCore } from "./crypto";
+import { normalizeServerUrl, Api, ApiError } from "./api";
+import { coreFromJson, coreToJson, randomId } from "./crypto";
+import type { RotationPlan } from "./generations";
 import { fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 import { migrate, type DbProvider, type LocalDb } from "./db";
 import type { FileAdapter } from "./files";
@@ -34,32 +35,25 @@ function encodeAccount(account: AccountState): string {
     deviceSecret: toBase64(account.deviceSecret),
     certificate: toBase64(account.certificate),
     accountKey: toBase64(account.accountKey),
-    core: {
-      identityPublic: toBase64(account.core.identityPublic),
-      identitySecret: toBase64(account.core.identitySecret),
-      hpkePublic: toBase64(account.core.hpkePublic),
-      hpkeSecret: toBase64(account.core.hpkeSecret),
-      communityKey: toBase64(account.core.communityKey),
-    },
+    sealPublic: account.sealPublic && toBase64(account.sealPublic),
+    sealSecret: account.sealSecret && toBase64(account.sealSecret),
+    sealOlder: account.sealOlder && toBase64(account.sealOlder),
+    core: coreToJson(account.core),
   });
 }
 
 export function decodeAccount(json: string): AccountState {
   const raw = JSON.parse(json);
-  const core: VaultCore = {
-    identityPublic: fromBase64(raw.core.identityPublic),
-    identitySecret: fromBase64(raw.core.identitySecret),
-    hpkePublic: fromBase64(raw.core.hpkePublic),
-    hpkeSecret: fromBase64(raw.core.hpkeSecret),
-    communityKey: fromBase64(raw.core.communityKey),
-  };
   return {
     ...raw,
     devicePublic: fromBase64(raw.devicePublic),
     deviceSecret: fromBase64(raw.deviceSecret),
     certificate: fromBase64(raw.certificate),
     accountKey: fromBase64(raw.accountKey),
-    core,
+    sealPublic: raw.sealPublic ? fromBase64(raw.sealPublic) : undefined,
+    sealSecret: raw.sealSecret ? fromBase64(raw.sealSecret) : undefined,
+    sealOlder: raw.sealOlder ? fromBase64(raw.sealOlder) : undefined,
+    core: coreFromJson(raw.core),
   };
 }
 
@@ -143,6 +137,10 @@ export class ZunaClient {
     session.onSignedIn = () => {
       this.index.run("UPDATE servers SET signed_out = NULL, signed_out_at = NULL WHERE id = ?", [serverId]);
     };
+    session.onAccountChanged = (changed) => {
+      const sealed = wasm.aeadSeal(this.serverKey(serverId), utf8(encodeAccount(changed)), label("account"));
+      this.index.run("UPDATE servers SET account = ? WHERE id = ?", [sealed, serverId]);
+    };
     if (this.options.web) session.linkPreview = (url) => this.linkPreview(url);
     session.setActive(this.active);
     this.sessions.set(serverId, session);
@@ -158,7 +156,7 @@ export class ZunaClient {
     this.index.run("UPDATE servers SET name = ?, has_icon = ? WHERE id = ?", [info.name, info.has_icon ? 1 : 0, serverId]);
   }
 
-  private async addAccount(account: AccountState, isNewDevice: boolean): Promise<string> {
+  private async addAccount(account: AccountState, isNewDevice: boolean, plan?: RotationPlan): Promise<string> {
     const existing = this.listServers().find((server) => server.url === account.serverUrl);
     if (existing) await this.forgetServer(existing.id);
     const serverId = randomId();
@@ -174,6 +172,14 @@ export class ZunaClient {
     ]);
     const session = await this.createSession(serverId, account);
     if (isNewDevice) await session.prepareNewDevice();
+    if (plan) {
+      // Stored until it's done: if the network is what's in the way, it finishes later.
+      await session.rotate(plan).catch(async (error) => {
+        if (error instanceof ApiError && error.retryable) return;
+        await this.forgetServer(serverId);
+        throw error;
+      });
+    }
     session.start();
     return serverId;
   }
@@ -195,11 +201,13 @@ export class ZunaClient {
   }
 
   async login(url: string, username: string, password: string): Promise<string> {
-    return this.addAccount(await login(url, username, password), true);
+    const { account, plan } = await login(url, username, password);
+    return this.addAccount(account, true, plan);
   }
 
   async recover(url: string, username: string, recoveryKey: string, newPassword: string): Promise<string> {
-    return this.addAccount(await recover(url, username, recoveryKey, newPassword), true);
+    const { account, plan } = await recover(url, username, recoveryKey, newPassword);
+    return this.addAccount(account, true, plan);
   }
 
   // --- Servers ---

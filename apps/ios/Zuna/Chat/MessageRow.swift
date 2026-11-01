@@ -154,6 +154,7 @@ private struct SystemRow: View {
         case .memberRejoined: return "\(name(system.actorId)) rejoined this chat"
         case .unexpectedJoin: return "\(name(system.actorId)) joined without being added by a member. Check that this is expected."
         case .identityChanged: return "\(name(system.actorId))'s security key changed. Verify it before trusting new messages."
+        case .identityRotated: return "\(name(system.actorId))'s security key changed since you verified it. You can compare keys again if you'd like."
         case .deviceAdded: return "\(name(system.actorId)) added a device"
         }
     }

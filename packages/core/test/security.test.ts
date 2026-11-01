@@ -221,12 +221,12 @@ describe("planting a key through a history grant (Z-02)", () => {
 
     const from = async (sender: TestApp) => {
       const sealed = await plant(sender, dave, groupId, { 20: fake });
-      const realGrants = session.api.historyGrants;
+      const realGrants = session.api.historyGrantsAtAnyGeneration;
       const realDelete = session.api.deleteHistoryGrant;
-      session.api.historyGrants = async () => [{ id: 1, group_id: groupId, data: toBase64(sealed) }];
+      session.api.historyGrantsAtAnyGeneration = async () => [{ id: 1, group_id: groupId, data: toBase64(sealed) }];
       session.api.deleteHistoryGrant = async () => undefined;
       await session.processHistoryGrants();
-      session.api.historyGrants = realGrants;
+      session.api.historyGrantsAtAnyGeneration = realGrants;
       session.api.deleteHistoryGrant = realDelete;
     };
 
@@ -537,7 +537,9 @@ describe("signing in on a malicious server (Z-10)", () => {
   });
 
   it("moves an account from before that at its next sign-in, and never sends the old key", async () => {
-    const dave = await person("dave");
+    const dave = await new TestApp("dave").open();
+    open.push(dave);
+    await dave.registerAsBefore(invite, `dave${++counter}`);
     const username = dave.session.getSelf().username;
     const api = apiOf(dave);
     // The account as an older app would have left it.

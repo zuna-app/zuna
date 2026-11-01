@@ -578,7 +578,7 @@ function VerifyIdentity({ userId, onClose }: { userId: string; onClose: () => vo
         <div className="notice is-danger">
           <ShieldAlert size={16} />
           <span>
-            <b>{user.displayName}'s security key changed.</b> Zuna accounts keep the same key for life, so this may mean someone is intercepting your messages. Only continue after comparing these emoji with them directly.
+            <b>{user.displayName}'s security key changed</b> in a way that doesn't follow from the one before, so this may mean someone is intercepting your messages. Only continue after comparing these emoji with them directly.
           </span>
         </div>
       )}

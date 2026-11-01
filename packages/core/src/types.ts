@@ -17,6 +17,8 @@ export interface ServerInfo {
   emote_set_name: string;
   user_count: number;
   community_key?: string;
+  /** Whether this server keeps generations of account keys. Absent on one that doesn't. */
+  account_protocol?: number;
 }
 
 export interface InvitePreview {
@@ -165,6 +167,7 @@ export interface SystemEvent {
     | "device_added"
     | "unexpected_join"
     | "identity_changed"
+    | "identity_rotated"
     | "group_created";
   actorId?: string;
   targetIds?: string[];

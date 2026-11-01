@@ -91,6 +91,31 @@ const MIGRATIONS: string[] = [
   ALTER TABLE pinned_identities ADD COLUMN uploaded INTEGER NOT NULL DEFAULT 0;
   INSERT OR IGNORE INTO joined_epochs(group_id, epoch) SELECT group_id, MIN(epoch) FROM epoch_keys GROUP BY group_id;
   `,
+  // identity_chain: the links of each person's chain of identity keys, this account's included.
+  // identity_state: how far this account has got along each chain, and whether it has seen two.
+  // device_first_leaf: when each device was first seen holding a leaf in a tree shared with this
+  // device, on this device's clock, since the server's word on how old a device is proves nothing.
+  `
+  CREATE TABLE identity_chain (
+    user_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    payload BLOB NOT NULL,
+    by_prev BLOB NOT NULL,
+    by_new BLOB NOT NULL,
+    by_device BLOB NOT NULL,
+    PRIMARY KEY (user_id, generation)
+  );
+  CREATE TABLE identity_state (
+    user_id TEXT PRIMARY KEY,
+    forked INTEGER NOT NULL DEFAULT 0,
+    known_generation INTEGER NOT NULL DEFAULT 0,
+    known_hash BLOB,
+    chain_uploaded INTEGER NOT NULL DEFAULT 1,
+    trust_generation INTEGER NOT NULL DEFAULT 0,
+    trust_uploaded INTEGER NOT NULL DEFAULT 1
+  );
+  CREATE TABLE device_first_leaf (user_id TEXT NOT NULL, device_id TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, device_id));
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

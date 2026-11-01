@@ -73,6 +73,8 @@ function SystemMessage({ message, highlighted }: { message: MessageView; highlig
         return `${name(system.actorId)} joined without being added by a member. Check that this is expected.`;
       case "identity_changed":
         return `${name(system.actorId)}'s security key changed. Verify it before trusting new messages.`;
+      case "identity_rotated":
+        return `${name(system.actorId)}'s security key changed since you verified it. You can compare keys again if you'd like.`;
       case "device_added":
         return `${name(system.actorId)} added a device`;
     }

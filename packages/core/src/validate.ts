@@ -157,6 +157,7 @@ const SYSTEM_TYPES = new Set<string>([
   "device_added",
   "unexpected_join",
   "identity_changed",
+  "identity_rotated",
   "group_created",
 ]);
 

@@ -6,19 +6,39 @@
 // with an external commit, so a bad state never ends a conversation.
 
 import * as wasm from "@zuna/crypto";
-import { Api, ApiError, decode, type ApiEvent, type ApiGroup, type ApiMessage, type ApiReaction, type ApiUser } from "./api";
+import {
+  Api,
+  ApiError,
+  decode,
+  encodeBody,
+  type ApiAccount,
+  type ApiEvent,
+  type ApiGroup,
+  type ApiLink,
+  type ApiMessage,
+  type ApiReaction,
+  type ApiUser,
+} from "./api";
 import {
   changePassword,
   inviteLink,
+  planPasswordChange,
+  planRecoveryChange,
   regenerateRecoveryKey,
+  upgradeSignInKey,
   type AccountState,
 } from "./account";
 import {
   CONTENT_LABEL,
+  coreFromJson,
+  coreToJson,
+  createCertificate,
   openEnvelope,
   openHistoryGrant,
   openProfile,
+  openProfileAtGeneration,
   openSignal,
+  openVaultCore,
   openVaultItem,
   parseCertificate,
   randomId,
@@ -29,12 +49,42 @@ import {
   sealHistoryGrant,
   sealProfile,
   sealSignal,
+  sealVaultCore,
   sealVaultItem,
   signGroupDetails,
+  signHpkeKey,
+  signProfileAtGeneration,
   signalEpoch,
   verifyCertificate,
+  verifyCertificateAtGeneration,
   verifyHpkeKey,
+  type DeviceCertificate,
+  type VaultCore,
 } from "./crypto";
+import {
+  ACCOUNT_PROTOCOL,
+  buildLink,
+  carries,
+  keyCommitment,
+  openBundle,
+  planFromJson,
+  planToJson,
+  readHeldLink,
+  rootHash,
+  sealBridge,
+  sealBundle,
+  sealToSlot,
+  signSealKey,
+  slotsHash,
+  verifyEnrollment,
+  verifyLink,
+  verifySealKey,
+  type Link,
+  type LinkDevice,
+  type RotationPlan,
+  type SignedLink,
+  type SlotKind,
+} from "./generations";
 import { equalBytes, fromBase64, fromUtf8, toBase64, toBase64Url, u64Bytes, utf8 } from "./encoding";
 import type { LocalDb, SqlValue } from "./db";
 import { blobFiles, type FileAdapter } from "./files";
@@ -111,6 +161,25 @@ const TIME_DIFFERS_MS = 24 * 3600 * 1000;
 const SEARCH_REBUILD_BATCH = 200;
 const VAULT_BATCH = 200;
 const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
+/** Keeps changes to this account's keys one at a time. Group IDs are hex, so it can't be one of those. */
+const ACCOUNT_LOCK = "account";
+const ROTATION_INTENT = "rotation_intent";
+const ROTATION_ATTEMPTS = 6;
+/** After this long failing to rotate, the person is told. */
+const ROTATION_STUCK_MS = 24 * 3600 * 1000;
+/** Enough for anyone to have heard about a rotation by the time a key is forgotten, in a core with a size limit. */
+const OLDER_HPKE_KEPT = 16;
+/** A device that has held a leaf this long, as this device saw it, has continuity with what came before. */
+const CONTINUITY_MS = 7 * 24 * 3600 * 1000;
+
+/** How long things wait before a rotation. Tests shorten these. */
+export const rotationTiming = {
+  /** Removals close together share one rotation. */
+  gatherMs: 2000,
+  /** Another device takes over after up to this long, if nobody has rotated by then. */
+  takeoverMs: 30_000,
+  retryMs: 60_000,
+};
 
 /** Values of `epoch_keys.uploaded`. A granted key waits until it has proved itself. */
 const KEY_NOT_UPLOADED = 0;
@@ -123,6 +192,24 @@ interface CachedDevice {
   createdAt: number;
   lastSeenAt: number;
   revoked: boolean;
+  /** Its certificate is from a client that doesn't know about generations. */
+  legacy?: boolean;
+  /** As the server said, and for whoever uses them to check. */
+  enrollProof?: string | null;
+  sealKey?: string | null;
+  sealSig?: string | null;
+}
+
+/** A rotation under way, kept so a crash can finish it with the same keys. */
+interface RotationIntent {
+  generation: number;
+  /** As it's sent, so sending it again is the same request. */
+  request: { link: { payload: string; by_prev: string; by_new: string; by_device: string } } & Record<string, unknown>;
+  accountKey: string;
+  core: ReturnType<typeof coreToJson>;
+  /** What it's for besides new keys, to do again if another rotation gets in first. */
+  plan: ReturnType<typeof planToJson>;
+  once: boolean;
 }
 
 interface CachedUser {
@@ -243,6 +330,13 @@ function assertSendable(body: MessageBody): void {
   if ((body.text?.length ?? 0) > MAX_TEXT_LENGTH) throw new Error("That message is too long. Try sending it as a file.");
 }
 
+const signedFromApi = (wire: ApiLink): SignedLink => ({
+  payload: decode(wire.payload),
+  byPrev: decode(wire.by_prev),
+  byNew: decode(wire.by_new),
+  byDevice: decode(wire.by_device),
+});
+
 export class ServerSession {
   readonly api: Api;
   private mls: wasm.MlsClient;
@@ -286,10 +380,25 @@ export class ServerSession {
   /** Leaves already warned about, so one ghost makes one warning. */
   private warnedLeaves = new Set<string>();
   private resealing = new Set<string>();
+  /** Each person's chain of identity keys as far as it's been checked, oldest first. */
+  private chains = new Map<string, Link[]>();
+  private following = new Map<string, Promise<void>>();
+  /** The newest key of a chain that disagrees with the one held, for comparing with its owner. */
+  private forkHeads = new Map<string, Uint8Array>();
+  /** A device of this account is gone and no generation covers that yet. */
+  private removalsUncovered = false;
+  private rotationOpen = false;
+  private rotationTimer: ReturnType<typeof setTimeout> | undefined;
+  private sealingTimer: ReturnType<typeof setTimeout> | undefined;
+  private sealing = false;
+  /** Removals from before this server kept generations are nobody's cue to rotate. */
+  private protocolSince: number | null = null;
   /** Called when the server told us this session is over (banned, revoked). */
   onSignedOut: ((reason: string) => void) | null = null;
   /** Called when a session that seemed to be over turns out to be working. */
   onSignedIn: (() => void) | null = null;
+  /** Called with what has to be kept for next time, when it changes. */
+  onAccountChanged: ((account: AccountState) => void) | null = null;
 
   constructor(
     readonly serverId: string,
@@ -348,6 +457,10 @@ export class ServerSession {
     clearTimeout(this.flushRetry);
     clearTimeout(this.muteTimer);
     clearTimeout(this.signedOutRetry);
+    clearTimeout(this.rotationTimer);
+    clearTimeout(this.sealingTimer);
+    this.rotationTimer = undefined;
+    this.sealingTimer = undefined;
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
     this.reconcileTimers.clear();
   }
@@ -437,7 +550,14 @@ export class ServerSession {
   private async syncAll(): Promise<void> {
     this.info = await this.api.info();
     this.emit({ type: "settings", serverId: this.serverId, info: this.info });
-    // The vault comes first: it holds the keys this account already trusts,
+    this.noticeProtocol();
+    // Which keys are current comes first of all, since the vault opens with them.
+    // Not being able to tell is no reason to stop the messages from coming.
+    await this.syncAccount().catch((error) => {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      console.warn("[zuna] catching up on this account's keys", error);
+    });
+    // The vault comes next: it holds the keys this account already trusts,
     // which a new device must have before believing what the server says.
     await this.syncVault();
     await this.syncUsers();
@@ -517,7 +637,10 @@ export class ServerSession {
       this.groups.set(group.id, group);
     }
     // This account's own key comes from its vault, never from what the server says.
-    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [this.account.userId, this.account.core.identityPublic]);
+    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [this.account.userId, this.account.core.rootPublic]);
+    this.loadChains();
+    this.rotationOpen = this.getKv<RotationIntent>(ROTATION_INTENT) !== null;
+    this.protocolSince = this.getKv<number>("protocol_since");
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
     this.watchMutes();
     const push = this.getKv<(Omit<PushSettings, "key"> & { key: string }) | "off">("push");
@@ -566,6 +689,9 @@ export class ServerSession {
     const response = await this.api.users(this.usersCursor);
     this.online = new Set(response.online);
     for (const user of response.users) this.applyUser(user);
+    for (const user of response.users) {
+      if (user.id !== this.account.userId && (user.key_generation ?? 0) > this.headGeneration(user.id)) await this.followChain(user.id);
+    }
     this.usersCursor = response.now - 5000;
     this.setKv("users_cursor", this.usersCursor);
     this.emit({ type: "users", serverId: this.serverId });
@@ -585,23 +711,26 @@ export class ServerSession {
   private trustOf(userId: string, current: Uint8Array): TrustState {
     const pinned = this.pinnedIdentity(userId);
     if (pinned && !equalBytes(pinned, current)) return "changed";
+    if (this.identityState(userId).forked) return "changed";
     const verified = this.verifiedIdentity(userId);
     if (!verified) return "unverified";
-    return equalBytes(verified, current) ? "verified" : "changed";
+    if (!equalBytes(verified, current)) return "changed";
+    // What was verified may since have been replaced, by someone who may have stolen it.
+    return this.identityState(userId).trust_generation >= this.headGeneration(userId) ? "verified" : "unverified";
   }
 
   /**
-   * Trust on first use: the first identity key seen for a user is pinned. Zuna
-   * accounts keep one identity key for life, so a later change means the server
-   * is lying or the account was replaced. That gets a loud warning. Pins and
-   * verifications are shared through the vault, so a new device already knows what
-   * this account's other devices do.
+   * Trust on first use: the first identity key seen for a user is pinned. A later
+   * change to that first key means the server is lying or the account was replaced,
+   * which gets a loud warning. Keys an account moves on to come as a chain from that
+   * first one (see followChain). Pins and verifications are shared through the
+   * vault, so a new device already knows what this account's other devices do.
    */
   private applyUser(api: ApiUser): CachedUser {
     const identityKey = decode(api.identity_key);
     const isSelf = api.id === this.account.userId;
     // Someone this account has verified is pinned to that key, whatever the server says now.
-    const pinned = isSelf ? this.account.core.identityPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id));
+    const pinned = isSelf ? this.account.core.rootPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id));
     if (!this.pinnedIdentity(api.id)) {
       this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 0)", [api.id, pinned ?? identityKey]);
     }
@@ -611,14 +740,28 @@ export class ServerSession {
 
     const devices = new Map<string, CachedDevice>();
     for (const device of api.devices) {
-      const cert = verifyCertificate(trustedKey, decode(device.certificate));
-      if (!cert || cert.userId !== api.id || cert.deviceId !== device.id) continue;
+      const certificate = decode(device.certificate);
+      const standing = this.certificateStanding(api.id, trustedKey, certificate);
+      if (!standing) {
+        // From a generation this device hasn't got to yet, as far as it knows still the same device.
+        const known = previous?.devices.get(device.id);
+        if (known && (parseCertificate(certificate)?.generation ?? 0) > this.headGeneration(api.id)) devices.set(device.id, known);
+        continue;
+      }
+      if (standing.cert.userId !== api.id || standing.cert.deviceId !== device.id) continue;
+      // Certificates from an older generation only mean something if their device was
+      // known before that generation ended. Someone with no history here can't tell.
+      if (!standing.carried && previous && !previous.devices.has(device.id)) continue;
       devices.set(device.id, {
         id: device.id,
-        signatureKey: cert.signatureKey,
+        signatureKey: standing.cert.signatureKey,
         createdAt: device.created_at,
         lastSeenAt: device.last_seen_at,
-        revoked: (device as { revoked_at?: number | null }).revoked_at != null,
+        revoked: device.revoked_at != null || !standing.carried,
+        legacy: !standing.headSignature,
+        enrollProof: device.enroll_proof ?? null,
+        sealKey: device.seal_key ?? null,
+        sealSig: device.seal_sig ?? null,
       });
     }
 
@@ -635,15 +778,18 @@ export class ServerSession {
       }
     }
 
-    const opened = api.profile
-      ? parseProfile(openProfile<unknown>(this.account.core.communityKey, trustedKey, api.username, decode(api.profile)))
-      : null;
+    const head = this.headOf(api.id);
+    const opened = !api.profile
+      ? null
+      : head
+        ? parseProfile(openProfileAtGeneration<unknown>(this.account.core.communityKey, head.identity, api.id, api.username, head.gen, decode(api.profile), decode(api.profile_sig)))
+        : parseProfile(openProfile<unknown>(this.account.core.communityKey, trustedKey, api.username, decode(api.profile)));
     const user: CachedUser = {
       id: api.id,
       username: api.username,
       role: api.role,
       identityKey,
-      hpkeKey: decode(api.hpke_key),
+      hpkeKey: head?.hpke ?? decode(api.hpke_key),
       profile: opened ?? previous?.profile ?? emptyProfile(api.username),
       lastSeenAt: api.last_seen_at,
       hidesLastSeen: api.hide_last_seen,
@@ -666,6 +812,11 @@ export class ServerSession {
       const dm = this.dmWith(api.id);
       if (dm) this.addSystemRow(dm.id, Date.now(), api.id, { type: "identity_changed", actorId: api.id, targetIds: [api.id] });
     }
+    if (isSelf) {
+      this.checkRemovals(api);
+    } else if ((api.key_generation ?? 0) > this.headGeneration(api.id)) {
+      void this.followChain(api.id).catch((error) => console.warn("[zuna] following a chain of keys", error));
+    }
     return user;
   }
 
@@ -675,7 +826,11 @@ export class ServerSession {
       if (cached) return cached;
     }
     try {
-      return this.applyUser(await this.api.user(userId));
+      const api = await this.api.user(userId);
+      const user = this.applyUser(api);
+      if (userId === this.account.userId || (api.key_generation ?? 0) <= this.headGeneration(userId)) return user;
+      await this.followChain(userId);
+      return this.users.get(userId) ?? user;
     } catch {
       return this.users.get(userId) ?? null;
     }
@@ -720,14 +875,22 @@ export class ServerSession {
   private async syncVault(): Promise<void> {
     let cursor = this.getKv<number>("vault_cursor") ?? 0;
     const touchedGroups = new Set<string>();
-    for (;;) {
-      const items = await this.api.vaultItems(cursor);
+    fetching: for (;;) {
+      const items = this.modern ? await this.api.vaultItemsAtAnyGeneration(cursor) : await this.api.vaultItems(cursor);
       if (items.length === 0) break;
       for (const item of items) {
+        const generation = item.generation ?? 0;
+        // Sealed under a key this device doesn't have yet, so it stays unread until then.
+        if (generation > this.account.core.generation) {
+          this.syncAccountSoon();
+          break fetching;
+        }
         cursor = Math.max(cursor, item.seq);
+        const key = this.vaultKeyFor(item.id, generation);
+        if (!key) continue;
         let data: Uint8Array;
         try {
-          data = openVaultItem(this.account.accountKey, item.id, decode(item.data));
+          data = openVaultItem(key, item.id, decode(item.data), generation);
         } catch {
           console.warn("[zuna] a vault item could not be opened", item.id);
           continue;
@@ -762,6 +925,10 @@ export class ServerSession {
         } else if (item.id.startsWith("device:")) {
           this.deviceNames.set(item.id.slice("device:".length), fromUtf8(data));
           this.setKv("device_names", Object.fromEntries(this.deviceNames));
+        } else if (item.id.startsWith("chain:")) {
+          this.noteChainPosition(item.id.slice("chain:".length), data);
+        } else if (item.id.startsWith("trust:")) {
+          this.noteVerifiedPosition(item.id.slice("trust:".length), data);
         }
       }
       this.setKv("vault_cursor", cursor);
@@ -785,8 +952,40 @@ export class ServerSession {
     this.persistUser(user);
   }
 
+  /**
+   * The key an item of this generation opens with, if it's to be believed at all.
+   * Old keys may be in the wrong hands, so what decides who this account trusts is
+   * only ever read at the current generation. Epoch keys only ever fill gaps, so
+   * they can wait to be sealed again, until the generation closes.
+   */
+  private vaultKeyFor(id: string, generation: number): Uint8Array | null {
+    const { accountKey, core } = this.account;
+    if (generation === core.generation) return accountKey;
+    if (generation < core.closedBelow || !id.startsWith("ek:")) return null;
+    return core.olderKeys[generation] ?? null;
+  }
+
+  /** Puts items in the vault, unless this isn't the time. Returns whether it did. */
+  private async putItems(items: { id: string; data: Uint8Array }[]): Promise<boolean> {
+    const { accountKey, core } = this.account;
+    const sealed = items.map(({ id, data }) => ({ id, data: sealVaultItem(accountKey, id, data, core.generation) }));
+    if (!this.modern) {
+      await this.api.putVaultItems(sealed);
+      return true;
+    }
+    if (this.removalsUncovered || this.rotationOpen) return false;
+    try {
+      await this.api.putVaultItemsAt(core.generation, sealed);
+      return true;
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "stale_generation") throw error;
+      this.syncAccountSoon();
+      return false;
+    }
+  }
+
   private async putVault(id: string, data: Uint8Array): Promise<void> {
-    await this.api.putVaultItems([{ id, data: sealVaultItem(this.account.accountKey, id, data) }]);
+    await this.putItems([{ id, data }]);
   }
 
   /** Shares the keys pinned here with this account's other devices, a batch at a time. */
@@ -796,17 +995,14 @@ export class ServerSession {
         "SELECT user_id, identity_key FROM pinned_identities WHERE uploaded = 0 LIMIT ?",
         [VAULT_BATCH],
       );
-      if (rows.length === 0) return;
-      await this.api.putVaultItems(
-        rows.map((row) => {
-          const id = `pin:${row.user_id}`;
-          return { id, data: sealVaultItem(this.account.accountKey, id, row.identity_key) };
-        }),
-      );
+      if (rows.length === 0) break;
+      const stored = await this.putItems(rows.map((row) => ({ id: `pin:${row.user_id}`, data: row.identity_key })));
+      if (!stored) return;
       this.db.transaction(() => {
         for (const row of rows) this.db.run("UPDATE pinned_identities SET uploaded = 1 WHERE user_id = ?", [row.user_id]);
       });
     }
+    await this.uploadChainPositions();
   }
 
   private async saveDeviceName(): Promise<void> {
@@ -821,11 +1017,8 @@ export class ServerSession {
       [KEY_NOT_UPLOADED, VAULT_BATCH],
     );
     if (rows.length === 0) return;
-    const items = rows.map((row) => {
-      const id = `ek:${row.group_id}:${row.epoch}`;
-      return { id, data: sealVaultItem(this.account.accountKey, id, this.openLocal("epoch", row.key)) };
-    });
-    await this.api.putVaultItems(items);
+    const items = rows.map((row) => ({ id: `ek:${row.group_id}:${row.epoch}`, data: this.openLocal("epoch", row.key) }));
+    if (!(await this.putItems(items))) return;
     this.db.transaction(() => {
       for (const row of rows) {
         this.db.run("UPDATE epoch_keys SET uploaded = ? WHERE group_id = ? AND epoch = ?", [KEY_UPLOADED, row.group_id, row.epoch]);
@@ -840,13 +1033,13 @@ export class ServerSession {
    * rememberCurrentEpochKey).
    */
   private async processHistoryGrants(): Promise<void> {
-    const grants = await this.api.historyGrants();
+    const grants = this.modern ? await this.api.historyGrantsAtAnyGeneration() : await this.api.historyGrants();
     for (const grant of grants) {
       const joined = this.joinedEpoch(grant.group_id);
       // Kept until this device is in the group and can tell what it may fill in.
       if (joined === null) continue;
       try {
-        const opened = openHistoryGrant(this.account.core.hpkeSecret, grant.group_id, this.account.userId, decode(grant.data));
+        const opened = this.openGrant(grant.group_id, decode(grant.data));
         if (await this.grantAuthentic(grant.group_id, opened)) {
           for (const [epoch, key] of Object.entries(opened.keys)) {
             const number = Number(epoch);
@@ -871,12 +1064,872 @@ export class ServerSession {
     if (grants.length > 0) await this.uploadEpochKeys();
   }
 
+  /** Someone who hasn't heard about a rotation yet may have sealed this to an older key. */
+  private openGrant(groupId: string, sealed: Uint8Array): ReturnType<typeof openHistoryGrant> {
+    const { core, userId } = this.account;
+    for (const secret of core.olderHpkeSecrets) {
+      try {
+        return openHistoryGrant(secret, groupId, userId, sealed);
+      } catch {
+        // Not this one.
+      }
+    }
+    return openHistoryGrant(core.hpkeSecret, groupId, userId, sealed);
+  }
+
   private async grantAuthentic(groupId: string, grant: ReturnType<typeof openHistoryGrant>): Promise<boolean> {
     const group = await this.api.group(groupId);
     this.applyGroup(group);
     if (group.members.find((member) => member.user_id === grant.signer.userId)?.role !== "admin") return false;
     const device = (await this.ensureUser(grant.signer.userId, true))?.devices.get(grant.signer.deviceId);
     return !!device && grant.signedBy(device.signatureKey);
+  }
+
+  // --- Account generations ---
+
+  /** Whether this server keeps generations of account keys. */
+  private get modern(): boolean {
+    return (this.info?.account_protocol ?? (this.info ? 0 : (this.account.protocol ?? 0))) >= ACCOUNT_PROTOCOL;
+  }
+
+  private saveAccount(): void {
+    this.onAccountChanged?.(this.account);
+  }
+
+  /** Remembers that this server keeps generations. If it says later that it doesn't, that gets said. */
+  private noticeProtocol(): void {
+    if (this.modern && !this.account.protocol) {
+      this.account = { ...this.account, protocol: ACCOUNT_PROTOCOL };
+      this.saveAccount();
+    } else if (!this.modern && this.account.protocol && !this.getKv<boolean>("protocol_gone")) {
+      this.setKv("protocol_gone", true);
+      this.emit({
+        type: "security",
+        serverId: this.serverId,
+        userId: "",
+        message: "This server stopped supporting the way Zuna replaces your account's keys. It may have been changed to an older version.",
+      });
+    }
+  }
+
+  private loadChains(): void {
+    for (const row of this.db.all<{ user_id: string; payload: Uint8Array; by_prev: Uint8Array; by_new: Uint8Array; by_device: Uint8Array }>(
+      "SELECT user_id, payload, by_prev, by_new, by_device FROM identity_chain ORDER BY user_id, generation",
+    )) {
+      const link = readHeldLink({ payload: row.payload, byPrev: row.by_prev, byNew: row.by_new, byDevice: row.by_device });
+      if (link) this.chains.set(row.user_id, [...this.chainOf(row.user_id), link]);
+    }
+  }
+
+  private chainOf(userId: string): Link[] {
+    return this.chains.get(userId) ?? [];
+  }
+
+  private headOf(userId: string): Link | null {
+    return this.chainOf(userId).at(-1) ?? null;
+  }
+
+  private headGeneration(userId: string): number {
+    return this.headOf(userId)?.gen ?? 0;
+  }
+
+  /**
+   * Whether a certificate counts for someone: it's signed by their identity key of
+   * the generation it names, and if that's an older one, by the first key if it's
+   * from the very beginning, its device has been on the list of every link since.
+   * That list is what makes a certificate someone signs later with a stolen old key
+   * worth nothing. Null if it isn't signed, or is from further along than is known.
+   */
+  private certificateStanding(userId: string, root: Uint8Array, certificate: Uint8Array): { cert: DeviceCertificate; carried: boolean; headSignature: boolean } | null {
+    const parsed = parseCertificate(certificate);
+    if (!parsed) return null;
+    const chain = this.chainOf(userId);
+    if (parsed.generation > chain.length) return null;
+    const cert = parsed.generation === 0 ? verifyCertificate(root, certificate) : verifyCertificateAtGeneration(chain[parsed.generation - 1]!.identity, certificate);
+    if (!cert) return null;
+    const device = { id: parsed.deviceId, key: parsed.signatureKey };
+    return { cert, carried: chain.slice(parsed.generation).every((link) => carries(link, device)), headSignature: !!parsed.headSignature };
+  }
+
+  private identityState(userId: string): { forked: number; known_generation: number; known_hash: Uint8Array | null; trust_generation: number } {
+    return (
+      this.db.get("SELECT forked, known_generation, known_hash, trust_generation FROM identity_state WHERE user_id = ?", [userId]) ?? {
+        forked: 0,
+        known_generation: 0,
+        known_hash: null,
+        trust_generation: 0,
+      }
+    );
+  }
+
+  private updateIdentityState(userId: string, sql: string, params: SqlValue[]): void {
+    this.db.run("INSERT OR IGNORE INTO identity_state(user_id) VALUES(?)", [userId]);
+    this.db.run(`UPDATE identity_state SET ${sql} WHERE user_id = ?`, [...params, userId]);
+  }
+
+  private setVerifiedPosition(userId: string, generation: number): void {
+    this.updateIdentityState(userId, "trust_generation = ?, trust_uploaded = 0", [generation]);
+  }
+
+  /** What a sibling device says it has reached on someone's chain. Two versions of it means trouble. */
+  private noteChainPosition(userId: string, data: Uint8Array): void {
+    let position: { gen: number; hash: string };
+    try {
+      position = JSON.parse(fromUtf8(data));
+      if (!Number.isSafeInteger(position.gen) || typeof position.hash !== "string") return;
+    } catch {
+      return;
+    }
+    const held = this.chainOf(userId)[position.gen - 1];
+    const expected = fromBase64(position.hash);
+    if (held) {
+      if (!equalBytes(held.hash, expected)) void this.noteFork(userId);
+    } else if (position.gen > this.identityState(userId).known_generation) {
+      this.updateIdentityState(userId, "known_generation = ?, known_hash = ?", [position.gen, expected]);
+    }
+  }
+
+  private noteVerifiedPosition(userId: string, data: Uint8Array): void {
+    let position: { gen: number };
+    try {
+      position = JSON.parse(fromUtf8(data));
+      if (!Number.isSafeInteger(position.gen)) return;
+    } catch {
+      return;
+    }
+    if (position.gen <= this.identityState(userId).trust_generation) return;
+    this.updateIdentityState(userId, "trust_generation = ?", [position.gen]);
+    this.refreshTrust(userId);
+  }
+
+  private async uploadChainPositions(): Promise<void> {
+    const rows = this.db.all<{ user_id: string; chain_uploaded: number; trust_uploaded: number; trust_generation: number }>(
+      "SELECT user_id, chain_uploaded, trust_uploaded, trust_generation FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0 LIMIT ?",
+      [VAULT_BATCH],
+    );
+    if (rows.length === 0) return;
+    const items: { id: string; data: Uint8Array }[] = [];
+    for (const row of rows) {
+      const head = this.headOf(row.user_id);
+      if (!row.chain_uploaded && head) items.push({ id: `chain:${row.user_id}`, data: utf8(JSON.stringify({ gen: head.gen, hash: toBase64(head.hash) })) });
+      if (!row.trust_uploaded) items.push({ id: `trust:${row.user_id}`, data: utf8(JSON.stringify({ gen: row.trust_generation })) });
+    }
+    if (!(await this.putItems(items))) return;
+    this.db.transaction(() => {
+      for (const row of rows) this.db.run("UPDATE identity_state SET chain_uploaded = 1, trust_uploaded = 1 WHERE user_id = ?", [row.user_id]);
+    });
+  }
+
+  /** Takes on a link that's been checked: from here, what it says about devices goes. */
+  private acceptLink(userId: string, link: Link): void {
+    if (this.chainOf(userId).length >= link.gen) return;
+    this.db.run("INSERT OR REPLACE INTO identity_chain(user_id, generation, payload, by_prev, by_new, by_device) VALUES(?, ?, ?, ?, ?, ?)", [
+      userId,
+      link.gen,
+      link.payload,
+      link.byPrev,
+      link.byNew,
+      link.byDevice,
+    ]);
+    this.updateIdentityState(userId, "chain_uploaded = 0", []);
+    this.chains.set(userId, [...this.chainOf(userId), link]);
+  }
+
+  private followChain(userId: string): Promise<void> {
+    const running = this.following.get(userId);
+    if (running) return running;
+    const run = this.readChain(userId).finally(() => this.following.delete(userId));
+    this.following.set(userId, run);
+    return run;
+  }
+
+  /**
+   * Reads someone's chain of identity keys, each link checked against the one
+   * before, going back to the key first pinned for them. The first valid link for
+   * a generation stays. Another one for the same generation means someone with an
+   * old key and the server's help is telling a different story, which is what the
+   * loud warning is for.
+   */
+  private async readChain(userId: string): Promise<void> {
+    const root = this.pinnedIdentity(userId);
+    if (!root) return;
+    let accepted = false;
+    let lapsed = false;
+    for (;;) {
+      const chain = this.chainOf(userId);
+      const wires = await this.api.identityLinks(userId, Math.max(chain.length - 1, 0));
+      let advanced = false;
+      for (const wire of wires) {
+        const signed = signedFromApi(wire);
+        const held = this.chainOf(userId);
+        if (wire.generation <= held.length) {
+          if (!equalBytes(signed.payload, held[wire.generation - 1]!.payload)) return this.noteFork(userId);
+          continue;
+        }
+        const before = held.at(-1);
+        const link = verifyLink(signed, {
+          user: userId,
+          gen: held.length + 1,
+          prev: before?.hash ?? rootHash(userId, root),
+          prevIdentity: before?.identity ?? root,
+        });
+        if (!link) return this.noteFork(userId);
+        const state = this.identityState(userId);
+        if (state.known_generation === link.gen && state.known_hash && !equalBytes(state.known_hash, link.hash)) return this.noteFork(userId);
+        // What was verified was the key this replaces, so it only carries over from a
+        // device that has been around too long to be someone's quick invention.
+        if (this.verifiedIdentity(userId) && state.trust_generation === link.gen - 1) {
+          if (this.hasContinuity(userId, link.signer)) this.setVerifiedPosition(userId, link.gen);
+          else lapsed = true;
+        }
+        this.acceptLink(userId, link);
+        accepted = true;
+        advanced = true;
+      }
+      if (!advanced || wires.length < 200) break;
+    }
+    if (!accepted) return;
+    this.applyUser(await this.api.user(userId));
+    if (lapsed) {
+      const dm = this.dmWith(userId);
+      if (dm) this.addSystemRow(dm.id, Date.now(), userId, { type: "identity_rotated", actorId: userId });
+    }
+    this.rescheduleAffectedByDeviceChange(userId);
+    this.emit({ type: "users", serverId: this.serverId });
+    this.emitConversations();
+    await this.uploadChainPositions().catch(() => undefined);
+  }
+
+  private hasContinuity(userId: string, deviceId: string): boolean {
+    const row = this.db.get<{ at: number }>("SELECT at FROM device_first_leaf WHERE user_id = ? AND device_id = ?", [userId, deviceId]);
+    return !!row && Date.now() - row.at >= CONTINUITY_MS;
+  }
+
+  /** Two versions of someone's chain. What's held stays, and the existing warning says what this means. */
+  private async noteFork(userId: string): Promise<void> {
+    if (this.identityState(userId).forked) return;
+    this.updateIdentityState(userId, "forked = 1", []);
+    const root = this.pinnedIdentity(userId);
+    if (root) {
+      const head = await this.readWholeChain(userId, root).catch(() => null);
+      if (head) this.forkHeads.set(userId, head.at(-1)!.identity);
+    }
+    if (userId === this.account.userId) {
+      this.emit({
+        type: "security",
+        serverId: this.serverId,
+        userId,
+        message: "The server showed this device a different history of your account's keys. Someone may be trying to take over your account.",
+      });
+      return;
+    }
+    this.refreshTrust(userId);
+    const dm = this.dmWith(userId);
+    if (dm) this.addSystemRow(dm.id, Date.now(), userId, { type: "identity_changed", actorId: userId, targetIds: [userId] });
+    this.emit({ type: "users", serverId: this.serverId });
+  }
+
+  /** The chain the server shows now, checked from the start, without holding on to it. */
+  private async readWholeChain(userId: string, root: Uint8Array): Promise<Link[]> {
+    const links: Link[] = [];
+    for (;;) {
+      const wires = await this.api.identityLinks(userId, links.length);
+      for (const wire of wires) {
+        const before = links.at(-1);
+        const link = verifyLink(signedFromApi(wire), {
+          user: userId,
+          gen: links.length + 1,
+          prev: before?.hash ?? rootHash(userId, root),
+          prevIdentity: before?.identity ?? root,
+        });
+        if (!link) throw new Error("that chain doesn't hold together");
+        links.push(link);
+      }
+      if (wires.length < 200) return links;
+    }
+  }
+
+  /** The person compared keys against the chain the server shows now, so that's the one to follow. */
+  private async adoptChain(userId: string): Promise<void> {
+    const root = this.pinnedIdentity(userId);
+    if (!root) return;
+    const links = await this.readWholeChain(userId, root);
+    this.db.transaction(() => {
+      this.db.run("DELETE FROM identity_chain WHERE user_id = ?", [userId]);
+      this.chains.delete(userId);
+      for (const link of links) this.acceptLink(userId, link);
+      this.updateIdentityState(userId, "forked = 0, known_generation = 0, known_hash = NULL", []);
+    });
+    this.forkHeads.delete(userId);
+    this.applyUser(await this.api.user(userId));
+    this.rescheduleAffectedByDeviceChange(userId);
+  }
+
+  /**
+   * Whether this account's other devices should count a device. A list signed by a
+   * link says so for those on it. Otherwise it has to show it came from someone who
+   * opened a slot, which a stolen identity key can't do. An account still lacking a
+   * slot can't ask that, since an honest device may have had no slot to open.
+   */
+  private ownDeviceAccepted(deviceId: string, device: { signatureKey: Uint8Array; enrollProof?: string | null } | undefined): boolean {
+    const { core, userId } = this.account;
+    const { password, recovery } = core.slots;
+    if (!password || !recovery) return true;
+    if (!device) return false;
+    const head = this.headOf(userId);
+    if (head && carries(head, { id: deviceId, key: device.signatureKey })) return true;
+    const proof = decode(device.enrollProof);
+    return proof.length > 0 && [password, recovery].some((slot) => verifyEnrollment(slot.sign, userId, deviceId, device.signatureKey, proof));
+  }
+
+  /** Devices gone from this account that no generation covers yet, so someone holds keys they shouldn't. */
+  private uncoveredRemovals(api: ApiUser): string[] {
+    const { userId, deviceId } = this.account;
+    const head = this.headOf(userId);
+    return api.devices
+      .filter((device) => {
+        if (device.revoked_at == null || device.id === deviceId) return false;
+        if (head) {
+          if (carries(head, { id: device.id, key: decode(device.signature_key) })) return true;
+          return parseCertificate(decode(device.certificate))?.generation === head.gen;
+        }
+        return this.protocolSince !== null && device.revoked_at >= this.protocolSince;
+      })
+      .map((device) => device.id);
+  }
+
+  private checkRemovals(api: ApiUser): void {
+    if (!this.modern || this.stopped || this.protocolSince === null) return;
+    const uncovered = this.uncoveredRemovals(api).length > 0;
+    this.removalsUncovered = uncovered;
+    if (uncovered && !this.rotationTimer) this.rotateSoon(Math.random() * rotationTiming.takeoverMs);
+  }
+
+  private rotateSoon(delay: number): void {
+    clearTimeout(this.rotationTimer);
+    this.rotationTimer = setTimeout(() => {
+      this.rotationTimer = undefined;
+      void this.rotateForRemovals();
+    }, delay);
+  }
+
+  private async rotateForRemovals(): Promise<void> {
+    if (this.stopped) return;
+    try {
+      await this.withLock(ACCOUNT_LOCK, () => this.rotateLocked({}, true));
+      this.setKv("rotation_stuck_since", 0);
+      this.sealOlderSoon(0);
+    } catch (error) {
+      console.warn("[zuna] rotating this account's keys", error);
+      if (this.stopped || (error instanceof ApiError && error.status === 401)) return;
+      const since = this.getKv<number>("rotation_stuck_since") || Date.now();
+      this.setKv("rotation_stuck_since", since);
+      if (Date.now() - since > ROTATION_STUCK_MS && !this.getKv<boolean>("rotation_stuck_said")) {
+        this.setKv("rotation_stuck_said", true);
+        this.emit({
+          type: "security",
+          serverId: this.serverId,
+          userId: "",
+          message: "Zuna hasn't been able to finish replacing your account's keys after a device was removed. It keeps trying.",
+        });
+      }
+      this.rotateSoon(rotationTiming.retryMs);
+    }
+  }
+
+  /** Moves this account to a new generation of keys, doing what the plan says as part of it. */
+  async rotate(plan: RotationPlan = {}): Promise<void> {
+    await this.withLock(ACCOUNT_LOCK, () => this.rotateLocked(plan, false));
+    this.sealOlderSoon(0);
+  }
+
+  private async rotateLocked(plan: RotationPlan, onlyForRemovals: boolean): Promise<void> {
+    for (let attempt = 0; attempt < ROTATION_ATTEMPTS; attempt++) {
+      const unfinished = await this.settleIntent(true);
+      if (unfinished) await this.rotateLocked(unfinished, false);
+      await this.catchUp();
+      if (onlyForRemovals && this.uncoveredRemovals(await this.api.user(this.account.userId)).length === 0) {
+        this.removalsUncovered = false;
+        return;
+      }
+      await this.syncVault();
+      const intent = await this.prepareRotation(plan);
+      try {
+        await this.sendIntent(intent);
+        return;
+      } catch (error) {
+        if (error instanceof ApiError && error.retryable) throw error;
+        this.closeIntent();
+        if (error instanceof ApiError && (error.code === "stale_generation" || error.code === "devices_changed")) continue;
+        throw error;
+      }
+    }
+    throw new Error("This account's keys are changing too often right now. Please try again.");
+  }
+
+  /** Makes the next generation and writes it down, so a crash from here on carries on with these same keys. */
+  private async prepareRotation(plan: RotationPlan): Promise<RotationIntent> {
+    const { userId, username, deviceId, deviceSecret, accountKey: oldKey, core } = this.account;
+    const generation = core.generation + 1;
+    const me = await this.api.user(userId);
+    const accountKey = wasm.randomBytes(32);
+    const identity = wasm.signingKeygen();
+    const hpke = wasm.hpkeKeygen();
+
+    const devices: LinkDevice[] = [];
+    const removed: string[] = [];
+    for (const device of me.devices) {
+      if (device.revoked_at != null) continue;
+      const key = decode(device.signature_key);
+      const standing = this.certificateStanding(userId, core.rootPublic, decode(device.certificate));
+      const fine = device.id === deviceId || (!!standing?.carried && this.ownDeviceAccepted(device.id, { signatureKey: key, enrollProof: device.enroll_proof }));
+      if (fine) devices.push({ id: device.id, key });
+      else removed.push(device.id);
+    }
+    if (removed.length > 0) {
+      this.emit({
+        type: "security",
+        serverId: this.serverId,
+        userId,
+        message: "The server listed a device for your account that never signed in. It was removed.",
+      });
+    }
+
+    const slots = { ...core.slots };
+    const newSlots = new Map((plan.slots ?? []).map((slot) => [slot.kind, slot]));
+    for (const slot of newSlots.values()) slots[slot.kind] = { seal: slot.seal, sign: slot.sign };
+    const kinds = Object.keys(slots) as SlotKind[];
+    const lacksSlot = kinds.length < 2;
+    const firstKey = lacksSlot ? (core.firstKey ?? (core.generation === 0 ? oldKey : null)) : null;
+
+    const next: VaultCore = {
+      identityPublic: identity.publicKey,
+      identitySecret: identity.secretKey,
+      hpkePublic: hpke.publicKey,
+      hpkeSecret: hpke.secretKey,
+      communityKey: core.communityKey,
+      generation,
+      rootPublic: core.rootPublic,
+      rootSecret: core.rootSecret,
+      olderKeys: { ...core.olderKeys, [core.generation]: oldKey },
+      olderHpkeSecrets: [...core.olderHpkeSecrets, core.hpkeSecret].slice(-OLDER_HPKE_KEPT),
+      firstKey,
+      closedBelow: core.closedBelow,
+      slots,
+    };
+    const head = this.headOf(userId);
+    const signed = buildLink(
+      {
+        user: userId,
+        gen: generation,
+        prev: head?.hash ?? rootHash(userId, core.rootPublic),
+        identity: identity.publicKey,
+        hpke: hpke.publicKey,
+        keyCommit: keyCommitment(accountKey, userId, generation),
+        slotsHash: slotsHash(slots),
+        devices,
+        removed,
+        signer: deviceId,
+      },
+      core.identitySecret,
+      identity.secretKey,
+      deviceSecret,
+    );
+    const link = readHeldLink(signed)!;
+
+    const bundles: { device_id: string; data: Uint8Array }[] = [];
+    for (const { id, key } of devices) {
+      const device = me.devices.find((item) => item.id === id)!;
+      const seal = decode(device.seal_key);
+      if (seal.length === 32 && verifySealKey(key, userId, id, seal, decode(device.seal_sig))) {
+        bundles.push({ device_id: id, data: sealBundle(seal, userId, id, generation, link.hash, accountKey) });
+      }
+    }
+    const request = {
+      expected_generation: core.generation,
+      link: { generation, payload: signed.payload, by_prev: signed.byPrev, by_new: signed.byNew, by_device: signed.byDevice },
+      hpke_key_sig: signHpkeKey(core.rootSecret, hpke.publicKey),
+      vault_core: sealVaultCore(accountKey, next, userId),
+      profile_sig: me.profile ? signProfileAtGeneration(identity.secretKey, userId, generation, decode(me.profile)) : undefined,
+      slots: kinds.map((kind) => {
+        const sealedKey = sealToSlot(slots[kind]!.seal, kind, username, generation, link.hash, accountKey);
+        const made = newSlots.get(kind);
+        return made
+          ? { kind, seal_key: made.seal, sign_key: made.sign, sealed_secret: made.sealedSecret, sealed_key: sealedKey }
+          : { kind, sealed_key: sealedKey };
+      }),
+      drop_wrappers: kinds,
+      bridge: firstKey ? sealBridge(firstKey, userId, generation, accountKey) : undefined,
+      bundles,
+      items: this.trustItems(accountKey, generation),
+      password: plan.password,
+      recovery: plan.recovery,
+    };
+    const intent: RotationIntent = {
+      generation,
+      request: encodeBody(request) as RotationIntent["request"],
+      accountKey: toBase64(accountKey),
+      core: coreToJson(next),
+      plan: planToJson(plan),
+      once: !!plan.once,
+    };
+    this.setKv(ROTATION_INTENT, intent);
+    this.rotationOpen = true;
+    return intent;
+  }
+
+  /** Everything in the vault that decides who this account trusts, sealed under the new key in one go. */
+  private trustItems(accountKey: Uint8Array, generation: number): { id: string; data: Uint8Array }[] {
+    const seal = (id: string, data: Uint8Array) => ({ id, data: sealVaultItem(accountKey, id, data, generation) });
+    const items: { id: string; data: Uint8Array }[] = [];
+    for (const row of this.db.all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM pinned_identities")) {
+      items.push(seal(`pin:${row.user_id}`, row.identity_key));
+    }
+    for (const row of this.db.all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM verified")) {
+      items.push(seal(`verified:${row.user_id}`, row.identity_key));
+    }
+    for (const row of this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state")) {
+      const head = this.headOf(row.user_id);
+      if (head) items.push(seal(`chain:${row.user_id}`, utf8(JSON.stringify({ gen: head.gen, hash: toBase64(head.hash) }))));
+      if (row.trust_generation > 0) items.push(seal(`trust:${row.user_id}`, utf8(JSON.stringify({ gen: row.trust_generation }))));
+    }
+    items.push(seal("prefs", utf8(JSON.stringify(this.prefs))));
+    for (const [id, name] of this.deviceNames) items.push(seal(`device:${id}`, utf8(name)));
+    return items;
+  }
+
+  private closeIntent(): void {
+    this.db.run("DELETE FROM kv WHERE k = ?", [ROTATION_INTENT]);
+    this.rotationOpen = false;
+  }
+
+  private async sendIntent(intent: RotationIntent): Promise<void> {
+    await this.api.rotate(intent.request);
+    await this.installIntent(intent);
+  }
+
+  private async installIntent(intent: RotationIntent): Promise<void> {
+    const wire = intent.request.link;
+    const link = readHeldLink({ payload: fromBase64(wire.payload), byPrev: fromBase64(wire.by_prev), byNew: fromBase64(wire.by_new), byDevice: fromBase64(wire.by_device) });
+    if (!link) throw new Error("a rotation in progress couldn't be read");
+    await this.install(fromBase64(intent.accountKey), coreFromJson(intent.core), [link]);
+  }
+
+  /**
+   * Finishes a rotation a restart interrupted. The server says whether it went
+   * through, and if it did, whether it was this device's. If nothing happened it's
+   * sent again as the same bytes, unless nobody would learn the key it sets. If
+   * something else got in first, what it was for is returned, to be done again on
+   * top of that: the rest of it never happened.
+   */
+  private async settleIntent(rethrow = false): Promise<RotationPlan | null> {
+    const intent = this.getKv<RotationIntent>(ROTATION_INTENT);
+    if (!intent) return null;
+    const overtaken = () => {
+      this.closeIntent();
+      return intent.once ? null : planFromJson(intent.plan);
+    };
+    try {
+      const { core, userId } = this.account;
+      if (core.generation >= intent.generation) {
+        // Stopped between the two databases.
+        if (core.generation === intent.generation && toBase64(core.identityPublic) === intent.core.identityPublic) await this.installIntent(intent);
+        else this.closeIntent();
+        return null;
+      }
+      const state = await this.api.account();
+      if (state.generation >= intent.generation) {
+        const [link] = await this.api.identityLinks(userId, intent.generation - 1);
+        if (link?.payload !== intent.request.link.payload) return overtaken();
+        await this.installIntent(intent);
+        return null;
+      }
+      if (intent.once) {
+        this.closeIntent();
+        return null;
+      }
+      await this.sendIntent(intent);
+      return null;
+    } catch (error) {
+      if (error instanceof ApiError && (error.code === "stale_generation" || error.code === "devices_changed")) return overtaken();
+      if (error instanceof ApiError && !error.retryable && error.status !== 401) {
+        this.closeIntent();
+        return null;
+      }
+      if (rethrow || (error instanceof ApiError && error.status === 401)) throw error;
+      console.warn("[zuna] finishing a rotation", error);
+      return null;
+    }
+  }
+
+  /** Takes on a generation: keys first, since everything after is only bookkeeping that can be redone. */
+  private async install(accountKey: Uint8Array, core: VaultCore, links: Link[]): Promise<void> {
+    const { userId } = this.account;
+    this.account = { ...this.account, accountKey, core };
+    this.saveAccount();
+    this.db.transaction(() => {
+      for (const link of links) this.acceptLink(userId, link);
+      this.db.run("DELETE FROM kv WHERE k = ?", [ROTATION_INTENT]);
+      this.db.run("UPDATE pinned_identities SET uploaded = 0");
+    });
+    this.rotationOpen = false;
+    this.removalsUncovered = false;
+    this.setKv("rotation_stuck_since", 0);
+    this.setKv("rotation_stuck_said", false);
+    try {
+      await this.replaceSealKey();
+      const me = await this.api.user(userId);
+      await this.ensureCertificate(me);
+      this.applyUser(await this.api.user(userId));
+      this.rescheduleAffectedByDeviceChange(userId);
+      await this.uploadPins();
+      await this.uploadEpochKeys();
+      await this.topUpKeyPackages();
+    } catch (error) {
+      console.warn("[zuna] after a rotation", error);
+    }
+    this.emit({ type: "users", serverId: this.serverId });
+  }
+
+  /** A copy of a device taken once should stop being useful, so the key each rotation seals to changes. */
+  private async replaceSealKey(): Promise<void> {
+    const { userId, deviceId, deviceSecret, sealSecret } = this.account;
+    const seal = wasm.hpkeKeygen();
+    this.account = { ...this.account, sealPublic: seal.publicKey, sealSecret: seal.secretKey, sealOlder: sealSecret };
+    this.saveAccount();
+    await this.api.setSealKey(deviceId, seal.publicKey, signSealKey(deviceSecret, userId, deviceId, seal.publicKey));
+  }
+
+  /** Gives this device a seal key, and a certificate that says what generation it's from. */
+  private async prepareDevice(): Promise<void> {
+    const { userId, deviceId, deviceSecret } = this.account;
+    const me = await this.api.user(userId);
+    const own = me.devices.find((device) => device.id === deviceId);
+    if (!this.account.sealPublic) {
+      const seal = wasm.hpkeKeygen();
+      this.account = { ...this.account, sealPublic: seal.publicKey, sealSecret: seal.secretKey };
+      this.saveAccount();
+    }
+    const sealPublic = this.account.sealPublic!;
+    if (own && !equalBytes(decode(own.seal_key), sealPublic)) {
+      await this.api.setSealKey(deviceId, sealPublic, signSealKey(deviceSecret, userId, deviceId, sealPublic));
+    }
+    await this.ensureCertificate(me);
+  }
+
+  /** A certificate from this generation, whichever way this device has got here. */
+  private async ensureCertificate(me: ApiUser): Promise<void> {
+    const { userId, deviceId, devicePublic, core, certificate } = this.account;
+    const parsed = parseCertificate(certificate);
+    if (!parsed?.headSignature || parsed.generation !== core.generation) {
+      const next = createCertificate(core.rootSecret, { userId, deviceId, signatureKey: devicePublic, generation: core.generation }, core.identitySecret);
+      this.account = { ...this.account, certificate: next };
+      this.saveAccount();
+      this.mls.setCredential(next);
+    }
+    const own = me.devices.find((device) => device.id === deviceId);
+    if (own && !equalBytes(decode(own.certificate), this.account.certificate)) {
+      await this.api.setCertificate(deviceId, this.account.certificate);
+    }
+  }
+
+  private syncAccountSoon(): void {
+    if (this.stopped) return;
+    void this.syncAccount().catch((error) => console.warn("[zuna] catching up on this account's keys", error));
+  }
+
+  /** Catches up with which generation of keys this account is at. */
+  private async syncAccount(): Promise<void> {
+    if (!this.modern) return;
+    await this.withLock(ACCOUNT_LOCK, async () => {
+      const unfinished = await this.settleIntent();
+      if (unfinished) await this.rotateLocked(unfinished, false);
+      await this.catchUp();
+    });
+  }
+
+  private async catchUp(): Promise<void> {
+    await this.prepareDevice();
+    const state = await this.api.account();
+    if (this.protocolSince !== state.protocol_since) {
+      this.protocolSince = state.protocol_since;
+      this.setKv("protocol_since", state.protocol_since);
+    }
+    const { core, userId } = this.account;
+    // Signing in gets the keys, and the chain that leads to them comes from the server.
+    if (this.headGeneration(userId) < core.generation) {
+      await this.readChain(userId);
+      const head = this.headOf(userId);
+      if (head?.gen === core.generation && !equalBytes(head.identity, core.identityPublic)) await this.noteFork(userId);
+    }
+    if (state.generation > core.generation) await this.followRotation(state);
+    else if (state.generation === core.generation) this.refreshCore(state);
+    await this.deliverBundles(state);
+    if (this.account.core.generation > 0 && (state.older_items > 0 || this.account.core.closedBelow < this.account.core.generation)) {
+      this.sealOlderSoon(Math.random() * rotationTiming.takeoverMs);
+    }
+    this.checkRemovals(await this.api.user(userId));
+  }
+
+  /**
+   * Follows a rotation another device made. Anyone can seal to a public key, and
+   * someone with the old identity key can write a link, so all of this has to hold:
+   * the links follow from what's held, the first was signed by a device this one
+   * accepts (later ones are authorized by that one's key), this device is on the
+   * newest, and the key it was given is the key that link commits to.
+   */
+  private async followRotation(state: ApiAccount): Promise<void> {
+    const { userId, deviceId, devicePublic, core } = this.account;
+    const wires = await this.api.identityLinks(userId, core.generation);
+    const links: Link[] = [];
+    for (const wire of wires) {
+      const before = links.at(-1) ?? this.headOf(userId);
+      const link = verifyLink(signedFromApi(wire), {
+        user: userId,
+        gen: (before?.gen ?? 0) + 1,
+        prev: before?.hash ?? rootHash(userId, core.rootPublic),
+        prevIdentity: before?.identity ?? core.rootPublic,
+      });
+      if (!link) return this.noteFork(userId);
+      if (links.length === 0 && !(await this.signerAccepted(link))) return this.noteFork(userId);
+      links.push(link);
+    }
+    const head = links.at(-1);
+    if (!head || head.gen !== state.generation) return;
+    if (!carries(head, { id: deviceId, key: devicePublic })) {
+      this.signedOut("device_revoked");
+      return;
+    }
+    // A device that couldn't be sealed to waits for another to do it.
+    if (state.bundle?.generation !== head.gen) return;
+    const accountKey = this.openOwnBundle(head, decode(state.bundle.data));
+    if (!accountKey || !equalBytes(head.keyCommit, keyCommitment(accountKey, userId, head.gen))) return this.noteFork(userId);
+    let next: VaultCore;
+    try {
+      next = openVaultCore(accountKey, decode(state.vault_core), head.gen, userId);
+    } catch {
+      return this.noteFork(userId);
+    }
+    const fits = next.generation === head.gen && equalBytes(next.identityPublic, head.identity) && equalBytes(next.hpkePublic, head.hpke) && equalBytes(slotsHash(next.slots), head.slotsHash);
+    if (!fits) return this.noteFork(userId);
+    await this.install(accountKey, next, links);
+    void this.syncVault().catch((error) => console.warn("[zuna] vault", error));
+  }
+
+  private openOwnBundle(head: Link, sealed: Uint8Array): Uint8Array | null {
+    const { userId, deviceId, sealSecret, sealOlder } = this.account;
+    for (const secret of [sealSecret, sealOlder]) {
+      if (!secret) continue;
+      try {
+        return openBundle(secret, userId, deviceId, head.gen, head.hash, sealed);
+      } catch {
+        // Sealed to the other key, or to nobody.
+      }
+    }
+    return null;
+  }
+
+  private async signerAccepted(link: Link): Promise<boolean> {
+    const { userId, deviceId } = this.account;
+    const signer = link.devices.find((device) => device.id === link.signer);
+    if (!signer) return false;
+    if (signer.id === deviceId) return true;
+    const head = this.headOf(userId);
+    if (head && carries(head, signer)) return true;
+    const proof = (await this.api.user(userId)).devices.find((device) => device.id === signer.id)?.enroll_proof;
+    return this.ownDeviceAccepted(signer.id, { signatureKey: signer.key, enrollProof: proof });
+  }
+
+  /** A new core at this generation: a slot made before any rotation, or a generation closing. */
+  private refreshCore(state: ApiAccount): void {
+    const { accountKey, core, userId } = this.account;
+    let next: VaultCore;
+    try {
+      next = openVaultCore(accountKey, decode(state.vault_core), core.generation, userId);
+    } catch {
+      return;
+    }
+    if (next.generation !== core.generation || !equalBytes(next.identityPublic, core.identityPublic)) return;
+    const head = this.headOf(userId);
+    if (head && !equalBytes(slotsHash(next.slots), head.slotsHash)) return;
+    const merged: VaultCore =
+      core.generation === 0
+        ? { ...core, slots: { ...next.slots, ...core.slots } }
+        : { ...core, closedBelow: Math.max(core.closedBelow, next.closedBelow), olderKeys: next.olderKeys, firstKey: next.firstKey };
+    if (JSON.stringify(coreToJson(merged)) === JSON.stringify(coreToJson(core))) return;
+    this.account = { ...this.account, core: merged };
+    this.saveAccount();
+  }
+
+  /** Seals the account key for a device that couldn't be sealed to when this generation was made. */
+  private async deliverBundles(state: ApiAccount): Promise<void> {
+    const { userId, deviceId, accountKey, core } = this.account;
+    const head = this.headOf(userId);
+    if (!head || state.generation !== core.generation || state.missing_bundles.length === 0) return;
+    const me = await this.api.user(userId);
+    const bundles: { device_id: string; data: Uint8Array }[] = [];
+    for (const id of state.missing_bundles) {
+      const device = me.devices.find((item) => item.id === id);
+      if (!device || id === deviceId || device.revoked_at != null) continue;
+      const key = decode(device.signature_key);
+      const seal = decode(device.seal_key);
+      const standing = this.certificateStanding(userId, core.rootPublic, decode(device.certificate));
+      const fine = !!standing?.carried && this.ownDeviceAccepted(id, { signatureKey: key, enrollProof: device.enroll_proof }) && seal.length === 32 && verifySealKey(key, userId, id, seal, decode(device.seal_sig));
+      if (fine) bundles.push({ device_id: id, data: sealBundle(seal, userId, id, head.gen, head.hash, accountKey) });
+    }
+    if (bundles.length > 0) await this.api.putBundles(head.gen, bundles);
+  }
+
+  private sealOlderSoon(delay: number): void {
+    if (this.sealingTimer || this.sealing || this.stopped) return;
+    this.sealingTimer = setTimeout(() => {
+      this.sealingTimer = undefined;
+      void this.sealOlderItems().catch((error) => console.warn("[zuna] sealing older vault items", error));
+    }, delay);
+  }
+
+  /**
+   * Seals what's left in the vault under the current key, so someone who has an
+   * older one and only later gets the server's data finds nothing to open, and then
+   * closes the generation: from then on, nothing older is believed. Only epoch keys
+   * carry over. Everything else was sealed with the rotation, and an older copy of
+   * it may be something planted under a stolen key.
+   */
+  private async sealOlderItems(): Promise<void> {
+    if (this.sealing) return;
+    this.sealing = true;
+    try {
+      const { accountKey, core, userId } = this.account;
+      if (core.generation === 0 || core.closedBelow >= core.generation) return;
+      for (;;) {
+        const items = await this.api.olderVaultItems(VAULT_BATCH);
+        if (items.length === 0) break;
+        const sealed: { id: string; data: Uint8Array }[] = [];
+        const remove: string[] = [];
+        for (const item of items) {
+          const key = core.olderKeys[item.generation ?? 0];
+          if (!key || !item.id.startsWith("ek:")) {
+            remove.push(item.id);
+            continue;
+          }
+          try {
+            const data = openVaultItem(key, item.id, decode(item.data), item.generation ?? 0);
+            sealed.push({ id: item.id, data: sealVaultItem(accountKey, item.id, data, core.generation) });
+          } catch {
+            remove.push(item.id);
+          }
+        }
+        await this.api.resealVault(core.generation, sealed, remove);
+      }
+      const closed: VaultCore = { ...core, closedBelow: core.generation, olderKeys: {} };
+      await this.api.closeGeneration(core.generation, sealVaultCore(accountKey, closed, userId));
+      if (this.account.core.generation === core.generation) {
+        this.account = { ...this.account, core: closed };
+        this.saveAccount();
+      }
+    } finally {
+      this.sealing = false;
+    }
   }
 
   // --- Epoch keys ---
@@ -1008,15 +2061,15 @@ export class ServerSession {
       }
       // Certificates are public, so one in a package proves nothing unless the
       // package really signs with the key that certificate names.
-      const cert = verifyCertificate(pinned, credential);
+      const standing = this.certificateStanding(userId, pinned, credential);
       const known = user.devices.get(item.device_id);
       const genuine =
-        !!cert &&
-        cert.userId === userId &&
-        cert.deviceId === item.device_id &&
+        !!standing?.carried &&
+        standing.cert.userId === userId &&
+        standing.cert.deviceId === item.device_id &&
         !!known &&
         !known.revoked &&
-        equalBytes(this.mls.keyPackageSignatureKey(data), cert.signatureKey);
+        equalBytes(this.mls.keyPackageSignatureKey(data), standing.cert.signatureKey);
       if (!genuine) {
         this.emit({
           type: "security",
@@ -1161,9 +2214,13 @@ export class ServerSession {
     if (sealed.length < 5) return;
     const accountSealed = sealed[0] === 1;
     const body = sealed.subarray(1);
-    const key = accountSealed ? this.account.accountKey : this.epochKey(group.id, signalEpoch(body));
-    if (!key) return;
-    const seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
+    // A position sealed to this account stays as it was until it's next written, so
+    // it may be under an older key. The worst a stolen one can do is mark things read.
+    const keys = accountSealed ? [this.account.accountKey, ...Object.values(this.account.core.olderKeys)] : [this.epochKey(group.id, signalEpoch(body))];
+    let seq: number | null = null;
+    for (const key of keys) {
+      if (key && seq === null) seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
+    }
     if (seq === null) return;
     if (userId === this.account.userId) {
       group.ownRead = Math.max(group.ownRead, seq);
@@ -1322,8 +2379,8 @@ export class ServerSession {
       if (!cert) return { leaf: member.leafIndex, userId: "", deviceId: "", genuine: false };
       // Someone not known yet is looked up by checkTree, which runs on any change to the tree.
       const pinned = this.pinnedIdentity(cert.userId);
-      const verified = pinned ? verifyCertificate(pinned, member.credential) : cert;
-      const genuine = !!verified && equalBytes(verified.signatureKey, member.signatureKey);
+      const standing = pinned ? this.certificateStanding(cert.userId, pinned, member.credential) : { cert, carried: true };
+      const genuine = !!standing?.carried && equalBytes(standing.cert.signatureKey, member.signatureKey);
       return { leaf: member.leafIndex, userId: cert.userId, deviceId: cert.deviceId, genuine };
     });
     const seen = new Set<string>();
@@ -1344,7 +2401,19 @@ export class ServerSession {
     const members = this.mls.members(utf8(groupId)) as { credential: Uint8Array }[];
     for (const member of members) {
       const cert = parseCertificate(member.credential);
-      if (cert && !this.pinnedIdentity(cert.userId)) await this.ensureUser(cert.userId, true);
+      if (!cert) continue;
+      // A certificate from a generation not seen yet says there's more of that person's chain to
+      // read. If it's this person's own, this device is what's behind, and it catches up first.
+      if (cert.userId === this.account.userId && cert.generation > this.headGeneration(cert.userId)) await this.syncAccount();
+      else if (!this.pinnedIdentity(cert.userId) || cert.generation > this.headGeneration(cert.userId)) await this.ensureUser(cert.userId, true);
+    }
+  }
+
+  /** Notes who's in a tree shared with this device, which is the only proof of how long a device has been around. */
+  private noteLeaves(groupId: string): void {
+    const now = Date.now();
+    for (const member of this.treeMembers(groupId)) {
+      if (member.genuine) this.db.run("INSERT OR IGNORE INTO device_first_leaf(user_id, device_id, at) VALUES(?, ?, ?)", [member.userId, member.deviceId, now]);
     }
   }
 
@@ -1357,6 +2426,7 @@ export class ServerSession {
     this.treeUsersCache.delete(groupId);
     this.cleanEpochs.delete(groupId);
     await this.learnTreeUsers(groupId);
+    this.noteLeaves(groupId);
     const bad = this.treeMembers(groupId).filter((member) => !member.genuine && member.leaf !== this.mls.ownLeafIndex(utf8(groupId)));
     for (const member of bad) {
       const warned = `${groupId}/${member.leaf}/${this.mlsEpoch(groupId)}`;
@@ -1517,6 +2587,7 @@ export class ServerSession {
     this.saveEpochKey(group.id, newEpoch, key, "mls");
     this.treeUsersCache.delete(group.id);
     this.setKnownMembers(group.id, targets);
+    this.noteLeaves(group.id);
     void this.uploadEpochKeys().catch(() => undefined);
     const started = await this.api.group(group.id);
     this.applyGroup(started);
@@ -1588,6 +2659,7 @@ export class ServerSession {
       this.saveEpochKey(groupId, newEpoch, key, "mls");
       this.treeUsersCache.delete(groupId);
       this.confirmedEpochs.set(groupId, newEpoch);
+      this.noteLeaves(groupId);
       void this.uploadEpochKeys().catch(() => undefined);
       return;
     }
@@ -2079,7 +3151,23 @@ export class ServerSession {
         // Our list may be behind: only act on what the server says right now.
         device = (await this.ensureUser(member.userId, true))?.devices.get(member.deviceId);
       }
-      if (device?.revoked) stale.push(member.leaf);
+      if (device?.revoked) {
+        stale.push(member.leaf);
+      } else if (member.userId === this.account.userId && this.modern && !this.ownDeviceAccepted(member.deviceId, device)) {
+        // A valid certificate only takes someone's identity key. Nobody knows this
+        // person's own devices better than this one, and whoever this is never signed in.
+        stale.push(member.leaf);
+        const warned = `${groupId}/own/${member.deviceId}`;
+        if (!this.warnedLeaves.has(warned)) {
+          this.warnedLeaves.add(warned);
+          this.emit({
+            type: "security",
+            serverId: this.serverId,
+            userId: member.userId,
+            message: "A device claiming to be yours, which never signed in, tried to join one of your conversations. It's being removed.",
+          });
+        }
+      }
     }
     return stale;
   }
@@ -2148,6 +3236,9 @@ export class ServerSession {
         break;
       case "vault":
         void this.syncVault().catch((error) => console.warn("[zuna] vault", error));
+        break;
+      case "account":
+        this.syncAccountSoon();
         break;
       case "settings":
         this.info = data as ServerInfo;
@@ -3059,8 +4150,19 @@ export class ServerSession {
   private async rotateIfOld(groupId: string): Promise<void> {
     const epoch = this.mlsEpoch(groupId);
     const row = this.db.get<{ created_at: number }>("SELECT created_at FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
-    if (!row || Date.now() - row.created_at < EPOCH_MAX_AGE_MS) return;
+    // A leaf with an older certificate gets the new one in any commit, and that's
+    // how everyone sharing this group finds out about a rotation the server may be keeping from them.
+    const old = !!row && Date.now() - row.created_at >= EPOCH_MAX_AGE_MS;
+    if (!old && !this.leafIsBehind(groupId)) return;
     await this.commitWithRetry(groupId, async () => ({ kind: "update" }));
+  }
+
+  private leafIsBehind(groupId: string): boolean {
+    const groupBytes = utf8(groupId);
+    const own = this.mls.ownLeafIndex(groupBytes);
+    const members = this.mls.members(groupBytes) as { leafIndex: number; credential: Uint8Array }[];
+    const leaf = members.find((member) => member.leafIndex === own);
+    return !!leaf && !equalBytes(leaf.credential, this.account.certificate);
   }
 
   retryMessage(groupId: string, id: string): void {
@@ -3305,8 +4407,14 @@ export class ServerSession {
       profile.avatar = null;
       avatarFile = null;
     }
-    const sealed = sealProfile(this.account.core.communityKey, this.account.core.identitySecret, this.account.username, profile);
-    await this.api.updateMe({ profile: sealed, avatar_file: avatarFile });
+    const { core, userId, username } = this.account;
+    const sealed = sealProfile(core.communityKey, core.rootSecret, username, profile);
+    const head = this.headOf(userId);
+    await this.api.updateMe({
+      profile: sealed,
+      profile_sig: head ? signProfileAtGeneration(core.identitySecret, userId, head.gen, sealed) : undefined,
+      avatar_file: avatarFile,
+    });
   }
 
   async setHideLastSeen(hide: boolean): Promise<void> {
@@ -3335,14 +4443,34 @@ export class ServerSession {
     const device = self?.devices.get(deviceId);
     if (device) device.revoked = true;
     for (const group of this.groups.values()) this.scheduleReconcile(group.id);
+    if (this.modern) this.rotateSoon(rotationTiming.gatherMs);
   }
 
-  changePassword(current: string, next: string): Promise<void> {
-    return changePassword(this.api, this.account.username, this.account.accountKey, current, next);
+  async changePassword(current: string, next: string): Promise<void> {
+    const { username, accountKey } = this.account;
+    if (!this.modern) return changePassword(this.api, username, accountKey, current, next);
+    const { plan, keys } = await planPasswordChange(this.api, username, current, next);
+    await this.rotateProving(plan, keys);
   }
 
-  regenerateRecoveryKey(current: string): Promise<string> {
-    return regenerateRecoveryKey(this.api, this.account.username, this.account.accountKey, current);
+  async regenerateRecoveryKey(current: string): Promise<string> {
+    const { username, accountKey, core } = this.account;
+    if (!this.modern) return regenerateRecoveryKey(this.api, username, accountKey, current);
+    const { plan, keys, recoveryKey } = await planRecoveryChange(this.api, username, current, core);
+    await this.rotateProving(plan, keys);
+    return recoveryKey;
+  }
+
+  /** Rotates, and if the current password was refused, sees whether it only needs moving to a newer sign-in key. */
+  private async rotateProving(plan: RotationPlan, keys: { authKey: Uint8Array; legacyAuthKey: Uint8Array }): Promise<void> {
+    try {
+      await this.rotate(plan);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.code !== "invalid_credentials") throw error;
+      const target = { serverUrl: this.api.baseUrl, username: this.account.username };
+      await upgradeSignInKey(this.api, target, "password", keys, error);
+      await this.rotate(plan);
+    }
   }
 
   async signOut(): Promise<void> {
@@ -3355,19 +4483,27 @@ export class ServerSession {
   safetyCheck(userId: string): SafetyCheck | null {
     const user = this.users.get(userId);
     if (!user) return null;
+    const { core, userId: selfId } = this.account;
+    // Only the keys in use now show that two people hold the same chain. Someone on
+    // a client from before generations can't compute that, so both go by the first keys.
+    const legacy = [selfId, userId].some((id) => [...(this.users.get(id)?.devices.values() ?? [])].some((device) => !device.revoked && device.legacy !== false));
+    const theirs = this.forkHeads.get(userId) ?? this.headOf(userId)?.identity ?? user.identityKey;
     return {
-      emoji: safetyEmoji(this.account.core.identityPublic, user.identityKey),
+      emoji: legacy ? safetyEmoji(core.rootPublic, user.identityKey) : safetyEmoji(core.identityPublic, theirs),
       trust: user.trust,
     };
   }
 
   async markVerified(userId: string): Promise<void> {
+    // These people compared keys, so whichever chain the keys came from is the one to follow.
+    if (this.identityState(userId).forked) await this.adoptChain(userId);
     const user = this.users.get(userId);
     if (!user) return;
     if (user.trust === "changed") {
       this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [user.identityKey, userId]);
     }
     this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, user.identityKey]);
+    this.setVerifiedPosition(userId, this.headGeneration(userId));
     user.trust = "verified";
     this.persistUser(user);
     this.emit({ type: "users", serverId: this.serverId });
@@ -3422,7 +4558,8 @@ export class ServerSession {
             const user = await this.ensureUser(userId, true);
             if (!user) continue;
             const apiUser = await this.api.user(userId);
-            if (!verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;
+            // A chain's newest link names this key itself, and was checked when it came.
+            if (!this.headOf(userId) && !verifyHpkeKey(this.pinnedIdentity(userId) ?? user.identityKey, user.hpkeKey, decode(apiUser.hpke_key_sig))) continue;
             const signer = { userId: this.account.userId, deviceId: this.account.deviceId };
             grants.push({ user_id: userId, data: sealHistoryGrant(user.hpkeKey, groupId, userId, signer, this.account.deviceSecret, keys) });
           }
