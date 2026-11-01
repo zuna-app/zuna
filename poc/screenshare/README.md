@@ -59,6 +59,7 @@ Without `--seconds` it runs until Ctrl+C.
 | `--viewer-key` | `right` | `wrong` or `none`, to see what a viewer without the key gets |
 | `--joins` | `0` | Joins this many times and times each first frame |
 | `--display` | last | Which monitor the test window opens on, except on Wayland |
+| `--viewer-features` | | Chromium features for the viewer, such as `VaapiOnNvidiaGPUs` |
 | `--label` | | Names the results in `results/` |
 
 The test window is the test scene. A clock drawn in pixels at its top left is read back out of the received video, which gives the real delay from screen to decoded frame. Colour swatches beside it are compared with what was drawn.
@@ -104,7 +105,8 @@ On Windows 11, with an RTX 5070 Ti and a Ryzen 7 9800X3D, using NVENC, with encr
 - No freezes, lost packets or dropped frames, and the clock read back from every frame. The monitor ran at 360 Hz, and KWin kept to the 60 fps asked for. nvidia-smi showed one encoder session, at about 9% use.
 - Capturing cost KWin 4.9 points over the test window's 15.4 with DMA-BUFs, and 13.7 with shared memory. With the publisher's own, that's 11.6% of a core against 28.6%.
 - Single runs vary: three from shared memory had the publisher at 14.3, 14.9 and 18.7%, and two with DMA-BUFs at 6.7 and 6.8%.
-- Decoding took 3.7 to 4.1 ms a frame, against 0.7 on Windows, and the jitter buffer held 30 to 37 ms. Chromium says H.264 decoding isn't power efficient here, with or without its VA-API flags, so Electron 45 decodes in software here.
+- Decoding took 3.7 to 4.1 ms a frame, against 0.7 on Windows, and the jitter buffer held 30 to 37 ms. That's in software: Electron 45 won't decode through VA-API on NVIDIA unless `VaapiOnNvidiaGPUs` is on.
+- With `--viewer-features VaapiOnNvidiaGPUs`, through nvidia-vaapi-driver, decoding took 0.21 ms a frame against 3.58 in software, and the viewer used about a quarter of a core less. The test viewer itself uses over three cores, since it draws without a frame rate limit and reads every frame. The delay didn't improve: 59 / 87 ms against 54 / 74, with a jitter buffer of 40 ms against 32, over one run each.
 - Colours were off by up to 6 out of 255, most in the darks. That's KWin: they match what was drawn with sRGB's curve re-encoded as gamma 2.2, to within 2.
 - With the wrong key, 13.7 MB arrived in 20 seconds and no frame decoded. With no key, the viewer showed a solid green frame. The viewer that couldn't decrypt asked for 32 keyframes in those 20 seconds.
 
@@ -130,4 +132,5 @@ These matter for building the real thing.
 - **A compositor sends frames at its own pace, a little unevenly.** Repeating the last frame once an interval had passed without a new one, as on Windows, put a repeat just before each late frame. That made 74 encodes a second at 60 fps, and 24 Mbit/s against a limit of 20, since NVENC budgets its bits for the frame rate. On Linux a repeat now waits one more interval after a new frame.
 - **`cl.exe` can't open paths over 260 characters,** and LiveKit's headers pass that from a target folder inside a deep checkout, whatever Windows' long path setting says. So `demo.mjs` builds in `%LOCALAPPDATA%\zss`.
 - **DMA-BUFs reach NVENC through EGL, OpenGL and CUDA,** in `dmabuf_cuda.c`, as in Sunshine and gpu-screen-recorder. EGL imports the compositor's buffer, a blit copies it into a texture CUDA has registered, and CUDA copies that into the encoder's frame, all on the GPU and in about 0.2 ms at 2560x1440. Shared memory cost the publisher two CPU copies of every frame and KWin a read back from the GPU.
+- **Chromium decodes on NVIDIA under Linux only with `VaapiOnNvidiaGPUs`,** which is off by default, and it goes through nvidia-vaapi-driver, a community driver that NVIDIA doesn't ship. Without the feature it decodes in software, which costs viewers about a quarter of a core at 2560x1440 and 60 fps. What it does on a machine without the driver hasn't been tried.
 - **NVIDIA's EGL offers only its own tiled modifiers** for XR24, and not linear, so offering linear alone, as for VA-API, would have got shared memory. KWin chose one of the tiled ones.
