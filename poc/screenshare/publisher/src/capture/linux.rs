@@ -1,8 +1,6 @@
 //! The xdg portal asks the person what to share, and works the same on Wayland's
 //! compositors and on X11. PipeWire then delivers the frames: as DMA-BUFs that stay on
 //! the GPU when the encoder can take them, or in shared memory.
-//!
-//! NOT RUN YET: this type-checks but has never run on a Linux machine.
 
 use std::{
     ffi::{c_char, c_int, c_void},
@@ -444,6 +442,7 @@ impl Capture {
 
     pub fn run(&mut self, pipeline: &mut Pipeline, stop: &AtomicBool) -> Result<()> {
         let api = self.api;
+        pipeline.allow_late_frames(self.shared.interval);
         unsafe { (api.thread_loop_lock)(self.thread_loop) };
         self.shared.pipeline = pipeline;
         unsafe { (api.thread_loop_unlock)(self.thread_loop) };

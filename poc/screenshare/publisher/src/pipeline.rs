@@ -84,6 +84,9 @@ pub struct Pipeline {
     last_encode: Option<Instant>,
     frame_due: Instant,
     last_change: Instant,
+    /// How much longer than a frame's interval to wait after a new frame before
+    /// repeating it, for captures that are sent frames rather than taking them on time.
+    late_frame_slack: Duration,
     key_pending: bool,
     last_key: Option<Instant>,
     bitrate_cap: u64,
@@ -113,6 +116,7 @@ impl Pipeline {
             last_encode: None,
             frame_due: now,
             last_change: now,
+            late_frame_slack: Duration::ZERO,
             key_pending: false,
             last_key: None,
             bitrate_cap,
@@ -136,8 +140,21 @@ impl Pipeline {
     pub fn idle_wait(&self) -> Duration {
         let now = Instant::now();
         let Some(last) = self.last_encode else { return self.interval };
-        let gap = if self.key_pending || now.duration_since(self.last_change) < REFINE_FOR { self.interval } else { STILL_INTERVAL };
+        let mut gap = if self.key_pending || now.duration_since(self.last_change) < REFINE_FOR { self.interval } else { STILL_INTERVAL };
+        // The last encode was a new frame, and the next may only be running late.
+        if last == self.last_change {
+            gap += self.late_frame_slack;
+        }
         (last + gap).saturating_duration_since(now)
+    }
+
+    /// For a capture the compositor sends frames to, at its own pace and a little
+    /// unevenly. Repeating a frame on the interval would put a repeat just before
+    /// each late frame, more frames than the frame rate, and more bits than the
+    /// bitrate, since the encoder budgets for the frame rate.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn allow_late_frames(&mut self, slack: Duration) {
+        self.late_frame_slack = slack;
     }
 
     pub fn on_frame(&mut self, input: Input) -> Result<()> {
