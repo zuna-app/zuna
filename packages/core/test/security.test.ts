@@ -1405,6 +1405,35 @@ describe("a server saying a message was deleted", () => {
   });
 });
 
+describe("an edit from a device that has left", () => {
+  it("is marked unverified rather than shown, and stays so", async () => {
+    const owner = await person("cora");
+    const member = await person("dirk");
+    const leaver = await person("elle");
+    const groupId = await groupWith(owner, [member, leaver]);
+    const sent = leaver.session.sendMessage(`group:${groupId}`, { text: "what I said" });
+    await waitFor(() => member.texts(`group:${groupId}`).includes("what I said"), "delivery");
+    const epoch = sessionOf(member).messageRow(groupId, sent.id).epoch as number;
+    const session = sessionOf(leaver);
+    const key = session.epochKey(groupId, epoch);
+    const { deviceId, deviceSecret } = session.account;
+    await owner.session.removeMember(groupId, leaver.userId);
+    await waitFor(() => sessionOf(member).departedAt(groupId, deviceId) !== null, "them to be seen leaving");
+
+    // The key from before they left still opens, and the edit keeps the message's place.
+    const envelope = sealEnvelope(key, deviceSecret, "message", groupId, sent.id, epoch, session.signedBody({ text: "what I never said" }));
+    withServerDatabase((db) => {
+      const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
+      db.prepare("UPDATE messages SET envelope = ?, edited_at = ?, updated_seq = ? WHERE group_id = ? AND id = ?").run(envelope, Date.now(), seq, groupId, sent.id);
+    });
+    await sessionOf(member).pullChanges(groupId);
+    expect(sessionOf(member).messageRow(groupId, sent.id).status).toBe("unverified");
+    expect(member.texts(`group:${groupId}`)).not.toContain("what I never said");
+    sessionOf(member).retryUndecryptable(groupId);
+    expect(sessionOf(member).messageRow(groupId, sent.id).status).toBe("unverified");
+  });
+});
+
 describe("a Welcome delivered as being for another group (Z-46)", () => {
   it("leaves what's held for the group it really names alone", async () => {
     const victim = await person("nell");

@@ -3561,6 +3561,7 @@ export class ServerSession {
     // Nothing local is erased on the server's word: only a deletion its author, or a
     // group's admin, signed does that. Otherwise the copy is hidden, and kept a while.
     const kept = message.deleted_at !== null && existing && (existing.body || existing.raw) && !this.deletionProven(message) ? existing : null;
+    let heldAfterLeaving: Uint8Array | null = null;
     if (!message.deleted_at && message.envelope) {
       const envelope = decode(message.envelope);
       const key = this.epochKey(message.group_id, message.epoch);
@@ -3579,7 +3580,11 @@ export class ServerSession {
         } else if (opened.ok) {
           this.keyProvedItself(message.group_id, message.epoch);
           const parsed = parseMessageBody(opened.value);
-          if (parsed) {
+          if (parsed && this.changedAfterLeaving(message, existing, parsed)) {
+            status = "unverified";
+            raw = envelope;
+            heldAfterLeaving = existing!.body;
+          } else if (parsed) {
             body = { ...parsed, rawReactions: message.reactions };
           } else {
             status = "invalid";
@@ -3596,7 +3601,7 @@ export class ServerSession {
     }
     const stored = body
       ? this.sealJson("message", { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
-      : (kept?.body ?? null);
+      : (kept?.body ?? heldAfterLeaving);
 
     let rowId: number;
     const isNew = !existing || existing.seq === null;
@@ -3659,6 +3664,20 @@ export class ServerSession {
     if (left !== null && message.epoch >= left) return false;
     const next =this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
     return !next || message.seq < next.seq;
+  }
+
+  /**
+   * Whether this changes what a message says, from a device this one already saw
+   * leave the group. An edit keeps the message's place, so it gets past couldBeSent
+   * when sealed under a key from before the device left, which it still holds. An
+   * honest server refuses that, so it can only be one made before it left that's
+   * arriving late, or one made after with the server's help, and this can't tell.
+   * The copy held stays, so trying again later still finds the change.
+   */
+  private changedAfterLeaving(message: ApiMessage, existing: MessageRow | undefined, parsed: MessageBody): boolean {
+    if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_device) === null) return false;
+    const held = parseMessageBody(this.openJson<StoredBody>("message", existing.body));
+    return !!held && JSON.stringify(held) !== JSON.stringify(parsed);
   }
 
   /**
