@@ -151,7 +151,13 @@ async function main() {
     ...(viewerKey ? [`--e2ee-key=${viewerKey}`] : []),
     ...(flags.display ? [`--display=${flags.display}`] : []),
   ]
-  const startViewer = () => start('viewer', electronPath(), viewerArgs, (line) => {
+  const startViewer = () => {
+    // Timed from here, since on Linux the portal's dialog comes first and waits for as
+    // long as the person takes.
+    if (seconds > 0) setTimeout(finish, seconds * 1000)
+    start('viewer', electronPath(), viewerArgs, onViewerLine)
+  }
+  const onViewerLine = (line) => {
     const message = parse(line)
     if (!message) return
     switch (message.type) {
@@ -165,15 +171,17 @@ async function main() {
       case 'error': run.errors.push(message.message); console.error(`Viewer: ${message.message}`); break
       default: break
     }
-  })
+  }
 
   // On Linux the portal's dialog comes first, since the test window covers a whole
-  // monitor and could hide it. Pick the monitor that window then opens on, which is
-  // the last one unless --display says otherwise.
+  // monitor and could hide it. Pick the monitor that window then opens on. On X11
+  // that's the last one unless --display says otherwise. Wayland doesn't let a window
+  // choose, so there it's the monitor in use, where the dialog appears.
   if (isWindows) {
     startViewer()
   } else {
-    console.log('Choose what to share in the dialog: the monitor the test window will open on.')
+    const where = process.env.WAYLAND_DISPLAY ? 'the one this dialog is on' : 'the last one, or --display'
+    console.log(`Choose what to share in the dialog: the monitor the test window will open on, ${where}.`)
     startPublisher()
   }
 
@@ -182,7 +190,6 @@ async function main() {
     if (sample) gpuStats.push(sample)
   }, 1000)
 
-  if (seconds > 0) setTimeout(finish, seconds * 1000)
   await finished
   clearInterval(sampler)
   stopAll()
