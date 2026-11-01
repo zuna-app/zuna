@@ -185,6 +185,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: non
 }
 .toast-error { background: #2f1f20; border-color: rgba(242, 85, 90, 0.35); }
 .toast-security { background: #2e2615; border-color: rgba(229, 165, 10, 0.35); }
+.update-notice {
+  position: fixed; left: 20px; bottom: 20px; z-index: 90; display: flex; align-items: center; gap: 12px;
+  background: var(--bg-4); border: 1px solid var(--line-strong); padding: 8px 8px 8px 14px;
+  border-radius: var(--radius-m); box-shadow: var(--shadow-m); font-size: 13px;
+  animation: rise-in 0.12s var(--ease-out);
+}
 
 /* Tooltip */
 .tooltip {

@@ -44,6 +44,12 @@ export interface Platform {
   setCloseToTray?(enabled: boolean): void;
   /** Shown in Security when the device key isn't protected, or null to say nothing. */
   keyWarning: string | null;
+  /** A server address to start the sign-in form with. */
+  defaultServer?: string;
+  /** A newer version of the app is ready, and reloading picks it up. */
+  onUpdate?(listener: () => void): () => void;
+  /** Closing the page stops whatever is still sending, so it asks first. */
+  warnBeforeLeaving?: boolean;
 }
 
 /** Set once by the host, before the interface renders. */

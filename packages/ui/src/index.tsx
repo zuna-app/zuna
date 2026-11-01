@@ -14,10 +14,11 @@ import { setPlatform, type Platform } from "./platform";
 export type { BootResult, NotifyPayload, Platform } from "./platform";
 export { connectWorker, type DeviceInfo } from "./core/boot";
 
-/** Shows the app in the page's #root, on whatever the host provides. */
-export function startApp(host: Platform): void {
+/** Shows the app in the page's #root, on whatever the host provides, until the returned function removes it. */
+export function startApp(host: Platform): () => void {
   setPlatform(host);
-  createRoot(document.getElementById("root")!).render(
+  const root = createRoot(document.getElementById("root")!);
+  root.render(
     <ErrorBoundary
       fallback={
         <div className="boot">
@@ -32,4 +33,5 @@ export function startApp(host: Platform): void {
       <App />
     </ErrorBoundary>,
   );
+  return () => root.unmount();
 }

@@ -432,7 +432,7 @@ function SignInStep({
 }) {
   const core = useApp((state) => state.core)!;
   // Only `npm run dev` sets these, for its local test server. They're empty in a real build.
-  const [url, setUrl] = useState(initialUrl ?? import.meta.env.RENDERER_VITE_DEV_SERVER ?? "");
+  const [url, setUrl] = useState(initialUrl ?? import.meta.env.RENDERER_VITE_DEV_SERVER ?? platform.defaultServer ?? "");
   const [username, setUsername] = useState(import.meta.env.RENDERER_VITE_DEV_USERNAME ?? "");
   const [password, setPassword] = useState(import.meta.env.RENDERER_VITE_DEV_PASSWORD ?? "");
   const [error, setError] = useState<string | null>(null);

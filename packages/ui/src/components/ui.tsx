@@ -357,6 +357,20 @@ export function Tooltip({ text, children, side = "bottom" }: { text: string; chi
   );
 }
 
+/** The active server's connection while it isn't simply online. */
+export function ConnectionStatus() {
+  const connection = useApp((state) => (state.activeServerId ? state.servers[state.activeServerId]?.connection : undefined));
+  const status =
+    connection === "connecting" ? "Connecting" : connection === "offline" ? "Waiting for network" : connection === "syncing" ? "Updating" : null;
+  if (!status) return null;
+  return (
+    <span className="titlebar-status" role="status">
+      <i />
+      {status}
+    </span>
+  );
+}
+
 export function Toasts() {
   const toasts = useApp((state) => state.toasts);
   const dismiss = useApp((state) => state.dismissToast);

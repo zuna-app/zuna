@@ -56,6 +56,7 @@
 }
 .server-title:hover { background: var(--hover); }
 .server-title svg { flex: none; color: var(--text-3); }
+.sidebar-head .titlebar-status { flex: none; font-size: 12px; padding-right: 4px; }
 
 .sidebar-search { padding: 0 10px 8px; flex: none; }
 .search-wrap { background: var(--bg-3); border-color: transparent; }

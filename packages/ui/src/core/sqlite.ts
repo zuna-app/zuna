@@ -47,13 +47,24 @@ class SqliteDb implements LocalDb {
   }
 }
 
+/**
+ * Opens the pool of database files. Another tab of the web app may have just
+ * stopped, and the browser can take a moment to let go of its files.
+ */
+async function installPool(sqlite3: any): Promise<any> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await sqlite3.installOpfsSAHPoolVfs({ name: "zuna", directory: ".zuna-db", initialCapacity: 12 });
+    } catch (error) {
+      if (attempt >= 30) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+}
+
 export async function openSqliteProvider(): Promise<DbProvider> {
   const sqlite3 = await sqlite3InitModule();
-  const pool = await sqlite3.installOpfsSAHPoolVfs({
-    name: "zuna",
-    directory: ".zuna-db",
-    initialCapacity: 12,
-  });
+  const pool = await installPool(sqlite3);
   const open = new Map<string, SqliteDb>();
   const path = (name: string) => `/${name}.sqlite`;
   return {

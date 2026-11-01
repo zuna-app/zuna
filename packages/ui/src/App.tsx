@@ -1,7 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 import { MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
-import { Logo, Toasts } from "@/components/ui";
+import { ConnectionStatus, Logo, Toasts } from "@/components/ui";
 import { Onboarding } from "@/features/onboarding/Onboarding";
 import { Shell } from "@/features/shell/Shell";
 import { Overlays } from "@/features/overlays/Overlays";
@@ -12,28 +12,39 @@ import { platform } from "@/platform";
 
 function TitleBar() {
   const [os, setOs] = useState<string | null>(null);
-  const activeServer = useApp((state) => (state.activeServerId ? state.servers[state.activeServerId] : null));
   useEffect(() => {
     void platform.os?.().then(setOs);
   }, []);
   if (!platform.titleBar) return null;
-  const connection = activeServer?.connection;
-  const status =
-    connection === "connecting" ? "Connecting" : connection === "offline" ? "Waiting for network" : connection === "syncing" ? "Updating" : null;
   return (
     <div className={`titlebar${os === "darwin" ? " is-mac" : ""}`}>
       <span className="titlebar-brand">
         <Logo size={14} />
         Zuna
       </span>
-      {status && (
-        <span className="titlebar-status">
-          <i />
-          {status}
-        </span>
-      )}
+      <ConnectionStatus />
     </div>
   );
+}
+
+/** The web app's files changed on its host. Reloading picks up the new version. */
+function UpdateNotice() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => platform.onUpdate?.(() => setReady(true)), []);
+  if (!ready) return null;
+  return (
+    <div className="update-notice" role="status">
+      <span>Zuna was updated.</span>
+      <button className="btn btn-small btn-primary" onClick={() => location.reload()}>
+        Reload
+      </button>
+    </div>
+  );
+}
+
+/** Whether anything is still on its way out, which closing a tab would stop. */
+function isSending(lists: ReturnType<typeof useApp.getState>["lists"]): boolean {
+  return Object.values(lists).some((list) => list.items.some((item) => item.status === "sending"));
 }
 
 function BootScreen() {
@@ -117,6 +128,16 @@ export function App() {
   // Where notifications go: here while the person is at the computer, their phone otherwise.
   useEffect(() => (phase === "ready" ? watchActivity() : undefined), [phase]);
 
+  // A tab can be closed in the middle of a send. The desktop keeps running in its tray instead.
+  useEffect(() => {
+    if (!platform.warnBeforeLeaving) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (isSending(useApp.getState().lists)) event.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   // A dropped connection comes back as soon as the network does.
   useEffect(() => {
     const onOnline = () => void useApp.getState().core?.client.nudge();
@@ -140,6 +161,7 @@ export function App() {
         </div>
         <Overlays />
         <Toasts />
+        <UpdateNotice />
       </div>
     </MotionConfig>
   );

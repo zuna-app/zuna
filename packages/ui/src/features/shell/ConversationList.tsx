@@ -24,10 +24,11 @@ import {
 import { AnimatePresence } from "motion/react";
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { Avatar, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
+import { Avatar, ConnectionStatus, PopupMenu, Tooltip, TypingDots, useContextMenu, type MenuEntry } from "@/components/ui";
 import { refocusComposer } from "@/lib/focus";
 import { formatListTime } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
+import { platform } from "@/platform";
 import { useActiveServer, useApp } from "@/state/store";
 
 type Filter = "all" | "people" | "groups" | "unread";
@@ -288,6 +289,8 @@ export function ConversationList() {
           <span className="truncate">{server.entry.name}</span>
           <ChevronDown size={15} />
         </button>
+        {/* Without a title bar, the connection shows here, as in Telegram's web app. */}
+        {!platform.titleBar && <ConnectionStatus />}
         <Tooltip text="New group">
           <button className="icon-btn" onClick={() => setOverlay({ type: "new-group" })} aria-label="New group">
             <SquarePen size={17} />
