@@ -1,0 +1,45 @@
+# Adds voice channels: LiveKit, the media server, next to Zuna. It only ever carries
+# encrypted media. Apps reach it through Zuna's own address, so there's no second
+# name or certificate to look after, and media goes straight to the two ports below.
+#
+#   export ZUNA_DOMAIN=chat.example.com
+#   export ZUNA_LIVEKIT_SECRET=$(openssl rand -hex 32)
+#   docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
+#
+# With docker-compose.proxy.yml instead of docker-compose.yml, it works the same way.
+# Keep the secret: the two services have to agree on it.
+#
+# Open 7881/tcp and 7882/udp in your firewall. docs/SELF_HOSTING.md#voice-channels has more.
+
+services:
+  zuna:
+    environment:
+      ZUNA_LIVEKIT_INTERNAL_URL: http://livekit:7880
+      ZUNA_LIVEKIT_KEY: zuna
+      ZUNA_LIVEKIT_SECRET: ${ZUNA_LIVEKIT_SECRET:?Set ZUNA_LIVEKIT_SECRET to a long random secret}
+    depends_on:
+      - livekit
+
+  livekit:
+    # Update this and LIVEKIT_TAG in scripts/lib.mjs together.
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+        keys:
+          zuna: ${ZUNA_LIVEKIT_SECRET}

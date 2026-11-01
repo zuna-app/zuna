@@ -11,6 +11,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -29,13 +31,22 @@ const (
 	voiceSocketGrace = 20 * time.Second
 )
 
-// What someone in a voice channel may publish, as LiveKit names them. Being muted
-// by an admin takes the microphone out of this, which LiveKit itself enforces.
+// What someone in a voice channel may publish, as LiveKit's tokens name them. Being
+// muted by an admin takes the microphone out of this, which LiveKit itself enforces.
 var (
-	voiceSources      = []string{"MICROPHONE", "CAMERA", "SCREEN_SHARE", "SCREEN_SHARE_AUDIO"}
-	mutedVoiceSources = []string{"CAMERA", "SCREEN_SHARE", "SCREEN_SHARE_AUDIO"}
-	screenSources     = []string{"SCREEN_SHARE", "SCREEN_SHARE_AUDIO"}
+	voiceSources      = []string{"microphone", "camera", "screen_share", "screen_share_audio"}
+	mutedVoiceSources = []string{"camera", "screen_share", "screen_share_audio"}
+	screenSources     = []string{"screen_share", "screen_share_audio"}
 )
+
+// sourceNames is the same as LiveKit's API names them.
+func sourceNames(sources []string) []string {
+	names := make([]string, len(sources))
+	for index, source := range sources {
+		names[index] = strings.ToUpper(source)
+	}
+	return names
+}
 
 // voiceUpdate is what a device says about itself in a voice channel.
 type voiceUpdate struct {
@@ -128,7 +139,61 @@ func (v *voiceRooms) stopTimer(deviceID string) {
 
 // liveKitConfigured reports whether voice channels can be joined here.
 func (s *Server) liveKitConfigured() bool {
-	return s.cfg.LiveKitURL != "" && s.cfg.LiveKitKey != "" && s.cfg.LiveKitSecret != ""
+	return (s.cfg.LiveKitURL != "" || s.cfg.LiveKitInternalURL != "") && s.cfg.LiveKitKey != "" && s.cfg.LiveKitSecret != ""
+}
+
+// liveKitPublicURL is where apps reach the media server: its own address, or through
+// this server, which means one address and one certificate to look after.
+func (s *Server) liveKitPublicURL() string {
+	if s.cfg.LiveKitURL != "" {
+		return s.cfg.LiveKitURL
+	}
+	base := strings.TrimRight(s.cfg.PublicURL, "/")
+	return strings.Replace(strings.Replace(base, "https://", "wss://", 1), "http://", "ws://", 1) + "/livekit"
+}
+
+// liveKitProxy hands /livekit/ to the media server. It decides who gets in by itself,
+// from the tokens this server gives out, so this adds no way in. Media doesn't come
+// this way: only the signaling that sets it up.
+func (s *Server) liveKitProxy() http.Handler {
+	target, err := url.Parse(s.cfg.LiveKitInternalURL)
+	if err != nil {
+		panic(err)
+	}
+	if target.Scheme == "ws" {
+		target.Scheme = "http"
+	} else if target.Scheme == "wss" {
+		target.Scheme = "https"
+	}
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(target)
+			request.Out.URL.Path = strings.TrimPrefix(request.In.URL.Path, "/livekit")
+			request.Out.URL.RawPath = ""
+			// It would only see this machine otherwise.
+			request.Out.Header.Set("X-Forwarded-For", s.callers.Address(request.In))
+		},
+		// The middleware already said who may call, and saying it twice means nobody may.
+		ModifyResponse: func(response *http.Response) error {
+			for name := range response.Header {
+				if strings.HasPrefix(http.CanonicalHeaderKey(name), "Access-Control-") {
+					response.Header.Del(name)
+				}
+			}
+			return nil
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			slog.Warn("reaching the media server", "error", err)
+			writeError(w, http.StatusBadGateway, "voice_unavailable", "The media server isn't answering.")
+		},
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A socket here lasts as long as the call, far longer than a request's body may take.
+		controller := http.NewResponseController(w)
+		_ = controller.SetReadDeadline(time.Time{})
+		_ = controller.SetWriteDeadline(time.Time{})
+		proxy.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) liveKitToken(identity string, video map[string]any) (string, error) {
@@ -210,7 +275,7 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, sess *
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"url": s.cfg.LiveKitURL, "token": token, "identity": identity, "server_muted": s.voice.isMuted(sess.UserID)})
+	writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "server_muted": s.voice.isMuted(sess.UserID)})
 }
 
 // handleScreenToken is for a native process that shares this device's screen as a
@@ -245,7 +310,7 @@ func (s *Server) handleScreenToken(w http.ResponseWriter, r *http.Request, sess 
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"url": s.cfg.LiveKitURL, "token": token, "identity": identity})
+	writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity})
 }
 
 // updateVoice takes what a device says it's doing in a voice channel. Being in one
@@ -322,19 +387,28 @@ func (s *Server) leaveVoice(userID, deviceID string) {
 	}
 }
 
-// voiceSocketClosed gives a device a moment to come back before saying it left.
+// voiceSocketClosed gives a device a moment to come back and say it's still there,
+// which stops the clock. One that comes back without saying so, such as an app that
+// restarted, has left. A new socket that got in before this one closed has already said.
 func (s *Server) voiceSocketClosed(c *conn) {
+	if s.hub.DeviceConnected(c.userID, c.deviceID) {
+		return
+	}
 	s.voice.mu.Lock()
 	defer s.voice.mu.Unlock()
 	if s.voice.states[c.deviceID] == nil {
 		return
 	}
 	s.voice.stopTimer(c.deviceID)
-	s.voice.timers[c.deviceID] = time.AfterFunc(voiceSocketGrace, func() {
-		if !s.hub.DeviceConnected(c.userID, c.deviceID) {
-			s.leaveVoice(c.userID, c.deviceID)
-		}
-	})
+	s.voice.timers[c.deviceID] = time.AfterFunc(s.voiceGrace(), func() { s.leaveVoice(c.userID, c.deviceID) })
+}
+
+// voiceGrace is how long that moment is, which tests make shorter.
+func (s *Server) voiceGrace() time.Duration {
+	if s.cfg.VoiceGrace > 0 {
+		return s.cfg.VoiceGrace
+	}
+	return voiceSocketGrace
 }
 
 // endVoiceFor takes someone out of every room, and tells them why.
@@ -435,7 +509,7 @@ func (s *Server) handleVoiceMute(w http.ResponseWriter, r *http.Request, sess *s
 					"can_subscribe":       true,
 					"can_publish":         true,
 					"can_publish_data":    false,
-					"can_publish_sources": sources,
+					"can_publish_sources": sourceNames(sources),
 				},
 			})
 			if err != nil {

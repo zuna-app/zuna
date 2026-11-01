@@ -399,3 +399,15 @@ func TestPreviewsAreRateLimited(t *testing.T) {
 		t.Error("40 previews at once weren't limited")
 	}
 }
+
+func TestTheAppCanConnectToAMediaServerOnAnAllowList(t *testing.T) {
+	csp := contentSecurityPolicy([]string{"https://chat.example"}, []string{"https://voice.example"})
+	for _, source := range []string{"https://chat.example", "wss://chat.example", "wss://voice.example"} {
+		if !strings.Contains(csp, source) {
+			t.Errorf("%s isn't allowed by %q", source, csp)
+		}
+	}
+	if csp := contentSecurityPolicy(nil, []string{"https://voice.example"}); strings.Contains(csp, "voice.example") {
+		t.Errorf("with no list there's nothing to add to, but got %q", csp)
+	}
+}

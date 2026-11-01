@@ -83,13 +83,16 @@ type Config struct {
 	// PushRelays are the relays this server sends notifications through, by
 	// address. Phones register with one of them; none turns pushes off.
 	PushRelays []string
-	// LiveKitURL is the media server voice channels use, as apps reach it. Without
-	// one, voice channels can be made but not joined.
+	// LiveKitURL is the media server voice channels use, as apps reach it. Left
+	// empty with LiveKitInternalURL set, apps reach it through this server, at /livekit.
+	// Without either, voice channels can be made but not joined.
 	LiveKitURL string
 	// LiveKitInternalURL is how this server reaches it, if that's not the same.
 	LiveKitInternalURL string
 	LiveKitKey         string
 	LiveKitSecret      string
+	// VoiceGrace replaces how long a device that lost its socket stays in a voice channel.
+	VoiceGrace time.Duration
 }
 
 type Server struct {
@@ -445,6 +448,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/channels/{id}/voice/screen", s.member(s.handleScreenToken))
 	mux.HandleFunc("POST /api/channels/{id}/voice/users/{user}/disconnect", s.admin(s.handleVoiceDisconnect))
 	mux.HandleFunc("PUT /api/channels/{id}/voice/users/{user}/mute", s.admin(s.handleVoiceMute))
+
+	if s.cfg.LiveKitURL == "" && s.cfg.LiveKitInternalURL != "" {
+		mux.Handle("/livekit/", s.liveKitProxy())
+	}
 
 	// Messages
 	mux.HandleFunc("GET /api/groups/{id}/messages", s.member(s.handleMessages))

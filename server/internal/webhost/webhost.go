@@ -40,6 +40,9 @@ type Config struct {
 	Server string
 	// Servers, if any, are the only servers the app may connect to.
 	Servers []string
+	// MediaServers are the LiveKit servers it may connect to as well, for those
+	// servers' voice channels, where they aren't reached through the server itself.
+	MediaServers []string
 	// AllowLocal lets previews reach this machine, for development only.
 	AllowLocal bool
 	// ClientIP says who is calling, for rate limits. Nil trusts no proxy.
@@ -84,7 +87,7 @@ func newHost(cfg Config) (*host, error) {
 	}
 	h := &host{
 		cfg:     cfg,
-		csp:     contentSecurityPolicy(cfg.Servers),
+		csp:     contentSecurityPolicy(cfg.Servers, cfg.MediaServers),
 		ip:      cfg.ClientIP,
 		limiter: ratelimit.NewKeyed(rate.Every(2*time.Second), 30),
 		daily:   ratelimit.NewKeyed(rate.Every(24*time.Hour/previewsPerDay), previewsPerDay),
@@ -129,11 +132,11 @@ func serverOrigin(server string) (*url.URL, error) {
 
 // contentSecurityPolicy is the desktop's (apps/desktop/src/main/index.ts), with
 // connections narrowed to the allowed servers when there are any.
-func contentSecurityPolicy(servers []string) string {
+func contentSecurityPolicy(servers, mediaServers []string) string {
 	connect := "'self' https: wss: http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*"
 	if len(servers) > 0 {
 		sources := []string{"'self'"}
-		for _, server := range servers {
+		for _, server := range append(append([]string{}, servers...), mediaServers...) {
 			origin, _ := serverOrigin(server)
 			socket := "wss"
 			if origin.Scheme == "http" {
@@ -180,7 +183,7 @@ func (h *host) withHeaders(next http.Handler) http.Handler {
 		headers.Set("X-Frame-Options", "DENY")
 		headers.Set("Cross-Origin-Opener-Policy", "same-origin")
 		headers.Set("Cross-Origin-Resource-Policy", "same-origin")
-		headers.Set("Permissions-Policy", "microphone=(self), camera=(), geolocation=(self), payment=(), usb=(), display-capture=()")
+		headers.Set("Permissions-Policy", "microphone=(self), camera=(self), geolocation=(self), payment=(), usb=(), display-capture=(self), speaker-selection=(self)")
 		// Behind a proxy there's no telling how a request arrived, but browsers ignore
 		// this over plain HTTP. Only for this machine would it stick to something else.
 		if !devHost(hostOf(r)) {

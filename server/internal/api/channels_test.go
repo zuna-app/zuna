@@ -272,6 +272,44 @@ func TestVoiceTokensAreForMembersOfVoiceChannels(t *testing.T) {
 	}
 }
 
+func TestAppsCanReachTheMediaServerThroughThisServer(t *testing.T) {
+	var asked string
+	liveKit := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked = r.URL.Path
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Write([]byte("from livekit"))
+	}))
+	defer liveKit.Close()
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.PublicURL = "https://chat.example"
+		cfg.LiveKitInternalURL = liveKit.URL
+		cfg.LiveKitKey = "key"
+		cfg.LiveKitSecret = "a-long-enough-secret-for-signing-tokens"
+	})
+	owner := h.owner()
+	voice := owner.createChannel("voice", 0)
+	var out struct {
+		URL string `json:"url"`
+	}
+	h.mustDo("POST", "/api/channels/"+voice.ID+"/voice", owner.token, map[string]any{}, &out)
+	if out.URL != "wss://chat.example/livekit" {
+		t.Fatalf("apps were told to go to %q", out.URL)
+	}
+
+	response, err := http.Get(h.url + "/livekit/rtc/validate?x=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if asked != "/rtc/validate" {
+		t.Fatalf("the media server was asked for %q", asked)
+	}
+	// Said twice, a browser takes that to mean nobody may call.
+	if got := response.Header.Values("Access-Control-Allow-Origin"); len(got) != 1 {
+		t.Fatalf("said who may call %d times: %v", len(got), got)
+	}
+}
+
 func TestVoiceIsUnavailableWithoutAMediaServer(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
@@ -345,6 +383,45 @@ func TestEveryoneSeesWhosInVoiceAndALatestDeviceTakesOver(t *testing.T) {
 	}
 }
 
+func TestADeviceThatGoesQuietLeavesVoiceUnlessItSaysItsStillThere(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.VoiceGrace = 200 * time.Millisecond })
+	owner := h.owner()
+	voice := owner.createChannel("voice", 0)
+	watcher := h.register("watcher", owner.newInvite())
+	seen := watcher.connect()
+	inVoice := func() int {
+		var list struct {
+			Voice []api.VoiceState `json:"voice"`
+		}
+		h.mustDo("GET", "/api/channels", watcher.token, nil, &list)
+		return len(list.Voice)
+	}
+
+	// Coming back and saying so keeps them in.
+	first := owner.connect()
+	first.sendVoice(voice.ID, map[string]any{})
+	seen.waitFor("voice")
+	first.ws.CloseNow()
+	second := owner.connect()
+	second.sendVoice(voice.ID, map[string]any{})
+	seen.waitFor("voice")
+	time.Sleep(400 * time.Millisecond)
+	if inVoice() != 1 {
+		t.Fatal("someone who came back and said so was taken out")
+	}
+
+	// Coming back and saying nothing, as an app that restarted, is having left.
+	second.ws.CloseNow()
+	third := owner.connect()
+	third.ping()
+	if left := seen.waitFor("voice"); left["state"] != nil {
+		t.Fatalf("heard %+v", left)
+	}
+	if inVoice() != 0 {
+		t.Fatal("someone who came back without saying so is still listed")
+	}
+}
+
 func TestSomeoneNotInAChannelCantSayTheyreInIt(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
@@ -415,7 +492,7 @@ func TestAdminsMuteAndDisconnectThroughLiveKit(t *testing.T) {
 		ServerMuted bool   `json:"server_muted"`
 	}
 	h.mustDo("POST", "/api/channels/"+voice.ID+"/voice", member.token, map[string]any{}, &token)
-	if !token.ServerMuted || strings.Contains(string(mustJSON(t, tokenClaims(t, token.Token))), "MICROPHONE") {
+	if !token.ServerMuted || strings.Contains(string(mustJSON(t, tokenClaims(t, token.Token))), "microphone") {
 		t.Fatalf("a new token after being muted: %+v", tokenClaims(t, token.Token))
 	}
 

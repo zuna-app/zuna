@@ -48,6 +48,7 @@ type config struct {
 	previews       string
 	server         string
 	servers        string
+	mediaServers   string
 	root           string
 	dev            bool
 }
@@ -83,6 +84,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.previews, "previews", envOr("ZUNA_WEB_PREVIEWS", "on"), `"on" to fetch pages for link previews, "off" not to (env ZUNA_WEB_PREVIEWS)`)
 	flag.StringVar(&cfg.server, "server", os.Getenv("ZUNA_WEB_SERVER"), "a server address to fill in on the sign-in form (env ZUNA_WEB_SERVER)")
 	flag.StringVar(&cfg.servers, "servers", os.Getenv("ZUNA_WEB_SERVERS"), "comma-separated servers that are the only ones the app may connect to; empty for any (env ZUNA_WEB_SERVERS)")
+	flag.StringVar(&cfg.mediaServers, "media-servers", os.Getenv("ZUNA_WEB_MEDIA_SERVERS"), "with --servers: the LiveKit servers those servers' voice channels use, if apps reach them directly (env ZUNA_WEB_MEDIA_SERVERS)")
 	flag.StringVar(&cfg.root, "root", os.Getenv("ZUNA_WEB_ROOT"), "serve the app from this folder (apps/web/dist) instead of the copy built in (env ZUNA_WEB_ROOT)")
 	flag.BoolVar(&cfg.dev, "dev", false, "development only: previews may reach this machine, and the app's files aren't needed")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -147,6 +149,7 @@ func run(cfg config) error {
 		Previews:   cfg.previews == "on",
 		Server:     strings.TrimRight(cfg.server, "/"),
 		Servers:    servers,
+		MediaServers: splitList(cfg.mediaServers),
 		AllowLocal: cfg.dev,
 		ClientIP:   resolver,
 	})
