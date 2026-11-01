@@ -44,7 +44,7 @@ sudo pacman -S clang pkgconf glib2 libva
 node scripts/demo.mjs --seconds 30
 ```
 
-A dialog asks what to share. Pick the monitor the test window will open on. On Wayland, which doesn't let a window choose its monitor, that's the one the dialog is on. On X11 it's the last one unless `--display` says otherwise. If VA-API can't find its driver, set `LIBVA_DRIVERS_PATH`, since the FFmpeg build may look in a different place from your distribution.
+A dialog asks what to share. Pick the monitor the test window will open on. On Wayland, which doesn't let a window choose its monitor, that's the one the dialog is on. On X11 it's the last one unless `--display` says otherwise. If VA-API can't find its driver, set `LIBVA_DRIVERS_PATH`, since the FFmpeg build may look in a different place from your distribution. With NVIDIA, frames come as DMA-BUFs through the EGL and CUDA that its driver installs, and from shared memory where those can't be used.
 
 Without `--seconds` it runs until Ctrl+C.
 
@@ -53,7 +53,7 @@ Without `--seconds` it runs until Ctrl+C.
 | `--encoder` | `auto` | `h264_nvenc`, `h264_amf` (Windows), `h264_vaapi` (Linux) |
 | `--bitrate` | `20000` | The most to send, in kbit/s |
 | `--fps` | `60` | |
-| `--input` | `gpu` | `cpu` gives the encoder frames from CPU memory |
+| `--input` | `gpu` | `cpu` gives the encoder frames from CPU memory, which on Linux means shared memory rather than DMA-BUFs |
 | `--crop` | | `1920x1080` encodes that much of the monitor |
 | `--e2ee` | `yes` | `no` turns encryption off |
 | `--viewer-key` | `right` | `wrong` or `none`, to see what a viewer without the key gets |
@@ -66,6 +66,8 @@ The test window is the test scene. A clock drawn in pixels at its top left is re
 `node scripts/key-log-check.mjs` publishes with every native log on and looks for the key in the output.
 
 `cargo test --release` in `publisher` runs the bitstream and PipeWire format tests, with the MSVC toolchain on Windows.
+
+`publisher/target/release/zuna-screenshare --check-dmabuf`, on Linux with NVIDIA, makes a DMA-BUF of every modifier EGL can import, brings each into CUDA as a frame would come, and checks the colours that come out, all without a compositor.
 
 ## What it measured
 
@@ -92,20 +94,23 @@ On Windows 11, with an RTX 5070 Ti and a Ryzen 7 9800X3D, using NVENC, with encr
 - Ten joins all succeeded. The first frame took 711 ms on the first join, and 167 to 295 ms on the others.
 - With every native log on, the key didn't appear in 3,114 lines, as text, hex, base64 or a byte list, and neither did the key derived from it. The report of the frame cryptor logging keys doesn't apply to this version, at least on this path. libwebrtc's logs stay off anyway unless `ZUNA_WEBRTC_LOG` is set.
 
-**On Linux,** on Arch with KDE Plasma 6.8 on Wayland, PipeWire 1.6, and an RTX 5080 with NVIDIA's 615 driver and a Ryzen 7 9800X3D, using NVENC with encryption on. The publisher, LiveKit and the viewer ran on one machine, and the row leaves out the first 10 seconds of a 60-second run.
+**On Linux,** on Arch with KDE Plasma 6.8 on Wayland, PipeWire 1.6, and an RTX 5080 with NVIDIA's 615 driver and a Ryzen 7 9800X3D, using NVENC with encryption on. The publisher, LiveKit and the viewer ran on one machine, and each row leaves out the first 10 seconds of a 60-second run. KWin's CPU counts here, since for shared memory it reads each frame back from the GPU. With the test window open and nothing captured, it used 15.4% of a core.
 
-| Stream | Frames from | Sent | Encoding | Publisher's CPU | Screen to decoded, median / 95% |
-|---|---|---|---|---|---|
-| 2560x1440, 60 fps, up to 20 Mbit/s | Shared memory | 60.0 fps, 18.0 Mbit/s | 5.8 ms | 18.7% of a core | 71 / 89 ms |
+| Stream | Frames from | Sent | Encoding | Publisher's CPU | KWin's CPU | Screen to decoded, median / 95% |
+|---|---|---|---|---|---|---|
+| 2560x1440, 60 fps, up to 20 Mbit/s | DMA-BUFs | 60.0 fps, 18.0 Mbit/s | 3.8 ms | 6.7% of a core | 20.3% | 52 / 75 ms |
+| The same | Shared memory | 60.0 fps, 19.8 Mbit/s | 5.2 ms | 14.9% of a core | 29.1% | 72 / 85 ms |
 
-- No freezes, lost packets or dropped frames. The monitor ran at 360 Hz, and KWin kept to the 60 fps asked for. nvidia-smi showed one encoder session, at about 8% use.
-- Decoding took 4.0 ms a frame, against 0.7 on Windows, and the jitter buffer held 36 ms. Chromium says H.264 decoding isn't power efficient here, with or without its VA-API flags, so Electron 45 decodes in software here.
+- No freezes, lost packets or dropped frames, and the clock read back from every frame. The monitor ran at 360 Hz, and KWin kept to the 60 fps asked for. nvidia-smi showed one encoder session, at about 9% use.
+- Capturing cost KWin 4.9 points over the test window's 15.4 with DMA-BUFs, and 13.7 with shared memory. With the publisher's own, that's 11.6% of a core against 28.6%.
+- Single runs vary: three from shared memory had the publisher at 14.3, 14.9 and 18.7%, and two with DMA-BUFs at 6.7 and 6.8%.
+- Decoding took 3.7 to 4.1 ms a frame, against 0.7 on Windows, and the jitter buffer held 30 to 37 ms. Chromium says H.264 decoding isn't power efficient here, with or without its VA-API flags, so Electron 45 decodes in software here.
 - Colours were off by up to 6 out of 255, most in the darks. That's KWin: they match what was drawn with sRGB's curve re-encoded as gamma 2.2, to within 2.
 - With the wrong key, 13.7 MB arrived in 20 seconds and no frame decoded. With no key, the viewer showed a solid green frame. The viewer that couldn't decrypt asked for 32 keyframes in those 20 seconds.
 
 ## What hasn't been checked
 
-- **VA-API and DMA-BUFs have never run.** The one Linux machine tried has only an NVIDIA GPU, whose VA-API driver only decodes, so only NVENC from shared memory has run on Linux. Nor has GNOME, any other compositor, or X11.
+- **VA-API has never run.** The one Linux machine tried has only an NVIDIA GPU, whose VA-API driver only decodes. Nor has GNOME, any other compositor, or X11, or a laptop with two GPUs, where the compositor's DMA-BUFs come from the other one and it should fall back to shared memory.
 - **AMF has never run.** The RX 6400 in the Windows machine is disabled in Device Manager.
 - **Real networks.** Nothing has been tried with loss, limited bandwidth or more than one viewer, so how LiveKit treats a slow viewer of this stream is unknown. Since a pre-encoded stream has one layer, it can't drop that viewer to a lower quality.
 
@@ -124,4 +129,5 @@ These matter for building the real thing.
 - **Native and browser encryption work together** when both use HKDF over the raw key: `KeyDerivationAlgorithm::HKDF` natively, and an `ArrayBuffer` passed to `setKey` in the browser. That also suits a key from the MLS exporter, which is already random.
 - **A compositor sends frames at its own pace, a little unevenly.** Repeating the last frame once an interval had passed without a new one, as on Windows, put a repeat just before each late frame. That made 74 encodes a second at 60 fps, and 24 Mbit/s against a limit of 20, since NVENC budgets its bits for the frame rate. On Linux a repeat now waits one more interval after a new frame.
 - **`cl.exe` can't open paths over 260 characters,** and LiveKit's headers pass that from a target folder inside a deep checkout, whatever Windows' long path setting says. So `demo.mjs` builds in `%LOCALAPPDATA%\zss`.
-- **NVIDIA on Linux goes through shared memory here,** which costs a CPU copy: 18.7% of a core at 2560x1440 and 60 fps, against 5.1% from GPU textures on Windows. Bringing DMA-BUFs into NVENC through CUDA is the next step for that route. Sunshine does it, except on hybrid laptops where the frames come from the other GPU.
+- **DMA-BUFs reach NVENC through EGL, OpenGL and CUDA,** in `dmabuf_cuda.c`, as in Sunshine and gpu-screen-recorder. EGL imports the compositor's buffer, a blit copies it into a texture CUDA has registered, and CUDA copies that into the encoder's frame, all on the GPU and in about 0.2 ms at 2560x1440. Shared memory cost the publisher two CPU copies of every frame and KWin a read back from the GPU.
+- **NVIDIA's EGL offers only its own tiled modifiers** for XR24, and not linear, so offering linear alone, as for VA-API, would have got shared memory. KWin chose one of the tiled ones.
