@@ -1,0 +1,36 @@
+[Unit]
+Description=LiveKit, the media server for Zuna's voice channels
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=zuna-livekit
+Group=zuna-livekit
+ExecStart=/usr/local/bin/livekit-server --config /etc/zuna/livekit.yaml
+Restart=on-failure
+RestartSec=3
+# Unprivileged ports, and it keeps nothing on disk. Finding this machine's
+# addresses for calls needs netlink.
+CapabilityBoundingSet=
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

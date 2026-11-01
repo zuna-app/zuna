@@ -36,7 +36,7 @@ export function ensureBuilt() {
   }
 }
 
-/** The LiveKit server voice channels use. Update this and `deploy/docker-compose.voice.yml` together. */
+/** The LiveKit server voice channels use. Update this, `deploy/docker-compose.voice.yml` and `LIVEKIT_VERSION` in `deploy/update.sh` together. */
 export const LIVEKIT_TAG = "v1.13.11";
 
 /**

@@ -1,9 +1,9 @@
 # Running Zuna on Linux without Docker
 
-`deploy/update.sh` builds Zuna from this repository and runs it as systemd services. It can run the chat server, the push relay ([PUSH_RELAY.md](PUSH_RELAY.md)), the web app ([WEB.md](WEB.md)), or any of them on one machine. They speak plain HTTP, for your own reverse proxy to put HTTPS in front, on this machine or another one. The same command installs and updates:
+`deploy/update.sh` builds Zuna from this repository and runs it as systemd services. It can run the chat server, with [LiveKit](https://livekit.io) beside it for voice channels, the push relay ([PUSH_RELAY.md](PUSH_RELAY.md)), the web app ([WEB.md](WEB.md)), or any of them on one machine. They speak plain HTTP, for your own reverse proxy to put HTTPS in front, on this machine or another one. The same command installs and updates:
 
 - **Pulls** the latest code, and if the script itself changed, runs the new version.
-- **Builds** the server and the relay with Go. It installs Go if the machine doesn't have it. The web app also needs Node and Rust, which it installs only when you run the web app.
+- **Builds** the server and the relay with Go. It installs Go if the machine doesn't have it. The web app also needs Node and Rust, which it installs only when you run the web app. LiveKit isn't built: it downloads LiveKit's own release, and installs it only if it matches the checksum in the script.
 - **Installs** the binaries, users, folders, settings and services.
 - **Restarts** each service and checks that it answers. If a new build doesn't start, it puts the previous one back.
 
@@ -46,12 +46,21 @@ sudo /opt/zuna/deploy/update.sh --server chat.example.com --web web.chat.example
 
 Its sign-in form starts with the server on this machine. The first build of the web app takes about 15 minutes on a machine with 4 cores, and longer on a smaller one, because it installs Node, Rust and `wasm-bindgen` and compiles the encryption core. Later updates reuse them and take seconds. [WEB.md](WEB.md) says what to know before offering the web app to people.
 
+To add voice channels, run LiveKit beside the server:
+
+```bash
+sudo /opt/zuna/deploy/update.sh --server chat.example.com --voice on
+```
+
+LiveKit is the media server for calls, and only ever carries encrypted media. Apps reach it through the server's own domain, at `/livekit/`, so it needs no domain, certificate or proxy setup of its own. Calls' media goes straight to this machine, though, not through the proxy, so open its ports to everyone (see [Voice channels](#voice-channels)).
+
 The domains are where people reach Zuna through your proxy. The server puts its domain in invite links. On this machine:
 
 - the server listens on port 8080;
 - the relay listens on port 8090;
 - the web app listens on port 8081;
-- all of them listen only on this machine, unless you say otherwise with `--listen`.
+- all of them listen only on this machine, unless you say otherwise with `--listen`;
+- LiveKit listens on port 7880 for the server alone, on this machine whatever `--listen` says, and on 7881/tcp and 7882/udp for calls' media, on every address.
 
 The script prints the addresses to point the proxy at. When the server starts for the first time, the script also prints a one-time setup link. Once the proxy is set up, paste the link into the Zuna app to create the owner account, as in [Finish setup](SELF_HOSTING.md#finish-setup). If you miss it:
 
@@ -143,6 +152,20 @@ server {
 
 - **Only a trusted proxy can name a caller's address.** That's this machine and private networks by default. A connection from anywhere else is taken at face value, so a public proxy needs `--trusted-proxies 203.0.113.7`, or its callers all count as one address for rate limits. A list replaces the default, so it's also how to narrow it down to exactly your proxy.
 
+## Voice channels
+
+With `--voice on`, the proxy needs nothing more: apps' signaling goes to `/livekit/` on the server's domain, over a WebSocket, like everything else there. Media doesn't go through the proxy. Open **7881/tcp** and **7882/udp** to everyone, straight to the machine that runs LiveKit. UDP is much better for calls, and TCP is for people whose networks block it. With ufw:
+
+```bash
+sudo ufw allow 7881/tcp
+```
+
+```bash
+sudo ufw allow 7882/udp
+```
+
+LiveKit finds the machine's public address when it starts, by asking a public STUN server, and tells apps to send media there. Behind a router, forward both ports to the machine. With the proxy on another machine, people's media still comes to this one, so it has to be reachable from the internet on those two ports.
+
 ## Updating
 
 ```bash
@@ -169,16 +192,21 @@ Run the script again with the option you're changing. The others stay as they we
 | Start the web app's sign-in form with another server | `--web-server https://chat.example.com` |
 | Let the web app connect only to some servers | `--web-servers https://chat.example.com`, or `--web-servers any` to allow any again |
 | Stop the web app's host fetching pages for link previews | `--web-previews off` |
+| Add voice channels to a machine that runs the server | `--voice on` |
+| Turn voice channels off | `--voice off`. Channels stay, but nobody can join a call |
+| Give LiveKit other ports | `--voice-port 9880`, which only the server uses, and `--voice-tcp-port 9881`, `--voice-udp-port 9882` for media |
 | Listen somewhere else | `--listen 10.0.0.5` for a proxy on another machine, or `--listen 127.0.0.1` for one on this machine |
 | Say exactly which proxies to trust | `--trusted-proxies 203.0.113.7,10.0.0.0/24` |
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
 | Build what's checked out, without pulling | `--no-pull` |
 
-The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env` and `/etc/zuna/zuna-web.env` the first time, and again only when you pass options that change them. Anything else you add to them by hand stays, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration). Restart the service after editing them:
+The script writes `/etc/zuna/zuna.env`, `/etc/zuna/push.env`, `/etc/zuna/zuna-web.env` and `/etc/zuna/livekit.yaml` the first time, and again only when you pass options that change them. Anything else you add to them by hand stays, such as `ZUNA_DOWNLOAD_URL` from [Configuration](SELF_HOSTING.md#configuration). Restart the service after editing them:
 
 ```bash
 sudo systemctl restart zuna
 ```
+
+An update restarts LiveKit only when it brings a new LiveKit or new settings for it, since that ends every call.
 
 ## Where everything is
 
@@ -187,10 +215,12 @@ sudo systemctl restart zuna
 | Chat server | `/usr/local/bin/zuna-server`, service `zuna`, settings `/etc/zuna/zuna.env`, data `/var/lib/zuna` |
 | Push relay | `/usr/local/bin/zuna-push`, service `zuna-push`, settings `/etc/zuna/push.env`, handle key `/var/lib/zuna-push/handle.key` |
 | Web app | `/usr/local/bin/zuna-web`, with the app inside it, service `zuna-web`, settings `/etc/zuna/zuna-web.env`. It keeps no data |
+| LiveKit | `/usr/local/bin/livekit-server`, service `zuna-livekit`, settings `/etc/zuna/livekit.yaml`. It keeps no data |
+| LiveKit's key and secret | `/etc/zuna/livekit-keys.yaml`, made once and readable only by LiveKit, and a copy in `/etc/zuna/zuna.env`, which only root reads |
 | What the web app is built with | Node in `/usr/local/node`, Rust and `wasm-bindgen` in the builder's `~/.cargo`, and a copy of the code in its `~/.cache/zuna-web-build` |
 | APNs key | `/etc/zuna/apns.p8`, readable only by the relay |
 | What the script set up | `/etc/zuna/update.conf` |
-| The previous build | `/usr/local/bin/zuna-server.previous`, `zuna-push.previous` and `zuna-web.previous` |
+| The previous build | `/usr/local/bin/zuna-server.previous`, `zuna-push.previous`, `zuna-web.previous` and `livekit-server.previous` |
 
 **Back up** `/var/lib/zuna`, as described in [Backups](SELF_HOSTING.md#backups), and `/var/lib/zuna-push/handle.key`. If the handle key is lost, every phone's registration breaks until its app registers again, which it does when it next opens.
 
@@ -208,8 +238,14 @@ journalctl -u zuna-push -f
 journalctl -u zuna-web -f
 ```
 
+```bash
+journalctl -u zuna-livekit -f
+```
+
 - **The app can't connect:** check that the proxy forwards WebSockets, and that `https://chat.example.com/healthz` answers through it.
 - **The build runs out of memory:** add swap, or build on a bigger machine. The web app's encryption core needs the most.
+- **Voice channels can't be joined:** check that `/etc/zuna/zuna.env` has the `ZUNA_LIVEKIT_` settings, which `--voice on` adds, and that `zuna-livekit` is running.
+- **People join a call but hear nothing:** media can't reach the machine. Check that 7881/tcp and 7882/udp are open to everyone, and forwarded if it's behind a router. LiveKit's log says which public address it found when it started.
 - **The web app says it has to be opened over HTTPS:** reach it through the proxy, at `https://web.chat.example.com`, not at its port.
 - **Phones don't get notifications:**
   - the server's `ZUNA_PUSH_RELAYS` must list the relay's public address. By default it lists the project's relay, `https://relay.mgalazka.pl`, and the script sets it to the relay on the same machine;

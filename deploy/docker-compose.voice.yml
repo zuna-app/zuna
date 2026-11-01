@@ -21,7 +21,7 @@ services:
       - livekit
 
   livekit:
-    # Update this and LIVEKIT_TAG in scripts/lib.mjs together.
+    # Update this, LIVEKIT_TAG in scripts/lib.mjs and LIVEKIT_VERSION in deploy/update.sh together.
     image: livekit/livekit-server:v1.13.11
     restart: unless-stopped
     read_only: true
