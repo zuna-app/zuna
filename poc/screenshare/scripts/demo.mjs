@@ -1,0 +1,238 @@
+// Runs the whole thing and reports on it: LiveKit, the publisher, and a viewer in
+// real Electron. With --seconds it measures for that long and prints the results;
+// without it, it keeps going until Ctrl+C for watching by eye.
+import { spawn, spawnSync } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { createInterface } from 'node:readline'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { ensureFfmpeg, ensureLiveKit, isWindows, root } from './deps.mjs'
+
+const flags = {
+  encoder: 'auto', fps: '60', bitrate: '20000', seconds: '0', e2ee: 'yes', label: '', joins: '0',
+  input: 'gpu', 'idr-fix': 'yes', display: '', crop: '', motion: '1', build: 'yes', 'keyframe-seconds': '10',
+}
+for (let i = 2; i < process.argv.length; i += 2) {
+  const name = process.argv[i].replace(/^--/, '')
+  if (!(name in flags)) {
+    console.error(`Unknown option --${name}. Options: ${Object.keys(flags).map((flag) => `--${flag}`).join(' ')}`)
+    process.exit(2)
+  }
+  flags[name] = process.argv[i + 1]
+}
+
+const seconds = Number(flags.seconds)
+const label = flags.label || `${flags.encoder}-${flags.input}-${flags.fps}fps-${flags.bitrate}k`
+const resultsDir = join(root, 'results')
+const e2eeKey = flags.e2ee === 'yes' ? 'stand-in-for-a-key-from-mls-exporter' : ''
+
+// cl.exe doesn't take paths over 260 characters, and LiveKit's headers go past that
+// from a target folder this deep in a checkout.
+const targetDir = isWindows ? join(process.env.LOCALAPPDATA, 'zss') : join(root, 'publisher', 'target')
+
+function msvcToolchain() {
+  const list = spawnSync('rustup', ['toolchain', 'list'], { encoding: 'utf8' }).stdout ?? ''
+  const found = list.split('\n').map((line) => line.split(' ')[0]).find((name) => name.endsWith('-pc-windows-msvc'))
+  if (!found) throw new Error('Building on Windows needs a Rust MSVC toolchain: rustup toolchain install stable-x86_64-pc-windows-msvc')
+  return found
+}
+
+function build() {
+  if (!existsSync(join(root, 'node_modules', 'livekit-client'))) {
+    const npm = spawnSync(isWindows ? 'npm.cmd' : 'npm', ['install'], { cwd: root, stdio: 'inherit', shell: isWindows })
+    if (npm.status !== 0) throw new Error('npm install failed')
+  }
+  const args = [...(isWindows ? [`+${msvcToolchain()}`] : []), 'build', '--release']
+  const result = spawnSync('cargo', args, { cwd: join(root, 'publisher'), stdio: 'inherit', env: { ...process.env, CARGO_TARGET_DIR: targetDir } })
+  if (result.status !== 0) throw new Error('Building the publisher failed')
+}
+
+const children = []
+function start(name, command, args, onLine, env) {
+  const child = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+  children.push(child)
+  createInterface({ input: child.stdout }).on('line', onLine)
+  createInterface({ input: child.stderr }).on('line', (line) => {
+    if (!/^\s*$/.test(line)) console.error(`[${name}] ${line}`)
+  })
+  return child
+}
+
+function stopAll() {
+  for (const child of children.reverse()) child.kill()
+}
+process.on('SIGINT', () => {
+  stopAll()
+  process.exit(0)
+})
+
+const parse = (line) => {
+  try {
+    return JSON.parse(line)
+  } catch {
+    return null
+  }
+}
+
+function electronPath() {
+  return createRequire(join(root, 'package.json'))('electron')
+}
+
+// What the GPU says it's doing, as the check that this really is hardware encoding.
+function nvidiaEncoderStats() {
+  const result = spawnSync('nvidia-smi', ['--query-gpu=encoder.stats.sessionCount,encoder.stats.averageFps,encoder.stats.averageLatency,utilization.encoder,utilization.gpu', '--format=csv,noheader,nounits'], { encoding: 'utf8' })
+  if (result.status !== 0) return null
+  const [sessions, fps, latencyUs, encoderUtilization, gpuUtilization] = result.stdout.trim().split(',').map(Number)
+  return { sessions, fps, latencyUs, encoderUtilization, gpuUtilization }
+}
+
+const mean = (values) => (values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null)
+const max = (values) => (values.length ? Math.max(...values) : null)
+const sum = (values) => values.reduce((total, value) => total + value, 0)
+const present = (values) => values.filter((value) => value !== null && value !== undefined)
+
+async function main() {
+  if (flags.build === 'yes') {
+    await ensureFfmpeg()
+    build()
+  }
+  const liveKit = ensureLiveKit()
+  const publisherPath = join(targetDir, 'release', isWindows ? 'zuna-screenshare.exe' : 'zuna-screenshare')
+  mkdirSync(resultsDir, { recursive: true })
+
+  const publisherStats = []
+  const viewerStats = []
+  const gpuStats = []
+  const joinResults = []
+  const run = { label, flags, description: null, colours: null, firstFrameMs: null, errors: [] }
+
+  start('livekit', liveKit, ['--dev', '--bind', '127.0.0.1', '--node-ip', '127.0.0.1'], () => {}, {})
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+
+  let finish
+  const finished = new Promise((resolve) => {
+    finish = resolve
+  })
+
+  const publisherArgs = ['--encoder', flags.encoder, '--fps', flags.fps, '--bitrate-kbps', flags.bitrate, '--keyframe-seconds', flags['keyframe-seconds']]
+  if (e2eeKey) publisherArgs.push('--e2ee-key', e2eeKey)
+  if (flags.input === 'cpu') publisherArgs.push('--cpu-input')
+  if (flags['idr-fix'] === 'no') publisherArgs.push('--no-idr-fix')
+  if (flags.crop) publisherArgs.push('--crop', flags.crop)
+
+  const startPublisher = (display) => {
+    start('publisher', publisherPath, [...publisherArgs, '--monitor-at', `${display.x + 1},${display.y + 1}`], (line) => {
+      const message = parse(line)
+      if (message?.type === 'ready') {
+        run.description = message.description
+        console.log(`Publishing: ${message.description}, ${message.e2ee ? 'encrypted' : 'not encrypted'}`)
+      } else if (message?.type === 'stats') {
+        publisherStats.push(message)
+      }
+    }).on('exit', (code) => {
+      if (code) {
+        run.errors.push(`The publisher exited with ${code}`)
+        finish()
+      }
+    })
+  }
+
+  const viewerArgs = [
+    join(root, 'viewer', 'main.cjs'),
+    `--label=${label}`, `--seconds=${seconds}`, `--results=${resultsDir}`, `--joins=${flags.joins}`, `--motion=${flags.motion}`,
+    ...(e2eeKey ? [`--e2ee-key=${e2eeKey}`] : []),
+    ...(flags.display ? [`--display=${flags.display}`] : []),
+  ]
+  start('viewer', electronPath(), viewerArgs, (line) => {
+    const message = parse(line)
+    if (!message) return
+    switch (message.type) {
+      case 'display': startPublisher(message); break
+      case 'viewer': viewerStats.push(message); console.log(`  ${message.width}x${message.height} ${message.fps.toFixed(0)} fps ${(message.kbps / 1000).toFixed(1)} Mbit/s, ${message.latencyMs ?? '?'} ms, decoder ${message.decoder}`); break
+      case 'firstFrame': run.firstFrameMs = message.ms; break
+      case 'colours': run.colours = message.swatches; break
+      case 'join': joinResults.push(message); console.log(`  Join ${message.attempt + 1}: first frame after ${message.firstFrameMs === null ? 'nothing in 15 s' : `${Math.round(message.firstFrameMs)} ms`}, ${message.pli} PLI`); break
+      case 'done': finish(); break
+      case 'error': run.errors.push(message.message); console.error(`Viewer: ${message.message}`); break
+      default: break
+    }
+  })
+
+  const sampler = setInterval(() => {
+    const sample = nvidiaEncoderStats()
+    if (sample) gpuStats.push(sample)
+  }, 1000)
+
+  if (seconds > 0) setTimeout(finish, seconds * 1000)
+  await finished
+  clearInterval(sampler)
+  stopAll()
+
+  writeReport(run, publisherStats, viewerStats, gpuStats, joinResults)
+}
+
+function writeReport(run, publisherStats, viewerStats, gpuStats, joinResults) {
+  // The start is a ramp, and the steady part is what these numbers describe.
+  const settled = (stats) => stats.slice(Math.min(10, Math.floor(stats.length / 3)))
+  const steadyPublisher = settled(publisherStats)
+  const steadyViewer = settled(viewerStats)
+  const steadyGpu = settled(gpuStats).filter((sample) => sample.sessions > 0)
+
+  const reachedCap = publisherStats.find((stats) => stats.encoderKbps >= Number(flags.bitrate))
+  const summary = {
+    label: run.label,
+    description: run.description,
+    errors: run.errors,
+    decoder: steadyViewer.at(-1)?.decoder,
+    codec: steadyViewer.at(-1)?.codec,
+    fmtp: steadyViewer.at(-1)?.fmtp,
+    size: steadyViewer.at(-1) && `${steadyViewer.at(-1).width}x${steadyViewer.at(-1).height}`,
+    firstFrameMs: run.firstFrameMs,
+    secondsToReachBitrateCap: reachedCap?.t ?? null,
+    sender: {
+      fps: mean(steadyPublisher.map((stats) => stats.fps)),
+      repeatFps: mean(steadyPublisher.map((stats) => stats.repeatFps)),
+      kbps: mean(steadyPublisher.map((stats) => stats.kbps)),
+      encodeMs: mean(steadyPublisher.map((stats) => stats.encodeMsAvg)),
+      encodeMsWorst: max(steadyPublisher.map((stats) => stats.encodeMsMax)),
+      cpuCores: mean(steadyPublisher.map((stats) => stats.cpuCores)),
+      keys: sum(publisherStats.map((stats) => stats.keys)),
+      keyRequests: sum(publisherStats.map((stats) => stats.keyRequests)),
+      bitrateChanges: sum(publisherStats.map((stats) => stats.bitrateChanges)),
+      rejected: sum(publisherStats.map((stats) => stats.rejected)),
+      idrRewritten: publisherStats.at(-1)?.idrRewritten ?? 0,
+      idrLeftAlone: publisherStats.at(-1)?.idrLeftAlone ?? 0,
+    },
+    gpu: steadyGpu.length ? { encoderUtilization: mean(steadyGpu.map((sample) => sample.encoderUtilization)), sessions: max(steadyGpu.map((sample) => sample.sessions)), reportedFps: mean(steadyGpu.map((sample) => sample.fps)) } : null,
+    viewer: {
+      fps: mean(steadyViewer.map((stats) => stats.fps)),
+      kbps: mean(steadyViewer.map((stats) => stats.kbps)),
+      decodeMs: mean(present(steadyViewer.map((stats) => stats.decodeMs))),
+      jitterBufferMs: mean(present(steadyViewer.map((stats) => stats.jitterBufferMs))),
+      latencyMs: mean(present(steadyViewer.map((stats) => stats.latencyMs))),
+      latencyP95Ms: max(present(steadyViewer.map((stats) => stats.latencyP95Ms))),
+      latencySamples: sum(steadyViewer.map((stats) => stats.latencySamples)),
+      unreadFrames: sum(steadyViewer.map((stats) => stats.unreadFrames)),
+      freezes: sum(viewerStats.map((stats) => stats.freezes)),
+      freezeMs: sum(viewerStats.map((stats) => stats.freezeMs)),
+      framesDropped: sum(steadyViewer.map((stats) => stats.framesDropped)),
+      pli: sum(viewerStats.map((stats) => stats.pli)),
+      packetsLost: sum(viewerStats.map((stats) => stats.packetsLost)),
+      colourWorst: run.colours ? Math.max(...run.colours.map((swatch) => swatch.worst)) : null,
+    },
+    colours: run.colours,
+    joins: joinResults.length ? joinResults.map((join) => join.firstFrameMs) : undefined,
+    timeline: publisherStats.map((stats) => ({ t: stats.t, fps: stats.fps, kbps: stats.kbps, targetKbps: stats.targetKbps, encoderKbps: stats.encoderKbps, keys: stats.keys, keyRequests: stats.keyRequests })),
+    viewerTimeline: viewerStats.map((stats) => ({ fps: stats.fps, kbps: stats.kbps, latencyMs: stats.latencyMs, jitterBufferMs: stats.jitterBufferMs, freezes: stats.freezes, pli: stats.pli })),
+  }
+  writeFileSync(join(resultsDir, `${run.label}.json`), JSON.stringify(summary, null, 2))
+  const { timeline: _timeline, viewerTimeline: _viewerTimeline, colours: _colours, ...printed } = summary
+  console.log(JSON.stringify(printed, null, 2))
+  console.log(`Saved to ${join(resultsDir, `${run.label}.json`)}`)
+}
+
+main().then(() => process.exit(0)).catch((error) => {
+  console.error(error)
+  stopAll()
+  process.exit(1)
+})
