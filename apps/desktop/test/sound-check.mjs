@@ -1,12 +1,14 @@
 // The computer's sound going with a screen share on Linux, which the native program
 // captures from PipeWire. Drives two real Electron apps against a real server and a
 // real LiveKit, with players that go to no speaker, so nothing here can be heard, and
-// checks what reaches someone watching: everything but Zuna, or one app alone.
+// checks what reaches someone watching: everything but Zuna, one app alone, and by
+// default the app whose window is shared.
 //
 //   npm run build:screenshare && npm run build -w @zuna/desktop && node apps/desktop/test/sound-check.mjs [screenshot-dir]
 //
 // Zuna's own sound is stood in for by a player the app starts itself, which is how
-// Chromium plays: from a process under the app's. The apps run on X11 and share a window,
+// Chromium plays: from a process under the app's. The window shared is the other app's,
+// which plays a tone of its own the same way. The apps run on X11 and share a window,
 // since on Wayland listing what can be shared asks the person through the portal. Anything
 // else playing on the computer goes into the share as well, so it's best run in quiet.
 
@@ -67,9 +69,11 @@ const fixtures = mkdtempSync(join(tmpdir(), "zuna-sound-tones-"));
 const loudPath = join(fixtures, "own.wav");
 const aPath = join(fixtures, "a.wav");
 const bPath = join(fixtures, "b.wav");
+const windowPath = join(fixtures, "window.wav");
 tone(loudPath, 1500, 0.8);
 tone(aPath, 1000, 0.05);
 tone(bPath, 2000, 0.02);
+tone(windowPath, 2500, 0.035);
 
 // "--target 0" links a player to nothing, so it's silent until the share links it in.
 const players = [];
@@ -233,25 +237,31 @@ try {
   await alice.page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click();
   await alice.page.keyboard.press("Escape");
 
-  // What plays: Zuna itself, loud, and two other apps, quieter and quieter.
-  await alice.electronApp.evaluate((_electron, { loudPath }) => {
-    const { spawn } = process.getBuiltinModule("node:child_process");
-    globalThis.__ownPlayer = spawn("pw-play", ["--target", "0", "-P", "application.name=ZunaItself", loudPath], { stdio: "ignore" });
-  }, { loudPath });
+  // What plays: Zuna itself, loud, the app whose window is shared, and two other apps.
+  const playInside = (who, name, file) =>
+    who.electronApp.evaluate(
+      (_electron, { name, file }) => {
+        const { spawn } = process.getBuiltinModule("node:child_process");
+        globalThis.__ownPlayer = spawn("pw-play", ["--target", "0", "-P", `application.name=${name}`, file], { stdio: "ignore" });
+      },
+      { name, file },
+    );
+  await playInside(alice, "ZunaItself", loudPath);
+  await playInside(bob, "WindowTone", windowPath);
   play("ToneA", aPath);
   play("ToneB", bPath);
   await sleep(1500);
 
   const soundChoice = () => alice.page.getByRole("combobox", { name: /^Sound/ });
-  // A window, since XWayland has no screens to list.
+  // The other app's window: XWayland's screen is the whole of it, which shows little.
   const openPicker = async () => {
     await alice.page.getByRole("button", { name: "Share your screen" }).first().click();
     await alice.page.getByRole("button", { name: "Windows", exact: true }).click();
-    await alice.page.locator(".screen-source").first().waitFor({ timeout: 15_000 });
+    await alice.page.locator(".screen-source").first().click({ timeout: 15_000 });
   };
   const share = async (choice) => {
     await openPicker();
-    await soundChoice().selectOption({ label: choice });
+    if (choice) await soundChoice().selectOption({ label: choice });
     await alice.page.getByRole("button", { name: "Share", exact: true }).click();
     await alice.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
     await bob.page.locator(".voice-tile.is-screen video").first().waitFor({ timeout: 20_000 });
@@ -263,17 +273,30 @@ try {
     await sleep(2500);
   };
 
+  const picked = () => soundChoice().evaluate((select) => ({ value: select.value, label: select.selectedOptions[0]?.textContent ?? "" }));
   await openPicker();
   await sleep(3500);
   const offered = await soundChoice().locator("option").allTextContents();
+  const byDefault = await picked();
   await shot(alice, "01-picker");
-  console.log(`  Offered: ${offered.join(", ")}`);
+  console.log(`  Offered: ${offered.join(", ")}, with ${byDefault.label} (${byDefault.value})`);
   check("the picker offers no sound, the entire system, and each app playing", ["No sound", "Entire system", "ToneA", "ToneB"].every((name) => offered.includes(name)), offered.join(", "));
   check("Zuna's own sound isn't offered", !offered.some((name) => name.includes("ZunaItself")), offered.join(", "));
+  check("a window starts with the sound of the app it belongs to", byDefault.value.startsWith("app:pid:"), `${byDefault.label} (${byDefault.value})`);
+  check("that app's sound isn't offered twice", !offered.includes("WindowTone"), offered.join(", "));
+  await alice.page.getByRole("button", { name: "Screens", exact: true }).click();
+  await alice.page.locator(".screen-source").first().click({ timeout: 15_000 });
+  const forScreen = await picked();
+  check("a screen starts with the entire system's sound", forScreen.value === "everything", `${forScreen.label} (${forScreen.value})`);
   await alice.page.getByRole("button", { name: "Cancel" }).click();
 
   const quiet = await loudestArriving(bob.page, 2);
   check("before sharing, nothing arrives", quiet < 0.005, `peak ${quiet.toFixed(4)}`);
+
+  await share(null);
+  const windowSound = await loudestArriving(bob.page, 3);
+  check("by default a window's app's sound reaches someone watching alone", windowSound > 0.025 && windowSound < 0.045, `peak ${windowSound.toFixed(3)}, where that app's is 0.035 and everything 0.9`);
+  await stop();
 
   await share("Entire system");
   const everything = await loudestArriving(bob.page, 3);
@@ -289,15 +312,20 @@ try {
   check("one app's sound reaches someone watching alone", one > 0.01 && one < 0.035, `peak ${one.toFixed(3)}, where that app's is 0.02 and the rest 0.85`);
   await stop();
 
-  // Chosen once, it's offered again by name while it's quiet, since it may play later.
-  for (const player of players) player.kill();
+  // What was chosen for one share isn't kept for the next.
+  await openPicker();
+  await sleep(500);
+  const next = await picked();
+  check("the next share starts from the window's app again", next.value.startsWith("app:pid:"), `${next.label} (${next.value})`);
+  // It's the window's app that's chosen, whatever in it is playing at the moment.
+  await bob.electronApp.evaluate(() => globalThis.__ownPlayer?.kill());
+  await alice.page.getByRole("button", { name: "Cancel" }).click();
   await sleep(1000);
   await openPicker();
   await sleep(500);
-  const remembered = await soundChoice().locator("option:checked").textContent();
-  check("the app chosen last stays chosen while it's quiet", remembered?.startsWith("ToneB"), remembered ?? "");
-  await shot(alice, "03-picker-remembers");
-  await soundChoice().selectOption({ label: "No sound" });
+  const after = await picked();
+  check("a window's app stays chosen as what it plays changes", after.value === next.value, `${after.label} (${after.value})`);
+  await shot(alice, "03-picker-after");
   await alice.page.getByRole("button", { name: "Cancel" }).click();
 
   const realErrors = errors.filter((error) => !error.includes("MissingKey"));

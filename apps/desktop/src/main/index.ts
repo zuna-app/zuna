@@ -4,7 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { startKeyWatch } from "./global-key";
 import { startNativeScreen, type NativeScreenOptions } from "./native-screen";
-import { listSoundApps, nativeSoundAvailable, startNativeSound, type NativeSound } from "./native-sound";
+import { listSoundApps, nativeSoundAvailable, startNativeSound, windowSoundApp, type NativeSound } from "./native-sound";
 import { notificationState, startNotifications, type Notifications } from "./notifications";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
@@ -516,8 +516,9 @@ function registerIpc(): void {
     nativeScreen?.stop();
     nativeScreen = null;
   });
-  // The computer's sound for a share on Linux, where Chromium can't capture it.
+  // The computer's sound for a share: on Linux, where Chromium can't capture it, and one app's anywhere.
   handle("zuna:sound-apps", () => listSoundApps());
+  handle("zuna:sound-window-app", (_event, source: unknown) => (typeof source === "string" ? windowSoundApp(source) : null));
   handle("zuna:native-sound-start", async (event, app: unknown) => {
     nativeSound?.stop();
     const { sound, ready } = startNativeSound(typeof app === "string" ? app : null, event.sender, (problem) => {

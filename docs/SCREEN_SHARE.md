@@ -36,15 +36,21 @@ A share's sound goes out over the device's own connection, beside the picture, w
 
 | | Captured by | What can be chosen |
 |---|---|---|
-| Windows | Chromium's loopback, which `restrictOwnAudio` keeps Zuna out of | Everything but Zuna |
-| Linux | This program, from PipeWire (`src/sound.rs`) | Everything but Zuna, or one app |
+| Windows | Everything but Zuna: Chromium's loopback, which `restrictOwnAudio` keeps Zuna out of. One app: this program, through process loopback (`src/sound/windows.rs`) | Everything but Zuna, or one app |
+| Linux | This program, from PipeWire (`src/sound/linux.rs`) | Everything but Zuna, or one app |
 | macOS and the web | The browser | Whatever its own picker offers |
 
-On Linux, `--sound` writes everything playing apart from the process `--exclude-pid` names and those it started, and `--sound-from ID` only one app's, by the id `--sound-apps` gives it. PipeWire has no stream of everything but one program, so the program makes a stream of its own that nothing connects to, and links each app's output into it as apps start and stop playing. The sound is taken as it leaves each app, after the app's own volume and before the system's, so where an app plays to makes no difference: speakers, headphones, or something like EasyEffects in between. Chromium plays Zuna's sound from a process under the app's, so it's left out, and nobody in the call hears themselves back. The links belong to the program, and go when it does.
+`--sound` writes everything playing apart from the process `--exclude-pid` names and those it started, and `--sound-from ID` only one app's, by the id `--sound-apps` or `--window-app` gives it. `pid:N` is a process and those it started.
+
+What a share starts with follows what's shared: a screen, everything but Zuna, and a window, the sound of the app it belongs to. Windows and X11 say which process a window belongs to, which `--window-app` asks, so its sound is taken from that process and those it started. Wayland's portal doesn't, so there the window's title is matched against the names of the apps playing, as "… — Mozilla Firefox" names Firefox, and without a match it starts with no sound. A window on Windows without the program starts without sound too, since Chromium could only add everything. Settings' "Start with sound on" turns all of it off, and whatever's chosen in the picker holds until another source is.
+
+On Linux, PipeWire has no stream of everything but one program, so the program makes a stream of its own that nothing connects to, and links each app's output into it as apps start and stop playing. The sound is taken as it leaves each app, after the app's own volume and before the system's, so where an app plays to makes no difference: speakers, headphones, or something like EasyEffects in between. Chromium plays Zuna's sound from a process under the app's, so it's left out, and nobody in the call hears themselves back. The links belong to the program, and go when it does.
 
 `apps/desktop/src/main/native-sound.ts` runs it. It writes one line of JSON once it's listening, and then only sound: 32-bit floats, two channels interleaved at 48 kHz, and only while something plays. The samples go to the page over a MessagePort, and straight on to the audio thread (`voice/share-sound.worklet.ts`), which plays them into the published track. That keeps 40 ms in hand, more when PipeWire hands over larger pieces, and drops what piles up past 150 ms more, so the sound doesn't fall behind the picture.
 
-The picker lists an app while it has a stream open, which for most is while it plays. The one chosen last stays on offer while it's quiet, since its sound is taken from whenever it starts.
+On Windows an app is the first process of its program, found by walking up from the one with sound while the parent is the same program, so a browser's sound, which comes from a process it started, goes with it. Process loopback needs Windows 10 version 2004 or later, and before that a share of one app's goes without sound and says so.
+
+The picker lists an app while it has a stream open on Linux, or a session on Windows, which for most is while it plays. A window's app is offered while it's quiet as well, since its sound is taken from whenever it starts.
 
 On Windows the program also answers one question that has nothing to do with sharing: `--notification-state` prints whether Windows wants quiet right now, and exits, since Node can't ask. The app draws its own notifications there, so they don't get the system's rules for full-screen apps, presentations and Do Not Disturb (`apps/desktop/src/main/notifications.ts`). A build without the program shows notifications regardless.
 
@@ -78,7 +84,7 @@ The second group can't be held that way. The picture is encrypted and LiveKit do
 |---|---|---|
 | Size, frame rate, most it may send | yes | yes |
 | Sound: starting with it on, its quality | Captured beside the share: by the browser on Windows, by the program on Linux | yes, and on Linux by the program, as for a native share |
-| Whose sound: everything but Zuna, or one app | Linux | Linux |
+| Whose sound: everything but Zuna, or one app, starting from what's shared | Linux and Windows | Linux and Windows |
 | How loud others' shares are, and whether one fills the stage when it starts | Those are for whoever's watching, however it was sent | |
 | Capturing on the graphics card at all | yes | |
 | Showing the pointer | yes | No: Chromium accepts `cursor: "never"` and goes on showing it, measured in Electron on Windows, so it isn't offered |
@@ -164,5 +170,7 @@ The proof of concept's README lists what has run where. Inside the app, only Win
 - **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.
 - **Leaving the pointer out natively** asks Windows and the portal to, and nobody has looked at a picture to see that it worked.
 - **Sharing a window natively** isn't built: it goes through Chromium.
-- **The computer's sound on Linux** has run from the app beside a share through the browser, in `apps/desktop/test/sound-check.mjs` on Arch with KDE, PipeWire 1.6 and EasyEffects, and by itself against a player linked straight to a sink without EasyEffects. Beside a native share it hasn't, since that needs the portal's dialog answered, but it goes the same way.
+- **The computer's sound on Linux** has run from the app beside a share through the browser, in `apps/desktop/test/sound-check.mjs` on Arch with KDE, PipeWire 1.6 and EasyEffects, and by itself against a player linked straight to a sink without EasyEffects. Beside a native share it hasn't, since that needs the portal's dialog answered, but it goes the same way. The same check shares a window on X11, whose app's sound is chosen and sent by itself, and checks that a screen starts with everything.
+- **One app's sound on Windows** has been type-checked against Rust's Windows target, without LiveKit, and never built or run: listing the apps, which app a window belongs to, and process loopback.
+- **A window's app on Wayland** is guessed from its title, and what Electron names a window chosen through the portal hasn't been looked at.
 - **Real networks:** a pre-encoded stream has one layer, so a viewer on a slow connection can't be dropped to a lower quality.

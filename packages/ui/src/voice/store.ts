@@ -184,6 +184,9 @@ export const useVoice = create<VoiceState>((set, get) => {
     sound("self-leave");
   };
 
+  /** Whether a share's sound comes from the platform rather than the browser: one app's, or everything where the browser can't. */
+  const soundIsNative = (app: string | null) => !!platform.shareSound && (!!app || platform.shareSound.everything);
+
   /**
    * Sends the computer's sound beside a share that has none of its own: from the platform,
    * which can take one app's, or else from the browser. A share without its sound is still
@@ -192,7 +195,7 @@ export const useVoice = create<VoiceState>((set, get) => {
   const startShareSound = async (current: VoiceRoom, kbps: number, app: string | null) => {
     const native = platform.shareSound;
     try {
-      if (!native) {
+      if (!native || !soundIsNative(app)) {
         await current.startSystemAudio(kbps);
         return;
       }
@@ -484,7 +487,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       const browserShare = async (whyNotNative: string | null) => {
         const access = await askServer(true);
         // Sound the platform captures goes beside the browser's picture, not in it.
-        const browserSound = access.sound && !platform.shareSound;
+        const browserSound = access.sound && !soundIsNative(choice.soundApp ?? null);
         await current.whenAllowedToShare(true, access.sound);
         if (choice.source) await platform.chooseDisplaySource?.(choice.source, browserSound);
         await current.startBrowserScreen({
@@ -529,7 +532,7 @@ export const useVoice = create<VoiceState>((set, get) => {
             set({ screen: { ...asked, native: true, info } });
             if (access.sound) {
               await current.whenAllowedToShare(false, true);
-              if (choice.source && !platform.shareSound) await platform.chooseDisplaySource?.(choice.source, true);
+              if (choice.source && !soundIsNative(choice.soundApp ?? null)) await platform.chooseDisplaySource?.(choice.source, true);
               await startShareSound(current, terms.soundKbps, choice.soundApp ?? null);
             }
             const off = native.onEnded((problem) => {

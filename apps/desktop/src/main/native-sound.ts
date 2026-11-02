@@ -1,12 +1,13 @@
-// The computer's sound for a screen share on Linux, which Chromium can't capture there.
-// The native screen capture program takes it from PipeWire: everything playing apart
-// from Zuna, so that nobody in the call hears themselves back, or one app's. Its samples
+// The computer's sound for a screen share, from the native screen capture program: on
+// Linux, which Chromium can't capture there, everything playing apart from Zuna, so that
+// nobody in the call hears themselves back, or one app's, from PipeWire. On Windows, where
+// Chromium captures everything but Zuna, one app's, through process loopback. Its samples
 // go to the renderer over a MessagePort, straight to the audio thread that plays them
 // into the published track. docs/SCREEN_SHARE.md has more.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { MessageChannelMain, type WebContents } from "electron";
+import { app, MessageChannelMain, type WebContents } from "electron";
 import { nativeScreenPath } from "./native-screen";
 
 /** How long PipeWire gets to answer. */
@@ -20,32 +21,62 @@ export interface SoundApp {
   name: string;
 }
 
+export interface WindowSoundApp extends SoundApp {
+  playing: boolean;
+  covers: string[];
+}
+
 /** Whether this build can capture the computer's sound itself. */
 export function nativeSoundAvailable(): boolean {
-  return process.platform === "linux" && !!nativeScreenPath();
+  return (process.platform === "linux" || process.platform === "win32") && !!nativeScreenPath();
 }
 
 /** Zuna's own sound is never taken: Chromium plays it from a process under this one. */
 const excludeArgs = (): string[] => ["--exclude-pid", String(process.pid)];
 
-/** The apps playing sound now, apart from Zuna. */
-export function listSoundApps(): Promise<SoundApp[]> {
+/** Runs the program for one answer, as one line of JSON, or null if there's none. */
+function ask(args: string[]): Promise<Record<string, unknown> | null> {
   const path = nativeScreenPath();
-  if (!path || process.platform !== "linux") return Promise.resolve([]);
+  if (!path || !nativeSoundAvailable()) return Promise.resolve(null);
   return new Promise((resolve) => {
-    const child = spawn(path, ["--sound-apps", ...excludeArgs()], { stdio: ["ignore", "pipe", "ignore"], timeout: START_TIMEOUT_MS });
+    const child = spawn(path, [...args, ...excludeArgs()], { stdio: ["ignore", "pipe", "ignore"], timeout: START_TIMEOUT_MS, windowsHide: true });
     let output = "";
     child.stdout!.setEncoding("utf8").on("data", (text: string) => (output += text));
-    child.on("error", () => resolve([]));
+    child.on("error", () => resolve(null));
     child.on("exit", () => {
       try {
-        const apps = (JSON.parse(output) as { apps?: unknown }).apps;
-        resolve(Array.isArray(apps) ? apps.filter((app): app is SoundApp => typeof app?.id === "string" && typeof app?.name === "string") : []);
+        resolve(JSON.parse(output) as Record<string, unknown>);
       } catch {
-        resolve([]);
+        resolve(null);
       }
     });
   });
+}
+
+const isApp = (app: unknown): app is SoundApp => typeof (app as SoundApp)?.id === "string" && typeof (app as SoundApp)?.name === "string";
+
+/** The apps playing sound now, apart from Zuna. */
+export async function listSoundApps(): Promise<SoundApp[]> {
+  const apps = (await ask(["--sound-apps"]))?.apps;
+  return Array.isArray(apps) ? apps.filter(isApp).map(({ id, name }) => ({ id, name })) : [];
+}
+
+/**
+ * Whether Chromium draws on X11 here, where a window's id is X11's and says which process
+ * it belongs to. On Wayland it's the portal's, which doesn't.
+ */
+function onX11(): boolean {
+  const hint = [app.commandLine.getSwitchValue("ozone-platform"), app.commandLine.getSwitchValue("ozone-platform-hint"), process.env.ELECTRON_OZONE_PLATFORM_HINT];
+  return hint.includes("x11") || !process.env.WAYLAND_DISPLAY;
+}
+
+/** Which app a window that can be shared belongs to, where the system can tell. */
+export async function windowSoundApp(source: string): Promise<WindowSoundApp | null> {
+  const window = /^window:(\d+):/.exec(source)?.[1];
+  if (!window || (process.platform === "linux" && !onX11())) return null;
+  const found = (await ask(["--window-app", window]))?.app as WindowSoundApp | null | undefined;
+  if (!isApp(found)) return null;
+  return { id: found.id, name: found.name, playing: found.playing === true, covers: Array.isArray(found.covers) ? found.covers.filter((id) => typeof id === "string") : [] };
 }
 
 export interface NativeSound {
@@ -58,9 +89,9 @@ export interface NativeSound {
  */
 export function startNativeSound(app: string | null, renderer: WebContents, onEnded: (problem: string | null) => void): { sound: NativeSound; ready: Promise<void> } {
   const path = nativeScreenPath();
-  if (!path || process.platform !== "linux") throw new Error("This build can't capture your computer's sound.");
+  if (!path || !nativeSoundAvailable()) throw new Error("This build can't capture your computer's sound.");
   const args = [...(app ? ["--sound-from", app] : ["--sound"]), ...excludeArgs()];
-  const child: ChildProcess = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"] });
+  const child: ChildProcess = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   const { port1, port2 } = new MessageChannelMain();
   const said: string[] = [];
   let stopping = false;

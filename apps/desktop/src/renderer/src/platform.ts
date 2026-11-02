@@ -16,6 +16,7 @@ import {
   type Platform,
   type ShareSound,
   type SoundApp,
+  type WindowSoundApp,
 } from "@zuna/ui";
 import { drawCounters } from "./counter";
 
@@ -36,9 +37,10 @@ export interface DesktopBridge {
   nativeScreenStop(): Promise<void>;
   onNativeScreenEnded(listener: (problem: string | null) => void): () => void;
   onNativeScreenStats(listener: (stats: NativeScreenStats) => void): () => void;
-  /** This build captures the computer's sound for a share itself, which is on Linux. */
+  /** This build captures the computer's sound for a share itself: all of it on Linux, and one app's on Windows too. */
   nativeSound: boolean;
   soundApps(): Promise<SoundApp[]>;
+  soundWindowApp(source: string): Promise<WindowSoundApp | null>;
   /** The port comes as a message to the page, since it can't cross the bridge. */
   nativeSoundStart(app: string | null): Promise<void>;
   nativeSoundStop(): Promise<void>;
@@ -144,7 +146,10 @@ export function desktopPlatform(): Platform {
 /** The computer's sound for a share, which the main process captures and hands over a port. */
 function nativeSound(desktop: DesktopBridge): ShareSound {
   return {
+    // Chromium captures everything but Zuna on Windows, and nothing on Linux.
+    everything: !isWindows,
     apps: () => desktop.soundApps(),
+    windowApp: (source) => desktop.soundWindowApp(source),
     start: (app) =>
       new Promise((resolve, reject) => {
         const onMessage = (event: MessageEvent) => {

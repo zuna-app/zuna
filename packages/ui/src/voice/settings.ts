@@ -49,10 +49,8 @@ export interface VoiceSettings {
   screenPriority: ScreenPriority;
   /** The pointer shows in a native share. A browser always shows it. */
   screenCursor: boolean;
-  /** Sharing starts with the computer's sound on. */
-  screenSound: boolean;
-  /** The one app whose sound was shared last, or null for everything but Zuna, where the platform can tell them apart. */
-  screenSoundApp: { id: string; name: string } | null;
+  /** A share starts with sound: a screen's the whole computer's, apart from this call, and a window's its app's. */
+  screenSoundByDefault: boolean;
   /** Most a share's sound may send, in kbit/s. */
   screenSoundKbps: number;
   /** A whole screen is captured and encoded natively, where this build can. */
@@ -96,8 +94,7 @@ export const VOICE_DEFAULTS: VoiceSettings = {
   screenContent: "detail",
   screenPriority: "sharp",
   screenCursor: true,
-  screenSound: false,
-  screenSoundApp: null,
+  screenSoundByDefault: true,
   screenSoundKbps: 128,
   screenNative: true,
   screenEncoder: "auto",
@@ -138,6 +135,9 @@ export function loadVoiceSettings(): VoiceSettings {
       delete saved.screenFps;
       delete saved.screenBitrate;
     }
+    // Sound used to start off, which was saved whether anyone had chosen it or not, and an app once chosen stayed.
+    delete saved.screenSound;
+    delete saved.screenSoundApp;
     return { ...VOICE_DEFAULTS, ...saved };
   } catch {
     return { ...VOICE_DEFAULTS };

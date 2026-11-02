@@ -149,8 +149,8 @@ export function ScreenSettingsSection() {
           <h3 className="settings-subhead">Sound</h3>
           {shown.sound ? (
             <>
-              <SettingRow title="Start with sound on" hint="Everything your computer plays, apart from this call. You can still turn it off each time.">
-                <Switch on={settings.screenSound} onChange={(value) => update({ screenSound: value })} label="Start with sound on" />
+              <SettingRow title="Start with sound on" hint="A screen starts with everything your computer plays, apart from this call, and a window with its app's sound where Zuna can tell which that is. You can still change it each time.">
+                <Switch on={settings.screenSoundByDefault} onChange={(value) => update({ screenSoundByDefault: value })} label="Start with sound on" />
               </SettingRow>
               <NumberSelect
                 label="Sound quality"

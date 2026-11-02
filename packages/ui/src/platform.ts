@@ -140,10 +140,22 @@ export interface SoundApp {
   name: string;
 }
 
+/** The app a window belongs to, as a share's sound. */
+export interface WindowSoundApp extends SoundApp {
+  /** It's playing sound now. */
+  playing: boolean;
+  /** The ids `apps` gives the same sound, which needn't be offered twice. */
+  covers: string[];
+}
+
 /** The computer's sound for a share, captured natively: everything apart from this app, or one app's. */
 export interface ShareSound {
+  /** It captures everything apart from this app too. Otherwise the browser does that. */
+  everything: boolean;
   /** The apps playing sound now, apart from this one. */
   apps(): Promise<SoundApp[]>;
+  /** Which app a window from `displaySources` belongs to, where the system can tell. */
+  windowApp(source: string): Promise<WindowSoundApp | null>;
   /**
    * Starts capturing one app, or everything but this app for null. The samples come over
    * the port as Float32Arrays, two channels interleaved at 48 kHz, and only while something plays.

@@ -1,8 +1,8 @@
 import { screenTerms } from "@zuna/core/voice";
 import { Monitor, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Spinner, Switch } from "@/components/ui";
-import { platform, type DisplaySource, type SoundApp } from "@/platform";
+import { platform, type DisplaySource, type SoundApp, type WindowSoundApp } from "@/platform";
 import { useApp } from "@/state/store";
 import { heightName, rateName, SCREEN_HEIGHTS, SCREEN_RATES, screenLimitsText } from "@/voice/settings";
 import { useVoice } from "@/voice/store";
@@ -59,6 +59,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const suggested = screenTerms({ height: null, fps: null, kbps: null, soundKbps: settings.screenSoundKbps }, rules, role);
   const canShareAudio = !!platform.systemAudio && terms.sound;
   const soundApps = useSoundApps(canShareAudio);
+  const sound = useShareSound(source, usesBrowserPicker, soundApps, settings.screenSoundByDefault);
   const native = !!source?.native && settings.screenNative;
   const limits = screenLimitsText(rules, role);
   // What the limits leave out of the lists, which is nothing for someone they don't apply to.
@@ -67,7 +68,8 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
 
   const start = async () => {
     setStarting(true);
-    await startScreen({ source: source?.id, native: !!source?.native, audio: settings.screenSound && canShareAudio, soundApp: settings.screenSoundApp?.id ?? null, name: source?.name });
+    const soundApp = sound.pick.startsWith("app:") ? sound.pick.slice(4) : null;
+    await startScreen({ source: source?.id, native: !!source?.native, audio: canShareAudio && sound.pick !== "", soundApp, name: source?.name });
     onClose();
   };
 
@@ -155,14 +157,14 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         />
       </div>
       {limits && <p className="screen-held">{limits}</p>}
-      {canShareAudio && platform.shareSound && <SoundChoice apps={soundApps} />}
+      {canShareAudio && platform.shareSound && <SoundChoice pick={sound.pick} apps={soundApps} windowApp={sound.windowApp} onChoose={sound.choose} />}
       {canShareAudio && !platform.shareSound && (
         <div className="setting-row">
           <span className="grow">
             <b>Share sound too</b>
             <span className="setting-hint">Everything your computer plays, apart from this call.</span>
           </span>
-          <Switch on={settings.screenSound} onChange={(value) => updateSettings({ screenSound: value })} label="Share sound too" />
+          <Switch on={sound.pick !== ""} onChange={(value) => sound.choose(value ? "everything" : "")} label="Share sound too" />
         </div>
       )}
       <button
@@ -203,31 +205,81 @@ function useSoundApps(wanted: boolean): SoundApp[] {
   return apps;
 }
 
+type SoundPick = "" | "everything" | `app:${string}`;
+
+/** Whether a window's title names an app, as "… — Mozilla Firefox" names Firefox. */
+function titleNames(title: string, app: SoundApp): boolean {
+  const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const inTitle = new Set(words(title));
+  return [app.name, app.id].some((name) => {
+    const parts = words(name);
+    return parts.join("").length >= 3 && parts.every((part) => inTitle.has(part));
+  });
+}
+
+/**
+ * Whose sound a share starts with: a screen's the whole computer's, and a window's the app
+ * it belongs to, as the system says or, failing that, as its title does. What the person
+ * chooses instead holds until they choose another source.
+ */
+function useShareSound(source: DisplaySource | undefined, browserPicks: boolean, apps: SoundApp[], byDefault: boolean) {
+  const key = browserPicks ? "browser" : (source?.id ?? null);
+  const [chosen, setChosen] = useState<{ key: string | null; pick: SoundPick } | null>(null);
+  const [lookup, setLookup] = useState<{ key: string; app: WindowSoundApp | null } | null>(null);
+  const windowId = source?.kind === "window" ? source.id : null;
+
+  useEffect(() => {
+    const shareSound = platform.shareSound;
+    if (!windowId || !shareSound) return;
+    let cancelled = false;
+    void shareSound
+      .windowApp(windowId)
+      .catch(() => null)
+      .then((app) => {
+        if (!cancelled) setLookup({ key: windowId, app });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [windowId]);
+
+  const windowApp = lookup?.key === key ? lookup.app : null;
+  const fallback = (): SoundPick => {
+    if (!byDefault) return "";
+    if (browserPicks || source?.kind !== "window") return "everything";
+    // Only the window's own app will do: everything would be more than the window shows.
+    if (!platform.shareSound) return "";
+    if (windowApp) return `app:${windowApp.id}`;
+    if (lookup?.key !== key) return "";
+    const named = apps.filter((app) => titleNames(source.name, app)).sort((a, b) => b.name.length - a.name.length)[0];
+    return named ? `app:${named.id}` : "";
+  };
+  return {
+    pick: chosen?.key === key ? chosen.pick : fallback(),
+    windowApp,
+    choose: (pick: SoundPick) => setChosen({ key, pick }),
+  };
+}
+
 /** Whose sound goes with the share: nobody's, everything but Zuna's, or one app's. */
-function SoundChoice({ apps }: { apps: SoundApp[] }) {
-  const settings = useVoice((state) => state.settings);
-  const updateSettings = useVoice((state) => state.updateSettings);
-  const remembered = settings.screenSoundApp;
-  // The app chosen last stays on offer while it's quiet: its sound goes once it plays.
-  const listed = remembered && !apps.some((app) => app.id === remembered.id) ? [...apps, { ...remembered, quiet: true }] : apps;
-  const value = !settings.screenSound ? "" : remembered ? `app:${remembered.id}` : "everything";
+function SoundChoice({ pick, apps, windowApp, onChoose }: { pick: SoundPick; apps: SoundApp[]; windowApp: WindowSoundApp | null; onChoose: (pick: SoundPick) => void }) {
+  // An app that stops playing stays on offer while it's chosen, since its sound goes once it plays again.
+  const names = useRef(new Map<string, string>());
+  for (const app of windowApp ? [windowApp, ...apps] : apps) names.current.set(app.id, app.name);
+  const picked = pick.startsWith("app:") ? pick.slice(4) : null;
+  const others = apps.filter((app) => app.id !== windowApp?.id && !windowApp?.covers.includes(app.id));
+  const listed: (SoundApp & { quiet?: boolean })[] = [...(windowApp ? [{ ...windowApp, quiet: !windowApp.playing }] : []), ...others];
+  if (picked && !listed.some((app) => app.id === picked)) listed.push({ id: picked, name: names.current.get(picked) ?? picked, quiet: true });
   const label = (app: SoundApp & { quiet?: boolean }) => {
     const name = appName(app.name);
     const named = listed.filter((other) => other.name === app.name).length > 1 ? `${name} (${app.id})` : name;
     return app.quiet ? `${named}, once it plays` : named;
   };
-  const choose = (choice: string) => {
-    if (choice === "") updateSettings({ screenSound: false });
-    else if (choice === "everything") updateSettings({ screenSound: true, screenSoundApp: null });
-    else {
-      const app = listed.find((item) => `app:${item.id}` === choice);
-      if (app) updateSettings({ screenSound: true, screenSoundApp: { id: app.id, name: app.name } });
-    }
-  };
+  const pickedName = listed.find((app) => app.id === picked)?.name;
   return (
     <label className="field">
       <span className="field-label">Sound</span>
-      <select className="select" value={value} onChange={(event) => choose(event.target.value)}>
+      <select className="select" value={pick} onChange={(event) => onChoose(event.target.value as SoundPick)}>
         <option value="">No sound</option>
         <option value="everything">Entire system</option>
         {listed.length > 0 && (
@@ -241,10 +293,10 @@ function SoundChoice({ apps }: { apps: SoundApp[] }) {
         )}
       </select>
       <span className="setting-hint">
-        {value === "everything"
+        {pick === "everything"
           ? "Everything your computer plays, apart from Zuna, so nobody hears themselves back."
-          : value
-            ? `Only what ${appName(remembered?.name ?? "")} plays.`
+          : pickedName
+            ? `Only what ${appName(pickedName)} plays.`
             : "Apps show here while they play sound."}
       </span>
     </label>

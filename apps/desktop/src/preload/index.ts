@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("zunaDesktop", {
   onNativeScreenStats: (listener: (stats: unknown) => void) => on("zuna:native-screen-stats", listener),
   nativeSound: process.argv.includes("--zuna-native-sound"),
   soundApps: () => ipcRenderer.invoke("zuna:sound-apps"),
+  soundWindowApp: (source: string) => ipcRenderer.invoke("zuna:sound-window-app", source),
   nativeSoundStart: (app: string | null) => ipcRenderer.invoke("zuna:native-sound-start", app),
   nativeSoundStop: () => ipcRenderer.invoke("zuna:native-sound-stop"),
   onNativeSoundEnded: (listener: (problem: string | null) => void) => on("zuna:native-sound-ended", listener),

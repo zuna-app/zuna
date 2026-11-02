@@ -479,6 +479,15 @@ try {
   await alice.page.getByRole("button", { name: "Turn off camera" }).first().click();
 
   // --- Sharing a whole screen, natively where this build can ---
+  // Shares start with sound, which the checks below ask for only where they mean to.
+  for (const who of [alice, bob]) {
+    await who.page.getByLabel("Settings", { exact: true }).click();
+    await who.page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
+    const startWithSound = who.page.getByRole("switch", { name: "Start with sound on" });
+    if (await startWithSound.count()) await startWithSound.click();
+    await who.page.keyboard.press("Escape");
+    await sleep(200);
+  }
   const openPicker = async () => {
     await alice.page.getByRole("button", { name: "Share your screen" }).first().click();
     await alice.page.locator(".screen-source").first().waitFor({ timeout: 10_000 });
@@ -700,19 +709,21 @@ try {
       }
       return count;
     });
+  // A choice of whose sound where the app can capture one app's, and a switch elsewhere.
+  const soundChoice = bob.page.getByRole("combobox", { name: /^Sound/ });
+  const turnSoundOn = async () => {
+    if (await soundChoice.count()) await soundChoice.selectOption({ label: "Entire system" });
+    else await bob.page.getByRole("switch", { name: "Share sound too" }).click();
+  };
   const shareWithSound = async (route) => {
     const before = await soundsSent();
-    await pickAndShare(bob, () => bob.page.getByRole("switch", { name: "Share sound too" }).click());
+    await pickAndShare(bob, turnSoundOn);
     await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
     await screenOnAlice.waitFor({ timeout: 20_000 });
     await sleep(2500);
     check(`sound goes with a share ${route}`, (await soundsSent()) === before + 1 && (await bob.page.locator(".toast", { hasText: "without its sound" }).count()) === 0, `${before} before, ${await soundsSent()} now`);
     await stopSharing(bob);
     await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 });
-    // It's remembered, so it's left how it was found.
-    await bob.page.getByRole("button", { name: "Share your screen" }).first().click();
-    await bob.page.getByRole("switch", { name: "Share sound too" }).click();
-    await bob.page.getByRole("button", { name: "Cancel" }).click();
   };
   await shareWithSound("through the browser");
   if (native) {
@@ -724,7 +735,7 @@ try {
   await sleep(500);
   await bob.page.getByRole("button", { name: "Share your screen" }).first().click();
   await bob.page.locator(".screen-source").first().waitFor({ timeout: 10_000 });
-  check("without sound allowed, there's no asking for it", (await bob.page.getByRole("switch", { name: "Share sound too" }).count()) === 0);
+  check("without sound allowed, there's no asking for it", (await bob.page.getByRole("switch", { name: "Share sound too" }).count()) === 0 && (await soundChoice.count()) === 0);
   await bob.page.getByRole("button", { name: "Cancel" }).click();
   await changeRules((page) => page.getByRole("switch", { name: "Let sound go with a share" }).click());
 

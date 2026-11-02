@@ -28,6 +28,7 @@ export type {
   Platform,
   ShareSound,
   SoundApp,
+  WindowSoundApp,
 } from "./platform";
 export { connectWorker, type DeviceInfo } from "./core/boot";
 
