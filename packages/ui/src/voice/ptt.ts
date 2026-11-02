@@ -40,7 +40,8 @@ export function watchPushToTalk(): () => void {
     if (wanted === watching) return;
     watching = wanted;
     stopGlobal?.();
-    stopGlobal = wanted ? platform.watchKey?.(wanted, (down) => state().setKeyHeld(down)) : undefined;
+    useVoice.setState({ keyBound: null });
+    stopGlobal = wanted ? platform.watchKey?.(wanted, (down) => state().setKeyHeld(down), (trigger) => useVoice.setState({ keyBound: trigger || null })) : undefined;
   };
   update();
   const unsubscribe = useVoice.subscribe(update);

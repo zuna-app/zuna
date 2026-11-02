@@ -32,6 +32,7 @@ export function VoicePanel() {
   const screen = useVoice((state) => state.screen);
   const speaking = useVoice(selfIsSpeaking);
   const keyHeld = useVoice((state) => state.keyHeld);
+  const keyBound = useVoice((state) => state.keyBound);
   const settings = useVoice((state) => state.settings);
   const toggleMute = useVoice((state) => state.toggleMute);
   const toggleDeafen = useVoice((state) => state.toggleDeafen);
@@ -102,7 +103,7 @@ export function VoicePanel() {
         <span className="grow voice-self-name">
           <b className="truncate">{self?.displayName ?? "You"}</b>
           <span className="truncate faint">
-            {serverMuted ? "Muted by an admin" : noMic ? "No microphone" : settings.inputMode === "ptt" ? (settings.pttKey ? `Hold ${keyName(settings.pttKey)}${keyHeld ? "…" : ""}` : "Set a push to talk key") : "Voice activity"}
+            {serverMuted ? "Muted by an admin" : noMic ? "No microphone" : settings.inputMode === "ptt" ? (settings.pttKey ? `Hold ${keyBound ?? keyName(settings.pttKey)}${keyHeld ? "…" : ""}` : "Set a push to talk key") : "Voice activity"}
           </span>
         </span>
         <Tooltip text={serverMuted ? "An admin muted you" : micOff ? "Unmute" : "Mute"} side="top">

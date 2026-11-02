@@ -101,6 +101,7 @@
 .segmented { display: flex; background: var(--bg-3); border-radius: var(--radius-m); padding: 2px; gap: 1px; }
 .segmented button { padding: 4px 11px; border-radius: var(--radius-s); font-size: 13px; color: var(--text-2); }
 .segmented button.is-active { background: var(--bg-5); color: var(--text-1); }
+.segmented button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .device-list { display: flex; flex-direction: column; gap: 3px; }
 .device-row { width: 100%; display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: var(--radius-m); background: var(--bg-2); text-align: left; font-size: 13.5px; --dot-border: var(--bg-2); }

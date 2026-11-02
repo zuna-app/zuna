@@ -115,7 +115,25 @@ function useMicTest(onReading: (reading: MicReading) => void) {
   return { testing, start };
 }
 
-function KeyBinder() {
+/** Whether a key held in another window can be heard on this device, once that's known. */
+function usePushToTalkSupport() {
+  const [support, setSupport] = useState<{ anywhere: boolean; mouse: boolean; why?: "compositor" | "uninstalled" } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void platform
+      .pushToTalk?.()
+      .then((found) => {
+        if (!cancelled) setSupport(found);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return support;
+}
+
+function KeyBinder({ mouse }: { mouse: boolean }) {
   const settings = useVoice((state) => state.settings);
   const updateSettings = useVoice((state) => state.updateSettings);
   const [listening, setListening] = useState(false);
@@ -128,8 +146,8 @@ function KeyBinder() {
       setListening(false);
     };
     const onMouse = (event: MouseEvent) => {
-      // Only the side buttons: the others are for using the window.
-      if (event.button < 3) return;
+      // Only the side buttons: the others are for using the window. Some systems only bind keys.
+      if (event.button < 3 || !mouse) return;
       event.preventDefault();
       updateSettings({ pttKey: `Mouse${event.button}` });
       setListening(false);
@@ -140,7 +158,7 @@ function KeyBinder() {
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("mousedown", onMouse, true);
     };
-  }, [listening, updateSettings]);
+  }, [listening, mouse, updateSettings]);
   return (
     <button className={`btn${listening ? " is-listening" : ""}`} style={{ minWidth: 150 }} onClick={() => setListening(!listening)}>
       {listening ? "Press a key" : keyName(settings.pttKey)}
@@ -203,6 +221,15 @@ export function VoiceSettingsSection() {
   const test = useMicTest((reading) => listener.current?.(reading));
   useEffect(() => watchMic((reading) => listener.current?.(reading)), []);
   const live = inCall || test.testing;
+  const pushToTalk = usePushToTalkSupport();
+  const keyBound = useVoice((state) => state.keyBound);
+  // The compositor has no global shortcuts, so no key held in another window can be heard.
+  const noPushToTalk = pushToTalk?.anywhere === false;
+  const keyHint = !platform.watchKey || noPushToTalk
+    ? "Works while this window is in front."
+    : pushToTalk?.mouse === false
+      ? `Works whichever window you're in. Your system asks you to confirm the key, and may let you choose another.${keyBound ? ` It's ${keyBound} now.` : ""}`
+      : "Works whichever window you're in, where your system allows it.";
 
   return (
     <>
@@ -230,10 +257,17 @@ export function VoiceSettingsSection() {
           <button className={settings.inputMode === "voice" ? "is-active" : ""} onClick={() => update({ inputMode: "voice" })}>
             <Mic size={14} /> When you talk
           </button>
-          <button className={settings.inputMode === "ptt" ? "is-active" : ""} onClick={() => update({ inputMode: "ptt" })}>
+          <button className={settings.inputMode === "ptt" ? "is-active" : ""} disabled={noPushToTalk} onClick={() => update({ inputMode: "ptt" })}>
             <MicOff size={14} /> Push to talk
           </button>
         </div>
+        {noPushToTalk && (
+          <span className="setting-hint">
+            {pushToTalk?.why === "uninstalled"
+              ? "Push to talk can't work here: your system only gives global shortcuts to installed apps, and this copy of Zuna has no desktop entry. The .deb package installs one."
+              : "Your compositor doesn't support push to talk. It has no global shortcuts, so no app can hear a key held while another window is in front."}
+          </span>
+        )}
       </div>
 
       {settings.inputMode === "voice" ? (
@@ -255,8 +289,8 @@ export function VoiceSettingsSection() {
         </>
       ) : (
         <>
-          <SettingRow title="Key to hold" hint={platform.watchKey ? "Works whichever window you're in, where your system allows it." : "Works while this window is in front."}>
-            <KeyBinder />
+          <SettingRow title="Key to hold" hint={keyHint}>
+            <KeyBinder mouse={pushToTalk?.mouse !== false} />
           </SettingRow>
           <label className="field">
             <span className="field-label">

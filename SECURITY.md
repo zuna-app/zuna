@@ -94,7 +94,7 @@ Media is encrypted in the app with a key from the channel's MLS group, frame by 
 - **The microphone** is processed entirely on the device. Nothing about it leaves but what's sent.
 - **Who can share a screen** is up to each server's admins, and LiveKit enforces it. Coming into a voice channel doesn't allow a screen at all, and the server only allows one after checking its rules, which it can also take back. See [SCREEN_SHARE.md](docs/SCREEN_SHARE.md#what-a-server-says-and-what-a-device-chooses).
 - **The native screen capture** gets its keys over its standard input, never its command line, and its token can only publish a screen. libwebrtc's logs stay off unless `ZUNA_WEBRTC_LOG` is set, since the native frame cryptor has been reported to log keys. `poc/screenshare/scripts/key-log-check.mjs` looks for that.
-- **Push to talk from another window** uses a system-wide key hook in the desktop's main process, only while someone is in a call with it on, and only the one key asked for is ever passed on.
+- **Push to talk from another window** uses a system-wide key hook in the desktop's main process, only while someone is in a call with it on, and only the one key asked for is ever passed on. Under Wayland there's no such hook: the compositor binds that one key through the global shortcuts portal, and only says when it goes down and up.
 
 ### Who's in a conversation
 

@@ -47,6 +47,8 @@ export interface DesktopBridge {
   onNativeSoundEnded(listener: (problem: string | null) => void): () => void;
   watchKey(code: string | null): Promise<boolean>;
   onKey(listener: (down: boolean) => void): () => void;
+  onKeyBound(listener: (trigger: string) => void): () => void;
+  keyWatchSupport(): Promise<{ anywhere: boolean; mouse: boolean; why?: "compositor" | "uninstalled" }>;
   notify(payload: NotifyPayload): Promise<void>;
   notificationState(): Promise<NotificationState>;
   clearNotifications(which: NotificationsToClear): Promise<void>;
@@ -126,14 +128,17 @@ export function desktopPlatform(): Platform {
       onEnded: (listener) => desktop.onNativeScreenEnded(listener),
       onStats: (listener) => desktop.onNativeScreenStats(listener),
     },
-    watchKey(code, listener) {
+    watchKey(code, listener, onBound) {
       const off = desktop.onKey(listener);
+      const offBound = onBound ? desktop.onKeyBound(onBound) : () => undefined;
       void desktop.watchKey(code);
       return () => {
         off();
+        offBound();
         void desktop.watchKey(null);
       };
     },
+    pushToTalk: () => desktop.keyWatchSupport(),
     idleState: (seconds) => desktop.idleState(seconds),
     onPresence: (listener) => desktop.onPresence(listener),
     onFocus: (listener) => desktop.onFocus(listener),

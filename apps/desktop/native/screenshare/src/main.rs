@@ -9,6 +9,8 @@ mod h264;
 #[cfg(windows)]
 mod notification_state;
 mod pipeline;
+#[cfg(target_os = "linux")]
+mod shortcut;
 #[cfg(any(target_os = "linux", windows))]
 mod sound;
 
@@ -46,6 +48,8 @@ struct Args {
     list_monitors: bool,
     check_dmabuf: bool,
     portal_sources: bool,
+    global_shortcuts: bool,
+    push_to_talk: Option<String>,
     control: bool,
     sound: bool,
     sound_from: Option<String>,
@@ -116,6 +120,9 @@ const USAGE: &str = "zuna-screenshare [options]
   --list-monitors        List monitors and exit
   --check-dmabuf         Linux: check that DMA-BUFs reach NVENC, without capturing
   --portal-sources       Linux: say whether the portal shares screens and windows, as JSON, and exit
+  --global-shortcuts     Linux: say which version of the global shortcuts portal there is, 0 for none, and exit
+  --push-to-talk KEY     Linux: bind KEY through the global shortcuts portal and say when it goes down and up,
+                         as JSON lines, until standard input closes. An empty KEY lets the person choose
   --control              Take the address, token and keys from standard input, as JSON lines
   --sound                Write the computer's sound to standard output instead of sharing
   --sound-from ID        Only one app's sound, by its id from --sound-apps or --window-app
@@ -143,6 +150,8 @@ fn parse_args() -> std::result::Result<Args, String> {
         list_monitors: false,
         check_dmabuf: false,
         portal_sources: false,
+        global_shortcuts: false,
+        push_to_talk: None,
         control: false,
         sound: false,
         sound_from: None,
@@ -203,6 +212,8 @@ fn parse_args() -> std::result::Result<Args, String> {
             "--list-monitors" => args.list_monitors = true,
             "--check-dmabuf" => args.check_dmabuf = true,
             "--portal-sources" => args.portal_sources = true,
+            "--global-shortcuts" => args.global_shortcuts = true,
+            "--push-to-talk" => args.push_to_talk = Some(value()?),
             "--control" => args.control = true,
             "--sound" => args.sound = true,
             "--sound-from" => {
@@ -381,6 +392,18 @@ fn run(args: Args) -> Result<()> {
         return capture::portal_sources(&runtime);
         #[cfg(not(target_os = "linux"))]
         return Err("--portal-sources is for Linux".into());
+    }
+    if args.global_shortcuts {
+        #[cfg(target_os = "linux")]
+        return shortcut::check(&runtime);
+        #[cfg(not(target_os = "linux"))]
+        return Err("--global-shortcuts is for Linux".into());
+    }
+    if let Some(_trigger) = &args.push_to_talk {
+        #[cfg(target_os = "linux")]
+        return shortcut::watch(&runtime, _trigger);
+        #[cfg(not(target_os = "linux"))]
+        return Err("--push-to-talk is for Linux".into());
     }
     #[cfg(windows)]
     if args.capture.source == Source::Window {

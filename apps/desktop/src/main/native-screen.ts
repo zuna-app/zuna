@@ -34,6 +34,11 @@ export interface PortalSources {
 
 let portal: Promise<PortalSources | null> | null = null;
 
+/** Whether the desktop is a Wayland session, whichever way Chromium itself draws. */
+export function waylandSession(): boolean {
+  return process.env.XDG_SESSION_TYPE === "wayland" || (!process.env.XDG_SESSION_TYPE && !!process.env.WAYLAND_DISPLAY);
+}
+
 /**
  * Whether the native program picks what to share itself, through the portal's dialog,
  * and what that offers. That's on Linux under Wayland, where Chromium's list of what
@@ -41,9 +46,8 @@ let portal: Promise<PortalSources | null> | null = null;
  * Null where the app lists what there is itself, such as under X11.
  */
 export function portalSources(): Promise<PortalSources | null> {
-  const wayland = process.env.XDG_SESSION_TYPE === "wayland" || (!process.env.XDG_SESSION_TYPE && !!process.env.WAYLAND_DISPLAY);
   const path = nativeScreenPath();
-  if (process.platform !== "linux" || !wayland || !path) return Promise.resolve(null);
+  if (process.platform !== "linux" || !waylandSession() || !path) return Promise.resolve(null);
   portal ??= new Promise<PortalSources | null>((resolve) => {
     execFile(path, ["--portal-sources"], { timeout: 5000 }, (error, stdout) => {
       try {

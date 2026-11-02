@@ -33,6 +33,8 @@ contextBridge.exposeInMainWorld("zunaDesktop", {
   onNativeSoundEnded: (listener: (problem: string | null) => void) => on("zuna:native-sound-ended", listener),
   watchKey: (code: string | null) => ipcRenderer.invoke("zuna:watch-key", code),
   onKey: (listener: (down: boolean) => void) => on("zuna:key", listener),
+  onKeyBound: (listener: (trigger: string) => void) => on("zuna:key-bound", listener),
+  keyWatchSupport: () => ipcRenderer.invoke("zuna:key-watch-support"),
   notify: (payload: unknown) => ipcRenderer.invoke("zuna:notify", payload),
   notificationState: () => ipcRenderer.invoke("zuna:notification-state"),
   clearNotifications: (which: unknown) => ipcRenderer.invoke("zuna:clear-notifications", which),

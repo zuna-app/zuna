@@ -43,6 +43,8 @@ interface VoiceState {
   open: boolean;
   /** The push to talk key is down. */
   keyHeld: boolean;
+  /** The push to talk key as the system bound it, where it binds the key itself and may have been given another. */
+  keyBound: string | null;
   speaking: Record<string, true>;
   videos: VideoTile[];
   quality: RoomQuality;
@@ -83,6 +85,7 @@ const NOT_IN_VOICE = {
   noMic: false,
   open: false,
   keyHeld: false,
+  keyBound: null,
   speaking: {},
   videos: [],
   quality: "unknown" as RoomQuality,

@@ -60,6 +60,8 @@ The picker lists an app while it has a stream open on Linux, or a session on Win
 
 On Windows the program also answers one question that has nothing to do with sharing: `--notification-state` prints whether Windows wants quiet right now, and exits, since Node can't ask. The app draws its own notifications there, so they don't get the system's rules for full-screen apps, presentations and Do Not Disturb (`apps/desktop/src/main/notifications.ts`). A build without the program shows notifications regardless.
 
+On Linux it does the same for push to talk under Wayland, where nothing but the compositor sees a key held in another window. `--global-shortcuts` says whether the compositor has the global shortcuts portal and lets this app use it, and `--push-to-talk KEY` binds the key through it and says when it goes down and up, until the app closes its standard input (`src/shortcut.rs`, run by `apps/desktop/src/main/global-key.ts`). The portal only gives a shortcut to an app it can name, by the .desktop file installed under the name of the systemd scope the app runs in, which Electron makes from `desktopName`: `zuna.desktop`, which the .deb installs. An AppImage or a development build has none, so there push to talk is greyed out and says why, as it is where the compositor has no such portal.
+
 It's told what to make of the picture on its command line, since none of that is secret: `--fps`, `--bitrate-kbps`, `--max-height`, `--no-cursor`, `--encoder`, `--quality`, `--keyframe-seconds`, and on Linux `--source screen` or `--source window`, which the portal's dialog offers.
 
 ## What a server says, and what a device chooses

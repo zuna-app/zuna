@@ -2,7 +2,7 @@
 // the device key. All chat logic and cryptography run in the sandboxed renderer.
 
 import { randomBytes } from "node:crypto";
-import { startKeyWatch } from "./global-key";
+import { keyWatchSupport, startKeyWatch } from "./global-key";
 import { PORTAL_SCREEN, PORTAL_WINDOW, portalSources, startNativeScreen, type NativeScreenOptions } from "./native-screen";
 import { listSoundApps, nativeSoundAvailable, onX11, startNativeSound, windowSoundApp, type NativeSound } from "./native-sound";
 import { notificationState, startNotifications, type Notifications } from "./notifications";
@@ -557,9 +557,13 @@ function registerIpc(): void {
   // Only the key asked about is ever reported, and only while someone holds it for talking.
   handle("zuna:watch-key", (event, code: string | null) => {
     stopKeyWatch?.();
-    stopKeyWatch = code ? startKeyWatch(code, (down) => event.sender.send("zuna:key", down)) : null;
+    const send = (channel: string, value: unknown) => {
+      if (!event.sender.isDestroyed()) event.sender.send(channel, value);
+    };
+    stopKeyWatch = code ? startKeyWatch(code, (down) => send("zuna:key", down), (trigger) => send("zuna:key-bound", trigger)) : null;
     return !!stopKeyWatch;
   });
+  handle("zuna:key-watch-support", () => keyWatchSupport());
   // Whether the person is at the computer, for where notifications go: "active",
   // "idle" after this many seconds without input anywhere, or "locked".
   handle("zuna:idle-state", (_event, seconds: number) => powerMonitor.getSystemIdleState(Math.max(1, Math.round(seconds))));

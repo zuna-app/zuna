@@ -210,8 +210,14 @@ export interface Platform {
   /** That sound comes from here rather than from the browser, and can be one app's. */
   shareSound?: ShareSound;
   nativeScreen?: NativeScreenShare;
-  /** Says when a key goes down or up anywhere on the computer, not just in this window. */
-  watchKey?(code: string, listener: (down: boolean) => void): () => void;
+  /** Says when a key goes down or up anywhere on the computer, not just in this window, and what the system bound where it binds the key itself. */
+  watchKey?(code: string, listener: (down: boolean) => void, onBound?: (trigger: string) => void): () => void;
+  /**
+   * Whether a key held in another window can be heard here, and a mouse button too.
+   * Under Wayland that takes the compositor's global shortcuts, which bind keys alone.
+   * Where it can't be, why: the compositor has none, or only gives them to installed apps.
+   */
+  pushToTalk?(): Promise<{ anywhere: boolean; mouse: boolean; why?: "compositor" | "uninstalled" }>;
   /** "active", "idle" after this many seconds without input anywhere, or "locked". */
   idleState?(seconds: number): Promise<"active" | "idle" | "locked" | "unknown">;
   /** The screen locking or the computer sleeping ("away"), and coming back ("back"). */
