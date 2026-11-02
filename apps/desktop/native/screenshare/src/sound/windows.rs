@@ -6,6 +6,7 @@
 use std::{
     collections::HashMap,
     ffi::c_void,
+    mem::ManuallyDrop,
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc::{self, SyncSender, TrySendError},
@@ -186,7 +187,8 @@ fn loopback_client(pid: u32, mode: PROCESS_LOOPBACK_MODE) -> Result<IAudioClient
         ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
         Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 { ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS { TargetProcessId: pid, ProcessLoopbackMode: mode } },
     };
-    let mut variant = PROPVARIANT::default();
+    // Never dropped, since dropping clears it, which frees the blob, and that's `params` on the stack.
+    let mut variant = ManuallyDrop::new(PROPVARIANT::default());
     unsafe {
         let inner = &mut *variant.Anonymous.Anonymous;
         inner.vt = VT_BLOB;
@@ -195,7 +197,7 @@ fn loopback_client(pid: u32, mode: PROCESS_LOOPBACK_MODE) -> Result<IAudioClient
     let done = unsafe { CreateEventW(None, false, false, None) }.map_err(failed("Creating an event"))?;
     let handler: IActivateAudioInterfaceCompletionHandler = Activated(done).into();
     let result = (|| unsafe {
-        let operation = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, &IAudioClient::IID, Some(&variant), &handler)
+        let operation = ActivateAudioInterfaceAsync(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, &IAudioClient::IID, Some(&*variant), &handler)
             .map_err(failed("Windows can't capture one app's sound before Windows 10 version 2004"))?;
         if WaitForSingleObject(done, 5000) != WAIT_OBJECT_0 {
             return Err("Windows didn't make the loopback client within 5 seconds".to_owned());
