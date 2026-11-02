@@ -90,12 +90,15 @@ fn format_param(format: u32, fps: u32, modifiers: &[u64]) -> Vec<u64> {
         Value::Choice(pod::CHOICE_RANGE, vec![Value::Rectangle(1920, 1080), Value::Rectangle(1, 1), Value::Rectangle(16384, 16384)]),
     ));
     // A framerate of nothing means as frames come, and the maximum is what the
-    // compositor should keep to.
+    // compositor should keep to. That's a little over the frame rate, because a compositor
+    // can skip a frame that comes even slightly inside it, which at the screen's own
+    // refresh rate is about every other one. `encode_buffer` keeps to the frame rate.
+    let most = fps + fps / 4;
     properties.push((FORMAT_VIDEO_FRAMERATE, 0, Value::Fraction(0, 1)));
     properties.push((
         FORMAT_VIDEO_MAX_FRAMERATE,
         0,
-        Value::Choice(pod::CHOICE_RANGE, vec![Value::Fraction(fps, 1), Value::Fraction(1, 1), Value::Fraction(fps, 1)]),
+        Value::Choice(pod::CHOICE_RANGE, vec![Value::Fraction(most, 1), Value::Fraction(1, 1), Value::Fraction(most, 1)]),
     ));
     pod::object(OBJECT_FORMAT, PARAM_ENUM_FORMAT, &properties)
 }
@@ -116,7 +119,6 @@ struct Shared {
     negotiated: Option<Negotiated>,
     pipeline: *mut Pipeline,
     interval: Duration,
-    last_taken: Option<Instant>,
     failure: Option<String>,
 }
 
@@ -194,14 +196,12 @@ unsafe fn encode_buffer(shared: &mut Shared, buffer: *mut PwBuffer) -> Result<()
         return Ok(());
     }
 
-    // The compositor keeps to the maximum frame rate, so this only trims frames that
-    // come in much too early. It can't wait for the frame's turn, as the Windows
-    // capture does, without holding on to the compositor's buffer.
-    let now = Instant::now();
-    if shared.last_taken.is_some_and(|last| now.duration_since(last) < shared.interval / 2) {
+    // Frames can come a little faster than the frame rate, so this trims those that are
+    // well ahead of their turn. It can't wait for the turn, as the Windows capture does,
+    // without holding on to the compositor's buffer.
+    if Instant::now() + shared.interval / 4 < pipeline.next_due() {
         return Ok(());
     }
-    shared.last_taken = Some(now);
 
     match datas[0].data_type {
         pipewire::DATA_DMA_BUF => {
@@ -367,7 +367,6 @@ impl Capture {
             negotiated: None,
             pipeline: ptr::null_mut(),
             interval: Duration::from_secs_f64(1.0 / options.fps as f64),
-            last_taken: None,
             failure: None,
         });
         let mut hook = Box::new(SpaHook::zeroed());

@@ -223,7 +223,10 @@ impl Capture {
         let _ = session.SetIsCursorCaptureEnabled(true);
         // Not on every version of Windows, and neither is worth stopping for.
         let _ = session.SetIsBorderRequired(false);
-        let _ = session.SetMinUpdateInterval(TimeSpan { Duration: 10_000_000 / options.fps as i64 });
+        // Half the frame's interval, because Windows drops a frame that comes even a little
+        // inside this. At the screen's own refresh rate that's about every other one, and
+        // `run` already keeps to the frame rate.
+        let _ = session.SetMinUpdateInterval(TimeSpan { Duration: 10_000_000 / (options.fps as i64 * 2) });
         session.StartCapture().map_err(error("Starting the capture"))?;
 
         let (mut width, mut height) = (even(size.Width as u32), even(size.Height as u32));

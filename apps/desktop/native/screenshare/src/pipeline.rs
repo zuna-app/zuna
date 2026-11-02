@@ -131,7 +131,6 @@ impl Pipeline {
     }
 
     /// The earliest a new frame should be encoded.
-    #[cfg_attr(not(windows), allow(dead_code))]
     pub fn next_due(&self) -> Instant {
         self.frame_due
     }
