@@ -91,6 +91,10 @@ final class VoiceTests: XCTestCase {
         try waitFor("alice to see bob's camera") { try self.bobsPhone(alice)?["camera"] as? Bool == true }
         try waitFor("his picture on his tile") { self.zuna.element(A11y.Voice.person(device)).label.contains("camera on") }
         XCTAssertTrue(zuna.element(A11y.Voice.flip).exists)
+        // All of it on the screen, the camera's switch too, which once pushed the controls past both edges.
+        for id in [A11y.Voice.mute, A11y.Voice.leave, A11y.Voice.flip, A11y.Voice.person(device), A11y.Voice.person(carolDevice)] {
+            XCTAssertTrue(zuna.app.frame.contains(zuna.element(id).frame), "\(id) goes past the screen's edge")
+        }
         zuna.screenshot("96-voice-camera")
         zuna.element(A11y.Voice.camera).tap()
         try waitFor("alice to see it off") { try self.bobsPhone(alice)?["camera"] as? Bool == false }

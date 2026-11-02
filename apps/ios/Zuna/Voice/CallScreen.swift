@@ -127,6 +127,7 @@ struct CallScreen: View {
             VStack(spacing: 8) {
                 tile(focused.source == .screen ? .screen(focused) : .person(members.first { $0.userId == focused.userId } ?? placeholder(focused.userId), focused), focusedTile: true)
                     .frame(maxHeight: .infinity)
+                    .padding(.horizontal, 8)
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 8) {
                         ForEach(tiles) { item in
@@ -134,7 +135,7 @@ struct CallScreen: View {
                                 .frame(width: 150, height: 100)
                         }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 8)
                 }
                 .frame(height: 100)
             }
@@ -151,23 +152,37 @@ struct CallScreen: View {
     /// Everyone at a size that fills the screen, as FaceTime's grid does, scrolling only once they can't fit.
     private func grid(_ tiles: [StageTile]) -> some View {
         GeometryReader { proxy in
-            let count = max(1, tiles.count)
-            let most = sizeClass == .regular ? 4 : 2
-            let columns = min(most, max(1, Int(Double(count).squareRoot().rounded(.up))))
-            let rows = Int((Double(count) / Double(columns)).rounded(.up))
             let spacing: CGFloat = 8
-            let height = max(130, (proxy.size.height - spacing * CGFloat(rows + 1)) / CGFloat(rows))
+            let layout = Self.gridLayout(count: max(1, tiles.count), in: proxy.size, most: sizeClass == .regular ? 4 : 2, spacing: spacing)
             ScrollView {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: columns), spacing: spacing) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: spacing), count: layout.columns), spacing: spacing) {
                     ForEach(tiles) { item in
                         tile(item, focusedTile: false)
-                            .frame(height: min(height, proxy.size.width / CGFloat(columns) * 1.3))
+                            .frame(width: layout.tile.width, height: layout.tile.height)
                     }
                 }
                 .padding(spacing)
+                .frame(minHeight: proxy.size.height)
             }
             .scrollBounceBehavior(.basedOnSize)
         }
+    }
+
+    /// The number of columns that gives the biggest tiles, each between a little taller than wide and 16:9, so two
+    /// people on an upright phone stand one above the other instead of leaving the bottom of the screen empty.
+    private static func gridLayout(count: Int, in size: CGSize, most: Int, spacing: CGFloat) -> (columns: Int, tile: CGSize) {
+        var best = (columns: 1, tile: CGSize.zero)
+        for columns in 1...max(1, min(most, count)) {
+            let rows = (count + columns - 1) / columns
+            let cellWidth = (size.width - spacing * CGFloat(columns + 1)) / CGFloat(columns)
+            let cellHeight = max(130, (size.height - spacing * CGFloat(rows + 1)) / CGFloat(rows))
+            let height = min(cellHeight, cellWidth * 1.4)
+            let width = min(cellWidth, height * 16 / 9)
+            if width * height > best.tile.width * best.tile.height {
+                best = (columns, CGSize(width: max(0, width), height: max(0, height)))
+            }
+        }
+        return best
     }
 
     private enum StageTile: Identifiable {
@@ -192,6 +207,23 @@ struct CallScreen: View {
                 }
                 .onLongPressGesture { openMember(member) }
                 .accessibilityAction(named: "Options") { openMember(member) }
+                .overlay(alignment: .topTrailing) {
+                    // On the picture it turns, as FaceTime's is, which leaves the controls room on a phone.
+                    if camera?.local == true {
+                        Button {
+                            Task { await voice.flipCamera() }
+                        } label: {
+                            Image(systemName: "arrow.triangle.2.circlepath.camera.fill")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 34, height: 34)
+                                .background(.black.opacity(0.45), in: .circle)
+                        }
+                        .padding(8)
+                        .accessibilityLabel("Switch camera")
+                        .accessibilityIdentifier(A11y.Voice.flip)
+                    }
+                }
         case let .screen(video):
             ScreenTile(name: name(of: video.userId), video: video, focused: focusedTile, watch: { watching = video.id })
                 .onTapGesture { voice.focus = focusedTile ? nil : video.id }
@@ -338,37 +370,44 @@ private struct ScreenTile: View {
     }
 }
 
-/// Mute, deafen, the camera, where sound plays, the chat beside the call, and leaving.
+/// Mute, deafen, the camera, where sound plays, the chat beside the call, and leaving. Smaller
+/// where they wouldn't fit, as in Slide Over on an iPad.
 private struct CallControls: View {
     @Environment(AppModel.self) private var model
     @Environment(VoiceModel.self) private var voice
     let channel: ChannelView?
 
     var body: some View {
-        HStack(spacing: 10) {
+        ViewThatFits(in: .horizontal) {
+            buttons(size: 52, spacing: 10)
+            buttons(size: 44, spacing: 8)
+        }
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .background(Theme.bg1.ignoresSafeArea(edges: .bottom))
+    }
+
+    private func buttons(size: CGFloat, spacing: CGFloat) -> some View {
+        HStack(spacing: spacing) {
             control(
                 voice.micOff ? "mic.slash.fill" : "mic.fill",
                 label: voice.serverMuted ? "An admin muted you" : voice.noMic ? "No microphone" : voice.micOff ? "Unmute" : "Mute",
                 off: voice.micOff,
+                size: size,
                 id: A11y.Voice.mute
             ) { voice.toggleMute() }
                 .disabled(voice.serverMuted || voice.noMic)
-            control(voice.deafened ? "speaker.slash.fill" : "speaker.wave.2.fill", label: voice.deafened ? "Undeafen" : "Deafen", off: voice.deafened, id: A11y.Voice.deafen) {
+            control(voice.deafened ? "speaker.slash.fill" : "speaker.wave.2.fill", label: voice.deafened ? "Undeafen" : "Deafen", off: voice.deafened, size: size, id: A11y.Voice.deafen) {
                 voice.toggleDeafen()
             }
-            control(voice.camera ? "video.fill" : "video.slash.fill", label: voice.camera ? "Turn off camera" : "Turn on camera", on: voice.camera, id: A11y.Voice.camera) {
+            control(voice.camera ? "video.fill" : "video.slash.fill", label: voice.camera ? "Turn off camera" : "Turn on camera", on: voice.camera, size: size, id: A11y.Voice.camera) {
                 Task { await voice.toggleCamera() }
             }
-            if voice.camera {
-                control("arrow.triangle.2.circlepath.camera.fill", label: "Switch camera", id: A11y.Voice.flip) {
-                    Task { await voice.flipCamera() }
-                }
-            }
             SwiftUIAudioRoutePickerButton()
-                .frame(width: 52, height: 52)
+                .frame(width: size, height: size)
                 .background(Theme.bg3, in: .circle)
                 .accessibilityLabel("Where sound plays")
-            control("bubble.left.fill", label: "Show chat", dot: (channel?.conversation?.unread ?? 0) > 0, id: A11y.Voice.chat) {
+            control("bubble.left.fill", label: "Show chat", dot: (channel?.conversation?.unread ?? 0) > 0, size: size, id: A11y.Voice.chat) {
                 guard let channel, let serverId = voice.serverId else { return }
                 voice.stageShown = false
                 model.selectServer(serverId)
@@ -378,25 +417,23 @@ private struct CallControls: View {
                 voice.leave()
             } label: {
                 Image(systemName: "phone.down.fill")
-                    .font(.system(size: 19, weight: .semibold))
+                    .font(.system(size: size * 0.37, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
+                    .frame(width: size, height: size)
                     .background(Theme.red, in: .circle)
             }
             .accessibilityLabel("Disconnect")
             .accessibilityIdentifier(A11y.Voice.leave)
         }
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity)
-        .background(Theme.bg1.ignoresSafeArea(edges: .bottom))
+        .padding(.horizontal, 12)
     }
 
-    private func control(_ symbol: String, label: String, off: Bool = false, on: Bool = false, dot: Bool = false, id: String, action: @escaping () -> Void) -> some View {
+    private func control(_ symbol: String, label: String, off: Bool = false, on: Bool = false, dot: Bool = false, size: CGFloat, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 19, weight: .semibold))
+                .font(.system(size: size * 0.37, weight: .semibold))
                 .foregroundStyle(off ? Theme.red : on ? Theme.bg0 : Theme.text1)
-                .frame(width: 52, height: 52)
+                .frame(width: size, height: size)
                 .background(on ? Theme.text1 : off ? Theme.red.opacity(0.18) : Theme.bg3, in: .circle)
                 .overlay(alignment: .topTrailing) {
                     if dot {
