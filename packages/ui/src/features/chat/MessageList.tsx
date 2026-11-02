@@ -1,7 +1,7 @@
 import type { ConversationView, MessageView } from "@zuna/core";
 import { ArrowDown, AtSign, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { Virtuoso, type IndexLocationWithAlign, type VirtuosoHandle } from "react-virtuoso";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
 import { formatDate, formatDaySeparator, formatTime, sameDay } from "@/lib/format";
@@ -204,6 +204,16 @@ export function MessageList({
     const first = conversation.unread > 0 && !detached ? items.find((item) => isUnread(item, conversation.ownRead, selfId, blocked)) : undefined;
     unreadLine.current = first?.id ?? null;
     openAtUnread.current = !!first;
+  }
+
+  // A jump to a message that isn't loaded shows a window of older messages, which opens
+  // on it. Virtuoso only looks where to open once it has measured the window's rows, by
+  // when the jump below may have let go of jumpTarget, so where is kept from the start.
+  const openOn = useRef<IndexLocationWithAlign | null>(null);
+  if (!detached) openOn.current = null;
+  else if (!openOn.current) {
+    const index = jumpTarget?.groupId === listId ? items.findIndex((item) => item.id === jumpTarget.messageId) : -1;
+    openOn.current = index >= 0 ? { index, align: "center" } : { index: "LAST", align: "end" };
   }
 
   // A jump shows a window of older messages, and leaving one comes back at the newest.
@@ -546,7 +556,7 @@ export function MessageList({
         data={shown}
         firstItemIndex={list.firstIndex + start}
         initialItemCount={list.detached ? 0 : firstRows()}
-        initialTopMostItemIndex={list.detached ? { index: "LAST", align: "end" } : undefined}
+        initialTopMostItemIndex={openOn.current ?? undefined}
         computeItemKey={(_index, message) => message.id}
         alignToBottom
         increaseViewportBy={{ top: DRAWN_AHEAD_PX, bottom: DRAWN_AHEAD_PX / 2 }}

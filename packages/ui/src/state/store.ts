@@ -733,6 +733,7 @@ export const useApp = create<AppState>((set, get) => {
     async jumpToMessage(groupId, messageId, seq) {
       const list = get().lists[groupId];
       const present = list?.items.some((item) => item.id === messageId);
+      const jumpTarget = { groupId, messageId, nonce: Date.now() };
       if (!present) {
         let target = seq ?? null;
         if (target === null) {
@@ -744,14 +745,17 @@ export const useApp = create<AppState>((set, get) => {
           return;
         }
         const window = await get().session().loadAround(groupId, target);
+        // Together, so the window's list knows from its first frame which message it opens on.
         set((state) => ({
           lists: {
             ...state.lists,
             [groupId]: { items: sortMessages(window), hasMore: true, loading: false, loaded: true, firstIndex: BASE_INDEX, detached: true },
           },
+          jumpTarget,
         }));
+        return;
       }
-      set({ jumpTarget: { groupId, messageId, nonce: Date.now() } });
+      set({ jumpTarget });
     },
 
     async returnToLatest(listId) {
