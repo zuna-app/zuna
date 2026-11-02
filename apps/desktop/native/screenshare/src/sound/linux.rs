@@ -1,26 +1,20 @@
-//! The computer's sound for a share, on Linux: everything playing apart from the app
-//! that runs this, or one program's. PipeWire has no stream of everything but one
-//! program, so this makes a stream of its own that nothing connects to, and links each
+//! The computer's sound on Linux, from PipeWire. PipeWire has no stream of everything but
+//! one program, so this makes a stream of its own that nothing connects to, and links each
 //! program's output into it, as programs come and go. What it gets is what leaves each
 //! program, after the program's own volume and before the system's.
-//!
-//! It writes one line of JSON to standard output once it's listening, and from then on
-//! only sound: 32-bit floats, two channels interleaved at 48 kHz.
 
 use std::{
     collections::HashMap,
     ffi::{c_char, c_int, c_void, CStr},
-    io::{BufRead, Write},
     ptr,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::{self, SyncSender, TrySendError},
-        Arc,
-    },
+    sync::mpsc::{SyncSender, TrySendError},
     thread,
     time::{Duration, Instant},
 };
 
+use libloading::Library;
+
+use super::{App, Source, WindowApp, Wanted, RATE};
 use crate::{
     capture::{
         pipewire::{self, c_string, Api, CoreEvents, CoreMethods, NodeEvents, NodeInfo, NodeMethods, Opaque, PwBuffer, RegistryEvents, RegistryMethods, SpaDict, SpaDictItem, SpaHook, StreamEvents},
@@ -44,25 +38,14 @@ const AUDIO_F32: u32 = 0x11b;
 const CHANNEL_FL: u32 = 3;
 const CHANNEL_FR: u32 = 4;
 
-pub const RATE: i32 = 48_000;
 /// Two 32-bit floats.
 const FRAME_BYTES: usize = 8;
-/// About two seconds of what PipeWire hands over at a time, which is plenty for the app to fall behind by.
-const QUEUED_CHUNKS: usize = 100;
-
-/// Whose sound to take.
-#[derive(Clone, Debug)]
-pub enum Wanted {
-    /// Everything that plays, apart from the app that runs this.
-    Everything,
-    /// One program's, by the id `list` gives it.
-    Program(String),
-}
 
 /// A stream that's playing, from one program.
 struct Player {
     program: String,
     name: String,
+    pid: Option<u32>,
     wanted: bool,
 }
 
@@ -176,9 +159,10 @@ impl State {
         let wanted = match &self.wanted {
             Some(Wanted::Everything) => true,
             Some(Wanted::Program(wanted)) => *wanted == program,
+            Some(Wanted::Tree(root)) => pid.is_some_and(|pid| descends(pid, *root)),
             None => false,
         };
-        self.players.insert(id, Player { program, name, wanted });
+        self.players.insert(id, Player { program, name, pid, wanted });
     }
 
     fn add_port(&mut self, id: u32, props: &SpaDict) {
@@ -472,7 +456,7 @@ impl Watch {
                 (FORMAT_MEDIA_TYPE, 0, Value::Id(MEDIA_TYPE_AUDIO)),
                 (FORMAT_MEDIA_SUBTYPE, 0, Value::Id(MEDIA_SUBTYPE_RAW)),
                 (FORMAT_AUDIO_FORMAT, 0, Value::Id(AUDIO_F32)),
-                (FORMAT_AUDIO_RATE, 0, Value::Int(RATE)),
+                (FORMAT_AUDIO_RATE, 0, Value::Int(RATE as i32)),
                 (FORMAT_AUDIO_CHANNELS, 0, Value::Int(2)),
                 (FORMAT_AUDIO_POSITION, 0, Value::Array(vec![Value::Id(CHANNEL_FL), Value::Id(CHANNEL_FR)])),
             ],
@@ -548,73 +532,115 @@ impl Drop for Watch {
     }
 }
 
-/// Prints the programs playing sound now, apart from the app's own, as one line of JSON.
-pub fn list(exclude: Option<u32>) -> Result<()> {
+/// Everything there is now, and what each stream says about itself.
+fn look(exclude: Option<u32>) -> Result<Watch> {
     let mut watch = Watch::open(None, exclude)?;
     // The first hears of each stream, and the second of what each says about itself.
     watch.sync()?;
     watch.sync()?;
-    let mut programs: Vec<(String, String)> = watch.locked(|state| state.players.values().map(|player| (player.program.clone(), player.name.clone())).collect());
-    drop(watch);
-    programs.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()).then(a.0.cmp(&b.0)));
-    programs.dedup_by(|a, b| a.0 == b.0);
-    let apps: Vec<serde_json::Value> = programs.into_iter().map(|(id, name)| serde_json::json!({ "id": id, "name": name })).collect();
-    println!("{}", serde_json::json!({ "type": "sound-apps", "apps": apps }));
-    Ok(())
+    Ok(watch)
 }
 
-/// Writes what's wanted to standard output until the app says to stop or goes away.
-pub fn capture(wanted: Wanted, exclude: Option<u32>) -> Result<()> {
+pub fn apps(exclude: Option<u32>) -> Result<Vec<App>> {
+    Ok(look(exclude)?.locked(|state| state.players.values().map(|player| App { id: player.program.clone(), name: player.name.clone() }).collect()))
+}
+
+/// A window's process, which X11 keeps on the window. Wayland has nothing of the kind, and
+/// the app only asks this when it runs on X11.
+fn window_pid(window: u32) -> Option<u32> {
+    #[repr(C)]
+    struct AtomReply {
+        response_type: u8,
+        pad: u8,
+        sequence: u16,
+        length: u32,
+        atom: u32,
+    }
+    type Connect = unsafe extern "C" fn(*const c_char, *mut c_int) -> *mut c_void;
+    type HasError = unsafe extern "C" fn(*mut c_void) -> c_int;
+    type InternAtom = unsafe extern "C" fn(*mut c_void, u8, u16, *const c_char) -> u32;
+    type InternAtomReply = unsafe extern "C" fn(*mut c_void, u32, *mut *mut c_void) -> *mut AtomReply;
+    type GetProperty = unsafe extern "C" fn(*mut c_void, u8, u32, u32, u32, u32, u32) -> u32;
+    type GetPropertyReply = unsafe extern "C" fn(*mut c_void, u32, *mut *mut c_void) -> *mut c_void;
+    type PropertyValue = unsafe extern "C" fn(*const c_void) -> *const c_void;
+    type PropertyLength = unsafe extern "C" fn(*const c_void) -> c_int;
+    type Disconnect = unsafe extern "C" fn(*mut c_void);
+    const CARDINAL: u32 = 6;
+
+    let library = unsafe { Library::new("libxcb.so.1") }.ok()?;
+    unsafe {
+        let connect: Connect = *library.get(b"xcb_connect").ok()?;
+        let has_error: HasError = *library.get(b"xcb_connection_has_error").ok()?;
+        let intern_atom: InternAtom = *library.get(b"xcb_intern_atom").ok()?;
+        let intern_atom_reply: InternAtomReply = *library.get(b"xcb_intern_atom_reply").ok()?;
+        let get_property: GetProperty = *library.get(b"xcb_get_property").ok()?;
+        let get_property_reply: GetPropertyReply = *library.get(b"xcb_get_property_reply").ok()?;
+        let property_value: PropertyValue = *library.get(b"xcb_get_property_value").ok()?;
+        let property_length: PropertyLength = *library.get(b"xcb_get_property_value_length").ok()?;
+        let disconnect: Disconnect = *library.get(b"xcb_disconnect").ok()?;
+
+        let connection = connect(ptr::null(), ptr::null_mut());
+        if connection.is_null() {
+            return None;
+        }
+        let mut pid = None;
+        if has_error(connection) == 0 {
+            let name = b"_NET_WM_PID";
+            let atom = intern_atom_reply(connection, intern_atom(connection, 1, name.len() as u16, name.as_ptr() as *const c_char), ptr::null_mut());
+            if !atom.is_null() {
+                let reply = get_property_reply(connection, get_property(connection, 0, window, (*atom).atom, CARDINAL, 0, 1), ptr::null_mut());
+                if !reply.is_null() {
+                    if property_length(reply) >= 4 {
+                        pid = Some(*(property_value(reply) as *const u32)).filter(|&pid| pid > 0);
+                    }
+                    libc::free(reply);
+                }
+                libc::free(atom as *mut c_void);
+            }
+        }
+        disconnect(connection);
+        pid
+    }
+}
+
+/// What a process is called: its program's file name.
+fn process_name(pid: u32) -> Option<String> {
+    let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok();
+    let name = exe.as_ref().and_then(|path| path.file_name()).map(|name| name.to_string_lossy().into_owned());
+    name.or_else(|| std::fs::read_to_string(format!("/proc/{pid}/comm")).ok().map(|name| name.trim().to_owned()))
+}
+
+pub fn window_app(window: u64, exclude: Option<u32>) -> Result<Option<WindowApp>> {
+    let Some(pid) = u32::try_from(window).ok().and_then(window_pid) else { return Ok(None) };
+    if exclude.is_some_and(|root| descends(pid, root)) {
+        return Ok(None);
+    }
+    let playing: Vec<(String, String)> = look(exclude)?.locked(|state| {
+        state.players.values().filter(|player| player.pid.is_some_and(|player| descends(player, pid))).map(|player| (player.program.clone(), player.name.clone())).collect()
+    });
+    let mut covers: Vec<String> = playing.iter().map(|(program, _)| program.clone()).collect();
+    covers.sort();
+    covers.dedup();
+    // An app that names itself, such as Firefox, rather than its program's file name.
+    let named = playing.first().map(|(_, name)| name.clone()).filter(|name| playing.iter().all(|(_, other)| other == name));
+    let Some(name) = named.or_else(|| process_name(pid)) else { return Ok(None) };
+    Ok(Some(WindowApp { id: format!("pid:{pid}"), name, playing: !playing.is_empty(), covers }))
+}
+
+pub struct Capture(Watch);
+
+impl Source for Capture {
+    fn failure(&mut self) -> Option<String> {
+        self.0.locked(|state| state.failure.take())
+    }
+}
+
+pub fn open(wanted: Wanted, exclude: Option<u32>, samples: SyncSender<Vec<u8>>) -> Result<Capture> {
     let mut watch = Watch::open(Some(wanted), exclude)?;
-    let (samples, received) = mpsc::sync_channel::<Vec<u8>>(QUEUED_CHUNKS);
     watch.locked(|state| state.samples = Some(samples));
     watch.open_stream()?;
     watch.sync()?;
-
-    let stop = Arc::new(AtomicBool::new(false));
-    {
-        let stop = stop.clone();
-        thread::spawn(move || {
-            for line in std::io::stdin().lock().lines() {
-                match line {
-                    Ok(line) if line.contains("\"stop\"") => break,
-                    Ok(_) => {}
-                    Err(_) => break,
-                }
-            }
-            stop.store(true, Ordering::Relaxed);
-        });
-    }
-
-    {
-        let mut out = std::io::stdout().lock();
-        writeln!(out, "{{\"type\":\"ready\",\"rate\":{RATE},\"channels\":2}}").and_then(|()| out.flush()).map_err(|error| format!("Writing: {error}"))?;
-    }
-    let writer = {
-        let stop = stop.clone();
-        thread::spawn(move || {
-            let mut out = std::io::stdout().lock();
-            while let Ok(chunk) = received.recv() {
-                if out.write_all(&chunk).and_then(|()| out.flush()).is_err() {
-                    break;
-                }
-            }
-            stop.store(true, Ordering::Relaxed);
-        })
-    };
-
-    let mut result = Ok(());
-    while !stop.load(Ordering::Relaxed) {
-        thread::sleep(Duration::from_millis(20));
-        if let Some(message) = watch.locked(|state| state.failure.take()) {
-            result = Err(message);
-            break;
-        }
-    }
-    watch.locked(|state| state.samples = None);
-    drop(watch);
-    let _ = writer.join();
-    result
+    Ok(Capture(watch))
 }
 
 #[cfg(test)]

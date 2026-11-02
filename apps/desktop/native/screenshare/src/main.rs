@@ -9,7 +9,7 @@ mod h264;
 #[cfg(windows)]
 mod notification_state;
 mod pipeline;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", windows))]
 mod sound;
 
 use std::{
@@ -49,6 +49,7 @@ struct Args {
     sound: bool,
     sound_from: Option<String>,
     sound_apps: bool,
+    window_app: Option<u64>,
     exclude_pid: Option<u32>,
 }
 
@@ -113,10 +114,11 @@ const USAGE: &str = "zuna-screenshare [options]
   --list-monitors        List monitors and exit
   --check-dmabuf         Linux: check that DMA-BUFs reach NVENC, without capturing
   --control              Take the address, token and keys from standard input, as JSON lines
-  --sound                Linux: write the computer's sound to standard output instead of sharing
-  --sound-from ID        Linux: only this program's sound, by its id from --sound-apps
-  --sound-apps           Linux: list the programs playing sound, as JSON, and exit
-  --exclude-pid N        Linux: leave out the sound of this process and those it started
+  --sound                Write the computer's sound to standard output instead of sharing
+  --sound-from ID        Only one app's sound, by its id from --sound-apps or --window-app
+  --sound-apps           List the apps playing sound, as JSON, and exit
+  --window-app ID        Say which app a window belongs to, by its X11 id or HWND, as JSON, and exit
+  --exclude-pid N        Leave out the sound of this process and those it started
   --notification-state   Windows: say whether it wants quiet right now, and exit";
 
 fn parse_args() -> std::result::Result<Args, String> {
@@ -141,6 +143,7 @@ fn parse_args() -> std::result::Result<Args, String> {
         sound: false,
         sound_from: None,
         sound_apps: false,
+        window_app: None,
         exclude_pid: None,
     };
     let mut raw = std::env::args().skip(1);
@@ -194,6 +197,7 @@ fn parse_args() -> std::result::Result<Args, String> {
                 args.sound_from = Some(value()?);
             }
             "--sound-apps" => args.sound_apps = true,
+            "--window-app" => args.window_app = Some(value()?.parse().map_err(number_error)?),
             "--exclude-pid" => args.exclude_pid = Some(value()?.parse().map_err(number_error)?),
             "--help" | "-h" => return Err(USAGE.into()),
             other => return Err(format!("Unknown option {other}\n\n{USAGE}")),
@@ -337,18 +341,14 @@ fn follow_control(keys: Option<publish::Keys>, stop: Arc<AtomicBool>) {
 }
 
 fn run(args: Args) -> Result<()> {
-    if args.sound || args.sound_apps {
-        #[cfg(target_os = "linux")]
-        return match (args.sound_apps, args.sound_from) {
-            (true, _) => sound::list(args.exclude_pid),
-            (false, Some(program)) => sound::capture(sound::Wanted::Program(program), args.exclude_pid),
-            (false, None) => sound::capture(sound::Wanted::Everything, args.exclude_pid),
-        };
-        #[cfg(not(target_os = "linux"))]
-        {
-            let _ = (args.sound_from, args.exclude_pid);
-            return Err("Sound is only captured by this program on Linux".into());
-        }
+    if let Some(window) = args.window_app {
+        return sound::window_app(window, args.exclude_pid);
+    }
+    if args.sound_apps {
+        return sound::list(args.exclude_pid);
+    }
+    if args.sound {
+        return sound::capture(sound::Wanted::from_arg(args.sound_from), args.exclude_pid);
     }
     if args.list_monitors {
         capture::list_monitors();
