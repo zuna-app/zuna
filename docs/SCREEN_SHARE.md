@@ -162,13 +162,13 @@ Chromium's fake capture runs at 20 fps. `--use-fake-ui-for-media-stream` swaps i
 
 ## What hasn't been checked
 
-The proof of concept's README lists what has run where. Inside the app, only Windows with NVENC has run so far:
+The proof of concept's README lists what has run where. Inside the app, Windows and Linux with NVENC have run so far:
 
-- **Linux** ran in the proof of concept on Arch with KDE and NVIDIA, and the app's build of the program has since run there by itself, with its libraries beside it rather than where they were built: NVENC from DMA-BUFs, 20 seconds to a file at 1920x1080, at 2 to 6% of a core and about 2.5 ms a frame. KWin took its frame rate request, but the screen was mostly still, so the trimming hasn't been seen at work. It hasn't run from the app or published anything, so its TLS hasn't run either. That was over KRdp, sharing KRdp's virtual monitor, and KRdp's own picture flickered while both captured it.
+- **Linux** has run from the app on Arch with KDE and an RTX 5080, over KRdp, publishing over TLS to apps watching: NVENC from DMA-BUFs, 60 fps sent and 60 decoded at 2.3 ms a frame and 4% of a core, and 30 fps asked for gave 30.0. KWin was asked for at most 37 then, which on KRdp's 60 Hz screen already lands on every other refresh, so the trimming still hasn't been seen at work. KWin sent KRdp's 2560x1271 screen squeezed into 1920x1080, which is the size `format_param` in `src/capture/linux.rs` offers as its default, and PipeWire takes that side's default when the compositor's range allows it.
 - **VA-API and AMF** have never run.
-- **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core. Its Linux routes are compiled or type-checked at most, and have never run.
+- **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core, and on Linux with NVENC from DMA-BUFs through the OpenGL blit, at 1280x720 from 1920x1080 and 60 fps, 1.4 ms a frame and 4% of a core. VA-API's `scale_vaapi` has never run.
 - **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.
-- **Leaving the pointer out natively** asks Windows and the portal to, and nobody has looked at a picture to see that it worked.
+- **Leaving the pointer out natively** asks Windows and the portal to. Through KDE's portal it works: with the pointer over the tab bar, a frame someone watching received showed it with the pointer on, and not with it off. On Windows nobody has looked at a picture.
 - **Sharing a window natively** isn't built: it goes through Chromium.
 - **The computer's sound on Linux** has run from the app beside a share through the browser, in `apps/desktop/test/sound-check.mjs` on Arch with KDE, PipeWire 1.6 and EasyEffects, and by itself against a player linked straight to a sink without EasyEffects. Beside a native share it hasn't, since that needs the portal's dialog answered, but it goes the same way. The same check shares a window on X11, whose app's sound is chosen and sent by itself, and checks that a screen starts with everything.
 - **One app's sound on Windows** has been type-checked against Rust's Windows target, without LiveKit, and never built or run: listing the apps, which app a window belongs to, and process loopback.
