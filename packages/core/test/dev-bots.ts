@@ -136,16 +136,41 @@ async function startConversations(bots: TestApp[]): Promise<void> {
  */
 /** Somewhere for everyone to talk, and somewhere to hear each other. */
 async function startChannels(owner: TestApp, bots: TestApp[]): Promise<void> {
-  const [sam, jordan] = bots as [TestApp, TestApp];
+  const [sam, jordan, priya, marek, lena] = bots as [TestApp, TestApp, TestApp, TestApp, TestApp];
   const general = await owner.session.createChannel({ type: "text", name: "general", topic: "Anything goes" });
   await owner.session.createChannel({ type: "text", name: "links", topic: "Things worth a look" });
   await owner.session.createChannel({ type: "voice", name: "Lounge", bitrate: 96 });
   await owner.session.createChannel({ type: "voice", name: "Gaming", userLimit: 5 });
-  await waitFor(() => !!sam.session.getChannels().find((item) => item.id === general)?.conversation?.ready, "Sam to come into #general");
-  await waitFor(() => !!jordan.session.getChannels().find((item) => item.id === general)?.conversation?.ready, "Jordan to come into #general");
-  sam.session.sendMessage(`group:${general}`, { text: "Welcome to the server, everyone." });
-  await sleep(150);
-  jordan.session.sendMessage(`group:${general}`, { text: "Is voice working yet? Try the **Lounge**." });
+  for (const bot of bots) {
+    await waitFor(() => !!bot.session.getChannels().find((item) => item.id === general)?.conversation?.ready, `${bot.name} to come into #general`);
+  }
+  // A few people at once, with what a channel usually has: runs of messages, replies,
+  // reactions, a mention, a picture and an edit.
+  const key = `group:${general}`;
+  const ids: string[] = [];
+  const say = async (author: TestApp, text: string, extra: { replyTo?: string; mentions?: string[] } = {}) => {
+    const sent = author.session.sendMessage(key, { text, ...extra });
+    ids.push(sent.id);
+    await sleep(150);
+    return sent.id;
+  };
+  // Channels aren't among `texts`' conversations, so this asks Sam's database directly.
+  const landed = () => (sam.session as any).db.all(`SELECT id FROM messages WHERE group_id = ? AND seq IS NOT NULL`, [general]).filter((row: { id: string }) => ids.includes(row.id)).length >= ids.length;
+  const welcome = await say(sam, "Welcome to the server, everyone.");
+  await say(sam, "Channels are open to everyone here, so say hi 👋");
+  const voice = await say(jordan, "Is voice working yet? Try the **Lounge**.");
+  const works = await say(priya, "Works on my end, and the noise cancelling is surprisingly good.", { replyTo: voice });
+  await say(marek, `@${OWNER.username} could you pin the house rules somewhere?`, { mentions: [owner.userId] });
+  await say(jordan, "Restarting is just `systemctl restart zuna`, by the way.");
+  await waitFor(landed, "the channel's messages");
+  await lena.session.sendWithAttachments(key, [lakePhoto("pier-at-sunset.png", 1)], { text: "Sunset from the pier yesterday" });
+  await say(sam, "That's a great one.");
+  await waitFor(landed, "the channel's messages");
+  for (const [author, emoji] of [[jordan, "👋"], [priya, "👋"], [lena, "👋"], [marek, "🎉"]] as const) {
+    await author.session.toggleReaction(general, welcome, emoji);
+  }
+  await sam.session.toggleReaction(general, works, "🔥");
+  priya.session.editMessage(general, works, "Works on my end, and the noise cancelling is really good.", {}, []);
 }
 
 async function createWorld(world: string): Promise<TestApp[]> {
