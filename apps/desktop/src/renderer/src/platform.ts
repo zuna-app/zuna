@@ -1,7 +1,19 @@
 // The desktop's side of the interface: everything the Electron shell provides,
 // through the bridge the preload script exposes.
 
-import { connectWorker, type DeviceInfo, type DisplaySource, type NativeScreenInfo, type NativeScreenStats, type Platform } from "@zuna/ui";
+import {
+  connectWorker,
+  type DeviceInfo,
+  type DisplaySource,
+  type NativeScreenInfo,
+  type NativeScreenStats,
+  type NotificationReply,
+  type NotificationRoute,
+  type NotificationsToClear,
+  type NotificationState,
+  type NotifyPayload,
+  type Platform,
+} from "@zuna/ui";
 import { drawCounters } from "./counter";
 
 const isWindows = navigator.userAgent.includes("Windows");
@@ -23,14 +35,17 @@ export interface DesktopBridge {
   onNativeScreenStats(listener: (stats: NativeScreenStats) => void): () => void;
   watchKey(code: string | null): Promise<boolean>;
   onKey(listener: (down: boolean) => void): () => void;
-  notify(payload: { title: string; body: string; route: unknown }): Promise<void>;
+  notify(payload: NotifyPayload): Promise<void>;
+  notificationState(): Promise<NotificationState>;
+  clearNotifications(which: NotificationsToClear): Promise<void>;
+  onNotificationReply(listener: (reply: NotificationReply) => void): () => void;
   /** The pictures are for Windows, where the app has to draw the count itself. */
   setBadge(count: number, pictures?: { overlay: string; tray: string }): Promise<void>;
   setCloseToTray(enabled: boolean): Promise<void>;
   takeDeepLink(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
   onDeepLink(listener: (link: string) => void): () => void;
-  onOpenConversation(listener: (route: unknown) => void): () => void;
+  onOpenConversation(listener: (route: NotificationRoute) => void): () => void;
   onFocus(listener: (focused: boolean) => void): () => void;
   /** "active", "idle" after this many seconds without input anywhere, or "locked". */
   idleState(seconds: number): Promise<"active" | "idle" | "locked" | "unknown">;
@@ -71,6 +86,10 @@ export function desktopPlatform(): Platform {
       showUnread();
     },
     notify: (payload) => void desktop.notify(payload),
+    drawsNotifications: isWindows,
+    notificationState: () => desktop.notificationState(),
+    clearNotifications: (which) => void desktop.clearNotifications(which),
+    onNotificationReply: (listener) => desktop.onNotificationReply(listener),
     microphone: () => desktop.microphone(),
     camera: () => desktop.camera(),
     displaySources: () => desktop.displaySources(),

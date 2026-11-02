@@ -16,7 +16,9 @@ import type {
   VoiceMember,
 } from "@zuna/core";
 import { create } from "zustand";
-import { platform } from "@/platform";
+import { platform, type NotificationCard } from "@/platform";
+import { avatarColor, initialsOf } from "@/lib/format";
+import { smallPicture } from "@/lib/media";
 import { playNotificationSound } from "@/lib/sound";
 import { voiceHooks } from "@/voice/events";
 import { loadSettings, type AppSettings } from "./settings";
@@ -180,6 +182,23 @@ function debounced(key: string, fn: () => void, ms = 60): void {
 
 let toastId = 1;
 
+/** A conversation by its key, whether it's in the list or is a channel. */
+export function findConversation(server: ServerState | undefined, key: string): ConversationView | undefined {
+  return server?.conversations.find((item) => item.key === key) ?? server?.channels.find((item) => item.conversation?.key === key)?.conversation ?? undefined;
+}
+
+/** How long a notification waits for a picture it doesn't have yet. It shows initials after that. */
+const NOTIFICATION_PICTURE_MS = 400;
+
+async function notificationPicture(serverId: string, title: string, key: string, conversation: ConversationView | undefined): Promise<NotificationCard["picture"]> {
+  // The same as beside the chat in the list.
+  const picture = { image: null as string | null, initials: initialsOf(conversation?.title ?? title), color: avatarColor(conversation?.peerId ?? conversation?.groupId ?? key) };
+  if (!conversation?.avatar) return picture;
+  const late = new Promise<null>((resolve) => setTimeout(() => resolve(null), NOTIFICATION_PICTURE_MS));
+  picture.image = await Promise.race([smallPicture(serverId, conversation.avatar).catch(() => null), late]);
+  return picture;
+}
+
 export const useApp = create<AppState>((set, get) => {
   const patchServer = (serverId: string, patch: Partial<ServerState> | ((server: ServerState) => Partial<ServerState>)) =>
     set((state) => {
@@ -204,9 +223,11 @@ export const useApp = create<AppState>((set, get) => {
     debounced(`conversations:${serverId}`, async () => {
       try {
         const session = get().session(serverId);
+        const asked = Date.now();
         const [conversations, channels] = await Promise.all([session.getConversations(), session.getChannels()]);
         patchServer(serverId, { conversations, channels });
         updateBadge();
+        clearRead(serverId, asked, [...conversations, ...channels.flatMap((channel) => channel.conversation ?? [])]);
       } catch {
         // The server may have just been removed.
       }
@@ -221,6 +242,25 @@ export const useApp = create<AppState>((set, get) => {
         // The server may have just been removed.
       }
     });
+
+  /** When each chat was last notified about, by server: what may still be up. */
+  const notified = new Map<string, Map<string, number>>();
+
+  /** A chat with nothing unread has nothing to notify about any more, however it came to be read. */
+  const clearRead = (serverId: string, asked: number, conversations: ConversationView[]) => {
+    const inServer = notified.get(serverId);
+    if (!inServer?.size) return;
+    // What was just notified about may be newer than this list of what's unread.
+    const keys = conversations.filter((item) => item.unread === 0 && (inServer.get(item.key) ?? asked) < asked).map((item) => item.key);
+    if (keys.length === 0) return;
+    for (const key of keys) inServer.delete(key);
+    platform.clearNotifications?.({ serverId, keys });
+  };
+
+  const clearServerNotifications = (serverId: string) => {
+    notified.delete(serverId);
+    platform.clearNotifications?.({ serverId });
+  };
 
   const updateBadge = () => {
     const { servers } = get();
@@ -291,6 +331,8 @@ export const useApp = create<AppState>((set, get) => {
         refreshConversations(event.serverId);
         break;
       case "message":
+        // Deleted for everyone: its row stays in the chat, but what it said goes from everywhere.
+        if (event.message.deletedAt) platform.clearNotifications?.({ serverId: event.serverId, messageId: event.message.id });
         upsertMessage(event.message);
         // A message from someone ends their typing, instead of leaving it up for seconds.
         if (event.isNew && get().servers[event.serverId]?.typing[event.message.groupId]?.[event.message.senderId]) {
@@ -302,6 +344,7 @@ export const useApp = create<AppState>((set, get) => {
         }
         break;
       case "message_removed":
+        platform.clearNotifications?.({ serverId: event.serverId, messageId: event.id });
         set((state) => {
           const list = state.lists[event.groupId];
           if (!list) return state;
@@ -377,6 +420,7 @@ export const useApp = create<AppState>((set, get) => {
         break;
       case "signed_out":
         voiceHooks.onServerGone?.(event.serverId);
+        clearServerNotifications(event.serverId);
         patchEntry(event.serverId, event.reason);
         get().toast(
           event.reason === "banned"
@@ -404,11 +448,41 @@ export const useApp = create<AppState>((set, get) => {
     if (isOpenAndVisible) return;
     const { settings } = state;
     if (!platform.notify || !settings.notifications) return;
-    if (settings.notificationSound) playNotificationSound();
-    const body = settings.notificationPreview === "full" ? event.body : "New message";
-    const title = settings.notificationPreview === "none" ? "Zuna" : event.title;
+    if (!notified.has(event.serverId)) notified.set(event.serverId, new Map());
+    notified.get(event.serverId)!.set(event.conversationKey, Date.now());
+    // One at a time, so a picture that takes a moment can't reorder them.
+    notifying = notifying.then(() => showNotification(event)).catch(() => undefined);
+  };
+
+  let notifying: Promise<void> = Promise.resolve();
+
+  const showNotification = async (event: Extract<CoreEvent, { type: "notify" }>) => {
+    const system = (await platform.notificationState?.()) ?? { show: true, sound: true, waitForInput: true };
+    const { settings, servers } = get();
+    if (settings.notificationSound && system.sound) playNotificationSound();
+    if (!system.show) return;
+    const preview = settings.notificationPreview;
+    const body = preview === "full" ? event.body : "New message";
+    const title = preview === "none" ? "Zuna" : event.title;
     const route = { serverId: event.serverId, key: event.conversationKey };
-    platform.notify({ title, body, route });
+    const conversation = findConversation(servers[event.serverId], event.conversationKey);
+    platform.notify?.({
+      title,
+      body,
+      route,
+      card: platform.drawsNotifications
+        ? {
+            messageId: event.messageId,
+            kind: conversation?.kind ?? "dm",
+            picture: preview === "none" ? null : await notificationPicture(event.serverId, event.title, event.conversationKey, conversation),
+            // As in Telegram: writing back needs to show what's being answered, and somewhere to write it.
+            canReply: preview === "full" && !conversation?.removed,
+            waitForInput: system.waitForInput,
+            accent: settings.accent,
+            reduceMotion: settings.reduceMotion,
+          }
+        : undefined,
+    });
   };
 
   return {
@@ -540,6 +614,7 @@ export const useApp = create<AppState>((set, get) => {
 
     removeServer(serverId) {
       voiceHooks.onServerGone?.(serverId);
+      clearServerNotifications(serverId);
       set((state) => {
         const servers = { ...state.servers };
         delete servers[serverId];

@@ -9,10 +9,51 @@ export interface BootResult {
   keyProtected: boolean;
 }
 
+/** Which chat a notification is about. */
+export interface NotificationRoute {
+  serverId: string;
+  key: string;
+}
+
 export interface NotifyPayload {
   title: string;
   body: string;
-  route: unknown;
+  route: NotificationRoute;
+  /** What a host that draws its own notifications needs. A system's own go without. */
+  card?: NotificationCard;
+}
+
+export interface NotificationCard {
+  messageId: string;
+  kind: "dm" | "group" | "channel";
+  /** The chat's picture, or nothing for the app's own when a notification shows nothing about who. */
+  picture: { image: string | null; initials: string; color: string } | null;
+  canReply: boolean;
+  /** Stays up until the person next touches the computer, rather than only for a while. */
+  waitForInput: boolean;
+  accent: string;
+  reduceMotion: boolean;
+}
+
+/** Takes notifications back: those matching everything given, so nothing given means all. */
+export interface NotificationsToClear {
+  serverId?: string;
+  /** Chats that were read, which leaves one being replied to alone. */
+  keys?: string[];
+  messageId?: string;
+}
+
+export interface NotificationReply {
+  route: NotificationRoute;
+  messageId: string;
+  text: string;
+}
+
+/** What the system wants right now, as a full-screen game or Do Not Disturb. */
+export interface NotificationState {
+  show: boolean;
+  sound: boolean;
+  waitForInput: boolean;
 }
 
 /** Something that can be shared: a whole screen, or one window. */
@@ -85,6 +126,12 @@ export interface Platform {
   setUnreadCount(count: number): void;
   /** System notifications. Without them there are no notification settings either. */
   notify?(payload: NotifyPayload): void;
+  /** It draws notifications itself, so each is given a card and may be replied to. */
+  drawsNotifications?: boolean;
+  notificationState?(): Promise<NotificationState>;
+  clearNotifications?(which: NotificationsToClear): void;
+  /** A reply typed into a notification. */
+  onNotificationReply?(listener: (reply: NotificationReply) => void): () => void;
   /** Whether the operating system lets Zuna record, asking the person the first time. */
   microphone?(): Promise<boolean>;
   /** The same for the camera. */
@@ -107,7 +154,7 @@ export interface Platform {
   takeDeepLink?(): Promise<string | null>;
   onDeepLink?(listener: (link: string) => void): () => void;
   /** A click on a notification. */
-  onOpenConversation?(listener: (route: unknown) => void): () => void;
+  onOpenConversation?(listener: (route: NotificationRoute) => void): () => void;
   setCloseToTray?(enabled: boolean): void;
   /** Shown in Security when the device key isn't protected, or null to say nothing. */
   keyWarning: string | null;

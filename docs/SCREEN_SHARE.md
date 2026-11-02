@@ -30,6 +30,8 @@ It joins the room as a participant of its own, `<user>.<device>.screen`, whose t
 
 The computer's sound can't come from it, since it only captures pictures. Where it's asked for, on Windows, the app captures just the sound through Chromium and publishes that alongside.
 
+On Windows the program also answers one question that has nothing to do with sharing: `--notification-state` prints whether Windows wants quiet right now, and exits, since Node can't ask. The app draws its own notifications there, so they don't get the system's rules for full-screen apps, presentations and Do Not Disturb (`apps/desktop/src/main/notifications.ts`). A build without the program shows notifications regardless.
+
 ## Building it
 
 ```bash

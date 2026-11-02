@@ -2,6 +2,7 @@ import { AlertTriangle } from "lucide-react";
 import { MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
 import { ConnectionStatus, Logo, Toasts } from "@/components/ui";
+import { sendNotificationReply } from "@/features/chat/Composer";
 import { Onboarding } from "@/features/onboarding/Onboarding";
 import { Shell } from "@/features/shell/Shell";
 import { Overlays } from "@/features/overlays/Overlays";
@@ -86,6 +87,7 @@ export function App() {
     applySettings(settings);
     saveSettings(settings);
     platform.setCloseToTray?.(settings.closeToTray);
+    if (!settings.notifications) platform.clearNotifications?.({});
   }, [settings]);
 
   // OS integration: invite links and clicks on notifications.
@@ -97,11 +99,11 @@ export function App() {
     });
     const removers = [
       platform.onDeepLink?.(openLink),
-      platform.onOpenConversation?.((route) => {
-        const { serverId, key } = route as { serverId: string; key: string };
+      platform.onOpenConversation?.(({ serverId, key }) => {
         useApp.getState().selectServer(serverId);
         useApp.getState().selectConversation(key);
       }),
+      platform.onNotificationReply?.(sendNotificationReply),
     ];
     return () => {
       for (const remove of removers) remove?.();

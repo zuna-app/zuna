@@ -11,7 +11,8 @@ import { focusComposer, registerComposer } from "@/lib/focus";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
 import { prepareFile, type PreparedFile } from "@/lib/media";
-import { useActiveServer, useApp } from "@/state/store";
+import type { NotificationReply } from "@/platform";
+import { findConversation, useActiveServer, useApp } from "@/state/store";
 import { EmotePicker, type Pick } from "./EmotePicker";
 
 export interface ComposerHandle {
@@ -50,6 +51,29 @@ export function emotesIn(text: string, emotes: readonly ServerEmote[]): Record<s
     if (emote) out[word] = { id: emote.id, animated: emote.animated, zeroWidth: emote.zero_width, owner: emote.owner };
   }
   return out;
+}
+
+/**
+ * Sends what was typed into a notification. As in Telegram, it answers the message in
+ * a group, where that says which one, and reads the chat.
+ */
+export function sendNotificationReply({ route, messageId, text }: NotificationReply): void {
+  const { servers, session, toast } = useApp.getState();
+  const server = servers[route.serverId];
+  const conversation = findConversation(server, route.key);
+  const value = text.trim();
+  if (!server || !conversation || !value) return;
+  const remote = session(route.serverId);
+  const newest = conversation.lastMessage?.seq;
+  if (conversation.groupId && newest) void remote.markRead(conversation.groupId, newest).catch(() => undefined);
+  void remote
+    .sendMessage(route.key, {
+      text: value,
+      replyTo: conversation.kind === "dm" ? undefined : messageId,
+      emotes: emotesIn(value, server.emotes.emotes),
+      mentions: mentionsIn(value, server.users),
+    })
+    .catch((error: Error) => toast(error.message, "error"));
 }
 
 /** Discord's attach button: a filled circle with a plus cut out of it. */

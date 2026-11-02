@@ -55,6 +55,7 @@ Checks in real Electron, after `npm run build -w @zuna/desktop`:
 | `send-check.mjs` | The message list or message box. It checks what each painted frame shows |
 | `attack-check.mjs` | How messages are read or rendered, or the content security policy |
 | `voice-check.mjs` | Channels, or anything about voice: real apps against a real LiveKit, checking what audio and video really arrive |
+| `notification-check.mjs` | Windows's notifications or unread badge. `--real-input` moves the real mouse and types, which is the only way to see clicks go through the window and focus arrive |
 
 `packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`.
 
@@ -128,6 +129,7 @@ Rules the core depends on:
 | Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `packages/ui/src/voice`, `server/internal/api/voice.go` |
 | Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |
+| Notifications and the unread badge on Windows, drawn as Telegram's | `apps/desktop/src/main/notifications.ts`, `apps/desktop/src/renderer/src/notifications`, `apps/desktop/src/renderer/src/counter.ts` |
 | Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
 | Desktop UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |

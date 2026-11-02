@@ -13,6 +13,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        input: { index: resolve(__dirname, "src/preload/index.ts"), notifications: resolve(__dirname, "src/preload/notifications.ts") },
         output: { format: "cjs", entryFileNames: "[name].cjs" },
       },
     },
@@ -29,7 +30,7 @@ export default defineConfig({
       target: "esnext",
       // Everything stays a separate file, as the content security policy expects.
       assetsInlineLimit: 0,
-      rollupOptions: { input: { index: resolve(__dirname, "src/renderer/index.html") } },
+      rollupOptions: { input: { index: resolve(__dirname, "src/renderer/index.html"), notifications: resolve(__dirname, "src/renderer/notifications.html") } },
     },
   },
 });

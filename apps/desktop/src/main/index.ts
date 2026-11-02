@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { startKeyWatch } from "./global-key";
 import { startNativeScreen } from "./native-screen";
+import { notificationState, startNotifications, type Notifications } from "./notifications";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -35,6 +36,8 @@ const APP_SCHEME = "zuna-app";
 const WEB_SCHEME = "zuna-web";
 const APP_ORIGIN = `${APP_SCHEME}://app`;
 const DEEP_LINK_SCHEME = "zuna";
+/** An origin of its own, whose storage and whose requests to this process aren't the app's. */
+const NOTIFICATIONS_HOST = "notifications";
 const isDev = !app.isPackaged;
 
 // Only a development build's previews may reach this machine, for its test pages.
@@ -46,6 +49,8 @@ let quitting = false;
 let pendingDeepLink: string | null = null;
 let closeToTray = true;
 let notifications: Notification[] = [];
+/** Windows's own notifications aren't made for a chat, so there the app draws them. */
+let ownNotifications: Notifications | null = null;
 let unread: { count: number; overlay: Electron.NativeImage | null; tray: Electron.NativeImage | null } = { count: 0, overlay: null, tray: null };
 let deviceKeyHandedOut = false;
 let displaySources = new Map<string, Electron.DesktopCapturerSource>();
@@ -80,6 +85,17 @@ const CONTENT_SECURITY_POLICY = [
   "frame-src 'none'",
 ].join("; ");
 
+// The notifications' page shows other people's words and has no reason to reach anything.
+const NOTIFICATIONS_CONTENT_SECURITY_POLICY = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src data:",
+  "font-src 'self'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+
 function serveRenderer(): void {
   const root = join(__dirname, "../renderer");
   protocol.handle(APP_SCHEME, async (request) => {
@@ -90,7 +106,7 @@ function serveRenderer(): void {
     if (!filePath.startsWith(root + sep)) return new Response("Not found", { status: 404 });
     const response = await net.fetch(pathToFileURL(filePath).toString());
     const headers = new Headers(response.headers);
-    headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+    headers.set("Content-Security-Policy", url.host === NOTIFICATIONS_HOST ? NOTIFICATIONS_CONTENT_SECURITY_POLICY : CONTENT_SECURITY_POLICY);
     headers.set("X-Content-Type-Options", "nosniff");
     if (filePath.endsWith(".wasm")) headers.set("Content-Type", "application/wasm");
     return new Response(response.body, { status: response.status, headers });
@@ -329,6 +345,7 @@ function createWindow(): void {
   });
   mainWindow.on("closed", () => {
     mainWindow = null;
+    ownNotifications?.close();
   });
   // A taskbar button loses its overlay with the window, and there's none at all until it first shows.
   mainWindow.on("show", showUnread);
@@ -416,8 +433,9 @@ function isOwnPage(url: string): boolean {
   }
 }
 
+/** The main window's page, and no other, whatever it's served from. */
 function isFromApp(event: IpcMainInvokeEvent): boolean {
-  return isOwnPage(event.senderFrame?.url ?? "");
+  return event.sender === mainWindow?.webContents && isOwnPage(event.senderFrame?.url ?? "");
 }
 
 function registerIpc(): void {
@@ -499,7 +517,27 @@ function registerIpc(): void {
   for (const [event, state] of [["lock-screen", "away"], ["suspend", "away"], ["unlock-screen", "back"], ["resume", "back"]] as const) {
     powerMonitor.on(event as "lock-screen", () => mainWindow?.webContents.send("zuna:presence", state));
   }
+  const openConversation = (route: unknown) => {
+    showWindow();
+    mainWindow?.webContents.send("zuna:open-conversation", route);
+  };
+  if (process.platform === "win32") {
+    const page = isDev && process.env["ELECTRON_RENDERER_URL"] ? `${process.env["ELECTRON_RENDERER_URL"]}/notifications.html` : `${APP_SCHEME}://${NOTIFICATIONS_HOST}/notifications.html`;
+    ownNotifications = startNotifications({
+      url: page,
+      display: () => (mainWindow ? screen.getDisplayMatching(mainWindow.getBounds()) : screen.getPrimaryDisplay()),
+      open: openConversation,
+      reply: (reply) => mainWindow?.webContents.send("zuna:notification-reply", reply),
+    });
+  }
+  handle("zuna:notification-state", () => (process.platform === "win32" ? notificationState() : { show: true, sound: true, waitForInput: true }));
+  handle("zuna:clear-notifications", (_event, which: unknown) => ownNotifications?.clear(which));
   handle("zuna:notify", (_event, payload: { title: string; body: string; route: unknown }) => {
+    mainWindow?.flashFrame(true);
+    if (ownNotifications) {
+      ownNotifications.show(payload);
+      return;
+    }
     if (!Notification.isSupported()) return;
     const notification = new Notification({ title: payload.title, body: payload.body, silent: true, icon: iconPath() });
     notifications.push(notification);
@@ -508,12 +546,10 @@ function registerIpc(): void {
     };
     notification.on("click", () => {
       forget();
-      showWindow();
-      mainWindow?.webContents.send("zuna:open-conversation", payload.route);
+      openConversation(payload.route);
     });
     notification.on("close", forget);
     notification.show();
-    mainWindow?.flashFrame(true);
   });
   handle("zuna:badge", (_event, count: number, pictures?: { overlay: string; tray: string }) => {
     const shown = count > 0 && pictures ? { overlay: nativeImage.createFromDataURL(pictures.overlay), tray: withCounter(trayIcon(), nativeImage.createFromDataURL(pictures.tray)) } : { overlay: null, tray: null };

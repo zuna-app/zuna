@@ -112,7 +112,7 @@ try {
   console.log("sent and rendered a message");
 
   await page.evaluate(async () => {
-    await window.zunaDesktop.notify({ title: "Zuna smoke test", body: "Notifications work", route: {} });
+    await window.zunaDesktop.notify({ title: "Zuna smoke test", body: "Notifications work", route: { serverId: "", key: "" } });
     await window.zunaDesktop.setBadge(3);
     await window.zunaDesktop.setBadge(0);
   });

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="dark" />
+    <title>Zuna notifications</title>
+  </head>
+  <body>
+    <button class="hide-all" type="button" hidden>Hide all</button>
+    <template id="notice">
+      <article class="notice">
+        <div class="photo">
+          <img alt="" draggable="false" hidden />
+          <span class="initials"></span>
+          <svg class="logo" viewBox="0 0 64 64" aria-hidden="true" hidden>
+            <rect width="64" height="64" rx="15" fill="#ececee" />
+            <path d="M19 17h26v5.5L27.5 42H45v5H18.5v-5.2L36.2 22H19z" fill="#111113" />
+          </svg>
+        </div>
+        <h2 class="title">
+          <svg class="group-icon" viewBox="0 0 24 24" aria-hidden="true" hidden>
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+            <circle cx="9" cy="7" r="4" />
+            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+          </svg>
+          <span class="name"></span>
+        </h2>
+        <p class="text"><span class="author"></span><span class="body"></span></p>
+        <button class="close" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+        </button>
+        <div class="actions"><button class="reply" type="button">Reply</button></div>
+        <div class="reply-area">
+          <textarea rows="1" placeholder="Write a message…" aria-label="Reply"></textarea>
+          <button class="send" type="button" aria-label="Send">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.714 3.048a.498.498 0 0 0-.683.627l2.843 7.627a2 2 0 0 1 0 1.396l-2.842 7.627a.498.498 0 0 0 .682.627l18-8.5a.5.5 0 0 0 0-.904zM6 12h16" /></svg>
+          </button>
+        </div>
+      </article>
+    </template>
+    <script type="module" src="/src/notifications/main.ts"></script>
+  </body>
+</html>

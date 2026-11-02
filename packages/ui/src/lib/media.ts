@@ -37,6 +37,34 @@ function fetchDecrypted(serverId: string, ref: { fileId: string; key: string; pr
   return pending;
 }
 
+/** A notification's picture: 62px on a sharp screen. */
+const SMALL_PICTURE_SIDE = 124;
+const MAX_SMALL_PICTURES = 50;
+const smallPictures = new Map<string, Promise<string>>();
+
+/**
+ * A picture small enough to hand to another window. It's drawn again rather than passed on,
+ * so what gets there is plain pixels, whatever someone uploaded as their picture.
+ */
+export function smallPicture(serverId: string, ref: AvatarRef): Promise<string> {
+  const cached = smallPictures.get(ref.fileId);
+  if (cached) return cached;
+  const pending = fetchDecrypted(serverId, ref).then(async (url) => {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = SMALL_PICTURE_SIDE;
+    const side = Math.min(image.naturalWidth, image.naturalHeight);
+    canvas.getContext("2d")!.drawImage(image, (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side, 0, 0, SMALL_PICTURE_SIDE, SMALL_PICTURE_SIDE);
+    return canvas.toDataURL("image/png");
+  });
+  smallPictures.set(ref.fileId, pending);
+  pending.catch(() => smallPictures.delete(ref.fileId));
+  if (smallPictures.size > MAX_SMALL_PICTURES) smallPictures.delete(smallPictures.keys().next().value!);
+  return pending;
+}
+
 export function useDecryptedUrl(serverId: string | null, ref: AvatarRef | Attachment | null | undefined, enabled = true) {
   const fileId = ref?.fileId;
   const [url, setUrl] = useState<string | null>(() => (fileId && ready.get(fileId)) || null);
