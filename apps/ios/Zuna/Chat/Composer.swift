@@ -163,7 +163,10 @@ struct Composer: View {
         .onChange(of: state.replyTo?.id) { _, id in
             if id != nil { focused = true }
         }
-        .onChange(of: model.pendingAttachments) { _, urls in
+        .onChange(of: model.pendingAttachments) {
+            // All that's waiting now, not as it was when this was called: emptying the list
+            // would lose a file added in between.
+            let urls = model.pendingAttachments
             guard !urls.isEmpty else { return }
             model.pendingAttachments = []
             Task { await stageFiles(urls, scoped: false) }
