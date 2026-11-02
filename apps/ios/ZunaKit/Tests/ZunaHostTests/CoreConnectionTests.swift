@@ -60,6 +60,32 @@ final class DriftTests: XCTestCase {
         XCTAssertEqual(Set(Drift.missing(in: data, decodedAs: message)), ["forwardedFrom", "reactions[].brandNew"])
     }
 
+    func testReadsChannelsAndWhoIsInThemWholly() throws {
+        let channel = Data(#"""
+        {"id":"c1","type":"text","key":"group:c1","name":"general","topic":"Anything goes","category":"","bitrate":0,"position":0,
+         "userLimit":0,"screenLimit":0,"unreadable":false,"conversation":null}
+        """#.utf8)
+        let decoded = try CoreConnection.decoder.decode(ChannelView.self, from: channel)
+        XCTAssertEqual(decoded.key, "group:c1")
+        XCTAssertNil(decoded.conversation)
+        XCTAssertEqual(Drift.missing(in: channel, decodedAs: decoded), [])
+
+        let joined = Data(#"""
+        {"type":"voice","serverId":"s1","channelId":"c2","userId":"u1","deviceId":"d1",
+         "member":{"channelId":"c2","userId":"u1","deviceId":"d1","muted":true,"deafened":false,"serverMuted":false,"camera":false,"screen":true,"since":5}}
+        """#.utf8)
+        let event = try CoreConnection.decoder.decode(CoreEvent.self, from: joined)
+        guard case let .voice(_, channelId, _, _, member) = event else { return XCTFail("not a voice event: \(event)") }
+        XCTAssertEqual(channelId, "c2")
+        XCTAssertEqual(member?.screen, true)
+        XCTAssertEqual(Drift.missing(in: joined, decodedAs: event), [])
+
+        let left = Data(#"{"type":"voice","serverId":"s1","channelId":"c2","userId":"u1","deviceId":"d1","member":null}"#.utf8)
+        guard case let .voice(_, _, _, _, gone) = try CoreConnection.decoder.decode(CoreEvent.self, from: left) else { return XCTFail("not a voice event") }
+        XCTAssertNil(gone)
+        XCTAssertEqual(try CoreConnection.decoder.decode(CoreEvent.self, from: Data(#"{"type":"channels","serverId":"s1"}"#.utf8)), .channels(serverId: "s1"))
+    }
+
     func testCarriesBytesAndFilesTagged() throws {
         let encoded = String(decoding: try CoreConnection.encoder.encode([Data([1, 2, 3])]), as: UTF8.self)
         XCTAssertEqual(encoded, #"[{"$bytes":"AQID"}]"#)

@@ -197,7 +197,7 @@ export class TestApp {
   serverId = "";
   /** How link previews fetch pages, if this app makes them. */
   web?: WebAdapter;
-  /** Whether this app shows channels, as the desktop and web apps do and the phone apps don't yet. */
+  /** Whether this app shows channels, as every app does. One that doesn't takes no part in them. */
   channels = true;
 
   /** Given a folder, the app keeps its data there and can be reopened by a later process. */

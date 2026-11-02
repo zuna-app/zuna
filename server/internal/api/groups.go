@@ -530,7 +530,7 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
-	// The phone apps have no channels yet, and only a device could tell if one mentions someone.
+	// Only a device could tell whether a channel's message mentions someone, so phones aren't woken for them.
 	if group, err := s.db.Group(r.Context(), groupID); created && err == nil && group.Kind != "channel" {
 		s.pushMessage(groupID, message)
 	}

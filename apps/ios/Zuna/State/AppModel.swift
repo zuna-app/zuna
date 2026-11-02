@@ -14,6 +14,10 @@ final class AppModel {
         var connection: ConnectionState
         var me: SelfInfo?
         var conversations: [ConversationView] = []
+        /// The server's channels, in order, apart from the conversations, as the core gives them.
+        var channels: [ChannelView] = []
+        /// Who's in the voice channels, by device.
+        var voice: [String: VoiceMember] = [:]
         var users: [String: UserView] {
             didSet { mentionable = Self.mentionable(users) }
         }
@@ -24,12 +28,14 @@ final class AppModel {
         /// groupId -> userId -> when the typing indicator expires.
         var typing: [String: [String: Date]] = [:]
 
-        init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], users: [String: UserView], emotes: EmoteSet, prefs: Preferences) {
+        init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], channels: [ChannelView], voice: [VoiceMember], users: [String: UserView], emotes: EmoteSet, prefs: Preferences) {
             self.entry = entry
             self.info = info
             self.connection = connection
             self.me = me
             self.conversations = conversations
+            self.channels = channels
+            self.voice = Dictionary(voice.map { ($0.deviceId, $0) }, uniquingKeysWith: { $1 })
             self.users = users
             self.mentionable = Self.mentionable(users)
             self.emotes = emotes
@@ -41,9 +47,44 @@ final class AppModel {
         }
 
         /// Unread messages outside muted conversations, for the list of servers.
-        /// A chat only marked as unread counts as one, as on the desktop.
+        /// A chat only marked as unread counts as one, and in a channel only
+        /// what mentions you or answers you counts, as on the desktop.
         var unread: Int {
-            conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread > 0 ? $1.unread : $1.markedUnread ? 1 : 0) }
+            let chats = conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread > 0 ? $1.unread : $1.markedUnread ? 1 : 0) }
+            return channels.reduce(chats) { total, channel in
+                guard let conversation = channel.conversation, !conversation.muted else { return total }
+                return total + conversation.unreadMentions
+            }
+        }
+
+        /// The server has channels to show: some, or none yet for an admin to make.
+        var showsChannels: Bool {
+            (info?.channels ?? 0) > 0 && (!channels.isEmpty || isAdmin)
+        }
+
+        /// An owner or admin of the server, who makes and changes its channels.
+        var isAdmin: Bool {
+            let role = me?.role ?? entry.role
+            return role == .owner || role == .admin
+        }
+
+        /// A conversation by its key, whether it's in the list or is a channel's.
+        func conversation(_ key: String) -> ConversationView? {
+            conversations.first { $0.key == key } ?? channels.first { $0.key == key }?.conversation
+        }
+
+        func conversation(groupId: String) -> ConversationView? {
+            conversations.first { $0.groupId == groupId } ?? channels.first { $0.id == groupId }?.conversation
+        }
+
+        /// The conversations and the channels this device has joined, for what goes through all of them.
+        var allConversations: [ConversationView] {
+            conversations + channels.compactMap(\.conversation)
+        }
+
+        /// The channel a conversation is, if it's one.
+        func channel(_ key: String) -> ChannelView? {
+            channels.first { $0.key == key }
         }
 
         var selfUser: UserView? {
@@ -92,7 +133,7 @@ final class AppModel {
         showingServers = false
         chatPath = [.chat(conversationKey)]
         // Opening a chat marked as unread takes the mark off, as in Telegram.
-        if let serverId = activeServerId, servers[serverId]?.conversations.first(where: { $0.key == conversationKey })?.markedUnread == true {
+        if let serverId = activeServerId, servers[serverId]?.conversation(conversationKey)?.markedUnread == true {
             setMarkedUnread(conversationKey, false, on: serverId)
         }
     }
@@ -210,6 +251,8 @@ final class AppModel {
         let session = core.session(entry.id)
         do {
             async let conversations = session.getConversations()
+            async let channels = session.getChannels()
+            async let voice = session.getVoiceMembers()
             async let users = session.getUsers()
             async let emotes = session.getEmotes()
             async let prefs = session.getPreferences()
@@ -222,6 +265,8 @@ final class AppModel {
                 connection: try await connection,
                 me: try await me,
                 conversations: try await conversations,
+                channels: try await channels,
+                voice: try await voice,
                 users: Dictionary(uniqueKeysWithValues: try await users.map { ($0.id, $0) }),
                 emotes: try await emotes,
                 prefs: try await prefs
@@ -320,6 +365,14 @@ final class AppModel {
             if state == .online { checkCaughtUp(serverId) }
         case let .conversations(serverId), let .read(serverId, _, _, _):
             refresh("conversations", serverId)
+        case let .channels(serverId):
+            refresh("conversations", serverId)
+            refresh("voice", serverId)
+        case let .voice(serverId, _, _, deviceId, member):
+            servers[serverId]?.voice[deviceId] = member
+        case .voiceKey, .voiceEnded, .screenEnded:
+            // About a call on this device, which the iPhone app doesn't join yet.
+            break
         case let .users(serverId):
             refresh("users", serverId)
             refresh("conversations", serverId)
@@ -408,8 +461,14 @@ final class AppModel {
             do {
                 switch what {
                 case "conversations":
-                    let conversations = try await session.getConversations()
-                    servers[serverId]?.conversations = conversations
+                    async let conversations = session.getConversations()
+                    async let channels = session.getChannels()
+                    let (listed, joined) = try await (conversations, channels)
+                    servers[serverId]?.conversations = listed
+                    servers[serverId]?.channels = joined
+                case "voice":
+                    let members = try await session.getVoiceMembers()
+                    servers[serverId]?.voice = Dictionary(members.map { ($0.deviceId, $0) }, uniquingKeysWith: { $1 })
                 case "users":
                     let users = try await session.getUsers()
                     let me = try await session.getSelf()

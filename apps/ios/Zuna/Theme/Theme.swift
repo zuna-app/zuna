@@ -22,6 +22,10 @@ enum Theme {
     static let bubbleOwnText = Color(hex: 0xF2F2F3)
     static let bubbleOther = Color(hex: 0x1D1D20)
 
+    /// In channels, as the desktop's channel.css: names and times beside the text, and the line joining a reply to its message.
+    static let channelMuted = Color(hex: 0x8B8B92)
+    static let spine = Color(hex: 0x505057)
+
     static let link = Color(hex: 0x8AB4F8)
     static let green = Color(hex: 0x4CC38A)
     static let red = Color(hex: 0xF2555A)

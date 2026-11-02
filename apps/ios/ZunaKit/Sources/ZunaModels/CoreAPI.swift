@@ -172,6 +172,27 @@ public struct SessionCalls: Sendable {
     /// Sets how long messages sent to a chat from now on last, in seconds, or 0 for as long as they're kept.
     public func setDisappearing(_ groupId: String, seconds: Int) async throws { try await run("setDisappearing", [groupId, seconds]) }
 
+    // MARK: Channels
+
+    /// Every channel on this server, in order. Their chats come in `conversation` once this device has joined them.
+    public func getChannels() async throws -> [ChannelView] {
+        let rows: LossyList<ChannelView> = try await call("getChannels")
+        return rows.items
+    }
+    /// Who's in the voice channels, by device.
+    public func getVoiceMembers() async throws -> [VoiceMember] {
+        let rows: LossyList<VoiceMember> = try await call("getVoiceMembers")
+        return rows.items
+    }
+    /// Makes a channel, for a server admin, and returns its ID. Everyone else's apps join it by themselves.
+    public func createChannel(_ channel: NewChannel) async throws -> String { try await call("createChannel", [channel]) }
+    /// Changes what a channel says about itself, for a server admin.
+    public func updateChannel(_ id: String, _ changes: ChannelChanges) async throws { try await run("updateChannel", [id, changes]) }
+    /// Puts the channels in this order, for a server admin.
+    public func reorderChannels(_ ids: [String]) async throws { try await run("reorderChannels", [ids]) }
+    /// Deletes a channel for everyone, for a server admin.
+    public func deleteChannel(_ id: String) async throws { try await run("deleteChannel", [id]) }
+
     // MARK: Invites and verification
 
     public func invites() async throws -> [Invite] { try await call("invites") }

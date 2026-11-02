@@ -161,7 +161,7 @@ struct ForwardSheet: View {
         return ([serverId] + model.order.filter { $0 != serverId })
             .compactMap { model.servers[$0] }
             .map { server in
-                (server, server.conversations.filter { chat in
+                (server, server.allConversations.filter { chat in
                     !server.prefs.hidden.contains(chat.key) && (needle.isEmpty || chat.title.lowercased().contains(needle))
                 })
             }
@@ -170,7 +170,9 @@ struct ForwardSheet: View {
 
     private func row(_ chat: ConversationView, server: AppModel.ServerState) -> some View {
         HStack(spacing: 12) {
-            if chat.peerId != nil && chat.peerId == server.me?.userId {
+            if chat.kind == .channel {
+                ChannelIcon(type: server.channel(chat.key)?.type ?? .text, size: 40)
+            } else if chat.peerId != nil && chat.peerId == server.me?.userId {
                 Image(systemName: "bookmark.fill")
                     .font(.system(size: 17))
                     .foregroundStyle(Theme.text1)

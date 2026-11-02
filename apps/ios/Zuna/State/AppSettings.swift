@@ -45,11 +45,20 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     private static let lastServerKey = "zuna-last-server"
 
+    /// The channel headings folded on this device, by name, as the desktop remembers them.
+    static var collapsedCategories: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: collapsedKey) ?? []) }
+        set { UserDefaults.standard.set(newValue.sorted(), forKey: collapsedKey) }
+    }
+
+    private static let collapsedKey = "zuna-collapsed-categories"
+
     #if DEBUG
     /// For tests that start from a fresh install.
     static func reset() {
         UserDefaults.standard.removeObject(forKey: key)
         UserDefaults.standard.removeObject(forKey: lastServerKey)
+        UserDefaults.standard.removeObject(forKey: collapsedKey)
     }
     #endif
 

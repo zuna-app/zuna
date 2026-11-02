@@ -67,6 +67,31 @@ enum A11y {
         static func messageHit(_ id: String) -> String { "chatList.hit.\(id)" }
     }
 
+    enum Channels {
+        static func row(_ id: String) -> String { "channels.row.\(id)" }
+        static func heading(_ name: String) -> String { "channels.heading.\(name)" }
+        static func add(_ name: String) -> String { "channels.add.\(name)" }
+        static func occupant(_ deviceId: String) -> String { "channels.occupant.\(deviceId)" }
+        static func member(_ userId: String) -> String { "channels.member.\(userId)" }
+        static let newChannel = "channels.new"
+        static let joining = "channels.joining"
+        static let welcome = "channels.welcome"
+        static let welcomeEdit = "channels.welcome.edit"
+        static let typing = "channels.typing"
+        static let search = "channels.search"
+        static let details = "channels.details"
+        static let editor = "channels.editor"
+        static let editorType = "channels.editor.type"
+        static let editorName = "channels.editor.name"
+        static let editorFinalName = "channels.editor.finalName"
+        static let editorTopic = "channels.editor.topic"
+        static let editorHeading = "channels.editor.heading"
+        static let editorSave = "channels.editor.save"
+        static let edit = "channels.edit"
+        static let delete = "channels.delete"
+        static let manage = "channels.manage"
+    }
+
     enum Chat {
         static let screen = "chat.screen"
         static let list = "chat.list"

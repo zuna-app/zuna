@@ -121,6 +121,20 @@ alice.session.sendMessage(`group:${weekend}`, { text: "Who's up for a hike on Sa
 await waitFor(() => carol.texts(`group:${weekend}`).length > 0, "the group to be ready");
 carol.session.sendMessage(`group:${weekend}`, { text: "Count me in" });
 
+// Channels, as a server usually has them: a busy #general, a quiet #links and a voice channel.
+const general = await alice.session.createChannel({ type: "text", name: "general", topic: "Anything goes" });
+await alice.session.createChannel({ type: "text", name: "links", topic: "Things worth a look" });
+await alice.session.createChannel({ type: "voice", name: "Lounge" });
+const inGeneral = (app: TestApp, text: string) => async () =>
+  (await app.session.loadMessages(general)).messages.some((item) => item.text === text && item.status === "sent");
+await waitFor(() => [carol, bobLaptop].every((app) => !!app.session.getChannels().find((item) => item.id === general)?.conversation?.ready), "everyone to come into #general");
+const welcome = await alice.session.sendMessage(`group:${general}`, { text: "Welcome to the server, everyone 👋" });
+await waitFor(inGeneral(carol, "Welcome to the server, everyone 👋"), "carol to read #general");
+await carol.session.sendMessage(`group:${general}`, { text: "Glad to be here", replyTo: welcome.id });
+await carol.session.toggleReaction(general, welcome.id, "👍");
+await alice.session.sendMessage(`group:${general}`, { text: "Everyone on the server can read this, and the server itself can't." });
+await waitFor(inGeneral(bobLaptop, "Everyone on the server can read this, and the server itself can't."), "bob's laptop to read #general");
+
 // A website for link previews: any page is an article with a picture.
 const site = createServer((request, response) => {
   if (request.url?.endsWith(".png")) {

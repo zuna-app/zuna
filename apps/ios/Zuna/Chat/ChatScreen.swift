@@ -26,10 +26,12 @@ struct ChatScreen: View {
         case react(messageId: String)
         case verify(userId: String)
         case forward([MessageView])
+        case editChannel(String)
 
         var id: String {
             switch self {
             case .search: "search"
+            case let .editChannel(id): "edit-channel-\(id)"
             case let .react(id): "react-\(id)"
             case let .verify(userId): "verify-\(userId)"
             case let .forward(messages): "forward-\(messages.map(\.id).joined(separator: ","))"
@@ -39,8 +41,10 @@ struct ChatScreen: View {
 
     var body: some View {
         ZStack {
-            if let server = model.activeServer, let conversation = server.conversations.first(where: { $0.key == conversationKey }) {
+            if let server = model.activeServer, let conversation = server.conversation(conversationKey) {
                 content(server, conversation)
+            } else if let channel = model.activeServer?.channel(conversationKey) {
+                JoiningChannel(channel: channel)
             } else {
                 ContentUnavailableView("This chat isn't available", systemImage: "bubble.left.and.exclamationmark.bubble.right")
             }
@@ -60,6 +64,7 @@ struct ChatScreen: View {
         let list = model.list(serverId, listId)
         let peer = conversation.peerId.flatMap { server.users[$0] }
         let isSaved = conversation.peerId != nil && conversation.peerId == server.me?.userId
+        let channel = server.channel(conversation.key)
         return VStack(spacing: 0) {
             if let peer, peer.trust == .changed, !isSaved {
                 HStack(spacing: 10) {
@@ -82,7 +87,11 @@ struct ChatScreen: View {
             }
             ZStack(alignment: .bottomTrailing) {
                 if let list, list.loaded || !list.items.isEmpty {
-                    if list.items.isEmpty {
+                    if list.items.isEmpty, let channel {
+                        // At the bottom, where the first message will be, as in Discord.
+                        ChannelWelcome(channel: channel, edit: editChannel(server, channel))
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                    } else if list.items.isEmpty {
                         EmptyChat(conversation: conversation, isSaved: isSaved)
                     } else {
                         messages(server, conversation, list, listId: listId)
@@ -91,7 +100,7 @@ struct ChatScreen: View {
                     ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 VStack(spacing: 0) {
-                    if let groupId = conversation.groupId, conversation.kind == .group {
+                    if let groupId = conversation.groupId, conversation.kind != .dm {
                         MentionButton(serverId: serverId, groupId: groupId, conversation: conversation, hidden: atBottom && list?.detached != true)
                             .id(listId)
                     }
@@ -105,6 +114,9 @@ struct ChatScreen: View {
                         }
                     }
                 }
+            }
+            if channel != nil, !conversation.removed, selection == nil {
+                ChannelTyping(names: typingNames(server, conversation))
             }
             if conversation.removed {
                 VStack(spacing: 8) {
@@ -153,7 +165,11 @@ struct ChatScreen: View {
                 Button {
                     model.chatPath.append(.details(conversation.key))
                 } label: {
-                    ChatHeader(conversation: conversation, server: server, peer: peer, isSaved: isSaved)
+                    if let channel {
+                        ChannelHeader(channel: channel, muted: conversation.muted)
+                    } else {
+                        ChatHeader(conversation: conversation, server: server, peer: peer, isSaved: isSaved)
+                    }
                 }
                 .buttonStyle(.plain)
             }
@@ -168,29 +184,41 @@ struct ChatScreen: View {
                 .accessibilityLabel("Pinned messages")
                 .accessibilityIdentifier(A11y.Chat.pins)
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button(conversation.kind == .group ? "Group details" : "Details", systemImage: "info.circle") {
-                        model.chatPath.append(.details(conversation.key))
+            if channel != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        sheet = .search
+                    } label: {
+                        Image(systemName: "magnifyingglass")
                     }
-                    Button("Search", systemImage: "magnifyingglass") { sheet = .search }
-                        .disabled(conversation.groupId == nil)
-                    Button("Pinned messages", systemImage: "pin") { model.chatPath.append(.pins(conversation.key)) }
-                        .disabled(conversation.groupId == nil)
-                } label: {
-                    if isSaved {
-                        Image(systemName: "bookmark.fill")
-                            .frame(width: 34, height: 34)
-                            .background(Theme.bg4, in: .circle)
-                    } else {
-                        AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 34, online: peer?.online ?? false)
-                    }
+                    .accessibilityLabel("Search this channel")
+                    .accessibilityIdentifier(A11y.Channels.search)
                 }
-                .accessibilityLabel("Chat options")
-                .accessibilityIdentifier(A11y.Chat.menu)
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(conversation.kind == .group ? "Group details" : "Details", systemImage: "info.circle") {
+                            model.chatPath.append(.details(conversation.key))
+                        }
+                        Button("Search", systemImage: "magnifyingglass") { sheet = .search }
+                            .disabled(conversation.groupId == nil)
+                        Button("Pinned messages", systemImage: "pin") { model.chatPath.append(.pins(conversation.key)) }
+                            .disabled(conversation.groupId == nil)
+                    } label: {
+                        if isSaved {
+                            Image(systemName: "bookmark.fill")
+                                .frame(width: 34, height: 34)
+                                .background(Theme.bg4, in: .circle)
+                        } else {
+                            AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 34, online: peer?.online ?? false)
+                        }
+                    }
+                    .accessibilityLabel("Chat options")
+                    .accessibilityIdentifier(A11y.Chat.menu)
+                }
+                // The avatar is a picture of its own, without the bar's gray glass behind it.
+                .withoutSharedBackground()
             }
-            // The avatar is a picture of its own, without the bar's gray glass behind it.
-            .withoutSharedBackground()
         }
         .task(id: listId) {
             await model.loadList(serverId, listId, groupId: conversation.groupId)
@@ -214,6 +242,8 @@ struct ChatScreen: View {
                 VerifyView(serverId: serverId, userId: userId)
             case let .forward(messages):
                 ForwardSheet(serverId: serverId, messages: messages) { selection = nil }
+            case let .editChannel(id):
+                ChannelEditor(serverId: serverId, target: .edit(channelId: id))
             case let .react(messageId):
                 EmojiPicker(server: server) { pick in
                     self.sheet = nil
@@ -284,13 +314,15 @@ struct ChatScreen: View {
                     .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
             },
             openChat: { model.openChat($0) },
-            isGroupAdmin: conversation.members.first { $0.userId == server.me?.userId }?.role == .admin
+            isGroupAdmin: conversation.members.first { $0.userId == server.me?.userId }?.role == .admin,
+            editChannel: server.channel(conversation.key).flatMap { editChannel(server, $0) }
         )
         return MessageListView(
             input: MessageListController.Input(
                 listKey: AppModel.listKey(serverId, listId),
                 detached: list.detached,
                 items: list.items,
+                hasMore: list.hasMore,
                 server: server,
                 conversation: conversation,
                 highlighted: highlighted,
@@ -321,7 +353,7 @@ struct ChatScreen: View {
         let picked = list.items.filter { ids.contains($0.id) }
         let selfId = server.me?.userId
         let isAdmin = conversation.members.first { $0.userId == selfId }?.role == .admin
-        let canDelete = !picked.isEmpty && picked.allSatisfy { $0.senderId == selfId || (conversation.kind == .group && isAdmin) }
+        let canDelete = !picked.isEmpty && picked.allSatisfy { $0.senderId == selfId || (conversation.kind != .dm && isAdmin) }
         return HStack(spacing: 4) {
             Button("Cancel") { selection = nil }
                 .padding(.horizontal, 8)
@@ -378,6 +410,17 @@ struct ChatScreen: View {
             : picked.map { "\(name($0.senderId)), [\(Format.full($0.createdAt))]\n\($0.text.isEmpty ? $0.attachments.map(\.name).joined(separator: ", ") : $0.text)" }.joined(separator: "\n\n")
         model.toast(picked.count == 1 ? "Copied" : "Copied \(picked.count) messages")
         selection = nil
+    }
+
+    /// Editing the channel from its welcome, for a server admin.
+    private func editChannel(_ server: AppModel.ServerState, _ channel: ChannelView) -> (() -> Void)? {
+        server.isAdmin ? { sheet = .editChannel(channel.id) } : nil
+    }
+
+    /// Who's typing in a channel, by name, apart from you.
+    private func typingNames(_ server: AppModel.ServerState, _ conversation: ConversationView) -> [String] {
+        let ids = conversation.groupId.flatMap { server.typing[$0]?.keys } ?? Dictionary<String, Date>().keys
+        return ids.filter { $0 != server.me?.userId }.sorted().map { server.users[$0]?.displayName ?? "Someone" }
     }
 
     /// Runs an action on the core, explaining a failure in a toast.
@@ -544,6 +587,66 @@ private struct ChatHeader: View {
         if peer?.banned == true { return "Removed from this server" }
         if peer?.online == true { return "online" }
         return Format.lastSeen(peer?.lastSeenAt, hidden: peer?.hidesLastSeen ?? false)
+    }
+}
+
+/// A channel's name and topic in the bar, as Discord's phone app shows them.
+private struct ChannelHeader: View {
+    let channel: ChannelView
+    let muted: Bool
+
+    var body: some View {
+        VStack(spacing: 1) {
+            HStack(spacing: 4) {
+                Image(systemName: channel.type.symbol)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Theme.channelMuted)
+                    .accessibilityHidden(true)
+                Text(channel.title)
+                    .font(.headline)
+                    .foregroundStyle(Theme.text1)
+                    .lineLimit(1)
+                if muted {
+                    Image(systemName: "bell.slash.fill").font(.caption2).foregroundStyle(Theme.text3).accessibilityLabel("Muted")
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Theme.text3)
+                    .accessibilityHidden(true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier(A11y.Chat.title)
+            if !channel.topic.isEmpty {
+                Text(channel.topic)
+                    .font(.caption)
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                    .accessibilityIdentifier(A11y.Chat.status)
+            }
+        }
+    }
+}
+
+/// A channel this device hasn't come into yet, which it does by itself, soon after it appears.
+private struct JoiningChannel: View {
+    let channel: ChannelView
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+            Text("Coming into #\(channel.title)…")
+                .font(.headline)
+                .foregroundStyle(Theme.text1)
+            Text("This device joins every channel on the server by itself. Its messages will be here in a moment.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.text2)
+                .multilineTextAlignment(.center)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("#\(channel.title)")
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.Channels.joining)
     }
 }
 

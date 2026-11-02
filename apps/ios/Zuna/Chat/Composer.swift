@@ -63,10 +63,20 @@ struct Composer: View {
                             Button("Paste image", systemImage: "doc.on.clipboard") { pasteImage() }
                         }
                     } label: {
-                        Image(systemName: "paperclip")
-                            .font(.system(size: 21))
-                            .foregroundStyle(Theme.text2)
-                            .frame(width: 36, height: 38)
+                        if conversation.kind == .channel {
+                            // A round "+", as in a Discord channel.
+                            Image(systemName: "plus")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(Theme.text2)
+                                .frame(width: 36, height: 36)
+                                .background(Theme.bg3, in: .circle)
+                                .padding(.bottom, 1)
+                        } else {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 21))
+                                .foregroundStyle(Theme.text2)
+                                .frame(width: 36, height: 38)
+                        }
                     }
                     .accessibilityLabel("Attach files")
                     .accessibilityIdentifier(A11y.Composer.attach)
@@ -216,7 +226,8 @@ struct Composer: View {
     }
 
     private var placeholder: String {
-        conversation.peerId != nil && conversation.peerId == server.me?.userId ? "Write a note to yourself" : "Message \(conversation.title)"
+        if conversation.kind == .channel { return "Message #\(conversation.title)" }
+        return conversation.peerId != nil && conversation.peerId == server.me?.userId ? "Write a note to yourself" : "Message \(conversation.title)"
     }
 
     private func send() {

@@ -60,7 +60,7 @@ extension AppModel {
             var page = try await session.loadMessages(groupId)
             // A chat opens at its first unread message, so the pages back to it come first, all at once.
             let server = servers[serverId]
-            let conversation = server?.conversations.first { $0.groupId == groupId }
+            let conversation = server?.conversation(groupId: groupId)
             let ownRead = conversation?.ownRead ?? 0
             var pages = 1
             while toUnread, page.hasMore, pages < Self.unreadPages,

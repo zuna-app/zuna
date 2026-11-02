@@ -7,7 +7,8 @@ import Foundation
 
 public enum Role: String, Codable, Sendable { case owner, admin, member }
 public enum GroupRole: String, Codable, Sendable { case admin, member }
-public enum GroupKind: String, Codable, Sendable { case dm, group }
+public enum GroupKind: String, Codable, Sendable { case dm, group, channel }
+public enum ChannelType: String, Codable, Sendable { case text, voice }
 public enum TrustState: String, Codable, Sendable { case unverified, verified, changed }
 public enum ConnectionState: String, Codable, Sendable { case connecting, syncing, online, offline }
 public enum MessageStatus: String, Codable, Sendable { case sending, sent, failed, undecryptable, unverified, invalid }
@@ -57,9 +58,15 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var requestProofs: Int?
     /// Whether this server removes disappearing messages when they're due.
     public var disappearing: Int?
+    /// Whether this server has channels.
+    public var channels: Int?
+    /// Whether this server has a media server, without which voice channels can't be joined.
+    public var voice: Int?
+    /// What its admins say about sharing a screen.
+    public var screenShare: ScreenRules?
 
     enum CodingKeys: String, CodingKey {
-        case name, version, claimed, registration
+        case name, version, claimed, registration, channels, voice
         case hasIcon = "has_icon"
         case maxUploadMb = "max_upload_mb"
         case allowMemberInvites = "allow_member_invites"
@@ -71,6 +78,37 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case requestProofs = "request_proofs"
         case disappearing
         case communityKey = "community_key"
+        case screenShare = "screen_share"
+    }
+}
+
+/// What a server's admins say about sharing a screen. Mirrors `ScreenRules`.
+public struct ScreenRules: Codable, Sendable, Hashable {
+    public var who: String
+    public var sound: Bool
+    public var adminsExempt: Bool
+    public var maxPerChannel: Int
+    public var maxPerServer: Int
+    public var maxHeight: Int
+    public var maxFps: Int
+    public var maxKbps: Int
+    public var maxSoundKbps: Int
+    public var defaultHeight: Int
+    public var defaultFps: Int
+    public var defaultKbps: Int
+
+    enum CodingKeys: String, CodingKey {
+        case who, sound
+        case adminsExempt = "admins_exempt"
+        case maxPerChannel = "max_per_channel"
+        case maxPerServer = "max_per_server"
+        case maxHeight = "max_height"
+        case maxFps = "max_fps"
+        case maxKbps = "max_kbps"
+        case maxSoundKbps = "max_sound_kbps"
+        case defaultHeight = "default_height"
+        case defaultFps = "default_fps"
+        case defaultKbps = "default_kbps"
     }
 }
 
@@ -355,6 +393,73 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var id: String { key }
 }
 
+/// A channel anyone on the server can see and join. Mirrors `ChannelView`.
+public struct ChannelView: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var type: ChannelType
+    /// `group:<id>`, as a conversation's key.
+    public var key: String
+    /// What it's called, or empty if what the server gave couldn't be read or checked.
+    public var name: String
+    public var topic: String
+    /// The heading it goes under, or empty for the usual one.
+    public var category: String
+    /// For a voice channel: how good its audio is, in kbit/s, or 0 for the usual.
+    public var bitrate: Int
+    public var position: Int
+    /// For a voice channel: how many people fit, or 0 for no limit.
+    public var userLimit: Int
+    /// For a voice channel: how many may share a screen at once, 0 for what the server's rules say, or -1 for nobody.
+    public var screenLimit: Int
+    /// The details couldn't be read or checked, so they aren't shown.
+    public var unreadable: Bool
+    /// Nil until this device has joined it, which it does by itself.
+    public var conversation: ConversationView?
+}
+
+/// Someone's device in a voice channel, as it says. Mirrors `VoiceMember`.
+public struct VoiceMember: Codable, Sendable, Equatable {
+    public var channelId: String
+    public var userId: String
+    public var deviceId: String
+    public var muted: Bool
+    public var deafened: Bool
+    /// Muted by an admin, which LiveKit itself enforces.
+    public var serverMuted: Bool
+    public var camera: Bool
+    public var screen: Bool
+    /// When they came in (ms).
+    public var since: Int
+}
+
+/// What a channel is made with, for `createChannel`.
+public struct NewChannel: Codable, Sendable, Equatable {
+    public var type: ChannelType
+    public var name: String
+    public var topic: String?
+    public var category: String?
+
+    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil) {
+        self.type = type
+        self.name = name
+        self.topic = topic
+        self.category = category
+    }
+}
+
+/// What changes about a channel, for `updateChannel`; nil fields stay as they are.
+public struct ChannelChanges: Codable, Sendable, Equatable {
+    public var name: String?
+    public var topic: String?
+    public var category: String?
+
+    public init(name: String? = nil, topic: String? = nil, category: String? = nil) {
+        self.name = name
+        self.topic = topic
+        self.category = category
+    }
+}
+
 public struct Emote: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var name: String
@@ -485,6 +590,16 @@ public struct SearchCoverage: Codable, Sendable, Equatable {
 public enum CoreEvent: Sendable, Equatable {
     case connection(serverId: String, state: ConnectionState)
     case conversations(serverId: String)
+    /// The channels changed.
+    case channels(serverId: String)
+    /// Someone's device came, went or changed in a voice channel.
+    case voice(serverId: String, channelId: String, userId: String, deviceId: String, member: VoiceMember?)
+    /// Who's in the voice channel this device is in changed, so its media key did too.
+    case voiceKey(serverId: String, channelId: String)
+    /// This device has been taken out of a voice channel.
+    case voiceEnded(serverId: String, channelId: String, reason: String)
+    /// This device's screen share has been stopped.
+    case screenEnded(serverId: String, channelId: String, reason: String)
     case message(serverId: String, message: MessageView, isNew: Bool)
     case messageRemoved(serverId: String, groupId: String, id: String)
     case messageMoved(serverId: String, fromGroupId: String, message: MessageView)
@@ -508,7 +623,8 @@ extension CoreEvent {
     /// The server the event is about.
     public var serverId: String {
         switch self {
-        case let .connection(serverId, _), let .conversations(serverId), let .message(serverId, _, _),
+        case let .connection(serverId, _), let .conversations(serverId), let .channels(serverId), let .voice(serverId, _, _, _, _),
+             let .voiceKey(serverId, _), let .voiceEnded(serverId, _, _), let .screenEnded(serverId, _, _), let .message(serverId, _, _),
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
              let .settings(serverId, _), let .emotes(serverId), let .preferences(serverId),
@@ -526,6 +642,7 @@ extension CoreEvent {
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId
+        case channelId, deviceId, member
     }
 
     public init(from decoder: Decoder) throws {
@@ -534,6 +651,18 @@ extension CoreEvent: Codable {
         switch try c.decode(String.self, forKey: .type) {
         case "connection": self = .connection(serverId: serverId, state: try c.decode(ConnectionState.self, forKey: .state))
         case "conversations": self = .conversations(serverId: serverId)
+        case "channels": self = .channels(serverId: serverId)
+        case "voice":
+            self = .voice(
+                serverId: serverId,
+                channelId: try c.decode(String.self, forKey: .channelId),
+                userId: try c.decode(String.self, forKey: .userId),
+                deviceId: try c.decode(String.self, forKey: .deviceId),
+                member: try c.decodeIfPresent(VoiceMember.self, forKey: .member)
+            )
+        case "voice_key": self = .voiceKey(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId))
+        case "voice_ended": self = .voiceEnded(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId), reason: try c.decode(String.self, forKey: .reason))
+        case "screen_ended": self = .screenEnded(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId), reason: try c.decode(String.self, forKey: .reason))
         case "message": self = .message(serverId: serverId, message: try c.decode(MessageView.self, forKey: .message), isNew: try c.decode(Bool.self, forKey: .isNew))
         case "message_removed": self = .messageRemoved(serverId: serverId, groupId: try c.decode(String.self, forKey: .groupId), id: try c.decode(String.self, forKey: .id))
         case "message_moved": self = .messageMoved(serverId: serverId, fromGroupId: try c.decode(String.self, forKey: .fromGroupId), message: try c.decode(MessageView.self, forKey: .message))
@@ -568,6 +697,17 @@ extension CoreEvent: Codable {
             try c.encode("connection", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(state, forKey: .state)
         case let .conversations(serverId):
             try c.encode("conversations", forKey: .type); try c.encode(serverId, forKey: .serverId)
+        case let .channels(serverId):
+            try c.encode("channels", forKey: .type); try c.encode(serverId, forKey: .serverId)
+        case let .voice(serverId, channelId, userId, deviceId, member):
+            try c.encode("voice", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId)
+            try c.encode(userId, forKey: .userId); try c.encode(deviceId, forKey: .deviceId); try c.encodeIfPresent(member, forKey: .member)
+        case let .voiceKey(serverId, channelId):
+            try c.encode("voice_key", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId)
+        case let .voiceEnded(serverId, channelId, reason):
+            try c.encode("voice_ended", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId); try c.encode(reason, forKey: .reason)
+        case let .screenEnded(serverId, channelId, reason):
+            try c.encode("screen_ended", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId); try c.encode(reason, forKey: .reason)
         case let .message(serverId, message, isNew):
             try c.encode("message", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(message, forKey: .message); try c.encode(isNew, forKey: .isNew)
         case let .messageRemoved(serverId, groupId, id):

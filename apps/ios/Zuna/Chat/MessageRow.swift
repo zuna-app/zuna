@@ -10,6 +10,7 @@ struct MessageRowContext {
     let grouped: Bool
     let lastInGroup: Bool
     let own: Bool
+    /// A group or a channel, where messages say who sent them.
     let isGroup: Bool
     /// The highest message anyone else has read, for the read ticks.
     let readUpTo: Int
@@ -19,6 +20,10 @@ struct MessageRowContext {
     /// Messages are being picked to act on together, and whether this one is.
     let selecting: Bool
     let selected: Bool
+    /// Laid out as in a Discord channel, rather than in bubbles.
+    var channel = false
+    /// The oldest message there is, under the channel's welcome.
+    var startOfChat = false
 }
 
 /// The things a message can ask its chat to do.
@@ -44,8 +49,10 @@ struct ChatActions {
     /// Who in this group has read a message, as far as their read receipts say.
     var readers: (_ message: MessageView) -> [UserView] = { _ in [] }
     var openChat: (_ conversationKey: String) -> Void = { _ in }
-    /// You can delete others' messages here: you're an admin of this group.
+    /// You can delete others' messages here: you're an admin of this group, or of the server in a channel.
     var isGroupAdmin = false
+    /// Edits the channel, for a server admin, from its welcome.
+    var editChannel: (() -> Void)?
 }
 
 /// The reactions offered first, as on the desktop.
@@ -59,6 +66,14 @@ struct MessageRow: View {
     let actions: ChatActions
 
     var body: some View {
+        if context.channel {
+            ChannelMessageRow(context: context, server: server, actions: actions)
+        } else {
+            bubbleRow
+        }
+    }
+
+    private var bubbleRow: some View {
         VStack(spacing: 0) {
             if context.unreadLine {
                 // Across the whole list, as Telegram's.
@@ -282,63 +297,6 @@ private struct MessageItem: View {
         .accessibilityIdentifier(A11y.Chat.message(message.id))
     }
 
-    /// What a long press offers, as the desktop's message menu: reactions, then actions.
-    @ViewBuilder
-    private var menu: some View {
-        let canAct = message.seq != nil && !deleted && message.status == .sent
-        // There's no hovering here, so this is where the mark on the time gets explained.
-        if message.timeDiffers == true {
-            Button("The sender's device gives a very different time for this message.", systemImage: "exclamationmark.shield") {}
-                .disabled(true)
-            Divider()
-        }
-        if canAct {
-            ControlGroup {
-                ForEach(quickReactions, id: \.self) { emoji in
-                    Button(emoji) { actions.react(message.id, emoji, nil) }
-                        .accessibilityIdentifier(A11y.Chat.quickReaction(emoji))
-                }
-                Button("More reactions", systemImage: "plus") { actions.pickReaction(message.id) }
-            }
-            .controlGroupStyle(.palette)
-            Divider()
-            Button("Reply", systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
-            Button("Forward", systemImage: "arrowshape.turn.up.right") { actions.forward(message) }
-            Button("Select", systemImage: "checkmark.circle") { actions.select(message) }
-        }
-        if !message.text.isEmpty && !deleted {
-            Button("Copy text", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
-        }
-        if canAct && own && !message.text.isEmpty && message.forwarded == nil {
-            Button("Edit", systemImage: "pencil") { actions.edit(message) }
-        }
-        if canAct {
-            Button(message.pinnedAt != nil ? "Unpin" : "Pin", systemImage: message.pinnedAt != nil ? "pin.slash" : "pin") {
-                actions.pin(message, message.pinnedAt == nil)
-            }
-        }
-        // As on the desktop, for your own messages in a group.
-        if canAct && own && context.isGroup {
-            let readers = actions.readers(message)
-            if !readers.isEmpty {
-                Menu("Read by \(readers.count)", systemImage: "checkmark.message") {
-                    ForEach(readers) { user in
-                        Button(user.displayName) { actions.openChat("user:\(user.id)") }
-                    }
-                }
-                .accessibilityIdentifier(A11y.Chat.readBy)
-            }
-        }
-        if message.status == .failed {
-            Button("Try again", systemImage: "arrow.clockwise") { actions.retry(message.id) }
-            Button("Discard", systemImage: "trash", role: .destructive) { actions.discard(message.id) }
-        }
-        if canAct && (own || (context.isGroup && actions.isGroupAdmin)) {
-            Divider()
-            Button("Delete for everyone", systemImage: "trash", role: .destructive) { actions.delete(message) }
-        }
-    }
-
     private var bubble: some View {
         let accent = model.settings.accent
         let small: CGFloat = 4, grouped: CGFloat = 5, radius: CGFloat = 17
@@ -368,7 +326,7 @@ private struct MessageItem: View {
         }
         .opacity(message.status == .sending ? 0.7 : 1)
         .contentShape(.contextMenuPreview, shape)
-        .contextMenu { menu }
+        .contextMenu { MessageMenu(context: context, actions: actions) }
     }
 
     @ViewBuilder
@@ -410,14 +368,14 @@ private struct MessageItem: View {
             if !message.text.isEmpty, jumbo > 0 {
                 // Large emoji have the time below them, at their right edge, as under a sticker.
                 VStack(alignment: .trailing, spacing: 1) {
-                    MessageBody(message: message, style: style, server: server, reserveMeta: nil, revealed: revealed, actions: actions) {
+                    MessageBodyView(message: message, style: style, server: server, reserveMeta: nil, revealed: revealed, actions: actions) {
                         revealed.insert($0)
                     }
                     if metaInText { meta }
                 }
                 .fixedSize(horizontal: true, vertical: false)
             } else if !message.text.isEmpty {
-                MessageBody(message: message, style: style, server: server, reserveMeta: metaInText ? metaWidth : nil, revealed: revealed, actions: actions) {
+                MessageBodyView(message: message, style: style, server: server, reserveMeta: metaInText ? metaWidth : nil, revealed: revealed, actions: actions) {
                     revealed.insert($0)
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -504,8 +462,73 @@ private struct MessageItem: View {
     }
 }
 
+/// What a long press on a message offers, as the desktop's message menu: reactions, then actions.
+struct MessageMenu: View {
+    let context: MessageRowContext
+    let actions: ChatActions
+
+    private var message: MessageView { context.message }
+    private var own: Bool { context.own }
+    private var deleted: Bool { message.deletedAt != nil }
+
+    var body: some View {
+        let canAct = message.seq != nil && !deleted && message.status == .sent
+        // There's no hovering here, so this is where the mark on the time gets explained.
+        if message.timeDiffers == true {
+            Button("The sender's device gives a very different time for this message.", systemImage: "exclamationmark.shield") {}
+                .disabled(true)
+            Divider()
+        }
+        if canAct {
+            ControlGroup {
+                ForEach(quickReactions, id: \.self) { emoji in
+                    Button(emoji) { actions.react(message.id, emoji, nil) }
+                        .accessibilityIdentifier(A11y.Chat.quickReaction(emoji))
+                }
+                Button("More reactions", systemImage: "plus") { actions.pickReaction(message.id) }
+            }
+            .controlGroupStyle(.palette)
+            Divider()
+            Button("Reply", systemImage: "arrowshape.turn.up.left") { actions.reply(message) }
+            Button("Forward", systemImage: "arrowshape.turn.up.right") { actions.forward(message) }
+            Button("Select", systemImage: "checkmark.circle") { actions.select(message) }
+        }
+        if !message.text.isEmpty && !deleted {
+            Button("Copy text", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
+        }
+        if canAct && own && !message.text.isEmpty && message.forwarded == nil {
+            Button("Edit", systemImage: "pencil") { actions.edit(message) }
+        }
+        if canAct {
+            Button(message.pinnedAt != nil ? "Unpin" : "Pin", systemImage: message.pinnedAt != nil ? "pin.slash" : "pin") {
+                actions.pin(message, message.pinnedAt == nil)
+            }
+        }
+        // As on the desktop, for your own messages in a group.
+        if canAct && own && context.isGroup {
+            let readers = actions.readers(message)
+            if !readers.isEmpty {
+                Menu("Read by \(readers.count)", systemImage: "checkmark.message") {
+                    ForEach(readers) { user in
+                        Button(user.displayName) { actions.openChat("user:\(user.id)") }
+                    }
+                }
+                .accessibilityIdentifier(A11y.Chat.readBy)
+            }
+        }
+        if message.status == .failed {
+            Button("Try again", systemImage: "arrow.clockwise") { actions.retry(message.id) }
+            Button("Discard", systemImage: "trash", role: .destructive) { actions.discard(message.id) }
+        }
+        if canAct && (own || (context.isGroup && actions.isGroupAdmin)) {
+            Divider()
+            Button("Delete for everyone", systemImage: "trash", role: .destructive) { actions.delete(message) }
+        }
+    }
+}
+
 /// The text of a message: its blocks of text, quotes and code, or large emoji.
-private struct MessageBody: View {
+struct MessageBodyView: View {
     @Environment(AppModel.self) private var model
     let message: MessageView
     let style: TextStyle
@@ -513,16 +536,19 @@ private struct MessageBody: View {
     let reserveMeta: CGFloat?
     let revealed: Set<Int>
     let actions: ChatActions
+    /// After the last line, as "(edited)" is in a channel.
+    var suffix: NSAttributedString?
     let reveal: (Int) -> Void
 
     var body: some View {
         let blocks = Markup.parse(message.text, Markup.Context(emotes: message.emotes, mentionable: server.mentionable))
+        let endsInText = blocks.last.map { if case .text = $0 { true } else { false } } ?? false
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
                 let last = index == blocks.count - 1
                 switch block {
                 case let .text(nodes):
-                    text(nodes, reserve: last ? reserveMeta : nil)
+                    text(nodes, reserve: last ? reserveMeta : nil, suffix: last ? suffix : nil)
                 case let .quote(nodes):
                     HStack(spacing: 8) {
                         Rectangle().fill(style.own ? Color.white.opacity(0.55) : Theme.text3).frame(width: 2)
@@ -533,14 +559,17 @@ private struct MessageBody: View {
                     CodeBlockView(code: code, language: language)
                 }
             }
-            if let reserveMeta, !(blocks.last.map { if case .text = $0 { true } else { false } } ?? false) {
+            if let reserveMeta, !endsInText {
                 Color.clear.frame(width: reserveMeta, height: 14)
+            }
+            if let suffix, !endsInText {
+                Text(AttributedString(suffix))
             }
         }
         .accessibilityIdentifier(A11y.Chat.text(message.id))
     }
 
-    private func text(_ nodes: [Markup.Inline], reserve: CGFloat?, color: UIColor? = nil) -> some View {
+    private func text(_ nodes: [Markup.Inline], reserve: CGFloat?, suffix: NSAttributedString? = nil, color: UIColor? = nil) -> some View {
         var textStyle = style
         if let color { textStyle.color = color }
         let options = MessageTextBuilder.Options(style: textStyle, selfId: server.me?.userId ?? "", serverUrl: server.entry.url, revealed: revealed) { id in
@@ -549,6 +578,7 @@ private struct MessageBody: View {
         }
         let built = NSMutableAttributedString(attributedString: MessageTextBuilder.build(nodes, options))
         if let reserve { MessageTextBuilder.reserve(reserve, in: built, style: textStyle) }
+        if let suffix { built.append(suffix) }
         return MessageTextView(
             text: built,
             serverUrl: server.entry.url,

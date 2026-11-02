@@ -102,7 +102,7 @@ struct PinnedMessagesView: View {
 
     var body: some View {
         ZStack {
-            if let server = model.activeServer, let conversation = server.conversations.first(where: { $0.key == conversationKey }) {
+            if let server = model.activeServer, let conversation = server.conversation(conversationKey) {
                 list(server, conversation)
             } else {
                 ContentUnavailableView("This chat isn't available", systemImage: "bubble.left.and.exclamationmark.bubble.right")

@@ -176,7 +176,7 @@ final class Notifications {
         guard let serverId = userInfo["serverId"] as? String ?? opened?.serverId else { return nil }
         let groupId = opened?.groupId
         let key = userInfo["conversationKey"] as? String
-            ?? groupId.flatMap { id in model.servers[serverId]?.conversations.first { $0.groupId == id }?.key }
+            ?? groupId.flatMap { id in model.servers[serverId]?.conversation(groupId: id)?.key }
         return (serverId, groupId, key)
     }
 
@@ -220,7 +220,7 @@ final class Notifications {
         if let key = target.key { return key }
         guard let groupId = target.groupId else { return nil }
         for _ in 0..<50 {
-            if let key = model.servers[target.serverId]?.conversations.first(where: { $0.groupId == groupId })?.key { return key }
+            if let key = model.servers[target.serverId]?.conversation(groupId: groupId)?.key { return key }
             try? await Task.sleep(for: .milliseconds(200))
         }
         return nil
@@ -250,7 +250,7 @@ final class Notifications {
             if model.servers[target.serverId]?.connection == .online { break }
             try? await Task.sleep(for: .milliseconds(200))
         }
-        guard let conversation = model.servers[target.serverId]?.conversations.first(where: { $0.key == key }),
+        guard let conversation = model.servers[target.serverId]?.conversation(key),
               let groupId = conversation.groupId, let seq = conversation.lastMessage?.seq else { return }
         try? await model.core.session(target.serverId).markRead(groupId, seq: seq)
     }
@@ -331,7 +331,7 @@ final class Notifications {
     /// heard of yet keeps its notification.
     func clearRead(serverId: String) async {
         guard let server = model.servers[serverId] else { return }
-        let read = Set(server.conversations.filter { $0.unread == 0 }.compactMap(\.groupId))
+        let read = Set(server.allConversations.filter { $0.unread == 0 }.compactMap(\.groupId))
         let center = UNUserNotificationCenter.current()
         let stale = await center.deliveredNotifications().filter { notification in
             let info = notification.request.content.userInfo

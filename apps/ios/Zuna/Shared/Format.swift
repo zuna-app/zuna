@@ -35,6 +35,22 @@ enum Format {
         return date.formatted(.dateTime.month(.wide).day().year())
     }
 
+    /// Beside a name in a channel, as the desktop's `formatStamp`: "Today at 14:32", "Yesterday at 9:05", or the date and time.
+    static func stamp(_ milliseconds: Int, now: Date = .now) -> String {
+        let date = Date(milliseconds: milliseconds)
+        let calendar = Calendar.current
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if days == 0 { return "Today at \(time)" }
+        if days == 1 { return "Yesterday at \(time)" }
+        return "\(date.formatted(date: .numeric, time: .omitted)) \(time)"
+    }
+
+    /// A day in full, on the line between days in a channel: "November 2, 2026".
+    static func fullDay(_ milliseconds: Int) -> String {
+        Date(milliseconds: milliseconds).formatted(.dateTime.month(.wide).day().year())
+    }
+
     static func sameDay(_ a: Int, _ b: Int) -> Bool {
         Calendar.current.isDate(Date(milliseconds: a), inSameDayAs: Date(milliseconds: b))
     }
@@ -108,7 +124,7 @@ enum Format {
         if message.status == .invalid || message.status == .unverified { return (nil, "A message that couldn't be displayed") }
         let author: String? = if message.senderId == selfId {
             "You"
-        } else if kind == .group {
+        } else if kind != .dm {
             users[message.senderId]?.displayName.split(separator: " ").first.map(String.init)
         } else {
             nil

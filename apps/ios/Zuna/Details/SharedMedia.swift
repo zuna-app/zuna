@@ -91,7 +91,7 @@ struct SharedMediaView: View {
 
     var body: some View {
         ZStack {
-            if let server = model.activeServer, let conversation = server.conversations.first(where: { $0.key == conversationKey }) {
+            if let server = model.activeServer, let conversation = server.conversation(conversationKey) {
                 if let media = kind.media {
                     if let groupId = conversation.groupId {
                         SharedMessages(server: server, conversation: conversation, groupId: groupId, kind: media)

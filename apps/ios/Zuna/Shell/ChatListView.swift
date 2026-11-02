@@ -44,7 +44,7 @@ private struct SignedOutView: View {
 /// while it isn't connected, as Telegram does.
 struct ChatListView: View {
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All", people = "People", groups = "Groups", unread = "Unread"
+        case all = "All", channels = "Channels", people = "People", groups = "Groups", unread = "Unread"
         var id: Self { self }
     }
 
@@ -56,6 +56,7 @@ struct ChatListView: View {
     @State private var sheet: ListSheet?
     /// A chat whose mute is being chosen, from its swipe action.
     @State private var muting: MutingTarget?
+    @State private var deletingChannel: ChannelView?
 
     struct MutingTarget: Identifiable {
         let key: String
@@ -64,9 +65,17 @@ struct ChatListView: View {
         var id: String { key }
     }
 
-    private enum ListSheet: String, Identifiable {
+    private enum ListSheet: Identifiable {
         case invite, newGroup
-        var id: String { rawValue }
+        case channel(ChannelEditor.Target)
+
+        var id: String {
+            switch self {
+            case .invite: "invite"
+            case .newGroup: "newGroup"
+            case let .channel(target): "channel-\(target.id)"
+            }
+        }
     }
 
     /// On a phone, the list is on the Chats tab's stack and chats are pushed
@@ -115,11 +124,15 @@ struct ChatListView: View {
                 switch sheet {
                 case .invite: InviteSheet(serverId: serverId)
                 case .newGroup: NewGroupSheet(serverId: serverId)
+                case let .channel(target): ChannelEditor(serverId: serverId, target: target)
                 }
             }
         }
         .confirmationDialog(muting.map { "Mute \($0.title)" } ?? "", isPresented: Binding(get: { muting != nil }, set: { if !$0 { muting = nil } }), titleVisibility: .visible, presenting: muting) { target in
             MuteButtons(conversationKey: target.key, serverId: target.serverId)
+        }
+        .confirmationDialog(deletingChannel.map { "Delete #\($0.title)? Its messages go for everyone." } ?? "", isPresented: Binding(get: { deletingChannel != nil }, set: { if !$0 { deletingChannel = nil } }), titleVisibility: .visible, presenting: deletingChannel) { channel in
+            Button("Delete channel", role: .destructive) { deleteChannel(channel) }
         }
         .toolbarBackground(Theme.bg1, for: .navigationBar)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
@@ -128,6 +141,9 @@ struct ChatListView: View {
             query = ""
             showHidden = false
         }
+        .onChange(of: model.activeServer?.showsChannels ?? false) { _, shows in
+            if !shows, filter == .channels { filter = .all }
+        }
     }
 
     // MARK: List
@@ -135,14 +151,26 @@ struct ChatListView: View {
     private func list(_ server: AppModel.ServerState) -> some View {
         let (visible, hidden) = partition(server)
         let needle = query.trimmingCharacters(in: .whitespaces)
+        let channels = server.showsChannels && (filter == .all || filter == .channels)
         return List {
             Section {
+                // The server's channels first, as on the desktop.
+                if channels {
+                    ChannelRows(server: server, query: query, sidebar: sidebar, actions: channelActions(server))
+                    if !visible.isEmpty {
+                        Color.clear
+                            .frame(height: 10)
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Theme.bg0)
+                            .listRowSeparator(.hidden)
+                    }
+                }
                 ForEach(visible) { row($0, server) }
-                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty {
+                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty, filter != .channels {
                     emptyState(searching: !needle.isEmpty)
                 }
             } header: {
-                filterBar
+                filterBar(server)
             }
             if !hidden.isEmpty {
                 Section {
@@ -188,6 +216,8 @@ struct ChatListView: View {
             }
         }
         .listStyle(.plain)
+        // Channel rows are Discord's height, lower than the list's usual rows.
+        .environment(\.defaultMinListRowHeight, 1)
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.immediately)
         .animation(model.reduceMotion ? nil : .snappy(duration: 0.25), value: visible.map(\.key))
@@ -299,6 +329,7 @@ struct ChatListView: View {
             }
             switch filter {
             case .all: return true
+            case .channels: return false
             case .people: return item.kind == .dm
             case .groups: return item.kind == .group
             case .unread: return item.unread > 0 || item.markedUnread
@@ -310,9 +341,10 @@ struct ChatListView: View {
         return (filtered.filter { !$0.hidden && !$0.blocked }, filtered.filter { $0.hidden && !$0.blocked })
     }
 
-    private var filterBar: some View {
+    private func filterBar(_ server: AppModel.ServerState) -> some View {
         Picker("Show", selection: $filter) {
-            ForEach(Filter.allCases) { item in
+            // Channels, when the server has some, as the desktop's tab.
+            ForEach(Filter.allCases.filter { $0 != .channels || server.showsChannels }) { item in
                 Text(item.rawValue).tag(item)
             }
         }
@@ -339,6 +371,29 @@ struct ChatListView: View {
             .listRowBackground(Theme.bg0)
             .listRowSeparator(.hidden)
             .accessibilityIdentifier(A11y.ChatList.empty)
+    }
+
+    // MARK: Channels
+
+    private func channelActions(_ server: AppModel.ServerState) -> ChannelListActions {
+        ChannelListActions(
+            create: { type, category in sheet = .channel(.new(type, category: category)) },
+            edit: { sheet = .channel(.edit(channelId: $0.id)) },
+            delete: { deletingChannel = $0 },
+            mute: { muting = MutingTarget(key: $0.key, title: "#\($0.title)", serverId: server.entry.id) }
+        )
+    }
+
+    private func deleteChannel(_ channel: ChannelView) {
+        guard let serverId = model.activeServerId else { return }
+        Task {
+            do {
+                try await model.core.session(serverId).deleteChannel(channel.id)
+                if model.chatPath.first == .chat(channel.key) { model.chatPath = [] }
+            } catch {
+                model.toast(OnboardingText.describe(error), .error)
+            }
+        }
     }
 
     // MARK: Message search
@@ -378,6 +433,9 @@ struct ChatListView: View {
         Menu {
             Button("Invite people", systemImage: "link") { sheet = .invite }
             Button("New group", systemImage: "person.2") { sheet = .newGroup }
+            if model.activeServer.map({ $0.isAdmin && ($0.info?.channels ?? 0) > 0 }) ?? false {
+                Button("New channel", systemImage: "number") { sheet = .channel(.new(.text, category: "")) }
+            }
             if !model.hasServerList {
                 Divider()
                 Button("Join a server", systemImage: "plus") { model.joining = true }
@@ -574,7 +632,8 @@ private struct MessageHitRow: View {
 
     var body: some View {
         let sender = server.users[hit.message.senderId]
-        let conversation = server.conversations.first { $0.key == hit.conversationKey }
+        let conversation = server.conversation(hit.conversationKey)
+        let channel = server.channel(hit.conversationKey)
         HStack(spacing: 12) {
             AvatarView(
                 name: sender?.displayName ?? "?",
@@ -584,7 +643,7 @@ private struct MessageHitRow: View {
             )
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(conversation?.title ?? "Conversation")
+                    Text(channel.map { "#\($0.title)" } ?? conversation?.title ?? "Conversation")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.text1)
                         .lineLimit(1)
@@ -607,6 +666,7 @@ private struct MessageHitRow: View {
 
 /// The screen for a route on the chat stack.
 struct ChatRouteView: View {
+    @Environment(AppModel.self) private var model
     let route: ChatRoute
 
     var body: some View {
@@ -614,7 +674,12 @@ struct ChatRouteView: View {
         // Always the active server's, since opening a server makes it the active one.
         case .server: ChatListView()
         case let .chat(key): ChatScreen(conversationKey: key)
-        case let .details(key): ConversationDetails(conversationKey: key)
+        case let .details(key):
+            if model.activeServer?.channel(key) != nil {
+                ChannelDetails(conversationKey: key)
+            } else {
+                ConversationDetails(conversationKey: key)
+            }
         case let .pins(key): PinnedMessagesView(conversationKey: key)
         case let .media(key, kind): SharedMediaView(conversationKey: key, kind: kind)
         }

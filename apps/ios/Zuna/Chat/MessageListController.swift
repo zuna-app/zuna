@@ -22,6 +22,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         var listKey: String
         var detached: Bool
         var items: [MessageView]
+        /// Older messages are still to load, so the oldest here isn't where the chat starts.
+        var hasMore: Bool
         var server: AppModel.ServerState
         var conversation: ConversationView
         var highlighted: String?
@@ -164,6 +166,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let items = input.items
         let selfId = input.server.me?.userId ?? ""
         let readUpTo = input.conversation.readBy.reduce(0) { highest, entry in entry.key == selfId ? highest : max(highest, entry.value) }
+        let channel = input.conversation.kind == .channel
         var result: [String: MessageRowContext] = [:]
         for (index, message) in items.enumerated() {
             let previous = index > 0 ? items[index - 1] : nil
@@ -172,15 +175,18 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             result[message.id] = MessageRowContext(
                 message: message,
                 showDay: showDay,
-                grouped: !showDay && Self.continues(previous, message),
+                // In a channel a reply starts a run of its own, under its name, as in Discord.
+                grouped: !showDay && !(channel && message.reply != nil) && Self.continues(previous, message),
                 lastInGroup: !Self.continues(message, next),
                 own: message.senderId == selfId,
-                isGroup: input.conversation.kind == .group,
+                isGroup: input.conversation.kind != .dm,
                 readUpTo: readUpTo,
                 unreadLine: message.id == bridge.unreadLine,
                 highlighted: input.highlighted == message.id,
                 selecting: input.selection != nil,
-                selected: input.selection?.contains(message.id) ?? false
+                selected: input.selection?.contains(message.id) ?? false,
+                channel: channel,
+                startOfChat: index == 0 && !input.hasMore && !input.detached
             )
         }
         contexts = result

@@ -71,6 +71,11 @@ struct ServerSettingsView: View {
                 Section("Members") {
                     NavigationLink("\(server.users.count) members") { ServerMembersView(serverId: serverId) }
                 }
+                if (server.info?.channels ?? 0) > 0 {
+                    Section("Channels") {
+                        NavigationLink(server.channels.count == 1 ? "1 channel" : "\(server.channels.count) channels") { ChannelsSettingsView(serverId: serverId) }
+                    }
+                }
                 Section("Emotes") {
                     NavigationLink { EmoteSetView(serverId: serverId) } label: {
                         LabeledContent(server.emotes.setName.isEmpty ? "No emote set" : server.emotes.setName, value: "\(server.emotes.emotes.count) emotes")

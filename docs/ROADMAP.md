@@ -1,6 +1,6 @@
 # Roadmap
 
-Zuna 1.0 is chat, with text channels and voice channels on the desktop and the web, desktop apps for Windows, Linux and macOS, and a native app for the iPhone and iPad. The design already allows for Android, and for calls in direct messages and groups. This page describes what's left and how they fit.
+Zuna 1.0 is chat, with text channels everywhere and voice channels on the desktop and the web, desktop apps for Windows, Linux and macOS, and a native app for the iPhone and iPad. The design already allows for Android, and for calls in direct messages and groups. This page describes what's left and how they fit.
 
 ## Phones
 
@@ -38,7 +38,7 @@ The iPhone app's approach carries over:
 
 | Part | Work |
 |---|---|
-| iPhone and iPad | Channels and voice channels. LiveKit's Swift SDK has the per-participant keys it needs, and CallKit lets it keep going in the background. |
+| iPhone and iPad | Voice channels, which the app lists with who's in them but can't join yet. LiveKit's Swift SDK has the per-participant keys it needs, and CallKit lets it keep going in the background. |
 | Calls in direct messages and groups | The same room and keys, from that conversation's MLS group, with something that rings. |
 | Noise cancelling | RNNoise is cheap and needs no setup. DeepFilterNet cleans speech noticeably better, for more CPU and a far larger download, and would have to run off the audio thread. |
 
