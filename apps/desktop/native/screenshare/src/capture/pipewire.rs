@@ -89,6 +89,136 @@ pub struct StreamEvents {
     pub trigger_done: Callback,
 }
 
+/// `struct spa_dict_item` and `struct spa_dict`, which carry an object's properties.
+#[repr(C)]
+pub struct SpaDictItem {
+    pub key: *const c_char,
+    pub value: *const c_char,
+}
+
+#[repr(C)]
+pub struct SpaDict {
+    pub flags: u32,
+    pub n_items: u32,
+    pub items: *const SpaDictItem,
+}
+
+impl SpaDict {
+    /// The value of one property, if it's there and is text.
+    pub fn get(&self, key: &str) -> Option<String> {
+        if self.items.is_null() {
+            return None;
+        }
+        let items = unsafe { std::slice::from_raw_parts(self.items, self.n_items as usize) };
+        items.iter().find_map(|item| {
+            if item.key.is_null() || item.value.is_null() || unsafe { std::ffi::CStr::from_ptr(item.key) }.to_bytes() != key.as_bytes() {
+                return None;
+            }
+            Some(unsafe { std::ffi::CStr::from_ptr(item.value) }.to_string_lossy().into_owned())
+        })
+    }
+}
+
+/// `struct spa_interface`. A core or registry starts with one, and its methods are only
+/// reachable through it, since the headers call them from inline functions.
+#[repr(C)]
+pub struct SpaInterface {
+    pub type_name: *const c_char,
+    pub version: u32,
+    pub funcs: *const c_void,
+    pub data: *mut c_void,
+}
+
+/// `struct pw_core_methods`, from pipewire/core.h.
+#[repr(C)]
+pub struct CoreMethods {
+    pub version: u32,
+    pub add_listener: unsafe extern "C" fn(*mut c_void, *mut SpaHook, *const CoreEvents, *mut c_void) -> c_int,
+    pub hello: *const c_void,
+    pub sync: unsafe extern "C" fn(*mut c_void, u32, c_int) -> c_int,
+    pub pong: *const c_void,
+    pub error: *const c_void,
+    pub get_registry: unsafe extern "C" fn(*mut c_void, u32, usize) -> *mut Opaque,
+    pub create_object: unsafe extern "C" fn(*mut c_void, *const c_char, *const c_char, u32, *const SpaDict, usize) -> *mut Opaque,
+    pub destroy: *const c_void,
+}
+
+/// `struct pw_core_events`, at version 0, which leaves out what this doesn't need.
+#[repr(C)]
+pub struct CoreEvents {
+    pub version: u32,
+    pub info: Callback,
+    pub done: Option<unsafe extern "C" fn(*mut c_void, u32, c_int)>,
+    pub ping: Callback,
+    pub error: Option<unsafe extern "C" fn(*mut c_void, u32, c_int, c_int, *const c_char)>,
+    pub remove_id: Callback,
+    pub bound_id: Callback,
+    pub add_mem: Callback,
+    pub remove_mem: Callback,
+}
+
+#[repr(C)]
+pub struct RegistryMethods {
+    pub version: u32,
+    pub add_listener: unsafe extern "C" fn(*mut c_void, *mut SpaHook, *const RegistryEvents, *mut c_void) -> c_int,
+    pub bind: unsafe extern "C" fn(*mut c_void, u32, *const c_char, u32, usize) -> *mut Opaque,
+    pub destroy: *const c_void,
+}
+
+#[repr(C)]
+pub struct RegistryEvents {
+    pub version: u32,
+    pub global: Option<unsafe extern "C" fn(*mut c_void, u32, u32, *const c_char, u32, *const SpaDict)>,
+    pub global_remove: Option<unsafe extern "C" fn(*mut c_void, u32)>,
+}
+
+/// The start of `struct pw_node_methods`, which is only ever read through a pointer.
+#[repr(C)]
+pub struct NodeMethods {
+    pub version: u32,
+    pub add_listener: unsafe extern "C" fn(*mut c_void, *mut SpaHook, *const NodeEvents, *mut c_void) -> c_int,
+}
+
+#[repr(C)]
+pub struct NodeEvents {
+    pub version: u32,
+    pub info: Option<unsafe extern "C" fn(*mut c_void, *const NodeInfo)>,
+    pub param: Callback,
+}
+
+/// `struct pw_node_info`. The registry only says a little about a node, and this has the rest.
+#[repr(C)]
+pub struct NodeInfo {
+    pub id: u32,
+    pub max_input_ports: u32,
+    pub max_output_ports: u32,
+    pub change_mask: u64,
+    pub n_input_ports: u32,
+    pub n_output_ports: u32,
+    pub state: c_int,
+    pub error: *const c_char,
+    pub props: *const SpaDict,
+    pub params: *const c_void,
+    pub n_params: u32,
+}
+
+// Only function pointers, which are safe to share.
+unsafe impl Sync for CoreEvents {}
+unsafe impl Sync for RegistryEvents {}
+unsafe impl Sync for NodeEvents {}
+
+/// The method table behind an object's interface, and what to call it with.
+pub unsafe fn methods<T>(object: *mut Opaque) -> (&'static T, *mut c_void) {
+    let interface = unsafe { &*(object as *const SpaInterface) };
+    (unsafe { &*(interface.funcs as *const T) }, interface.data)
+}
+
+pub const ID_CORE: u32 = 0;
+pub const ID_ANY: u32 = 0xffff_ffff;
+pub const VERSION_REGISTRY: u32 = 3;
+pub const VERSION_LINK: u32 = 3;
+pub const VERSION_NODE: u32 = 3;
+
 const _: () = {
     assert!(size_of::<SpaChunk>() == 16);
     assert!(size_of::<SpaData>() == 40);
@@ -96,6 +226,15 @@ const _: () = {
     assert!(size_of::<PwBuffer>() == 40);
     assert!(size_of::<SpaHook>() == 48);
     assert!(size_of::<StreamEvents>() == 96);
+    assert!(size_of::<SpaDict>() == 16);
+    assert!(size_of::<SpaInterface>() == 32);
+    assert!(size_of::<CoreMethods>() == 72);
+    assert!(size_of::<CoreEvents>() == 72);
+    assert!(size_of::<RegistryMethods>() == 32);
+    assert!(size_of::<RegistryEvents>() == 24);
+    assert!(size_of::<NodeEvents>() == 24);
+    assert!(size_of::<NodeInfo>() == 72);
+    assert!(std::mem::offset_of!(NodeInfo, props) == 48);
 };
 
 pub enum Opaque {}
@@ -112,7 +251,9 @@ pub struct Api {
     pub context_new: unsafe extern "C" fn(*mut Opaque, *mut Opaque, usize) -> *mut Opaque,
     pub context_destroy: unsafe extern "C" fn(*mut Opaque),
     pub context_connect_fd: unsafe extern "C" fn(*mut Opaque, c_int, *mut Opaque, usize) -> *mut Opaque,
+    pub context_connect: unsafe extern "C" fn(*mut Opaque, *mut Opaque, usize) -> *mut Opaque,
     pub core_disconnect: unsafe extern "C" fn(*mut Opaque) -> c_int,
+    pub proxy_destroy: unsafe extern "C" fn(*mut Opaque),
     pub properties_new_string: unsafe extern "C" fn(*const c_char) -> *mut Opaque,
     pub stream_new: unsafe extern "C" fn(*mut Opaque, *const c_char, *mut Opaque) -> *mut Opaque,
     pub stream_destroy: unsafe extern "C" fn(*mut Opaque),
@@ -142,7 +283,9 @@ pub fn load() -> Result<&'static Api, String> {
         context_new: get!(b"pw_context_new"),
         context_destroy: get!(b"pw_context_destroy"),
         context_connect_fd: get!(b"pw_context_connect_fd"),
+        context_connect: get!(b"pw_context_connect"),
         core_disconnect: get!(b"pw_core_disconnect"),
+        proxy_destroy: get!(b"pw_proxy_destroy"),
         properties_new_string: get!(b"pw_properties_new_string"),
         stream_new: get!(b"pw_stream_new"),
         stream_destroy: get!(b"pw_stream_destroy"),

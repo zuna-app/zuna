@@ -7,6 +7,7 @@ pub const TYPE_INT: u32 = 4;
 pub const TYPE_LONG: u32 = 5;
 pub const TYPE_RECTANGLE: u32 = 10;
 pub const TYPE_FRACTION: u32 = 11;
+pub const TYPE_ARRAY: u32 = 13;
 pub const TYPE_OBJECT: u32 = 15;
 pub const TYPE_CHOICE: u32 = 19;
 
@@ -26,6 +27,8 @@ pub enum Value {
     /// The first value is the default, and the rest depend on the kind: an enum's
     /// alternatives, or a range's minimum and maximum.
     Choice(u32, Vec<Value>),
+    /// Values of one type, such as the channels of a sound.
+    Array(Vec<Value>),
 }
 
 impl Value {
@@ -37,6 +40,7 @@ impl Value {
             Value::Rectangle(..) => TYPE_RECTANGLE,
             Value::Fraction(..) => TYPE_FRACTION,
             Value::Choice(..) => TYPE_CHOICE,
+            Value::Array(_) => TYPE_ARRAY,
         }
     }
 
@@ -52,6 +56,14 @@ impl Value {
                 let child_size = first.body().len() as u32;
                 let mut body = pair(*kind, 0);
                 body.extend(pair(child_size, first.type_id()));
+                for value in values {
+                    body.extend(value.body());
+                }
+                body
+            }
+            Value::Array(values) => {
+                let first = values.first().expect("An array says its type through its first value");
+                let mut body = pair(first.body().len() as u32, first.type_id());
                 for value in values {
                     body.extend(value.body());
                 }
@@ -179,6 +191,22 @@ mod tests {
                 3, 0, 4, 3,
                 // The values, and padding to eight bytes.
                 8, 8, 12, 0,
+            ]
+        );
+    }
+
+    #[test]
+    fn lays_out_an_array_with_one_header_for_its_values() {
+        let pod = bytes(&object(0x40003, 3, &[(0x10005, 0, Value::Array(vec![Value::Id(3), Value::Id(4)]))]));
+        assert_eq!(
+            u32s(&pod),
+            [
+                // Object header and body.
+                40, 15, 0x40003, 3,
+                // Key and flags, then the array's pod header: 8 + 2 * 4 bytes.
+                0x10005, 0, 16, 13,
+                // Each child's size and type, then the values.
+                4, 3, 3, 4,
             ]
         );
     }

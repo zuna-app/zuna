@@ -1,10 +1,11 @@
 #[cfg(target_os = "linux")]
 mod linux;
+// Also for the computer's sound, in crate::sound.
 #[cfg(target_os = "linux")]
-mod pipewire;
+pub mod pipewire;
 // Plain Rust, so that its tests can run on any platform.
 #[cfg(any(test, target_os = "linux"))]
-mod pod;
+pub mod pod;
 #[cfg(windows)]
 mod windows;
 
