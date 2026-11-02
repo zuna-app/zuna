@@ -42,6 +42,8 @@ type ServerInfo struct {
 	// those that are voice channels, and without one they can't be joined.
 	Channels int `json:"channels,omitempty"`
 	Voice    int `json:"voice,omitempty"`
+	// ScreenShare is for members: someone without an account has no need of it.
+	ScreenShare *ScreenRules `json:"screen_share,omitempty"`
 	// CommunityKey is only present in open sign-up mode, where admins accepted
 	// that the server can read profiles. In invite mode it stays in invite links.
 	CommunityKey string `json:"community_key,omitempty"`
@@ -101,6 +103,11 @@ func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	if info.Claimed, err = s.db.HasOwner(ctx); err != nil {
 		return nil, err
 	}
+	rules, err := s.screenRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	info.ScreenShare = &rules
 	if info.Registration == "open" {
 		if info.CommunityKey, err = s.db.Setting(ctx, "community_key", ""); err != nil {
 			return nil, err
@@ -224,11 +231,19 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 		MaxUploadMB        *int    `json:"max_upload_mb"`
 		RetentionDays      *int    `json:"retention_days"`
 		AllowMemberInvites *bool   `json:"allow_member_invites"`
+		// All of them at once, so what's kept always makes sense together.
+		ScreenShare *ScreenRules `json:"screen_share"`
 	}
 	if !readJSON(w, r, &body) {
 		return
 	}
 	ctx := r.Context()
+	if body.ScreenShare != nil {
+		if problem := body.ScreenShare.problem(); problem != "" {
+			writeError(w, http.StatusBadRequest, "bad_request", problem)
+			return
+		}
+	}
 	if body.Name != nil {
 		if len(*body.Name) < 1 || len(*body.Name) > 64 {
 			writeError(w, http.StatusBadRequest, "bad_request", "Server names are 1-64 characters.")
@@ -298,6 +313,13 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request, se
 			writeFailure(w, err)
 			return
 		}
+	}
+	if body.ScreenShare != nil {
+		if err := s.saveScreenRules(ctx, *body.ScreenShare); err != nil {
+			writeFailure(w, err)
+			return
+		}
+		s.enforceScreenRules(ctx)
 	}
 	s.broadcastSettings(r)
 	writeOK(w)
@@ -392,6 +414,7 @@ func (s *Server) handleSetRole(w http.ResponseWriter, r *http.Request, sess *sto
 		writeFailure(w, err)
 		return
 	}
+	s.enforceScreenRules(r.Context())
 	s.broadcastUser(r, targetID)
 	writeOK(w)
 }

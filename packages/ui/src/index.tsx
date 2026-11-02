@@ -17,6 +17,7 @@ export type {
   BootResult,
   DisplaySource,
   NativeScreenInfo,
+  NativeScreenOptions,
   NativeScreenShare,
   NativeScreenStats,
   NotificationReply,

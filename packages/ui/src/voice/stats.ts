@@ -51,6 +51,10 @@ export interface StatsShare {
   name: string;
   fps: number;
   bitrateKbps: number;
+  /** The tallest the picture was asked to be, or 0 for the screen's own size. */
+  height: number;
+  /** What the server's limits brought down from what this device had chosen, in words. */
+  held: string[];
   info?: NativeScreenInfo;
   whyNotNative?: string | null;
 }
@@ -291,6 +295,8 @@ export class StreamStats {
         row("Sharing", share.name),
         row("Capture and encoder", share.info?.description),
         row("Picture", size(share.info?.width, share.info?.height)),
+        row("Tallest asked for", share.height ? `${share.height} lines` : null),
+        row("Held to the server's limits", share.held.length ? share.held.join(", ") : null),
         row("New frames", fps(latest?.fps)),
         row("Repeated frames", fps(latest?.repeatFps)),
         row("Bitrate", bits(latest && latest.kbps * 1000)),
@@ -337,7 +343,8 @@ export class StreamStats {
         row("Sent through", isShare ? "The browser" : null),
         row("Why not natively", isShare ? share?.whyNotNative : null, true),
         row("Sharing", isShare ? share?.name : null),
-        row("Asked capture for", isShare && share ? `${share.fps} fps` : null),
+        row("Asked capture for", isShare && share ? `${share.fps} fps${share.height ? `, up to ${share.height} lines` : ""}` : null),
+        row("Held to the server's limits", isShare && share?.held.length ? share.held.join(", ") : null),
         row("Capture agreed to", settings.frameRate ? `${Math.round(settings.frameRate)} fps` : null, isShare && !!share && !!settings.frameRate && settings.frameRate < share.fps),
         row("Capturing", fps(number(capture, "framesPerSecond"))),
         row("Encoding", fps(perSecond("framesEncoded"))),

@@ -99,10 +99,31 @@ export interface NativeScreenStats {
   cpuCores: number;
 }
 
+export interface NativeScreenOptions {
+  url: string;
+  token: string;
+  key: Uint8Array;
+  keyIndex: number;
+  fps: number;
+  bitrateKbps: number;
+  /** The tallest the picture may be, or 0 for the screen's own size. */
+  height: number;
+  /** Draw the pointer into the picture. */
+  cursor: boolean;
+  /** Which of the system's encoders, or "auto" for whichever goes with the screen's graphics card. */
+  encoder: string;
+  /** How much work each frame gets: "speed", "balanced" or "best". */
+  effort: string;
+  keyframeSeconds: number;
+  source: string;
+}
+
 /** Sharing a screen from a native process, which captures and encodes on the GPU and only uses LiveKit to carry the result. */
 export interface NativeScreenShare {
+  /** The encoders this system could have, for choosing one. */
+  encoders: { id: string; name: string }[];
   /** Starts it, finishing once it's publishing. */
-  start(options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }): Promise<NativeScreenInfo>;
+  start(options: NativeScreenOptions): Promise<NativeScreenInfo>;
   /** Hears how it's going, about once a second. */
   onStats(listener: (stats: NativeScreenStats) => void): () => void;
   /** The key its frames go under from now on. */

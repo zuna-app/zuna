@@ -445,9 +445,11 @@ func (s *Server) Handler() http.Handler {
 
 	// Voice, through a media server that only ever carries encrypted media
 	mux.HandleFunc("POST /api/channels/{id}/voice", s.member(s.handleVoiceToken))
-	mux.HandleFunc("POST /api/channels/{id}/voice/screen", s.member(s.handleScreenToken))
+	mux.HandleFunc("POST /api/channels/{id}/voice/screen", s.member(s.handleStartScreen))
+	mux.HandleFunc("DELETE /api/channels/{id}/voice/screen", s.member(s.handleStopScreen))
 	mux.HandleFunc("POST /api/channels/{id}/voice/users/{user}/disconnect", s.admin(s.handleVoiceDisconnect))
 	mux.HandleFunc("PUT /api/channels/{id}/voice/users/{user}/mute", s.admin(s.handleVoiceMute))
+	mux.HandleFunc("DELETE /api/channels/{id}/voice/users/{user}/screen", s.admin(s.handleStopScreenOf))
 
 	if s.cfg.LiveKitURL == "" && s.cfg.LiveKitInternalURL != "" {
 		mux.Handle("/livekit/", s.liveKitProxy())

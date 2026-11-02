@@ -27,6 +27,7 @@ import { avatarColor } from "@/lib/format";
 import { useActiveServer, useApp } from "@/state/store";
 import type { VideoTile } from "@/voice/room";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
+import { screenRefusal } from "@zuna/core/voice";
 import { ChatView } from "@/features/chat/ChatView";
 import { channelTitle } from "./ChannelList";
 import { ScreenPicker } from "./ScreenPicker";
@@ -88,6 +89,7 @@ function MemberMenu({ userId, channelId, member, x, y, onClose }: { userId: stri
             icon: <ShieldOff size={15} />,
             onSelect: () => void session().voiceMute(channelId, userId, !member?.serverMuted).catch(fail),
           },
+          ...(member?.screen ? [{ label: "Stop their screen share", icon: <MonitorOff size={15} />, onSelect: () => void session().voiceScreenStopOf(channelId, userId).catch(fail) }] : []),
           { label: "Disconnect", icon: <UserX size={15} />, danger: true, onSelect: () => void session().voiceDisconnect(channelId, userId).catch(fail) },
         ]
       : []),
@@ -178,7 +180,7 @@ function DeviceMenu({ kind, x, y, onClose }: { kind: "audioinput" | "audiooutput
   return <PopupMenu x={x} y={y} entries={entries} onClose={onClose} />;
 }
 
-function Controls({ chatOpen, chatUnread, onToggleChat }: { chatOpen: boolean; /** Something new in the chat beside the call, which only those in it would want to know. */ chatUnread: boolean; onToggleChat: () => void }) {
+function Controls({ chatOpen, chatUnread, onToggleChat, shareRefusal }: { chatOpen: boolean; /** Something new in the chat beside the call, which only those in it would want to know. */ chatUnread: boolean; onToggleChat: () => void; /** Why this person can't share a screen here, if they can't. */ shareRefusal: string | null }) {
   const muted = useVoice((state) => state.muted);
   const deafened = useVoice((state) => state.deafened);
   const serverMuted = useVoice((state) => state.serverMuted);
@@ -225,8 +227,8 @@ function Controls({ chatOpen, chatUnread, onToggleChat }: { chatOpen: boolean; /
           {camera ? <Camera size={20} /> : <CameraOff size={20} />}
         </button>
       </Tooltip>
-      <Tooltip text={screen ? "Stop sharing" : "Share your screen"} side="top">
-        <button className={`voice-control${screen ? " is-on" : ""}`} onClick={() => (screen ? void stopScreen() : setPicking(true))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
+      <Tooltip text={screen ? "Stop sharing" : (shareRefusal ?? "Share your screen")} side="top">
+        <button className={`voice-control${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : setPicking(true))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
           {screen ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
         </button>
       </Tooltip>
@@ -337,7 +339,7 @@ export function VoiceStage({ channel }: { channel: ChannelView }) {
                 })}
               </div>
             </div>
-            <Controls chatOpen={chatOpen} chatUnread={(channel.conversation?.unread ?? 0) > 0} onToggleChat={() => setChatOpen(!chatOpen)} />
+            <Controls chatOpen={chatOpen} chatUnread={(channel.conversation?.unread ?? 0) > 0} onToggleChat={() => setChatOpen(!chatOpen)} shareRefusal={screenRefusal(server?.info?.screen_share, server?.self?.role, channel.screenLimit)} />
           </>
         )}
       </div>

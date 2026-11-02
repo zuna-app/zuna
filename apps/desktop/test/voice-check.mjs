@@ -579,6 +579,201 @@ try {
     await alice.page.getByRole("button", { name: "Cancel" }).click();
   }
 
+  // --- What a server allows for shares, and what a device chooses ---
+  const changeRules = async (change) => {
+    await alice.page.locator(".server-title").click();
+    await alice.page.getByRole("menuitem", { name: "Server settings" }).click();
+    await alice.page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
+    await change(alice.page);
+    await alice.page.getByRole("button", { name: "Save changes" }).click();
+    await sleep(500);
+    await alice.page.keyboard.press("Escape");
+    await sleep(200);
+  };
+  const changeOwnSettings = async (who, change) => {
+    await who.page.getByLabel("Settings", { exact: true }).click();
+    await who.page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
+    await change(who.page);
+    await who.page.keyboard.press("Escape");
+    await sleep(200);
+  };
+  const pickAndShare = async (who, before) => {
+    await who.page.getByRole("button", { name: "Share your screen" }).first().click();
+    await who.page.locator(".screen-source").first().waitFor({ timeout: 10_000 });
+    await before?.();
+    await who.page.getByRole("button", { name: "Share", exact: true }).click();
+  };
+  const stopSharing = (who) => who.page.getByRole("button", { name: "Stop sharing" }).first().click();
+  const screenOnAlice = alice.page.locator(".voice-tile.is-screen video").first();
+  /** What Alice decodes of a screen someone else is sharing. */
+  const decodedByAlice = async () => {
+    await sleep(4000);
+    await alice.page.evaluate(() => {
+      window.__lastVideo = null;
+    });
+    await audioFlow(alice.page, 2);
+    return alice.page.evaluate(() => window.__lastVideo);
+  };
+  await rowFor(alice.page, "Lounge").click();
+  await rowFor(bob.page, "Lounge").click();
+
+  await changeRules(async (page) => {
+    await page.getByLabel("Largest picture").selectOption("720");
+    await page.getByLabel("Highest frame rate").selectOption("30");
+    await page.getByLabel("Most a share may send").selectOption("3000");
+    await sleep(150);
+    await shot(alice, "09-screen-rules");
+  });
+  await sleep(500);
+  await pickAndShare(bob, async () => {
+    const said = await bob.page.locator(".modal .screen-held").textContent();
+    check("the picker says what the server holds shares to", said.includes("720p") && said.includes("30 fps") && said.includes("3 Mbit/s"), said);
+    await sleep(200);
+    await shot(bob, "09-picker-with-limits");
+  });
+  await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+  await screenOnAlice.waitFor({ timeout: 20_000 });
+  const heldNative = await decodedByAlice();
+  check("a limit on size holds for a share", heldNative?.height <= 720 && heldNative?.height >= 360, `${heldNative?.width}x${heldNative?.height} through ${heldNative?.decoder}`);
+  await bob.page.getByRole("button", { name: "Stream stats" }).click();
+  await sleep(4000);
+  const heldStats = (await readStats(bob.page)).find((section) => section.title === "Your screen");
+  console.log(`  Held to limits: ${JSON.stringify(heldStats)}`);
+  check("a limit on frame rate holds for a share", heldStats?.fps <= 31, `${heldStats?.fps} fps`);
+  check("the stats say what the server held it to", heldStats?.rows["Held to the server's limits"]?.includes("720p"), heldStats?.rows["Held to the server's limits"]);
+  await bob.page.getByRole("button", { name: "Close stream stats" }).click();
+  await stopSharing(bob);
+  await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 });
+
+  // The same limits through the browser, along with what a device can choose for it.
+  await changeOwnSettings(bob, async (page) => {
+    await sleep(150);
+    await shot(bob, "09-screen-settings");
+    if (native) await page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click();
+    await page.getByLabel("Codec").selectOption("vp8");
+    await page.getByRole("switch", { name: "Also send a smaller copy" }).click();
+    await page.getByRole("button", { name: "Keep it smooth" }).click();
+  });
+  await pickAndShare(bob);
+  await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+  await screenOnAlice.waitFor({ timeout: 20_000 });
+  const heldBrowser = await decodedByAlice();
+  const captured = await bob.page.evaluate(() => {
+    for (const connection of window.__connections) {
+      if (connection.connectionState === "closed") continue;
+      for (const sender of connection.getSenders()) {
+        if (sender.track?.kind === "video" && sender.track.readyState === "live") return { settings: sender.track.getSettings(), hint: sender.track.contentHint, senders: sender.getParameters().encodings.length, preference: sender.getParameters().degradationPreference };
+      }
+    }
+    return null;
+  });
+  console.log(`  Through the browser: ${JSON.stringify(captured)}, decoded ${JSON.stringify(heldBrowser)}`);
+  check("a limit on size holds through the browser", captured?.settings.height <= 720 && heldBrowser?.height <= 720, `captured ${captured?.settings.width}x${captured?.settings.height}, decoded ${heldBrowser?.width}x${heldBrowser?.height}`);
+  check("a limit on size keeps a screen's shape", !!captured && Math.abs(captured.settings.width / captured.settings.height - 16 / 9) < 0.02, `${captured?.settings.width}x${captured?.settings.height}`);
+  check("a limit on frame rate holds through the browser", captured?.settings.frameRate <= 30, `${captured?.settings.frameRate} fps`);
+  check("a share goes out in the codec that was chosen", heldBrowser?.codec === "video/VP8", heldBrowser?.codec);
+  check("a share can send a smaller copy too", captured?.senders > 1, `${captured?.senders} layers`);
+  check("what a share is mostly of reaches the browser", captured?.hint === "detail", captured?.hint);
+  check("what gives first reaches the browser", captured?.preference === "maintain-framerate", captured?.preference);
+  await stopSharing(bob);
+  await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 });
+
+  // The other codecs on offer, each of which has to get through the encryption.
+  for (const [codec, mime] of [["vp9", "video/VP9"], ["h264", "video/H264"]]) {
+    await changeOwnSettings(bob, (page) => page.getByLabel("Codec").selectOption(codec));
+    await pickAndShare(bob);
+    await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+    await screenOnAlice.waitFor({ timeout: 20_000 });
+    const decoded = await decodedByAlice();
+    check(`a share can go out as ${mime} and decrypt`, decoded?.codec === mime && decoded?.height <= 720, `${decoded?.width}x${decoded?.height} ${decoded?.codec} through ${decoded?.decoder}`);
+    await stopSharing(bob);
+    await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 });
+  }
+
+  // Sound, which the media server has to allow as well.
+  const soundsSent = () =>
+    bob.page.evaluate(() => {
+      let count = 0;
+      for (const connection of window.__connections) {
+        if (connection.connectionState === "closed") continue;
+        for (const sender of connection.getSenders()) if (sender.track?.kind === "audio" && sender.track.readyState === "live") count++;
+      }
+      return count;
+    });
+  const shareWithSound = async (route) => {
+    const before = await soundsSent();
+    await pickAndShare(bob, () => bob.page.getByRole("switch", { name: "Share sound too" }).click());
+    await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+    await screenOnAlice.waitFor({ timeout: 20_000 });
+    await sleep(2500);
+    check(`sound goes with a share ${route}`, (await soundsSent()) === before + 1 && (await bob.page.locator(".toast", { hasText: "without its sound" }).count()) === 0, `${before} before, ${await soundsSent()} now`);
+    await stopSharing(bob);
+    await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 });
+    // It's remembered, so it's left how it was found.
+    await bob.page.getByRole("button", { name: "Share your screen" }).first().click();
+    await bob.page.getByRole("switch", { name: "Share sound too" }).click();
+    await bob.page.getByRole("button", { name: "Cancel" }).click();
+  };
+  await shareWithSound("through the browser");
+  if (native) {
+    await changeOwnSettings(bob, (page) => page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click());
+    await shareWithSound("beside a native share");
+    await changeOwnSettings(bob, (page) => page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click());
+  }
+  await changeRules((page) => page.getByRole("switch", { name: "Let sound go with a share" }).click());
+  await sleep(500);
+  await bob.page.getByRole("button", { name: "Share your screen" }).first().click();
+  await bob.page.locator(".screen-source").first().waitFor({ timeout: 10_000 });
+  check("without sound allowed, there's no asking for it", (await bob.page.getByRole("switch", { name: "Share sound too" }).count()) === 0);
+  await bob.page.getByRole("button", { name: "Cancel" }).click();
+  await changeRules((page) => page.getByRole("switch", { name: "Let sound go with a share" }).click());
+
+  await changeOwnSettings(bob, async (page) => {
+    if (native) await page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click();
+    await page.getByLabel("Codec").selectOption("auto");
+    await page.getByRole("switch", { name: "Also send a smaller copy" }).click();
+    await page.getByRole("button", { name: "Keep it sharp" }).click();
+  });
+
+  // Who can share, and an admin stopping someone, which the media server has to carry out.
+  await pickAndShare(bob);
+  await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+  await screenOnAlice.waitFor({ timeout: 20_000 });
+  await changeRules((page) => page.getByRole("button", { name: "Admins", exact: true }).click());
+  await bob.page.locator(".toast", { hasText: "rules changed" }).waitFor({ timeout: 10_000 }).then(() => check("someone hears the rules stopped their share", true)).catch(() => check("someone hears the rules stopped their share", false));
+  await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 }).then(() => check("a share the rules no longer allow goes away", true)).catch(() => check("a share the rules no longer allow goes away", false));
+  check("someone who can't share can't start to", await bob.page.getByRole("button", { name: "Share your screen" }).first().isDisabled());
+  await changeRules((page) => page.getByRole("button", { name: "Everyone", exact: true }).click());
+  await sleep(500);
+
+  await pickAndShare(bob);
+  await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+  await screenOnAlice.waitFor({ timeout: 20_000 });
+  await alice.page.locator(".voice-tile", { hasText: "Bob" }).filter({ hasNotText: "screen" }).first().click({ button: "right" });
+  await alice.page.getByRole("menuitem", { name: "Stop their screen share" }).click();
+  await bob.page.getByRole("button", { name: "Share your screen" }).first().waitFor({ timeout: 10_000 }).then(() => check("an admin can stop someone's share", true)).catch(() => check("an admin can stop someone's share", false));
+  await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 }).then(() => check("a share an admin stopped goes away", true)).catch(() => check("a share an admin stopped goes away", false));
+
+  // How many can share at once.
+  await changeRules((page) => page.getByLabel("Shares at once in a voice channel").fill("1"));
+  await pickAndShare(bob);
+  await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+  await pickAndShare(alice);
+  await alice.page.locator(".toast", { hasText: "already sharing" }).waitFor({ timeout: 10_000 }).then(() => check("a limit on how many can share holds", true)).catch(() => check("a limit on how many can share holds", false));
+  check("someone turned away isn't left sharing", await alice.page.getByRole("button", { name: "Share your screen" }).first().isVisible());
+  await stopSharing(bob);
+  await sleep(500);
+  await pickAndShare(alice);
+  await alice.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 }).then(() => check("giving up a place lets someone else share", true)).catch(() => check("giving up a place lets someone else share", false));
+  await stopSharing(alice);
+  await sleep(500);
+  await changeRules(async (page) => {
+    await page.getByLabel("Shares at once in a voice channel").fill("0");
+    await page.getByLabel("Largest picture").selectOption("0");
+    await page.getByLabel("Highest frame rate").selectOption("0");
+    await page.getByLabel("Most a share may send").selectOption("0");
+  });
+
   // --- The chat beside a call ---
   await rowFor(bob.page, "Lounge").click();
   await bob.page.getByRole("button", { name: "Show chat" }).click();

@@ -326,6 +326,9 @@ export const useApp = create<AppState>((set, get) => {
       case "voice_ended":
         voiceHooks.onEnded?.(event.serverId, event.channelId, event.reason);
         break;
+      case "screen_ended":
+        voiceHooks.onScreenEnded?.(event.serverId, event.channelId, event.reason);
+        break;
       case "users":
         refreshUsers(event.serverId);
         refreshConversations(event.serverId);

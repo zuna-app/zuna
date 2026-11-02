@@ -1,5 +1,6 @@
 import { Camera, CameraOff, Headphones, HeadphoneOff, Lock, Mic, MicOff, MonitorOff, MonitorUp, PhoneOff, Settings as SettingsIcon, Signal, SignalLow, SignalMedium } from "lucide-react";
 import { useEffect, useState } from "react";
+import { screenRefusal } from "@zuna/core/voice";
 import { Spinner, Tooltip } from "@/components/ui";
 import { keyName } from "@/voice/settings";
 import { useApp } from "@/state/store";
@@ -38,6 +39,7 @@ export function VoicePanel() {
   const stopScreen = useVoice((state) => state.stopScreen);
   const leave = useVoice((state) => state.leave);
   const server = useApp((state) => (serverId ? state.servers[serverId] : null));
+  const shareRefusal = screenRefusal(server?.info?.screen_share, server?.self?.role, server?.channels.find((item) => item.id === channelId)?.screenLimit);
   const selectServer = useApp((state) => state.selectServer);
   const setOverlay = useApp((state) => state.setOverlay);
   const [picking, setPicking] = useState(false);
@@ -90,8 +92,8 @@ export function VoicePanel() {
             {camera ? <Camera size={16} /> : <CameraOff size={16} />}
           </button>
         </Tooltip>
-        <Tooltip text={screen ? "Stop sharing" : "Share your screen"} side="top">
-          <button className={`voice-action${screen ? " is-on" : ""}`} onClick={() => (screen ? void stopScreen() : setPicking(true))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
+        <Tooltip text={screen ? "Stop sharing" : (shareRefusal ?? "Share your screen")} side="top">
+          <button className={`voice-action${screen ? " is-on" : ""}`} disabled={!screen && !!shareRefusal} onClick={() => (screen ? void stopScreen() : setPicking(true))} aria-label={screen ? "Stop sharing" : "Share your screen"} aria-pressed={!!screen}>
             {screen ? <MonitorOff size={16} /> : <MonitorUp size={16} />}
           </button>
         </Tooltip>

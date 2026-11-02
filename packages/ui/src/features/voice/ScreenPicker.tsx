@@ -1,8 +1,12 @@
+import { screenTerms } from "@zuna/core/voice";
 import { Monitor, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Modal, Spinner, Switch } from "@/components/ui";
 import { platform, type DisplaySource } from "@/platform";
+import { useApp } from "@/state/store";
+import { heightName, rateName, SCREEN_HEIGHTS, SCREEN_RATES, screenLimitsText } from "@/voice/settings";
 import { useVoice } from "@/voice/store";
+import { NumberSelect } from "./ScreenSettings";
 
 const QUALITIES: { kbps: number; label: string; hint: string }[] = [
   { kbps: 6_000, label: "Smooth", hint: "For a slow connection" },
@@ -16,10 +20,12 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const settings = useVoice((state) => state.settings);
   const updateSettings = useVoice((state) => state.updateSettings);
   const startScreen = useVoice((state) => state.startScreen);
+  const serverId = useVoice((state) => state.serverId);
+  const server = useApp((state) => (serverId ? state.servers[serverId] : undefined));
+  const setOverlay = useApp((state) => state.setOverlay);
   const [sources, setSources] = useState<DisplaySource[] | null>(platform.displaySources ? null : []);
   const [tab, setTab] = useState<"screen" | "window">("screen");
   const [chosen, setChosen] = useState<string | null>(null);
-  const [audio, setAudio] = useState(false);
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
@@ -42,18 +48,20 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const pickable = sources?.filter((source) => source.kind === tab) ?? [];
   const source = sources?.find((item) => item.id === chosen);
   const usesBrowserPicker = sources !== null && sources.length === 0;
-  const canShareAudio = !!platform.systemAudio;
+  const rules = server?.info?.screen_share;
+  const role = server?.self?.role;
+  const terms = screenTerms({ height: settings.screenHeight, fps: settings.screenFps, kbps: settings.screenBitrate, soundKbps: settings.screenSoundKbps }, rules, role);
+  const suggested = screenTerms({ height: null, fps: null, kbps: null, soundKbps: settings.screenSoundKbps }, rules, role);
+  const canShareAudio = !!platform.systemAudio && terms.sound;
+  const native = !!source?.native && settings.screenNative;
+  const limits = screenLimitsText(rules, role);
+  // What the limits leave out of the lists, which is nothing for someone they don't apply to.
+  const limit = (value: number | undefined) => (limits ? (value ?? 0) : 0);
+  const qualities = QUALITIES.filter((quality) => limit(rules?.max_kbps) === 0 || quality.kbps <= limit(rules?.max_kbps));
 
   const start = async () => {
     setStarting(true);
-    await startScreen({
-      source: source?.id,
-      native: !!source?.native,
-      fps: settings.screenFps,
-      bitrateKbps: settings.screenBitrate,
-      audio: audio && canShareAudio,
-      name: source?.name,
-    });
+    await startScreen({ source: source?.id, native: !!source?.native, audio: settings.screenSound && canShareAudio, name: source?.name });
     onClose();
   };
 
@@ -100,45 +108,65 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
             ))}
             {pickable.length === 0 && <p className="faint">{tab === "window" ? "There are no windows to share." : "There are no screens to share."}</p>}
           </div>
-          {source?.native && (
+          {native && (
             <p className="screen-native">
               <Zap size={13} /> Captured and encoded on your graphics card, so it stays light on your computer.
             </p>
           )}
         </>
       )}
-      <div className="field">
-        <span className="field-label">Quality</span>
-        <div className="screen-quality">
-          {QUALITIES.map((quality) => (
-            <button key={quality.kbps} className={settings.screenBitrate === quality.kbps ? "is-active" : ""} onClick={() => updateSettings({ screenBitrate: quality.kbps })}>
-              <b>{quality.label}</b>
-              <span>{quality.hint}</span>
-            </button>
-          ))}
+      {qualities.length > 0 && (
+        <div className="field">
+          <span className="field-label">Quality</span>
+          <div className="screen-quality">
+            {qualities.map((quality) => (
+              <button key={quality.kbps} className={terms.kbps === quality.kbps ? "is-active" : ""} onClick={() => updateSettings({ screenBitrate: quality.kbps })}>
+                <b>{quality.label}</b>
+                <span>{quality.hint}</span>
+              </button>
+            ))}
+          </div>
         </div>
+      )}
+      <div className="screen-sizes">
+        <NumberSelect
+          label="Size"
+          value={settings.screenHeight}
+          options={[0, ...SCREEN_HEIGHTS]}
+          name={heightName}
+          extras={[{ value: null, label: `Server's choice (${heightName(suggested.height)})` }]}
+          limit={limit(rules?.max_height)}
+          onChange={(value) => updateSettings({ screenHeight: value })}
+        />
+        <NumberSelect
+          label="Frame rate"
+          value={settings.screenFps}
+          options={SCREEN_RATES}
+          name={rateName}
+          extras={[{ value: null, label: `Server's choice (${rateName(suggested.fps)})` }]}
+          limit={limit(rules?.max_fps)}
+          onChange={(value) => updateSettings({ screenFps: value })}
+        />
       </div>
-      <div className="setting-row">
-        <span className="grow">
-          <b>Frame rate</b>
-        </span>
-        <div className="segmented">
-          {([30, 60] as const).map((fps) => (
-            <button key={fps} className={settings.screenFps === fps ? "is-active" : ""} onClick={() => updateSettings({ screenFps: fps })}>
-              {fps} fps
-            </button>
-          ))}
-        </div>
-      </div>
+      {limits && <p className="screen-held">{limits}</p>}
       {canShareAudio && (
         <div className="setting-row">
           <span className="grow">
             <b>Share sound too</b>
             <span className="setting-hint">Everything your computer plays, apart from this call.</span>
           </span>
-          <Switch on={audio} onChange={setAudio} label="Share sound too" />
+          <Switch on={settings.screenSound} onChange={(value) => updateSettings({ screenSound: value })} label="Share sound too" />
         </div>
       )}
+      <button
+        className="screen-more"
+        onClick={() => {
+          onClose();
+          setOverlay({ type: "settings", section: "screen" });
+        }}
+      >
+        More screen sharing settings
+      </button>
     </Modal>
   );
 }

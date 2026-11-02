@@ -94,7 +94,7 @@ Each person's frames are under a key of their own, bound to who they are in the 
 
 **The microphone** goes through an AudioWorklet before it's published: RNNoise takes out noise and says how likely each 10 ms is to be speech, and a gate only lets speech through, holding 20 ms back so it opens before a word starts. Past the gate, the track is silent, which costs almost nothing to send. It can go by a level instead, or a key being held. The track stays the same when the device changes, so nothing has to be published again.
 
-**Screens** come from a native program where that's possible, as [SCREEN_SHARE.md](SCREEN_SHARE.md) explains, and from the browser otherwise.
+**Screens** come from a native program where that's possible, as [SCREEN_SHARE.md](SCREEN_SHARE.md) explains, and from the browser otherwise. Either way a device has to ask first, since being in a room doesn't allow one, and the server's rules decide.
 
 ## Sync
 

@@ -147,7 +147,7 @@ To let people use Zuna in a browser, run the web app's own program, `zuna-web`, 
 
 Voice channels need [LiveKit](https://livekit.io), a media server that runs beside Zuna. It only ever carries encrypted media. Without it, everything else works, and voice channels can be made but not joined.
 
-It doesn't need much, since it only passes media along. A small VPS is fine for a friend group, though it uses bandwidth: each person in a call receives everyone else's audio, at about 64 kbit/s each, and a shared screen can be 20 Mbit/s for each person watching.
+It doesn't need much, since it only passes media along. A small VPS is fine for a friend group, though it uses bandwidth: each person in a call receives everyone else's audio, at about 64 kbit/s each, and a shared screen can be 20 Mbit/s for each person watching. Server settings, Screen sharing, is where to say who can share, how many at once, and how large and how fast, and each voice channel can say otherwise. [SCREEN_SHARE.md](SCREEN_SHARE.md#what-a-server-says-and-what-a-device-chooses) has what each of those can really hold.
 
 **With Docker,** add the voice file to whichever you use:
 

@@ -1,7 +1,7 @@
 // The voice channel this device is in, wherever in the app the person is looking.
 // There's one at a time, across all servers, as in Discord.
 
-import { voiceSenderKey } from "@zuna/core/voice";
+import { screenTerms, voiceSenderKey } from "@zuna/core/voice";
 import { Track } from "livekit-client";
 import { create } from "zustand";
 import { platform } from "@/platform";
@@ -9,7 +9,7 @@ import { useApp } from "@/state/store";
 import { voiceHooks } from "./events";
 import type { MicReading } from "./mic";
 import { DisconnectReason, VoiceRoom, type RoomQuality, type VideoTile } from "./room";
-import { loadVoiceSettings, loadVolumes, saveVoiceSettings, saveVolumes, type VoiceSettings } from "./settings";
+import { bitrateName, heightName, loadVoiceSettings, loadVolumes, rateName, saveVoiceSettings, saveVolumes, type VoiceSettings } from "./settings";
 import { playVoiceSound, setSoundOutput, type VoiceSound } from "./sounds";
 import { addNativeReading, NO_NATIVE_READINGS, type StatSection, type StatsShare, type StreamStats } from "./stats";
 
@@ -18,10 +18,8 @@ export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 export interface ScreenChoice {
   /** What to share, from the platform's list, or nothing for the browser's own picker. */
   source?: string;
-  /** Captured and encoded natively rather than by the browser. */
+  /** It can be captured and encoded natively rather than by the browser. */
   native: boolean;
-  fps: number;
-  bitrateKbps: number;
   /** System audio goes too, where the system allows it. */
   audio: boolean;
   /** What it's called, to say what's being shared. */
@@ -95,6 +93,9 @@ const NOT_IN_VOICE = {
 const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_WAIT_MS = 2000;
 
+/** The server said no to a share, in words meant for the person. */
+class ShareRefused extends Error {}
+
 /** Why a native share didn't start, without what Electron and the app wrap around it. */
 const nativeProblem = (error: unknown): string =>
   String((error as Error)?.message ?? error)
@@ -150,7 +151,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       const { deafened, settings, volumes, localMutes } = get();
       if (deafened) return 0;
       // A share's sound has a level of its own: it isn't how loud the person talks.
-      if (source === Track.Source.ScreenShareAudio) return settings.outputVolume;
+      if (source === Track.Source.ScreenShareAudio) return settings.outputVolume * settings.screenVolume;
       return localMutes[userId] ? 0 : settings.outputVolume * (volumes[userId] ?? 1);
     });
   };
@@ -158,16 +159,28 @@ export const useVoice = create<VoiceState>((set, get) => {
   const syncVideos = () => {
     if (!room) return;
     const videos = room.videos();
-    const { focus, screen, videos: before } = get();
+    const { focus, screen, videos: before, settings } = get();
     const stillThere = !focus || videos.some((video) => video.key === focus);
     // A screen someone starts sharing is what everyone's there to see, unless they're already looking at something.
-    const arrived = videos.find((video) => video.source === "screen" && !video.local && !before.some((other) => other.key === video.key));
+    const arrived = settings.screenFocus ? videos.find((video) => video.source === "screen" && !video.local && !before.some((other) => other.key === video.key)) : undefined;
     set({ videos, focus: stillThere && focus ? focus : (arrived?.key ?? null), camera: room.cameraOn });
-    if (screen && !screen.native && !room.sharingInBrowser) {
-      set({ screen: null });
-      sound("self-leave");
-      announce();
+    if (screen && !screen.native && !room.sharingInBrowser) void endShare(true);
+  };
+
+  /** Stops what this device is sharing, if anything. A server that stopped it has already given up its place. */
+  const endShare = async (giveUpPlace: boolean) => {
+    const { screen, channelId } = get();
+    if (!screen) return;
+    set({ screen: null });
+    if (screen.native) {
+      stopNative?.();
+      await room?.stopSystemAudio();
+    } else {
+      await room?.stopBrowserScreen();
     }
+    if (giveUpPlace && channelId) await session()?.voiceScreenStop(channelId).catch((error) => console.warn("[zuna] giving up a place to share", error));
+    announce();
+    sound("self-leave");
   };
 
   /** There's nothing to show for a voice channel once out of it, so whatever was open before comes back. */
@@ -192,6 +205,8 @@ export const useVoice = create<VoiceState>((set, get) => {
   const onClosed = (reason?: DisconnectReason) => {
     const { serverId, channelId } = get();
     closeRoom();
+    // Coming back shares nothing until someone asks again, and the server knows that from the new connection.
+    set({ screen: null });
     if (!serverId || !channelId) return;
     if (reason === DisconnectReason.PARTICIPANT_REMOVED || reason === DisconnectReason.ROOM_DELETED || reason === DisconnectReason.DUPLICATE_IDENTITY || reason === DisconnectReason.CLIENT_INITIATED) {
       get().leave();
@@ -307,6 +322,11 @@ export const useVoice = create<VoiceState>((set, get) => {
     useApp.getState().toast(message[reason] ?? "You left the voice channel.", "info");
     sound("self-leave");
   };
+  voiceHooks.onScreenEnded = (serverId, channelId, reason) => {
+    if (get().serverId !== serverId || get().channelId !== channelId || !get().screen) return;
+    void endShare(false);
+    useApp.getState().toast(reason === "stopped" ? "An admin stopped your screen share." : "This server's rules changed, so your screen share stopped.", "info");
+  };
   voiceHooks.onServerGone = (serverId) => {
     if (get().serverId === serverId) get().leave();
   };
@@ -406,30 +426,65 @@ export const useVoice = create<VoiceState>((set, get) => {
     async startScreen(choice) {
       const current = room;
       const app = useApp.getState();
-      const { channelId, serverId } = get();
+      const { channelId, serverId, settings } = get();
       if (!current || !channelId || !serverId || get().screen) return;
-      const asked = { name: choice.name ?? "Your screen", fps: choice.fps, bitrateKbps: choice.bitrateKbps };
+      const server = app.servers[serverId];
+      const session = app.session(serverId);
+      const terms = screenTerms({ height: settings.screenHeight, fps: settings.screenFps, kbps: settings.screenBitrate, soundKbps: settings.screenSoundKbps }, server?.info?.screen_share, server?.self?.role);
+      const wantsSound = choice.audio && terms.sound;
+      const held = terms.held.map((name) => ({ height: heightName(terms.height), fps: rateName(terms.fps), kbps: bitrateName(terms.kbps), soundKbps: `${bitrateName(terms.soundKbps)} of sound` })[name]);
+      const asked = { name: choice.name ?? "Your screen", fps: terms.fps, bitrateKbps: terms.kbps, height: terms.height, held };
+      const askServer = (browser: boolean) =>
+        session.voiceScreenAccess(channelId, { browser, sound: wantsSound }).catch((error) => {
+          throw new ShareRefused((error as Error).message);
+        });
       const browserShare = async (whyNotNative: string | null) => {
-        if (choice.source) await platform.chooseDisplaySource?.(choice.source, choice.audio);
-        await current.startBrowserScreen(choice.fps, choice.bitrateKbps, choice.audio);
+        const access = await askServer(true);
+        await current.whenAllowedToShare(true, access.sound);
+        if (choice.source) await platform.chooseDisplaySource?.(choice.source, access.sound);
+        await current.startBrowserScreen({
+          fps: terms.fps,
+          bitrateKbps: terms.kbps,
+          height: terms.height,
+          sound: access.sound,
+          soundKbps: terms.soundKbps,
+          content: settings.screenContent,
+          priority: settings.screenPriority,
+          codec: settings.screenCodec,
+          layers: settings.screenLayers,
+        });
         set({ screen: { ...asked, native: false, whyNotNative } });
       };
       try {
-        if (choice.native && platform.nativeScreen && current.currentKey) {
-          const access = await app.session(serverId).voiceScreenAccess(channelId);
+        if (choice.native && settings.screenNative && platform.nativeScreen && current.currentKey) {
+          const access = await askServer(false);
           const { key, index } = current.currentKey;
-          const senderKey = new Uint8Array(await voiceSenderKey(key, access.identity));
+          const senderKey = new Uint8Array(await voiceSenderKey(key, access.native!.identity));
           try {
             const native = platform.nativeScreen;
-            const info = await native.start({ url: access.url, token: access.token, key: senderKey, keyIndex: index, fps: choice.fps, bitrateKbps: choice.bitrateKbps, source: choice.source ?? "" });
+            const info = await native.start({
+              url: access.native!.url,
+              token: access.native!.token,
+              key: senderKey,
+              keyIndex: index,
+              fps: terms.fps,
+              bitrateKbps: terms.kbps,
+              height: terms.height,
+              cursor: settings.screenCursor,
+              encoder: settings.screenEncoder,
+              effort: settings.screenEffort,
+              keyframeSeconds: settings.screenKeyframes,
+              source: choice.source ?? "",
+            });
             nativeReadings = NO_NATIVE_READINGS;
             const offStats = native.onStats((stats) => {
               nativeReadings = addNativeReading(nativeReadings, stats);
             });
             set({ screen: { ...asked, native: true, info } });
-            if (choice.audio) {
+            if (access.sound) {
+              await current.whenAllowedToShare(false, true);
               if (choice.source) await platform.chooseDisplaySource?.(choice.source, true);
-              await current.startSystemAudio().catch((error) => {
+              await current.startSystemAudio(terms.soundKbps).catch((error) => {
                 console.warn("[zuna] sharing the computer's sound", error);
                 app.toast("Your screen is being shared without its sound.", "info");
               });
@@ -439,9 +494,7 @@ export const useVoice = create<VoiceState>((set, get) => {
               offStats();
               stopNative = null;
               if (get().screen?.native) {
-                void current.stopSystemAudio();
-                set({ screen: null });
-                announce();
+                void endShare(true);
                 if (problem) app.toast(problem, "error");
               }
             });
@@ -459,28 +512,24 @@ export const useVoice = create<VoiceState>((set, get) => {
           }
         } else {
           const screen = choice.source?.startsWith("screen:");
-          await browserShare(platform.nativeScreen ? (screen ? "This build came without native capture." : "Only whole screens are captured natively.") : null);
+          const whyNot = !platform.nativeScreen ? null : !screen ? "Only whole screens are captured natively." : !settings.screenNative ? "Capturing on the graphics card is turned off in Screen sharing's settings." : "This build came without native capture.";
+          await browserShare(whyNot);
         }
         announce();
         sound("self-join");
       } catch (error) {
+        if (error instanceof ShareRefused) {
+          app.toast(error.message, "error");
+          return;
+        }
+        void session.voiceScreenStop(channelId).catch(() => undefined);
         // Choosing not to share after all is not a failure.
         if ((error as Error).name !== "NotAllowedError") app.toast("Couldn't share your screen.", "error");
       }
     },
 
     async stopScreen() {
-      const { screen } = get();
-      if (!screen) return;
-      if (screen.native) {
-        stopNative?.();
-        await room?.stopSystemAudio();
-      } else {
-        await room?.stopBrowserScreen();
-      }
-      set({ screen: null });
-      announce();
-      sound("self-leave");
+      await endShare(true);
     },
 
     setVolume(userId, volume) {

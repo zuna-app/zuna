@@ -28,6 +28,32 @@ export interface ServerInfo {
   channels?: number;
   /** Whether this server has a media server, without which voice channels can't be joined. */
   voice?: number;
+  /** What its admins say about sharing a screen. Absent on one from before it had a say, and for anyone not signed in. */
+  screen_share?: ScreenRules;
+}
+
+/**
+ * What a server's admins say about sharing a screen. Who may share, with sound, and how
+ * many at once hold whatever an app does. The rest is about media the server can't see,
+ * so apps keep to it themselves.
+ */
+export interface ScreenRules {
+  who: "everyone" | "admins" | "nobody";
+  sound: boolean;
+  /** Server admins aren't held to the limits, though sharing being off still goes for them. */
+  admins_exempt: boolean;
+  /** How many may share at once, or 0 for no limit. */
+  max_per_channel: number;
+  max_per_server: number;
+  /** The most a share may use, or 0 for no limit. */
+  max_height: number;
+  max_fps: number;
+  max_kbps: number;
+  max_sound_kbps: number;
+  /** What a share uses until someone chooses otherwise. A height of 0 is the screen's own. */
+  default_height: number;
+  default_fps: number;
+  default_kbps: number;
 }
 
 export interface InvitePreview {
@@ -327,6 +353,8 @@ export interface ChannelView {
   position: number;
   /** For a voice channel: how many people fit, or 0 for no limit. */
   userLimit: number;
+  /** For a voice channel: how many may share a screen at once, 0 for what the server's rules say, or -1 for nobody. */
+  screenLimit: number;
   /** The details couldn't be read or checked, so they aren't shown. */
   unreadable: boolean;
   /** Null until this device has joined it, which it does by itself. */
@@ -363,6 +391,14 @@ export interface VoiceAccess {
   identity: string;
   /** An admin has muted this person, so the microphone won't be let through. */
   serverMuted: boolean;
+}
+
+/** Being let share a screen, which holds a place until it's given back. */
+export interface ScreenAccess {
+  /** The computer's sound may go with it. */
+  sound: boolean;
+  /** How a native process reaches the room, as a participant that can do nothing else. */
+  native: { url: string; token: string; identity: string } | null;
 }
 
 export interface Emote {
@@ -464,6 +500,8 @@ export type CoreEvent =
   | { type: "voice_key"; serverId: string; channelId: string }
   /** This device has been taken out of a voice channel. */
   | { type: "voice_ended"; serverId: string; channelId: string; reason: string }
+  /** This device's screen share has been stopped: "stopped" by an admin, or by a change to the "rules". */
+  | { type: "screen_ended"; serverId: string; channelId: string; reason: string }
   | { type: "message"; serverId: string; message: MessageView; isNew: boolean }
   | { type: "message_removed"; serverId: string; groupId: string; id: string }
   | { type: "message_moved"; serverId: string; fromGroupId: string; message: MessageView }

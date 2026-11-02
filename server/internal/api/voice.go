@@ -31,15 +31,7 @@ const (
 	voiceSocketGrace = 20 * time.Second
 )
 
-// What someone in a voice channel may publish, as LiveKit's tokens name them. Being
-// muted by an admin takes the microphone out of this, which LiveKit itself enforces.
-var (
-	voiceSources      = []string{"microphone", "camera", "screen_share", "screen_share_audio"}
-	mutedVoiceSources = []string{"camera", "screen_share", "screen_share_audio"}
-	screenSources     = []string{"screen_share", "screen_share_audio"}
-)
-
-// sourceNames is the same as LiveKit's API names them.
+// sourceNames is what a token calls something to publish, as LiveKit's API names it.
 func sourceNames(sources []string) []string {
 	names := make([]string, len(sources))
 	for index, source := range sources {
@@ -85,12 +77,14 @@ type voiceRooms struct {
 	mu     sync.Mutex
 	states map[string]*VoiceState
 	// People an admin has muted, until one unmutes them.
-	muted  map[string]bool
+	muted map[string]bool
+	// The devices that have been let share a screen.
+	shares map[string]*screenShare
 	timers map[string]*time.Timer
 }
 
 func newVoiceRooms() *voiceRooms {
-	return &voiceRooms{states: map[string]*VoiceState{}, muted: map[string]bool{}, timers: map[string]*time.Timer{}}
+	return &voiceRooms{states: map[string]*VoiceState{}, muted: map[string]bool{}, shares: map[string]*screenShare{}, timers: map[string]*time.Timer{}}
 }
 
 func (v *voiceRooms) all() []VoiceState {
@@ -258,10 +252,8 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, sess *
 		writeError(w, http.StatusForbidden, "channel_full", "This voice channel is full.")
 		return
 	}
-	sources := voiceSources
-	if s.voice.isMuted(sess.UserID) {
-		sources = mutedVoiceSources
-	}
+	// A new connection is sharing nothing yet, whatever the last one was doing.
+	s.voice.takeShare(sess.DeviceID)
 	identity := voiceIdentity(sess.UserID, sess.DeviceID)
 	token, err := s.liveKitToken(identity, map[string]any{
 		"room":              channel.ID,
@@ -269,48 +261,13 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, sess *
 		"canPublish":        true,
 		"canSubscribe":      true,
 		"canPublishData":    false,
-		"canPublishSources": sources,
+		"canPublishSources": s.voice.sourcesFor(sess.UserID, sess.DeviceID),
 	})
 	if err != nil {
 		writeFailure(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "server_muted": s.voice.isMuted(sess.UserID)})
-}
-
-// handleScreenToken is for a native process that shares this device's screen as a
-// participant of its own, which can only publish a screen.
-func (s *Server) handleScreenToken(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
-	if !s.liveKitConfigured() {
-		writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
-		return
-	}
-	if !s.voiceLimiter.Allow(sess.UserID) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
-		return
-	}
-	channel := s.voiceChannel(w, r)
-	if channel == nil {
-		return
-	}
-	if !s.voice.deviceIn(channel.ID, sess.DeviceID) {
-		writeError(w, http.StatusConflict, "not_in_voice", "Join the voice channel to share your screen.")
-		return
-	}
-	identity := voiceIdentity(sess.UserID, sess.DeviceID) + ".screen"
-	token, err := s.liveKitToken(identity, map[string]any{
-		"room":              channel.ID,
-		"roomJoin":          true,
-		"canPublish":        true,
-		"canSubscribe":      false,
-		"canPublishData":    false,
-		"canPublishSources": screenSources,
-	})
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity})
 }
 
 // updateVoice takes what a device says it's doing in a voice channel. Being in one
@@ -339,6 +296,7 @@ func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 	if previous != nil && previous.ChannelID != frame.GroupID {
 		leftChannel = previous.ChannelID
 		previous = nil
+		delete(s.voice.shares, c.deviceID)
 	}
 	state := &VoiceState{
 		ChannelID:   frame.GroupID,
@@ -361,6 +319,7 @@ func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 		if other.UserID == c.userID && device != c.deviceID {
 			others = append(others, other)
 			delete(s.voice.states, device)
+			delete(s.voice.shares, device)
 			s.voice.stopTimer(device)
 		}
 	}
@@ -381,6 +340,7 @@ func (s *Server) leaveVoice(userID, deviceID string) {
 	s.voice.stopTimer(deviceID)
 	state := s.voice.states[deviceID]
 	delete(s.voice.states, deviceID)
+	delete(s.voice.shares, deviceID)
 	s.voice.mu.Unlock()
 	if state != nil {
 		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: deviceID, UserID: userID}})
@@ -419,6 +379,7 @@ func (s *Server) endVoiceFor(ctx context.Context, userID, reason string) {
 		if state.UserID == userID {
 			ended = append(ended, state)
 			delete(s.voice.states, device)
+			delete(s.voice.shares, device)
 			s.voice.stopTimer(device)
 		}
 	}
@@ -438,6 +399,7 @@ func (s *Server) endVoiceIn(ctx context.Context, channelID string) {
 		if state.ChannelID == channelID {
 			ended = append(ended, state)
 			delete(s.voice.states, device)
+			delete(s.voice.shares, device)
 			s.voice.stopTimer(device)
 		}
 	}
@@ -495,24 +457,10 @@ func (s *Server) handleVoiceMute(w http.ResponseWriter, r *http.Request, sess *s
 		}
 	}
 	s.voice.mu.Unlock()
-	sources := voiceSources
-	if body.Muted {
-		sources = mutedVoiceSources
-	}
 	for index := range changed {
 		state := &changed[index]
 		if s.liveKitConfigured() {
-			err := s.callLiveKit(r.Context(), state.ChannelID, "UpdateParticipant", map[string]any{
-				"room":     state.ChannelID,
-				"identity": voiceIdentity(state.UserID, state.DeviceID),
-				"permission": map[string]any{
-					"can_subscribe":       true,
-					"can_publish":         true,
-					"can_publish_data":    false,
-					"can_publish_sources": sourceNames(sources),
-				},
-			})
-			if err != nil {
+			if err := s.updateRoomSources(r.Context(), state.ChannelID, state.UserID, state.DeviceID); err != nil {
 				slog.Warn("muting someone in a voice channel", "error", err)
 			}
 		}

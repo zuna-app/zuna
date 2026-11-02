@@ -1,8 +1,9 @@
-import { Ban, Crown, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, Search, Server as ServerIcon, Smile, UserRound, Users } from "lucide-react";
+import { Ban, Crown, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, UserRound, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
 import { Avatar, Field, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
 import { prepareAvatar } from "@/lib/media";
+import { ServerScreenSection } from "@/features/voice/ScreenSettings";
 import { useActiveServer, useApp } from "@/state/store";
 import { InvitePanel } from "./Overlays";
 import { SettingRow, SettingsFrame } from "./Settings";
@@ -301,6 +302,8 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
           { id: "members", label: "Members", icon: Users },
           { id: "emotes", label: "Emotes", icon: Smile },
           { id: "storage", label: "Storage", icon: HardDrive },
+          // A server from before it had a say has nothing to change.
+          ...(server?.info?.screen_share ? [{ id: "screen", label: "Screen sharing", icon: MonitorUp }] : []),
         ]
       : []),
     { id: "leave", label: "Sign out", icon: LogOut, danger: true },
@@ -312,6 +315,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
       {section === "members" && <MembersSection />}
       {section === "emotes" && <EmotesSection />}
       {section === "storage" && <StorageSection />}
+      {section === "screen" && <ServerScreenSection />}
       {section === "leave" && <LeaveSection onClose={onClose} />}
     </SettingsFrame>
   );

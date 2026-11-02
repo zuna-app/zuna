@@ -66,7 +66,7 @@ const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   setActive: true, setBlocked: true, setDisappearing: true, setEmoteSet: true, setGroupRole: true, setHideLastSeen: true, setMarkedUnread: true, setMentionsOnly: true, setPinned: true, setPush: true, setServerRole: true, setVoiceState: true,
   signOut: true, start: true, stop: true, suspend: true, syncGroup: true, toggleReaction: true, unbanUser: true, unmute: true, unreadMentions: true,
   updateChannel: true, updateGroupMeta: true, updatePreferences: true, updateProfile: true, updateServerIcon: true, updateServerSettings: true,
-  voiceAccess: true, voiceDisconnect: true, voiceKey: true, voiceMute: true, voiceScreenAccess: true,
+  voiceAccess: true, voiceDisconnect: true, voiceKey: true, voiceMute: true, voiceScreenAccess: true, voiceScreenStop: true, voiceScreenStopOf: true,
 };
 
 /** Runs in the worker: answers calls by invoking methods on the client or a session. */

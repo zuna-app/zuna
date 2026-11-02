@@ -128,6 +128,7 @@ export interface ApiChannel {
   type: "text" | "voice";
   position: number;
   user_limit: number;
+  screen_limit?: number;
   details: string;
   created_by: string;
   created_at: number;
@@ -413,10 +414,10 @@ export class Api {
 
   // Channels and voice
   channels = () => this.request<{ channels: ApiChannel[]; voice: ApiVoiceState[] }>("GET", "/api/channels");
-  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; proof: Uint8Array }) =>
+  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; proof: Uint8Array }) =>
     this.request<{ channel: ApiChannel; group: ApiGroup }>("POST", "/api/channels", body);
-  updateChannel = (id: string, details: Uint8Array, userLimit?: number) =>
-    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit });
+  updateChannel = (id: string, details: Uint8Array, userLimit?: number, screenLimit?: number) =>
+    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit, screen_limit: screenLimit });
   orderChannels = (ids: string[]) => this.request("PUT", "/api/channels/order", { ids });
   deleteChannel = (id: string) => this.request("DELETE", at`/api/channels/${id}`);
   joinChannel = (id: string, proof: Uint8Array, wantHistory: boolean) =>
@@ -425,8 +426,10 @@ export class Api {
     this.request("POST", at`/api/channels/${id}/history-grants`, { user_id: userId, data });
   voiceToken = (id: string) =>
     this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/channels/${id}/voice`, {});
-  screenToken = (id: string) =>
-    this.request<{ url: string; token: string; identity: string }>("POST", at`/api/channels/${id}/voice/screen`, {});
+  startScreen = (id: string, how: { browser: boolean; sound: boolean }) =>
+    this.request<{ url?: string; token?: string; identity?: string; sound?: boolean }>("POST", at`/api/channels/${id}/voice/screen`, how);
+  stopScreen = (id: string) => this.request("DELETE", at`/api/channels/${id}/voice/screen`);
+  stopScreenOf = (id: string, userId: string) => this.request("DELETE", at`/api/channels/${id}/voice/users/${userId}/screen`);
   voiceDisconnect = (id: string, userId: string) => this.request("POST", at`/api/channels/${id}/voice/users/${userId}/disconnect`, {});
   voiceMute = (id: string, userId: string, muted: boolean) => this.request("PUT", at`/api/channels/${id}/voice/users/${userId}/mute`, { muted });
 

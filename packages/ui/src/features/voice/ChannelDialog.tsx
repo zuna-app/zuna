@@ -10,6 +10,12 @@ const AUDIO_QUALITIES = [
   { kbps: 256, label: "Best (256 kbit/s)" },
 ];
 
+const SCREEN_LIMITS = [
+  { limit: 0, label: "As the server's rules say" },
+  { limit: -1, label: "Off in this channel" },
+  ...[1, 2, 3, 4, 5, 10].map((limit) => ({ limit, label: limit === 1 ? "One at a time" : `Up to ${limit} at once` })),
+];
+
 /** Text channels go by lowercase names with dashes, as in Discord, which also keeps them easy to mention. */
 const textChannelName = (name: string): string => name.toLowerCase().replace(/\s+/g, "-").replace(/-{2,}/g, "-");
 
@@ -25,6 +31,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
   const [category, setCategory] = useState(channel?.category ?? "");
   const [userLimit, setUserLimit] = useState(channel?.userLimit ?? 0);
   const [bitrate, setBitrate] = useState(channel?.bitrate ?? 0);
+  const [screenLimit, setScreenLimit] = useState(channel?.screenLimit ?? 0);
   const { busy, run } = useAction();
   const categories = [...new Set((server?.channels ?? []).map((item) => item.category).filter(Boolean))];
   const finalName = type === "text" ? textChannelName(name).replace(/^-|-$/g, "") : name.trim();
@@ -34,9 +41,9 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
     run(async () => {
       const details = { name: finalName, topic: topic.trim(), category: category.trim(), bitrate: type === "voice" && bitrate ? bitrate : undefined };
       if (channel) {
-        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0 });
+        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0 });
       } else {
-        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0 });
+        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0 });
         // Opening a voice channel is coming into it, which making one isn't asking for.
         if (type === "text") selectConversation(`group:${id}`);
       }
@@ -130,6 +137,16 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
             </span>
             <input className="voice-slider" type="range" min={0} max={99} value={userLimit} onChange={(event) => setUserLimit(Number(event.target.value))} />
           </label>
+          <div className="field">
+            <span className="field-label">Screen sharing</span>
+            <select className="select" value={screenLimit} onChange={(event) => setScreenLimit(Number(event.target.value))} aria-label="Screen sharing in this channel">
+              {[...SCREEN_LIMITS, ...(SCREEN_LIMITS.some((item) => item.limit === screenLimit) ? [] : [{ limit: screenLimit, label: `Up to ${screenLimit} at once` }])].map((item) => (
+                <option key={item.limit} value={item.limit}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </>
       )}
       <p className="channel-note">

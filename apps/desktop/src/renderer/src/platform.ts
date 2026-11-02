@@ -6,6 +6,7 @@ import {
   type DeviceInfo,
   type DisplaySource,
   type NativeScreenInfo,
+  type NativeScreenOptions,
   type NativeScreenStats,
   type NotificationReply,
   type NotificationRoute,
@@ -28,7 +29,7 @@ export interface DesktopBridge {
   camera(): Promise<boolean>;
   displaySources(): Promise<DisplaySource[]>;
   chooseDisplaySource(id: string, audio: boolean): Promise<void>;
-  nativeScreenStart(options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }): Promise<NativeScreenInfo>;
+  nativeScreenStart(options: NativeScreenOptions): Promise<NativeScreenInfo>;
   nativeScreenKey(key: Uint8Array, keyIndex: number): Promise<void>;
   nativeScreenStop(): Promise<void>;
   onNativeScreenEnded(listener: (problem: string | null) => void): () => void;
@@ -96,6 +97,15 @@ export function desktopPlatform(): Platform {
     chooseDisplaySource: (id, audio) => desktop.chooseDisplaySource(id, audio),
     systemAudio: isWindows,
     nativeScreen: {
+      encoders: isWindows
+        ? [
+            { id: "h264_nvenc", name: "NVIDIA (NVENC)" },
+            { id: "h264_amf", name: "AMD (AMF)" },
+          ]
+        : [
+            { id: "h264_nvenc", name: "NVIDIA (NVENC)" },
+            { id: "h264_vaapi", name: "AMD or Intel (VA-API)" },
+          ],
       start: (options) => desktop.nativeScreenStart(options),
       setKey: (key, keyIndex) => void desktop.nativeScreenKey(key, keyIndex),
       stop: () => void desktop.nativeScreenStop(),

@@ -6,7 +6,8 @@ import type { VoiceMember } from "@zuna/core";
 export const voiceHooks: {
   onKey: ((serverId: string, channelId: string) => void) | null;
   onEnded: ((serverId: string, channelId: string, reason: string) => void) | null;
+  onScreenEnded: ((serverId: string, channelId: string, reason: string) => void) | null;
   onMember: ((serverId: string, member: VoiceMember) => void) | null;
   /** This device is no longer on a server, so it can't be in any of its voice channels. */
   onServerGone: ((serverId: string) => void) | null;
-} = { onKey: null, onEnded: null, onMember: null, onServerGone: null };
+} = { onKey: null, onEnded: null, onScreenEnded: null, onMember: null, onServerGone: null };

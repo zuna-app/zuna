@@ -26,11 +26,60 @@ It says `{"type":"ready",…}` on its standard output once it's publishing, `{"t
 
 It reaches the media server over TLS through rustls, trusting the system's certificates as Chromium does, so a server behind a private certificate authority works the same. `apps/desktop/test/voice-check.mjs` runs its media server behind TLS for this reason: plain `ws://` works without any TLS in the program at all.
 
-It joins the room as a participant of its own, `<user>.<device>.screen`, whose token can only publish a screen and can't subscribe to anything. Like everyone else, it has a key of its own, derived from the room's key and that identity, so viewers can open what it sends with no help from it.
+It joins the room as a participant of its own, `<user>.<device>.screen`, whose token only comes once the server's rules have said yes, can only publish a screen, and can't subscribe to anything. Like everyone else, it has a key of its own, derived from the room's key and that identity, so viewers can open what it sends with no help from it.
 
 The computer's sound can't come from it, since it only captures pictures. Where it's asked for, on Windows, the app captures just the sound through Chromium and publishes that alongside.
 
 On Windows the program also answers one question that has nothing to do with sharing: `--notification-state` prints whether Windows wants quiet right now, and exits, since Node can't ask. The app draws its own notifications there, so they don't get the system's rules for full-screen apps, presentations and Do Not Disturb (`apps/desktop/src/main/notifications.ts`). A build without the program shows notifications regardless.
+
+It's told what to make of the picture on its command line, since none of that is secret: `--fps`, `--bitrate-kbps`, `--max-height`, `--no-cursor`, `--encoder`, `--quality` and `--keyframe-seconds`.
+
+## What a server says, and what a device chooses
+
+Everything a share uses comes from three places, in this order: what the person chose on this device (Settings, Screen sharing, and the picker), or otherwise what the server suggests, and then the server's limits over either. `screenTerms` in `packages/core/src/voice.ts` works it out, and the stream stats window says which limits it was held to.
+
+**Server settings, Screen sharing,** for its admins. These are kept together in the `screen_share` setting and reach every app as part of `ServerInfo`:
+
+| Rule | Held by |
+|---|---|
+| Who can share: everyone, admins or nobody | The media server |
+| Whether sound can go with a share | The media server |
+| How many can share at once, in a voice channel and on the server | The server, then the media server |
+| Each voice channel's own say, when it's edited: off, or how many at once | The server, then the media server |
+| The largest picture, frame rate, bitrate and sound bitrate | The apps |
+| What's suggested for size, frame rate and bitrate | The apps |
+| Whether admins are held to the limits and to how many at once | Both of those |
+
+The first group holds whatever an app does. The token for coming into a voice channel doesn't allow a screen at all. To share, a device asks `POST /api/channels/{id}/voice/screen`, which keeps a place for it if the rules allow one. Only then is it given a token for the native program, or LiveKit is told to let its own connection publish a screen. LiveKit refuses anything else, and takes down what's already going when that's revoked.
+
+So a share ends when it's stopped, when the device leaves the channel or makes a new connection, when an admin stops it, and when the rules stop allowing it. Limits on how many only hold for those starting after them.
+
+The second group can't be held that way. The picture is encrypted and LiveKit doesn't check the rate of what it's sent, so the apps keep to these themselves, and a modified app could send more. A share already going keeps what it started with. Anyone worried about their bandwidth bill should also look at LiveKit's own `limit` settings, which apply to the whole media server.
+
+**Settings, Screen sharing,** on each device:
+
+| Setting | Native | Through the browser |
+|---|---|---|
+| Size, frame rate, most it may send | yes | yes |
+| Sound: starting with it on, its quality | Captured by the browser beside the share | yes |
+| How loud others' shares are, and whether one fills the stage when it starts | Those are for whoever's watching, however it was sent | |
+| Capturing on the graphics card at all | yes | |
+| Showing the pointer | yes | No: Chromium accepts `cursor: "never"` and goes on showing it, measured in Electron on Windows, so it isn't offered |
+| Encoder, effort per frame, how often a full picture goes | yes | |
+| What it's mostly showing, what gives first when the connection can't keep up | | yes |
+| Codec, and sending a smaller copy | No: H.264, one layer, since it arrives already encoded | yes |
+
+A native share that can't do what was chosen doesn't fail: it goes through the browser, and stream stats says why.
+
+**Making the picture smaller** happens on the GPU, keeping its shape and an even size:
+
+| Route | How |
+|---|---|
+| Windows | D3D11's video processor, in `native/encoder.c` |
+| Linux, NVENC from DMA-BUFs | An OpenGL blit, in `native/dmabuf_cuda.c` |
+| Linux, VA-API | `scale_vaapi`, which the graph already had for its colours |
+| NVENC or AMF from CPU memory, which is a compositor that can't share DMA-BUFs | It can't, so that share goes through the browser |
+| Through the browser | `height: { max }` in `getDisplayMedia` |
 
 ## Building it
 
@@ -81,5 +130,8 @@ The proof of concept's README lists what has run where. Inside the app, only Win
 
 - **Linux** has only run in the proof of concept, on Arch with KDE and NVIDIA. It hasn't run from the app, or from a package, where the libraries come from beside the program rather than from where they were built. Its frame rate request and trimming are type-checked and have never run, and neither has its TLS.
 - **VA-API and AMF** have never run.
+- **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core. Its Linux routes are compiled or type-checked at most, and have never run.
+- **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.
+- **Leaving the pointer out natively** asks Windows and the portal to, and nobody has looked at a picture to see that it worked.
 - **Sharing a window natively** isn't built: it goes through Chromium.
 - **Real networks:** a pre-encoded stream has one layer, so a viewer on a slow connection can't be dropped to a lower quality.

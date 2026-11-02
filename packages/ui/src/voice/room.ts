@@ -27,7 +27,7 @@ import {
 } from "livekit-client";
 import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { captureKey, MicError, Microphone, type MicReading } from "./mic";
-import type { VoiceSettings } from "./settings";
+import type { ScreenCodec, ScreenContent, ScreenPriority, VoiceSettings } from "./settings";
 import type { StatsRoom, StatsStream } from "./stats";
 
 /**
@@ -37,8 +37,12 @@ import type { StatsRoom, StatsStream } from "./stats";
  */
 const NEW_KEY_SEND_DELAY_MS = 1500;
 const STATS_EVERY_MS = 3000;
-/** The microphone, in how LiveKit's protocol numbers what can be published. */
+/** The microphone and a share, in how LiveKit's protocol numbers what can be published. */
 const MICROPHONE_SOURCE = 2;
+const SCREEN_SOURCE = 3;
+const SCREEN_SOUND_SOURCE = 4;
+/** How long the media server gets to say a share may go out, after the chat server has told it. */
+const SHARE_PERMISSION_WAIT_MS = 5000;
 const DEFAULT_AUDIO_KBPS = 64;
 /** The computer's sound, without this call in it, and without what's only good for voice. */
 const SYSTEM_AUDIO = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints;
@@ -59,6 +63,22 @@ class MemberKeys extends BaseKeyProvider {
 }
 
 export type VideoSource = "camera" | "screen";
+
+const DEGRADATION: Record<ScreenPriority, RTCDegradationPreference> = { sharp: "maintain-resolution", smooth: "maintain-framerate", balanced: "balanced" };
+
+/** How to share through the browser's own capture. */
+export interface BrowserShare {
+  fps: number;
+  bitrateKbps: number;
+  /** The tallest the picture may be, or 0 for the screen's own size. */
+  height: number;
+  sound: boolean;
+  soundKbps: number;
+  content: ScreenContent;
+  priority: ScreenPriority;
+  codec: ScreenCodec;
+  layers: boolean;
+}
 
 /** One video someone is sending. */
 export interface VideoTile {
@@ -407,24 +427,59 @@ export class VoiceRoom {
     this.on.media();
   }
 
+  private mayPublish(source: number): boolean {
+    const allowed = this.room.localParticipant.permissions?.canPublishSources ?? [];
+    return allowed.length === 0 || allowed.includes(source);
+  }
+
+  /**
+   * Waits to hear from the media server that a share may go out, since it only allows one once
+   * the chat server has told it to. Should that not come, publishing says what's wrong.
+   */
+  async whenAllowedToShare(screen: boolean, sound: boolean): Promise<void> {
+    const ready = () => (!screen || this.mayPublish(SCREEN_SOURCE)) && (!sound || this.mayPublish(SCREEN_SOUND_SOURCE));
+    if (ready()) return;
+    await new Promise<void>((resolve) => {
+      const finish = () => {
+        clearTimeout(timer);
+        this.room.off(RoomEvent.ParticipantPermissionsChanged, check);
+        resolve();
+      };
+      const check = () => {
+        if (ready()) finish();
+      };
+      const timer = setTimeout(finish, SHARE_PERMISSION_WAIT_MS);
+      this.room.on(RoomEvent.ParticipantPermissionsChanged, check);
+    });
+  }
+
   /** Shares through the browser's own capture, which the web app and windows use. */
-  async startBrowserScreen(fps: number, bitrateKbps: number, audio: boolean): Promise<void> {
+  async startBrowserScreen(share: BrowserShare): Promise<void> {
+    const canSend = (name: string) => RTCRtpSender.getCapabilities("video")?.codecs.some((codec) => codec.mimeType.toLowerCase() === `video/${name}`);
     // Hardware encoders are mostly for H.264, which is what keeps a share from taking up the CPU.
-    const h264 = RTCRtpSender.getCapabilities("video")?.codecs.some((codec) => codec.mimeType.toLowerCase() === "video/h264");
+    const videoCodec = share.codec !== "auto" && canSend(share.codec) ? share.codec : canSend("h264") ? "h264" : "vp8";
     await this.room.localParticipant.setScreenShareEnabled(
       true,
       {
-        audio: audio ? SYSTEM_AUDIO : false,
-        contentHint: "detail",
+        audio: share.sound ? SYSTEM_AUDIO : false,
+        contentHint: share.content,
         // The screen's own size, which LiveKit takes as no constraints at all and so leaves out
         // the frame rate with it. Browsers then capture at their default of about 30.
         resolution: ScreenSharePresets.original.resolution,
-        video: { frameRate: { ideal: fps, max: fps } } as ScreenShareCaptureOptions["video"],
+        video: { frameRate: { ideal: share.fps, max: share.fps }, ...(share.height > 0 ? { height: { max: share.height } } : {}) } as ScreenShareCaptureOptions["video"],
         selfBrowserSurface: "exclude",
         surfaceSwitching: "include",
-        systemAudio: audio ? "include" : "exclude",
+        systemAudio: share.sound ? "include" : "exclude",
       },
-      { videoCodec: h264 ? "h264" : "vp8", simulcast: false, screenShareEncoding: { maxBitrate: bitrateKbps * 1000, maxFramerate: fps }, degradationPreference: "maintain-resolution", dtx: false, red: false },
+      {
+        videoCodec,
+        simulcast: share.layers,
+        screenShareEncoding: { maxBitrate: share.bitrateKbps * 1000, maxFramerate: share.fps },
+        degradationPreference: DEGRADATION[share.priority],
+        audioPreset: { maxBitrate: share.soundKbps * 1000 },
+        dtx: false,
+        red: false,
+      },
     );
     this.on.media();
   }
@@ -433,13 +488,13 @@ export class VoiceRoom {
    * Sends the computer's sound along with a native share. That can only capture
    * pictures, so the sound comes from the browser, whose picture isn't used.
    */
-  async startSystemAudio(): Promise<void> {
+  async startSystemAudio(kbps: number): Promise<void> {
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: SYSTEM_AUDIO });
     for (const track of stream.getVideoTracks()) track.stop();
     const [track] = stream.getAudioTracks();
     if (!track) return;
     this.systemAudio = track;
-    await this.room.localParticipant.publishTrack(track, { source: Track.Source.ScreenShareAudio, name: "screen-audio", dtx: false, red: false, audioPreset: { maxBitrate: 128_000 } });
+    await this.room.localParticipant.publishTrack(track, { source: Track.Source.ScreenShareAudio, name: "screen-audio", dtx: false, red: false, audioPreset: { maxBitrate: kbps * 1000 } });
   }
 
   async stopSystemAudio(): Promise<void> {

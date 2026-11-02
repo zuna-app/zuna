@@ -36,20 +36,21 @@ func (s *Server) broadcastChannels() {
 func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	// The app names it, since what it seals is bound to the name.
 	var body struct {
-		ID        string `json:"id"`
-		Type      string `json:"type"`
-		Details   []byte `json:"details"`
-		UserLimit int    `json:"user_limit"`
-		Proof     []byte `json:"proof"`
+		ID          string `json:"id"`
+		Type        string `json:"type"`
+		Details     []byte `json:"details"`
+		UserLimit   int    `json:"user_limit"`
+		ScreenLimit int    `json:"screen_limit"`
+		Proof       []byte `json:"proof"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
 	}
-	if !store.ValidID(body.ID) || !validChannelType(body.Type) || !validUserLimit(body.UserLimit) || len(body.Details) == 0 || len(body.Details) > maxChannelDetails || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
+	if !store.ValidID(body.ID) || !validChannelType(body.Type) || !validUserLimit(body.UserLimit) || !validScreenLimit(body.ScreenLimit) || len(body.Details) == 0 || len(body.Details) > maxChannelDetails || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
-	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.Proof)
+	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Proof)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -65,19 +66,24 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 
 func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *store.Session) {
 	var body struct {
-		Details   []byte `json:"details"`
-		UserLimit *int   `json:"user_limit"`
+		Details     []byte `json:"details"`
+		UserLimit   *int   `json:"user_limit"`
+		ScreenLimit *int   `json:"screen_limit"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
 	}
-	if len(body.Details) == 0 || len(body.Details) > maxChannelDetails || (body.UserLimit != nil && !validUserLimit(*body.UserLimit)) {
+	if len(body.Details) == 0 || len(body.Details) > maxChannelDetails || (body.UserLimit != nil && !validUserLimit(*body.UserLimit)) || (body.ScreenLimit != nil && !validScreenLimit(*body.ScreenLimit)) {
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
-	if err := s.db.UpdateChannel(r.Context(), r.PathValue("id"), body.Details, body.UserLimit); err != nil {
+	id := r.PathValue("id")
+	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit); err != nil {
 		writeFailure(w, err)
 		return
+	}
+	if body.ScreenLimit != nil && *body.ScreenLimit == screenLimitOff {
+		s.endShares(r.Context(), "rules", func(share *screenShare) bool { return share.ChannelID == id })
 	}
 	s.broadcastChannels()
 	writeOK(w)

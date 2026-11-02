@@ -398,6 +398,9 @@ try {
   await page.getByText("Appearance", { exact: true }).click();
   await sleep(100);
   await shot("14-appearance");
+  await page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
+  await sleep(100);
+  await shot("14b-screen-sharing");
   await page.keyboard.press("Escape");
   await sleep(150);
   check("focus returns after closing settings", await composerFocused());
@@ -410,6 +413,9 @@ try {
   await page.locator(".settings-nav-item", { hasText: "Members" }).click();
   await sleep(200);
   await shot("16-server-members");
+  await page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
+  await sleep(200);
+  await shot("16b-server-screen-sharing");
   await page.keyboard.press("Escape");
   await sleep(150);
 

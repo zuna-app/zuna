@@ -153,6 +153,7 @@ import type {
   SystemEvent,
   TrustState,
   UserView,
+  ScreenAccess,
   VoiceAccess,
   VoiceMember,
   VoiceUpdate,
@@ -3666,6 +3667,9 @@ export class ServerSession {
       case "voice_ended":
         this.onVoiceEnded(data);
         break;
+      case "screen_ended":
+        if (this.channelsOn) this.emit({ type: "screen_ended", serverId: this.serverId, channelId: data.channel_id, reason: data.reason });
+        break;
       case "read":
         this.onLiveRead(data);
         break;
@@ -5758,6 +5762,7 @@ export class ServerSession {
           bitrate: details?.bitrate ?? 0,
           position: api.position,
           userLimit: api.user_limit,
+          screenLimit: api.screen_limit ?? 0,
           unreadable: !details,
           conversation: group && !group.removedAt ? this.conversationOf(group, now) : null,
         };
@@ -5765,13 +5770,13 @@ export class ServerSession {
   }
 
   /** Makes a channel, for a server admin. Everyone else's apps join it by themselves. */
-  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number }): Promise<string> {
+  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number }): Promise<string> {
     const id = randomId();
     const details = parseChannelDetails(input);
     if (!details) throw new Error("A channel needs a name.");
     const { communityKey } = this.account.core;
     const sealed = sealChannelDetails(communityKey, id, details, 1, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
-    const created = await this.api.createChannel({ id, type: input.type, details: sealed, user_limit: input.userLimit ?? 0, proof: channelProof(communityKey, id, this.account.userId) });
+    const created = await this.api.createChannel({ id, type: input.type, details: sealed, user_limit: input.userLimit ?? 0, screen_limit: input.screenLimit ?? 0, proof: channelProof(communityKey, id, this.account.userId) });
     if (created.group.id !== id || created.group.kind !== "channel" || created.channel.id !== id) {
       throw new Error("The channel wasn't created: the server's answer doesn't hold together.");
     }
@@ -5784,16 +5789,16 @@ export class ServerSession {
   }
 
   /** Changes what a channel says about itself, for a server admin. */
-  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number }): Promise<void> {
+  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number }): Promise<void> {
     const channel = this.channels.get(id);
     if (!channel) throw new Error("That channel doesn't exist.");
-    const { userLimit, ...text } = changes;
+    const { userLimit, screenLimit, ...text } = changes;
     const details = parseChannelDetails({ ...channel.details, ...text });
     if (!details) throw new Error("A channel needs a name.");
     const version = channel.version + 1;
     const sealed = sealChannelDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
-    await this.api.updateChannel(id, sealed, userLimit);
-    this.channels.set(id, { api: { ...channel.api, details: toBase64(sealed), user_limit: userLimit ?? channel.api.user_limit }, details, version });
+    await this.api.updateChannel(id, sealed, userLimit, screenLimit);
+    this.channels.set(id, { api: { ...channel.api, details: toBase64(sealed), user_limit: userLimit ?? channel.api.user_limit, screen_limit: screenLimit ?? channel.api.screen_limit }, details, version });
     this.applyChannels([...this.channels.values()].map((item) => item.api));
     this.emitConversations();
   }
@@ -5878,11 +5883,28 @@ export class ServerSession {
     return { url: access.url, token: access.token, identity: access.identity, serverMuted: access.server_muted };
   }
 
-  /** The same for sharing a screen from a native process, as a participant that can do nothing else. */
-  async voiceScreenAccess(channelId: string): Promise<VoiceAccess> {
-    const access = await this.api.screenToken(channelId);
-    if (access.identity !== `${voiceIdentity(this.account.userId, this.account.deviceId)}.screen`) throw new Error("The server's answer about this voice channel doesn't hold together.");
-    return { url: access.url, token: access.token, identity: access.identity, serverMuted: false };
+  /**
+   * Asks to share a screen, which throws with something to tell the person if the server's rules say no.
+   * A share from a native process gets what it needs to come into the room as a participant that can do
+   * nothing else, and one through the browser goes out over this device's connection, once the room says so.
+   */
+  async voiceScreenAccess(channelId: string, how: { browser: boolean; sound: boolean }): Promise<ScreenAccess> {
+    const access = await this.api.startScreen(channelId, how);
+    // A server from before it had a say lets anyone in the channel share, with sound.
+    const sound = access.sound ?? how.sound;
+    if (how.browser) return { sound, native: null };
+    if (!access.url || !access.token || access.identity !== `${voiceIdentity(this.account.userId, this.account.deviceId)}.screen`) throw new Error("The server's answer about this voice channel doesn't hold together.");
+    return { sound, native: { url: access.url, token: access.token, identity: access.identity } };
+  }
+
+  /** Gives up this device's place to share a screen, once it's stopped. */
+  async voiceScreenStop(channelId: string): Promise<void> {
+    await this.api.stopScreen(channelId);
+  }
+
+  /** Stops someone else's screen share, for a server admin. */
+  async voiceScreenStopOf(channelId: string, userId: string): Promise<void> {
+    await this.api.stopScreenOf(channelId, userId);
   }
 
   /**

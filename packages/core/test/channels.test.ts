@@ -8,7 +8,7 @@ import { Api, decode } from "../src/api";
 import { channelProof, openChannelDetails, sealChannelDetails } from "../src/channels";
 import { equalBytes, fromUtf8, toBase64, utf8 } from "../src/encoding";
 import type { ChannelView, CoreEvent, MessageView } from "../src/types";
-import { parseVoiceIdentity, voiceIdentity, voiceKeyIndex, voiceSenderKey } from "../src/voice";
+import { DEFAULT_SCREEN_RULES, parseVoiceIdentity, screenRefusal, screenTerms, voiceIdentity, voiceKeyIndex, voiceSenderKey } from "../src/voice";
 import { loadCrypto, TestApp, TestServer, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -230,6 +230,46 @@ describe("who can be in a channel", () => {
   });
 });
 
+describe("what a screen share uses", () => {
+  const nothing = { height: null, fps: null, kbps: null, soundKbps: 128 };
+  const limits = { ...DEFAULT_SCREEN_RULES, max_height: 1080, max_fps: 30, max_kbps: 8000, max_sound_kbps: 96, default_height: 720, default_fps: 24, default_kbps: 4000 };
+
+  it("is what the server suggests until someone chooses", () => {
+    expect(screenTerms(nothing, undefined, "member")).toEqual({ height: 0, fps: 60, kbps: 20_000, soundKbps: 128, sound: true, held: [] });
+    expect(screenTerms(nothing, { ...limits, max_sound_kbps: 0 }, "member")).toEqual({ height: 720, fps: 24, kbps: 4000, soundKbps: 128, sound: true, held: [] });
+  });
+
+  it("goes by what someone chose, as far as the limits allow", () => {
+    expect(screenTerms({ height: 480, fps: 15, kbps: 2000, soundKbps: 64 }, limits, "member")).toMatchObject({ height: 480, fps: 15, kbps: 2000, soundKbps: 64, held: [] });
+    const over = screenTerms({ height: 2160, fps: 144, kbps: 50_000, soundKbps: 320 }, limits, "member");
+    expect(over).toMatchObject({ height: 1080, fps: 30, kbps: 8000, soundKbps: 96 });
+    expect(over.held.sort()).toEqual(["fps", "height", "kbps", "soundKbps"]);
+  });
+
+  it("counts the screen's own size as over a limit on size", () => {
+    expect(screenTerms({ ...nothing, height: 0 }, limits, "member")).toMatchObject({ height: 1080, held: expect.arrayContaining(["height"]) });
+    expect(screenTerms({ ...nothing, height: 0 }, undefined, "member")).toMatchObject({ height: 0, held: [] });
+  });
+
+  it("leaves admins out of the limits only if the server says so", () => {
+    const wanted = { height: 0, fps: 144, kbps: 50_000, soundKbps: 320 };
+    expect(screenTerms(wanted, limits, "admin").held).toHaveLength(4);
+    const exempt = { ...limits, admins_exempt: true };
+    expect(screenTerms(wanted, exempt, "owner")).toMatchObject({ height: 0, fps: 144, kbps: 50_000, soundKbps: 320, held: [] });
+    expect(screenTerms(wanted, exempt, "admin").held).toEqual([]);
+    expect(screenTerms(wanted, exempt, "member").held).toHaveLength(4);
+  });
+
+  it("says why someone can't share at all", () => {
+    expect(screenRefusal(undefined, "member")).toBeNull();
+    expect(screenRefusal({ ...DEFAULT_SCREEN_RULES, who: "nobody", admins_exempt: true }, "owner")).toContain("off on this server");
+    expect(screenRefusal({ ...DEFAULT_SCREEN_RULES, who: "admins" }, "member")).toContain("Only admins");
+    expect(screenRefusal({ ...DEFAULT_SCREEN_RULES, who: "admins" }, "admin")).toBeNull();
+    expect(screenRefusal(undefined, "owner", -1)).toContain("off in this voice channel");
+    expect(screenRefusal(undefined, "member", 2)).toBeNull();
+  });
+});
+
 describe("voice channels", () => {
   let id = "";
   const voiceEvents = (app: TestApp) => app.events.filter((event) => event.type === "voice_key" && event.channelId === id).length;
@@ -329,6 +369,42 @@ describe("voice channels", () => {
     await alice.session.voiceDisconnect(id, bob.userId);
     await waitFor(() => bob.events.some((event) => event.type === "voice_ended" && event.reason === "disconnected"), "bob to be told");
     await waitFor(() => !alice.session.getVoiceMembers().some((member) => member.userId === bob.userId), "bob to be gone");
+  });
+
+  it("hold a screen share to what the server allows", async () => {
+    const browserFree = { browser: false, sound: false };
+    bob.session.setVoiceState(id, { muted: false, deafened: false, camera: false, screen: false });
+    await waitFor(() => alice.session.getVoiceMembers().some((member) => member.userId === bob.userId), "alice to see bob");
+
+    // This test server's media server isn't there, so only a native share without sound can go ahead.
+    const access = await bob.session.voiceScreenAccess(id, browserFree);
+    const bobSelf = bob.session.getSelf();
+    expect(access.native?.identity).toBe(`${voiceIdentity(bobSelf.userId, bobSelf.deviceId)}.screen`);
+    await bob.session.voiceScreenStop(id);
+
+    const rules = { ...DEFAULT_SCREEN_RULES, who: "admins" as const, max_fps: 30, default_fps: 30, max_height: 1080 };
+    await alice.session.updateServerSettings({ screen_share: rules });
+    await waitFor(() => bob.session.getInfo()?.screen_share?.who === "admins", "bob to hear the rules");
+    expect(bob.session.getInfo()?.screen_share).toMatchObject({ max_fps: 30, max_height: 1080 });
+    await expect(bob.session.voiceScreenAccess(id, browserFree)).rejects.toThrow("Only admins");
+    expect(screenRefusal(bob.session.getInfo()?.screen_share, "member")).toContain("Only admins");
+    expect(screenRefusal(alice.session.getInfo()?.screen_share, "owner")).toBeNull();
+
+    await alice.session.updateServerSettings({ screen_share: DEFAULT_SCREEN_RULES });
+    await waitFor(() => bob.session.getInfo()?.screen_share?.who === "everyone", "bob to hear they're allowed");
+
+    // A channel can turn it off, and everyone hears.
+    await alice.session.updateChannel(id, { screenLimit: -1 });
+    await waitFor(() => bob.session.getChannels().find((item) => item.id === id)?.screenLimit === -1, "bob to hear the channel's rule");
+    await expect(bob.session.voiceScreenAccess(id, browserFree)).rejects.toThrow("off in this voice channel");
+    await alice.session.updateChannel(id, { screenLimit: 0 });
+    await waitFor(() => bob.session.getChannels().find((item) => item.id === id)?.screenLimit === 0, "bob to hear it's back");
+
+    // Stopping someone's share tells them.
+    await bob.session.voiceScreenAccess(id, browserFree);
+    await alice.session.voiceScreenStopOf(id, bob.userId);
+    await waitFor(() => bob.events.some((event) => event.type === "screen_ended" && event.channelId === id && event.reason === "stopped"), "bob to hear his share stopped");
+    bob.session.setVoiceState(null, null);
   });
 
   it("keep an older key from unsealing anything", async () => {
