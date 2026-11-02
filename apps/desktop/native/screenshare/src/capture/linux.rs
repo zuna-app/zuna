@@ -84,11 +84,9 @@ fn format_param(format: u32, fps: u32, modifiers: &[u64]) -> Vec<u64> {
             Value::Choice(pod::CHOICE_ENUM, choices.collect()),
         ));
     }
-    properties.push((
-        FORMAT_VIDEO_SIZE,
-        0,
-        Value::Choice(pod::CHOICE_RANGE, vec![Value::Rectangle(1920, 1080), Value::Rectangle(1, 1), Value::Rectangle(16384, 16384)]),
-    ));
+    // No size, so the compositor sends its own. KWin offers any size from 200x200 to
+    // 10000x10000 and scales to it, and PipeWire takes this side's default when the
+    // range allows it, so a default here would squeeze every screen into that.
     // A framerate of nothing means as frames come, and the maximum is what the
     // compositor should keep to. That's a little over the frame rate, because a compositor
     // can skip a frame that comes even slightly inside it, which at the screen's own
