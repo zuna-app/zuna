@@ -125,9 +125,15 @@ final class ConversationListTests: XCTestCase {
         let toast = zuna.element(A11y.Toast.item)
         XCTAssertTrue(toast.waitForExistence(timeout: 20))
         XCTAssertEqual(toast.label, "You were removed from a server by its admins.")
+        // Nothing is erased on the server's word: the server stays, saying so, until it's removed here.
+        let remove = zuna.app.buttons["Remove from this device"]
+        XCTAssertTrue(remove.waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.app.staticTexts["You were removed from \(World.current.serverName)"].exists)
+        XCTAssertEqual(try zuna.serverCount(), 1)
+        zuna.screenshot("55-removed-by-admins")
+        remove.tap()
         // It was the only server, so the welcome screens are back.
         XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 10))
-        zuna.screenshot("55-removed-by-admins")
         XCTAssertEqual(try zuna.serverCount(), 0)
     }
 

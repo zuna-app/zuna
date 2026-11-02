@@ -198,7 +198,11 @@ final class MessageActionsTests: XCTestCase {
         row.tap()
         zuna.element(A11y.Chat.title).tap()
         let notifications = zuna.app.switches[A11y.Details.notifications]
-        XCTAssertTrue(notifications.waitForExistence(timeout: 10))
+        // Below what other tests shared in this chat, which the list only makes once it's scrolled to.
+        try waitFor("the notifications switch", timeout: 15) {
+            if !notifications.exists, self.zuna.element(A11y.Details.screen).exists { self.zuna.element(A11y.Details.screen).swipeUp() }
+            return notifications.isHittable
+        }
         XCTAssertTrue(notifications.label.contains("Muted until"), notifications.label)
         zuna.screenshot("124-muted-until")
         notifications.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
