@@ -26,12 +26,14 @@ Three commands cover day-to-day work. The `dev` folder has the same as files to 
 | Command | In `dev` | What it does |
 |---|---|---|
 | `npm run dev:server` | `server.cmd`, `server.sh` | Opens a test server that's ready to use, and prints how to sign in |
-| `npm run dev` | `app.cmd`, `app.sh` | Opens a development version of the app, with live reload |
+| `npm run dev` | `app.cmd`, `app.sh` | Updates, rebuilds whatever changed, and opens a development version of the app, with live reload |
 | `npm run dev:clean` | `clean.cmd`, `clean.sh` | Deletes all development data, for a fresh start |
 
 **The test server** sets itself up the first time, in a few seconds: an owner account, a server name, an emote set, a reusable invite link, and five people who are online and reply to direct messages. Everything is kept between runs. Press Ctrl+C or close its window to stop it.
 
 **The app** opens at the welcome screen on a fresh start. Click "I already have an account" and the sign-in form is already filled in for the test server, so you land in the owner's account with conversations going. To try sign-up instead, paste the invite link that the server printed. Closing the window quits a development build, while an installed Zuna keeps running in the tray.
+
+Each time, it first pulls the latest code, unless you have uncommitted changes or the pull isn't a fast-forward, and carries on regardless if it can't, as when you're offline. Then it installs packages if `package-lock.json` changed, rebuilds the encryption core if `crypto` changed, and rebuilds native screen capture if its code changed and you've built it before.
 
 **Cleaning** removes the `.dev-data` folder, which holds everything the test server and the development app store. It refuses to run while either is still open, and it can't affect an installed copy of Zuna, which keeps its data elsewhere.
 

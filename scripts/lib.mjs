@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,14 +26,74 @@ export const devAppData = join(devData, "app");
 export const devWorld = join(devData, "world");
 export const devWorldFile = join(devWorld, "world.json");
 
-/** Installs and builds whatever is missing, so a new checkout just works. */
+/** When any of these files last changed, or anything in these folders. */
+function lastChanged(paths) {
+  let newest = 0;
+  for (const path of paths) {
+    if (!existsSync(path)) continue;
+    const stat = statSync(path);
+    newest = Math.max(newest, stat.isDirectory() ? lastChanged(readdirSync(path).map((name) => join(path, name))) : stat.mtimeMs);
+  }
+  return newest;
+}
+
+const lockHash = () => createHash("sha256").update(readFileSync(join(root, "package-lock.json"))).digest("hex");
+
+/** Installs and builds whatever is missing or out of date, so a new checkout or a pull just works. */
 export function ensureBuilt() {
-  if (!existsSync(join(root, "node_modules"))) {
+  // What was installed goes by the lock file's content, since a pull that leaves it the same still touches it.
+  const installed = join(root, "node_modules", ".zuna-installed");
+  if (!existsSync(installed) || readFileSync(installed, "utf8") !== lockHash()) {
     const result = spawnSync("npm install", { shell: true, stdio: "inherit", cwd: root });
     if (result.status !== 0) process.exit(result.status ?? 1);
+    writeFileSync(installed, lockHash());
   }
-  if (!existsSync(join(root, "packages", "crypto", "pkg", "zuna_crypto_bg.wasm"))) {
+  const wasm = join(root, "packages", "crypto", "pkg", "zuna_crypto_bg.wasm");
+  const crate = join(root, "crypto");
+  if (!existsSync(wasm) || lastChanged([join(crate, "src"), join(crate, "Cargo.toml"), join(crate, "Cargo.lock")]) > statSync(wasm).mtimeMs) {
     run(process.execPath, [join(root, "scripts", "build-crypto.mjs")]);
+  }
+}
+
+/**
+ * Keeps native screen capture current, if it's been built here. The first build is
+ * long and needs tools of its own, so that stays something to ask for, and the app
+ * shares through Chromium without it. The folder is made anew by each build.
+ */
+export function ensureNativeScreenCurrent() {
+  const crate = join(root, "apps", "desktop", "native", "screenshare");
+  const dist = join(crate, "dist");
+  if (!existsSync(dist)) return;
+  const sources = ["src", "native", "build.rs", "Cargo.toml", "Cargo.lock"].map((name) => join(crate, name));
+  if (lastChanged(sources) <= statSync(dist).mtimeMs) return;
+  console.log("Native screen capture changed, so it's being rebuilt...");
+  const result = spawnSync(process.execPath, [join(root, "scripts", "build-screenshare.mjs")], { stdio: "inherit", env, cwd: root });
+  if (result.status !== 0) console.warn("\nCouldn't rebuild native screen capture, so the app keeps using its last build.\n");
+}
+
+/** Long enough for a slow network, short enough not to keep anyone from the app. */
+const PULL_TIMEOUT_MS = 20_000;
+
+/**
+ * Brings this checkout up to date when that can't get in anyone's way: only with
+ * nothing uncommitted, and only as a fast-forward. Failing is no reason not to carry
+ * on with what's here, such as being offline.
+ */
+export function pullLatest() {
+  const git = (...args) => spawnSync("git", args, { cwd: root, encoding: "utf8", timeout: PULL_TIMEOUT_MS, env: { ...env, GIT_TERMINAL_PROMPT: "0" } });
+  const changes = git("status", "--porcelain", "--untracked-files=no");
+  if (changes.status !== 0) return;
+  if (changes.stdout.trim()) {
+    console.log("Not pulling, since this checkout has uncommitted changes.");
+    return;
+  }
+  const before = git("rev-parse", "HEAD").stdout;
+  const pull = git("pull", "--ff-only", "--no-rebase", "--quiet");
+  if (pull.status !== 0) {
+    const reason = (pull.stderr ?? "").split(/\r?\n/).find((line) => line && !line.startsWith("hint:")) ?? "it took too long";
+    console.log(`Couldn't pull, so this uses what's here: ${reason}`);
+  } else if (git("rev-parse", "HEAD").stdout !== before) {
+    console.log(`Updated to ${git("log", "-1", "--format=%h %s").stdout.trim()}`);
   }
 }
 

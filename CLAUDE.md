@@ -22,7 +22,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | Task | Command |
 |---|---|
 | Test server, set up with bots and an owner account (port 8787) | `npm run dev:server` |
-| Desktop app with live reload | `npm run dev` |
+| Desktop app with live reload, after pulling (a fast-forward, with nothing uncommitted) and rebuilding whatever changed | `npm run dev` |
 | Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
 | Type checks, core and desktop | `npm run typecheck` |
@@ -152,7 +152,7 @@ Rules the core depends on:
 ## Gotchas
 
 - **Keep every workspace on one Vite major.** `electron-vite` uses the root's Vite (7), so a newer Vite or `@vitejs/plugin-react` 6 in `apps/desktop` breaks `npm run dev` with "Missing field moduleType". Builds and tests still pass, so only running the dev app shows it.
-- **`packages/crypto/pkg` is generated and gitignored,** so it goes stale until `npm run build:crypto`.
+- **`packages/crypto/pkg` is generated and gitignored,** so it goes stale until `npm run build:crypto`. The `dev:*` scripts, `npm run dev` and `build:web` rebuild it when `crypto` changed, but tests and `npm run dist` don't.
 - **`@zuna/e2e` needs Swift,** because its global setup builds the iOS host. To regenerate the golden files on Windows, run `UPDATE_GOLDEN=1 npx vitest run test/golden.test.ts --config <file>` in `tests/e2e`, with a throwaway config that spreads `vitest.config` and sets `globalSetup: []`. Without `UPDATE_GOLDEN` the test fails there on line endings alone. Afterwards `git status` lists the fixtures and `emoji.json` as changed with an empty diff, which `git checkout --` clears.
 - **When `crypto/Cargo.lock` moves to a new wasm-bindgen,** update the hashes pinned in `.github/workflows/ci.yml`.
 - **Build test servers with `-trimpath -ldflags "-s -w"`.** Windows Defender quarantines Go binaries with debug symbols as a trojan, which is a false positive. Don't change Defender's settings.

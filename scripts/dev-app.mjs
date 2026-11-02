@@ -1,12 +1,14 @@
-// Opens a development build of the app with live reload. Its data lives in
-// .dev-data, so it never mixes with an installed copy of Zuna. Anything passed
-// to this script goes to Electron.
+// Updates this checkout, rebuilds whatever changed, and opens a development build
+// of the app with live reload. Its data lives in .dev-data, so it never mixes with
+// an installed copy of Zuna. Anything passed to this script goes to Electron.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { devAppData, devServerRunning, devWorldFile, ensureBuilt, env, root } from "./lib.mjs";
+import { devAppData, devServerRunning, devWorldFile, ensureBuilt, ensureNativeScreenCurrent, env, pullLatest, root } from "./lib.mjs";
 
+pullLatest();
 ensureBuilt();
+ensureNativeScreenCurrent();
 
 const appEnv = { ...env };
 if (existsSync(devWorldFile)) {

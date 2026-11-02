@@ -38,7 +38,7 @@ On Windows the program also answers one question that has nothing to do with sha
 npm run build:screenshare
 ```
 
-This fetches a pinned FFmpeg build, checks its SHA-256, builds the program and gathers what it needs into `apps/desktop/native/screenshare/dist`, which `npm run dist` then packs into installers as a resource. Without it, the app shares through Chromium.
+This fetches a pinned FFmpeg build, checks its SHA-256, builds the program and gathers what it needs into `apps/desktop/native/screenshare/dist`, which `npm run dist` then packs into installers as a resource. Without it, the app shares through Chromium. Once it's built, `npm run dev` rebuilds it whenever its code changes, but the first build is always something to ask for.
 
 **Windows** needs Visual Studio's C++ build tools and a Rust MSVC toolchain:
 
