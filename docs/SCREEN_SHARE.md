@@ -134,7 +134,7 @@ A development build of the app finds the program in that same `dist` folder, or 
 
 ## Watching
 
-Whoever's watching decodes in Chromium, or in the web app's browser. On Linux, Chromium won't decode through VA-API on an NVIDIA GPU unless `VaapiOnNvidiaGPUs` is on, so the desktop app turns it on (`apps/desktop/src/main/index.ts`). That goes through nvidia-vaapi-driver, which NVIDIA doesn't ship, and where it isn't installed Chromium decodes in software as before. Measured in the app on Arch with KDE and an RTX 5080, at 1920x1080, a frame takes:
+Whoever's watching decodes in Chromium, or in the web app's browser. On Linux, Chromium won't decode through VA-API on an NVIDIA GPU unless `VaapiOnNvidiaGPUs` is on, so the desktop app turns it on when it runs on Wayland (`apps/desktop/src/main/index.ts`). That goes through nvidia-vaapi-driver, which NVIDIA doesn't ship, and where it isn't installed Chromium decodes in software as before. On X11 it stays off: there VA-API decodes every frame and paints each one white, seen on KDE through XWayland, both in the app and in a bare Electron page sending itself H.264. Measured in the app on Arch with KDE and an RTX 5080, at 1920x1080, a frame takes:
 
 | Codec | Hardware | Software |
 |---|---|---|

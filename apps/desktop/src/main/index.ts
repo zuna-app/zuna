@@ -4,7 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { startKeyWatch } from "./global-key";
 import { startNativeScreen, type NativeScreenOptions } from "./native-screen";
-import { listSoundApps, nativeSoundAvailable, startNativeSound, windowSoundApp, type NativeSound } from "./native-sound";
+import { listSoundApps, nativeSoundAvailable, onX11, startNativeSound, windowSoundApp, type NativeSound } from "./native-sound";
 import { notificationState, startNotifications, type Notifications } from "./notifications";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
@@ -47,8 +47,9 @@ allowLocalLinks(isDev);
 // Chromium decodes video on an NVIDIA GPU under Linux in software unless asked to use
 // VA-API, which goes through NVIDIA's VA-API driver where it's installed and otherwise
 // falls back to software. Hardware takes a tenth of the time for a share in H.264.
+// Only on Wayland: on X11 it decodes every frame and paints each one white.
 // Windows and macOS decode in hardware anyway. Features someone passes are kept.
-if (process.platform === "linux") {
+if (process.platform === "linux" && !onX11()) {
   const features = [app.commandLine.getSwitchValue("enable-features"), "VaapiOnNvidiaGPUs"].filter(Boolean).join(",");
   app.commandLine.appendSwitch("enable-features", features);
 }

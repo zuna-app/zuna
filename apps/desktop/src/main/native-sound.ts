@@ -65,7 +65,7 @@ export async function listSoundApps(): Promise<SoundApp[]> {
  * Whether Chromium draws on X11 here, where a window's id is X11's and says which process
  * it belongs to. On Wayland it's the portal's, which doesn't.
  */
-function onX11(): boolean {
+export function onX11(): boolean {
   const hint = [app.commandLine.getSwitchValue("ozone-platform"), app.commandLine.getSwitchValue("ozone-platform-hint"), process.env.ELECTRON_OZONE_PLATFORM_HINT];
   return hint.includes("x11") || !process.env.WAYLAND_DISPLAY;
 }
