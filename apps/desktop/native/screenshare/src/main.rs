@@ -420,6 +420,9 @@ fn run(args: Args) -> Result<()> {
             stop.store(true, Ordering::Relaxed);
         });
     }
+
+    let mut capture = Capture::open(&args.capture, &runtime)?;
+    // Counted from here, as on Linux the portal's dialog waits for as long as the person takes.
     if let Some(seconds) = args.seconds {
         let stop = stop.clone();
         runtime.spawn(async move {
@@ -427,8 +430,6 @@ fn run(args: Args) -> Result<()> {
             stop.store(true, Ordering::Relaxed);
         });
     }
-
-    let mut capture = Capture::open(&args.capture, &runtime)?;
     let (width, height) = capture::fitted(capture.size(), args.capture.max_height);
     let bitrate_cap = args.bitrate_kbps * 1000;
     let publishing = args.output.is_none();
