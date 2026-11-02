@@ -103,6 +103,14 @@ describe("muting a chat for a while", () => {
     expect(bob.session.getPreferences().mutedUntil?.[key]).toBeUndefined();
     await bob.session.unmute(key);
     expect(chat()).toMatchObject({ muted: false, mutedUntil: null });
+
+    // A time with a fraction of a millisecond, as a phone may give one, is kept whole, and
+    // one synced that way is sent whole, since the server refuses the registration otherwise.
+    await bob.session.mute(key, Date.now() + 60_000.5);
+    expect(Number.isInteger(bob.session.getPreferences().mutedUntil?.[key])).toBe(true);
+    await bob.session.updatePreferences({ mutedUntil: { [key]: Date.now() + 60_000.5 } });
+    await bob.session.setPush({ relay: relay.url, handle: "bob-phone", key: key32, registration: "b".repeat(32), sendMuted: true });
+    await bob.session.unmute(key);
     await bob.session.setPush(null);
     laptop.client.stop();
   });

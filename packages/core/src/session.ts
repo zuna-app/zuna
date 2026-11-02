@@ -4495,7 +4495,8 @@ export class ServerSession {
   /** Mutes a chat until `until` (ms), or without it until it's unmuted. */
   mute(key: string, until?: number): Promise<void> {
     const mutedUntil = Object.fromEntries(Object.entries(this.prefs.mutedUntil ?? {}).filter(([other, end]) => other !== key && end > Date.now()));
-    if (until !== undefined) mutedUntil[key] = until;
+    // Whole milliseconds, which is what the server reads: a phone may give a fraction of one.
+    if (until !== undefined) mutedUntil[key] = Math.round(until);
     const muted = this.prefs.muted.filter((other) => other !== key);
     if (until === undefined) muted.push(key);
     return this.updatePreferences({ muted, mutedUntil });
@@ -4604,7 +4605,8 @@ export class ServerSession {
     const mutedUntil: Record<string, number> = {};
     for (const [key, until] of Object.entries(push.sendMuted ? (this.prefs.mutedUntil ?? {}) : {})) {
       const groupId = groupOf(key);
-      if (groupId && until > Date.now()) mutedUntil[groupId] = until;
+      // A time another device kept with a fraction of a millisecond would make the server refuse the whole registration.
+      if (groupId && until > Date.now()) mutedUntil[groupId] = Math.round(until);
     }
     await this.api.setPush({ relay: push.relay, handle: push.handle, key: push.key, registration: push.registration, muted, muted_until: mutedUntil });
   }
