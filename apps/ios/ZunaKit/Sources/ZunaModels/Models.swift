@@ -430,6 +430,48 @@ public struct VoiceMember: Codable, Sendable, Equatable {
     public var screen: Bool
     /// When they came in (ms).
     public var since: Int
+
+    public init(channelId: String, userId: String, deviceId: String, muted: Bool, deafened: Bool, serverMuted: Bool, camera: Bool, screen: Bool, since: Int) {
+        self.channelId = channelId
+        self.userId = userId
+        self.deviceId = deviceId
+        self.muted = muted
+        self.deafened = deafened
+        self.serverMuted = serverMuted
+        self.camera = camera
+        self.screen = screen
+        self.since = since
+    }
+}
+
+/// What this device is doing in a voice channel, for everyone to see. Mirrors `VoiceUpdate`.
+public struct VoiceUpdate: Codable, Sendable, Equatable {
+    public var muted: Bool
+    public var deafened: Bool
+    public var camera: Bool
+    public var screen: Bool
+
+    public init(muted: Bool, deafened: Bool, camera: Bool, screen: Bool) {
+        self.muted = muted
+        self.deafened = deafened
+        self.camera = camera
+        self.screen = screen
+    }
+}
+
+/// How to reach a voice channel's room. The token only lets this device in: media keys come from MLS. Mirrors `VoiceAccess`.
+public struct VoiceAccess: Codable, Sendable, Equatable {
+    public var url: String
+    public var token: String
+    public var identity: String
+    /// An admin has muted this person, so the microphone won't be let through.
+    public var serverMuted: Bool
+}
+
+/// A voice channel's media key for its current epoch, straight from MLS, as `voiceKey` gives it.
+public struct VoiceKey: Codable, Sendable, Equatable {
+    public var epoch: Int
+    public var key: Data
 }
 
 /// What a channel is made with, for `createChannel`.

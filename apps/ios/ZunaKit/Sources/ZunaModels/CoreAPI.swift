@@ -193,6 +193,21 @@ public struct SessionCalls: Sendable {
     /// Deletes a channel for everyone, for a server admin.
     public func deleteChannel(_ id: String) async throws { try await run("deleteChannel", [id]) }
 
+    // MARK: Voice channels
+
+    /// How to reach a voice channel's room. It lets this device in, and nothing else: its media is under keys only members have.
+    public func voiceAccess(_ channelId: String) async throws -> VoiceAccess { try await call("voiceAccess", [channelId]) }
+    /// The channel's media key for its current epoch, straight from MLS. It's kept nowhere.
+    public func voiceKey(_ channelId: String) async throws -> VoiceKey { try await call("voiceKey", [channelId]) }
+    /// What this device is doing in a voice channel, for everyone to see, or nil for both once it's left.
+    public func setVoiceState(_ channelId: String?, _ update: VoiceUpdate?) async throws { try await run("setVoiceState", [channelId, update]) }
+    /// Takes someone out of a voice channel, for a server admin.
+    public func voiceDisconnect(_ channelId: String, userId: String) async throws { try await run("voiceDisconnect", [channelId, userId]) }
+    /// Mutes someone until an admin unmutes them, for a server admin. The media server makes it stick.
+    public func voiceMute(_ channelId: String, userId: String, muted: Bool) async throws { try await run("voiceMute", [channelId, userId, muted]) }
+    /// Stops someone else's screen share, for a server admin.
+    public func voiceScreenStopOf(_ channelId: String, userId: String) async throws { try await run("voiceScreenStopOf", [channelId, userId]) }
+
     // MARK: Invites and verification
 
     public func invites() async throws -> [Invite] { try await call("invites") }
