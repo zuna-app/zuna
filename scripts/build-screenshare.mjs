@@ -6,7 +6,7 @@
 // tools and a Rust MSVC toolchain (rustup toolchain install stable-x86_64-pc-windows-msvc);
 // on Linux, clang, pkg-config and the glib and libva headers. docs/SCREEN_SHARE.md has more.
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { ensureFfmpeg } from "./ffmpeg.mjs";
 import { env, root } from "./lib.mjs";
@@ -38,16 +38,28 @@ const args = [...(isWindows ? [`+${msvcToolchain()}`] : []), "build", "--release
 const result = spawnSync("cargo", args, { cwd: crate, stdio: "inherit", env: { ...env, CARGO_TARGET_DIR: target, ZUNA_FFMPEG_DIR: ffmpeg } });
 if (result.status !== 0) process.exit(result.status ?? 1);
 
-rmSync(dist, { recursive: true, force: true });
-mkdirSync(dist, { recursive: true });
+// Gathered apart and swapped in, so whatever goes wrong leaves a whole build. The program may be
+// running, which on Windows keeps it from being deleted but not moved, so it carries on from there.
+const gathered = `${dist}-new`;
+const previous = `${dist}-old`;
+rmSync(gathered, { recursive: true, force: true });
+mkdirSync(gathered, { recursive: true });
 const release = join(target, "release");
 for (const name of isWindows ? ["zuna-screenshare.exe", "zuna_encoder.dll"] : ["zuna-screenshare", "libzuna_encoder.so"]) {
-  copyFileSync(join(release, name), join(dist, name));
+  copyFileSync(join(release, name), join(gathered, name));
 }
 // Only what the encoder needs: FFmpeg's libraries that it links to, and those they link to.
 const libraries = isWindows ? join(ffmpeg, "bin") : join(ffmpeg, "lib");
 for (const name of readdirSync(libraries)) {
-  if (isWindows ? /^(avcodec|avutil|swresample)-.*\.dll$/.test(name) : /\.so(\.\d+)*$/.test(name)) copyFileSync(join(libraries, name), join(dist, name));
+  if (isWindows ? /^(avcodec|avutil|swresample)-.*\.dll$/.test(name) : /\.so(\.\d+)*$/.test(name)) copyFileSync(join(libraries, name), join(gathered, name));
 }
-if (existsSync(join(ffmpeg, "LICENSE.txt"))) copyFileSync(join(ffmpeg, "LICENSE.txt"), join(dist, "FFMPEG-LICENSE.txt"));
+if (existsSync(join(ffmpeg, "LICENSE.txt"))) copyFileSync(join(ffmpeg, "LICENSE.txt"), join(gathered, "FFMPEG-LICENSE.txt"));
+rmSync(previous, { recursive: true, force: true });
+if (existsSync(dist)) renameSync(dist, previous);
+renameSync(gathered, dist);
+try {
+  rmSync(previous, { recursive: true, force: true });
+} catch {
+  console.log("The last build is still running, so its folder stays until the next build.");
+}
 console.log(`Built native screen capture in ${dist}`);
