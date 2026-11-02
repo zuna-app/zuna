@@ -44,6 +44,15 @@ const isDev = !app.isPackaged;
 // Only a development build's previews may reach this machine, for its test pages.
 allowLocalLinks(isDev);
 
+// Chromium decodes video on an NVIDIA GPU under Linux in software unless asked to use
+// VA-API, which goes through NVIDIA's VA-API driver where it's installed and otherwise
+// falls back to software. Hardware takes a tenth of the time for a share in H.264.
+// Windows and macOS decode in hardware anyway. Features someone passes are kept.
+if (process.platform === "linux") {
+  const features = [app.commandLine.getSwitchValue("enable-features"), "VaapiOnNvidiaGPUs"].filter(Boolean).join(",");
+  app.commandLine.appendSwitch("enable-features", features);
+}
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let quitting = false;

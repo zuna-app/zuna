@@ -126,6 +126,19 @@ sudo pacman -S clang pkgconf glib2 libva
 
 A development build of the app finds the program in that same `dist` folder, or wherever `ZUNA_SCREENSHARE` says.
 
+## Watching
+
+Whoever's watching decodes in Chromium, or in the web app's browser. On Linux, Chromium won't decode through VA-API on an NVIDIA GPU unless `VaapiOnNvidiaGPUs` is on, so the desktop app turns it on (`apps/desktop/src/main/index.ts`). That goes through nvidia-vaapi-driver, which NVIDIA doesn't ship, and where it isn't installed Chromium decodes in software as before. Measured in the app on Arch with KDE and an RTX 5080, at 1920x1080, a frame takes:
+
+| Codec | Hardware | Software |
+|---|---|---|
+| H.264, every native share and most through the browser | 0.16 ms | 1.6 ms |
+| VP8 | 0.2 ms | 2.0 ms |
+| VP9 | 1.1 ms | 1.1 ms |
+| AV1 | 0.4 ms | 0.9 ms |
+
+Windows and macOS decode in hardware without being asked, through D3D11 and VideoToolbox, which hasn't been checked here, and nor have Intel or AMD GPUs on Linux.
+
 ## Frame rate
 
 What's sent depends on the screen changing: a still screen gets half a second at the full rate, for the encoder to sharpen it, and then a trickle. These are from Windows at 2560x1440 on a 240 Hz monitor, with something moving on the screen and 60 fps asked for:

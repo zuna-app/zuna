@@ -206,3 +206,4 @@ The desktop is one codebase, and these are where the OSes differ (`apps/desktop/
 | Push to talk from another window | unchecked | unchecked: needs Accessibility permission | X11 only, unchecked |
 | The computer's sound with a share | Everything but Zuna, through Chromium's loopback | unchecked: Chromium's | Everything but Zuna, or one app, from PipeWire through the native program (`src/sound.rs`), checked with `sound-check.mjs` |
 | Asks the OS for the camera | no | yes, unchecked | no |
+| Decoding video in hardware: shares and cameras | Chromium's own, D3D11, unchecked | Chromium's own, VideoToolbox, unchecked | VA-API. NVIDIA only with `VaapiOnNvidiaGPUs`, which `main/index.ts` turns on, through nvidia-vaapi-driver: measured H.264, VP8, VP9 and AV1 at 1080p on an RTX 5080, and software without the driver. Intel and AMD: Chromium's own, unchecked |
