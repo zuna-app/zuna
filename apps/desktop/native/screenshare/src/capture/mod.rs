@@ -10,9 +10,19 @@ pub mod pod;
 mod windows;
 
 #[cfg(target_os = "linux")]
-pub use linux::{list_monitors, Capture};
+pub use linux::{list_monitors, portal_sources, Capture};
 #[cfg(windows)]
 pub use windows::{list_monitors, Capture};
+
+/// What the person may choose from. Only Linux's portal shares a window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(windows, allow(dead_code))]
+pub enum Source {
+    #[default]
+    Any,
+    Screen,
+    Window,
+}
 
 /// What to capture and how to encode it, from the command line.
 #[derive(Clone, Debug, Default)]
@@ -20,6 +30,8 @@ pub struct Options {
     /// `auto`, or an FFmpeg encoder's name such as `h264_nvenc`.
     pub encoder: String,
     pub fps: u32,
+    #[cfg_attr(windows, allow(dead_code))]
+    pub source: Source,
     pub monitor: usize,
     pub monitor_at: Option<(i32, i32)>,
     pub crop: Option<(u32, u32)>,

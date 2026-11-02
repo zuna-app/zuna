@@ -234,7 +234,7 @@ try {
   // Through the browser, since the native capture of a screen asks through the portal.
   await alice.page.getByLabel("Settings", { exact: true }).click();
   await alice.page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
-  await alice.page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click();
+  await alice.page.getByRole("switch", { name: "Capture on your graphics card" }).click();
   await alice.page.keyboard.press("Escape");
 
   // What plays: Zuna itself, loud, the app whose window is shared, and two other apps.

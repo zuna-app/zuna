@@ -65,6 +65,10 @@ export interface DisplaySource {
   thumbnail: string;
   /** It can be captured and encoded natively, which is much lighter on the computer. */
   native: boolean;
+  /** The system's own dialog asks which screen or window, once Share is pressed. */
+  systemPicks?: boolean;
+  /** A window whose app the system can't say, so whose sound goes with it is asked. */
+  ownerUnknown?: boolean;
 }
 
 /** What a native share is doing, as it says once it's publishing. */
@@ -75,10 +79,15 @@ export interface NativeScreenInfo {
   height: number;
   fps: number;
   e2ee: boolean;
+  /** What was chosen in the system's own dialog, where that's what picked. */
+  source?: "screen" | "window";
 }
 
 /** How a native share went over the last second. */
 export interface NativeScreenStats {
+  /** The size it's encoded at now, which changes with a window's. */
+  width?: number;
+  height?: number;
   /** Frames with something new on them. */
   fps: number;
   /** Frames sent again while the screen is still, for the encoder to sharpen it. */
@@ -122,6 +131,8 @@ export interface NativeScreenOptions {
 export interface NativeScreenShare {
   /** The encoders this system could have, for choosing one. */
   encoders: { id: string; name: string }[];
+  /** It shares a window natively too, not only a whole screen. */
+  windows: boolean;
   /** Starts it, finishing once it's publishing. */
   start(options: NativeScreenOptions): Promise<NativeScreenInfo>;
   /** Hears how it's going, about once a second. */

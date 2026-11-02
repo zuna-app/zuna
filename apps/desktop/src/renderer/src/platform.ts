@@ -109,6 +109,8 @@ export function desktopPlatform(): Platform {
     systemAudio: isWindows || desktop.nativeSound,
     shareSound: desktop.nativeSound ? nativeSound(desktop) : undefined,
     nativeScreen: {
+      // Linux's portal shares a window. Windows only captures a monitor natively so far.
+      windows: navigator.userAgent.includes("Linux"),
       encoders: isWindows
         ? [
             { id: "h264_nvenc", name: "NVIDIA (NVENC)" },

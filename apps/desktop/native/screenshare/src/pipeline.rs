@@ -135,6 +135,24 @@ impl Pipeline {
         self.frame_due
     }
 
+    /// What the encoder is set to send now.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn bitrate(&self) -> u64 {
+        self.bitrate_now
+    }
+
+    /// Goes on with another encoder, for a picture that changed size. Its first frame is
+    /// a keyframe at the new size, and is encoded as soon as it comes.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn restart(&mut self, encoder: Encoder, width: u32, height: u32) {
+        self.encoder = encoder;
+        self.width = width;
+        self.height = height;
+        // The new encoder has nothing to repeat until it's had a frame.
+        self.last_encode = None;
+        self.frame_due = Instant::now();
+    }
+
     /// How long the capture can wait for a new frame before calling `on_idle`.
     pub fn idle_wait(&self) -> Duration {
         let now = Instant::now();
@@ -276,8 +294,10 @@ impl Pipeline {
         let encodes = (window.frames + window.repeats).max(1) as f64;
         let cpu_now = cpu::time_used();
         println!(
-            "{{\"type\":\"stats\",\"t\":{:.1},\"fps\":{:.1},\"repeatFps\":{:.1},\"kbps\":{:.0},\"targetKbps\":{},\"encoderKbps\":{},\"encodeMsAvg\":{:.2},\"encodeMsMax\":{:.2},\"keys\":{},\"keyRequests\":{},\"bitrateChanges\":{},\"rejected\":{},\"idrRewritten\":{},\"idrLeftAlone\":{},\"cpuCores\":{:.3}}}",
+            "{{\"type\":\"stats\",\"t\":{:.1},\"width\":{},\"height\":{},\"fps\":{:.1},\"repeatFps\":{:.1},\"kbps\":{:.0},\"targetKbps\":{},\"encoderKbps\":{},\"encodeMsAvg\":{:.2},\"encodeMsMax\":{:.2},\"keys\":{},\"keyRequests\":{},\"bitrateChanges\":{},\"rejected\":{},\"idrRewritten\":{},\"idrLeftAlone\":{},\"cpuCores\":{:.3}}}",
             self.started.elapsed().as_secs_f64(),
+            self.width,
+            self.height,
             window.frames as f64 / seconds,
             window.repeats as f64 / seconds,
             window.bytes as f64 * 8.0 / seconds / 1000.0,

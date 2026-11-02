@@ -3,7 +3,7 @@
 // CPU and has no supported hardware encoder on Linux, which is what this avoids.
 // docs/SCREEN_SHARE.md has the measurements.
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -20,6 +20,45 @@ export function nativeScreenPath(): string | null {
     app.isPackaged ? join(process.resourcesPath, "screenshare", EXECUTABLE) : join(app.getAppPath(), "native", "screenshare", "dist", EXECUTABLE),
   ];
   return candidates.find((path): path is string => !!path && existsSync(path)) ?? null;
+}
+
+/** The sources the picker offers where the portal's dialog picks which, once Share is pressed. */
+export const PORTAL_SCREEN = "portal:screen";
+export const PORTAL_WINDOW = "portal:window";
+
+/** What the portal shares, where it's what picks: screens, windows or both. */
+export interface PortalSources {
+  screen: boolean;
+  window: boolean;
+}
+
+let portal: Promise<PortalSources | null> | null = null;
+
+/**
+ * Whether the native program picks what to share itself, through the portal's dialog,
+ * and what that offers. That's on Linux under Wayland, where Chromium's list of what
+ * there is would only ask the portal too, and a native share would then ask again.
+ * Null where the app lists what there is itself, such as under X11.
+ */
+export function portalSources(): Promise<PortalSources | null> {
+  const wayland = process.env.XDG_SESSION_TYPE === "wayland" || (!process.env.XDG_SESSION_TYPE && !!process.env.WAYLAND_DISPLAY);
+  const path = nativeScreenPath();
+  if (process.platform !== "linux" || !wayland || !path) return Promise.resolve(null);
+  portal ??= new Promise<PortalSources | null>((resolve) => {
+    execFile(path, ["--portal-sources"], { timeout: 5000 }, (error, stdout) => {
+      try {
+        const said = JSON.parse(stdout.trim().split("\n").at(-1) ?? "");
+        resolve(error ? null : { screen: said.screen === true, window: said.window === true });
+      } catch {
+        resolve(null);
+      }
+    });
+  }).then((found) => {
+    // A portal that wasn't up yet gets asked again next time.
+    if (!found) portal = null;
+    return found;
+  });
+  return portal;
 }
 
 export interface NativeScreenOptions {
@@ -40,6 +79,8 @@ export interface NativeScreenOptions {
   keyframeSeconds: number;
   /** A point on the screen to share, or nothing for what the system's own dialog picks. */
   at: { x: number; y: number } | null;
+  /** What the system's own dialog offers, where it picks. */
+  kind: "screen" | "window";
 }
 
 const ENCODERS = new Set(["auto", "h264_nvenc", "h264_amf", "h264_vaapi"]);
@@ -85,6 +126,7 @@ export function startNativeScreen(options: NativeScreenOptions, onEnded: (proble
   if (options.height > 0) args.push("--max-height", whole(options.height, 0));
   if (!options.cursor) args.push("--no-cursor");
   if (options.at) args.push("--monitor-at", `${options.at.x},${options.at.y}`);
+  args.push("--source", options.kind === "window" ? "window" : "screen");
 
   const child: ChildProcess = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   const send = (message: object) => {

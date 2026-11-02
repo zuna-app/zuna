@@ -294,7 +294,7 @@ export class StreamStats {
         row("Sent through", "Native program, on the graphics card"),
         row("Sharing", share.name),
         row("Capture and encoder", share.info?.description),
-        row("Picture", size(share.info?.width, share.info?.height)),
+        row("Picture", size(latest?.width ?? share.info?.width, latest?.height ?? share.info?.height)),
         row("Tallest asked for", share.height ? `${share.height} lines` : null),
         row("Held to the server's limits", share.held.length ? share.held.join(", ") : null),
         row("New frames", fps(latest?.fps)),

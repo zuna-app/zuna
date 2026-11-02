@@ -3,7 +3,7 @@
 
 import { randomBytes } from "node:crypto";
 import { startKeyWatch } from "./global-key";
-import { startNativeScreen, type NativeScreenOptions } from "./native-screen";
+import { PORTAL_SCREEN, PORTAL_WINDOW, portalSources, startNativeScreen, type NativeScreenOptions } from "./native-screen";
 import { listSoundApps, nativeSoundAvailable, onX11, startNativeSound, windowSoundApp, type NativeSound } from "./native-sound";
 import { notificationState, startNotifications, type Notifications } from "./notifications";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -478,28 +478,43 @@ function registerIpc(): void {
   // What can be shared, for the picker in the app. A screen's name and picture come
   // from the system, and where it is lets the native capture find the same one.
   handle("zuna:display-sources", async () => {
+    // Under Wayland the portal's dialog picks, once Share is pressed, and the native program asks it.
+    const portal = await portalSources();
+    if (portal) {
+      displaySources = new Map();
+      const picked = { thumbnail: "", native: true, systemPicks: true };
+      return [
+        ...(portal.screen ? [{ ...picked, id: PORTAL_SCREEN, name: "Entire screen", kind: "screen" }] : []),
+        ...(portal.window ? [{ ...picked, id: PORTAL_WINDOW, name: "A window", kind: "window", ownerUnknown: true }] : []),
+      ];
+    }
     const sources = await desktopCapturer.getSources({ types: ["screen", "window"], thumbnailSize: { width: 340, height: 212 }, fetchWindowIcons: false });
     const native = nativeScreenAvailable();
     displaySources = new Map(sources.map((source) => [source.id, source]));
     return sources
       // Nobody needs to share this window into this window.
       .filter((source) => source.id !== mainWindow?.getMediaSourceId())
-      .map((source) => ({
-        id: source.id,
-        name: source.name,
-        kind: source.id.startsWith("screen:") ? "screen" : "window",
-        thumbnail: source.thumbnail.isEmpty() ? "" : source.thumbnail.toDataURL(),
-        native: native && source.id.startsWith("screen:"),
-      }));
+      .map((source) => {
+        const kind = source.id.startsWith("screen:") ? "screen" : "window";
+        return {
+          id: source.id,
+          name: source.name,
+          kind,
+          thumbnail: source.thumbnail.isEmpty() ? "" : source.thumbnail.toDataURL(),
+          native: native && kind === "screen",
+          // Chromium under Wayland gets a window from the portal, which doesn't say whose it is.
+          ownerUnknown: kind === "window" && process.platform === "linux" && !onX11(),
+        };
+      });
   });
   handle("zuna:choose-display-source", (_event, id: string, audio: boolean) => {
     nextDisplay = { id, audio: !!audio };
   });
-  handle("zuna:native-screen-start", async (event, options: Omit<NativeScreenOptions, "at"> & { source: string }) => {
+  handle("zuna:native-screen-start", async (event, options: Omit<NativeScreenOptions, "at" | "kind"> & { source: string }) => {
     nativeScreen?.stop();
     const display = screenForSource(options.source);
     const started = startNativeScreen(
-      { ...options, at: display },
+      { ...options, at: display, kind: options.source === PORTAL_WINDOW ? "window" : "screen" },
       (problem) => {
         if (nativeScreen !== started) return;
         nativeScreen = null;
@@ -661,9 +676,18 @@ if (!app.requestSingleInstanceLock()) {
     // gets is what was picked in the app, and nothing happens unless something has been.
     session.defaultSession.setDisplayMediaRequestHandler(
       (_request, callback) => {
-        const chosen = nextDisplay ? displaySources.get(nextDisplay.id) : undefined;
-        const audio = nextDisplay?.audio && process.platform === "win32";
+        const wanted = nextDisplay;
         nextDisplay = null;
+        // Where the portal picks, Chromium asks it as well, for a share that couldn't go natively.
+        if (wanted?.id === PORTAL_SCREEN || wanted?.id === PORTAL_WINDOW) {
+          desktopCapturer.getSources({ types: [wanted.id === PORTAL_WINDOW ? "window" : "screen"] }).then(
+            ([picked]) => callback(picked ? { video: picked } : {}),
+            () => callback({}),
+          );
+          return;
+        }
+        const chosen = wanted ? displaySources.get(wanted.id) : undefined;
+        const audio = wanted?.audio && process.platform === "win32";
         if (!chosen) {
           callback({});
           return;

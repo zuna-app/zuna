@@ -170,8 +170,8 @@ export function ScreenSettingsSection() {
       {native && (
         <>
           <h3 className="settings-subhead">On your graphics card</h3>
-          <SettingRow title="Capture whole screens on your graphics card" hint="Much lighter on your computer, and it stays smooth at high frame rates. Windows always go through the browser.">
-            <Switch on={settings.screenNative} onChange={(value) => update({ screenNative: value })} label="Capture whole screens on your graphics card" />
+          <SettingRow title="Capture on your graphics card" hint={`Much lighter on your computer, and it stays smooth at high frame rates.${native.windows ? "" : " Windows always go through the browser."}`}>
+            <Switch on={settings.screenNative} onChange={(value) => update({ screenNative: value })} label="Capture on your graphics card" />
           </SettingRow>
           {settings.screenNative && (
             <>

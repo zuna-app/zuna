@@ -658,7 +658,7 @@ try {
   await changeOwnSettings(bob, async (page) => {
     await sleep(150);
     await shot(bob, "09-screen-settings");
-    if (native) await page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click();
+    if (native) await page.getByRole("switch", { name: "Capture on your graphics card" }).click();
     await page.getByLabel("Codec").selectOption("vp8");
     await page.getByRole("switch", { name: "Also send a smaller copy" }).click();
     await page.getByRole("button", { name: "Keep it smooth" }).click();
@@ -727,9 +727,9 @@ try {
   };
   await shareWithSound("through the browser");
   if (native) {
-    await changeOwnSettings(bob, (page) => page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click());
+    await changeOwnSettings(bob, (page) => page.getByRole("switch", { name: "Capture on your graphics card" }).click());
     await shareWithSound("beside a native share");
-    await changeOwnSettings(bob, (page) => page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click());
+    await changeOwnSettings(bob, (page) => page.getByRole("switch", { name: "Capture on your graphics card" }).click());
   }
   await changeRules((page) => page.getByRole("switch", { name: "Let sound go with a share" }).click());
   await sleep(500);
@@ -740,7 +740,7 @@ try {
   await changeRules((page) => page.getByRole("switch", { name: "Let sound go with a share" }).click());
 
   await changeOwnSettings(bob, async (page) => {
-    if (native) await page.getByRole("switch", { name: "Capture whole screens on your graphics card" }).click();
+    if (native) await page.getByRole("switch", { name: "Capture on your graphics card" }).click();
     await page.getByLabel("Codec").selectOption("auto");
     await page.getByRole("switch", { name: "Also send a smaller copy" }).click();
     await page.getByRole("button", { name: "Keep it sharp" }).click();

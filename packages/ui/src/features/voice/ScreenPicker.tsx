@@ -1,5 +1,5 @@
 import { screenTerms } from "@zuna/core/voice";
-import { Monitor, Zap } from "lucide-react";
+import { AppWindow, Monitor, Zap } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Modal, Spinner, Switch } from "@/components/ui";
 import { platform, type DisplaySource, type SoundApp, type WindowSoundApp } from "@/platform";
@@ -66,11 +66,20 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const limit = (value: number | undefined) => (limits ? (value ?? 0) : 0);
   const qualities = QUALITIES.filter((quality) => limit(rules?.max_kbps) === 0 || quality.kbps <= limit(rules?.max_kbps));
 
+  // A window whose app nobody can tell waits for the person to say whose sound goes with it.
+  const soundUnanswered = canShareAudio && !!platform.shareSound && sound.pick === "?";
   const start = async () => {
+    if (soundUnanswered) return;
     setStarting(true);
     const soundApp = sound.pick.startsWith("app:") ? sound.pick.slice(4) : null;
-    await startScreen({ source: source?.id, native: !!source?.native, audio: canShareAudio && sound.pick !== "", soundApp, name: source?.name });
+    await startScreen({ source: source?.id, native: !!source?.native, audio: canShareAudio && sound.pick !== "" && sound.pick !== "?", soundApp, name: source?.name });
     onClose();
+  };
+  const showTab = (kind: "screen" | "window") => {
+    setTab(kind);
+    // Where the system picks, each tab has one thing to choose, which is what the tab means.
+    const only = sources?.filter((item) => item.kind === kind) ?? [];
+    if (only.length === 1 && only[0].systemPicks) setChosen(only[0].id);
   };
 
   return (
@@ -83,7 +92,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" disabled={starting || sources === null || (!usesBrowserPicker && !source)} onClick={() => void start()}>
+          <button className="btn btn-primary" disabled={starting || sources === null || (!usesBrowserPicker && !source) || soundUnanswered} onClick={() => void start()}>
             {starting ? <Spinner size={15} /> : "Share"}
           </button>
         </>
@@ -100,22 +109,23 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
       ) : (
         <>
           <div className="segmented screen-tabs">
-            <button className={tab === "screen" ? "is-active" : ""} onClick={() => setTab("screen")}>
+            <button className={tab === "screen" ? "is-active" : ""} onClick={() => showTab("screen")}>
               Screens
             </button>
-            <button className={tab === "window" ? "is-active" : ""} onClick={() => setTab("window")}>
+            <button className={tab === "window" ? "is-active" : ""} onClick={() => showTab("window")}>
               Windows
             </button>
           </div>
           <div className="screen-grid">
             {pickable.map((item) => (
               <button key={item.id} className={`screen-source${item.id === chosen ? " is-chosen" : ""}`} onClick={() => setChosen(item.id)} onDoubleClick={() => void start()} aria-pressed={item.id === chosen}>
-                <span className="screen-thumb">{item.thumbnail ? <img src={item.thumbnail} alt="" draggable={false} /> : <Monitor size={26} />}</span>
+                <span className="screen-thumb">{item.thumbnail ? <img src={item.thumbnail} alt="" draggable={false} /> : item.kind === "window" ? <AppWindow size={26} /> : <Monitor size={26} />}</span>
                 <span className="screen-name truncate">{item.name}</span>
               </button>
             ))}
             {pickable.length === 0 && <p className="faint">{tab === "window" ? "There are no windows to share." : "There are no screens to share."}</p>}
           </div>
+          {source?.systemPicks && <p className="setting-hint">{source.kind === "window" ? "Your system asks which window, once you press Share." : "Your system asks which screen, once you press Share."}</p>}
           {native && (
             <p className="screen-native">
               <Zap size={13} /> Captured and encoded on your graphics card, so it stays light on your computer.
@@ -157,7 +167,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         />
       </div>
       {limits && <p className="screen-held">{limits}</p>}
-      {canShareAudio && platform.shareSound && <SoundChoice pick={sound.pick} apps={soundApps} windowApp={sound.windowApp} onChoose={sound.choose} />}
+      {canShareAudio && platform.shareSound && <SoundChoice pick={sound.pick} apps={soundApps} windowApp={sound.windowApp} ownerUnknown={!!source?.ownerUnknown} onChoose={sound.choose} />}
       {canShareAudio && !platform.shareSound && (
         <div className="setting-row">
           <span className="grow">
@@ -205,7 +215,8 @@ function useSoundApps(wanted: boolean): SoundApp[] {
   return apps;
 }
 
-type SoundPick = "" | "everything" | `app:${string}`;
+/** Nobody's, everything but Zuna's, one app's, or not yet answered for a window whose app nobody can tell. */
+type SoundPick = "" | "everything" | "?" | `app:${string}`;
 
 /**
  * Whose sound a share starts with: a screen's the whole computer's, and a window's the app
@@ -216,7 +227,7 @@ function useShareSound(source: DisplaySource | undefined, browserPicks: boolean,
   const key = browserPicks ? "browser" : (source?.id ?? null);
   const [chosen, setChosen] = useState<{ key: string | null; pick: SoundPick } | null>(null);
   const [lookup, setLookup] = useState<{ key: string; app: WindowSoundApp | null } | null>(null);
-  const windowId = source?.kind === "window" ? source.id : null;
+  const windowId = source?.kind === "window" && !source.ownerUnknown ? source.id : null;
 
   useEffect(() => {
     const shareSound = platform.shareSound;
@@ -239,7 +250,8 @@ function useShareSound(source: DisplaySource | undefined, browserPicks: boolean,
     if (browserPicks || source?.kind !== "window") return "everything";
     // Only the window's own app will do: everything would be more than the window shows.
     if (!platform.shareSound) return "";
-    // Wayland's portal doesn't say whose a window is, nor does Electron get its title, so there it starts without.
+    // Wayland's portal doesn't say whose a window is, on any compositor, so the person says.
+    if (source.ownerUnknown) return "?";
     return windowApp ? `app:${windowApp.id}` : "";
   };
   return {
@@ -250,7 +262,19 @@ function useShareSound(source: DisplaySource | undefined, browserPicks: boolean,
 }
 
 /** Whose sound goes with the share: nobody's, everything but Zuna's, or one app's. */
-function SoundChoice({ pick, apps, windowApp, onChoose }: { pick: SoundPick; apps: SoundApp[]; windowApp: WindowSoundApp | null; onChoose: (pick: SoundPick) => void }) {
+function SoundChoice({
+  pick,
+  apps,
+  windowApp,
+  ownerUnknown,
+  onChoose,
+}: {
+  pick: SoundPick;
+  apps: SoundApp[];
+  windowApp: WindowSoundApp | null;
+  ownerUnknown: boolean;
+  onChoose: (pick: SoundPick) => void;
+}) {
   // An app that stops playing stays on offer while it's chosen, since its sound goes once it plays again.
   const names = useRef(new Map<string, string>());
   for (const app of windowApp ? [windowApp, ...apps] : apps) names.current.set(app.id, app.name);
@@ -268,6 +292,11 @@ function SoundChoice({ pick, apps, windowApp, onChoose }: { pick: SoundPick; app
     <label className="field">
       <span className="field-label">Sound</span>
       <select className="select" value={pick} onChange={(event) => onChoose(event.target.value as SoundPick)}>
+        {pick === "?" && (
+          <option value="?" disabled>
+            Choose whose sound
+          </option>
+        )}
         <option value="">No sound</option>
         <option value="everything">Entire system</option>
         {listed.length > 0 && (
@@ -281,11 +310,13 @@ function SoundChoice({ pick, apps, windowApp, onChoose }: { pick: SoundPick; app
         )}
       </select>
       <span className="setting-hint">
-        {pick === "everything"
-          ? "Everything your computer plays, apart from Zuna, so nobody hears themselves back."
-          : pickedName
-            ? `Only what ${appName(pickedName)} plays.`
-            : "Apps show here while they play sound."}
+        {pick === "?"
+          ? "Your system doesn't say whose a window is, so choose the app whose sound goes with it. Apps show here while they play."
+          : pick === "everything"
+            ? `Everything your computer plays, apart from Zuna, so nobody hears themselves back.${ownerUnknown ? " That's more than the window shows." : ""}`
+            : pickedName
+              ? `Only what ${appName(pickedName)} plays.`
+              : "Apps show here while they play sound."}
       </span>
     </label>
   );

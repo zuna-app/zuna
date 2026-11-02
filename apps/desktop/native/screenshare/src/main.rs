@@ -23,7 +23,7 @@ use std::{
     time::Duration,
 };
 
-use capture::{Capture, Options};
+use capture::{Capture, Options, Source};
 use encoder::{Quality, Result, Stream};
 use pipeline::{Pipeline, Sink};
 
@@ -45,6 +45,7 @@ struct Args {
     output_raw: Option<String>,
     list_monitors: bool,
     check_dmabuf: bool,
+    portal_sources: bool,
     control: bool,
     sound: bool,
     sound_from: Option<String>,
@@ -102,6 +103,7 @@ const USAGE: &str = "zuna-screenshare [options]
   --max-height N         Make the picture smaller on the GPU if it's taller than this
   --no-cursor            Leave the pointer out of the picture
   --monitor N            Which monitor (0). Linux asks through the portal instead.
+  --source KIND          Linux: what the portal offers, screen, window or any (any)
   --monitor-at X,Y       The monitor at this point on the desktop
   --crop WxH             Encode this much from the top left of the monitor
   --cpu-input            Give the encoder frames from CPU memory
@@ -113,6 +115,7 @@ const USAGE: &str = "zuna-screenshare [options]
   --output-raw FILE      Also write the encoder's output, unchanged
   --list-monitors        List monitors and exit
   --check-dmabuf         Linux: check that DMA-BUFs reach NVENC, without capturing
+  --portal-sources       Linux: say whether the portal shares screens and windows, as JSON, and exit
   --control              Take the address, token and keys from standard input, as JSON lines
   --sound                Write the computer's sound to standard output instead of sharing
   --sound-from ID        Only one app's sound, by its id from --sound-apps or --window-app
@@ -139,6 +142,7 @@ fn parse_args() -> std::result::Result<Args, String> {
         output_raw: None,
         list_monitors: false,
         check_dmabuf: false,
+        portal_sources: false,
         control: false,
         sound: false,
         sound_from: None,
@@ -171,6 +175,14 @@ fn parse_args() -> std::result::Result<Args, String> {
             "--max-height" => args.capture.max_height = Some(value()?.parse().map_err(number_error)?),
             "--no-cursor" => args.capture.cursor = false,
             "--monitor" => args.capture.monitor = value()?.parse().map_err(number_error)?,
+            "--source" => {
+                args.capture.source = match value()?.as_str() {
+                    "any" => Source::Any,
+                    "screen" => Source::Screen,
+                    "window" => Source::Window,
+                    other => return Err(format!("--source takes screen, window or any, not {other}")),
+                }
+            }
             "--monitor-at" => {
                 let text = value()?;
                 let (x, y) = text.split_once(',').ok_or("--monitor-at takes X,Y")?;
@@ -190,6 +202,7 @@ fn parse_args() -> std::result::Result<Args, String> {
             "--output-raw" => args.output_raw = Some(value()?),
             "--list-monitors" => args.list_monitors = true,
             "--check-dmabuf" => args.check_dmabuf = true,
+            "--portal-sources" => args.portal_sources = true,
             "--control" => args.control = true,
             "--sound" => args.sound = true,
             "--sound-from" => {
@@ -363,6 +376,16 @@ fn run(args: Args) -> Result<()> {
 
     let runtime = tokio::runtime::Runtime::new().map_err(|error| format!("Starting the runtime: {error}"))?;
     let _entered = runtime.enter();
+    if args.portal_sources {
+        #[cfg(target_os = "linux")]
+        return capture::portal_sources(&runtime);
+        #[cfg(not(target_os = "linux"))]
+        return Err("--portal-sources is for Linux".into());
+    }
+    #[cfg(windows)]
+    if args.capture.source == Source::Window {
+        return Err("Sharing a window natively is only built for Linux".into());
+    }
 
     let access = if args.control { Some(read_access()?) } else { None };
 
@@ -413,8 +436,13 @@ fn run(args: Args) -> Result<()> {
         None => return Err("Built without LiveKit, so this needs --output".into()),
     };
 
+    // Linux's portal says whether a screen or a window was chosen.
+    #[cfg(target_os = "linux")]
+    let source = capture.source;
+    #[cfg(windows)]
+    let source = "screen";
     println!(
-        "{{\"type\":\"ready\",\"description\":{:?},\"width\":{width},\"height\":{height},\"fps\":{},\"e2ee\":{},\"idrFix\":{}}}",
+        "{{\"type\":\"ready\",\"description\":{:?},\"source\":{source:?},\"width\":{width},\"height\":{height},\"fps\":{},\"e2ee\":{},\"idrFix\":{}}}",
         capture.description,
         args.capture.fps,
         args.e2ee_key.is_some() || access.is_some(),
