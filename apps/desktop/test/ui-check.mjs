@@ -534,10 +534,13 @@ try {
   await page.locator(".side-head").getByLabel("Close").click();
 
   // The desktop records AAC in MP4, which Apple's decoder (and so the iPhone app) reads,
-  // and plays what the iPhone app records, AAC made by Apple's encoder.
+  // and plays what the iPhone app records, AAC made by Apple's encoder. Chromium has no
+  // AAC encoder on Linux, so there it records Opus in MP4 (a known gap).
   const recorded = await page.evaluate(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const recorder = new MediaRecorder(stream, { mimeType: "audio/mp4;codecs=mp4a.40.2" });
+    // As the app picks (lib/voice.ts).
+    const types = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus"];
+    const recorder = new MediaRecorder(stream, { mimeType: types.find((type) => MediaRecorder.isTypeSupported(type)) });
     const chunks = [];
     recorder.ondataavailable = (event) => chunks.push(event.data);
     const done = new Promise((resolve) => (recorder.onstop = resolve));
@@ -550,11 +553,14 @@ try {
     const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
     let binary = "";
     for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary);
+    return { type: recorder.mimeType, data: btoa(binary) };
   });
+  // Saved everywhere, so a recording from Linux can be tried on a Mac.
+  const desktopFile = join(shots, "desktop-voice.m4a");
+  writeFileSync(desktopFile, Buffer.from(recorded.data, "base64"));
+  if (process.platform === "linux") check("the desktop records in MP4", recorded.type.startsWith("audio/mp4"), recorded.type);
+  else check("the desktop records AAC in MP4", recorded.type.startsWith("audio/mp4") && recorded.type.includes("mp4a"), recorded.type);
   if (process.platform === "darwin") {
-    const desktopFile = join(shots, "desktop-voice.m4a");
-    writeFileSync(desktopFile, Buffer.from(recorded, "base64"));
     const info = execFileSync("afinfo", [desktopFile], { encoding: "utf8" });
     const decoded = join(shots, "desktop-voice.wav");
     execFileSync("afconvert", ["-f", "WAVE", "-d", "LEI16", desktopFile, decoded]);

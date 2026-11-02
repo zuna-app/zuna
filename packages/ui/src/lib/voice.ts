@@ -16,7 +16,8 @@ export const WAVEFORM_BARS = 48;
 /** Voice messages longer than this are sent when they reach it. */
 export const MAX_VOICE_SECONDS = 15 * 60;
 
-// AAC in MP4, which the iPhone app plays and records too. Opus in WebM only if Chromium can't.
+// AAC in MP4, which the iPhone app plays and records too. Chromium has no AAC encoder on
+// Linux, where plain MP4 gives Opus in MP4. Opus in WebM only if MP4 can't be recorded.
 const TYPES = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus"];
 
 /** Spreads loudness samples (0 to 1) over the bars, as bytes, base64. */
