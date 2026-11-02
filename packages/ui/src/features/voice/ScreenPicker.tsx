@@ -59,7 +59,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const suggested = screenTerms({ height: null, fps: null, kbps: null, soundKbps: settings.screenSoundKbps }, rules, role);
   const canShareAudio = !!platform.systemAudio && terms.sound;
   const soundApps = useSoundApps(canShareAudio);
-  const sound = useShareSound(source, usesBrowserPicker, soundApps, settings.screenSoundByDefault);
+  const sound = useShareSound(source, usesBrowserPicker, settings.screenSoundByDefault);
   const native = !!source?.native && settings.screenNative;
   const limits = screenLimitsText(rules, role);
   // What the limits leave out of the lists, which is nothing for someone they don't apply to.
@@ -207,22 +207,12 @@ function useSoundApps(wanted: boolean): SoundApp[] {
 
 type SoundPick = "" | "everything" | `app:${string}`;
 
-/** Whether a window's title names an app, as "… — Mozilla Firefox" names Firefox. */
-function titleNames(title: string, app: SoundApp): boolean {
-  const words = (text: string) => text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const inTitle = new Set(words(title));
-  return [app.name, app.id].some((name) => {
-    const parts = words(name);
-    return parts.join("").length >= 3 && parts.every((part) => inTitle.has(part));
-  });
-}
-
 /**
  * Whose sound a share starts with: a screen's the whole computer's, and a window's the app
- * it belongs to, as the system says or, failing that, as its title does. What the person
- * chooses instead holds until they choose another source.
+ * it belongs to, where the system says which. What the person chooses instead holds until
+ * they choose another source.
  */
-function useShareSound(source: DisplaySource | undefined, browserPicks: boolean, apps: SoundApp[], byDefault: boolean) {
+function useShareSound(source: DisplaySource | undefined, browserPicks: boolean, byDefault: boolean) {
   const key = browserPicks ? "browser" : (source?.id ?? null);
   const [chosen, setChosen] = useState<{ key: string | null; pick: SoundPick } | null>(null);
   const [lookup, setLookup] = useState<{ key: string; app: WindowSoundApp | null } | null>(null);
@@ -249,10 +239,8 @@ function useShareSound(source: DisplaySource | undefined, browserPicks: boolean,
     if (browserPicks || source?.kind !== "window") return "everything";
     // Only the window's own app will do: everything would be more than the window shows.
     if (!platform.shareSound) return "";
-    if (windowApp) return `app:${windowApp.id}`;
-    if (lookup?.key !== key) return "";
-    const named = apps.filter((app) => titleNames(source.name, app)).sort((a, b) => b.name.length - a.name.length)[0];
-    return named ? `app:${named.id}` : "";
+    // Wayland's portal doesn't say whose a window is, nor does Electron get its title, so there it starts without.
+    return windowApp ? `app:${windowApp.id}` : "";
   };
   return {
     pick: chosen?.key === key ? chosen.pick : fallback(),
