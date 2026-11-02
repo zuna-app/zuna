@@ -21,6 +21,8 @@ export interface HostOptions {
   deviceName?: string;
   /** "process" runs the headless host on macOS; "simulator" runs the real app in the E2E simulator. */
   target?: "process" | "simulator";
+  /** More launch arguments for the app in the simulator, such as a fake camera. */
+  args?: string[];
 }
 
 export const phoneTarget = (process.env.ZUNA_E2E_TARGET === "simulator" ? "simulator" : "process") as HostOptions["target"];
@@ -100,6 +102,7 @@ export class HostApp {
     const args = ["-ZunaControlPort", String(port), "-ZunaSuspendDelay", "0.5"];
     if (!this.launchedOnce) args.push("-ZunaResetData", "YES");
     if (this.bootSession) args.push("-ZunaBootSession", this.bootSession);
+    args.push(...(this.options.args ?? []));
     this.launchedOnce = true;
     launch(simulatorId(), args);
     return port;

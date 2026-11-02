@@ -97,7 +97,15 @@ const relayServer = createServer((request, response) => {
 await new Promise<void>((resolve) => relayServer.listen(0, "127.0.0.1", resolve));
 const relayUrl = `http://127.0.0.1:${(relayServer.address() as AddressInfo).port}`;
 
-const server = new TestServer({ pushRelays: [relayUrl] });
+// A media server for voice channels, under the keys TestServer gives its own.
+const liveKitPort = 17950 + Math.floor(Math.random() * 40);
+const liveKitBinary = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => console.log(lib.ensureLiveKit()))"], { cwd: root, encoding: "utf8" }).trim().split("\n").at(-1)!;
+const liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens"], { stdio: ["ignore", "pipe", "pipe"] });
+const liveKitLog = createWriteStream(join(runDir, "livekit-server.log"));
+liveKit.stdout.pipe(liveKitLog);
+liveKit.stderr.pipe(liveKitLog);
+
+const server = new TestServer({ pushRelays: [relayUrl], liveKit: `ws://127.0.0.1:${liveKitPort}` });
 await server.start();
 // Servers nobody has set up yet: for the owner's flow, and for the iPad's list of servers.
 const spare = new TestServer();
@@ -232,6 +240,8 @@ try {
   // Not installed.
 }
 execFileSync("xcrun", ["simctl", "keychain", udid, "reset"]);
+// Calls come in with the microphone, which a fake one stands in for, without the system's question.
+execFileSync("xcrun", ["simctl", "privacy", udid, "grant", "microphone", BUNDLE_ID]);
 // A face enrolled for Face ID, so App lock can be tested; tests look with it through /world.
 execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-s", "com.apple.BiometricKit.enrollmentChanged", "1"]);
 execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-p", "com.apple.BiometricKit.enrollmentChanged"]);
@@ -240,6 +250,11 @@ const deviceLog = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--s
   stdio: ["ignore", "pipe", "ignore"],
 });
 deviceLog.stdout.pipe(createWriteStream(join(runDir, "device.log")));
+// LiveKit's SDK in the app, apart from the app's own log, which it would drown.
+const sdkLog = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--style", "compact", "--level", "info", "--predicate", 'subsystem == "io.livekit.sdk"'], {
+  stdio: ["ignore", "pipe", "ignore"],
+});
+sdkLog.stdout.pipe(createWriteStream(join(runDir, "livekit.log")));
 
 const resultBundle = join(runDir, "Result.xcresult");
 log(`running the UI tests${only ? ` (${only})` : ""}`);
@@ -263,11 +278,13 @@ xcodebuild.stderr.pipe(buildLog);
 const exitCode: number = await new Promise((resolve) => xcodebuild.on("exit", (code) => resolve(code ?? 1)));
 
 deviceLog.kill();
+sdkLog.kill();
 for (const peer of [...Object.values(peers), ...extraDevices]) peer.client.stop();
 peerServer.close();
 await server.stop();
 await spare.stop();
 await padSpare.stop();
+liveKit.kill();
 relayServer.close();
 site.close();
 await fake7tv.close();

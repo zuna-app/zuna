@@ -1,6 +1,6 @@
 # Roadmap
 
-Zuna 1.0 is chat, with text channels everywhere and voice channels on the desktop and the web, desktop apps for Windows, Linux and macOS, and a native app for the iPhone and iPad. The design already allows for Android, and for calls in direct messages and groups. This page describes what's left and how they fit.
+Zuna 1.0 is chat, with text channels everywhere and voice channels on the desktop, the web, the iPhone and the iPad, desktop apps for Windows, Linux and macOS, and a native app for the iPhone and iPad. The design already allows for Android, and for calls in direct messages and groups. This page describes what's left and how they fit.
 
 ## Phones
 
@@ -32,13 +32,13 @@ The iPhone app's approach carries over:
 
 ## Voice, video and screen sharing
 
-**Voice channels are built, on the desktop and the web,** through [LiveKit](https://livekit.io), an open-source media server that can be self-hosted. [SELF_HOSTING.md](SELF_HOSTING.md#voice-channels) says how to run it, [ARCHITECTURE.md](ARCHITECTURE.md#channels-and-voice) how it works, and [SCREEN_SHARE.md](SCREEN_SHARE.md) how screens are shared.
+**Voice channels are built, on the desktop, the web, the iPhone and the iPad,** through [LiveKit](https://livekit.io), an open-source media server that can be self-hosted. [SELF_HOSTING.md](SELF_HOSTING.md#voice-channels) says how to run it, [ARCHITECTURE.md](ARCHITECTURE.md#channels-and-voice) how it works, and [SCREEN_SHARE.md](SCREEN_SHARE.md) how screens are shared.
 
 **What's left**
 
 | Part | Work |
 |---|---|
-| iPhone and iPad | Voice channels, which the app lists with who's in them but can't join yet. LiveKit's Swift SDK has the per-participant keys it needs, and CallKit lets it keep going in the background. |
+| iPhone and iPad | Sharing the phone's screen, which LiveKit's Swift SDK captures in the app through ScreenCaptureKit from iOS 27. CallKit, to put a call on the lock screen; it already goes on in the background. |
 | Calls in direct messages and groups | The same room and keys, from that conversation's MLS group, with something that rings. |
 | Noise cancelling | RNNoise is cheap and needs no setup. DeepFilterNet cleans speech noticeably better, for more CPU and a far larger download, and would have to run off the audio thread. |
 

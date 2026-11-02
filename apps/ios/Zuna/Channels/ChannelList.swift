@@ -40,6 +40,7 @@ struct ChannelListActions {
 /// of mentions, and who's in each voice channel. Rows of the list it's in.
 struct ChannelRows: View {
     @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
     let server: AppModel.ServerState
     let query: String
     /// The open chat stays marked, beside the list on an iPad.
@@ -148,6 +149,8 @@ struct ChannelRows: View {
         let mentions = conversation?.unreadMentions ?? 0
         let open = sidebar && model.chatPath.first == .chat(channel.key)
         let count = occupants(channel).count
+        // The voice channel this device is in, as on the desktop.
+        let connected = voice.inCall && voice.serverId == server.entry.id && voice.channelId == channel.id
         return Button {
             openChannel(channel)
         } label: {
@@ -184,7 +187,7 @@ struct ChannelRows: View {
                         .accessibilityLabel("\(mentions) mentioning you")
                 }
             }
-            .foregroundStyle(unread || open ? Theme.text1 : conversation?.muted == true ? Theme.text3 : Theme.channelMuted)
+            .foregroundStyle(connected ? Theme.green : unread || open ? Theme.text1 : conversation?.muted == true ? Theme.text3 : Theme.channelMuted)
             .padding(.horizontal, 8)
             .frame(minHeight: 40)
             .background(open ? Theme.bg3 : .clear, in: .rect(cornerRadius: 8))
@@ -205,8 +208,8 @@ struct ChannelRows: View {
         .listRowBackground(Theme.bg0)
         .listRowSeparator(.hidden)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(open ? .isSelected : [])
-        .accessibilityValue(unread ? "Unread" : "")
+        .accessibilityAddTraits(open || connected ? .isSelected : [])
+        .accessibilityValue(connected ? "Connected" : unread ? "Unread" : "")
         .accessibilityIdentifier(A11y.Channels.row(channel.id))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             if let conversation, conversation.unread > 0 {
@@ -263,8 +266,14 @@ struct ChannelRows: View {
     private func occupantRow(_ member: VoiceMember) -> some View {
         let user = server.users[member.userId]
         let name = user?.displayName ?? "Someone"
+        // Who's talking shows only to those in the same call, as only they hear it.
+        let inThisCall = voice.status == .connected && voice.serverId == server.entry.id && voice.channelId == member.channelId
+        let speaking = inThisCall && voice.speaking.contains(member.userId) && !(member.userId == server.me?.userId && voice.micOff)
         return HStack(spacing: 8) {
             AvatarView(name: name, seed: member.userId, source: user?.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 22)
+                .overlay {
+                    Circle().strokeBorder(speaking ? Theme.green : .clear, lineWidth: 2).padding(-2)
+                }
             Text(name)
                 .font(.subheadline)
                 .foregroundStyle(Theme.text2)
@@ -302,7 +311,13 @@ struct ChannelRows: View {
 
     private func openChannel(_ channel: ChannelView) {
         guard channel.type == .text else {
-            model.toast("Voice channels can't be joined from this app yet. Join \(channel.title) from a computer.")
+            // Tapping a voice channel is coming into it, as in Discord, or opening the call already there.
+            guard (server.info?.voice ?? 0) > 0 else {
+                model.toast("This server has no media server yet, so its voice channels can't be joined.")
+                return
+            }
+            let serverId = server.entry.id
+            Task { await voice.join(serverId: serverId, channelId: channel.id) }
             return
         }
         model.openChat(channel.key)

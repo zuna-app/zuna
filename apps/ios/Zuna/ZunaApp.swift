@@ -42,6 +42,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// Upright on a phone, except for a call's video watched full screen.
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        UIDevice.current.userInterfaceIdiom == .phone ? Orientation.mask : .all
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         core.pushToken = deviceToken.map { String(format: "%02x", $0) }.joined()
     }
@@ -111,6 +116,7 @@ struct RootView: View {
                 .overlay(alignment: .top) { ToastStack() }
                 .overlay { AppLockGate() }
                 .environment(model)
+                .environment(model.voice)
                 .environment(images)
                 .environment(notifications)
                 .tint(model.settings.accent.color)

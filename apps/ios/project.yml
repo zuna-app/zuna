@@ -21,10 +21,19 @@ settings:
     DEAD_CODE_STRIPPING: YES
     # The push relay the app registers with (docs/PUSH_RELAY.md).
     ZUNA_PUSH_RELAY: "https://relay.mgalazka.pl"
+    # Warnings fail the build of the app's own targets when ZUNA_WARNINGS_AS_ERRORS=YES
+    # (scripts/check-ios.mjs). Set on the command line, SWIFT_TREAT_WARNINGS_AS_ERRORS
+    # would also reach the packages, whose warnings SwiftPM suppresses, and fail.
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: $(ZUNA_WARNINGS_AS_ERRORS)
 
 packages:
   ZunaKit:
     path: ZunaKit
+  # Voice channels' media. 2.19 is the first whose senders follow the key
+  # provider's current key, which moving to a new epoch's key relies on.
+  LiveKit:
+    url: https://github.com/livekit/client-sdk-swift
+    exactVersion: 2.19.0
 
 targets:
   Zuna:
@@ -37,6 +46,8 @@ targets:
         product: ZunaHost
       - package: ZunaKit
         product: ZunaModels
+      - package: LiveKit
+        product: LiveKit
       # Only started in Debug builds, by a launch argument; see CoreController.
       - package: ZunaKit
         product: ZunaControl
@@ -59,8 +70,11 @@ targets:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark
         UIApplicationSupportsIndirectInputEvents: true
+        # Upright, but for a video watched full screen in a call (Orientation in Voice/CallParts.swift).
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -74,7 +88,8 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
-        NSMicrophoneUsageDescription: Zuna uses the microphone to record voice messages.
+        NSMicrophoneUsageDescription: Zuna uses the microphone to record voice messages and to talk in voice channels.
+        NSCameraUsageDescription: Zuna uses the camera when you turn it on in a voice channel.
         NSLocationWhenInUseUsageDescription: Zuna uses your location only when you choose to share it in a chat.
         # No export documentation needed: only standard, published algorithms (MLS, AES-GCM,
         # XChaCha20-Poly1305 and the like), and the app isn't offered in France, where they'd
@@ -83,9 +98,11 @@ targets:
         ZunaPushRelay: $(ZUNA_PUSH_RELAY)
         NSUserActivityTypes:
           - INSendMessageIntent
-        # Silent pushes that clear notifications read or deleted elsewhere.
+        # Silent pushes that clear notifications read or deleted elsewhere, and
+        # a voice channel that goes on while the app is out of sight.
         UIBackgroundModes:
           - remote-notification
+          - audio
     entitlements:
       path: Zuna/Zuna.entitlements
       properties:

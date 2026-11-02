@@ -1,0 +1,423 @@
+import AVFoundation
+import Foundation
+import LiveKit
+import Observation
+import UIKit
+import ZunaModels
+
+/// How this device does voice. These stay on this device, as on the desktop
+/// (packages/ui/src/voice/settings.ts), which has many more for its microphone
+/// and its shares.
+struct VoiceSettings: Codable, Equatable, Sendable {
+    /// Sounds for people coming and going, and for muting.
+    var sounds = true
+    /// Whether to come in muted.
+    var startMuted = false
+    /// How loud others' shares are, from 0 to 2.
+    var screenVolume = 1.0
+    /// A screen someone starts sharing fills the stage.
+    var screenFocus = true
+
+    private static let key = "zuna-voice-settings"
+
+    static func load() -> VoiceSettings {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let settings = try? JSONDecoder().decode(VoiceSettings.self, from: data) else { return VoiceSettings() }
+        return settings
+    }
+
+    init() {}
+
+    // Settings saved by an earlier version lack the newer fields; they take their defaults.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sounds = try container.decodeIfPresent(Bool.self, forKey: .sounds) ?? true
+        startMuted = try container.decodeIfPresent(Bool.self, forKey: .startMuted) ?? false
+        screenVolume = try container.decodeIfPresent(Double.self, forKey: .screenVolume) ?? 1
+        screenFocus = try container.decodeIfPresent(Bool.self, forKey: .screenFocus) ?? true
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: Self.key) }
+    }
+
+    /// How loud each person is for this device, by user.
+    static var volumes: [String: Double] {
+        get { (UserDefaults.standard.dictionary(forKey: volumesKey) as? [String: Double]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: volumesKey) }
+    }
+
+    private static let volumesKey = "zuna-voice-volumes"
+
+    #if DEBUG
+    static func reset() {
+        UserDefaults.standard.removeObject(forKey: key)
+        UserDefaults.standard.removeObject(forKey: volumesKey)
+    }
+    #endif
+}
+
+/// The voice channel this device is in, wherever in the app the person is looking.
+/// There's one at a time, across all servers, as in Discord. The iPhone's
+/// counterpart of the desktop's packages/ui/src/voice/store.ts.
+@MainActor
+@Observable
+final class VoiceModel {
+    enum Status: Equatable { case idle, connecting, connected, reconnecting }
+
+    private(set) var status: Status = .idle
+    private(set) var serverId: String?
+    private(set) var channelId: String?
+    /// Muted by the person.
+    private(set) var muted: Bool
+    private(set) var deafened = false
+    /// Muted by an admin, which only an admin can undo.
+    private(set) var serverMuted = false
+    /// No microphone could be used, so this device can only listen.
+    private(set) var noMic = false
+    /// Who's being heard right now, by user.
+    private(set) var speaking: Set<String> = []
+    private(set) var videos: [CallVideo] = []
+    private(set) var quality: ConnectionQuality = .unknown
+    private(set) var camera = false
+    private(set) var cameraFront = true
+    /// The video filling the stage, by its key.
+    var focus: String?
+    /// The call fills the screen, rather than waiting in the bar at the top.
+    var stageShown = false
+    var settings = VoiceSettings.load() {
+        didSet {
+            settings.save()
+            applyVolumes()
+        }
+    }
+    /// How loud each person is for this device, by user.
+    private(set) var volumes = VoiceSettings.volumes
+    /// People muted for this device only.
+    private(set) var localMutes: Set<String> = []
+    /// What keys the call's media is under, for its details.
+    private(set) var keyEpoch: Int?
+
+    /// Called when the call ends, so the app can let go of what it kept running for it in the background.
+    @ObservationIgnored var onEnded: (() -> Void)?
+
+    @ObservationIgnored private weak var app: AppModel?
+    @ObservationIgnored private var room: VoiceRoom?
+    /// Each join counts, so one that takes a while can tell it's been replaced.
+    @ObservationIgnored private var attempt = 0
+    @ObservationIgnored private var reconnects = 0
+    @ObservationIgnored private let sounds = VoiceSounds()
+
+    private static let reconnectAttempts = 3
+    private static let reconnectWait: Duration = .seconds(2)
+
+    init() {
+        muted = VoiceSettings.load().startMuted
+    }
+
+    func attach(_ app: AppModel) {
+        self.app = app
+    }
+
+    var inCall: Bool { status != .idle }
+
+    /// Sound is going out from here, as far as this device can tell.
+    var micOff: Bool { muted || deafened || serverMuted || noMic }
+
+    private func sound(_ name: VoiceSounds.Sound) {
+        if settings.sounds { sounds.play(name) }
+    }
+
+    private var session: SessionCalls? {
+        serverId.flatMap { app?.core.session($0) }
+    }
+
+    /// Tells everyone on the server what this device is doing.
+    private func announce() {
+        guard let channelId, let session else { return }
+        let update = VoiceUpdate(muted: micOff, deafened: deafened, camera: camera, screen: false)
+        Task { try? await session.setVoiceState(channelId, update) }
+    }
+
+    private func applyVolumes() {
+        room?.volumes = { [weak self] userId, source in
+            guard let self else { return 1 }
+            if deafened { return 0 }
+            // A share's sound has a level of its own: it isn't how loud the person talks.
+            if source == .screenShareAudio { return settings.screenVolume }
+            return localMutes.contains(userId) ? 0 : volumes[userId] ?? 1
+        }
+    }
+
+    private func syncVideos() {
+        guard let room else { return }
+        let next = room.videos()
+        let stillThere = focus.map { key in next.contains { $0.id == key } } ?? true
+        // A screen someone starts sharing is what everyone's there to see, unless they're already looking at something.
+        let arrived = settings.screenFocus ? next.first { video in video.source == .screen && !video.local && !videos.contains { $0.id == video.id } } : nil
+        videos = next
+        focus = stillThere && focus != nil ? focus : arrived?.id
+        camera = room.cameraOn
+        cameraFront = room.cameraFacingFront
+    }
+
+    // MARK: Joining and leaving
+
+    /// Comes into a voice channel, or opens the one this device is already in.
+    func join(serverId: String, channelId: String) async {
+        stageShown = true
+        if self.serverId == serverId, self.channelId == channelId, status != .idle { return }
+        if status != .idle { leave() }
+        stageShown = true
+        attempt += 1
+        let mine = attempt
+        reconnects = 0
+        reset(status: .connecting)
+        self.serverId = serverId
+        self.channelId = channelId
+        await connect(serverId: serverId, channelId: channelId, mine: mine)
+    }
+
+    private func reset(status: Status) {
+        self.status = status
+        serverId = nil
+        channelId = nil
+        serverMuted = false
+        noMic = false
+        speaking = []
+        videos = []
+        quality = .unknown
+        camera = false
+        cameraFront = true
+        focus = nil
+        keyEpoch = nil
+    }
+
+    private func connect(serverId: String, channelId: String, mine: Int) async {
+        guard let app else { return }
+        let bitrate = app.servers[serverId]?.channels.first { $0.id == channelId }?.bitrate ?? 0
+        // Not known until it's finished joining, and what happens before then has nobody to tell.
+        var joined: VoiceRoom?
+        let current = { [weak self] in joined != nil && self?.room === joined }
+        do {
+            let room = try await VoiceRoom.join(session: app.core.session(serverId), channelId: channelId, bitrate: bitrate, muted: micOff, events: VoiceRoom.Events(
+                status: { [weak self] status in
+                    guard let self, current() else { return }
+                    switch status {
+                    case .connected:
+                        reconnects = 0
+                        self.status = .connected
+                    case .reconnecting:
+                        self.status = .reconnecting
+                    case let .closed(reason):
+                        closed(reason)
+                    }
+                },
+                media: { [weak self] in
+                    if current() { self?.syncVideos() }
+                },
+                speaking: { [weak self] users in
+                    if current() { self?.speaking = users }
+                },
+                quality: { [weak self] quality in
+                    if current() { self?.quality = quality }
+                },
+                participants: { [weak self] joined, _ in
+                    if current() { self?.sound(joined != nil ? .join : .leave) }
+                }
+            ))
+            joined = room
+            guard mine == attempt else {
+                room.close()
+                return
+            }
+            self.room = room
+            applyVolumes()
+            noMic = !room.hasMic
+            serverMuted = room.serverMuted
+            if let problem = room.micProblem { app.toast("\(problem) You can still listen.") }
+            await room.setMuted(micOff)
+            status = .connected
+            keyEpoch = room.currentKey?.epoch
+            announce()
+            syncVideos()
+            if reconnects == 0 { sound(.selfJoin) }
+        } catch {
+            guard mine == attempt else { return }
+            app.toast(Self.describe(error), .error)
+            // A server that hasn't set this up, or a channel that's full, won't change in a moment.
+            let session = app.core.session(serverId)
+            reset(status: .idle)
+            stageShown = false
+            Task { try? await session.setVoiceState(nil, nil) }
+            onEnded?()
+        }
+    }
+
+    private static func describe(_ error: Error) -> String {
+        if let error = error as? CoreCallError { return error.message }
+        if error is LiveKitError { return "Couldn't connect to voice." }
+        return "Couldn't connect to voice."
+    }
+
+    /// What to do when the room goes away without anyone asking: try coming back, as far as that's worth it.
+    private func closed(_ reason: LiveKitErrorType?) {
+        guard let serverId, let channelId else { return }
+        room?.close()
+        room = nil
+        switch reason {
+        case .participantRemoved, .roomDeleted, .duplicateIdentity, .cancelled:
+            leave()
+            return
+        default:
+            break
+        }
+        if reconnects >= Self.reconnectAttempts {
+            app?.toast("Lost the connection to voice.", .error)
+            leave()
+            return
+        }
+        reconnects += 1
+        status = .reconnecting
+        attempt += 1
+        let mine = attempt
+        Task { [weak self] in
+            try? await Task.sleep(for: Self.reconnectWait)
+            guard let self, mine == attempt else { return }
+            await connect(serverId: serverId, channelId: channelId, mine: mine)
+        }
+    }
+
+    func leave() {
+        guard status != .idle else { return }
+        attempt += 1
+        let session = session
+        room?.close()
+        room = nil
+        Task { try? await session?.setVoiceState(nil, nil) }
+        reset(status: .idle)
+        stageShown = false
+        sound(.selfLeave)
+        onEnded?()
+    }
+
+    // MARK: What the core says
+
+    /// Who's in the channel changed, so its key did too.
+    func keyChanged(serverId: String, channelId: String) {
+        guard self.serverId == serverId, self.channelId == channelId, let room else { return }
+        Task {
+            try? await room.updateKeys()
+            if self.room === room { keyEpoch = room.currentKey?.epoch }
+        }
+    }
+
+    /// This device was taken out of its voice channel.
+    func ended(serverId: String, channelId: String, reason: String) {
+        guard self.serverId == serverId, self.channelId == channelId else { return }
+        attempt += 1
+        room?.close()
+        room = nil
+        reset(status: .idle)
+        stageShown = false
+        let messages = [
+            "elsewhere": "You joined this voice channel on another device.",
+            "disconnected": "An admin took you out of the voice channel.",
+            "deleted": "That voice channel was deleted.",
+            "banned": "You were removed from this server.",
+        ]
+        app?.toast(messages[reason] ?? "You left the voice channel.")
+        sound(.selfLeave)
+        onEnded?()
+    }
+
+    /// Being muted by an admin, or no longer, comes with the rest of what's said about this device.
+    func memberChanged(serverId: String, _ member: VoiceMember) {
+        guard self.serverId == serverId, channelId == member.channelId,
+              member.deviceId == app?.servers[serverId]?.me?.deviceId, member.serverMuted != serverMuted else { return }
+        serverMuted = member.serverMuted
+        Task { await room?.setMuted(micOff) }
+        app?.toast(member.serverMuted ? "An admin muted you." : "An admin unmuted you.")
+        sound(member.serverMuted ? .mute : .unmute)
+    }
+
+    /// This device is no longer on a server, so it can't be in any of its voice channels.
+    func serverGone(_ serverId: String) {
+        if self.serverId == serverId { leave() }
+    }
+
+    // MARK: Controls
+
+    func toggleMute() {
+        guard !noMic, !serverMuted else { return }
+        // Unmuting while deafened undoes both, as being deafened means hearing nothing and saying nothing.
+        if deafened {
+            deafened = false
+            muted = false
+            applyVolumes()
+            applyMute()
+            sound(.undeafen)
+            return
+        }
+        muted.toggle()
+        applyMute()
+        sound(muted ? .mute : .unmute)
+    }
+
+    func toggleDeafen() {
+        deafened.toggle()
+        applyVolumes()
+        applyMute()
+        sound(deafened ? .deafen : .undeafen)
+    }
+
+    private func applyMute() {
+        let off = micOff
+        Task { await room?.setMuted(off) }
+        announce()
+    }
+
+    func toggleCamera() async {
+        guard let room else { return }
+        let on = !camera
+        if on, !(await Self.cameraAllowed()) {
+            app?.toast("Zuna can't use the camera. Allow it in Settings.", .error)
+            return
+        }
+        do {
+            try await room.setCamera(on)
+            camera = on
+            cameraFront = room.cameraFacingFront
+            announce()
+        } catch {
+            app?.toast("There's no camera Zuna can use.", .error)
+        }
+    }
+
+    func flipCamera() async {
+        await room?.flipCamera()
+        cameraFront = room?.cameraFacingFront ?? true
+    }
+
+    private static func cameraAllowed() async -> Bool {
+        #if DEBUG
+        if VoiceTesting.fakeCamera { return true }
+        #endif
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized: return true
+        case .notDetermined: return await AVCaptureDevice.requestAccess(for: .video)
+        default: return false
+        }
+    }
+
+    func setVolume(_ volume: Double, for userId: String) {
+        volumes[userId] = volume
+        VoiceSettings.volumes = volumes
+        applyVolumes()
+    }
+
+    func toggleLocalMute(_ userId: String) {
+        if localMutes.contains(userId) { localMutes.remove(userId) } else { localMutes.insert(userId) }
+        applyVolumes()
+    }
+}

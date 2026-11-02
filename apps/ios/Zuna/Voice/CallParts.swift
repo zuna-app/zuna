@@ -1,0 +1,259 @@
+import LiveKit
+import SwiftUI
+import UIKit
+import ZunaModels
+
+/// Someone in the call, from a long press on them: how loud they are for this
+/// device, muting them for yourself, checking their keys, and what a server
+/// admin can do. The desktop's MemberMenu.
+struct MemberSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
+    @Environment(\.dismiss) private var dismiss
+    let server: AppModel.ServerState
+    let member: VoiceMember
+    @State private var verifying = false
+
+    var body: some View {
+        let user = server.users[member.userId]
+        let name = user?.displayName ?? "Someone"
+        NavigationStack {
+            List {
+                Section {
+                    HStack(spacing: 12) {
+                        AvatarView(name: name, seed: member.userId, source: user?.avatar.map { .avatar($0, serverId: server.entry.id) } ?? .none, size: 48)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(name).font(.headline)
+                            if let username = user?.username { Text("@\(username)").font(.subheadline).foregroundStyle(Theme.text2) }
+                        }
+                    }
+                    .listRowBackground(Color.clear)
+                }
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Volume")
+                            Spacer()
+                            Text("\(Int((volume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
+                        }
+                        Slider(value: Binding(get: { volume }, set: { voice.setVolume($0, for: member.userId) }), in: 0...2)
+                            .accessibilityLabel("Volume")
+                            .accessibilityIdentifier(A11y.Voice.volume)
+                    }
+                    Toggle("Mute for me", isOn: Binding(get: { voice.localMutes.contains(member.userId) }, set: { _ in voice.toggleLocalMute(member.userId) }))
+                        .accessibilityIdentifier(A11y.Voice.muteForMe)
+                    Button("Verify with emoji", systemImage: "lock") { verifying = true }
+                }
+                if canModerate {
+                    Section {
+                        Button(member.serverMuted ? "Let them talk" : "Mute for everyone", systemImage: "mic.slash") {
+                            moderate { try await $0.voiceMute($1, userId: member.userId, muted: !member.serverMuted) }
+                        }
+                        .accessibilityIdentifier(A11y.Voice.muteForEveryone)
+                        if member.screen {
+                            Button("Stop their screen share", systemImage: "rectangle.slash") {
+                                moderate { try await $0.voiceScreenStopOf($1, userId: member.userId) }
+                            }
+                        }
+                        Button("Disconnect", systemImage: "person.fill.xmark", role: .destructive) {
+                            moderate { try await $0.voiceDisconnect($1, userId: member.userId) }
+                        }
+                        .accessibilityIdentifier(A11y.Voice.disconnect)
+                    }
+                }
+            }
+            .navigationTitle(name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .navigationDestination(isPresented: $verifying) {
+                VerifyView(serverId: server.entry.id, userId: member.userId)
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.Voice.memberSheet)
+    }
+
+    private var volume: Double { voice.volumes[member.userId] ?? 1 }
+
+    /// Owners over anyone else, admins over members, as the server allows.
+    private var canModerate: Bool {
+        guard member.userId != server.me?.userId else { return false }
+        let role = server.me?.role
+        return role == .owner || (role == .admin && server.users[member.userId]?.role == .member)
+    }
+
+    private func moderate(_ action: @escaping (SessionCalls, String) async throws -> Void) {
+        let session = model.core.session(server.entry.id)
+        let channelId = member.channelId
+        dismiss()
+        Task {
+            do { try await action(session, channelId) } catch { model.toast(OnboardingText.describe(error), .error) }
+        }
+    }
+}
+
+/// A video over everything, turned sideways if the phone is, and zoomed with two fingers.
+struct VideoViewer: View {
+    @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
+    @Environment(\.dismiss) private var dismiss
+    let tileId: String
+
+    var body: some View {
+        let video = voice.videos.first { $0.id == tileId }
+        ZStack(alignment: .topLeading) {
+            Color.black.ignoresSafeArea()
+            if let video {
+                SwiftUIVideoView(video.track, layoutMode: .fit, pinchToZoomOptions: [.zoomIn, .resetOnRelease])
+                    .ignoresSafeArea()
+            }
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(.black.opacity(0.5), in: .circle)
+            }
+            .padding(16)
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier(A11y.Voice.closeViewer)
+        }
+        .onAppear { Orientation.allowRotation(true) }
+        .onDisappear { Orientation.allowRotation(false) }
+        // Nothing to watch once they've stopped.
+        .onChange(of: video == nil) { _, gone in if gone { dismiss() } }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.Voice.viewer)
+    }
+}
+
+/// The app stays upright on a phone, except to watch a video sideways.
+@MainActor
+enum Orientation {
+    private(set) static var mask: UIInterfaceOrientationMask = .portrait
+
+    static func allowRotation(_ allowed: Bool) {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        mask = allowed ? .allButUpsideDown : .portrait
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
+            scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            if !allowed { scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) }
+        }
+    }
+}
+
+/// The call while looking elsewhere: across the top of the app, as a phone call's
+/// bar is, with mute and leave at hand. A tap opens it again. The desktop's VoicePanel.
+struct CallBar: View {
+    @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
+
+    var body: some View {
+        let server = voice.serverId.flatMap { model.servers[$0] }
+        let channel = server?.channels.first { $0.id == voice.channelId }
+        HStack(spacing: 10) {
+            Button {
+                voice.stageShown = true
+            } label: {
+                HStack(spacing: 8) {
+                    if voice.status == .connected {
+                        QualityIcon()
+                    } else {
+                        ProgressView().controlSize(.mini).tint(Theme.text1)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(voice.status == .connected ? "Voice connected" : voice.status == .reconnecting ? "Reconnecting" : "Connecting")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(voice.status == .connected ? Theme.green : Theme.text2)
+                        Text("\(channel?.title ?? "Voice channel") / \(server?.entry.name ?? "")")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Theme.text1)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the call")
+            .accessibilityIdentifier(A11y.Voice.bar)
+            Button {
+                voice.toggleMute()
+            } label: {
+                Image(systemName: voice.micOff ? "mic.slash.fill" : "mic.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(voice.micOff ? Theme.red : Theme.text1)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.bg4, in: .circle)
+            }
+            .disabled(voice.serverMuted || voice.noMic)
+            .accessibilityLabel(voice.micOff ? "Unmute" : "Mute")
+            .accessibilityIdentifier(A11y.Voice.barMute)
+            Button {
+                voice.leave()
+            } label: {
+                Image(systemName: "phone.down.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.red, in: .circle)
+            }
+            .accessibilityLabel("Disconnect from voice")
+            .accessibilityIdentifier(A11y.Voice.barLeave)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
+        .background(Theme.bg3.ignoresSafeArea(edges: .top))
+        .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
+    }
+}
+
+/// Voice settings that belong to this device. The desktop also chooses
+/// microphones and speakers, filters and a gate, which iOS does for itself.
+struct VoiceSettingsView: View {
+    @Environment(VoiceModel.self) private var voice
+
+    var body: some View {
+        @Bindable var voice = voice
+        List {
+            Section {
+                Toggle("Come in muted", isOn: $voice.settings.startMuted)
+            } footer: {
+                Text("Starts every voice channel with your microphone off.")
+            }
+            Section {
+                Toggle("Sounds", isOn: $voice.settings.sounds)
+            } footer: {
+                Text("When people come and go, and when you mute.")
+            }
+            Section {
+                Toggle("Open a share when it starts", isOn: $voice.settings.screenFocus)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("How loud shares are")
+                        Spacer()
+                        Text("\(Int((voice.settings.screenVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
+                    }
+                    Slider(value: $voice.settings.screenVolume, in: 0...2)
+                        .accessibilityLabel("How loud shares are")
+                }
+            } header: {
+                Text("Screens")
+            } footer: {
+                Text("A screen someone starts sharing fills the call, unless you're already looking at something.")
+            }
+            Section {
+            } footer: {
+                Text("The iPhone cancels echo and noise itself. For even less noise, choose Voice Isolation under Mic Mode in Control Center during a call.")
+            }
+        }
+        .navigationTitle("Voice and video")
+    }
+}

@@ -145,7 +145,7 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 
 - **Orchestration:** `tests/e2e/src/ui-run.ts` (`npm run test:ios:ui`):
   1. Builds the core bundle and the app (`build-for-testing`).
-  2. Starts the fake 7TV, a stand-in for the push relay, and the servers: the main one, which allows that relay, and two that nobody has set up yet.
+  2. Starts the fake 7TV, a stand-in for the push relay, a LiveKit, and the servers: the main one, which allows that relay and has voice channels on that LiveKit, and two that nobody has set up yet.
   3. Seeds the main one through desktop clients in Node: alice (the owner), bob's laptop and carol, a DM and a group. More seeding (avatars, pins, reactions, emotes, a 2,000-message conversation) comes with the phases that need it.
   4. Serves those clients to the tests over WebSockets ("peers"), plus `/world` for what no single client can do: signing in to an account on another new device, showing the simulator's Face ID a face (enrolled while preparing the simulator), or counting what reached the relay.
   5. Prepares the dedicated simulator and runs `xcodebuild test-without-building`, passing the world as JSON in `TEST_RUNNER_ZUNA_WORLD`.
@@ -162,6 +162,7 @@ New workspace `tests/e2e` (TypeScript, vitest), built on the existing `TestServe
 - **One test file per matrix area:** Onboarding, Servers, ConversationList, ChatReading, Composer, MessageActions, Attachments, Groups, Invites, Verification, Settings, ServerAdmin, Lifecycle, iPad.
 - **Media:** `xcrun simctl addmedia` seeds the photo library with HEIC and HEVC fixtures. One test goes through the real PhotosPicker. The other attachment tests inject files through a Debug-only path, so they don't depend on an out-of-process picker.
 - **Lifecycle in the UI:** Home button and reactivation, `terminate` and relaunch with an unsent draft and a queued message, network faults through `test.network` showing "Waiting for network".
+- **Voice channels:** the app comes into a real LiveKit room, with a tone for its microphone and moving bars for its camera (`Voice/VoiceTesting.swift`, from `-ZunaFakeMicrophone` and `-ZunaFakeCamera`). The peers have no media, so they're in a channel only as far as the server can tell (`setVoiceState`). What crosses between the phone and a real desktop app is checked by `tests/e2e/src/voice-run.ts` (`npm run test:ios:voice`): the desktop app in Electron with Chromium's fake devices and speech from `say`, a screen share drawn on a canvas in place of macOS's picker, and the phone in the simulator driven through host commands (`voiceJoin`, `voiceCamera`, `voiceState`, `voiceReport`, `voiceLeave`), which report what arrived from each participant once decrypted and decoded.
 - **Notifications:** the stand-in relay registers the app (with a made-up token in place of APNs) and hands the server's pushes to the simulator with `simctl push`, as APNs would. A new registration makes the older ones gone, as after reinstalling, so only the test's fresh device is notified. `simctl push` skips the notification extension, so the banner shows the push's own text; the extension's decryption is covered by the cross-client tests, which run it in a process of its own beside a host, without JIT, and check its memory.
 - **Screen tour:** one test visits every screen with seeded data and attaches screenshots. They are exported to `apps/ios/.e2e/<run>/screens/*.png` for visual review against the desktop design tokens, also with large Dynamic Type and on iPad. On any failure, the test attaches a screenshot and `app.debugDescription`, a text dump of the element tree.
 
@@ -214,6 +215,7 @@ On your iPhone, after F0, F5 and before TestFlight. Each round is about 15 minut
 | `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests | since F0 |
 | `npm run test:ios:ui -- [--only LaunchAndUnlockTests[/testName][,OtherTests]]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` | since F1 |
 | `ZUNA_E2E_SIMULATOR="Zuna E2E iPad" npm run test:ios:ui -- --only PadTests` | L5 on an iPad simulator, made on first use | since F8 |
+| `npm run build -w @zuna/desktop && npm run test:ios:voice [-- screenshot-dir]` | a voice channel between the phone in the simulator and the desktop app, through a real LiveKit | since voice channels |
 | `npm run test:ios:release` | the Release guard | since F1 |
 | `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors | since F1 |
 | `npm run test:ios:all` | everything, plus the desktop's `npm test` | since F1 |

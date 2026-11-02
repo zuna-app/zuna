@@ -188,6 +188,8 @@ final class AppModel {
     var appLocked = AppSettings.load().appLock
 
     let core: CoreConnection
+    /// The voice channel this device is in, if any.
+    let voice = VoiceModel()
     /// Called when servers are added or removed, so notifications can follow.
     @ObservationIgnored var onServersChanged: (() -> Void)?
     /// Called for a new message the person should hear about while the app runs: server, group and message.
@@ -205,6 +207,7 @@ final class AppModel {
 
     init(core: CoreConnection) {
         self.core = core
+        voice.attach(self)
     }
 
     var activeServer: ServerState? {
@@ -370,8 +373,13 @@ final class AppModel {
             refresh("voice", serverId)
         case let .voice(serverId, _, _, deviceId, member):
             servers[serverId]?.voice[deviceId] = member
-        case .voiceKey, .voiceEnded, .screenEnded:
-            // About a call on this device, which the iPhone app doesn't join yet.
+            if let member { voice.memberChanged(serverId: serverId, member) }
+        case let .voiceKey(serverId, channelId):
+            voice.keyChanged(serverId: serverId, channelId: channelId)
+        case let .voiceEnded(serverId, channelId, reason):
+            voice.ended(serverId: serverId, channelId: channelId, reason: reason)
+        case .screenEnded:
+            // About a share from this device, which the iPhone app doesn't make.
             break
         case let .users(serverId):
             refresh("users", serverId)
@@ -403,6 +411,7 @@ final class AppModel {
         case let .preferences(serverId):
             refresh("preferences", serverId)
         case let .signedOut(serverId, reason):
+            voice.serverGone(serverId)
             // Nothing is erased on the server's word: what's here stays until the person decides.
             servers[serverId]?.entry.signedOut = reason
             toast(reason == "banned" ? "You were removed from a server by its admins." : "You've been signed out of a server.")
@@ -432,6 +441,7 @@ final class AppModel {
 
     private func removeServer(_ serverId: String) {
         defer { onServersChanged?() }
+        voice.serverGone(serverId)
         servers[serverId] = nil
         lists = lists.filter { !$0.key.hasPrefix("\(serverId)/") }
         order.removeAll { $0 == serverId }

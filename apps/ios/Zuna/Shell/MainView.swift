@@ -11,12 +11,24 @@ struct MainView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        Group {
-            if sizeClass == .regular {
-                WideLayout()
-            } else {
-                compact
+        @Bindable var voice = model.voice
+        VStack(spacing: 0) {
+            // A call goes on while looking elsewhere, in a bar above everything, as a phone call's does.
+            if voice.inCall && !voice.stageShown {
+                CallBar()
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
+            Group {
+                if sizeClass == .regular {
+                    WideLayout()
+                } else {
+                    compact
+                }
+            }
+        }
+        .animation(.snappy(duration: 0.25), value: voice.inCall && !voice.stageShown)
+        .fullScreenCover(isPresented: $voice.stageShown) {
+            CallScreen()
         }
         .task { await notifications.askOnce() }
     }

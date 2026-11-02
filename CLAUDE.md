@@ -60,7 +60,7 @@ Checks in real Electron, after `npm run build -w @zuna/desktop`:
 
 `packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`.
 
-iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for the quick loop, `npm run test:ios` for the core on the iOS host against desktop peers, `npm run test:ios:ui` for the UI, and `swift test` in `apps/ios/ZunaKit`. Without a Mac, Swift can't be compiled, so say so in the commit message. `docs/IOS_TESTING.md` covers the rest.
+iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for the quick loop, `npm run test:ios` for the core on the iOS host against desktop peers, `npm run test:ios:ui` for the UI, `npm run test:ios:voice` for a call with the desktop app (after building it), and `swift test` in `apps/ios/ZunaKit`. Without a Mac, Swift can't be compiled, so say so in the commit message. `docs/IOS_TESTING.md` covers the rest.
 
 ## Architecture
 
@@ -89,7 +89,7 @@ Rules the core depends on:
 
 **The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, `limited` and `publicLimited`. All SQL is in `internal/store`. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
 
-**Voice runs in the interface, not the core.** `packages/ui/src/voice` holds the LiveKit room, the microphone's audio worklet and the store. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
+**Voice runs in the interface, not the core.** `packages/ui/src/voice` holds the LiveKit room, the microphone's audio worklet and the store, and `apps/ios/Zuna/Voice` the iPhone's, through LiveKit's Swift SDK. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
 
 **Crypto (`crypto/`).** The logic is in `mls.rs` and `primitives.rs`. `wasm.rs` binds it for the desktop and tests, and `native.rs` binds it through UniFFI for iOS.
 
@@ -128,7 +128,7 @@ Rules the core depends on:
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts` (through `preview-proxy.ts`), `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
 | Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session.ts`, `server/internal/api/channels.go`, `packages/ui/src/features/voice` |
-| Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `packages/ui/src/voice`, `server/internal/api/voice.go` |
+| Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `packages/ui/src/voice`, `apps/ios/Zuna/Voice`, `server/internal/api/voice.go` |
 | Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |
 | Notifications and the unread badge on Windows, drawn as Telegram's | `apps/desktop/src/main/notifications.ts`, `apps/desktop/src/renderer/src/notifications`, `apps/desktop/src/renderer/src/counter.ts` |

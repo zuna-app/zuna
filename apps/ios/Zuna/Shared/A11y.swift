@@ -206,6 +206,32 @@ enum A11y {
         static let item = "toast"
     }
 
+    enum Voice {
+        static let stage = "voice.stage"
+        static let connecting = "voice.connecting"
+        static let encrypted = "voice.encrypted"
+        static let minimize = "voice.minimize"
+        static func person(_ deviceId: String) -> String { "voice.person.\(deviceId)" }
+        static func screen(_ id: String) -> String { "voice.screen.\(id)" }
+        static func fullScreen(_ id: String) -> String { "voice.fullScreen.\(id)" }
+        static let mute = "voice.mute"
+        static let deafen = "voice.deafen"
+        static let camera = "voice.camera"
+        static let flip = "voice.flip"
+        static let chat = "voice.chat"
+        static let leave = "voice.leave"
+        static let bar = "voice.bar"
+        static let barMute = "voice.bar.mute"
+        static let barLeave = "voice.bar.leave"
+        static let memberSheet = "voice.member"
+        static let volume = "voice.member.volume"
+        static let muteForMe = "voice.member.muteForMe"
+        static let muteForEveryone = "voice.member.muteForEveryone"
+        static let disconnect = "voice.member.disconnect"
+        static let viewer = "voice.viewer"
+        static let closeViewer = "voice.viewer.close"
+    }
+
     enum Settings {
         static let screen = "settings.screen"
         static let serverPicker = "settings.serverPicker"
@@ -215,6 +241,7 @@ enum A11y {
         static let security = "settings.security"
         static let appLock = "settings.appLock"
         static let notifications = "settings.notifications"
+        static let voice = "settings.voice"
         static let notificationsToggle = "settings.notificationsToggle"
         static let notificationSound = "settings.notificationSound"
         static let notificationPreview = "settings.notificationPreview"

@@ -80,9 +80,6 @@ final class ChannelsTests: XCTestCase {
         zuna.element(A11y.ChatList.filter).buttons["Channels"].tap()
         let aliceRow = zuna.element(A11y.ChatList.row("user:\(World.current["alice"].userId)"))
         try waitFor("only channels") { row.exists && !aliceRow.exists }
-        // A voice channel says it can't be joined here yet.
-        zuna.element(A11y.Channels.row(lounge)).tap()
-        XCTAssertTrue(zuna.toast(startingWith: "Voice channels can't be joined").waitForExistence(timeout: 5))
         zuna.element(A11y.ChatList.filter).buttons["All"].tap()
 
         // Opened: its name and topic in the bar, the messages under names, and the new ones under a red line.

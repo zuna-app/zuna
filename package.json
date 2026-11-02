@@ -33,6 +33,7 @@
     "test:ios:sim": "ZUNA_E2E_TARGET=simulator npm run test -w @zuna/e2e",
     "test:ios:perf": "ZUNA_PERF=1 npm run test -w @zuna/e2e -- test/performance.test.ts",
     "test:ios:ui": "vite-node tests/e2e/src/ui-run.ts --",
+    "test:ios:voice": "vite-node tests/e2e/src/voice-run.ts --",
     "test:ios:release": "node scripts/check-ios-release.mjs",
     "test:ios:check": "node scripts/check-ios.mjs",
     "test:ios:all": "npm test && npm run test:ios:check && npm run test:ios && npm run test:ios:sim && npm run test:ios:ui && npm run test:ios:release"

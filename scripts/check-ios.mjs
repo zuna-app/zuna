@@ -25,7 +25,7 @@ run(
     "-destination", "generic/platform=iOS Simulator",
     "-derivedDataPath", join(iosDir, "build", "Check"),
     "ARCHS=arm64",
-    "SWIFT_TREAT_WARNINGS_AS_ERRORS=YES",
+    "ZUNA_WARNINGS_AS_ERRORS=YES",
     "-quiet",
     "build-for-testing",
   ],

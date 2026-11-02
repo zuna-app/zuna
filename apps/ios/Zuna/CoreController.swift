@@ -158,6 +158,10 @@ final class CoreController {
         model.onMessageGone = { serverId, groupId, messageId in
             Task { await Notifications.clear(PushStore.Message(kind: .delete, serverId: serverId, groupId: groupId, messageId: messageId)) }
         }
+        // A call kept the core connected out of sight; once it's over, the app can go to sleep as usual.
+        model.voice.onEnded = { [weak self] in
+            if UIApplication.shared.applicationState == .background { self?.didEnterBackground() }
+        }
         reportActivity()
         self.notifications = notifications
         Task { await notifications.updateAuthorization() }
@@ -182,9 +186,11 @@ final class CoreController {
 
     /// iOS stops the app soon after it leaves the screen. The core gets a
     /// background task to finish sending, then closes its connections cleanly.
+    /// Not during a call, which goes on out of sight: the server would take
+    /// this device out of its voice channel once its connection had gone.
     func didEnterBackground() {
         reportActivity()
-        guard connection != nil, suspendTask == nil else { return }
+        guard connection != nil, suspendTask == nil, model?.voice.inCall != true else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish sending") { [weak self] in
             MainActor.assumeIsolated { self?.suspendNow() }
         }
@@ -237,6 +243,10 @@ final class CoreController {
     private func suspendNow() {
         suspendTask?.cancel()
         suspendTask = nil
+        guard model?.voice.inCall != true else {
+            endBackgroundTask()
+            return
+        }
         let connection = connection
         Task { try? await connection?.suspend() }
         endBackgroundTask()
@@ -295,14 +305,16 @@ final class CoreController {
             let password = command["password"] as? String
             let account = command["account"] as? Int
             let path = command["path"] as? String
-            return await self?.handleControl(name: name, password: password, account: account, path: path)
+            let channel = command["channel"] as? String
+            let on = command["on"] as? Bool
+            return await self?.handleControl(name: name, password: password, account: account, path: path, channel: channel, on: on)
         }
         control = server
         guard let bound = try? await server.start(port: UInt16(port)) else { return }
         print("ZUNA_HOST_READY port=\(bound)")
     }
 
-    private func handleControl(name: String?, password: String?, account: Int?, path: String?) async -> String {
+    private func handleControl(name: String?, password: String?, account: Int?, path: String?, channel: String?, on: Bool?) async -> String {
         switch name {
         case "state":
             switch phase {
@@ -330,6 +342,36 @@ final class CoreController {
             guard let path, let model else { return "no-chat" }
             model.pendingAttachments.append(URL(fileURLWithPath: path))
             return "attached"
+        case "voiceJoin":
+            // Comes into a voice channel on the active server, as tapping its row does, and says how that went.
+            guard let model, let channel, let serverId = model.activeServerId else { return "no-server" }
+            await model.voice.join(serverId: serverId, channelId: channel)
+            return model.voice.status == .connected ? "connected" : "\(model.voice.status)"
+        case "voiceLeave":
+            model?.voice.leave()
+            return "left"
+        case "voiceCamera":
+            guard let voice = model?.voice else { return "no-call" }
+            if voice.camera != (on ?? true) { await voice.toggleCamera() }
+            return voice.camera ? "on" : "off"
+        case "voiceState":
+            guard let voice = model?.voice else { return "{}" }
+            let state: [String: Any] = [
+                "status": "\(voice.status)",
+                "muted": voice.muted,
+                "deafened": voice.deafened,
+                "serverMuted": voice.serverMuted,
+                "noMic": voice.noMic,
+                "camera": voice.camera,
+                "epoch": voice.keyEpoch.map { $0 as Any } ?? NSNull(),
+                "focus": voice.focus.map { $0 as Any } ?? NSNull(),
+                "speaking": Array(voice.speaking),
+                "videos": voice.videos.map { ["id": $0.id, "userId": $0.userId, "source": $0.source == .screen ? "screen" : "camera", "local": $0.local] },
+            ]
+            let data = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])) ?? Data("{}".utf8)
+            return String(decoding: data, as: UTF8.self)
+        case "voiceReport":
+            return VoiceTesting.report()
         case "drift":
             return connection?.driftReports.joined(separator: "\n") ?? ""
         case "clearNotifications":
