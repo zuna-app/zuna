@@ -44,10 +44,21 @@ final class ComposerTests: XCTestCase {
         input.typeText(text)
     }
 
+    /// An item of a message's menu. After sending, the keyboard can go and come back, moving
+    /// the list under a press, so it waits for the message to stay put, and tries again.
     private func menu(_ id: String, _ action: String) {
-        message(id).press(forDuration: 1.0)
         let button = zuna.app.buttons[action]
-        XCTAssertTrue(button.waitForExistence(timeout: 5), "no \(action) in the menu")
+        for _ in 0..<3 where !button.exists {
+            var last = CGRect.null
+            _ = try? waitFor("the message to stay put", timeout: 5) {
+                let frame = self.message(id).frame
+                defer { last = frame }
+                return frame == last && self.message(id).isHittable
+            }
+            message(id).press(forDuration: 1.0)
+            _ = button.waitForExistence(timeout: 3)
+        }
+        XCTAssertTrue(button.exists, "no \(action) in the menu")
         button.tap()
     }
 
