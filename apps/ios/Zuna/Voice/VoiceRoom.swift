@@ -141,6 +141,7 @@ final class VoiceRoom {
     /// offer waits in a queue, and the answer made once it's let through can go out a moment before requests are,
     /// which drops it (`resumeQueues` in its `SignalClient`). With one, the media server's answer to ours now and
     /// then goes unused. Either way the connection never comes up and times out, and another try connects.
+    /// Reported as livekit/client-sdk-swift#1196: this can go once that's fixed.
     private func connectRoom(url: String, token: String) async throws {
         for attempt in 1...3 {
             do {
