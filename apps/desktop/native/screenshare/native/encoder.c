@@ -52,6 +52,14 @@ struct zuna_encoder {
     AVBufferRef *device;
     AVBufferRef *frames;
     AVBufferPool *cpu_pool;
+#ifdef _WIN32
+    ID3D11VideoProcessorEnumerator *scaler_enumerator;
+    ID3D11VideoProcessor *scaler;
+    ID3D11Texture2D *scaler_input;
+    ID3D11Texture2D *scaler_output;
+    ID3D11VideoProcessorInputView *scaler_input_view;
+    ID3D11VideoProcessorOutputView *scaler_output_view;
+#endif
 #ifdef ZUNA_VAAPI
     AVBufferRef *drm_device;
     AVBufferRef *drm_frames;
@@ -85,10 +93,15 @@ static int vbv_size(int64_t bitrate) {
     return size > INT32_MAX ? INT32_MAX : (int)size;
 }
 
+static int is_scaling(const zuna_encoder *e) {
+    return e->config.source_width != e->config.width || e->config.source_height != e->config.height;
+}
+
 static void set_low_latency_options(zuna_encoder *e) {
     void *options = e->codec->priv_data;
+    int quality = e->config.quality;
     if (is_codec(e, "h264_nvenc")) {
-        av_opt_set(options, "preset", "p4", 0);
+        av_opt_set(options, "preset", quality == ZUNA_QUALITY_SPEED ? "p1" : quality == ZUNA_QUALITY_BEST ? "p7" : "p4", 0);
         av_opt_set(options, "tune", "ull", 0);
         av_opt_set(options, "rc", "cbr", 0);
         av_opt_set(options, "profile", "high", 0);
@@ -98,7 +111,7 @@ static void set_low_latency_options(zuna_encoder *e) {
         av_opt_set_int(options, "rc-lookahead", 0, 0);
     } else if (is_codec(e, "h264_amf")) {
         av_opt_set(options, "usage", "ultralowlatency", 0);
-        av_opt_set(options, "quality", "balanced", 0);
+        av_opt_set(options, "quality", quality == ZUNA_QUALITY_SPEED ? "speed" : quality == ZUNA_QUALITY_BEST ? "quality" : "balanced", 0);
         av_opt_set(options, "rc", "cbr", 0);
         av_opt_set(options, "profile", "high", 0);
         av_opt_set(options, "header_insertion_mode", "idr", 0);
@@ -196,6 +209,70 @@ static int open_d3d11(zuna_encoder *e) {
     ((AVD3D11VAFramesContext *)frames->hwctx)->BindFlags = D3D11_BIND_RENDER_TARGET;
     return av_hwframe_ctx_init(e->frames);
 }
+
+static ID3D11Texture2D *scaler_texture(ID3D11Device *device, int width, int height, UINT bind_flags) {
+    D3D11_TEXTURE2D_DESC desc = {
+        .Width = (UINT)width,
+        .Height = (UINT)height,
+        .MipLevels = 1,
+        .ArraySize = 1,
+        .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
+        .SampleDesc = {.Count = 1},
+        .Usage = D3D11_USAGE_DEFAULT,
+        .BindFlags = bind_flags,
+    };
+    ID3D11Texture2D *texture = NULL;
+    return SUCCEEDED(ID3D11Device_CreateTexture2D(device, &desc, NULL, &texture)) ? texture : NULL;
+}
+
+// Windows's video processor, which every GPU with an encoder has, makes the picture
+// smaller without it leaving the GPU. A frame goes through two textures of its own, so
+// neither its views nor the processor's filters have to do with what the capture hands over.
+static int open_scaler(zuna_encoder *e) {
+    AVD3D11VADeviceContext *device = ((AVHWDeviceContext *)e->device->data)->hwctx;
+    D3D11_VIDEO_PROCESSOR_CONTENT_DESC content = {
+        .InputFrameFormat = D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
+        .InputFrameRate = {(UINT)e->config.fps, 1},
+        .InputWidth = (UINT)e->config.source_width,
+        .InputHeight = (UINT)e->config.source_height,
+        .OutputFrameRate = {(UINT)e->config.fps, 1},
+        .OutputWidth = (UINT)e->config.width,
+        .OutputHeight = (UINT)e->config.height,
+        .Usage = D3D11_VIDEO_USAGE_OPTIMAL_QUALITY,
+    };
+    if (FAILED(ID3D11VideoDevice_CreateVideoProcessorEnumerator(device->video_device, &content, &e->scaler_enumerator)) ||
+        FAILED(ID3D11VideoDevice_CreateVideoProcessor(device->video_device, e->scaler_enumerator, 0, &e->scaler)))
+        return AVERROR_EXTERNAL;
+
+    e->scaler_input = scaler_texture(device->device, e->config.source_width, e->config.source_height, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+    e->scaler_output = scaler_texture(device->device, e->config.width, e->config.height, D3D11_BIND_RENDER_TARGET);
+    if (!e->scaler_input || !e->scaler_output) return AVERROR_EXTERNAL;
+
+    D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC input = {.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D};
+    D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC output = {.ViewDimension = D3D11_VPOV_DIMENSION_TEXTURE2D};
+    if (FAILED(ID3D11VideoDevice_CreateVideoProcessorInputView(device->video_device, (ID3D11Resource *)e->scaler_input, e->scaler_enumerator, &input, &e->scaler_input_view)) ||
+        FAILED(ID3D11VideoDevice_CreateVideoProcessorOutputView(device->video_device, (ID3D11Resource *)e->scaler_output, e->scaler_enumerator, &output, &e->scaler_output_view)))
+        return AVERROR_EXTERNAL;
+
+    // RGB in and out at full range, with none of what the driver would do for video on its own.
+    D3D11_VIDEO_PROCESSOR_COLOR_SPACE color = {.Usage = 0, .RGB_Range = 0, .YCbCr_Matrix = 1, .Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255};
+    device->lock(device->lock_ctx);
+    ID3D11VideoContext_VideoProcessorSetStreamFrameFormat(device->video_context, e->scaler, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
+    ID3D11VideoContext_VideoProcessorSetStreamColorSpace(device->video_context, e->scaler, 0, &color);
+    ID3D11VideoContext_VideoProcessorSetOutputColorSpace(device->video_context, e->scaler, &color);
+    ID3D11VideoContext_VideoProcessorSetStreamAutoProcessingMode(device->video_context, e->scaler, 0, FALSE);
+    device->unlock(device->lock_ctx);
+    return 0;
+}
+
+static void close_scaler(zuna_encoder *e) {
+    if (e->scaler_output_view) ID3D11VideoProcessorOutputView_Release(e->scaler_output_view);
+    if (e->scaler_input_view) ID3D11VideoProcessorInputView_Release(e->scaler_input_view);
+    if (e->scaler_output) ID3D11Texture2D_Release(e->scaler_output);
+    if (e->scaler_input) ID3D11Texture2D_Release(e->scaler_input);
+    if (e->scaler) ID3D11VideoProcessor_Release(e->scaler);
+    if (e->scaler_enumerator) ID3D11VideoProcessorEnumerator_Release(e->scaler_enumerator);
+}
 #endif
 
 int zuna_encoder_send_d3d11(zuna_encoder *e, void *texture, int x, int y, int64_t pts, int force_key) {
@@ -209,13 +286,25 @@ int zuna_encoder_send_d3d11(zuna_encoder *e, void *texture, int x, int y, int64_
     }
 
     AVD3D11VADeviceContext *device = ((AVHWDeviceContext *)e->device->data)->hwctx;
-    D3D11_BOX box = {(UINT)x, (UINT)y, 0, (UINT)(x + e->config.width), (UINT)(y + e->config.height), 1};
+    D3D11_BOX box = {(UINT)x, (UINT)y, 0, (UINT)(x + e->config.source_width), (UINT)(y + e->config.source_height), 1};
     device->lock(device->lock_ctx);
-    ID3D11DeviceContext_CopySubresourceRegion(device->device_context, (ID3D11Resource *)frame->data[0],
-                                              (UINT)(intptr_t)frame->data[1], 0, 0, 0, (ID3D11Resource *)texture, 0,
-                                              &box);
+    if (e->scaler) {
+        ID3D11DeviceContext_CopySubresourceRegion(device->device_context, (ID3D11Resource *)e->scaler_input, 0, 0, 0, 0, (ID3D11Resource *)texture, 0, &box);
+        D3D11_VIDEO_PROCESSOR_STREAM stream = {.Enable = TRUE, .pInputSurface = e->scaler_input_view};
+        if (FAILED(ID3D11VideoContext_VideoProcessorBlt(device->video_context, e->scaler, e->scaler_output_view, 0, 1, &stream))) result = AVERROR_EXTERNAL;
+        ID3D11DeviceContext_CopySubresourceRegion(device->device_context, (ID3D11Resource *)frame->data[0],
+                                                  (UINT)(intptr_t)frame->data[1], 0, 0, 0, (ID3D11Resource *)e->scaler_output, 0, NULL);
+    } else {
+        ID3D11DeviceContext_CopySubresourceRegion(device->device_context, (ID3D11Resource *)frame->data[0],
+                                                  (UINT)(intptr_t)frame->data[1], 0, 0, 0, (ID3D11Resource *)texture, 0,
+                                                  &box);
+    }
     ID3D11DeviceContext_Flush(device->device_context);
     device->unlock(device->lock_ctx);
+    if (result < 0) {
+        av_frame_free(&frame);
+        return result;
+    }
 
     return send_owned(e, frame, pts, force_key);
 #else
@@ -225,7 +314,7 @@ int zuna_encoder_send_d3d11(zuna_encoder *e, void *texture, int x, int y, int64_
 }
 
 static AVFrame *copy_cpu_frame(zuna_encoder *e, const uint8_t *data, int stride) {
-    int width = e->config.width * 4;
+    int width = e->config.source_width * 4;
     AVFrame *frame = av_frame_alloc();
     if (!frame) return NULL;
     frame->buf[0] = av_buffer_pool_get(e->cpu_pool);
@@ -234,11 +323,11 @@ static AVFrame *copy_cpu_frame(zuna_encoder *e, const uint8_t *data, int stride)
         return NULL;
     }
     frame->format = e->sw_format;
-    frame->width = e->config.width;
-    frame->height = e->config.height;
+    frame->width = e->config.source_width;
+    frame->height = e->config.source_height;
     frame->data[0] = frame->buf[0]->data;
     frame->linesize[0] = width;
-    for (int row = 0; row < e->config.height; row++)
+    for (int row = 0; row < e->config.source_height; row++)
         memcpy(frame->data[0] + row * width, data + row * stride, width);
     return frame;
 }
@@ -260,13 +349,14 @@ static int open_vaapi_devices(zuna_encoder *e) {
     AVHWFramesContext *frames = (AVHWFramesContext *)e->drm_frames->data;
     frames->format = AV_PIX_FMT_DRM_PRIME;
     frames->sw_format = e->sw_format;
-    frames->width = e->config.width;
-    frames->height = e->config.height;
+    frames->width = e->config.source_width;
+    frames->height = e->config.source_height;
     return av_hwframe_ctx_init(e->drm_frames);
 }
 
-// Colour conversion on the GPU, since VA-API encoders take only NV12: a DMA-BUF
-// maps straight onto a VA surface, and CPU memory has to upload first.
+// Colour conversion on the GPU, since VA-API encoders take only NV12, and any change of
+// size along with it: a DMA-BUF maps straight onto a VA surface, and CPU memory has to
+// upload first.
 static int open_graph(zuna_encoder *e) {
     int dmabuf = e->config.input == ZUNA_INPUT_DMABUF;
     e->graph = avfilter_graph_alloc();
@@ -274,7 +364,7 @@ static int open_graph(zuna_encoder *e) {
 
     char source_args[160];
     snprintf(source_args, sizeof source_args, "video_size=%dx%d:pix_fmt=%d:time_base=1/1000000:pixel_aspect=1/1",
-             e->config.width, e->config.height, dmabuf ? AV_PIX_FMT_DRM_PRIME : e->sw_format);
+             e->config.source_width, e->config.source_height, dmabuf ? AV_PIX_FMT_DRM_PRIME : e->sw_format);
     int result = avfilter_graph_create_filter(&e->graph_source, avfilter_get_by_name("buffer"), "in", source_args,
                                               NULL, e->graph);
     if (result < 0) return result;
@@ -303,8 +393,9 @@ static int open_graph(zuna_encoder *e) {
     inputs->name = av_strdup("out");
     inputs->filter_ctx = e->graph_sink;
 
-    const char *description = dmabuf ? "hwmap=derive_device=vaapi,scale_vaapi=format=nv12:out_color_matrix=bt709:out_range=tv"
-                                     : "hwupload,scale_vaapi=format=nv12:out_color_matrix=bt709:out_range=tv";
+    char description[160];
+    snprintf(description, sizeof description, "%s,scale_vaapi=w=%d:h=%d:format=nv12:out_color_matrix=bt709:out_range=tv",
+             dmabuf ? "hwmap=derive_device=vaapi" : "hwupload", e->config.width, e->config.height);
     result = avfilter_graph_parse_ptr(e->graph, description, &inputs, &outputs, NULL);
     avfilter_inout_free(&outputs);
     avfilter_inout_free(&inputs);
@@ -367,8 +458,8 @@ static int open_cuda(zuna_encoder *e) {
     result = av_hwframe_ctx_init(e->frames);
     if (result < 0) return result;
     AVCUDADeviceContext *device = ((AVHWDeviceContext *)e->device->data)->hwctx;
-    return zuna_importer_open(e->config.render_node, device->cuda_ctx, e->config.width, e->config.height,
-                              &e->importer);
+    return zuna_importer_open(e->config.render_node, device->cuda_ctx, e->config.source_width, e->config.source_height,
+                              e->config.width, e->config.height, &e->importer);
 }
 
 // A frame of its own in CUDA memory, so it can be repeated after the capture buffer
@@ -413,8 +504,8 @@ int zuna_encoder_send_dmabuf(zuna_encoder *e, const zuna_dmabuf *dmabuf, int64_t
         return AVERROR(ENOMEM);
     }
     frame->format = AV_PIX_FMT_DRM_PRIME;
-    frame->width = e->config.width;
-    frame->height = e->config.height;
+    frame->width = e->config.source_width;
+    frame->height = e->config.source_height;
     frame->data[0] = (uint8_t *)descriptor;
     frame->buf[0] = av_buffer_create((uint8_t *)descriptor, sizeof *descriptor, free_drm_descriptor, NULL, 0);
     frame->hw_frames_ctx = av_buffer_ref(e->drm_frames);
@@ -470,11 +561,12 @@ int zuna_encoder_open(const zuna_encoder_config *config, zuna_encoder **out) {
     int result = e->codec_name && e->packet ? 0 : AVERROR(ENOMEM);
 
     if (result >= 0 && config->input != ZUNA_INPUT_D3D11 && config->input != ZUNA_INPUT_DMABUF) {
-        e->cpu_pool = av_buffer_pool_init(config->width * 4 * config->height, NULL);
+        e->cpu_pool = av_buffer_pool_init(config->source_width * 4 * config->source_height, NULL);
         if (!e->cpu_pool) result = AVERROR(ENOMEM);
     }
 #ifdef _WIN32
     if (result >= 0 && config->input == ZUNA_INPUT_D3D11) result = open_d3d11(e);
+    if (result >= 0 && config->input == ZUNA_INPUT_D3D11 && is_scaling(e)) result = open_scaler(e);
 #endif
 #ifdef ZUNA_VAAPI
     if (result >= 0 && is_codec(e, "h264_vaapi")) {
@@ -498,6 +590,9 @@ void zuna_encoder_close(zuna_encoder *e) {
     if (!e) return;
     av_frame_free(&e->last);
     avcodec_free_context(&e->codec);
+#ifdef _WIN32
+    close_scaler(e);
+#endif
 #ifdef __linux__
     zuna_importer_close(e->importer);
 #endif

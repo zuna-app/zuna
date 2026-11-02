@@ -53,6 +53,7 @@ typedef float GLfloat;
 #define GL_TEXTURE_2D 0x0DE1
 #define GL_SCISSOR_TEST 0x0C11
 #define GL_NEAREST 0x2600
+#define GL_LINEAR 0x2601
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_RGBA8 0x8058
 #define GL_READ_FRAMEBUFFER 0x8CA8
@@ -297,6 +298,8 @@ ZUNA_API int zuna_dmabuf_modifiers(const char *render_node, uint32_t fourcc, uin
 struct zuna_importer {
     CUcontext cuda;
     EGLContext context;
+    int source_width;
+    int source_height;
     int width;
     int height;
     int ready;
@@ -307,7 +310,8 @@ struct zuna_importer {
     CUgraphicsResource resource;
 };
 
-int zuna_importer_open(const char *render_node, void *cuda_context, int width, int height, zuna_importer **out) {
+int zuna_importer_open(const char *render_node, void *cuda_context, int source_width, int source_height, int width,
+                       int height, zuna_importer **out) {
     int result = open_display(render_node);
     if (result < 0) return result;
     if (!egl.BindAPI(EGL_OPENGL_API)) return fail("eglBindAPI: 0x%x", egl.GetError());
@@ -323,6 +327,8 @@ int zuna_importer_open(const char *render_node, void *cuda_context, int width, i
     }
     importer->cuda = cuda_context;
     importer->context = context;
+    importer->source_width = source_width;
+    importer->source_height = source_height;
     importer->width = width;
     importer->height = height;
     *out = importer;
@@ -343,9 +349,9 @@ static EGLImage import(const zuna_importer *importer, const zuna_dmabuf *dmabuf)
     EGLint attributes[7 + 4 * 10];
     int n = 0;
     attributes[n++] = EGL_WIDTH;
-    attributes[n++] = importer->width;
+    attributes[n++] = importer->source_width;
     attributes[n++] = EGL_HEIGHT;
-    attributes[n++] = importer->height;
+    attributes[n++] = importer->source_height;
     attributes[n++] = EGL_LINUX_DRM_FOURCC_EXT;
     attributes[n++] = (EGLint)dmabuf->fourcc;
     for (int plane = 0; plane < dmabuf->planes && plane < 4; plane++) {
@@ -399,14 +405,16 @@ int zuna_importer_copy(zuna_importer *importer, const zuna_dmabuf *dmabuf, uint6
     if (!image)
         return fail("Importing a DMA-BUF with modifier 0x%llx: EGL error 0x%x", (unsigned long long)dmabuf->modifier,
                     egl.GetError());
-    // The blit also turns the compositor's channel order into RGBA.
+    // The blit also turns the compositor's channel order into RGBA, and makes it smaller if that's wanted.
     int width = importer->width, height = importer->height;
+    int source_width = importer->source_width, source_height = importer->source_height;
     gl.BindTexture(GL_TEXTURE_2D, importer->source);
     gl.EGLImageTargetTexture2DOES(GL_TEXTURE_2D, image);
     gl.BindFramebuffer(GL_READ_FRAMEBUFFER, importer->read);
     gl.FramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, importer->source, 0);
     gl.BindFramebuffer(GL_DRAW_FRAMEBUFFER, importer->draw);
-    gl.BlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    gl.BlitFramebuffer(0, 0, source_width, source_height, 0, 0, width, height, GL_COLOR_BUFFER_BIT,
+                       source_width == width && source_height == height ? GL_NEAREST : GL_LINEAR);
     // The texture keeps the buffer for as long as the blit needs it.
     egl.DestroyImageKHR(egl.display, image);
     GLenum error = gl.GetError();
@@ -567,7 +575,7 @@ ZUNA_API int zuna_dmabuf_check(const char *render_node, char *report, int size) 
         result = cuda_failed(code, "Setting up CUDA");
         goto done;
     }
-    result = zuna_importer_open(render_node, cuda, WIDTH, HEIGHT, &importer);
+    result = zuna_importer_open(render_node, cuda, WIDTH, HEIGHT, WIDTH, HEIGHT, &importer);
     if (result >= 0) result = make_current(importer);
     if (result < 0) goto done;
 

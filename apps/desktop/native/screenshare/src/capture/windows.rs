@@ -41,7 +41,7 @@ use windows::{
 
 use super::{even, Options};
 use crate::{
-    encoder::{Config, Encoder, Input, Pixel, Result, INPUT_CPU, INPUT_D3D11},
+    encoder::{Config, Encoder, Input, Pixel, Result, Stream, INPUT_CPU, INPUT_D3D11},
     pipeline::Pipeline,
 };
 
@@ -220,7 +220,7 @@ impl Capture {
         .map_err(error("Listening for frames"))?;
 
         let session = pool.CreateCaptureSession(&item).map_err(error("Creating the session"))?;
-        let _ = session.SetIsCursorCaptureEnabled(true);
+        let _ = session.SetIsCursorCaptureEnabled(options.cursor);
         // Not on every version of Windows, and neither is worth stopping for.
         let _ = session.SetIsBorderRequired(false);
         // Half the frame's interval, because Windows drops a frame that comes even a little
@@ -256,16 +256,14 @@ impl Capture {
         (self.width, self.height)
     }
 
-    pub fn open_encoder(&self, fps: u32, gop: u32, bitrate: u64) -> Result<Encoder> {
+    pub fn open_encoder(&self, stream: Stream) -> Result<Encoder> {
         Encoder::open(&Config {
             codec: &self.codec,
             input: if self.cpu_input { INPUT_CPU } else { INPUT_D3D11 },
             pixel: Pixel::Bgra,
-            width: self.width,
-            height: self.height,
-            fps,
-            gop,
-            bitrate,
+            source_width: self.width,
+            source_height: self.height,
+            stream,
             d3d11_device: self.device.as_raw(),
             render_node: None,
         })

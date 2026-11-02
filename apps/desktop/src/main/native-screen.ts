@@ -29,9 +29,22 @@ export interface NativeScreenOptions {
   keyIndex: number;
   fps: number;
   bitrateKbps: number;
+  /** The tallest the picture may be, or 0 for the screen's own size. */
+  height: number;
+  /** Draw the pointer into the picture. */
+  cursor: boolean;
+  /** Which of the system's encoders, or "auto" for whichever goes with the screen's graphics card. */
+  encoder: string;
+  /** How much work each frame gets. */
+  effort: string;
+  keyframeSeconds: number;
   /** A point on the screen to share, or nothing for what the system's own dialog picks. */
   at: { x: number; y: number } | null;
 }
+
+const ENCODERS = new Set(["auto", "h264_nvenc", "h264_amf", "h264_vaapi"]);
+const EFFORTS = new Set(["speed", "balanced", "best"]);
+const whole = (value: number, fallback: number): string => String(Number.isFinite(value) && value > 0 ? Math.round(value) : fallback);
 
 export interface NativeScreen {
   /** What it said once it was publishing. */
@@ -56,7 +69,21 @@ export function startNativeScreen(options: NativeScreenOptions, onEnded: (proble
   const path = nativeScreenPath();
   if (!path) throw new Error("This build has no native screen capture.");
 
-  const args = ["--control", "--encoder", "auto", "--fps", String(options.fps), "--bitrate-kbps", String(options.bitrateKbps)];
+  const args = [
+    "--control",
+    "--encoder",
+    ENCODERS.has(options.encoder) ? options.encoder : "auto",
+    "--quality",
+    EFFORTS.has(options.effort) ? options.effort : "balanced",
+    "--fps",
+    whole(options.fps, 60),
+    "--bitrate-kbps",
+    whole(options.bitrateKbps, 20_000),
+    "--keyframe-seconds",
+    whole(options.keyframeSeconds, 10),
+  ];
+  if (options.height > 0) args.push("--max-height", whole(options.height, 0));
+  if (!options.cursor) args.push("--no-cursor");
   if (options.at) args.push("--monitor-at", `${options.at.x},${options.at.y}`);
 
   const child: ChildProcess = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });

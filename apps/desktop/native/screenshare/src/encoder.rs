@@ -26,6 +26,15 @@ pub enum Pixel {
     Rgbx = 3,
 }
 
+/// How much work each frame gets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Quality {
+    Speed = 0,
+    #[default]
+    Balanced = 1,
+    Best = 2,
+}
+
 #[repr(C)]
 struct RawConfig {
     codec: *const c_char,
@@ -33,9 +42,12 @@ struct RawConfig {
     pixel: c_int,
     width: c_int,
     height: c_int,
+    source_width: c_int,
+    source_height: c_int,
     fps: c_int,
     gop: c_int,
     bitrate: i64,
+    quality: c_int,
     d3d11_device: *mut c_void,
     render_node: *const c_char,
 }
@@ -158,15 +170,24 @@ pub fn check_dmabuf(render_node: &str) -> Result<String> {
     check(api, code, &format!("{report}Bringing DMA-BUFs into CUDA")).map(|_| report)
 }
 
-pub struct Config<'a> {
-    pub codec: &'a str,
-    pub input: c_int,
-    pub pixel: Pixel,
+/// What to make of the frames, whichever capture they come from.
+#[derive(Clone, Copy, Debug)]
+pub struct Stream {
     pub width: u32,
     pub height: u32,
     pub fps: u32,
     pub gop: u32,
     pub bitrate: u64,
+    pub quality: Quality,
+}
+
+pub struct Config<'a> {
+    pub codec: &'a str,
+    pub input: c_int,
+    pub pixel: Pixel,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub stream: Stream,
     pub d3d11_device: *mut c_void,
     pub render_node: Option<&'a str>,
 }
@@ -195,17 +216,25 @@ pub struct Encoder {
 impl Encoder {
     pub fn open(config: &Config) -> Result<Self> {
         let api = api()?;
+        let stream = config.stream;
+        let scaling = (stream.width, stream.height) != (config.source_width, config.source_height);
+        if scaling && config.input == INPUT_CPU && config.codec != "h264_vaapi" {
+            return Err("This encoder can only make the picture smaller on the GPU, and these frames are in CPU memory".into());
+        }
         let codec = CString::new(config.codec).unwrap();
         let render_node = config.render_node.map(|node| CString::new(node).unwrap());
         let raw_config = RawConfig {
             codec: codec.as_ptr(),
             input: config.input,
             pixel: config.pixel as c_int,
-            width: config.width as c_int,
-            height: config.height as c_int,
-            fps: config.fps as c_int,
-            gop: config.gop as c_int,
-            bitrate: config.bitrate as i64,
+            width: stream.width as c_int,
+            height: stream.height as c_int,
+            source_width: config.source_width as c_int,
+            source_height: config.source_height as c_int,
+            fps: stream.fps as c_int,
+            gop: stream.gop as c_int,
+            bitrate: stream.bitrate as i64,
+            quality: stream.quality as c_int,
             d3d11_device: config.d3d11_device,
             render_node: render_node.as_ref().map_or(ptr::null(), |node| node.as_ptr()),
         };

@@ -3,7 +3,7 @@
 
 import { randomBytes } from "node:crypto";
 import { startKeyWatch } from "./global-key";
-import { startNativeScreen } from "./native-screen";
+import { startNativeScreen, type NativeScreenOptions } from "./native-screen";
 import { notificationState, startNotifications, type Notifications } from "./notifications";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
@@ -483,7 +483,7 @@ function registerIpc(): void {
   handle("zuna:choose-display-source", (_event, id: string, audio: boolean) => {
     nextDisplay = { id, audio: !!audio };
   });
-  handle("zuna:native-screen-start", async (event, options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }) => {
+  handle("zuna:native-screen-start", async (event, options: Omit<NativeScreenOptions, "at"> & { source: string }) => {
     nativeScreen?.stop();
     const display = screenForSource(options.source);
     const started = startNativeScreen(

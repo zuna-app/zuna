@@ -23,7 +23,7 @@ use super::{
     Options,
 };
 use crate::{
-    encoder::{self, Config, DmaBuf, Encoder, Input, Pixel, Result, INPUT_CPU, INPUT_DMABUF},
+    encoder::{self, Config, DmaBuf, Encoder, Input, Pixel, Result, Stream, INPUT_CPU, INPUT_DMABUF},
     pipeline::Pipeline,
 };
 
@@ -285,10 +285,10 @@ struct PortalShare {
     node: u32,
 }
 
-async fn ask_the_portal() -> ashpd::Result<PortalShare> {
+async fn ask_the_portal(show_cursor: bool) -> ashpd::Result<PortalShare> {
     let proxy = Screencast::new().await?;
     let session = proxy.create_session(Default::default()).await?;
-    let cursor = if proxy.available_cursor_modes().await?.contains(CursorMode::Embedded) { CursorMode::Embedded } else { CursorMode::Hidden };
+    let cursor = if show_cursor && proxy.available_cursor_modes().await?.contains(CursorMode::Embedded) { CursorMode::Embedded } else { CursorMode::Hidden };
     proxy
         .select_sources(
             &session,
@@ -328,7 +328,7 @@ impl Capture {
     pub fn open(options: &Options, runtime: &tokio::runtime::Runtime) -> Result<Self> {
         let codec = choose_encoder(&options.encoder)?;
         let api = pipewire::load()?;
-        let portal = runtime.block_on(ask_the_portal()).map_err(|error| format!("Asking the portal for the screen: {error}"))?;
+        let portal = runtime.block_on(ask_the_portal(options.cursor)).map_err(|error| format!("Asking the portal for the screen: {error}"))?;
         unsafe { (api.init)(ptr::null_mut(), ptr::null_mut()) };
 
         let name = c_string("zuna-capture");
@@ -443,18 +443,16 @@ impl Capture {
         (even(self.negotiated.width), even(self.negotiated.height))
     }
 
-    pub fn open_encoder(&self, fps: u32, gop: u32, bitrate: u64) -> Result<Encoder> {
+    pub fn open_encoder(&self, stream: Stream) -> Result<Encoder> {
         let (pixel, _) = describe_format(self.negotiated.format).ok_or("PipeWire settled on a format this can't encode")?;
-        let (width, height) = self.size();
+        let (source_width, source_height) = self.size();
         Encoder::open(&Config {
             codec: &self.codec,
             input: if self.negotiated.modifier.is_some() { INPUT_DMABUF } else { INPUT_CPU },
             pixel,
-            width,
-            height,
-            fps,
-            gop,
-            bitrate,
+            source_width,
+            source_height,
+            stream,
             d3d11_device: ptr::null_mut(),
             render_node: Some(&self.render_node),
         })

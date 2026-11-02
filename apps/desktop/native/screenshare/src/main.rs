@@ -22,7 +22,7 @@ use std::{
 };
 
 use capture::{Capture, Options};
-use encoder::Result;
+use encoder::{Quality, Result, Stream};
 use pipeline::{Pipeline, Sink};
 
 #[derive(Debug)]
@@ -35,6 +35,7 @@ struct Args {
     identity: String,
     e2ee_key: Option<String>,
     bitrate_kbps: u64,
+    quality: Quality,
     keyframe_seconds: u32,
     seconds: Option<u64>,
     fix_idr: bool,
@@ -90,6 +91,9 @@ const USAGE: &str = "zuna-screenshare [options]
   --bitrate-kbps N       The most to send (20000)
   --fps N                Frame rate (60)
   --encoder NAME         auto, h264_nvenc, h264_amf or h264_vaapi (auto)
+  --quality NAME         How much work each frame gets: speed, balanced or best (balanced)
+  --max-height N         Make the picture smaller on the GPU if it's taller than this
+  --no-cursor            Leave the pointer out of the picture
   --monitor N            Which monitor (0). Linux asks through the portal instead.
   --monitor-at X,Y       The monitor at this point on the desktop
   --crop WxH             Encode this much from the top left of the monitor
@@ -107,7 +111,7 @@ const USAGE: &str = "zuna-screenshare [options]
 
 fn parse_args() -> std::result::Result<Args, String> {
     let mut args = Args {
-        capture: Options { encoder: "auto".into(), fps: 60, render_node: "/dev/dri/renderD128".into(), ..Options::default() },
+        capture: Options { encoder: "auto".into(), fps: 60, cursor: true, render_node: "/dev/dri/renderD128".into(), ..Options::default() },
         url: "ws://127.0.0.1:7880".into(),
         api_key: "devkey".into(),
         api_secret: "secret".into(),
@@ -115,6 +119,7 @@ fn parse_args() -> std::result::Result<Args, String> {
         identity: "sharer".into(),
         e2ee_key: None,
         bitrate_kbps: 20_000,
+        quality: Quality::default(),
         keyframe_seconds: 10,
         seconds: None,
         fix_idr: true,
@@ -138,6 +143,16 @@ fn parse_args() -> std::result::Result<Args, String> {
             "--bitrate-kbps" => args.bitrate_kbps = value()?.parse().map_err(number_error)?,
             "--fps" => args.capture.fps = value()?.parse().map_err(number_error)?,
             "--encoder" => args.capture.encoder = value()?,
+            "--quality" => {
+                args.quality = match value()?.as_str() {
+                    "speed" => Quality::Speed,
+                    "balanced" => Quality::Balanced,
+                    "best" => Quality::Best,
+                    other => return Err(format!("--quality takes speed, balanced or best, not {other}")),
+                }
+            }
+            "--max-height" => args.capture.max_height = Some(value()?.parse().map_err(number_error)?),
+            "--no-cursor" => args.capture.cursor = false,
             "--monitor" => args.capture.monitor = value()?.parse().map_err(number_error)?,
             "--monitor-at" => {
                 let text = value()?;
@@ -334,12 +349,12 @@ fn run(args: Args) -> Result<()> {
     }
 
     let mut capture = Capture::open(&args.capture, &runtime)?;
-    let (width, height) = capture.size();
+    let (width, height) = capture::fitted(capture.size(), args.capture.max_height);
     let bitrate_cap = args.bitrate_kbps * 1000;
     let publishing = args.output.is_none();
     let bitrate = pipeline::starting_bitrate(bitrate_cap, publishing);
     let gop = args.capture.fps * args.keyframe_seconds;
-    let encoder = capture.open_encoder(args.capture.fps, gop, bitrate)?;
+    let encoder = capture.open_encoder(Stream { width, height, fps: args.capture.fps, gop, bitrate, quality: args.quality })?;
 
     #[cfg(feature = "livekit")]
     let mut room = None;

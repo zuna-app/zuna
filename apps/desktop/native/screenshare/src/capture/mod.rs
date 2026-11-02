@@ -24,6 +24,10 @@ pub struct Options {
     pub crop: Option<(u32, u32)>,
     /// Hand the encoder frames from CPU memory, even where it could take GPU textures.
     pub cpu_input: bool,
+    /// Draw the pointer into the picture.
+    pub cursor: bool,
+    /// The tallest the picture may be when it's encoded.
+    pub max_height: Option<u32>,
     #[cfg_attr(windows, allow(dead_code))]
     pub render_node: String,
 }
@@ -31,4 +35,36 @@ pub struct Options {
 /// H.264 can't encode an odd width or height.
 pub fn even(value: u32) -> u32 {
     value & !1
+}
+
+/// The size to encode a picture of this size at, the same shape and no taller than asked.
+pub fn fitted((width, height): (u32, u32), max_height: Option<u32>) -> (u32, u32) {
+    match max_height {
+        Some(max) if max > 0 && max < height => {
+            let max = even(max).max(2);
+            let scaled = (width as u64 * max as u64 + height as u64 / 2) / height as u64;
+            (even(scaled as u32).max(2), max)
+        }
+        _ => (width, height),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fitted;
+
+    #[test]
+    fn a_picture_keeps_its_shape_and_stays_even() {
+        assert_eq!(fitted((2560, 1440), Some(720)), (1280, 720));
+        assert_eq!(fitted((3840, 1600), Some(1080)), (2592, 1080));
+        assert_eq!(fitted((1366, 768), Some(481)), (854, 480));
+    }
+
+    #[test]
+    fn a_picture_is_never_made_larger() {
+        assert_eq!(fitted((1920, 1080), Some(2160)), (1920, 1080));
+        assert_eq!(fitted((1920, 1080), Some(1080)), (1920, 1080));
+        assert_eq!(fitted((1920, 1080), None), (1920, 1080));
+        assert_eq!(fitted((1920, 1080), Some(0)), (1920, 1080));
+    }
 }

@@ -239,7 +239,7 @@ impl Pipeline {
             }
             // Zero means libwebrtc has paused sending, which isn't a bitrate to encode at.
             if let Some(request) = source.take_rate_control_request().filter(|request| request.target_bitrate_bps > 0) {
-                self.bitrate_wanted = request.target_bitrate_bps.clamp(BITRATE_FLOOR, self.bitrate_cap);
+                self.bitrate_wanted = request.target_bitrate_bps.clamp(BITRATE_FLOOR.min(self.bitrate_cap), self.bitrate_cap);
             }
         }
         self.follow_bitrate()

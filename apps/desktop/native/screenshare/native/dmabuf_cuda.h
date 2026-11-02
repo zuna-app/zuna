@@ -15,11 +15,13 @@
 typedef struct zuna_importer zuna_importer;
 
 // Takes the CUcontext the frames are in. The OpenGL context it makes is current on
-// whichever thread copies first, and has to stay on that thread.
-int zuna_importer_open(const char *render_node, void *cuda_context, int width, int height, zuna_importer **out);
+// whichever thread copies first, and has to stay on that thread. Frames come in at the
+// source's size and go out at this size.
+int zuna_importer_open(const char *render_node, void *cuda_context, int source_width, int source_height, int width,
+                       int height, zuna_importer **out);
 
-// Copies a frame into CUDA memory as RGB0, and returns once the DMA-BUF can go back
-// to the compositor.
+// Copies a frame into CUDA memory as RGB0, making it smaller if that was asked for, and
+// returns once the DMA-BUF can go back to the compositor.
 int zuna_importer_copy(zuna_importer *importer, const zuna_dmabuf *dmabuf, uint64_t destination, size_t pitch);
 
 void zuna_importer_close(zuna_importer *importer);

@@ -19,16 +19,23 @@ typedef struct zuna_encoder zuna_encoder;
 
 enum zuna_input { ZUNA_INPUT_D3D11 = 0, ZUNA_INPUT_CPU = 1, ZUNA_INPUT_DMABUF = 2 };
 enum zuna_pixel { ZUNA_PIXEL_BGRA = 0, ZUNA_PIXEL_RGBA = 1, ZUNA_PIXEL_BGRX = 2, ZUNA_PIXEL_RGBX = 3 };
+// How much work each frame gets: VA-API has no such choice.
+enum zuna_quality { ZUNA_QUALITY_SPEED = 0, ZUNA_QUALITY_BALANCED = 1, ZUNA_QUALITY_BEST = 2 };
 
 typedef struct zuna_encoder_config {
     const char *codec;
     int input;
     int pixel;
+    // What's encoded, and what comes in, which is made smaller on the GPU if it's larger.
+    // CPU memory can only be made smaller on its way to VA-API.
     int width;
     int height;
+    int source_width;
+    int source_height;
     int fps;
     int gop;
     int64_t bitrate;
+    int quality;
     void *d3d11_device;       // ID3D11Device*, for ZUNA_INPUT_D3D11
     const char *render_node;  // /dev/dri/renderD128, for VA-API and DMA-BUFs into NVENC
 } zuna_encoder_config;
