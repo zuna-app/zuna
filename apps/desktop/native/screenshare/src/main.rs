@@ -365,7 +365,7 @@ fn run(args: Args) -> Result<()> {
         "{{\"type\":\"ready\",\"description\":{:?},\"width\":{width},\"height\":{height},\"fps\":{},\"e2ee\":{},\"idrFix\":{}}}",
         capture.description,
         args.capture.fps,
-        args.e2ee_key.is_some(),
+        args.e2ee_key.is_some() || access.is_some(),
         args.fix_idr,
     );
 

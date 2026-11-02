@@ -397,6 +397,11 @@ async function runIn(name) {
     await again.waitForFunction(() => document.querySelector(".voice-control.is-live, .voice-control.is-off"), null, { timeout: 15_000 });
     await sleep(1000);
     await again.screenshot({ path: prefix("08-voice") });
+    await again.getByRole("button", { name: "Stream stats" }).click();
+    const connection = again.locator(".stream-stats-section", { hasText: "Connection" });
+    await connection.waitFor({ timeout: 5000 });
+    check("stream stats read the call", (await connection.innerText()).includes("End to end"));
+    await again.getByRole("button", { name: "Close stream stats" }).click();
     await again.getByRole("button", { name: "Disconnect from voice" }).click();
     await again.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
 

@@ -10,6 +10,7 @@ import {
   createKeyMaterialFromBuffer,
   DisconnectReason,
   type LocalAudioTrack,
+  type LocalTrack,
   type LocalTrackPublication,
   type Participant,
   type RemoteAudioTrack,
@@ -27,6 +28,7 @@ import {
 import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { captureKey, MicError, Microphone, type MicReading } from "./mic";
 import type { VoiceSettings } from "./settings";
+import type { StatsRoom, StatsStream } from "./stats";
 
 /**
  * How long after hearing of a new key this device starts sending under it, so that
@@ -107,6 +109,7 @@ export class VoiceRoom {
   private sendTimer: ReturnType<typeof setTimeout> | undefined;
   private statsTimer: ReturnType<typeof setInterval> | undefined;
   private identity = "";
+  private mediaUrl = "";
   private capturing = "";
   private closed = false;
   private readonly audioHolder = document.createElement("div");
@@ -165,6 +168,7 @@ export class VoiceRoom {
     await this.audio.resume().catch(() => undefined);
     this.micProblem = await this.openMic();
     const access = await this.session.voiceAccess(this.channelId);
+    this.mediaUrl = access.url;
     this.identity = access.identity;
     this.serverMuted = access.serverMuted;
     await this.updateKeys(true);
@@ -465,6 +469,36 @@ export class VoiceRoom {
 
   get cameraOn(): boolean {
     return this.room.localParticipant.isCameraEnabled;
+  }
+
+  // --- Stats ---
+
+  /** Where this connection is, and everything going through it that can be read. */
+  statsRoom(status: string): StatsRoom {
+    const streams: StatsStream[] = [];
+    const add = (participant: Participant, local: boolean) => {
+      const parsed = parseVoiceIdentity(participant.identity);
+      if (!parsed) return;
+      for (const publication of participant.trackPublications.values()) {
+        const track = publication.track as LocalTrack | RemoteTrack | undefined;
+        if (track) streams.push({ key: `${participant.identity}/${publication.trackSid}`, userId: parsed.userId, local, source: publication.source, native: !!parsed.screen, track, publication });
+      }
+    };
+    add(this.room.localParticipant, true);
+    for (const participant of this.room.remoteParticipants.values()) add(participant, false);
+    const key = this.roomKeys[0];
+    return {
+      status,
+      url: this.mediaUrl,
+      serverVersion: this.room.serverInfo?.version,
+      serverRegion: this.room.serverInfo?.region,
+      serverNode: this.room.serverInfo?.nodeId,
+      people: new Set([...this.room.remoteParticipants.keys()].filter((identity) => !parseVoiceIdentity(identity)?.screen)).size + 1,
+      encrypted: this.room.isE2EEEnabled,
+      keyIndex: key?.index,
+      keyEpoch: key?.epoch,
+      streams,
+    };
   }
 
   close(): void {

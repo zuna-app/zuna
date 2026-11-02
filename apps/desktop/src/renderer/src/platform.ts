@@ -1,7 +1,7 @@
 // The desktop's side of the interface: everything the Electron shell provides,
 // through the bridge the preload script exposes.
 
-import { connectWorker, type DeviceInfo, type DisplaySource, type Platform } from "@zuna/ui";
+import { connectWorker, type DeviceInfo, type DisplaySource, type NativeScreenInfo, type NativeScreenStats, type Platform } from "@zuna/ui";
 
 export interface DesktopBridge {
   /** Whether the system shows times with AM and PM. */
@@ -13,10 +13,11 @@ export interface DesktopBridge {
   camera(): Promise<boolean>;
   displaySources(): Promise<DisplaySource[]>;
   chooseDisplaySource(id: string, audio: boolean): Promise<void>;
-  nativeScreenStart(options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }): Promise<void>;
+  nativeScreenStart(options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }): Promise<NativeScreenInfo>;
   nativeScreenKey(key: Uint8Array, keyIndex: number): Promise<void>;
   nativeScreenStop(): Promise<void>;
   onNativeScreenEnded(listener: (problem: string | null) => void): () => void;
+  onNativeScreenStats(listener: (stats: NativeScreenStats) => void): () => void;
   watchKey(code: string | null): Promise<boolean>;
   onKey(listener: (down: boolean) => void): () => void;
   notify(payload: { title: string; body: string; route: unknown }): Promise<void>;
@@ -60,6 +61,7 @@ export function desktopPlatform(): Platform {
       setKey: (key, keyIndex) => void desktop.nativeScreenKey(key, keyIndex),
       stop: () => void desktop.nativeScreenStop(),
       onEnded: (listener) => desktop.onNativeScreenEnded(listener),
+      onStats: (listener) => desktop.onNativeScreenStats(listener),
     },
     watchKey(code, listener) {
       const off = desktop.onKey(listener);

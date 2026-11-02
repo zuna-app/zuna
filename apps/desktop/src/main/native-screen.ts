@@ -34,7 +34,8 @@ export interface NativeScreenOptions {
 }
 
 export interface NativeScreen {
-  ready: Promise<void>;
+  /** What it said once it was publishing. */
+  ready: Promise<unknown>;
   setKey(key: Uint8Array, keyIndex: number): void;
   stop(): void;
 }
@@ -51,7 +52,7 @@ function describeProblem(said: string[]): string {
  * Starts the program. Its token and keys go to it over its standard input, since a
  * command line can be read by anything else on the computer.
  */
-export function startNativeScreen(options: NativeScreenOptions, onEnded: (problem: string | null) => void): NativeScreen {
+export function startNativeScreen(options: NativeScreenOptions, onEnded: (problem: string | null) => void, onStats: (stats: unknown) => void): NativeScreen {
   const path = nativeScreenPath();
   if (!path) throw new Error("This build has no native screen capture.");
 
@@ -66,7 +67,7 @@ export function startNativeScreen(options: NativeScreenOptions, onEnded: (proble
   let stopping = false;
   let settled = false;
 
-  const ready = new Promise<void>((resolve, reject) => {
+  const ready = new Promise<unknown>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
@@ -84,7 +85,9 @@ export function startNativeScreen(options: NativeScreenOptions, onEnded: (proble
       if (message.type === "ready" && !settled) {
         settled = true;
         clearTimeout(timer);
-        resolve();
+        resolve(message);
+      } else if (message.type === "stats") {
+        onStats(message);
       }
     });
     createInterface({ input: child.stderr! }).on("line", (line) => {

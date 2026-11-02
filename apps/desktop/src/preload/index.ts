@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("zunaDesktop", {
   nativeScreenKey: (key: Uint8Array, keyIndex: number) => ipcRenderer.invoke("zuna:native-screen-key", key, keyIndex),
   nativeScreenStop: () => ipcRenderer.invoke("zuna:native-screen-stop"),
   onNativeScreenEnded: (listener: (problem: string | null) => void) => on("zuna:native-screen-ended", listener),
+  onNativeScreenStats: (listener: (stats: unknown) => void) => on("zuna:native-screen-stats", listener),
   watchKey: (code: string | null) => ipcRenderer.invoke("zuna:watch-key", code),
   onKey: (listener: (down: boolean) => void) => on("zuna:key", listener),
   notify: (payload: unknown) => ipcRenderer.invoke("zuna:notify", payload),

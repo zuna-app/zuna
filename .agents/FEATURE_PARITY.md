@@ -35,7 +35,7 @@ Things one platform should have and doesn't.
 
 ## Channels and voice channels
 
-Desktop and web only for now (see Known gaps). Paths are under `features/voice/` and `voice/` in `packages/ui/src/` unless written out. Checked on Windows with `apps/desktop/test/voice-check.mjs` in Electron against a real LiveKit, and `apps/web/test/web-check.mjs` in Chromium, which connects and encrypts but only has one person in a call.
+Desktop and web only for now (see Known gaps). Paths are under `features/voice/` and `voice/` in `packages/ui/src/` unless written out. Checked on Windows with `apps/desktop/test/voice-check.mjs` in Electron against a real LiveKit behind TLS, and `apps/web/test/web-check.mjs` in Chromium, which connects and encrypts but only has one person in a call.
 
 | Feature | Desktop | iOS | Web | Desktop and web code | Notes |
 |---|---|---|---|---|---|
@@ -51,8 +51,9 @@ Desktop and web only for now (see Known gaps). Paths are under `features/voice/`
 | Mute, deafen, choosing devices, how loud each person is, muting someone for yourself, join and leave sounds | yes | no | yes | `features/voice/VoiceStage.tsx`, `features/voice/VoicePanel.tsx`, `voice/settings.ts`, `voice/sounds.ts` | |
 | Muting someone for everyone, and disconnecting them, for server admins | yes | no | yes | `features/voice/VoiceStage.tsx`, `server/internal/api/voice.go` | LiveKit enforces it, as their token no longer allows a microphone |
 | Cameras | yes | no | yes | `voice/room.ts` | Checked with Chromium's fake camera |
-| Sharing a screen natively, on the GPU | yes | no | no | `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts`, `features/voice/ScreenPicker.tsx` | Windows and Linux, whole screens. Run from the app on Windows with NVENC only; Linux only in `poc/screenshare`. See `docs/SCREEN_SHARE.md` |
-| Sharing through the browser, with its sound on Windows | yes | no | yes | `voice/room.ts`, `apps/desktop/src/main/index.ts` (`setDisplayMediaRequestHandler`) | Windows on the desktop, whatever isn't native, and everything on the web, which uses the browser's own picker. `restrictOwnAudio` leaves out Zuna and keeps other programs, measured in Electron on Windows. macOS has not been run |
+| Sharing a screen natively, on the GPU | yes | no | no | `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts`, `features/voice/ScreenPicker.tsx` | Windows and Linux, whole screens. Run from the app on Windows with NVENC only, at 60 fps over TLS; Linux only in `poc/screenshare`, and its TLS and frame rate changes haven't run. See `docs/SCREEN_SHARE.md` |
+| Sharing through the browser, with its sound on Windows | yes | no | yes | `voice/room.ts`, `apps/desktop/src/main/index.ts` (`setDisplayMediaRequestHandler`) | Windows on the desktop, whatever isn't native, and everything on the web, which uses the browser's own picker. `restrictOwnAudio` leaves out Zuna and keeps other programs, measured in Electron on Windows. Asks for the chosen frame rate: 57 of 60 fps at 2560x1440 on Windows, with OpenH264 in software. macOS has not been run |
+| Stream stats: a window over the call with frame rates, bitrates, codecs, encoders, loss and the route of every stream, and why a share isn't native. It can be moved and copied | yes | no | yes | `features/voice/StreamStatsPanel.tsx`, `voice/stats.ts`, `onStats` in `apps/desktop/src/main/native-screen.ts` | Read only while open. Web: run in Chromium with one person in a call, so its video rows haven't been seen there. Firefox and WebKit report less, and rows they don't report are left out |
 | Voice and video settings, with a microphone test and a live meter | yes | no | yes | `features/voice/VoiceSettings.tsx` | Per device |
 
 ## Conversation list

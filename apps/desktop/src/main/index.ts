@@ -438,13 +438,19 @@ function registerIpc(): void {
   handle("zuna:native-screen-start", async (event, options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }) => {
     nativeScreen?.stop();
     const display = screenForSource(options.source);
-    const started = startNativeScreen({ ...options, at: display }, (problem) => {
-      if (nativeScreen !== started) return;
-      nativeScreen = null;
-      event.sender.send("zuna:native-screen-ended", problem);
-    });
+    const started = startNativeScreen(
+      { ...options, at: display },
+      (problem) => {
+        if (nativeScreen !== started) return;
+        nativeScreen = null;
+        event.sender.send("zuna:native-screen-ended", problem);
+      },
+      (stats) => {
+        if (nativeScreen === started && !event.sender.isDestroyed()) event.sender.send("zuna:native-screen-stats", stats);
+      },
+    );
     nativeScreen = started;
-    await started.ready;
+    return started.ready;
   });
   handle("zuna:native-screen-key", (_event, key: Uint8Array, keyIndex: number) => nativeScreen?.setKey(key, keyIndex));
   handle("zuna:native-screen-stop", () => {

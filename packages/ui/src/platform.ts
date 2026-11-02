@@ -26,10 +26,44 @@ export interface DisplaySource {
   native: boolean;
 }
 
+/** What a native share is doing, as it says once it's publishing. */
+export interface NativeScreenInfo {
+  /** The screen, the graphics card and the encoder, in words. */
+  description: string;
+  width: number;
+  height: number;
+  fps: number;
+  e2ee: boolean;
+}
+
+/** How a native share went over the last second. */
+export interface NativeScreenStats {
+  /** Frames with something new on them. */
+  fps: number;
+  /** Frames sent again while the screen is still, for the encoder to sharpen it. */
+  repeatFps: number;
+  kbps: number;
+  /** What the network allows. */
+  targetKbps: number;
+  encoderKbps: number;
+  encodeMsAvg: number;
+  encodeMsMax: number;
+  keys: number;
+  keyRequests: number;
+  bitrateChanges: number;
+  /** Frames LiveKit wouldn't take. */
+  rejected: number;
+  idrRewritten: number;
+  idrLeftAlone: number;
+  cpuCores: number;
+}
+
 /** Sharing a screen from a native process, which captures and encodes on the GPU and only uses LiveKit to carry the result. */
 export interface NativeScreenShare {
   /** Starts it, finishing once it's publishing. */
-  start(options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }): Promise<void>;
+  start(options: { url: string; token: string; key: Uint8Array; keyIndex: number; fps: number; bitrateKbps: number; source: string }): Promise<NativeScreenInfo>;
+  /** Hears how it's going, about once a second. */
+  onStats(listener: (stats: NativeScreenStats) => void): () => void;
   /** The key its frames go under from now on. */
   setKey(key: Uint8Array, keyIndex: number): void;
   stop(): void;

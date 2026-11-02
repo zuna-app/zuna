@@ -9,8 +9,10 @@
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
+import { createServer as createTlsServer } from "node:tls";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright-core";
 import { ensureLiveKit } from "../../../scripts/lib.mjs";
@@ -80,10 +82,39 @@ let liveKitOutput = "";
 liveKit.stdout.on("data", (chunk) => (liveKitOutput += chunk));
 liveKit.stderr.on("data", (chunk) => (liveKitOutput += chunk));
 
+// A real server's media server is behind TLS, and everything here goes through the same.
+// The native capture has its own TLS and its own certificates to trust, so it can't
+// reach one unless it's been built to, which plain ws:// would never show.
+const certificates = mkdtempSync(join(tmpdir(), "zuna-voice-tls-"));
+{
+  const openssl = ["openssl", "C:\\Program Files\\Git\\usr\\bin\\openssl.exe"].find((path) => {
+    try {
+      execFileSync(path, ["version"], { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (!openssl) throw new Error("This check needs openssl, to make certificates for its media server.");
+  const run = (...args) => execFileSync(openssl, args, { cwd: certificates, stdio: "ignore" });
+  const key = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"];
+  run("req", "-x509", ...key, "-keyout", "ca.key", "-out", "ca.crt", "-days", "2", "-subj", "/CN=Zuna voice check");
+  run("req", ...key, "-keyout", "leaf.key", "-out", "leaf.csr", "-subj", "/CN=localhost");
+  writeFileSync(join(certificates, "leaf.ext"), "subjectAltName=DNS:localhost\nbasicConstraints=CA:FALSE\n");
+  run("x509", "-req", "-in", "leaf.csr", "-CA", "ca.crt", "-CAkey", "ca.key", "-CAcreateserial", "-out", "leaf.crt", "-days", "2", "-extfile", "leaf.ext");
+}
+const tlsFront = createTlsServer({ key: readFileSync(join(certificates, "leaf.key")), cert: readFileSync(join(certificates, "leaf.crt")) }, (client) => {
+  const upstream = createConnection(liveKitPort, "127.0.0.1");
+  for (const socket of [client, upstream]) socket.on("error", () => undefined);
+  client.pipe(upstream).pipe(client);
+});
+await new Promise((resolve) => tlsFront.listen(0, "127.0.0.1", resolve));
+const mediaUrl = `wss://localhost:${tlsFront.address().port}`;
+
 const data = mkdtempSync(join(tmpdir(), "zuna-voice-data-"));
 const port = 21000 + Math.floor(Math.random() * 20000);
 const url = `http://127.0.0.1:${port}`;
-const server = spawn(binary, ["--listen", `127.0.0.1:${port}`, "--data", data, "--public-url", url, "--auth-burst", "1000", "--livekit-internal-url", `http://127.0.0.1:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"], { stdio: ["ignore", "pipe", "pipe"] });
+const server = spawn(binary, ["--listen", `127.0.0.1:${port}`, "--data", data, "--public-url", url, "--auth-burst", "1000", "--livekit-url", mediaUrl, "--livekit-internal-url", `http://127.0.0.1:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"], { stdio: ["ignore", "pipe", "pipe"] });
 let serverOutput = "";
 server.stdout.on("data", (chunk) => (serverOutput += chunk));
 server.stderr.on("data", (chunk) => (serverOutput += chunk));
@@ -103,9 +134,10 @@ const apps = [];
 const errors = [];
 async function launch(name, soundFile) {
   const userData = mkdtempSync(join(tmpdir(), `zuna-voice-${name}-`));
-  const args = [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"];
+  // Chromium is told to trust the test's media server here, and the native capture through SSL_CERT_FILE.
+  const args = [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors"];
   if (soundFile) args.push(`--use-file-for-fake-audio-capture=${soundFile}`);
-  const electronApp = await electron.launch({ args, env: { ...process.env, ELECTRON_RENDERER_URL: "" } });
+  const electronApp = await electron.launch({ args, env: { ...process.env, ELECTRON_RENDERER_URL: "", SSL_CERT_FILE: join(certificates, "ca.crt") } });
   const page = await electronApp.firstWindow();
   page.on("pageerror", (error) => errors.push(`${name}: ${error.message}`));
   page.on("console", (message) => {
@@ -221,6 +253,26 @@ async function loudness(page, seconds = 3) {
 }
 
 const rowFor = (page, name) => page.locator(".channel-row", { hasText: name });
+
+/** What the stream stats window says now: each section's title, headline and rows. */
+const readStats = (page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll(".stream-stats-section")].map((section) => ({
+      title: section.querySelector("summary").textContent,
+      fps: Number.parseFloat(section.querySelector(".stream-stats-fps b")?.textContent ?? ""),
+      rows: Object.fromEntries([...section.querySelectorAll(".stream-stats-rows > div")].map((row) => [row.querySelector("dt").textContent, row.querySelector("dd").textContent])),
+    })),
+  );
+const fpsIn = (text) => Number.parseFloat(text ?? "");
+
+/** Something moving on the screen, so that a share has a new frame to send at every refresh. */
+async function animateTheScreen({ electronApp }) {
+  await electronApp.evaluate(async ({ BrowserWindow, screen }) => {
+    const { x, y, height } = screen.getPrimaryDisplay().workArea;
+    const window = new BrowserWindow({ x: x + 8, y: y + height - 188, width: 220, height: 180, frame: false, alwaysOnTop: true, focusable: false, title: "Moving", webPreferences: { backgroundThrottling: false } });
+    await window.loadURL(`data:text/html,${encodeURIComponent(`<!doctype html><title>Moving</title><body style="margin:0;background:#123"><div id=b style="position:absolute;width:40px;height:40px;background:#0f0"></div><script>let n=0;(function f(){n++;b.style.left=n*3%180+"px";b.style.top=n%140+"px";requestAnimationFrame(f)})()</script>`)}`);
+  });
+}
 
 let failed = null;
 try {
@@ -450,6 +502,44 @@ try {
   await shot(bob, "09-screen");
   await shot(alice, "09-sharing");
 
+  // --- Stream stats, and whether the frame rate that was asked for is what's happening ---
+  await animateTheScreen(alice);
+  await alice.page.getByRole("button", { name: "Stream stats" }).click();
+  await bob.page.getByRole("button", { name: "Stream stats" }).click();
+  await sleep(7000);
+  const sharerStats = await readStats(alice.page);
+  const viewerStats = await readStats(bob.page);
+  await shot(alice, "09-stats-sharing");
+  await shot(bob, "09-stats-watching");
+  const connection = sharerStats.find((section) => section.title === "Connection");
+  check("the stats say where the media goes", connection?.rows["Media server"] === new URL(mediaUrl).host, connection?.rows["Media server"]);
+  check("the stats say it's encrypted", connection?.rows.Encryption?.startsWith("End to end"), connection?.rows.Encryption);
+  const sharing = sharerStats.find((section) => section.title === "Your screen");
+  const watching = viewerStats.find((section) => section.title === "Alice's screen");
+  console.log(`  Sharing: ${JSON.stringify(sharing)}`);
+  console.log(`  Watching: ${JSON.stringify(watching)}`);
+  check("the stats say what a share is doing", !!sharing && !!sharing.rows["Sent through"], sharing?.rows["Sent through"]);
+  check("the stats say what's being watched", !!watching && !!watching.rows.Decoding && !!watching.rows.Painting, `${watching?.rows.Decoding} decoded, ${watching?.rows.Painting} painted through ${watching?.rows.Decoder}`);
+  check("a share sends the frame rate that was asked for", sharing?.fps > 50, `${sharing?.fps} fps`);
+  check("someone watching decodes the frame rate that was asked for", fpsIn(watching?.rows.Decoding) > 50, watching?.rows.Decoding);
+  if (native) {
+    check("a native share works over TLS", sharing?.rows["Sent through"]?.startsWith("Native") && !sharing?.rows["Why not natively"], sharing?.rows["Sent through"]);
+    check("it sends that many really new frames", fpsIn(sharing?.rows["New frames"]) > 50, sharing?.rows["New frames"]);
+    check("someone watching can tell how it's being sent", watching?.rows["Sent through"]?.startsWith("Native"), watching?.rows["Sent through"]);
+  } else {
+    check("capture runs at the frame rate that was asked for", fpsIn(sharing?.rows["Capture agreed to"]) === 60 && fpsIn(sharing?.rows.Capturing) > 50, `agreed to ${sharing?.rows["Capture agreed to"]}, capturing ${sharing?.rows.Capturing}, through ${sharing?.rows.Encoder}`);
+  }
+  const dragFrom = await alice.page.locator(".stream-stats-head").boundingBox();
+  await alice.page.mouse.move(dragFrom.x + 60, dragFrom.y + 12);
+  await alice.page.mouse.down();
+  await alice.page.mouse.move(dragFrom.x - 140, dragFrom.y + 92, { steps: 4 });
+  await alice.page.mouse.up();
+  const dragTo = await alice.page.locator(".stream-stats-head").boundingBox();
+  check("the stats window can be moved out of the way", Math.abs(dragTo.x - dragFrom.x + 200) < 2 && Math.abs(dragTo.y - dragFrom.y - 80) < 2, `by ${dragTo.x - dragFrom.x}, ${dragTo.y - dragFrom.y}`);
+  await alice.page.getByRole("button", { name: "Close stream stats" }).click();
+  await bob.page.getByRole("button", { name: "Close stream stats" }).click();
+  check("the stats window closes", (await alice.page.locator(".stream-stats").count()) === 0);
+
   // Someone new changes the key while the screen is being shared.
   const dave = await launch("dave", noisePath);
   await signUp(dave, invite, "Dave", false);
@@ -475,6 +565,13 @@ try {
     await alice.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 20_000 });
     await bob.page.locator(".voice-tile.is-screen video").first().waitFor({ timeout: 15_000 }).then(() => check("a shared window reaches others", true)).catch(() => check("a shared window reaches others", false));
     await sleep(2500);
+    const asked = await alice.page.evaluate(() => {
+      for (const connection of window.__connections) {
+        for (const sender of connection.getSenders()) if (sender.track?.kind === "video" && sender.track.readyState === "live") return sender.track.getSettings().frameRate;
+      }
+      return null;
+    });
+    check("a window is captured at the frame rate that was asked for", asked === 60, `${asked} fps`);
     const window = await audioFlow(bob.page, 2);
     check("a shared window decrypts", window.inVideoFrames >= 0 && (await bob.page.evaluate(() => !!window.__lastVideo)), `${window.inVideoFrames.toFixed(0)} frames/s decoded`);
     await alice.page.getByRole("button", { name: "Stop sharing" }).first().click();
@@ -577,8 +674,9 @@ try {
   for (const entry of apps) await entry.electronApp.close().catch(() => undefined);
   server.kill();
   liveKit.kill();
+  tlsFront.close();
   await sleep(300);
-  for (const dir of [data, fixtures, ...apps.map((entry) => entry.userData)]) {
+  for (const dir of [data, fixtures, certificates, ...apps.map((entry) => entry.userData)]) {
     try {
       rmSync(dir, { recursive: true, force: true });
     } catch {

@@ -1,5 +1,6 @@
 import type { ChannelView, VoiceMember } from "@zuna/core";
 import {
+  Activity,
   Camera,
   CameraOff,
   ChevronUp,
@@ -29,6 +30,7 @@ import { selfIsSpeaking, useVoice } from "@/voice/store";
 import { ChatView } from "@/features/chat/ChatView";
 import { channelTitle } from "./ChannelList";
 import { ScreenPicker } from "./ScreenPicker";
+import { StreamStatsPanel } from "./StreamStatsPanel";
 
 /** Shows one video. A track can be attached to many elements, and each is let go of when it's gone. */
 const VideoView = memo(function VideoView({ tile, contain }: { tile: VideoTile; contain?: boolean }) {
@@ -254,6 +256,7 @@ export function VoiceStage({ channel }: { channel: ChannelView }) {
   const setFocus = useVoice((state) => state.setFocus);
   const screenShare = useVoice((state) => state.screen);
   const [chatOpen, setChatOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
   const menu = useMemberMenu();
 
   const members = useMemo(
@@ -280,7 +283,13 @@ export function VoiceStage({ channel }: { channel: ChannelView }) {
               <Lock size={12} /> Encrypted
             </span>
           </Tooltip>
+          <Tooltip text="Stream stats">
+            <button className={`icon-btn is-small${statsOpen ? " is-active" : ""}`} onClick={() => setStatsOpen(!statsOpen)} aria-label="Stream stats" aria-pressed={statsOpen}>
+              <Activity size={15} />
+            </button>
+          </Tooltip>
         </header>
+        {statsOpen && <StreamStatsPanel onClose={() => setStatsOpen(false)} />}
 
         {status === "connecting" ? (
           <div className="voice-connecting">

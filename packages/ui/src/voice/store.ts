@@ -11,6 +11,7 @@ import type { MicReading } from "./mic";
 import { DisconnectReason, VoiceRoom, type RoomQuality, type VideoTile } from "./room";
 import { loadVoiceSettings, loadVolumes, saveVoiceSettings, saveVolumes, type VoiceSettings } from "./settings";
 import { playVoiceSound, setSoundOutput, type VoiceSound } from "./sounds";
+import { addNativeReading, NO_NATIVE_READINGS, type StatSection, type StatsShare, type StreamStats } from "./stats";
 
 export type VoiceStatus = "idle" | "connecting" | "connected" | "reconnecting";
 
@@ -48,7 +49,7 @@ interface VoiceState {
   rtt: number | null;
   camera: boolean;
   /** What this device is sharing. */
-  screen: { native: boolean; name: string } | null;
+  screen: StatsShare | null;
   /** The video filling the stage, by its key. */
   focus: string | null;
   settings: VoiceSettings;
@@ -70,6 +71,8 @@ interface VoiceState {
   setFocus(key: string | null): void;
   updateSettings(changes: Partial<VoiceSettings>): void;
   setKeyHeld(down: boolean): void;
+  /** What's going out and coming in right now, for the stream stats window. */
+  readStats(reader: StreamStats, nameOf: (userId: string) => string): Promise<StatSection[]>;
 }
 
 const NOT_IN_VOICE = {
@@ -92,7 +95,24 @@ const NOT_IN_VOICE = {
 const RECONNECT_ATTEMPTS = 3;
 const RECONNECT_WAIT_MS = 2000;
 
+/** Why a native share didn't start, without what Electron and the app wrap around it. */
+const nativeProblem = (error: unknown): string =>
+  String((error as Error)?.message ?? error)
+    .replace(/^Error invoking remote method '[^']*': (Error: )?/, "")
+    .replace(/^Your screen share stopped: /, "");
+
+const micFilters = (settings: VoiceSettings): string =>
+  [
+    { zuna: "RNNoise", standard: "the browser's noise suppression", off: null }[settings.noiseSuppression],
+    settings.inputMode === "ptt" ? "push to talk" : settings.autoSensitivity ? "a gate on speech" : `a gate at ${settings.sensitivity} dB`,
+    settings.echoCancellation && "echo cancelling",
+    settings.autoGain && "automatic gain",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
 let room: VoiceRoom | null = null;
+let nativeReadings = NO_NATIVE_READINGS;
 /** Each join counts, so one that takes a while can tell it's been replaced. */
 let attempt = 0;
 let reconnects = 0;
@@ -388,11 +408,11 @@ export const useVoice = create<VoiceState>((set, get) => {
       const app = useApp.getState();
       const { channelId, serverId } = get();
       if (!current || !channelId || !serverId || get().screen) return;
-      const name = choice.name ?? "Your screen";
-      const browserShare = async () => {
+      const asked = { name: choice.name ?? "Your screen", fps: choice.fps, bitrateKbps: choice.bitrateKbps };
+      const browserShare = async (whyNotNative: string | null) => {
         if (choice.source) await platform.chooseDisplaySource?.(choice.source, choice.audio);
         await current.startBrowserScreen(choice.fps, choice.bitrateKbps, choice.audio);
-        set({ screen: { native: false, name } });
+        set({ screen: { ...asked, native: false, whyNotNative } });
       };
       try {
         if (choice.native && platform.nativeScreen && current.currentKey) {
@@ -401,8 +421,12 @@ export const useVoice = create<VoiceState>((set, get) => {
           const senderKey = new Uint8Array(await voiceSenderKey(key, access.identity));
           try {
             const native = platform.nativeScreen;
-            await native.start({ url: access.url, token: access.token, key: senderKey, keyIndex: index, fps: choice.fps, bitrateKbps: choice.bitrateKbps, source: choice.source ?? "" });
-            set({ screen: { native: true, name } });
+            const info = await native.start({ url: access.url, token: access.token, key: senderKey, keyIndex: index, fps: choice.fps, bitrateKbps: choice.bitrateKbps, source: choice.source ?? "" });
+            nativeReadings = NO_NATIVE_READINGS;
+            const offStats = native.onStats((stats) => {
+              nativeReadings = addNativeReading(nativeReadings, stats);
+            });
+            set({ screen: { ...asked, native: true, info } });
             if (choice.audio) {
               if (choice.source) await platform.chooseDisplaySource?.(choice.source, true);
               await current.startSystemAudio().catch((error) => {
@@ -412,6 +436,7 @@ export const useVoice = create<VoiceState>((set, get) => {
             }
             const off = native.onEnded((problem) => {
               off();
+              offStats();
               stopNative = null;
               if (get().screen?.native) {
                 void current.stopSystemAudio();
@@ -422,16 +447,19 @@ export const useVoice = create<VoiceState>((set, get) => {
             });
             stopNative = () => {
               off();
+              offStats();
               stopNative = null;
               native.stop();
             };
           } catch (error) {
             // Chromium can always do it, if not as well: sharing beats not sharing.
             console.warn("[zuna] the native screen share didn't start", error);
-            await browserShare();
+            await browserShare(nativeProblem(error));
+            app.toast("Your graphics card couldn't take this share, so it's going through the browser. Stream stats says why.", "info");
           }
         } else {
-          await browserShare();
+          const screen = choice.source?.startsWith("screen:");
+          await browserShare(platform.nativeScreen ? (screen ? "This build came without native capture." : "Only whole screens are captured natively.") : null);
         }
         announce();
         sound("self-join");
@@ -488,6 +516,11 @@ export const useVoice = create<VoiceState>((set, get) => {
       set({ keyHeld: down });
       room?.setKeyHeld(down);
       if (get().settings.sounds && !get().muted && !get().deafened) playVoiceSound(down ? "ptt-down" : "ptt-up", 0.4);
+    },
+
+    async readStats(reader, nameOf) {
+      if (!room) return [];
+      return reader.read({ room: room.statsRoom(get().status), share: get().screen, native: nativeReadings, micFilters: micFilters(get().settings), nameOf });
     },
   };
 });

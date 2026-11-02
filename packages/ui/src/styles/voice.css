@@ -177,3 +177,29 @@
 @media (max-width: 900px) {
   .voice-chat { position: absolute; inset: 0 0 0 auto; z-index: 3; background: var(--bg-0); }
 }
+
+/* Stream stats */
+.stream-stats {
+  position: absolute; z-index: 4; top: 60px; right: 12px; width: 340px; max-width: calc(100% - 24px); max-height: calc(100% - 72px);
+  display: flex; flex-direction: column; overflow: hidden; font-size: 12px;
+  background: var(--bg-1); border: 1px solid var(--line-strong); border-radius: var(--radius-l); box-shadow: var(--shadow-l);
+}
+.stream-stats-head { flex: none; display: flex; align-items: center; gap: 7px; padding: 5px 5px 5px 11px; color: var(--text-2); border-bottom: 1px solid var(--line); cursor: grab; user-select: none; touch-action: none; }
+.stream-stats-head:active { cursor: grabbing; }
+.stream-stats-head h4 { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.stream-stats-body { min-height: 0; overflow-y: auto; }
+.stream-stats-section + .stream-stats-section { border-top: 1px solid var(--line); }
+.stream-stats-section summary { padding: 8px 11px; font-weight: 600; color: var(--text-1); cursor: pointer; user-select: none; }
+.stream-stats-section summary:hover { background: var(--hover); }
+.stream-stats-headline { display: flex; align-items: center; gap: 12px; padding: 0 11px 8px; }
+.stream-stats-fps { flex: none; display: flex; flex-direction: column; gap: 2px; min-width: 76px; }
+.stream-stats-fps b { font-family: var(--font-mono); font-size: 21px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+.stream-stats-fps span { color: var(--text-3); font-size: 11px; white-space: nowrap; }
+.stream-stats-graph { flex: 1; min-width: 0; height: 32px; }
+.stream-stats-graph polyline { fill: none; stroke: var(--green); stroke-width: 1.5px; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.stream-stats-wanted { stroke: var(--line-strong); stroke-width: 1px; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.stream-stats-rows { margin: 0; padding: 0 11px 9px; display: flex; flex-direction: column; gap: 3px; }
+.stream-stats-rows > div { display: flex; justify-content: space-between; gap: 14px; }
+.stream-stats-rows dt { flex: none; color: var(--text-3); }
+.stream-stats-rows dd { margin: 0; min-width: 0; font-family: var(--font-mono); font-size: 11px; line-height: 16px; text-align: right; color: var(--text-1); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.stream-stats-rows .is-warn dt, .stream-stats-rows .is-warn dd { color: var(--amber); }

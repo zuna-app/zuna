@@ -12,7 +12,7 @@ import { App } from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { setPlatform, type Platform } from "./platform";
 
-export type { BootResult, DisplaySource, NativeScreenShare, NotifyPayload, Platform } from "./platform";
+export type { BootResult, DisplaySource, NativeScreenInfo, NativeScreenShare, NativeScreenStats, NotifyPayload, Platform } from "./platform";
 export { connectWorker, type DeviceInfo } from "./core/boot";
 
 /** Shows the app in the page's #root, on whatever the host provides, until the returned function removes it. */
