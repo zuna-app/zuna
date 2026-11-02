@@ -162,6 +162,12 @@ export const useVoice = create<VoiceState>((set, get) => {
     });
   };
 
+  /**
+   * When a share through the browser last went away by itself. A server that stops one takes away the
+   * media server's permission too, which can end it before the server's word on why arrives.
+   */
+  let shareVanishedAt = 0;
+
   const syncVideos = () => {
     if (!room) return;
     const videos = room.videos();
@@ -170,7 +176,10 @@ export const useVoice = create<VoiceState>((set, get) => {
     // A screen someone starts sharing is what everyone's there to see, unless they're already looking at something.
     const arrived = settings.screenFocus ? videos.find((video) => video.source === "screen" && !video.local && !before.some((other) => other.key === video.key)) : undefined;
     set({ videos, focus: stillThere && focus ? focus : (arrived?.key ?? null), camera: room.cameraOn });
-    if (screen && !screen.native && !room.sharingInBrowser) void endShare(true);
+    if (screen && !screen.native && !room.sharingInBrowser) {
+      shareVanishedAt = Date.now();
+      void endShare(true);
+    }
   };
 
   /** Stops what this device is sharing, if anything. A server that stopped it has already given up its place. */
@@ -372,7 +381,9 @@ export const useVoice = create<VoiceState>((set, get) => {
     sound("self-leave");
   };
   voiceHooks.onScreenEnded = (serverId, channelId, reason) => {
-    if (get().serverId !== serverId || get().channelId !== channelId || !get().screen) return;
+    if (get().serverId !== serverId || get().channelId !== channelId) return;
+    if (!get().screen && Date.now() - shareVanishedAt > 5000) return;
+    shareVanishedAt = 0;
     void endShare(false);
     useApp.getState().toast(reason === "stopped" ? "An admin stopped your screen share." : "This server's rules changed, so your screen share stopped.", "info");
   };
