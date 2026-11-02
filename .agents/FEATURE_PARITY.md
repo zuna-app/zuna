@@ -190,7 +190,7 @@ The desktop is one codebase, and these are where the OSes differ (`apps/desktop/
 |---|---|---|---|
 | Automatic updates, on packaged signed builds | yes | yes | no |
 | Closing the window keeps it running in the tray | yes | no | yes |
-| Unread badge | icon overlay | dock count | `app.setBadgeCount` |
+| Unread badge | Telegram's red count on the taskbar button and the tray's icon, drawn by the page (`renderer/src/counter.ts`). The button loses it whenever the window hides, so it goes back on showing | dock count | `app.setBadgeCount` |
 | Device key protected by the OS | yes | yes | Only with a real secret store. `basic_text` counts as unprotected |
 | Asks the OS for the microphone | no | yes | no |
 | Finds where this device is, for sharing it | unchecked | unchecked: needs the location entitlement and usage text, in `resources/entitlements.mac.plist` and `electron-builder.yml` | unchecked |

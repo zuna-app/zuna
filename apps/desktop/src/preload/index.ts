@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld("zunaDesktop", {
   watchKey: (code: string | null) => ipcRenderer.invoke("zuna:watch-key", code),
   onKey: (listener: (down: boolean) => void) => on("zuna:key", listener),
   notify: (payload: unknown) => ipcRenderer.invoke("zuna:notify", payload),
-  setBadge: (count: number) => ipcRenderer.invoke("zuna:badge", count),
+  setBadge: (count: number, pictures?: unknown) => ipcRenderer.invoke("zuna:badge", count, pictures),
   setCloseToTray: (enabled: boolean) => ipcRenderer.invoke("zuna:close-to-tray", enabled),
   takeDeepLink: () => ipcRenderer.invoke("zuna:take-deep-link"),
   openExternal: (url: string) => ipcRenderer.invoke("zuna:open-external", url),

@@ -442,6 +442,8 @@ export const useApp = create<AppState>((set, get) => {
           order: entries.map((entry) => entry.id),
           activeServerId: entries[0]?.id ?? null,
         });
+        // What came in while the app was closed counts from the start, not from the next message.
+        updateBadge();
       } catch (error) {
         set({ phase: "failed", bootError: (error as Error).message });
       }

@@ -2,6 +2,9 @@
 // through the bridge the preload script exposes.
 
 import { connectWorker, type DeviceInfo, type DisplaySource, type NativeScreenInfo, type NativeScreenStats, type Platform } from "@zuna/ui";
+import { drawCounters } from "./counter";
+
+const isWindows = navigator.userAgent.includes("Windows");
 
 export interface DesktopBridge {
   /** Whether the system shows times with AM and PM. */
@@ -21,7 +24,8 @@ export interface DesktopBridge {
   watchKey(code: string | null): Promise<boolean>;
   onKey(listener: (down: boolean) => void): () => void;
   notify(payload: { title: string; body: string; route: unknown }): Promise<void>;
-  setBadge(count: number): Promise<void>;
+  /** The pictures are for Windows, where the app has to draw the count itself. */
+  setBadge(count: number, pictures?: { overlay: string; tray: string }): Promise<void>;
   setCloseToTray(enabled: boolean): Promise<void>;
   takeDeepLink(): Promise<string | null>;
   openExternal(url: string): Promise<void>;
@@ -43,19 +47,35 @@ declare global {
 export function desktopPlatform(): Platform {
   // The preload script always provides it. In a browser, use apps/web instead.
   const desktop = window.zunaDesktop!;
+  let unread = 0;
+  const showUnread = () => void desktop.setBadge(unread, isWindows && unread > 0 ? drawCounters(unread) : undefined);
+  // The window moved to a screen of another scale, so the count is drawn for that.
+  const watchScale = () =>
+    matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener(
+      "change",
+      () => {
+        showUnread();
+        watchScale();
+      },
+      { once: true },
+    );
+  if (isWindows) watchScale();
   return {
     hour12: desktop.hour12,
     titleBar: true,
     os: () => desktop.platform(),
     bootCore: async (onEvent) => connectWorker(startWorker(), await desktop.deviceKey(), onEvent),
     openExternal: (url) => void desktop.openExternal(url),
-    setUnreadCount: (count) => void desktop.setBadge(count),
+    setUnreadCount(count) {
+      unread = count;
+      showUnread();
+    },
     notify: (payload) => void desktop.notify(payload),
     microphone: () => desktop.microphone(),
     camera: () => desktop.camera(),
     displaySources: () => desktop.displaySources(),
     chooseDisplaySource: (id, audio) => desktop.chooseDisplaySource(id, audio),
-    systemAudio: navigator.userAgent.includes("Windows"),
+    systemAudio: isWindows,
     nativeScreen: {
       start: (options) => desktop.nativeScreenStart(options),
       setKey: (key, keyIndex) => void desktop.nativeScreenKey(key, keyIndex),

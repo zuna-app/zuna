@@ -46,6 +46,7 @@ let quitting = false;
 let pendingDeepLink: string | null = null;
 let closeToTray = true;
 let notifications: Notification[] = [];
+let unread: { count: number; overlay: Electron.NativeImage | null; tray: Electron.NativeImage | null } = { count: 0, overlay: null, tray: null };
 let deviceKeyHandedOut = false;
 let displaySources = new Map<string, Electron.DesktopCapturerSource>();
 /** What the next request to capture the display gets, as picked in the app. */
@@ -263,6 +264,34 @@ function iconPath(): string {
   return join(__dirname, "../../resources/icon.png");
 }
 
+/** The tray's icon, sharp on the main screen. */
+function trayIcon(): Electron.NativeImage {
+  const side = process.platform === "win32" ? Math.round(16 * screen.getPrimaryDisplay().scaleFactor) : 16;
+  return nativeImage.createFromPath(iconPath()).resize({ width: side, height: side, quality: "best" });
+}
+
+/** The tray's icon with the unread count over it. Both are premultiplied, so this just lays one on the other. */
+function withCounter(icon: Electron.NativeImage, counter: Electron.NativeImage): Electron.NativeImage {
+  const size = icon.getSize();
+  const below = icon.toBitmap();
+  const above = counter.resize({ ...size, quality: "best" }).toBitmap();
+  const pixels = Buffer.alloc(below.length);
+  for (let i = 0; i < pixels.length; i += 4) {
+    const through = 1 - above[i + 3]! / 255;
+    for (let channel = 0; channel < 4; channel++) pixels[i + channel] = Math.round(above[i + channel]! + below[i + channel]! * through);
+  }
+  return nativeImage.createFromBitmap(pixels, size);
+}
+
+function showUnread(): void {
+  if (process.platform === "darwin" || process.platform === "linux") app.setBadgeCount(unread.count);
+  if (process.platform === "win32") {
+    mainWindow?.setOverlayIcon(unread.overlay, unread.count > 0 ? `${unread.count} unread` : "");
+    tray?.setImage(unread.tray ?? trayIcon());
+  }
+  tray?.setToolTip(unread.count > 0 ? `Zuna: ${unread.count} unread` : "Zuna");
+}
+
 function createWindow(): void {
   const isMac = process.platform === "darwin";
   mainWindow = new BrowserWindow({
@@ -301,6 +330,8 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+  // A taskbar button loses its overlay with the window, and there's none at all until it first shows.
+  mainWindow.on("show", showUnread);
   mainWindow.on("focus", () => {
     mainWindow?.webContents.send("zuna:focus", true);
     mainWindow?.flashFrame(false);
@@ -355,9 +386,8 @@ function showWindow(): void {
 
 function createTray(): void {
   if (process.platform === "darwin") return;
-  const image = nativeImage.createFromPath(iconPath()).resize({ width: 16, height: 16 });
-  tray = new Tray(image);
-  tray.setToolTip("Zuna");
+  tray = new Tray(trayIcon());
+  showUnread();
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Open Zuna", click: showWindow },
@@ -485,12 +515,10 @@ function registerIpc(): void {
     notification.show();
     mainWindow?.flashFrame(true);
   });
-  handle("zuna:badge", (_event, count: number) => {
-    if (process.platform === "darwin" || process.platform === "linux") app.setBadgeCount(count);
-    if (process.platform === "win32" && mainWindow) {
-      mainWindow.setOverlayIcon(count > 0 ? overlayIcon() : null, count > 0 ? `${count} unread` : "");
-    }
-    tray?.setToolTip(count > 0 ? `Zuna: ${count} unread` : "Zuna");
+  handle("zuna:badge", (_event, count: number, pictures?: { overlay: string; tray: string }) => {
+    const shown = count > 0 && pictures ? { overlay: nativeImage.createFromDataURL(pictures.overlay), tray: withCounter(trayIcon(), nativeImage.createFromDataURL(pictures.tray)) } : { overlay: null, tray: null };
+    unread = { count, ...shown };
+    showUnread();
   });
   handle("zuna:close-to-tray", (_event, enabled: boolean) => {
     closeToTray = enabled;
@@ -522,22 +550,6 @@ function screenForSource(source: string): { x: number; y: number } | null {
 function deviceLabel(): string {
   const names: Record<string, string> = { win32: "Windows PC", darwin: "Mac", linux: "Linux PC" };
   return names[process.platform] ?? "Computer";
-}
-
-function overlayIcon() {
-  const size = 16;
-  const pixels = Buffer.alloc(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const inside = (x - 7.5) ** 2 + (y - 7.5) ** 2 <= 49;
-      const i = (y * size + x) * 4;
-      pixels[i] = inside ? 0xec : 0;
-      pixels[i + 1] = inside ? 0xec : 0;
-      pixels[i + 2] = inside ? 0xee : 0;
-      pixels[i + 3] = inside ? 0xff : 0;
-    }
-  }
-  return nativeImage.createFromBitmap(pixels, { width: size, height: size });
 }
 
 function deliverDeepLink(link: string): void {
