@@ -714,6 +714,37 @@ func TestBanTellsTheBannedDeviceWhyBeforeClosing(t *testing.T) {
 	}
 }
 
+func TestBanSaysWhyBeforeTakingThemOutOfTheirGroups(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	group := owner.dm(bob.userID)
+	owner.commit(group.ID, 0, nil)
+	ws := bob.connect()
+	h.mustDo("POST", "/api/admin/users/"+bob.userID+"/ban", owner.token, nil, nil)
+	// A device still working through its groups' removals may lose what comes after them when the connection ends.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		_, data, err := ws.ws.Read(ctx)
+		if err != nil {
+			t.Fatalf("no force_logout: %v", err)
+		}
+		var event struct {
+			Type string `json:"t"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			t.Fatal(err)
+		}
+		if event.Type == "group_removed" {
+			t.Fatal("taken out of a group before being told why")
+		}
+		if event.Type == "force_logout" {
+			return
+		}
+	}
+}
+
 // --- WebSocket ---
 
 type socket struct {
