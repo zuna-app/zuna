@@ -93,7 +93,10 @@ final class VoiceRoom {
             adaptiveStream: true,
             dynacast: true,
             encryptionOptions: EncryptionOptions(keyProvider: keys),
-            reportRemoteTrackStatistics: Self.testing
+            reportRemoteTrackStatistics: Self.testing,
+            // One connection, offered along with the request to join, which is quicker, and loses its first
+            // answer far less often than two do (`connectRoom`).
+            singlePeerConnection: true
         ))
         let listener = Listener(owner: self)
         self.listener = listener
@@ -125,13 +128,28 @@ final class VoiceRoom {
         identity = access.identity
         serverMuted = access.serverMuted
         try await updateKeys(first: true)
-        try await room.connect(url: access.url, token: access.token, connectOptions: ConnectOptions(autoSubscribe: true))
+        try await connectRoom(url: access.url, token: access.token)
         joined = true
         // Those already here, and everything they send.
         for participant in room.remoteParticipants.values {
             installFor(participant)
         }
         await permissionsChanged()
+    }
+
+    /// LiveKit 2.19 sometimes loses the first answer while it connects. With two connections, the media server's
+    /// offer waits in a queue, and the answer made once it's let through can go out a moment before requests are,
+    /// which drops it (`resumeQueues` in its `SignalClient`). With one, the media server's answer to ours now and
+    /// then goes unused. Either way the connection never comes up and times out, and another try connects.
+    private func connectRoom(url: String, token: String) async throws {
+        for attempt in 1...3 {
+            do {
+                try await room.connect(url: url, token: token, connectOptions: ConnectOptions(autoSubscribe: true))
+                return
+            } catch let error as LiveKitError where error.type == .timedOut && attempt < 3 && !closed {
+                logger.warning("Connecting to the voice channel timed out, trying again")
+            }
+        }
     }
 
     private static func microphoneProblem() async -> String? {
