@@ -74,6 +74,15 @@ final class VoiceRoom {
         didSet { applyVolumes() }
     }
 
+    /// Test builds count the packets that arrive, for checks to tell what didn't arrive from what didn't decrypt.
+    private static var testing: Bool {
+        #if DEBUG
+        VoiceTesting.toneMicrophone
+        #else
+        false
+        #endif
+    }
+
     private init(session: SessionCalls, channelId: String, bitrate: Int, events: Events) {
         self.session = session
         self.channelId = channelId
@@ -83,7 +92,8 @@ final class VoiceRoom {
             defaultCameraCaptureOptions: CameraCaptureOptions(position: .front, dimensions: .h720_169),
             adaptiveStream: true,
             dynacast: true,
-            encryptionOptions: EncryptionOptions(keyProvider: keys)
+            encryptionOptions: EncryptionOptions(keyProvider: keys),
+            reportRemoteTrackStatistics: Self.testing
         ))
         let listener = Listener(owner: self)
         self.listener = listener
@@ -405,6 +415,9 @@ final class VoiceRoom {
             if state == .decryption_failed || state == .encryption_failed || state == .internal_error {
                 Logger(subsystem: "chat.zuna", category: "voice").warning("Voice encryption: \(String(describing: state), privacy: .public)")
             }
+            #if DEBUG
+            onMain { VoiceTesting.cryption(state, of: trackPublication, in: $0.room) }
+            #endif
         }
     }
 }

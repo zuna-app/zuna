@@ -25,6 +25,7 @@ enum VoiceTesting {
     private static var tone: Tone?
     private static var camera: FakeCamera?
     private static var meters: [String: Meter] = [:]
+    private static var cryption: [String: (state: String, failures: Int)] = [:]
 
     /// Sends the tone without opening the microphone at all: the simulator's is the Mac's, and
     /// starting it can hang until the Mac's own question about it is answered, which takes the
@@ -55,10 +56,19 @@ enum VoiceTesting {
     static func watch(_ publication: RemoteTrackPublication, of participant: RemoteParticipant) {
         guard let identity = participant.identity?.stringValue else { return }
         let key = "\(identity)/\(publication.source)"
-        let meter = Meter(key: key)
+        let meter = Meter(key: key, track: publication.track)
         meters[key] = meter
         if let track = publication.track as? RemoteAudioTrack { track.add(audioRenderer: meter) }
         if let track = publication.track as? RemoteVideoTrack { track.add(videoRenderer: meter) }
+    }
+
+    /// What the frame cryptor last said about someone's track, and how often it couldn't open a frame: "ok" once
+    /// one opened with the sender's key. So a check can tell a track that doesn't decrypt from one that's quiet.
+    static func cryption(_ state: E2EEState, of publication: TrackPublication, in room: Room) {
+        guard let identity = room.remoteParticipants.values.first(where: { $0.trackPublications[publication.sid] != nil })?.identity?.stringValue else { return }
+        let key = "\(identity)/\(publication.source)"
+        let failed = state == .decryption_failed || state == .missing_key || state == .internal_error
+        cryption[key] = (state.toString(), (cryption[key]?.failures ?? 0) + (failed ? 1 : 0))
     }
 
     static func stop() {
@@ -67,18 +77,24 @@ enum VoiceTesting {
         camera?.stop()
         camera = nil
         meters = [:]
+        cryption = [:]
     }
 
     /// What has arrived from each participant and source, as JSON, for the control server's `voiceReport`.
     static func report() -> String {
-        let rows = meters.values.map { $0.reading() }
-        let data = (try? JSONSerialization.data(withJSONObject: rows, options: [.sortedKeys])) ?? Data("[]".utf8)
+        var rows = Dictionary(uniqueKeysWithValues: meters.map { ($0.key, $0.value.reading()) })
+        for (key, cryption) in cryption {
+            rows[key, default: ["key": key]]["cryption"] = cryption.state
+            rows[key]?["failures"] = cryption.failures
+        }
+        let data = (try? JSONSerialization.data(withJSONObject: Array(rows.values), options: [.sortedKeys])) ?? Data("[]".utf8)
         return String(decoding: data, as: UTF8.self)
     }
 
-    /// Counts frames and how loud the sound was over the last second.
+    /// Counts frames and how loud the sound was over the last second, and the packets that came for the track.
     private final class Meter: NSObject, AudioRenderer, VideoRenderer, @unchecked Sendable {
         let key: String
+        private weak var track: Track?
         private let lock = NSLock()
         private var frames = 0
         private var width = 0
@@ -87,15 +103,17 @@ enum VoiceTesting {
         private var lastLoud = Date.distantPast
         private var samples = 0
 
-        init(key: String) {
+        init(key: String, track: Track?) {
             self.key = key
+            self.track = track
         }
 
         func reading() -> [String: Any] {
-            lock.withLock {
+            let packets = track?.statistics?.inboundRtpStream.reduce(0) { $0 + Int($1.packetsReceived ?? 0) } ?? 0
+            return lock.withLock {
                 // How loud it's been in the last second, so a track that went quiet reads as quiet.
                 let level = Date().timeIntervalSince(lastLoud) < 1 ? loudest : 0
-                return ["key": key, "frames": frames, "width": width, "height": height, "level": level, "samples": samples]
+                return ["key": key, "frames": frames, "width": width, "height": height, "level": level, "samples": samples, "packets": packets]
             }
         }
 

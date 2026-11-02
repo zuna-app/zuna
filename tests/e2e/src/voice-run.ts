@@ -74,10 +74,15 @@ const others: TestApp[] = [];
 /** What arrived at the phone from each participant, once decrypted and decoded. */
 interface Reading {
   key: string;
-  frames: number;
-  width: number;
-  height: number;
-  level: number;
+  frames?: number;
+  width?: number;
+  height?: number;
+  level?: number;
+  samples?: number;
+  packets?: number;
+  /** What the frame cryptor last said about the track, "ok" once a frame opened with its sender's key. */
+  cryption?: string;
+  failures?: number;
 }
 
 try {
@@ -90,8 +95,9 @@ try {
   // --- The desktop app ---
   log("starting the desktop app");
   const userData = mkdtempSync(join(tmpdir(), "zuna-ios-voice-desktop-"));
+  // Without the sandbox, as macOS's keeps the audio service from opening the speech, and the fake device sends silence.
   const app = await electron.launch({
-    args: [join(root, "apps", "desktop"), `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${speech}`, "--autoplay-policy=no-user-gesture-required"],
+    args: [join(root, "apps", "desktop"), `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${speech}`, "--autoplay-policy=no-user-gesture-required", "--no-sandbox"],
     env: { ...process.env, ELECTRON_RENDERER_URL: "" },
   });
   const page = await app.firstWindow();
@@ -162,6 +168,37 @@ try {
   const voiceState = async () => JSON.parse(await command("voiceState")) as { status: string; serverMuted: boolean; camera: boolean; epoch: number | null; focus: string | null; videos: { id: string; source: string; userId: string }[] };
   const report = async () => JSON.parse(await command("voiceReport")) as Reading[];
   const fromDana = async (source: string) => (await report()).find((reading) => reading.key.startsWith(`${danaId}.`) && reading.key.endsWith(`/${source}`));
+  /**
+   * Whether the desktop's sound reaches the phone and opens there, with what both ends say about it: so a quiet
+   * phone can be told from a quiet desktop, and sound that doesn't arrive from sound that doesn't decrypt.
+   */
+  const phoneHears = async (since = 0) => {
+    const reading = await fromDana("microphone");
+    const packets = reading?.packets ?? 0;
+    const sent = await desktopSends();
+    const sending = `the desktop's microphone at ${sent.level.toFixed(4)}, ${sent.bytes} bytes sent`;
+    if (!reading) return { ok: false, packets, detail: `nothing from the desktop; ${sending}` };
+    const level = reading.level ?? 0;
+    return {
+      ok: level > 0.005,
+      packets,
+      detail: `level ${level.toFixed(4)} over ${reading.samples ?? 0} samples, ${packets - since} packets, decryption ${reading.cryption ?? "not reported"}, ${reading.failures ?? 0} frames that didn't open; ${sending}`,
+    };
+  };
+  /** How loud the desktop's own microphone is as it goes out, and how much sound it has sent. */
+  const desktopSends = () =>
+    page.evaluate(async () => {
+      let level = 0;
+      let bytes = 0;
+      for (const connection of (window as unknown as { __connections: RTCPeerConnection[] }).__connections) {
+        if (connection.connectionState === "closed") continue;
+        (await connection.getStats()).forEach((entry) => {
+          if (entry.type === "media-source" && entry.kind === "audio") level = Math.max(level, entry.audioLevel ?? 0);
+          if (entry.type === "outbound-rtp" && entry.kind === "audio") bytes += entry.bytesSent ?? 0;
+        });
+      }
+      return { level, bytes };
+    });
   const phoneShot = (name: string) => execFileSync("xcrun", ["simctl", "io", udid, "screenshot", join(shots, `${name}.png`)], { stdio: "ignore" });
   const desktopShot = (name: string) => page.screenshot({ path: join(shots, `${name}.png`) });
 
@@ -225,12 +262,12 @@ try {
   await sleep(4000);
 
   // --- Sound, both ways ---
-  let heard = 0;
-  for (let i = 0; i < 10 && heard < 0.005; i++) {
-    heard = (await fromDana("microphone"))?.level ?? 0;
-    if (heard < 0.005) await sleep(500);
+  let heard = await phoneHears();
+  for (let i = 0; i < 10 && !heard.ok; i++) {
+    await sleep(500);
+    heard = await phoneHears();
   }
-  check("the phone hears the desktop, decrypted", heard > 0.005, `level ${heard.toFixed(4)}`);
+  check("the phone hears the desktop, decrypted", heard.ok, heard.detail);
   const desktopPeak = await desktopHears();
   check("the desktop hears the phone, decrypted", desktopPeak > 0.02, `peak ${desktopPeak.toFixed(3)}`);
 
@@ -240,7 +277,8 @@ try {
   const camera1 = await fromDana("camera");
   await sleep(2000);
   const camera2 = await fromDana("camera");
-  check("the desktop's camera reaches the phone and decodes", !!camera2 && camera2.frames - (camera1?.frames ?? 0) > 10 && camera2.width > 0, camera2 ? `${camera2.frames - (camera1?.frames ?? 0)} frames in 2 s at ${camera2.width}x${camera2.height}` : "none");
+  const cameraFrames = (camera2?.frames ?? 0) - (camera1?.frames ?? 0);
+  check("the desktop's camera reaches the phone and decodes", cameraFrames > 10 && (camera2?.width ?? 0) > 0, camera2 ? `${cameraFrames} frames in 2 s at ${camera2.width}x${camera2.height}` : "none");
 
   // --- The phone's camera on the desktop ---
   const turnedOn = await command("voiceCamera", { on: true });
@@ -260,7 +298,7 @@ try {
   await page.getByRole("button", { name: "Share", exact: true }).click();
   await sleep(5000);
   const screen = await fromDana("screenShareVideo");
-  check("the desktop's shared screen reaches the phone and decodes", !!screen && screen.frames > 10, screen ? `${screen.frames} frames at ${screen.width}x${screen.height}` : "none");
+  check("the desktop's shared screen reaches the phone and decodes", (screen?.frames ?? 0) > 10, screen ? `${screen.frames} frames at ${screen.width}x${screen.height}` : "none");
   const state = await voiceState();
   check("a screen someone starts sharing fills the phone's stage", state.videos.some((video) => video.source === "screen" && video.id === state.focus));
   phoneShot("03-phone-screen");
@@ -274,8 +312,8 @@ try {
     .then(() => check("the phone moves to a new key when someone new comes into the channel", true))
     .catch(() => check("the phone moves to a new key when someone new comes into the channel", false));
   await sleep(4000);
-  const afterKey = (await fromDana("microphone"))?.level ?? 0;
-  check("the phone still hears the desktop after the key changed", afterKey > 0.005, `level ${afterKey.toFixed(4)}`);
+  const afterKey = await phoneHears(heard.packets);
+  check("the phone still hears the desktop after the key changed", afterKey.ok, afterKey.detail);
   const desktopAfterKey = await desktopHears();
   check("the desktop still hears the phone after the key changed", desktopAfterKey > 0.02, `peak ${desktopAfterKey.toFixed(3)}`);
 
