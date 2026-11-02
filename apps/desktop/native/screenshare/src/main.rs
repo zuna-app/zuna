@@ -6,6 +6,8 @@ mod capture;
 mod cpu;
 mod encoder;
 mod h264;
+#[cfg(windows)]
+mod notification_state;
 mod pipeline;
 
 use std::{
@@ -100,7 +102,8 @@ const USAGE: &str = "zuna-screenshare [options]
   --output-raw FILE      Also write the encoder's output, unchanged
   --list-monitors        List monitors and exit
   --check-dmabuf         Linux: check that DMA-BUFs reach NVENC, without capturing
-  --control              Take the address, token and keys from standard input, as JSON lines";
+  --control              Take the address, token and keys from standard input, as JSON lines
+  --notification-state   Windows: say whether it wants quiet right now, and exit";
 
 fn parse_args() -> std::result::Result<Args, String> {
     let mut args = Args {
@@ -382,6 +385,13 @@ fn run(args: Args) -> Result<()> {
 }
 
 fn main() -> ExitCode {
+    // Nothing to do with sharing, but this is the program on the computer that can ask.
+    #[cfg(windows)]
+    if std::env::args().nth(1).as_deref() == Some("--notification-state") {
+        notification_state::print();
+        return ExitCode::SUCCESS;
+    }
+
     // libwebrtc's logs stay off whatever RUST_LOG says, since the native frame cryptor
     // has been reported to log key material. ZUNA_WEBRTC_LOG lets them through, which
     // is how scripts/key-log-check.mjs looks for that.

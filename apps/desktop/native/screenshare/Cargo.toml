@@ -22,6 +22,10 @@ env_logger = { version = "0.11", default-features = false }
 libloading = "0.8"
 serde_json = "1"
 
+[target.'cfg(windows)'.dependencies]
+# What windows's macro for declaring a COM interface expands to.
+windows-core = "0.62"
+
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
 features = [
@@ -37,7 +41,9 @@ features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_System_Com",
     "Win32_System_Threading",
+    "Win32_UI_Shell",
     "Win32_System_WinRT",
     "Win32_System_WinRT_Direct3D11",
     "Win32_System_WinRT_Graphics_Capture",
