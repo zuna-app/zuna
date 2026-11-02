@@ -66,13 +66,10 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const limit = (value: number | undefined) => (limits ? (value ?? 0) : 0);
   const qualities = QUALITIES.filter((quality) => limit(rules?.max_kbps) === 0 || quality.kbps <= limit(rules?.max_kbps));
 
-  // A window whose app nobody can tell waits for the person to say whose sound goes with it.
-  const soundUnanswered = canShareAudio && !!platform.shareSound && sound.pick === "?";
   const start = async () => {
-    if (soundUnanswered) return;
     setStarting(true);
     const soundApp = sound.pick.startsWith("app:") ? sound.pick.slice(4) : null;
-    await startScreen({ source: source?.id, native: !!source?.native, audio: canShareAudio && sound.pick !== "" && sound.pick !== "?", soundApp, name: source?.name });
+    await startScreen({ source: source?.id, native: !!source?.native, audio: canShareAudio && sound.pick !== "", soundApp, name: source?.name });
     onClose();
   };
   const showTab = (kind: "screen" | "window") => {
@@ -92,7 +89,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" disabled={starting || sources === null || (!usesBrowserPicker && !source) || soundUnanswered} onClick={() => void start()}>
+          <button className="btn btn-primary" disabled={starting || sources === null || (!usesBrowserPicker && !source)} onClick={() => void start()}>
             {starting ? <Spinner size={15} /> : "Share"}
           </button>
         </>
@@ -215,8 +212,7 @@ function useSoundApps(wanted: boolean): SoundApp[] {
   return apps;
 }
 
-/** Nobody's, everything but Zuna's, one app's, or not yet answered for a window whose app nobody can tell. */
-type SoundPick = "" | "everything" | "?" | `app:${string}`;
+type SoundPick = "" | "everything" | `app:${string}`;
 
 /**
  * Whose sound a share starts with: a screen's the whole computer's, and a window's the app
@@ -250,8 +246,7 @@ function useShareSound(source: DisplaySource | undefined, browserPicks: boolean,
     if (browserPicks || source?.kind !== "window") return "everything";
     // Only the window's own app will do: everything would be more than the window shows.
     if (!platform.shareSound) return "";
-    // Wayland's portal doesn't say whose a window is, on any compositor, so the person says.
-    if (source.ownerUnknown) return "?";
+    // Wayland's portal doesn't say whose a window is, on any compositor, so it starts without, and the person can choose.
     return windowApp ? `app:${windowApp.id}` : "";
   };
   return {
@@ -292,11 +287,6 @@ function SoundChoice({
     <label className="field">
       <span className="field-label">Sound</span>
       <select className="select" value={pick} onChange={(event) => onChoose(event.target.value as SoundPick)}>
-        {pick === "?" && (
-          <option value="?" disabled>
-            Choose whose sound
-          </option>
-        )}
         <option value="">No sound</option>
         <option value="everything">Entire system</option>
         {listed.length > 0 && (
@@ -310,12 +300,12 @@ function SoundChoice({
         )}
       </select>
       <span className="setting-hint">
-        {pick === "?"
-          ? "Your system doesn't say whose a window is, so choose the app whose sound goes with it. Apps show here while they play."
-          : pick === "everything"
-            ? `Everything your computer plays, apart from Zuna, so nobody hears themselves back.${ownerUnknown ? " That's more than the window shows." : ""}`
-            : pickedName
-              ? `Only what ${appName(pickedName)} plays.`
+        {pick === "everything"
+          ? `Everything your computer plays, apart from Zuna, so nobody hears themselves back.${ownerUnknown ? " That's more than the window shows." : ""}`
+          : pickedName
+            ? `Only what ${appName(pickedName)} plays.`
+            : ownerUnknown
+              ? "Your system doesn't say whose a window is, so choose the app whose sound goes with it. Apps show here while they play."
               : "Apps show here while they play sound."}
       </span>
     </label>
