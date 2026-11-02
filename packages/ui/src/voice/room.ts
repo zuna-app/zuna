@@ -207,6 +207,10 @@ export class VoiceRoom {
 
   private async publishMic(): Promise<void> {
     if (!this.mic || this.serverMuted || this.micPublication) return;
+    // Muting a publication disables its track, which stays disabled once it's taken down. An
+    // admin's mute can do that before the media server takes the microphone away, and a new
+    // publication would then send silence while saying it isn't muted.
+    this.mic.track.enabled = true;
     this.micPublication = await this.room.localParticipant.publishTrack(this.mic.track, {
       source: Track.Source.Microphone,
       name: "microphone",
