@@ -22,6 +22,8 @@ export interface ScreenChoice {
   native: boolean;
   /** System audio goes too, where the system allows it. */
   audio: boolean;
+  /** Whose sound, where the platform captures it: one app's by its id, or everything but Zuna. */
+  soundApp?: string | null;
   /** What it's called, to say what's being shared. */
   name?: string;
 }
@@ -118,6 +120,7 @@ let nativeReadings = NO_NATIVE_READINGS;
 let attempt = 0;
 let reconnects = 0;
 let stopNative: (() => void) | null = null;
+let stopSound: (() => void) | null = null;
 /** What was open before coming into a voice channel. */
 let openBefore: string | null = null;
 
@@ -172,15 +175,54 @@ export const useVoice = create<VoiceState>((set, get) => {
     const { screen, channelId } = get();
     if (!screen) return;
     set({ screen: null });
-    if (screen.native) {
-      stopNative?.();
-      await room?.stopSystemAudio();
-    } else {
-      await room?.stopBrowserScreen();
-    }
+    if (screen.native) stopNative?.();
+    else await room?.stopBrowserScreen();
+    stopSound?.();
+    await room?.stopSystemAudio();
     if (giveUpPlace && channelId) await session()?.voiceScreenStop(channelId).catch((error) => console.warn("[zuna] giving up a place to share", error));
     announce();
     sound("self-leave");
+  };
+
+  /**
+   * Sends the computer's sound beside a share that has none of its own: from the platform,
+   * which can take one app's, or else from the browser. A share without its sound is still
+   * worth having, so this only says so.
+   */
+  const startShareSound = async (current: VoiceRoom, kbps: number, app: string | null) => {
+    const native = platform.shareSound;
+    try {
+      if (!native) {
+        await current.startSystemAudio(kbps);
+        return;
+      }
+      const samples = await native.start(app);
+      if (!get().screen) {
+        native.stop();
+        return;
+      }
+      const off = native.onEnded((problem) => {
+        off();
+        stopSound = null;
+        void current.stopSystemAudio();
+        if (problem) useApp.getState().toast(`Your screen's sound stopped: ${problem}`, "error");
+      });
+      stopSound = () => {
+        off();
+        stopSound = null;
+        native.stop();
+      };
+      await current.startSystemAudio(kbps, samples);
+      // The share may have stopped meanwhile.
+      if (!get().screen) {
+        stopSound?.();
+        await current.stopSystemAudio();
+      }
+    } catch (error) {
+      console.warn("[zuna] sharing the computer's sound", error);
+      stopSound?.();
+      useApp.getState().toast("Your screen is being shared without its sound.", "info");
+    }
   };
 
   /** There's nothing to show for a voice channel once out of it, so whatever was open before comes back. */
@@ -197,6 +239,7 @@ export const useVoice = create<VoiceState>((set, get) => {
 
   const closeRoom = () => {
     stopNative?.();
+    stopSound?.();
     room?.close();
     room = null;
   };
@@ -440,13 +483,15 @@ export const useVoice = create<VoiceState>((set, get) => {
         });
       const browserShare = async (whyNotNative: string | null) => {
         const access = await askServer(true);
+        // Sound the platform captures goes beside the browser's picture, not in it.
+        const browserSound = access.sound && !platform.shareSound;
         await current.whenAllowedToShare(true, access.sound);
-        if (choice.source) await platform.chooseDisplaySource?.(choice.source, access.sound);
+        if (choice.source) await platform.chooseDisplaySource?.(choice.source, browserSound);
         await current.startBrowserScreen({
           fps: terms.fps,
           bitrateKbps: terms.kbps,
           height: terms.height,
-          sound: access.sound,
+          sound: browserSound,
           soundKbps: terms.soundKbps,
           content: settings.screenContent,
           priority: settings.screenPriority,
@@ -454,6 +499,7 @@ export const useVoice = create<VoiceState>((set, get) => {
           layers: settings.screenLayers,
         });
         set({ screen: { ...asked, native: false, whyNotNative } });
+        if (access.sound && !browserSound) await startShareSound(current, terms.soundKbps, choice.soundApp ?? null);
       };
       try {
         if (choice.native && settings.screenNative && platform.nativeScreen && current.currentKey) {
@@ -483,11 +529,8 @@ export const useVoice = create<VoiceState>((set, get) => {
             set({ screen: { ...asked, native: true, info } });
             if (access.sound) {
               await current.whenAllowedToShare(false, true);
-              if (choice.source) await platform.chooseDisplaySource?.(choice.source, true);
-              await current.startSystemAudio(terms.soundKbps).catch((error) => {
-                console.warn("[zuna] sharing the computer's sound", error);
-                app.toast("Your screen is being shared without its sound.", "info");
-              });
+              if (choice.source && !platform.shareSound) await platform.chooseDisplaySource?.(choice.source, true);
+              await startShareSound(current, terms.soundKbps, choice.soundApp ?? null);
             }
             const off = native.onEnded((problem) => {
               off();

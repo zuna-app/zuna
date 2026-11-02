@@ -4,6 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { startKeyWatch } from "./global-key";
 import { startNativeScreen, type NativeScreenOptions } from "./native-screen";
+import { listSoundApps, nativeSoundAvailable, startNativeSound, type NativeSound } from "./native-sound";
 import { notificationState, startNotifications, type Notifications } from "./notifications";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, normalize, sep } from "node:path";
@@ -57,6 +58,7 @@ let displaySources = new Map<string, Electron.DesktopCapturerSource>();
 /** What the next request to capture the display gets, as picked in the app. */
 let nextDisplay: { id: string; audio: boolean } | null = null;
 let nativeScreen: ReturnType<typeof startNativeScreen> | null = null;
+let nativeSound: NativeSound | null = null;
 let stopKeyWatch: (() => void) | null = null;
 
 // A secure, standard scheme gives the renderer a real origin, which storage
@@ -331,7 +333,7 @@ function createWindow(): void {
       // Keeps the connection alive so messages and notifications arrive while hidden.
       backgroundThrottling: false,
       spellcheck: true,
-      additionalArguments: [`--zuna-clock=${uses12HourClock() ? 12 : 24}`],
+      additionalArguments: [`--zuna-clock=${uses12HourClock() ? 12 : 24}`, ...(nativeSoundAvailable() ? ["--zuna-native-sound"] : [])],
     },
   });
 
@@ -505,6 +507,27 @@ function registerIpc(): void {
     nativeScreen?.stop();
     nativeScreen = null;
   });
+  // The computer's sound for a share on Linux, where Chromium can't capture it.
+  handle("zuna:sound-apps", () => listSoundApps());
+  handle("zuna:native-sound-start", async (event, app: unknown) => {
+    nativeSound?.stop();
+    const { sound, ready } = startNativeSound(typeof app === "string" ? app : null, event.sender, (problem) => {
+      if (nativeSound !== sound) return;
+      nativeSound = null;
+      if (!event.sender.isDestroyed()) event.sender.send("zuna:native-sound-ended", problem);
+    });
+    nativeSound = sound;
+    try {
+      await ready;
+    } catch (error) {
+      if (nativeSound === sound) nativeSound = null;
+      throw error;
+    }
+  });
+  handle("zuna:native-sound-stop", () => {
+    nativeSound?.stop();
+    nativeSound = null;
+  });
   // Only the key asked about is ever reported, and only while someone holds it for talking.
   handle("zuna:watch-key", (event, code: string | null) => {
     stopKeyWatch?.();
@@ -658,6 +681,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     quitting = true;
     nativeScreen?.stop();
+    nativeSound?.stop();
     stopKeyWatch?.();
   });
   app.on("window-all-closed", () => {

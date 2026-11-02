@@ -166,5 +166,6 @@ Clients know emotes by name. A message records the emotes it uses, so it keeps r
 | Sending | `node apps/desktop/test/send-check.mjs` | What each frame paints while messages are sent in real Electron: no jumps or blanks, notices in place, always all the way down |
 | Attacks | `node apps/desktop/test/attack-check.mjs` | What a modified client could send, against real Electron: the app stays up, contacts nobody and starts again afterwards |
 | Voice | `node apps/desktop/test/voice-check.mjs` | Real apps against a real LiveKit: audio that decrypts on every side, noise kept out, a new key mid-call, cameras, screens both ways, push to talk |
+| A share's sound, on Linux | `node apps/desktop/test/sound-check.mjs` | Real apps, a real LiveKit and PipeWire: the entire system's sound without Zuna's, or one app's, reaching someone watching |
 
 `npm run dev:server` opens a fully set up test server for UI work, using the bots in `packages/core/test/dev-bots.ts`. `CONTRIBUTING.md` describes it.

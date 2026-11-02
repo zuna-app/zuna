@@ -2,11 +2,16 @@ import { screenTerms } from "@zuna/core/voice";
 import { Monitor, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Modal, Spinner, Switch } from "@/components/ui";
-import { platform, type DisplaySource } from "@/platform";
+import { platform, type DisplaySource, type SoundApp } from "@/platform";
 import { useApp } from "@/state/store";
 import { heightName, rateName, SCREEN_HEIGHTS, SCREEN_RATES, screenLimitsText } from "@/voice/settings";
 import { useVoice } from "@/voice/store";
 import { NumberSelect } from "./ScreenSettings";
+
+/** How often the apps playing sound are looked at again while choosing. */
+const SOUND_APPS_EVERY_MS = 3000;
+
+const appName = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 
 const QUALITIES: { kbps: number; label: string; hint: string }[] = [
   { kbps: 6_000, label: "Smooth", hint: "For a slow connection" },
@@ -53,6 +58,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
   const terms = screenTerms({ height: settings.screenHeight, fps: settings.screenFps, kbps: settings.screenBitrate, soundKbps: settings.screenSoundKbps }, rules, role);
   const suggested = screenTerms({ height: null, fps: null, kbps: null, soundKbps: settings.screenSoundKbps }, rules, role);
   const canShareAudio = !!platform.systemAudio && terms.sound;
+  const soundApps = useSoundApps(canShareAudio);
   const native = !!source?.native && settings.screenNative;
   const limits = screenLimitsText(rules, role);
   // What the limits leave out of the lists, which is nothing for someone they don't apply to.
@@ -61,7 +67,7 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
 
   const start = async () => {
     setStarting(true);
-    await startScreen({ source: source?.id, native: !!source?.native, audio: settings.screenSound && canShareAudio, name: source?.name });
+    await startScreen({ source: source?.id, native: !!source?.native, audio: settings.screenSound && canShareAudio, soundApp: settings.screenSoundApp?.id ?? null, name: source?.name });
     onClose();
   };
 
@@ -149,7 +155,8 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         />
       </div>
       {limits && <p className="screen-held">{limits}</p>}
-      {canShareAudio && (
+      {canShareAudio && platform.shareSound && <SoundChoice apps={soundApps} />}
+      {canShareAudio && !platform.shareSound && (
         <div className="setting-row">
           <span className="grow">
             <b>Share sound too</b>
@@ -168,5 +175,78 @@ export function ScreenPicker({ onClose }: { onClose: () => void }) {
         More screen sharing settings
       </button>
     </Modal>
+  );
+}
+
+/** The apps playing sound now, kept up to date while the picker is open, where the platform can tell them apart. */
+function useSoundApps(wanted: boolean): SoundApp[] {
+  const [apps, setApps] = useState<SoundApp[]>([]);
+  useEffect(() => {
+    const shareSound = platform.shareSound;
+    if (!wanted || !shareSound) return;
+    let cancelled = false;
+    const look = () =>
+      void shareSound
+        .apps()
+        .then((list) => {
+          if (!cancelled) setApps(list);
+        })
+        .catch(() => undefined);
+    look();
+    // Apps only show while they play, so they come and go.
+    const timer = setInterval(look, SOUND_APPS_EVERY_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [wanted]);
+  return apps;
+}
+
+/** Whose sound goes with the share: nobody's, everything but Zuna's, or one app's. */
+function SoundChoice({ apps }: { apps: SoundApp[] }) {
+  const settings = useVoice((state) => state.settings);
+  const updateSettings = useVoice((state) => state.updateSettings);
+  const remembered = settings.screenSoundApp;
+  // The app chosen last stays on offer while it's quiet: its sound goes once it plays.
+  const listed = remembered && !apps.some((app) => app.id === remembered.id) ? [...apps, { ...remembered, quiet: true }] : apps;
+  const value = !settings.screenSound ? "" : remembered ? `app:${remembered.id}` : "everything";
+  const label = (app: SoundApp & { quiet?: boolean }) => {
+    const name = appName(app.name);
+    const named = listed.filter((other) => other.name === app.name).length > 1 ? `${name} (${app.id})` : name;
+    return app.quiet ? `${named}, once it plays` : named;
+  };
+  const choose = (choice: string) => {
+    if (choice === "") updateSettings({ screenSound: false });
+    else if (choice === "everything") updateSettings({ screenSound: true, screenSoundApp: null });
+    else {
+      const app = listed.find((item) => `app:${item.id}` === choice);
+      if (app) updateSettings({ screenSound: true, screenSoundApp: { id: app.id, name: app.name } });
+    }
+  };
+  return (
+    <label className="field">
+      <span className="field-label">Sound</span>
+      <select className="select" value={value} onChange={(event) => choose(event.target.value)}>
+        <option value="">No sound</option>
+        <option value="everything">Entire system</option>
+        {listed.length > 0 && (
+          <optgroup label="One app">
+            {listed.map((app) => (
+              <option key={app.id} value={`app:${app.id}`}>
+                {label(app)}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
+      <span className="setting-hint">
+        {value === "everything"
+          ? "Everything your computer plays, apart from Zuna, so nobody hears themselves back."
+          : value
+            ? `Only what ${appName(remembered?.name ?? "")} plays.`
+            : "Apps show here while they play sound."}
+      </span>
+    </label>
   );
 }

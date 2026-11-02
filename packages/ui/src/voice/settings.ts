@@ -51,6 +51,8 @@ export interface VoiceSettings {
   screenCursor: boolean;
   /** Sharing starts with the computer's sound on. */
   screenSound: boolean;
+  /** The one app whose sound was shared last, or null for everything but Zuna, where the platform can tell them apart. */
+  screenSoundApp: { id: string; name: string } | null;
   /** Most a share's sound may send, in kbit/s. */
   screenSoundKbps: number;
   /** A whole screen is captured and encoded natively, where this build can. */
@@ -95,6 +97,7 @@ export const VOICE_DEFAULTS: VoiceSettings = {
   screenPriority: "sharp",
   screenCursor: true,
   screenSound: false,
+  screenSoundApp: null,
   screenSoundKbps: 128,
   screenNative: true,
   screenEncoder: "auto",

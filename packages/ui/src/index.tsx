@@ -26,6 +26,8 @@ export type {
   NotificationState,
   NotifyPayload,
   Platform,
+  ShareSound,
+  SoundApp,
 } from "./platform";
 export { connectWorker, type DeviceInfo } from "./core/boot";
 

@@ -28,6 +28,7 @@ import {
 import E2EEWorker from "livekit-client/e2ee-worker?worker";
 import { captureKey, MicError, Microphone, type MicReading } from "./mic";
 import type { ScreenCodec, ScreenContent, ScreenPriority, VoiceSettings } from "./settings";
+import { ShareSoundTrack } from "./share-sound";
 import type { StatsRoom, StatsStream } from "./stats";
 
 /**
@@ -342,6 +343,7 @@ export class VoiceRoom {
 
   private muted = false;
   private systemAudio: MediaStreamTrack | null = null;
+  private shareSound: ShareSoundTrack | null = null;
 
   /** Whether sound goes out from here. */
   async setMuted(muted: boolean): Promise<void> {
@@ -485,21 +487,38 @@ export class VoiceRoom {
   }
 
   /**
-   * Sends the computer's sound along with a native share. That can only capture
-   * pictures, so the sound comes from the browser, whose picture isn't used.
+   * Sends the computer's sound along with a share that has none of its own. A native share
+   * only captures pictures, so the sound comes from the browser, whose picture isn't used,
+   * or from the platform, whose samples come over a port.
    */
-  async startSystemAudio(kbps: number): Promise<void> {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: SYSTEM_AUDIO });
-    for (const track of stream.getVideoTracks()) track.stop();
-    const [track] = stream.getAudioTracks();
+  async startSystemAudio(kbps: number, samples?: MessagePort): Promise<void> {
+    let track: MediaStreamTrack | undefined;
+    if (samples) {
+      this.shareSound = await ShareSoundTrack.open(this.audio, samples);
+      track = this.shareSound.track;
+    } else {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: SYSTEM_AUDIO });
+      for (const video of stream.getVideoTracks()) video.stop();
+      track = stream.getAudioTracks()[0];
+    }
     if (!track) return;
     this.systemAudio = track;
-    await this.room.localParticipant.publishTrack(track, { source: Track.Source.ScreenShareAudio, name: "screen-audio", dtx: false, red: false, audioPreset: { maxBitrate: kbps * 1000 } });
+    await this.room.localParticipant.publishTrack(track, {
+      source: Track.Source.ScreenShareAudio,
+      name: "screen-audio",
+      dtx: false,
+      red: false,
+      // LiveKit can't tell a track made in Web Audio has two channels.
+      ...(samples ? { forceStereo: true } : {}),
+      audioPreset: { maxBitrate: kbps * 1000 },
+    });
   }
 
   async stopSystemAudio(): Promise<void> {
     const track = this.systemAudio;
     this.systemAudio = null;
+    this.shareSound?.stop();
+    this.shareSound = null;
     if (!track) return;
     await this.room.localParticipant.unpublishTrack(track, true).catch(() => undefined);
     track.stop();

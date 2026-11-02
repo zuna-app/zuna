@@ -133,6 +133,27 @@ export interface NativeScreenShare {
   onEnded(listener: (problem: string | null) => void): () => void;
 }
 
+/** An app playing sound, which a share can take the sound of alone. */
+export interface SoundApp {
+  /** What the system knows it by, to capture it with. */
+  id: string;
+  name: string;
+}
+
+/** The computer's sound for a share, captured natively: everything apart from this app, or one app's. */
+export interface ShareSound {
+  /** The apps playing sound now, apart from this one. */
+  apps(): Promise<SoundApp[]>;
+  /**
+   * Starts capturing one app, or everything but this app for null. The samples come over
+   * the port as Float32Arrays, two channels interleaved at 48 kHz, and only while something plays.
+   */
+  start(app: string | null): Promise<MessagePort>;
+  stop(): void;
+  /** It ended by itself, and why if that's a problem. */
+  onEnded(listener: (problem: string | null) => void): () => void;
+}
+
 export interface Platform {
   /** Whether the system shows times with AM and PM, or undefined to follow the language. */
   hour12: boolean | undefined;
@@ -163,6 +184,8 @@ export interface Platform {
   chooseDisplaySource?(id: string, audio: boolean): Promise<void>;
   /** Sharing a screen can bring the computer's sound with it. */
   systemAudio?: boolean;
+  /** That sound comes from here rather than from the browser, and can be one app's. */
+  shareSound?: ShareSound;
   nativeScreen?: NativeScreenShare;
   /** Says when a key goes down or up anywhere on the computer, not just in this window. */
   watchKey?(code: string, listener: (down: boolean) => void): () => void;

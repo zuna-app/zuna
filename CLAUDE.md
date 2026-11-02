@@ -55,6 +55,7 @@ Checks in real Electron, after `npm run build -w @zuna/desktop`:
 | `send-check.mjs` | The message list or message box. It checks what each painted frame shows |
 | `attack-check.mjs` | How messages are read or rendered, or the content security policy |
 | `voice-check.mjs` | Channels, or anything about voice: real apps against a real LiveKit, checking what audio and video really arrive |
+| `sound-check.mjs` | The computer's sound for a share on Linux, in the app or in the native program's `src/sound.rs`: real apps, a real LiveKit and PipeWire, with players nobody hears. It runs the apps on X11 |
 | `notification-check.mjs` | Windows's notifications or unread badge. `--real-input` moves the real mouse and types, which is the only way to see clicks go through the window and focus arrive |
 
 `packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`.

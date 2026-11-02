@@ -8,6 +8,10 @@ const on = (channel: string, listener: (value: any) => void) => {
   return () => ipcRenderer.removeListener(channel, wrapped);
 };
 
+// A port can't cross the bridge, so the page gets it as a message: the samples of the
+// computer's sound for a share, which go straight on to the audio thread.
+ipcRenderer.on("zuna:native-sound-port", (event) => window.postMessage("zuna:native-sound-port", window.location.origin, event.ports));
+
 contextBridge.exposeInMainWorld("zunaDesktop", {
   hour12: process.argv.includes("--zuna-clock=12"),
   deviceKey: () => ipcRenderer.invoke("zuna:device-key"),
@@ -21,6 +25,11 @@ contextBridge.exposeInMainWorld("zunaDesktop", {
   nativeScreenStop: () => ipcRenderer.invoke("zuna:native-screen-stop"),
   onNativeScreenEnded: (listener: (problem: string | null) => void) => on("zuna:native-screen-ended", listener),
   onNativeScreenStats: (listener: (stats: unknown) => void) => on("zuna:native-screen-stats", listener),
+  nativeSound: process.argv.includes("--zuna-native-sound"),
+  soundApps: () => ipcRenderer.invoke("zuna:sound-apps"),
+  nativeSoundStart: (app: string | null) => ipcRenderer.invoke("zuna:native-sound-start", app),
+  nativeSoundStop: () => ipcRenderer.invoke("zuna:native-sound-stop"),
+  onNativeSoundEnded: (listener: (problem: string | null) => void) => on("zuna:native-sound-ended", listener),
   watchKey: (code: string | null) => ipcRenderer.invoke("zuna:watch-key", code),
   onKey: (listener: (down: boolean) => void) => on("zuna:key", listener),
   notify: (payload: unknown) => ipcRenderer.invoke("zuna:notify", payload),

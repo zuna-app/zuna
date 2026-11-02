@@ -14,6 +14,8 @@ import {
   type NotificationState,
   type NotifyPayload,
   type Platform,
+  type ShareSound,
+  type SoundApp,
 } from "@zuna/ui";
 import { drawCounters } from "./counter";
 
@@ -34,6 +36,13 @@ export interface DesktopBridge {
   nativeScreenStop(): Promise<void>;
   onNativeScreenEnded(listener: (problem: string | null) => void): () => void;
   onNativeScreenStats(listener: (stats: NativeScreenStats) => void): () => void;
+  /** This build captures the computer's sound for a share itself, which is on Linux. */
+  nativeSound: boolean;
+  soundApps(): Promise<SoundApp[]>;
+  /** The port comes as a message to the page, since it can't cross the bridge. */
+  nativeSoundStart(app: string | null): Promise<void>;
+  nativeSoundStop(): Promise<void>;
+  onNativeSoundEnded(listener: (problem: string | null) => void): () => void;
   watchKey(code: string | null): Promise<boolean>;
   onKey(listener: (down: boolean) => void): () => void;
   notify(payload: NotifyPayload): Promise<void>;
@@ -95,7 +104,8 @@ export function desktopPlatform(): Platform {
     camera: () => desktop.camera(),
     displaySources: () => desktop.displaySources(),
     chooseDisplaySource: (id, audio) => desktop.chooseDisplaySource(id, audio),
-    systemAudio: isWindows,
+    systemAudio: isWindows || desktop.nativeSound,
+    shareSound: desktop.nativeSound ? nativeSound(desktop) : undefined,
     nativeScreen: {
       encoders: isWindows
         ? [
@@ -128,6 +138,28 @@ export function desktopPlatform(): Platform {
     onOpenConversation: (listener) => desktop.onOpenConversation(listener),
     setCloseToTray: (enabled) => void desktop.setCloseToTray(enabled),
     keyWarning: "Your system has no keychain available, so Zuna can't lock its local data to your login. Installing a secret service such as GNOME Keyring fixes this.",
+  };
+}
+
+/** The computer's sound for a share, which the main process captures and hands over a port. */
+function nativeSound(desktop: DesktopBridge): ShareSound {
+  return {
+    apps: () => desktop.soundApps(),
+    start: (app) =>
+      new Promise((resolve, reject) => {
+        const onMessage = (event: MessageEvent) => {
+          if (event.source !== window || event.data !== "zuna:native-sound-port" || !event.ports[0]) return;
+          window.removeEventListener("message", onMessage);
+          resolve(event.ports[0]);
+        };
+        window.addEventListener("message", onMessage);
+        desktop.nativeSoundStart(app).catch((error: unknown) => {
+          window.removeEventListener("message", onMessage);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        });
+      }),
+    stop: () => void desktop.nativeSoundStop(),
+    onEnded: (listener) => desktop.onNativeSoundEnded(listener),
   };
 }
 
