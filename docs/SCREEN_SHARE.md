@@ -162,7 +162,18 @@ What's sent depends on the screen changing: a still screen gets half a second at
 | Native, NVENC, over TLS | 60 | 60 | 60 |
 | Chromium, OpenH264 | 57 | 57 | 57 |
 
-Both keep from asking the system for exactly the frame rate. Windows drops a frame that arrives inside its minimum interval, and at the screen's own refresh rate that's a lot of them: asking for 239 fps on that monitor got 208, and asking for half the interval got 239. So it asks for half the interval, and the program keeps to the frame rate itself. Compositors can do the same, so on Linux it asks for a quarter more than the frame rate and trims what comes well ahead of its turn.
+Windows drops a frame that arrives inside its minimum interval, and at the screen's own refresh rate that's a lot of them: asking for 239 fps on that monitor got 208, and asking for half the interval got 239. So it asks for half the interval, and the program waits for each frame's turn itself.
+
+On Linux it asks the compositor for exactly the frame rate, since KWin keeps to that with a timer rather than the screen's refreshes, and it can't wait for a turn without holding on to the compositor's buffer. It asked for a quarter more until KWin was measured, which made it drop every fifth frame, so frames went out unevenly. Measured on KDE with something moving at 360 fps, frames going to the encoder:
+
+| Screen, asked for | A quarter more | Exactly |
+|---|---|---|
+| 165 Hz, 30 fps | 33.3 ms apart, ±11.4 | 33.3 ms, ±0.1 |
+| 165 Hz, 60 fps | 16.7 ms, ±5.8 | 16.7 ms, ±0.2 |
+| 360 Hz, 30 fps | 33.3 ms, ±11.4 | 33.3 ms, ±0.3 |
+| 360 Hz, 60 fps | | 16.7 ms, ±0.2 |
+
+Someone watching a 30 fps share saw ±11.7 ms before, and ±5.3 after, as much as through the browser. A compositor that sends frames ahead of their turn still has those left out, and the stream stats window says how many, and how evenly frames come from the compositor.
 
 Chromium needs asking as well. Without a frame rate in `getDisplayMedia` it captures at 30, and LiveKit leaves the frame rate out when the size is the screen's own, so `voice/room.ts` passes it itself.
 
@@ -172,7 +183,7 @@ Chromium's fake capture runs at 20 fps. `--use-fake-ui-for-media-stream` swaps i
 
 The proof of concept's README lists what has run where. Inside the app, Windows and Linux with NVENC have run so far:
 
-- **Linux** has run from the app on Arch with KDE and an RTX 5080, over KRdp with its screen at 1920x1080, publishing over TLS to apps watching: NVENC from DMA-BUFs, 60 fps sent and 60 decoded at 2.3 ms a frame and 4% of a core, and 30 fps asked for gave 30.0. KWin was asked for at most 37 then, which on KRdp's 60 Hz screen already lands on every other refresh, so the trimming still hasn't been seen at work. KWin offers any size from 200x200 to 10000x10000 with its screen's own as the default (seen in `pw-dump`), and scales to whatever's taken. PipeWire takes the consumer's default when the range allows it, so the program offers no size at all and gets the screen's own. Until it did, it offered 1920x1080. Since then, `voice-check.mjs` has shared a 2560x1440 screen natively at its own size.
+- **Linux** has run from the app on Arch with KDE and an RTX 5080, over KRdp with its screen at 1920x1080, publishing over TLS to apps watching: NVENC from DMA-BUFs, 60 fps sent and 60 decoded at 2.3 ms a frame and 4% of a core, and 30 fps asked for gave 30.0. KWin offers any size from 200x200 to 10000x10000 with its screen's own as the default (seen in `pw-dump`), and scales to whatever's taken. PipeWire takes the consumer's default when the range allows it, so the program offers no size at all and gets the screen's own. Until it did, it offered 1920x1080. Since then, `voice-check.mjs` has shared a 2560x1440 screen natively at its own size.
 - **VA-API and AMF** have never run.
 - **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core, and on Linux with NVENC from DMA-BUFs through the OpenGL blit, at 1280x720 from 1920x1080 and 60 fps, 1.4 ms a frame and 4% of a core. VA-API's `scale_vaapi` has never run.
 - **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.

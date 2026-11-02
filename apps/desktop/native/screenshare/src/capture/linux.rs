@@ -88,10 +88,12 @@ fn format_param(format: u32, fps: u32, modifiers: &[u64]) -> Vec<u64> {
     // 10000x10000 and scales to it, and PipeWire takes this side's default when the
     // range allows it, so a default here would squeeze every screen into that.
     // A framerate of nothing means as frames come, and the maximum is what the
-    // compositor should keep to. That's a little over the frame rate, because a compositor
-    // can skip a frame that comes even slightly inside it, which at the screen's own
-    // refresh rate is about every other one. `encode_buffer` keeps to the frame rate.
-    let most = fps + fps / 4;
+    // compositor should keep to. KWin keeps to it with a timer, frames 27.0 ms apart
+    // within 0.1 for 37 fps on 165 and 360 Hz screens, so it's the frame rate itself.
+    // Asking for a quarter more, against compositors that might skip a frame coming
+    // slightly early, made `encode_buffer` trim those 27 ms frames to 27 or 54 ms apart
+    // for 30 fps, which whoever watched saw as a stutter. It still trims what comes early.
+    let most = fps;
     properties.push((FORMAT_VIDEO_FRAMERATE, 0, Value::Fraction(0, 1)));
     properties.push((
         FORMAT_VIDEO_MAX_FRAMERATE,
@@ -234,7 +236,9 @@ unsafe fn encode_buffer(shared: &mut Shared, buffer: *mut PwBuffer) -> Result<()
     // Frames can come a little faster than the frame rate, so this trims those that are
     // well ahead of their turn. It can't wait for the turn, as the Windows capture does,
     // without holding on to the compositor's buffer.
+    pipeline.note_arrival();
     if Instant::now() + shared.interval / 4 < pipeline.next_due() {
+        pipeline.note_early();
         return Ok(());
     }
 

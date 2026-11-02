@@ -58,10 +58,42 @@ pub enum Sink {
     LiveKit(NativeVideoSource),
 }
 
+/// How far apart things happened, for the mean and how much they wander from it.
+#[derive(Default)]
+struct Gaps {
+    count: u64,
+    sum: f64,
+    squares: f64,
+}
+
+impl Gaps {
+    fn add(&mut self, from: Option<Instant>, to: Instant) {
+        if let Some(from) = from {
+            let ms = to.duration_since(from).as_secs_f64() * 1000.0;
+            self.count += 1;
+            self.sum += ms;
+            self.squares += ms * ms;
+        }
+    }
+
+    fn mean_and_deviation(&self) -> (f64, f64) {
+        if self.count == 0 {
+            return (0.0, 0.0);
+        }
+        let mean = self.sum / self.count as f64;
+        (mean, (self.squares / self.count as f64 - mean * mean).max(0.0).sqrt())
+    }
+}
+
 #[derive(Default)]
 struct Window {
     frames: u64,
     repeats: u64,
+    /// Frames the compositor sent too far ahead of their turn, which were left out.
+    early: u64,
+    /// Between frames as the compositor sends them, and as new ones go to the encoder.
+    arrivals: Gaps,
+    spacing: Gaps,
     bytes: u64,
     encode_time: Duration,
     encode_time_max: Duration,
@@ -97,6 +129,8 @@ pub struct Pipeline {
     window_started: Instant,
     cpu_at_window_start: Duration,
     totals: Window,
+    last_arrival: Option<Instant>,
+    last_new_frame: Option<Instant>,
 }
 
 impl Pipeline {
@@ -127,12 +161,28 @@ impl Pipeline {
             window_started: now,
             cpu_at_window_start: cpu::time_used(),
             totals: Window::default(),
+            last_arrival: None,
+            last_new_frame: None,
         }
     }
 
     /// The earliest a new frame should be encoded.
     pub fn next_due(&self) -> Instant {
         self.frame_due
+    }
+
+    /// A frame came from the compositor, whether or not it's encoded.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn note_arrival(&mut self) {
+        let now = Instant::now();
+        self.window.arrivals.add(self.last_arrival, now);
+        self.last_arrival = Some(now);
+    }
+
+    /// A frame came too far ahead of its turn and was left out.
+    #[cfg_attr(windows, allow(dead_code))]
+    pub fn note_early(&mut self) {
+        self.window.early += 1;
     }
 
     /// What the encoder is set to send now.
@@ -179,6 +229,8 @@ impl Pipeline {
         let force_key = self.take_key_request();
         let pts = self.pts();
         let began = Instant::now();
+        self.window.spacing.add(self.last_new_frame, began);
+        self.last_new_frame = Some(began);
         self.encoder.send(input, pts, force_key)?;
         self.last_change = began;
         self.after_encode(began, false)
@@ -293,13 +345,16 @@ impl Pipeline {
         let seconds = elapsed.as_secs_f64();
         let encodes = (window.frames + window.repeats).max(1) as f64;
         let cpu_now = cpu::time_used();
+        let (arrival_ms, arrival_jitter) = window.arrivals.mean_and_deviation();
+        let (spacing_ms, spacing_jitter) = window.spacing.mean_and_deviation();
         println!(
-            "{{\"type\":\"stats\",\"t\":{:.1},\"width\":{},\"height\":{},\"fps\":{:.1},\"repeatFps\":{:.1},\"kbps\":{:.0},\"targetKbps\":{},\"encoderKbps\":{},\"encodeMsAvg\":{:.2},\"encodeMsMax\":{:.2},\"keys\":{},\"keyRequests\":{},\"bitrateChanges\":{},\"rejected\":{},\"idrRewritten\":{},\"idrLeftAlone\":{},\"cpuCores\":{:.3}}}",
+            "{{\"type\":\"stats\",\"t\":{:.1},\"width\":{},\"height\":{},\"fps\":{:.1},\"repeatFps\":{:.1},\"earlyFps\":{:.1},\"arrivalMs\":{arrival_ms:.2},\"arrivalJitterMs\":{arrival_jitter:.2},\"spacingMs\":{spacing_ms:.2},\"spacingJitterMs\":{spacing_jitter:.2},\"kbps\":{:.0},\"targetKbps\":{},\"encoderKbps\":{},\"encodeMsAvg\":{:.2},\"encodeMsMax\":{:.2},\"keys\":{},\"keyRequests\":{},\"bitrateChanges\":{},\"rejected\":{},\"idrRewritten\":{},\"idrLeftAlone\":{},\"cpuCores\":{:.3}}}",
             self.started.elapsed().as_secs_f64(),
             self.width,
             self.height,
             window.frames as f64 / seconds,
             window.repeats as f64 / seconds,
+            window.early as f64 / seconds,
             window.bytes as f64 * 8.0 / seconds / 1000.0,
             self.bitrate_wanted / 1000,
             self.bitrate_now / 1000,

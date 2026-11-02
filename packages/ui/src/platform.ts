@@ -92,6 +92,14 @@ export interface NativeScreenStats {
   fps: number;
   /** Frames sent again while the screen is still, for the encoder to sharpen it. */
   repeatFps: number;
+  /** Linux: frames the compositor sent too far ahead of their turn, which were left out. */
+  earlyFps?: number;
+  /** Linux: how far apart frames come from the compositor, and how much that wanders. */
+  arrivalMs?: number;
+  arrivalJitterMs?: number;
+  /** How far apart new frames go to the encoder, and how much that wanders. */
+  spacingMs?: number;
+  spacingJitterMs?: number;
   kbps: number;
   /** What the network allows. */
   targetKbps: number;
