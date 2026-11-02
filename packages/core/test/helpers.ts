@@ -50,7 +50,10 @@ class MemoryDb implements LocalDb {
       this.db.exec(sql);
       return;
     }
-    this.db.prepare(sql).run(...(params as never[]));
+    const statement = this.db.prepare(sql);
+    // run() reports the last row added, and FTS5 numbers its own rows past 2^53, which only a BigInt holds.
+    statement.setReadBigInts(true);
+    statement.run(...(params as never[]));
   }
 
   all<T>(sql: string, params: SqlValue[] = []): T[] {
