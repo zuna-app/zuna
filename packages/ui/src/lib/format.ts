@@ -42,6 +42,19 @@ export function formatDaySeparator(at: number): string {
 
 export const sameDay = (a: number, b: number) => startOfDay(a) === startOfDay(b);
 
+const shortDateFormat = new Intl.DateTimeFormat(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** A day in full, as between days in a channel. */
+export const formatDate = (at: number) => fullDayYearFormat.format(at);
+
+/** When a message was sent, as beside a name in a channel: "Today at 14:32", or the date. */
+export function formatStamp(at: number): string {
+  const days = Math.round((startOfDay(Date.now()) - startOfDay(at)) / 86_400_000);
+  if (days === 0) return `Today at ${formatTime(at)}`;
+  if (days === 1) return `Yesterday at ${formatTime(at)}`;
+  return `${shortDateFormat.format(at)} ${formatTime(at)}`;
+}
+
 /** A moment still to come, with its date unless it's today. */
 export function formatUpcoming(at: number): string {
   return sameDay(at, Date.now()) ? formatTime(at) : `${dayFormat.format(at)}, ${formatTime(at)}`;

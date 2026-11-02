@@ -1,10 +1,10 @@
 import type { ConversationView, MessageView } from "@zuna/core";
-import { AtSign, ChevronDown } from "lucide-react";
+import { ArrowDown, AtSign, ChevronDown } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
-import { formatDaySeparator, sameDay } from "@/lib/format";
+import { formatDate, formatDaySeparator, formatTime, sameDay } from "@/lib/format";
 import { isUnread, useApp } from "@/state/store";
 import { MessageItem } from "./MessageItem";
 import { useDragPick } from "./use-drag-pick";
@@ -100,7 +100,7 @@ const Header = ({ context }: { context?: { loading: boolean } }) => (
   </div>
 );
 
-const ListFooter = () => <div style={{ height: 10 }} />;
+const ListFooter = () => <div className="list-footer" />;
 
 /**
  * As Telegram's "@": goes to the oldest unread message here that mentions you or
@@ -136,7 +136,18 @@ function MentionButton({ conversation, groupId, hidden, raised }: { conversation
   );
 }
 
-export function MessageList({ conversation, listId, emptyState }: { conversation: ConversationView; listId: string; emptyState: ReactNode }) {
+export function MessageList({
+  conversation,
+  listId,
+  emptyState,
+  start: startOfChat,
+}: {
+  conversation: ConversationView;
+  listId: string;
+  emptyState: ReactNode;
+  /** What goes above the very first message, once there's nothing older to load. */
+  start?: ReactNode;
+}) {
   const list = useApp((state) => state.lists[listId]);
   const loadOlder = useApp((state) => state.loadOlder);
   const returnToLatest = useApp((state) => state.returnToLatest);
@@ -157,6 +168,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
 
   const items = list?.items ?? [];
   const isGroup = conversation.kind !== "dm";
+  const isChannel = conversation.kind === "channel";
   const isAdmin = conversation.members.find((member) => member.userId === selfId)?.role === "admin";
   const readUpTo = useMemo(
     () => (conversation.kind === "channel" ? -1 : Object.entries(conversation.readBy).reduce((highest, [id, seq]) => (id === selfId ? highest : Math.max(highest, seq)), 0)),
@@ -460,18 +472,34 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       // With older messages still to load, the day may well have started before this one.
       const showDay = previous ? !sameDay(previous.createdAt, message.createdAt) : !hasMore;
       // And it most likely follows on from them, so it keeps its size when they arrive.
-      const grouped = !showDay && (previous ? continues(previous, message) : hasMore && !detached);
+      // In a channel a reply starts a run of its own, as in Discord, under its name.
+      const grouped = !showDay && !(isChannel && message.reply) && (previous ? continues(previous, message) : hasMore && !detached);
+      const unread = message.id === unreadLine.current;
       return (
         <div className="list-item" data-id={message.id} data-seq={message.seq !== null && !message.id.startsWith("sys-") ? message.seq : undefined}>
-          {message.id === unreadLine.current && (
-            <div className="unread-sep">
-              <span>Unread messages</span>
-            </div>
-          )}
-          {showDay && (
-            <div className="day-sep">
-              <span>{formatDaySeparator(message.createdAt)}</span>
-            </div>
+          {!previous && !hasMore && !detached && startOfChat}
+          {isChannel ? (
+            // One line across the list, as in Discord: the day in the middle, and red with
+            // "New" at its end above the first unread message.
+            (showDay || unread) && (
+              <div className={`channel-sep${unread ? " is-unread" : ""}${showDay ? " has-day" : ""}`}>
+                {showDay && <span className="channel-sep-day">{formatDate(message.createdAt)}</span>}
+                {unread && <span className="channel-sep-new">New</span>}
+              </div>
+            )
+          ) : (
+            <>
+              {unread && (
+                <div className="unread-sep">
+                  <span>Unread messages</span>
+                </div>
+              )}
+              {showDay && (
+                <div className="day-sep">
+                  <span>{formatDaySeparator(message.createdAt)}</span>
+                </div>
+              )}
+            </>
           )}
           <ErrorBoundary key={message.id} fallback={<UndisplayableMessage />}>
             <MessageItem
@@ -485,12 +513,13 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
               fresh={fresh.current.has(message.id)}
               highlighted={highlightId === message.id}
               own={message.senderId === selfId}
+              channel={isChannel}
             />
           </ErrorBoundary>
         </div>
       );
     },
-    [items, firstIndex, hasMore, detached, listId, isGroup, isAdmin, readUpTo, highlightId, selfId],
+    [items, firstIndex, hasMore, detached, listId, isGroup, isChannel, isAdmin, readUpTo, highlightId, selfId, startOfChat],
   );
 
   if (!list?.loaded && items.length === 0) {
@@ -505,6 +534,7 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
   }
 
   const unreadBelow = !atBottom ? conversation.unread : 0;
+  const firstUnreadAt = unreadBelow > 0 ? items.find((item) => isUnread(item, conversation.ownRead, selfId))?.createdAt : undefined;
 
   return (
     <div className="message-list" onMouseDown={pickByDragging}>
@@ -531,12 +561,25 @@ export function MessageList({ conversation, listId, emptyState }: { conversation
       {conversation.groupId && (
         <MentionButton key={listId} conversation={conversation} groupId={conversation.groupId} hidden={atBottom && !list.detached} raised={!atBottom || list.detached} />
       )}
-      {(!atBottom || list.detached) && (
-        <button className="to-bottom" onClick={scrollToBottom} aria-label="Go to the newest messages">
-          <ChevronDown size={30} strokeWidth={1.5} />
-          {unreadBelow > 0 && <span className="to-bottom-badge">{unreadBelow > 99 ? "99+" : unreadBelow}</span>}
-        </button>
-      )}
+      {(!atBottom || list.detached) &&
+        (isChannel ? (
+          // A bar along the bottom of the list, as in Discord.
+          <button className="jump-present" onClick={scrollToBottom}>
+            <span className="truncate">
+              {unreadBelow > 0
+                ? `${unreadBelow > 99 ? "99+" : unreadBelow} new ${unreadBelow === 1 ? "message" : "messages"}${firstUnreadAt ? ` since ${formatTime(firstUnreadAt)}` : ""}`
+                : "You're viewing older messages"}
+            </span>
+            <span className="jump-present-go">
+              Jump to present <ArrowDown size={15} />
+            </span>
+          </button>
+        ) : (
+          <button className="to-bottom" onClick={scrollToBottom} aria-label="Go to the newest messages">
+            <ChevronDown size={30} strokeWidth={1.5} />
+            {unreadBelow > 0 && <span className="to-bottom-badge">{unreadBelow > 99 ? "99+" : unreadBelow}</span>}
+          </button>
+        ))}
     </div>
   );
 }

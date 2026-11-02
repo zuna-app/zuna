@@ -1,0 +1,253 @@
+/* Channels, laid out as Discord's: full-width rows under a name and a picture, a
+   header with the topic, a rounded message box, and the member list on the right.
+   Sizes are Discord's; colors are the app's own, so accents and sizes still apply. */
+
+.chat.is-channel {
+  --channel-text: calc(var(--message-size) + 1.5px);
+  --channel-muted: #8b8b92;
+  --spine: #505057;
+  container-type: inline-size;
+}
+.chat.is-channel .chat-column { background: var(--bg-chat); }
+
+/* Header */
+.channel-head { height: 48px; gap: 0; padding: 0 8px 0 16px; background: var(--bg-chat); border-bottom: 1px solid var(--line); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
+.channel-head-name { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--channel-muted); }
+.channel-head-name svg { flex: none; }
+.channel-head .chat-title { display: block; font-size: 16px; font-weight: 600; line-height: 20px; color: var(--text-1); }
+.channel-head-divider { flex: none; width: 1px; height: 24px; margin: 0 12px; background: var(--line-strong); }
+.channel-head-topic { flex: 0 1 auto; min-width: 0; font-size: 14px; line-height: 18px; color: var(--text-2); text-align: left; }
+.channel-head .chat-actions { gap: 0; }
+.channel-head .icon-btn { width: 32px; height: 32px; margin: 0 2px; color: var(--text-2); background: none; }
+.channel-head .icon-btn:hover, .channel-head .icon-btn.is-active { color: var(--text-1); background: none; }
+.channel-search {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 144px; height: 26px; margin: 0 4px 0 8px; padding: 0 7px 0 8px;
+  border-radius: 6px; background: var(--bg-2); color: var(--channel-muted); font-size: 14px; text-align: left; transition: width 0.2s var(--ease-out), color 0.1s;
+}
+.channel-search:hover { color: var(--text-2); }
+.channel-search.is-active { width: 220px; color: var(--text-1); }
+
+/* The list */
+.chat.is-channel .list-item { padding: 0; }
+.chat.is-channel .list-footer { height: 22px; }
+.list-footer { height: 10px; }
+.chat.is-channel .list-center { align-items: end; justify-items: stretch; padding: 0 0 8px; }
+
+/* As far back as the channel goes. */
+.channel-welcome { margin: 16px 16px 8px; display: flex; flex-direction: column; align-items: flex-start; }
+.channel-welcome-icon { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-3); color: var(--text-1); }
+.channel-welcome h2 { margin: 8px 0; font-size: 32px; line-height: 40px; font-weight: 700; color: var(--text-1); letter-spacing: -0.01em; }
+.channel-welcome p { font-size: 16px; line-height: 22px; color: var(--text-2); }
+.channel-welcome-lock { display: flex; align-items: flex-start; gap: 6px; margin-top: 6px; font-size: 13px !important; line-height: 18px !important; color: var(--channel-muted) !important; }
+.channel-welcome-lock svg { flex: none; margin-top: 2px; }
+.channel-welcome-edit { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 14px; font-weight: 500; color: var(--link); }
+.channel-welcome-edit:hover { text-decoration: underline; }
+
+/* A line across the list: a new day in the middle, and red with "New" above the first unread message. */
+.channel-sep { position: relative; display: flex; align-items: center; justify-content: center; height: 0; margin: 24px 16px 8px; border-top: 1px solid var(--line-strong); }
+.channel-sep.is-unread { border-color: var(--red); }
+.channel-sep.is-unread:not(.has-day) { margin: 10px 16px 8px; }
+.channel-sep-day { margin-top: -1px; padding: 2px 4px; font-size: 12px; line-height: 13px; font-weight: 600; color: var(--channel-muted); background: var(--bg-chat); }
+.channel-sep.is-unread .channel-sep-day { color: var(--red); }
+.channel-sep-new {
+  position: absolute; right: 0; top: -7px; height: 13px; padding: 0 4px 0 9px; font-size: 10px; line-height: 13px; font-weight: 700; text-transform: uppercase;
+  color: #fff; background: var(--red); border-radius: 0 3px 3px 0; clip-path: polygon(0 50%, 5px 0, 100% 0, 100% 100%, 5px 100%);
+}
+
+/* A message */
+.msg.is-channel {
+  display: block; position: relative; margin: 0; padding: 2px 48px 2px 72px; min-height: 22px; border-radius: 0;
+  font-size: var(--channel-text); line-height: 1.375; color: var(--text-1); overflow-wrap: anywhere; transition: none;
+}
+.msg.is-channel:not(.is-grouped) { margin-top: 17px; min-height: 44px; }
+.channel-sep + .msg.is-channel, .channel-welcome + .msg.is-channel { margin-top: 0; }
+.msg.is-channel:hover, .msg.is-channel.is-menu-open { background: rgba(255, 255, 255, 0.025); }
+.msg.is-channel.is-highlighted { background: var(--accent-soft); }
+/* Mentioning you, or answering you: gold, with a line down the left, as in Discord. */
+.msg.is-channel.is-mentioned { background: rgba(229, 165, 10, 0.08); }
+.msg.is-channel.is-mentioned:hover, .msg.is-channel.is-mentioned.is-menu-open { background: rgba(229, 165, 10, 0.11); }
+.msg.is-channel.is-mentioned::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--amber); }
+
+.cmsg-main { position: relative; }
+.cmsg-avatar { position: absolute; left: -56px; top: 2px; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; }
+.cmsg-avatar:active { transform: translateY(1px); }
+.cmsg-head { display: block; min-height: 22px; font-size: var(--channel-text); line-height: 22px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmsg-author { font-size: var(--channel-text); font-weight: 500; line-height: 22px; vertical-align: baseline; }
+.cmsg-author:hover { text-decoration: underline; }
+.cmsg-time { display: inline-block; margin-left: 6px; font-size: 12px; line-height: 22px; font-weight: 500; color: var(--channel-muted); vertical-align: baseline; cursor: default; user-select: none; }
+/* Further down a run, the time shows on the left on hover. */
+.cmsg-gutter-time {
+  position: absolute; left: -72px; width: 56px; top: 0; text-align: right; font-size: 11px; line-height: 22px; font-weight: 500;
+  color: var(--channel-muted); opacity: 0; cursor: default; user-select: none;
+}
+.msg.is-channel:hover .cmsg-gutter-time, .msg.is-channel.is-menu-open .cmsg-gutter-time { opacity: 1; }
+.cmsg-body { min-width: 0; }
+.msg.is-channel .msg-text { white-space: pre-wrap; }
+.msg.is-channel .msg-text .text-block + .text-block { margin-top: 0; }
+.cmsg-edited { margin-left: 4px; font-size: 10px; line-height: 1; color: var(--channel-muted); user-select: none; cursor: default; }
+.cmsg-flag { display: inline-flex; margin-left: 4px; vertical-align: -1px; color: var(--channel-muted); }
+/* A message only looks unsent once it's taking a while, so a quick send doesn't blink. */
+.msg.is-channel.is-sending .cmsg-body { opacity: 0.55; transition: opacity 0.2s 0.5s; }
+@starting-style { .msg.is-channel.is-sending .cmsg-body { opacity: 1; } }
+.msg.is-channel.is-failed .msg-text { color: var(--red); }
+.msg.is-channel .msg-retry { margin-top: 2px; }
+.msg.is-channel .msg-placeholder { font-size: var(--channel-text); color: var(--channel-muted); font-style: italic; }
+.msg.is-channel .msg-placeholder.is-danger { font-style: normal; }
+.msg.is-channel.is-fresh { animation: fade-in 0.12s; }
+
+/* What it answers, joined to the picture below by a line. */
+.cmsg-reply { position: relative; display: flex; align-items: center; gap: 4px; height: 18px; margin-bottom: 4px; font-size: 14px; line-height: 18px; white-space: nowrap; color: var(--text-2); }
+.cmsg-reply::before {
+  content: ""; position: absolute; left: -37px; right: 100%; top: 50%; bottom: -2px; margin-right: 4px;
+  border-left: 2px solid var(--spine); border-top: 2px solid var(--spine); border-top-left-radius: 6px;
+}
+.cmsg-reply .avatar { flex: none; font-size: 7px !important; }
+.cmsg-reply-gone { flex: none; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; background: var(--bg-3); color: var(--text-2); }
+.cmsg-reply-name { flex: none; font-weight: 500; font-size: 14px; opacity: 0.9; }
+.cmsg-reply-name:hover { text-decoration: underline; }
+.cmsg-reply-text { min-width: 0; display: flex; align-items: center; gap: 4px; font-size: 14px; color: var(--text-2); text-align: left; }
+.cmsg-reply-text:hover { color: var(--text-1); }
+.cmsg-reply-text.is-empty { font-style: italic; }
+.cmsg-reply-text svg { flex: none; }
+
+/* Edited where it is. */
+.cmsg-editor { padding: 2px 0 4px; }
+.cmsg-editor-input {
+  display: block; width: 100%; resize: none; border: 0; outline: 0; padding: 11px 16px; border-radius: 8px; background: var(--bg-3); color: var(--text-1);
+  font-size: var(--channel-text); line-height: 22px; field-sizing: content; min-height: 44px; max-height: 50vh; user-select: text;
+}
+.cmsg-editor-hint { display: block; margin-top: 4px; font-size: 12px; color: var(--text-2); }
+.cmsg-editor-hint .link-button { font-size: 12px; color: var(--link); }
+
+/* Reactions under the message: the emoji and how many, outlined when one is yours. */
+.msg.is-channel .reactions { margin-top: 4px; gap: 4px; }
+.msg.is-channel .reaction {
+  height: auto; min-height: 26px; padding: 2px 6px; gap: 6px; border-radius: 8px; border: 1px solid transparent;
+  background: var(--bg-2); color: var(--text-2); font-size: 14px; font-weight: 600; line-height: 16px;
+}
+.msg.is-channel .reaction:hover { background: var(--bg-3); border-color: var(--line-strong); }
+.msg.is-channel .reaction.is-mine { background: var(--accent-soft); border-color: var(--accent); color: var(--text-1); }
+.msg.is-channel .reaction-emoji { font-size: 16px; line-height: 20px; }
+.msg.is-channel .emote-reaction { height: 20px; }
+.msg.is-channel .reaction-add { opacity: 0; color: var(--text-2); padding: 2px 6px; }
+.msg.is-channel:hover .reaction-add, .msg.is-channel.is-menu-open .reaction-add, .reaction-add:focus-visible { opacity: 1; }
+
+/* The bar of actions over the top right of the message on hover. */
+.cmsg-toolbar {
+  position: absolute; z-index: 2; top: -16px; right: 14px; display: flex; align-items: center; height: 34px; padding: 0 1px;
+  background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: var(--shadow-s);
+  opacity: 0; pointer-events: none;
+}
+.msg.is-channel:hover .cmsg-toolbar, .msg.is-channel.is-menu-open .cmsg-toolbar, .cmsg-toolbar:focus-within { opacity: 1; pointer-events: auto; }
+.cmsg-tool { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 6px; color: var(--text-2); }
+.cmsg-tool:hover { background: var(--hover-strong); color: var(--text-1); }
+.cmsg-tool.is-emoji { font-size: 18px; line-height: 1; }
+.cmsg-tool.is-emoji:hover { transform: scale(1.12); background: none; }
+.cmsg-tool-divider { width: 1px; height: 20px; margin: 0 4px; background: var(--line-strong); }
+
+/* Files, pictures and previews sit under the text, as Discord's attachments and embeds. */
+.cmsg-attachments { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 2px 0; }
+.msg.is-channel .media-grid { margin: 0; border-radius: 8px; max-width: min(550px, 100%); }
+.msg.is-channel .media-video { border-radius: 8px; margin: 0; }
+.msg.is-channel .file-card, .msg.is-channel .voice {
+  width: 432px; max-width: 100%; padding: 12px; gap: 12px; border-radius: 8px; background: var(--bg-2); border: 1px solid var(--line);
+}
+.msg.is-channel .file-card:hover:not(:disabled) { border-color: var(--line-strong); }
+.msg.is-channel .file-name { color: var(--link); font-size: 15px; }
+.msg.is-channel .file-card:hover:not(:disabled) .file-name { text-decoration: underline; }
+.msg.is-channel .file-icon { border-radius: 8px; width: 40px; height: 40px; }
+.msg.is-channel .link-card {
+  max-width: 432px; margin: 4px 0 0; padding: 8px 16px 14px 12px; border-left: 4px solid var(--bg-5); border-radius: 4px; background: var(--bg-2);
+}
+.msg.is-channel .link-card:hover { background: var(--bg-2); }
+.msg.is-channel .link-card-site { font-size: 12px; font-weight: 400; color: var(--text-2); margin-bottom: 4px; }
+.msg.is-channel .link-card-title { font-size: 16px; color: var(--link); }
+.msg.is-channel .link-card:hover .link-card-title { text-decoration: underline; }
+.msg.is-channel .link-card-description { font-size: 14px; color: var(--text-1); margin-top: 4px; }
+.msg.is-channel .link-card-image { width: 80px; height: 80px; border-radius: 4px; }
+.msg.is-channel .location-card { margin: 4px 0 0; background: var(--bg-2); border: 1px solid var(--line); }
+.msg.is-channel .quote { border-left: 4px solid var(--bg-5); border-radius: 2px; padding: 0 8px 0 12px; color: var(--text-1); }
+.msg.is-channel .code-block { background: var(--bg-2); border-color: var(--line); margin: 6px 0 2px; max-width: 90%; }
+.msg.is-channel .code-body { font-size: 14px; line-height: 18px; }
+.msg.is-channel .inline-code { background: var(--bg-3); padding: 0.15em 0.25em; border-radius: 4px; }
+.msg.is-channel .mention { padding: 0 2px; border-radius: 3px; font-weight: 500; background: var(--accent-soft); color: var(--accent-text); }
+.msg.is-channel .mention:hover { background: var(--accent); color: var(--on-accent); }
+.msg.is-channel .jumbo-emoji { font-size: 44px; line-height: 48px; }
+.msg.is-channel .emote-jumbo { height: 48px; }
+.msg.is-channel.is-jumbo .msg-text { display: block; }
+.msg.is-channel .msg-forwarded { margin: 0 0 2px; padding-left: 8px; border-left: 2px solid var(--spine); font-style: italic; }
+
+/* Someone blocked, folded to a line. */
+.msg.is-channel.is-blocked { padding: 4px 48px 4px 72px; min-height: 0; margin-top: 8px; }
+.msg.is-channel.is-blocked .msg-blocked { font-size: 14px; color: var(--channel-muted); }
+
+/* A change to the channel, with an arrow where a picture would be. */
+.msg.is-channel.cmsg-system { display: flex; align-items: flex-start; min-height: 0; margin-top: 8px; padding-top: 2px; padding-bottom: 2px; color: var(--text-2); }
+.cmsg-system-icon { position: absolute; left: 0; width: 72px; top: 5px; display: flex; justify-content: center; color: var(--channel-muted); }
+.cmsg-system.is-warning .cmsg-system-icon { color: var(--amber); }
+.cmsg-system-text .cmsg-time { margin-left: 8px; }
+
+/* Picking messages: the circle on the left, and everything else moved over for it. */
+.msg.is-channel.is-selecting { padding-left: 104px; cursor: pointer; }
+.msg.is-channel.is-selected { background: var(--accent-soft); }
+.msg.is-channel .msg-check { left: 22px; top: 50%; bottom: auto; translate: 0 -50%; }
+
+/* Going back to the newest messages: a bar along the bottom of the list. */
+.jump-present {
+  position: absolute; z-index: 4; left: 16px; right: 16px; bottom: 0; height: 32px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 0 12px; border-radius: 8px 8px 0 0; background: var(--bg-3); color: var(--text-2); font-size: 14px; font-weight: 500;
+  box-shadow: var(--shadow-s); animation: rise-in 0.12s var(--ease-out);
+}
+.jump-present:hover { color: var(--text-1); background: var(--bg-4); }
+.jump-present-go { flex: none; display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--text-1); }
+.chat.is-channel .to-mention { bottom: 44px; }
+
+/* The message box: rounded, with the plus on the left. */
+.composer-area.is-channel { padding: 0 16px; background: var(--bg-chat); border-top: 0; }
+.composer-area.is-channel .composer { border-radius: 8px; background: var(--bg-2); }
+.composer-area.is-channel .composer-row { align-items: flex-start; gap: 0; padding: 0 6px 0 0; min-height: 44px; }
+.composer-area.is-channel .composer-input { padding: 11px 6px 11px 0; min-height: 44px; max-height: 50vh; font-size: var(--channel-text); line-height: 22px; }
+.composer-area.is-channel .composer-input::placeholder { color: var(--channel-muted); }
+.composer-area.is-channel .icon-btn { width: 36px; height: 44px; border-radius: 0; background: none; color: var(--text-2); }
+.composer-area.is-channel .icon-btn:hover, .composer-area.is-channel .icon-btn.is-active { background: none; color: var(--text-1); }
+.composer-area.is-channel [aria-label="Attach"] { width: 56px; }
+.composer-area.is-channel .send-button { width: 36px; height: 44px; border-radius: 0; background: none !important; color: var(--text-2); }
+.composer-area.is-channel .send-button.is-ready { color: var(--text-1); }
+/* What's being replied to, joined to the top of the box. */
+.composer-area.is-channel .composer-context { padding: 0; }
+.composer-area.is-channel .composer-context-inner { gap: 8px; height: 34px; padding: 0 6px 0 16px; border-left: 0; border-radius: 8px 8px 0 0; background: var(--bg-1); }
+.composer-area.is-channel .composer-context-inner > svg { display: none; }
+.composer-area.is-channel .composer-context-text { font-size: 14px; color: var(--text-2); }
+.composer-area.is-channel .composer-context-text b { font-weight: 600; color: var(--text-1); }
+.composer-area.is-channel .composer-context-inner .icon-btn { width: 26px; height: 26px; border-radius: 50%; }
+.composer-area.is-channel .composer-files { padding: 12px 12px 4px; }
+.composer-area.is-channel .recording-row { padding-left: 8px; }
+.composer-area.is-channel .suggestions { left: 16px; width: min(480px, calc(100% - 32px)); }
+
+/* Who's typing, under the box. */
+.channel-typing { flex: none; height: 24px; display: flex; align-items: center; gap: 6px; padding: 0 16px 0 18px; font-size: 14px; color: var(--text-1); background: var(--bg-chat); overflow: hidden; }
+.channel-typing b { font-weight: 700; }
+.channel-typing .typing-dots { flex: none; }
+.chat.is-channel .selection-bar, .chat.is-channel .composer-disabled { margin: 0 16px; border-radius: 8px; background: var(--bg-2); }
+
+/* Everyone who can read the channel, on the right. */
+.member-list { flex: none; width: 240px; overflow-y: auto; padding: 0 0 20px; background: var(--bg-1); border-left: 1px solid var(--line); --dot-border: var(--bg-1); }
+.member-group { height: 40px; padding: 24px 8px 0 16px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--channel-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.member-item {
+  width: calc(100% - 16px); margin: 1px 8px 0; height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 8px; border-radius: 6px; text-align: left;
+}
+.member-item:hover, .member-item.is-menu-open { background: var(--hover-strong); --dot-border: #232326; }
+.member-item.is-offline { opacity: 0.35; }
+.member-item.is-offline:hover, .member-item.is-offline.is-menu-open { opacity: 1; }
+.member-name { min-width: 0; font-size: 16px; line-height: 20px; font-weight: 500; }
+.member-crown { flex: none; color: #f0b232; margin-left: -6px; }
+@container (max-width: 780px) {
+  .member-list { display: none; }
+}
+/* Narrow, as beside a call: the topic goes, and search is only its icon. */
+@container (max-width: 520px) {
+  .channel-head-divider, .channel-head-topic { display: none; }
+  .channel-search, .channel-search.is-active { width: 32px; margin: 0 2px; padding: 0; justify-content: center; background: none; color: var(--text-2); }
+  .channel-search span { display: none; }
+  .msg.is-channel { padding-right: 16px; }
+}

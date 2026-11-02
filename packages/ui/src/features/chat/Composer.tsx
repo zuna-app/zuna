@@ -1,4 +1,4 @@
-import type { ConversationView, EmoteRef, LinkPreview, MessageView } from "@zuna/core";
+import type { ConversationView, Emote as ServerEmote, EmoteRef, LinkPreview, MessageView } from "@zuna/core";
 import { findLink } from "@zuna/core/links";
 import { MAX_TEXT_LENGTH } from "@zuna/core/validate";
 import { plainText } from "@zuna/core/plain-text";
@@ -31,7 +31,7 @@ interface Suggestion {
   render: React.ReactNode;
 }
 
-function mentionsIn(text: string, users: Record<string, { id: string; username: string }>): string[] {
+export function mentionsIn(text: string, users: Record<string, { id: string; username: string }>): string[] {
   const byName = new Map(Object.values(users).map((user) => [user.username.toLowerCase(), user.id]));
   const ids = new Set<string>();
   for (const match of text.matchAll(/(?:^|\s)@([A-Za-z0-9_][A-Za-z0-9_.-]{1,31})/g)) {
@@ -41,13 +41,35 @@ function mentionsIn(text: string, users: Record<string, { id: string; username: 
   return [...ids];
 }
 
+/** The server's emotes a message uses, by the word that stands for each. */
+export function emotesIn(text: string, emotes: readonly ServerEmote[]): Record<string, EmoteRef> {
+  const byName = new Map(emotes.map((emote) => [emote.name, emote]));
+  const out: Record<string, EmoteRef> = {};
+  for (const word of text.split(/\s+/)) {
+    const emote = byName.get(word);
+    if (emote) out[word] = { id: emote.id, animated: emote.animated, zeroWidth: emote.zero_width, owner: emote.owner };
+  }
+  return out;
+}
+
+/** Discord's attach button: a filled circle with a plus cut out of it. */
+function PlusCircle() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden>
+      <path fill="currentColor" fillRule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 6a1 1 0 1 0-2 0v3H8a1 1 0 1 0 0 2h3v3a1 1 0 1 0 2 0v-3h3a1 1 0 1 0 0-2h-3V8Z" />
+    </svg>
+  );
+}
+
 export const Composer = forwardRef<ComposerHandle, { conversation: ConversationView; listId: string }>(function Composer({ conversation, listId }, ref) {
   const server = useActiveServer();
   const session = useApp((state) => state.session);
   const toast = useApp((state) => state.toast);
   const settings = useApp((state) => state.settings);
   const replyTo = useApp((state) => state.replyTo[listId] ?? null);
-  const editing = useApp((state) => state.editing[listId] ?? null);
+  const isChannel = conversation.kind === "channel";
+  // A channel's messages are edited where they are, so its message box only ever writes new ones.
+  const editing = useApp((state) => (isChannel ? null : (state.editing[listId] ?? null)));
   const setReply = useApp((state) => state.setReply);
   const setEditing = useApp((state) => state.setEditing);
   const panel = useApp((state) => state.panel);
@@ -191,18 +213,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     });
   };
 
-  const emotesInText = useCallback(
-    (value: string) => {
-      const byName = new Map(emotes.map((emote) => [emote.name, emote]));
-      const out: Record<string, EmoteRef> = {};
-      for (const word of value.split(/\s+/)) {
-        const emote = byName.get(word);
-        if (emote) out[word] = { id: emote.id, animated: emote.animated, zeroWidth: emote.zero_width, owner: emote.owner };
-      }
-      return out;
-    },
-    [emotes],
-  );
+  const emotesInText = useCallback((value: string) => emotesIn(value, emotes), [emotes]);
 
   const send = () => {
     const value = text.trim();
@@ -395,7 +406,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const canSend = !!text.trim() || files.length > 0;
 
   return (
-    <div className="composer-area">
+    <div className={`composer-area${isChannel ? " is-channel" : ""}`}>
       {suggestions.length > 0 && (
         <div className="suggestions" role="listbox">
           {suggestions.map((suggestion, index) => (
@@ -424,8 +435,16 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
             <div className="composer-context-inner">
               {editing ? <Pencil size={15} /> : <CornerUpLeft size={15} />}
               <span className="grow">
-                <span className="composer-context-title">{editing ? "Editing message" : `Replying to ${contextSender}`}</span>
-                <span className="composer-context-text truncate">{plainText(context.text) || context.attachments[0]?.name || "Attachment"}</span>
+                {isChannel ? (
+                  <span className="composer-context-text">
+                    Replying to <b>{contextSender}</b>
+                  </span>
+                ) : (
+                  <>
+                    <span className="composer-context-title">{editing ? "Editing message" : `Replying to ${contextSender}`}</span>
+                    <span className="composer-context-text truncate">{plainText(context.text) || context.attachments[0]?.name || "Attachment"}</span>
+                  </>
+                )}
               </span>
               <button
                 className="icon-btn is-small"
@@ -524,7 +543,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                   }}
                   aria-label="Attach"
                 >
-                  <Paperclip size={18} />
+                  {isChannel ? <PlusCircle /> : <Paperclip size={18} />}
                 </button>
               </Tooltip>
             )}
@@ -543,7 +562,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
               ref={input}
               className="composer-input"
               rows={1}
-              placeholder={conversation.peerId && conversation.peerId === server?.self?.userId ? "Write a note to yourself" : `Message ${conversation.title}`}
+              placeholder={conversation.peerId && conversation.peerId === server?.self?.userId ? "Write a note to yourself" : `Message ${isChannel ? "#" : ""}${conversation.title}`}
               value={text}
               onChange={onInput}
               onKeyDown={onKeyDown}

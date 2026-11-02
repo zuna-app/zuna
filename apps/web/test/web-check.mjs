@@ -384,7 +384,7 @@ async function runIn(name) {
     await again.locator(".chat-title", { hasText: "general" }).waitFor({ timeout: 15_000 });
     await again.locator(".composer-input").fill("hello channel");
     await again.keyboard.press("Enter");
-    await again.locator(".bubble", { hasText: "hello channel" }).waitFor({ timeout: 15_000 });
+    await again.locator(".msg.is-channel", { hasText: "hello channel" }).waitFor({ timeout: 15_000 });
     check("a text channel works", true);
     await again.locator(".channel-section-head", { hasText: "Text channels" }).hover();
     await again.getByRole("button", { name: /New channel in Text channels/ }).click();

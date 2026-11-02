@@ -1,14 +1,18 @@
 import type { ConversationView } from "@zuna/core";
-import { Ban, BadgeCheck, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Volume2, X } from "lucide-react";
+import { Ban, BadgeCheck, Bell, BellOff, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pencil, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Users, Volume2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Avatar, Tooltip, TypingDots, useAction } from "@/components/ui";
+import { Avatar, PopupMenu, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { timerText } from "@/lib/disappearing";
 import { formatFull, formatLastSeen } from "@/lib/format";
+import { muteEntries } from "@/lib/mute";
 import { listIdFor, useActiveServer, useApp } from "@/state/store";
 import { Composer, type ComposerHandle } from "./Composer";
+import { MemberList } from "./MemberList";
 import { MessageList } from "./MessageList";
 import { SidePanel } from "./SidePanel";
+
+const MEMBERS_KEY = "zuna-member-list";
 
 function HeaderStatus({ conversation }: { conversation: ConversationView }) {
   const server = useActiveServer();
@@ -28,10 +32,6 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
       </span>
     );
   }
-  if (conversation.kind === "channel") {
-    if (conversation.description) return <span key="status" className={statusClass} title={conversation.description}>{conversation.description}</span>;
-    return <span key="status" className={statusClass}>Everyone on this server</span>;
-  }
   if (conversation.kind === "group") {
     const online = conversation.members.filter((member) => server?.users[member.userId]?.online).length;
     const count = conversation.members.length;
@@ -46,6 +46,133 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
   if (peer?.banned) return <span key="status" className={statusClass}>Removed from this server</span>;
   if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>online</span>;
   return <span key="status" className={statusClass}>{formatLastSeen(peer?.lastSeenAt ?? null, peer?.hidesLastSeen ?? false)}</span>;
+}
+
+/**
+ * A channel's header, as in Discord: its name, then its topic after a line, and on the
+ * right notifications, pins, the member list and search.
+ */
+function ChannelHeader({ conversation, voice, showMembers, onToggleMembers, onClose }: { conversation: ConversationView; voice?: boolean; showMembers: boolean; onToggleMembers?: () => void; onClose?: () => void }) {
+  const session = useApp((state) => state.session);
+  const panel = useApp((state) => state.panel);
+  const togglePanel = useApp((state) => state.togglePanel);
+  const [muteMenu, setMuteMenu] = useState<{ x: number; y: number } | null>(null);
+  return (
+    <header className="chat-head channel-head">
+      <button className="channel-head-name" onClick={() => togglePanel("info")} aria-label="Channel details">
+        {voice ? <Volume2 size={22} /> : <Hash size={22} />}
+        <h1 className="chat-title truncate">{conversation.title}</h1>
+      </button>
+      {conversation.description && (
+        <>
+          <span className="channel-head-divider" />
+          <button className="channel-head-topic truncate" onClick={() => togglePanel("info")} title={conversation.description}>
+            {conversation.description}
+          </button>
+        </>
+      )}
+      <span className="grow" />
+      <div className="chat-actions">
+        <Tooltip text={conversation.muted ? "Unmute channel" : "Notification settings"}>
+          <button
+            className={`icon-btn${muteMenu ? " is-active" : ""}`}
+            onClick={(event) => {
+              if (conversation.muted) {
+                void session().unmute(conversation.key);
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              setMuteMenu({ x: rect.right, y: rect.bottom + 6 });
+            }}
+            aria-label={conversation.muted ? "Unmute channel" : "Notification settings"}
+          >
+            {conversation.muted ? <BellOff size={20} /> : <Bell size={20} />}
+          </button>
+        </Tooltip>
+        {muteMenu && <PopupMenu x={muteMenu.x} y={muteMenu.y} alignRight entries={muteEntries((until) => void session().mute(conversation.key, until))} onClose={() => setMuteMenu(null)} />}
+        <Tooltip text="Pinned messages">
+          <button className={`icon-btn${panel?.type === "pins" ? " is-active" : ""}`} onClick={() => togglePanel("pins")} aria-label="Pinned messages">
+            <Pin size={20} />
+          </button>
+        </Tooltip>
+        {onToggleMembers && (
+          <Tooltip text={showMembers ? "Hide member list" : "Show member list"}>
+            <button className={`icon-btn${showMembers && !panel ? " is-active" : ""}`} onClick={onToggleMembers} aria-label={showMembers ? "Hide member list" : "Show member list"}>
+              <Users size={20} />
+            </button>
+          </Tooltip>
+        )}
+        <button className={`channel-search${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label="Search this channel">
+          <span className="truncate">Search</span>
+          <Search size={15} />
+        </button>
+        {onClose && (
+          <Tooltip text="Hide chat">
+            <button className="icon-btn" onClick={onClose} aria-label="Hide chat">
+              <X size={20} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
+    </header>
+  );
+}
+
+/** Who's typing in a channel, under the message box, as in Discord. Always there, so nothing moves. */
+function ChannelTyping({ conversation }: { conversation: ConversationView }) {
+  const server = useActiveServer();
+  const typing = Object.keys((conversation.groupId && server?.typing[conversation.groupId]) || {}).filter((id) => id !== server?.self?.userId);
+  const names = typing.map((id) => server?.users[id]?.displayName ?? "Someone");
+  return (
+    <div className="channel-typing" aria-live="polite">
+      {names.length > 0 && (
+        <>
+          <TypingDots />
+          <span className="truncate">
+            {names.length === 1 ? (
+              <>
+                <b>{names[0]}</b> is typing…
+              </>
+            ) : names.length === 2 ? (
+              <>
+                <b>{names[0]}</b> and <b>{names[1]}</b> are typing…
+              </>
+            ) : names.length === 3 ? (
+              <>
+                <b>{names[0]}</b>, <b>{names[1]}</b> and <b>{names[2]}</b> are typing…
+              </>
+            ) : (
+              "Several people are typing…"
+            )}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The top of a channel's history, as in Discord. */
+function ChannelWelcome({ conversation, voice }: { conversation: ConversationView; voice?: boolean }) {
+  const server = useActiveServer();
+  const setOverlay = useApp((state) => state.setOverlay);
+  const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
+  return (
+    <div className="channel-welcome">
+      <span className="channel-welcome-icon">{voice ? <Volume2 size={40} /> : <Hash size={44} />}</span>
+      <h2>Welcome to #{conversation.title}!</h2>
+      <p>
+        This is the start of the #{conversation.title} channel.{conversation.description ? ` ${conversation.description}` : ""}
+      </p>
+      <p className="channel-welcome-lock">
+        <Lock size={13} /> End-to-end encrypted. Everyone on this server can read it, and the server itself can't.
+      </p>
+      {isAdmin && conversation.groupId && (
+        <button className="channel-welcome-edit" onClick={() => setOverlay({ type: "channel", channelId: conversation.groupId! })}>
+          <Pencil size={15} /> Edit channel
+        </button>
+      )}
+    </div>
+  );
 }
 
 /** What can be done with the picked messages, in place of the composer, as in Telegram. */
@@ -134,6 +261,18 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
   const peer = conversation.peerId ? server?.users[conversation.peerId] : null;
   const isSaved = conversation.peerId === server?.self?.userId;
   const selecting = useApp((state) => state.selection?.listId === listId);
+  const isChannel = conversation.kind === "channel";
+  // A channel's member list stays open or closed across channels, as in Discord.
+  const [showMembers, setShowMembers] = useState(() => localStorage.getItem(MEMBERS_KEY) !== "hidden");
+  const toggleMembers = () => {
+    // It takes the place of whatever panel was open.
+    if (panel) {
+      useApp.getState().setPanel(null);
+      if (showMembers) return;
+    }
+    localStorage.setItem(MEMBERS_KEY, showMembers ? "hidden" : "shown");
+    setShowMembers(!showMembers);
+  };
 
   useEffect(() => {
     void loadList(listId, conversation.groupId);
@@ -150,68 +289,68 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
 
   return (
     <div
-      className="chat"
+      className={`chat${isChannel ? " is-channel" : ""}`}
       onDragEnter={(event) => {
         if (event.dataTransfer.types.includes("Files")) setDragging(true);
       }}
       onDragOver={(event) => event.preventDefault()}
     >
       <div className="chat-column">
-        <header className="chat-head">
-          <button className="chat-identity" onClick={() => togglePanel("info")}>
-            {isSaved ? (
-              <span className="avatar saved-avatar" style={{ width: 36, height: 36 }}>
-                <Bookmark size={16} />
+        {isChannel ? (
+          <ChannelHeader conversation={conversation} voice={voice} showMembers={showMembers} onToggleMembers={voice ? undefined : toggleMembers} onClose={onClose} />
+        ) : (
+          <header className="chat-head">
+            <button className="chat-identity" onClick={() => togglePanel("info")}>
+              {isSaved ? (
+                <span className="avatar saved-avatar" style={{ width: 36, height: 36 }}>
+                  <Bookmark size={16} />
+                </span>
+              ) : (
+                <Avatar name={conversation.title} seed={conversation.peerId ?? conversation.groupId ?? ""} avatar={conversation.avatar} size={36} />
+              )}
+              <span className="chat-names">
+                <span className="chat-title truncate">
+                  {conversation.title}
+                  {peer?.trust === "verified" && !isSaved && (
+                    <Tooltip text="Security key verified">
+                      <BadgeCheck size={14} className="conv-verified" />
+                    </Tooltip>
+                  )}
+                  {conversation.disappearAfter > 0 && (
+                    <Tooltip text={`Messages disappear after ${timerText(conversation.disappearAfter)}`}>
+                      <Timer size={14} className="chat-timer" aria-label={`Messages disappear after ${timerText(conversation.disappearAfter)}`} />
+                    </Tooltip>
+                  )}
+                </span>
+                <HeaderStatus conversation={conversation} />
               </span>
-            ) : conversation.kind === "channel" ? (
-              <span className="avatar saved-avatar" style={{ width: 36, height: 36 }}>
-                {voice ? <Volume2 size={17} /> : <Hash size={17} />}
-              </span>
-            ) : (
-              <Avatar name={conversation.title} seed={conversation.peerId ?? conversation.groupId ?? ""} avatar={conversation.avatar} size={36} />
-            )}
-            <span className="chat-names">
-              <span className="chat-title truncate">
-                {conversation.title}
-                {peer?.trust === "verified" && !isSaved && (
-                  <Tooltip text="Security key verified">
-                    <BadgeCheck size={14} className="conv-verified" />
-                  </Tooltip>
-                )}
-                {conversation.disappearAfter > 0 && (
-                  <Tooltip text={`Messages disappear after ${timerText(conversation.disappearAfter)}`}>
-                    <Timer size={14} className="chat-timer" aria-label={`Messages disappear after ${timerText(conversation.disappearAfter)}`} />
-                  </Tooltip>
-                )}
-              </span>
-              <HeaderStatus conversation={conversation} />
-            </span>
-          </button>
-          <div className="chat-actions">
-            {onClose && (
-              <Tooltip text="Hide chat">
-                <button className="icon-btn" onClick={onClose} aria-label="Hide chat">
-                  <X size={17} />
+            </button>
+            <div className="chat-actions">
+              {onClose && (
+                <Tooltip text="Hide chat">
+                  <button className="icon-btn" onClick={onClose} aria-label="Hide chat">
+                    <X size={17} />
+                  </button>
+                </Tooltip>
+              )}
+              <Tooltip text="Search this chat">
+                <button className={`icon-btn${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label="Search this chat" disabled={!conversation.groupId}>
+                  <Search size={17} />
                 </button>
               </Tooltip>
-            )}
-            <Tooltip text="Search this chat">
-              <button className={`icon-btn${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label="Search this chat" disabled={!conversation.groupId}>
-                <Search size={17} />
-              </button>
-            </Tooltip>
-            <Tooltip text="Pinned messages">
-              <button className={`icon-btn${panel?.type === "pins" ? " is-active" : ""}`} onClick={() => togglePanel("pins")} aria-label="Pinned messages" disabled={!conversation.groupId}>
-                <Pin size={17} />
-              </button>
-            </Tooltip>
-            <Tooltip text="Details">
-              <button className={`icon-btn${panel?.type === "info" || panel?.type === "media" ? " is-active" : ""}`} onClick={() => togglePanel("info")} aria-label="Details">
-                <PanelRight size={17} />
-              </button>
-            </Tooltip>
-          </div>
-        </header>
+              <Tooltip text="Pinned messages">
+                <button className={`icon-btn${panel?.type === "pins" ? " is-active" : ""}`} onClick={() => togglePanel("pins")} aria-label="Pinned messages" disabled={!conversation.groupId}>
+                  <Pin size={17} />
+                </button>
+              </Tooltip>
+              <Tooltip text="Details">
+                <button className={`icon-btn${panel?.type === "info" || panel?.type === "media" ? " is-active" : ""}`} onClick={() => togglePanel("info")} aria-label="Details">
+                  <PanelRight size={17} />
+                </button>
+              </Tooltip>
+            </div>
+          </header>
+        )}
 
         {peer?.trust === "changed" && !isSaved && (
           <div className="security-banner">
@@ -228,7 +367,11 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
         )}
 
         <div className="chat-scroll">
-          <MessageList conversation={conversation} listId={listId} emptyState={<EmptyChat conversation={conversation} />} />
+          {isChannel ? (
+            <MessageList conversation={conversation} listId={listId} emptyState={<ChannelWelcome conversation={conversation} voice={voice} />} start={<ChannelWelcome conversation={conversation} voice={voice} />} />
+          ) : (
+            <MessageList conversation={conversation} listId={listId} emptyState={<EmptyChat conversation={conversation} />} />
+          )}
         </div>
 
         {selecting ? (
@@ -249,9 +392,10 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
         ) : (
           <Composer ref={composer} conversation={conversation} listId={listId} />
         )}
+        {isChannel && <ChannelTyping conversation={conversation} />}
       </div>
 
-      {panel && <SidePanel conversation={conversation} />}
+      {panel ? <SidePanel conversation={conversation} /> : isChannel && !voice && showMembers && <MemberList />}
 
       {dragging && (
         <div
@@ -305,11 +449,6 @@ function EmptyChat({ conversation }: { conversation: ConversationView }) {
         <>
           <h3>Your saved messages</h3>
           <p>Keep notes, links and files here. They're encrypted and sync across your devices.</p>
-        </>
-      ) : conversation.kind === "channel" ? (
-        <>
-          <h3>Welcome to #{conversation.title}</h3>
-          <p>{conversation.description || "This is the start of this channel."} It's end-to-end encrypted: everyone on this server can read it, and the server itself can't.</p>
         </>
       ) : conversation.kind === "group" ? (
         <>

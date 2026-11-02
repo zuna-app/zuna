@@ -1,5 +1,5 @@
 import type { ChannelView, VoiceMember } from "@zuna/core";
-import { AtSign, BellOff, Camera, ChevronRight, Hash, HeadphoneOff, MicOff, Pencil, Plus, Trash2, Volume2, VolumeX } from "lucide-react";
+import { BellOff, Camera, ChevronDown, Hash, HeadphoneOff, MicOff, Pencil, Plus, Settings, Trash2, Volume2, VolumeX } from "lucide-react";
 import { Reorder } from "motion/react";
 import { memo, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
@@ -62,9 +62,10 @@ const VoiceOccupant = memo(function VoiceOccupant({ member }: { member: VoiceMem
   );
 });
 
-function ChannelRow({ channel, onMenu }: { channel: ChannelView; onMenu: (event: React.MouseEvent, channel: ChannelView) => void }) {
+function ChannelRow({ channel, onMenu, canEdit }: { channel: ChannelView; onMenu: (event: React.MouseEvent, channel: ChannelView) => void; canEdit: boolean }) {
   const server = useActiveServer();
   const selectConversation = useApp((state) => state.selectConversation);
+  const setOverlay = useApp((state) => state.setOverlay);
   const join = useVoice((state) => state.join);
   const toast = useApp((state) => state.toast);
   const inChannel = useVoice((state) => state.channelId === channel.id && state.serverId === server?.entry.id);
@@ -100,7 +101,7 @@ function ChannelRow({ channel, onMenu }: { channel: ChannelView; onMenu: (event:
         disabled={channel.unreadable}
         title={channel.topic || undefined}
       >
-        {channel.type === "voice" ? <Volume2 size={16} className="channel-icon" /> : <Hash size={16} className="channel-icon" />}
+        {channel.type === "voice" ? <Volume2 size={20} className="channel-icon" /> : <Hash size={20} className="channel-icon" />}
         <span className="channel-name truncate">{channelTitle(channel)}</span>
         {conversation?.muted && <BellOff size={12} className="conv-muted" />}
         {channel.type === "voice" && channel.userLimit > 0 && (
@@ -108,9 +109,25 @@ function ChannelRow({ channel, onMenu }: { channel: ChannelView; onMenu: (event:
             {occupants.length}/{channel.userLimit}
           </span>
         )}
+        {canEdit && (
+          // A button can't hold another, so this one is only for the mouse; the row's menu has it too.
+          <Tooltip text="Edit channel">
+            <span
+              className="channel-edit"
+              role="button"
+              aria-label={`Edit ${channelTitle(channel)}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                setOverlay({ type: "channel", channelId: channel.id });
+              }}
+            >
+              <Settings size={16} />
+            </span>
+          </Tooltip>
+        )}
         {mentions > 0 && (
-          <span className="conv-badge conv-mention" aria-label={`${mentions} mentioning you`}>
-            <AtSign size={12} strokeWidth={2.4} />
+          <span className="channel-mentions" aria-label={`${mentions} mentioning you`}>
+            {mentions > 99 ? "99+" : mentions}
           </span>
         )}
       </button>
@@ -204,7 +221,7 @@ export function ChannelSections({ query }: { query: string }) {
           <section key={section.name} className="channel-section">
             <header className="channel-section-head">
               <button className={`channel-section-title${folded ? " is-folded" : ""}`} onClick={() => toggleSection(section.name)} aria-expanded={!folded}>
-                <ChevronRight size={12} />
+                <ChevronDown size={12} strokeWidth={2.5} />
                 <span className="truncate">{section.name}</span>
               </button>
               {isAdmin && (
@@ -243,6 +260,7 @@ export function ChannelSections({ query }: { query: string }) {
                   >
                     <ChannelRow
                       channel={channel}
+                      canEdit={isAdmin}
                       onMenu={(event, target) => {
                         setMenuChannel(target);
                         rowMenu.open(event);
@@ -256,6 +274,7 @@ export function ChannelSections({ query }: { query: string }) {
                 <ChannelRow
                   key={channel.id}
                   channel={channel}
+                  canEdit={isAdmin}
                   onMenu={(event, target) => {
                     setMenuChannel(target);
                     rowMenu.open(event);

@@ -1,27 +1,40 @@
 /* Channels in the sidebar, and voice channels. */
 
 .channel-sections { padding: 2px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
-.channel-section-head { display: flex; align-items: center; padding: 6px 8px 2px 10px; gap: 2px; min-height: 26px; }
-.channel-section-head .icon-btn { opacity: 0; width: 22px; height: 22px; }
+/* As Discord's: headings in small capitals that fold, and rows with a sign for their type. */
+.channel-section { padding-top: 10px; }
+.channel-section-head { display: flex; align-items: center; padding: 6px 8px 4px 6px; gap: 2px; min-height: 24px; }
+.channel-section-head .icon-btn { opacity: 0; width: 22px; height: 18px; }
 .channel-section-head:hover .icon-btn, .channel-section-head .icon-btn:focus-visible { opacity: 1; }
-.channel-section-title { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-3); text-align: left; }
-.channel-section-title:hover { color: var(--text-2); }
-.channel-section-title svg { flex: none; transform: rotate(90deg); transition: transform 0.1s var(--ease-out); }
-.channel-section-title.is-folded svg { transform: none; }
+.channel-section-title {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.02em;
+  text-transform: uppercase; color: var(--text-3); text-align: left;
+}
+.channel-section-title:hover { color: var(--text-1); }
+.channel-section-title svg { flex: none; transition: transform 0.1s var(--ease-out); }
+.channel-section-title.is-folded svg { transform: rotate(-90deg); }
 
 .channel-row {
-  width: calc(100% - 12px); margin: 1px 6px; display: flex; align-items: center; gap: 7px; padding: 5px 8px; min-height: 30px;
-  border-radius: var(--radius-s); color: var(--text-2); font-size: 14px; text-align: left; user-select: none;
+  position: relative; width: calc(100% - 16px); margin: 2px 8px 0; display: flex; align-items: center; gap: 6px; padding: 6px 8px; min-height: 34px;
+  border-radius: var(--radius-s); color: var(--text-3); font-size: 16px; line-height: 20px; font-weight: 500; text-align: left; user-select: none;
 }
-.channel-row:hover { background: var(--hover); color: var(--text-1); }
+.channel-row:hover { background: var(--hover); color: var(--text-2); }
 .channel-row.is-active { background: var(--bg-3); color: var(--text-1); }
 .channel-row.is-unread { color: var(--text-1); }
 .channel-row.is-unread .channel-name { font-weight: 600; }
-.channel-row.is-unread::before { content: ""; position: absolute; left: 0; width: 3px; height: 8px; border-radius: 0 3px 3px 0; background: var(--text-1); }
+.channel-row.is-unread::before { content: ""; position: absolute; left: -8px; top: 50%; width: 4px; height: 8px; margin-top: -4px; border-radius: 0 4px 4px 0; background: var(--text-1); }
 .channel-row.is-connected .channel-icon { color: var(--green); }
 .channel-row:disabled { opacity: 0.5; cursor: default; }
 .channel-icon { flex: none; color: var(--text-3); }
 .channel-name { flex: 1; min-width: 0; }
+/* For admins, on hover and on the open one. */
+.channel-edit { flex: none; display: none; color: var(--text-2); }
+.channel-edit:hover { color: var(--text-1); }
+.channel-row:hover .channel-edit, .channel-row.is-active .channel-edit { display: flex; }
+.channel-mentions {
+  flex: none; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--red); color: #fff;
+  font-size: 12px; line-height: 16px; font-weight: 700; text-align: center; font-variant-numeric: tabular-nums;
+}
 .channel-limit { flex: none; font-size: 11px; color: var(--text-3); padding: 1px 5px; border-radius: 4px; background: var(--bg-3); font-variant-numeric: tabular-nums; }
 .channel-limit.is-full { color: var(--red); background: var(--red-soft); }
 .channel-empty { padding: 8px 14px 10px; }
@@ -34,7 +47,7 @@
 .channel-types b { display: block; font-weight: 500; font-size: 14px; color: var(--text-1); }
 .channel-types span span { display: block; font-size: 12px; color: var(--text-3); margin-top: 1px; }
 
-.voice-occupants { margin: 0 6px 3px 26px; display: flex; flex-direction: column; gap: 1px; }
+.voice-occupants { margin: 2px 8px 4px 34px; display: flex; flex-direction: column; gap: 1px; }
 .voice-occupant { display: flex; align-items: center; gap: 7px; padding: 2px 6px; border-radius: var(--radius-s); font-size: 13px; color: var(--text-2); min-height: 26px; }
 .voice-occupant-avatar { flex: none; display: flex; border-radius: 50%; box-shadow: 0 0 0 0 transparent; transition: box-shadow 0.08s linear; }
 .voice-occupant.is-speaking { color: var(--text-1); }

@@ -51,7 +51,7 @@ export function SidePanel({ conversation }: { conversation: ConversationView }) 
               {sharedTitle(panel.kind)}
             </h3>
           ) : (
-            <h3>{panel?.type === "search" ? "Search this chat" : panel?.type === "pins" ? "Pinned messages" : conversation.kind === "group" ? "Group details" : conversation.kind === "channel" ? "Channel details" : "Details"}</h3>
+            <h3>{panel?.type === "search" ? (conversation.kind === "channel" ? "Search this channel" : "Search this chat") : panel?.type === "pins" ? "Pinned messages" : conversation.kind === "group" ? "Group details" : conversation.kind === "channel" ? "Channel details" : "Details"}</h3>
           )}
           <button className="icon-btn is-small" onClick={() => setPanel(null)} aria-label="Close">
             <X size={16} />

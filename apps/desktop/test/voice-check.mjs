@@ -298,7 +298,7 @@ try {
   await alice.page.locator(".chat-title", { hasText: "general-chat" }).waitFor({ timeout: 15_000 });
   await alice.page.locator(".composer-input").fill("first message in the channel");
   await alice.page.keyboard.press("Enter");
-  await alice.page.locator(".bubble", { hasText: "first message in the channel" }).waitFor({ timeout: 10_000 });
+  await alice.page.locator(".msg.is-channel", { hasText: "first message in the channel" }).waitFor({ timeout: 10_000 });
 
   await alice.page.locator(".channel-section-head", { hasText: "Text channels" }).hover();
   await alice.page.getByRole("button", { name: /New channel in Text channels/ }).click();
@@ -318,12 +318,12 @@ try {
   // --- Text channels ---
   await rowFor(bob.page, "general-chat").click();
   await bob.page.locator(".chat-title", { hasText: "general-chat" }).waitFor({ timeout: 20_000 });
-  await bob.page.locator(".bubble", { hasText: "first message in the channel" }).waitFor({ timeout: 20_000 }).then(() => check("someone new reads what was said before they came", true)).catch(() => check("someone new reads what was said before they came", false));
+  await bob.page.locator(".msg.is-channel", { hasText: "first message in the channel" }).waitFor({ timeout: 20_000 }).then(() => check("someone new reads what was said before they came", true)).catch(() => check("someone new reads what was said before they came", false));
   await rowFor(alice.page, "general-chat").click();
   await alice.page.locator(".chat-title", { hasText: "general-chat" }).waitFor({ timeout: 10_000 });
   await bob.page.locator(".composer-input").fill("hello from bob");
   await bob.page.keyboard.press("Enter");
-  await alice.page.locator(".bubble", { hasText: "hello from bob" }).waitFor({ timeout: 15_000 });
+  await alice.page.locator(".msg.is-channel", { hasText: "hello from bob" }).waitFor({ timeout: 15_000 });
   check("a channel's messages reach everyone", true);
   await sleep(300);
   await shot(bob, "03-text-channel");
@@ -584,7 +584,7 @@ try {
   await bob.page.getByRole("button", { name: "Show chat" }).click();
   await bob.page.locator(".voice-chat .composer-input").fill("typing while talking");
   await bob.page.keyboard.press("Enter");
-  await bob.page.locator(".voice-chat .bubble", { hasText: "typing while talking" }).waitFor({ timeout: 15_000 });
+  await bob.page.locator(".voice-chat .msg.is-channel", { hasText: "typing while talking" }).waitFor({ timeout: 15_000 });
   check("a voice channel has a chat beside the call", true);
   await alice.page.locator(".voice-control-dot").waitFor({ timeout: 5000 }).then(() => check("someone in the call sees there's something new in its chat", true)).catch(() => check("someone in the call sees there's something new in its chat", false));
   check("a voice channel isn't marked as unread for its chat", (await rowFor(alice.page, "Lounge").getAttribute("class")).includes("is-unread") === false);

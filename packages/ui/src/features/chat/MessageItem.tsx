@@ -1,6 +1,7 @@
 import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView, SharedLocation, UserView } from "@zuna/core";
 import {
   AlertCircle,
+  ArrowRight,
   Ban,
   Check,
   CheckCheck,
@@ -11,6 +12,7 @@ import {
   Download,
   File as FileIcon,
   Forward,
+  Image as ImageIcon,
   MapPin,
   MoreHorizontal,
   Pause,
@@ -27,18 +29,21 @@ import {
 import { AnimatePresence } from "motion/react";
 import { linkHost } from "@zuna/core/links";
 import { plainText } from "@zuna/core/plain-text";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { MAX_TEXT_LENGTH } from "@zuna/core/validate";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { Emote } from "@/components/Emote";
 import { Avatar, PopupMenu, Spinner, Tooltip, useAction, useContextMenu, type MenuEntry } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
-import { formatBytes, formatDuration, formatFull, formatTime, nameColor } from "@/lib/format";
+import { focusComposer } from "@/lib/focus";
+import { formatBytes, formatDuration, formatFull, formatStamp, formatTime, nameColor } from "@/lib/format";
 import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
 import { timerChangeText } from "@/lib/disappearing";
 import { accuracyText, coordinatesText, mapLink } from "@/lib/location";
 import { downloadAttachment, loadsByItself, useDecryptedUrl } from "@/lib/media";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
+import { emotesIn, mentionsIn } from "./Composer";
 import { canActOn } from "./use-drag-pick";
 import { useMarkupContext } from "./use-markup-context";
 import { EmotePicker } from "./EmotePicker";
@@ -56,7 +61,7 @@ function serverOf(state: ReturnType<typeof useApp.getState>) {
   return state.activeServerId ? state.servers[state.activeServerId] : undefined;
 }
 
-function SystemMessage({ message, highlighted }: { message: MessageView; highlighted: boolean }) {
+function SystemMessage({ message, highlighted, channel }: { message: MessageView; highlighted: boolean; channel: boolean }) {
   const text = useServerField((server) => {
     const name = (id?: string) => {
       if (!id) return "Someone";
@@ -89,6 +94,20 @@ function SystemMessage({ message, highlighted }: { message: MessageView; highlig
     }
   }, "");
   const warning = message.system!.type === "unexpected_join" || message.system!.type === "identity_changed";
+  // In a channel it's a line of its own, with an arrow where a picture would be, as in Discord.
+  if (channel) {
+    return (
+      <div className={`msg is-channel cmsg-system${warning ? " is-warning" : ""}${highlighted ? " is-highlighted" : ""}`}>
+        <span className="cmsg-system-icon">{warning ? <ShieldAlert size={16} /> : <ArrowRight size={16} />}</span>
+        <span className="cmsg-system-text">
+          {text}
+          <time className="cmsg-time" title={formatFull(message.createdAt)}>
+            {formatStamp(message.createdAt)}
+          </time>
+        </span>
+      </div>
+    );
+  }
   return (
     <div className={`system-row${highlighted ? " is-highlighted" : ""}`}>
       <span className={warning ? "system-pill is-warning" : "system-pill"}>
@@ -502,6 +521,105 @@ function ReadTicks({ message, readUpTo }: { message: MessageView; readUpTo: numb
   return <Ticks read={readUpTo >= message.seq} />;
 }
 
+const openProfile = (userId: string) => useApp.getState().setOverlay({ type: "verify", userId });
+
+/** What a message in a channel answers: above it, joined to its picture by a line, as in Discord. */
+function ChannelReply({ message, blocked }: { message: MessageView; blocked: boolean }) {
+  const reply = message.reply!;
+  const jump = useApp((state) => state.jumpToMessage);
+  const user = useServerField((server) => server.users[reply.senderId] ?? null, null);
+  const name = user?.displayName ?? "Unknown";
+  const text = reply.deleted ? "Original message was deleted" : blocked ? "Message from someone you blocked" : plainText(reply.text);
+  return (
+    <div className="cmsg-reply">
+      {reply.deleted ? (
+        <span className="cmsg-reply-gone">
+          <CornerUpLeft size={10} />
+        </span>
+      ) : (
+        <>
+          <Avatar name={name} seed={reply.senderId} avatar={user?.avatar} size={16} />
+          <button className="cmsg-reply-name" style={{ color: nameColor(reply.senderId || "x") }} onClick={() => reply.senderId && openProfile(reply.senderId)}>
+            @{name}
+          </button>
+        </>
+      )}
+      <button className={`cmsg-reply-text${text ? "" : " is-empty"}`} onClick={() => jump(message.groupId, reply.id)}>
+        <span className="truncate">{text || (reply.hasAttachment ? "Click to see attachment" : "Click to see message")}</span>
+        {!text && reply.hasAttachment && <ImageIcon size={15} />}
+      </button>
+    </div>
+  );
+}
+
+/** A message in a channel is edited where it is, as in Discord: Enter saves it, Escape leaves it as it was. */
+function InlineEditor({ message, listId }: { message: MessageView; listId: string }) {
+  const session = useApp((state) => state.session);
+  const setEditing = useApp((state) => state.setEditing);
+  const toast = useApp((state) => state.toast);
+  const enterToSend = useApp((state) => state.settings.enterToSend);
+  const [text, setText] = useState(message.text);
+  const input = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const element = input.current!;
+    element.focus({ preventScroll: true });
+    element.setSelectionRange(element.value.length, element.value.length);
+  }, []);
+
+  const stop = () => {
+    setEditing(listId, null);
+    focusComposer();
+  };
+  const save = () => {
+    const value = text.trim();
+    if (value.length > MAX_TEXT_LENGTH) {
+      toast("That message is too long.", "error");
+      return;
+    }
+    if (value && value !== message.text) {
+      const state = useApp.getState();
+      const server = state.activeServerId ? state.servers[state.activeServerId] : undefined;
+      void session().editMessage(message.groupId, message.id, value, emotesIn(value, server?.emotes.emotes ?? []), mentionsIn(value, server?.users ?? {}));
+    }
+    stop();
+  };
+
+  return (
+    <div className="cmsg-editor">
+      <textarea
+        ref={input}
+        className="cmsg-editor-input"
+        rows={1}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            stop();
+          } else if (event.key === "Enter" && ((!event.shiftKey && enterToSend) || event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            save();
+          }
+        }}
+        aria-label="Edit message"
+        spellCheck
+      />
+      <span className="cmsg-editor-hint">
+        escape to{" "}
+        <button className="link-button" onClick={stop}>
+          cancel
+        </button>{" "}
+        • enter to{" "}
+        <button className="link-button" onClick={save}>
+          save
+        </button>
+      </span>
+    </div>
+  );
+}
+
 interface MessageItemProps {
   message: MessageView;
   listId: string;
@@ -513,6 +631,8 @@ interface MessageItemProps {
   fresh: boolean;
   highlighted: boolean;
   own: boolean;
+  /** Laid out as in a Discord channel, rather than in bubbles. */
+  channel: boolean;
 }
 
 /** Who in a group has read a message, as far as their read receipts say. People who turned them off never show. */
@@ -528,7 +648,7 @@ function readersOf(serverId: string, message: MessageView): UserView[] {
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
-export const MessageItem = memo(function MessageItem({ message, listId, isGroup, isGroupAdmin, readUpTo, grouped, lastInGroup, fresh, highlighted, own }: MessageItemProps) {
+export const MessageItem = memo(function MessageItem({ message, listId, isGroup, isGroupAdmin, readUpTo, grouped, lastInGroup, fresh, highlighted, own, channel }: MessageItemProps) {
   const session = useApp((state) => state.session);
   const setReply = useApp((state) => state.setReply);
   const setEditing = useApp((state) => state.setEditing);
@@ -552,6 +672,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const blockedSender = useServerField((server) => !own && (server.prefs.blocked?.includes(message.senderId) ?? false), false);
   const blockedReply = useServerField((server) => !!message.reply && (server.prefs.blocked?.includes(message.reply.senderId) ?? false), false);
   const [revealed, setRevealed] = useState(false);
+  const editingHere = useApp((state) => channel && state.editing[listId]?.id === message.id);
 
   const selfId = baseContext.selfId;
   const canDelete = own || (isGroup && isGroupAdmin);
@@ -597,7 +718,30 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     </span>
   );
 
-  const renderBody = () => {
+  // In a channel the time is beside the name, and only these follow the text.
+  const trailing = channel ? (
+    <>
+      {message.editedAt && !isDeleted && (
+        <span className="cmsg-edited" title={formatFull(message.editedAt)}>
+          (edited)
+        </span>
+      )}
+      {message.timeDiffers && (
+        <span className="cmsg-flag" title="The sender's device gives a very different time for this message.">
+          <ShieldAlert size={13} aria-label="The time of this message may not be right" />
+        </span>
+      )}
+      {message.expiresAt && (
+        <span className="cmsg-flag" title={`Disappears ${formatFull(message.expiresAt)}`}>
+          <Timer size={12} className="msg-timer" aria-label="Disappears" />
+        </span>
+      )}
+    </>
+  ) : metaInText ? (
+    meta
+  ) : undefined;
+
+  const renderBody = (after?: ReactNode) => {
     if (!message.text) return null;
     if (jumbo) {
       return (
@@ -615,18 +759,19 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
                 </span>
               );
             })}
+          {channel && after}
         </>
       );
     }
-    return renderMarkup(message.text, context, metaInText ? meta : undefined);
+    return renderMarkup(message.text, context, after);
   };
-  const body = renderBody();
+  const body = renderBody(trailing);
 
-  if (message.system) return <SystemMessage message={message} highlighted={highlighted} />;
+  if (message.system) return <SystemMessage message={message} highlighted={highlighted} channel={channel} />;
   if (blockedSender && !revealed) {
     return (
-      <div className={`msg is-other is-blocked${highlighted ? " is-highlighted" : ""}`}>
-        {isGroup && <span className="msg-avatar" />}
+      <div className={`msg is-other is-blocked${channel ? " is-channel" : ""}${highlighted ? " is-highlighted" : ""}`}>
+        {isGroup && !channel && <span className="msg-avatar" />}
         <span className="msg-blocked">
           <Ban size={13} /> A message from someone you blocked
           <button className="link-button" onClick={() => setRevealed(true)}>
@@ -728,6 +873,187 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
   const repliesOnDoubleClick = (event: React.MouseEvent) =>
     canAct && !selecting && !(event.target as Element).closest("button, a, input, textarea, video, audio, [role='slider']");
   const totalReactors = message.reactions.reduce((sum, reaction) => sum + reaction.userIds.length, 0);
+  const placeholder = isDeleted ? (
+    <span className="msg-placeholder">Message deleted</span>
+  ) : message.status === "undecryptable" ? (
+    <span className="msg-placeholder">
+      <Spinner size={12} /> Waiting for this message's keys
+    </span>
+  ) : message.status === "unverified" ? (
+    <span className="msg-placeholder is-danger">
+      <ShieldAlert size={14} /> This message couldn't be verified, so it isn't shown.
+    </span>
+  ) : message.status === "invalid" ? (
+    <span className="msg-placeholder is-danger">
+      <ShieldAlert size={14} /> This message couldn't be displayed.
+    </span>
+  ) : null;
+  const check = selecting && (
+    <span className={`msg-check${selected ? " is-on" : ""}${canAct ? "" : " is-disabled"}`} role="checkbox" aria-checked={selected} aria-label="Select message">
+      {selected && <Check size={13} strokeWidth={3} />}
+    </span>
+  );
+  const pickReaction = (event: React.MouseEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    setPicker({ x: rect.left, y: rect.top });
+  };
+  const popups = (
+    <AnimatePresence>
+      {menu.menu && <PopupMenu x={menu.menu.x} y={menu.menu.y} entries={entries} onClose={menu.close} header={quickReactions} />}
+      {picker && (
+        <EmotePicker
+          key="reaction-picker"
+          anchor={picker}
+          onClose={() => setPicker(null)}
+          onPick={(pick) => {
+            setPicker(null);
+            if (pick.kind === "emoji") toggleReaction(pick.value);
+            else toggleReaction(pick.name, { id: pick.id, animated: pick.animated, zeroWidth: pick.zeroWidth, owner: pick.owner });
+          }}
+        />
+      )}
+    </AnimatePresence>
+  );
+
+  // As in a Discord channel: a picture and a name over a run of messages, each a full-width
+  // row with its time beside the name, or on the left on hover further down the run.
+  if (channel) {
+    const mentionsMe = !own && (message.mentions.includes(selfId) || message.reply?.senderId === selfId);
+    const canEdit = canAct && own && !!message.text && !message.forwarded;
+    const classes = [
+      className,
+      "is-channel",
+      mentionsMe ? "is-mentioned" : "",
+      menu.menu || picker ? "is-menu-open" : "",
+      message.status === "sending" ? "is-sending" : "",
+      message.status === "failed" ? "is-failed" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return (
+      <div
+        className={classes}
+        onContextMenu={(event) => !selecting && entries.length > 0 && menu.open(event)}
+        onClickCapture={
+          selecting
+            ? (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (canAct) useApp.getState().toggleSelected(listId, message.id);
+              }
+            : undefined
+        }
+        onMouseDown={(event) => event.detail > 1 && repliesOnDoubleClick(event) && event.preventDefault()}
+        onDoubleClick={(event) => !editingHere && repliesOnDoubleClick(event) && setReply(listId, message)}
+      >
+        {check}
+        {message.reply && !placeholder && <ChannelReply message={message} blocked={blockedReply} />}
+        <div className="cmsg-main">
+          {grouped ? (
+            <time className="cmsg-gutter-time" title={formatFull(message.createdAt)}>
+              {formatTime(message.createdAt)}
+            </time>
+          ) : (
+            <>
+              <button className="cmsg-avatar" onClick={() => openProfile(message.senderId)} aria-label={`${senderName}'s profile`} tabIndex={-1}>
+                <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={40} />
+              </button>
+              <h3 className="cmsg-head">
+                <button className="cmsg-author" style={{ color: nameColor(message.senderId) }} onClick={() => openProfile(message.senderId)}>
+                  {senderName}
+                </button>
+                <time className="cmsg-time" title={formatFull(message.createdAt)}>
+                  {formatStamp(message.createdAt)}
+                </time>
+              </h3>
+            </>
+          )}
+          <div className="cmsg-body">
+            {placeholder ??
+              (editingHere ? (
+                <InlineEditor message={message} listId={listId} />
+              ) : (
+                <>
+                  {message.forwarded && <ForwardedFrom userId={message.forwarded.userId} />}
+                  {body && <div className="msg-text selectable">{body}</div>}
+                  {message.attachments.length > 0 && (
+                    <div className="cmsg-attachments">
+                      <Attachments message={message} serverId={serverId} flush={false} own={false} />
+                    </div>
+                  )}
+                  {message.preview && <LinkCard preview={message.preview} />}
+                  {message.location && <LocationCard location={message.location} />}
+                </>
+              ))}
+            {hasReactions && (
+              <div className="reactions">
+                {message.reactions.map((reaction) => (
+                  <ReactionChip key={reaction.key} reaction={reaction} selfId={selfId} serverUrl={context.serverUrl} showPeople={false} onToggle={() => toggleReaction(reaction.key, reaction.emote)} />
+                ))}
+                {canAct && (
+                  <Tooltip text="Add reaction" side="top">
+                    <button className="reaction reaction-add" onClick={pickReaction} aria-label="Add reaction">
+                      <SmilePlus size={16} />
+                    </button>
+                  </Tooltip>
+                )}
+              </div>
+            )}
+            {message.status === "failed" && (
+              <button className="msg-retry" onClick={() => void session().retryMessage(message.groupId, message.id)}>
+                <AlertCircle size={13} /> Not sent. Try again
+              </button>
+            )}
+          </div>
+        </div>
+        {canAct && !selecting && !editingHere && (
+          <div className="cmsg-toolbar">
+            {QUICK_REACTIONS.slice(0, 3).map((emoji) => (
+              <button key={emoji} className="cmsg-tool is-emoji" onClick={() => toggleReaction(emoji)} aria-label={`React with ${emoji}`}>
+                {emoji}
+              </button>
+            ))}
+            <span className="cmsg-tool-divider" />
+            <Tooltip text="Add reaction" side="top">
+              <button className="cmsg-tool" onClick={pickReaction} aria-label="Add reaction">
+                <SmilePlus size={19} />
+              </button>
+            </Tooltip>
+            {canEdit && (
+              <Tooltip text="Edit" side="top">
+                <button className="cmsg-tool" onClick={() => setEditing(listId, message)} aria-label="Edit">
+                  <Pencil size={17} />
+                </button>
+              </Tooltip>
+            )}
+            <Tooltip text="Reply" side="top">
+              <button className="cmsg-tool" onClick={() => setReply(listId, message)} aria-label="Reply">
+                <CornerUpLeft size={19} />
+              </button>
+            </Tooltip>
+            <Tooltip text="Forward" side="top">
+              <button className="cmsg-tool" onClick={() => useApp.getState().setOverlay({ type: "forward", serverId, groupId: message.groupId, ids: [message.id] })} aria-label="Forward">
+                <Forward size={19} />
+              </button>
+            </Tooltip>
+            <Tooltip text="More" side="top">
+              <button
+                className="cmsg-tool"
+                aria-label="More"
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  menu.open({ clientX: rect.right, clientY: rect.bottom + 2 });
+                }}
+              >
+                <MoreHorizontal size={19} />
+              </button>
+            </Tooltip>
+          </div>
+        )}
+        {popups}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -744,11 +1070,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
           : undefined
       }
     >
-      {selecting && (
-        <span className={`msg-check${selected ? " is-on" : ""}${canAct ? "" : " is-disabled"}`} role="checkbox" aria-checked={selected} aria-label="Select message">
-          {selected && <Check size={13} strokeWidth={3} />}
-        </span>
-      )}
+      {check}
       {!own && isGroup && <span className="msg-avatar">{lastInGroup && <Avatar name={senderName} seed={message.senderId} avatar={senderAvatar} size={32} />}</span>}
       <div className="msg-stack">
         <div
@@ -762,21 +1084,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
               {senderName}
             </span>
           )}
-          {isDeleted ? (
-            <span className="msg-placeholder">Message deleted</span>
-          ) : message.status === "undecryptable" ? (
-            <span className="msg-placeholder">
-              <Spinner size={12} /> Waiting for this message's keys
-            </span>
-          ) : message.status === "unverified" ? (
-            <span className="msg-placeholder is-danger">
-              <ShieldAlert size={14} /> This message couldn't be verified, so it isn't shown.
-            </span>
-          ) : message.status === "invalid" ? (
-            <span className="msg-placeholder is-danger">
-              <ShieldAlert size={14} /> This message couldn't be displayed.
-            </span>
-          ) : (
+          {placeholder ?? (
             <>
               {message.forwarded && <ForwardedFrom userId={message.forwarded.userId} />}
               {message.reply && (
@@ -817,14 +1125,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
       {canAct && !selecting && (
         <div className="msg-actions">
           <Tooltip text="React" side="top">
-            <button
-              className="icon-btn is-small"
-              aria-label="React"
-              onClick={(event) => {
-                const rect = event.currentTarget.getBoundingClientRect();
-                setPicker({ x: rect.left, y: rect.top });
-              }}
-            >
+            <button className="icon-btn is-small" aria-label="React" onClick={pickReaction}>
               <SmilePlus size={15} />
             </button>
           </Tooltip>
@@ -847,21 +1148,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
           </Tooltip>
         </div>
       )}
-      <AnimatePresence>
-        {menu.menu && <PopupMenu x={menu.menu.x} y={menu.menu.y} entries={entries} onClose={menu.close} header={quickReactions} />}
-        {picker && (
-          <EmotePicker
-            key="reaction-picker"
-            anchor={picker}
-            onClose={() => setPicker(null)}
-            onPick={(pick) => {
-              setPicker(null);
-              if (pick.kind === "emoji") toggleReaction(pick.value);
-              else toggleReaction(pick.name, { id: pick.id, animated: pick.animated, zeroWidth: pick.zeroWidth, owner: pick.owner });
-            }}
-          />
-        )}
-      </AnimatePresence>
+      {popups}
     </div>
   );
 });
