@@ -5,7 +5,7 @@
 //   npm run build -w @zuna/desktop && node apps/desktop/test/voice-check.mjs [screenshot-dir]
 //
 // Each app's microphone is a sound file Chromium plays as a fake device: spoken words
-// on Windows, and on Linux with eSpeak NG installed, and a tone elsewhere.
+// on Windows and macOS, and on Linux with eSpeak NG installed, and a tone elsewhere.
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -67,6 +67,8 @@ try {
   } else if (process.platform === "linux") {
     // At eSpeak NG's own 22050 Hz, which Chromium's fake device and the checks below resample.
     execFileSync("espeak-ng", ["-w", speechPath, spoken], { stdio: "ignore" });
+  } else if (process.platform === "darwin") {
+    execFileSync("say", ["-o", speechPath, "--data-format=LEI16@48000", spoken], { stdio: "ignore" });
   }
 } catch (error) {
   console.log(`Couldn't synthesize speech, so a tone stands in: ${error}`);
@@ -142,6 +144,8 @@ async function launch(name, soundFile) {
   // What arrives is measured in the page, so none of it needs to play out loud.
   const args = [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors", "--mute-audio"];
   if (soundFile) args.push(`--use-file-for-fake-audio-capture=${soundFile}`);
+  // On macOS the audio service's sandbox keeps it from opening the file, and the fake device sends silence.
+  if (soundFile && process.platform === "darwin") args.push("--no-sandbox");
   const electronApp = await electron.launch({ args, env: { ...process.env, ELECTRON_RENDERER_URL: "", SSL_CERT_FILE: join(certificates, "ca.crt") } });
   const page = await electronApp.firstWindow();
   page.on("pageerror", (error) => errors.push(`${name}: ${error.message}`));
