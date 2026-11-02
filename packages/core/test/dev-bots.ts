@@ -6,12 +6,16 @@
 //   npx vite-node packages/core/test/dev-bots.ts <invite-link>
 //
 // `npm run dev:server` sets ZUNA_DEV_WORLD to a folder instead. Its first run sets
-// up the whole server, and later runs bring the same people back.
+// up the whole server, and later runs bring the same people back, adding whatever
+// setting one up has gained since.
 
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { toBase64 } from "../src/encoding";
 import { TestApp, loadCrypto, png, sleep, waitFor } from "./helpers";
+
+/** What a world has in it: raise this when setup gains something, and add it to `catchUp`. 2 added channels. */
+const WORLD_VERSION = 2;
 
 const CODE_SAMPLE = `Here's the retry logic:
 \`\`\`rust
@@ -206,6 +210,7 @@ async function createWorld(world: string): Promise<TestApp[]> {
     join(world, "world.json"),
     JSON.stringify(
       {
+        version: WORLD_VERSION,
         name: SERVER_NAME,
         url: preview.url,
         username: OWNER.username,
@@ -219,6 +224,26 @@ async function createWorld(world: string): Promise<TestApp[]> {
     ),
   );
   return bots;
+}
+
+/**
+ * A world is kept between runs, so what setting one up has gained since it was made
+ * comes to it here, without anyone losing what they've done in it.
+ */
+async function catchUp(world: string, bots: TestApp[]): Promise<void> {
+  const file = join(world, "world.json");
+  const saved = JSON.parse(readFileSync(file, "utf8"));
+  if (saved.version >= WORLD_VERSION) return;
+  const owner = await new TestApp("Test server setup", join(world, "owner")).open();
+  await owner.online();
+  // The server's word, since this device has been away and may not have heard about any yet.
+  const { channels } = await (owner.session as any).api.channels();
+  if (channels.length === 0) {
+    await startChannels(owner, bots);
+    await (owner.session as any).uploadEpochKeys();
+  }
+  owner.client.stop();
+  writeFileSync(file, JSON.stringify({ ...saved, version: WORLD_VERSION }, null, 2));
 }
 
 async function reopenBots(world: string): Promise<TestApp[]> {
@@ -279,6 +304,7 @@ async function main() {
     await startConversations(bots);
   } else if (existsSync(join(world, "world.json"))) {
     bots = await reopenBots(world);
+    await catchUp(world, bots);
   } else {
     bots = await createWorld(world);
   }

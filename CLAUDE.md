@@ -104,6 +104,7 @@ Rules the core depends on:
 | A database schema | Add to the end of `migrations` in `server/internal/store/store.go` or `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | The desktop's content security policy (`apps/desktop/src/main/index.ts`) | `contentSecurityPolicy` in `server/internal/webhost/webhost.go` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
+| What setting up the test server creates (`createWorld` in `packages/core/test/dev-bots.ts`) | `WORLD_VERSION` and `catchUp` there, or test servers set up earlier never get it |
 | Anything `SECURITY.md` or the docs claim | Those docs |
 
 ## Feature parity

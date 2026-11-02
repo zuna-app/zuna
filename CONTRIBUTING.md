@@ -29,7 +29,7 @@ Three commands cover day-to-day work. The `dev` folder has the same as files to 
 | `npm run dev` | `app.cmd`, `app.sh` | Updates, rebuilds whatever changed, and opens a development version of the app, with live reload |
 | `npm run dev:clean` | `clean.cmd`, `clean.sh` | Deletes all development data, for a fresh start |
 
-**The test server** sets itself up the first time, in a few seconds: an owner account, a server name, an emote set, a reusable invite link, and five people who are online and reply to direct messages. Everything is kept between runs. Press Ctrl+C or close its window to stop it.
+**The test server** sets itself up the first time, in a few seconds: an owner account, a server name, an emote set, a reusable invite link, and five people who are online and reply to direct messages. Everything is kept between runs, and a server set up before something new was added to this gets it the next time it starts. Press Ctrl+C or close its window to stop it.
 
 **The app** opens at the welcome screen on a fresh start. Click "I already have an account" and the sign-in form is already filled in for the test server, so you land in the owner's account with conversations going. To try sign-up instead, paste the invite link that the server printed. Closing the window quits a development build, while an installed Zuna keeps running in the tray.
 
