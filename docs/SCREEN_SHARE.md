@@ -145,7 +145,7 @@ Chromium's fake capture runs at 20 fps. `--use-fake-ui-for-media-stream` swaps i
 
 The proof of concept's README lists what has run where. Inside the app, only Windows with NVENC has run so far:
 
-- **Linux** has only run in the proof of concept, on Arch with KDE and NVIDIA. It hasn't run from the app, or from a package, where the libraries come from beside the program rather than from where they were built. Its frame rate request and trimming are type-checked and have never run, and neither has its TLS.
+- **Linux** ran in the proof of concept on Arch with KDE and NVIDIA, and the app's build of the program has since run there by itself, with its libraries beside it rather than where they were built: NVENC from DMA-BUFs, 20 seconds to a file at 1920x1080, at 2 to 6% of a core and about 2.5 ms a frame. KWin took its frame rate request, but the screen was mostly still, so the trimming hasn't been seen at work. It hasn't run from the app or published anything, so its TLS hasn't run either. That was over KRdp, sharing KRdp's virtual monitor, and KRdp's own picture flickered while both captured it.
 - **VA-API and AMF** have never run.
 - **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core. Its Linux routes are compiled or type-checked at most, and have never run.
 - **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.
