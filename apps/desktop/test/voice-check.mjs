@@ -5,7 +5,7 @@
 //   npm run build -w @zuna/desktop && node apps/desktop/test/voice-check.mjs [screenshot-dir]
 //
 // Each app's microphone is a sound file Chromium plays as a fake device: spoken words
-// on Windows, where the system can make some, and a tone elsewhere.
+// on Windows, and on Linux with eSpeak NG installed, and a tone elsewhere.
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -59,13 +59,17 @@ const speechPath = join(fixtures, "speech.wav");
   const noise = Float32Array.from({ length: 48000 * 4 }, () => (Math.random() * 2 - 1) * 0.12);
   writeFileSync(noisePath, wavFrom(noise));
 }
-if (process.platform === "win32") {
-  const script = `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(48000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono); $s.SetOutputToWaveFile('${speechPath.replaceAll("\\", "\\\\")}', $f); $s.Speak('Testing the voice channel. Can you hear me? One two three four five. The quick brown fox jumps over the lazy dog, again and again, until someone answers.'); $s.Dispose()`;
-  try {
+const spoken = "Testing the voice channel. Can you hear me? One two three four five. The quick brown fox jumps over the lazy dog, again and again, until someone answers.";
+try {
+  if (process.platform === "win32") {
+    const script = `Add-Type -AssemblyName System.Speech; $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; $f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(48000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono); $s.SetOutputToWaveFile('${speechPath.replaceAll("\\", "\\\\")}', $f); $s.Speak('${spoken}'); $s.Dispose()`;
     execFileSync("powershell.exe", ["-NoProfile", "-Command", script], { stdio: "ignore" });
-  } catch (error) {
-    console.log(`Couldn't synthesize speech, so a tone stands in: ${error}`);
+  } else if (process.platform === "linux") {
+    // At eSpeak NG's own 22050 Hz, which Chromium's fake device and the checks below resample.
+    execFileSync("espeak-ng", ["-w", speechPath, spoken], { stdio: "ignore" });
   }
+} catch (error) {
+  console.log(`Couldn't synthesize speech, so a tone stands in: ${error}`);
 }
 const haveSpeech = existsSync(speechPath);
 
