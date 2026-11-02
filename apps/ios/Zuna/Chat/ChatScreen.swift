@@ -11,8 +11,6 @@ struct ChatScreen: View {
     @Environment(ImageStore.self) private var images
     @Environment(\.scenePhase) private var scenePhase
     @State private var atBottom = true
-    /// The newest message that's been on screen enough to count as read, from the list.
-    @State private var seen = 0
     @State private var highlighted: String?
     @State private var bridge = MessageListBridge()
     @State private var emoteCard: EmoteCardInfo?
@@ -257,7 +255,7 @@ struct ChatScreen: View {
                 .presentationDetents([.medium, .large])
             }
         }
-        .onChange(of: ReadKey(seen: seen, ownRead: conversation.ownRead)) {
+        .onChange(of: conversation.ownRead) {
             markRead(serverId, conversation)
         }
         .onChange(of: scenePhase) {
@@ -343,7 +341,10 @@ struct ChatScreen: View {
                     if highlighted == id { highlighted = nil }
                 }
             },
-            onSeen: { seen = $0 }
+            onSeen: { seen in
+                bridge.seen = seen
+                markRead(serverId, conversation)
+            }
         )
     }
 
@@ -462,16 +463,11 @@ struct ChatScreen: View {
 
     // MARK: Read receipts
 
-    private struct ReadKey: Equatable {
-        let seen: Int
-        let ownRead: Int
-    }
-
     /// Reads as far as has been on screen in the open app, as on the desktop. The list
     /// says how far, which at the newest message is everything.
     private func markRead(_ serverId: String, _ conversation: ConversationView) {
-        guard scenePhase == .active, let groupId = conversation.groupId, seen > conversation.ownRead else { return }
-        model.markRead(serverId, groupId: groupId, seq: seen)
+        guard scenePhase == .active, let groupId = conversation.groupId, bridge.seen > conversation.ownRead else { return }
+        model.markRead(serverId, groupId: groupId, seq: bridge.seen)
     }
 }
 

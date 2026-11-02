@@ -11,6 +11,10 @@ final class MessageListBridge {
     var opened = false
     /// The first unread message when the chat opened, with a line above it until the chat is left.
     var unreadLine: String?
+    /// The newest message that's been on screen enough to count as read. Kept here, not in
+    /// the screen's state: near the oldest message, measuring rows again can move the list
+    /// by one, and drawing the screen again each time moved it again, many times a second.
+    var seen = 0
 }
 
 /// The messages of a chat in a `UICollectionView` turned upside down, as chat
@@ -55,6 +59,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     /// reading on the way updates the list.
     private var scrollingDown = false
     private var seen = 0
+    private var seenPending = false
     private var handledJump: Int?
     private var swiping: (cell: UICollectionViewCell, message: MessageView)?
     private let replyIcon = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill"))
@@ -288,7 +293,14 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         }
         guard newest != seen else { return }
         seen = newest
-        DispatchQueue.main.async { [weak self] in self?.onSeen(newest) }
+        // Once a turn, with where the list ended up: it passes other places as it settles.
+        guard !seenPending else { return }
+        seenPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            seenPending = false
+            onSeen(seen)
+        }
     }
 
     // MARK: Swipe to reply
