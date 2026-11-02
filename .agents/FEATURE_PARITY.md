@@ -45,7 +45,7 @@ Things one platform should have and doesn't.
 
 ## Channels and voice channels
 
-Voice is desktop and web only for now (see Known gaps). Desktop and web paths are under `features/voice/` and `voice/` in `packages/ui/src/` unless written out. Checked on Windows with `apps/desktop/test/voice-check.mjs` in Electron against a real LiveKit behind TLS, and `apps/web/test/web-check.mjs` in Chromium, which connects and encrypts but only has one person in a call. iOS's text channels: built and run on macOS 27 with Xcode 27.1, `ChannelsTests` in `apps/ios/ZunaUITests` against desktop peers.
+Voice is desktop and web only for now (see Known gaps). Desktop and web paths are under `features/voice/` and `voice/` in `packages/ui/src/` unless written out. Checked on Windows, and on Linux (Arch with KDE, the apps run as under X11 through XWayland, so that shares through the browser need no portal, and a person answering it for native ones), with `apps/desktop/test/voice-check.mjs` in Electron against a real LiveKit behind TLS. Linux's fake microphones are Chromium's beeps rather than speech, so the checks that need speech only run on Windows. Also `apps/web/test/web-check.mjs` in Chromium, which connects and encrypts but only has one person in a call. iOS's text channels: built and run on macOS 27 with Xcode 27.1, `ChannelsTests` in `apps/ios/ZunaUITests` against desktop peers.
 
 | Feature | Desktop | iOS | Web | Desktop and web code | iOS code | Notes |
 |---|---|---|---|---|---|---|

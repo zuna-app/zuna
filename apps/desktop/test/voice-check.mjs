@@ -135,7 +135,8 @@ const errors = [];
 async function launch(name, soundFile) {
   const userData = mkdtempSync(join(tmpdir(), `zuna-voice-${name}-`));
   // Chromium is told to trust the test's media server here, and the native capture through SSL_CERT_FILE.
-  const args = [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors"];
+  // What arrives is measured in the page, so none of it needs to play out loud.
+  const args = [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors", "--mute-audio"];
   if (soundFile) args.push(`--use-file-for-fake-audio-capture=${soundFile}`);
   const electronApp = await electron.launch({ args, env: { ...process.env, ELECTRON_RENDERER_URL: "", SSL_CERT_FILE: join(certificates, "ca.crt") } });
   const page = await electronApp.firstWindow();
