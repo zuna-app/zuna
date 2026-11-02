@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api, decode } from "../src/api";
 import { channelProof, openChannelDetails, sealChannelDetails } from "../src/channels";
+import { previewPush } from "../src/push";
 import { equalBytes, fromUtf8, toBase64, utf8 } from "../src/encoding";
 import type { ChannelView, CoreEvent, MessageView } from "../src/types";
 import { DEFAULT_SCREEN_RULES, parseVoiceIdentity, screenRefusal, screenTerms, voiceIdentity, voiceKeyIndex, voiceSenderKey } from "../src/voice";
@@ -108,6 +109,12 @@ describe("text channels", () => {
     await waitFor(() => notified().length === before + 1, "alice to be told");
     expect(notified().at(-1)).toMatchObject({ title: "#general" });
     expect(channel(alice, "general")!.conversation!.unreadMentions).toBeGreaterThan(0);
+
+    // A phone words them the same way, from what's on it alone.
+    const extension = { db: alice.db, deviceKey: alice.deviceKey };
+    const preview = (text: string) => previewPush(extension, alice.serverId, id, received(alice, text)!.id);
+    expect(await preview("@alice look")).toMatchObject({ title: "#general", body: "bob: @alice look", muted: false, group: { name: "#general" } });
+    expect(await preview("nothing for alice")).toMatchObject({ title: "#general", muted: true });
   });
 
   it("keep where someone's read to between their own devices only", async () => {

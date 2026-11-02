@@ -6,14 +6,15 @@
 // databases stay open for the next push, as the provider keeps them.
 
 import * as wasm from "@zuna/crypto";
-import { Api, decode } from "./api";
+import { Api, decode, type ApiChannel } from "./api";
+import { openChannelDetails } from "./channels";
 import { INDEX_DB, decodeAccount, label, serverDbName, serverKeyFor } from "./client";
 import { namesItsSender, openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
 import { onlyMentionsNotify, type AvatarRef, type Preferences, type Profile } from "./types";
-import { parseMessageBody } from "./validate";
+import { parseChannelDetails, parseMessageBody } from "./validate";
 
 export interface PushPreview {
   serverId: string;
@@ -47,7 +48,7 @@ interface StoredUser {
 
 interface StoredGroup {
   id: string;
-  kind: "dm" | "group";
+  kind: "dm" | "group" | "channel";
   peerId: string | null;
   meta: { name?: string; avatar?: AvatarRef | null };
 }
@@ -76,11 +77,21 @@ export async function previewPush(
   const groupRow = db.get<{ data: Uint8Array }>("SELECT data FROM groups WHERE id = ?", [groupId]);
   const group = groupRow ? read<StoredGroup>("group", groupRow.data) : null;
   const conversationKey = group ? (group.kind === "dm" ? `user:${group.peerId}` : `group:${group.id}`) : null;
+  // A channel is called what its details say, believed only if a device of someone here signed them, as the session does.
+  const channelName = (): string => {
+    const row = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["channels"]);
+    const channel = row ? read<ApiChannel[]>("kv/channels", row.v).find((item) => item.id === groupId) : undefined;
+    const signed = channel ? openChannelDetails(account.core.communityKey, groupId, decode(channel.details)) : null;
+    const device = signed && user(signed.signer.userId)?.devices.find((item) => item.id === signed.signer.deviceId);
+    const name = device && signed.signedBy(fromBase64(device.signatureKey)) ? parseChannelDetails(signed.details)?.name : undefined;
+    return `#${name ?? "channel"}`;
+  };
+  const groupName = group?.kind === "channel" ? channelName() : group?.meta.name || "Group";
   const preview = (fields: Partial<PushPreview>): PushPreview => ({
     serverId,
     conversationKey,
     // Without the message, at least the chat; without the chat, the server.
-    title: group ? (group.kind === "dm" ? nameOf(user(group.peerId)) : group.meta.name || "Group") : server.name,
+    title: group ? (group.kind === "dm" ? nameOf(user(group.peerId)) : groupName) : server.name,
     body: "New message",
     decrypted: false,
     muted: false,
@@ -141,11 +152,12 @@ export async function previewPush(
     }
   };
   return preview({
-    ...notificationText(group.kind, group.meta.name, nameOf(sender), content),
+    ...notificationText(group.kind, groupName, nameOf(sender), content),
     decrypted: true,
-    muted: !mentioned && onlyMentionsNotify(prefs, conversationKey!),
+    // Everything said in a channel isn't for everyone in it: only what's said to them.
+    muted: !mentioned && (group.kind === "channel" || onlyMentionsNotify(prefs, conversationKey!)),
     sender: { id: message.sender_user, name: nameOf(sender), picture: await picture(sender.profile.avatar) },
-    group: group.kind === "group" ? { name: group.meta.name || "Group", picture: await picture(group.meta.avatar) } : undefined,
+    group: group.kind === "dm" ? undefined : { name: groupName, picture: group.kind === "group" ? await picture(group.meta.avatar) : undefined },
     text: previewText(content),
   });
 }
