@@ -40,7 +40,6 @@ The iPhone app's approach carries over:
 |---|---|
 | iPhone and iPad | Channels and voice channels. LiveKit's Swift SDK has the per-participant keys it needs, and CallKit lets it keep going in the background. |
 | Calls in direct messages and groups | The same room and keys, from that conversation's MLS group, with something that rings. |
-| Linux decoding on X11 | On NVIDIA under X11, video from others decodes in software, about a quarter of a core for a 2560x1440 share at 60 fps. `VaapiOnNvidiaGPUs` decodes it in hardware there and then paints every frame white (seen through XWayland on KDE), so `apps/desktop/src/main/index.ts` only turns it on under Wayland. Whether a real X11 session does the same, and whether a Chromium switch such as `--use-gl` fixes it, needs checking. |
 | Noise cancelling | RNNoise is cheap and needs no setup. DeepFilterNet cleans speech noticeably better, for more CPU and a far larger download, and would have to run off the audio thread. |
 
 ## Other ideas
