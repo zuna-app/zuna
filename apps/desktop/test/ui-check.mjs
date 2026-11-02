@@ -78,6 +78,10 @@ try {
   const openChat = async (name) => {
     await page.locator(".conv-row").filter({ has: page.locator(".conv-title", { hasText: name }) }).first().click();
     await page.locator(".chat-title", { hasText: name }).waitFor();
+    // The list finds its place just before the chat's first frame is painted. A click
+    // aimed before then lands on whatever has moved there, and Playwright's retry
+    // scrolls the message into view, as if someone had scrolled up to it.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   };
 
   // Onboarding
