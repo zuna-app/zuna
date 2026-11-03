@@ -42,6 +42,8 @@ type ServerInfo struct {
 	// those that are voice channels, and without one they can't be joined.
 	Channels int `json:"channels,omitempty"`
 	Voice    int `json:"voice,omitempty"`
+	// Calls says direct messages and groups can have calls, on the same media server.
+	Calls int `json:"calls,omitempty"`
 	// ScreenShare is for members: someone without an account has no need of it.
 	ScreenShare *ScreenRules `json:"screen_share,omitempty"`
 	// CommunityKey is only present in open sign-up mode, where admins accepted
@@ -72,6 +74,7 @@ func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, RequestProofs: 1, Disappearing: 1, Channels: 1}
 	if s.liveKitConfigured() {
 		info.Voice = 1
+		info.Calls = 1
 	}
 	var err error
 	if info.Name, err = s.db.Setting(ctx, "name", "Zuna"); err != nil {
@@ -448,7 +451,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 		writeFailure(w, err)
 		return
 	}
-	s.endVoiceFor(r.Context(), targetID, "banned")
+	s.endVoiceFor(r.Context(), targetID, "banned", true)
 	s.hub.Disconnect(targetID, "")
 	s.broadcastUser(r, targetID)
 	writeOK(w)

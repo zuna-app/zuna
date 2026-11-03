@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -40,12 +41,15 @@ func sourceNames(sources []string) []string {
 	return names
 }
 
-// voiceUpdate is what a device says about itself in a voice channel.
+// voiceUpdate is what a device says about itself in a voice channel or a call.
 type voiceUpdate struct {
 	Muted    bool `json:"muted"`
 	Deafened bool `json:"deafened"`
 	Camera   bool `json:"camera"`
 	Screen   bool `json:"screen"`
+	// Ring says this device is starting a call, so the conversation's other members are rung.
+	// It only does anything for the first device into a call, and an app says it once.
+	Ring bool `json:"ring,omitempty"`
 }
 
 // VoiceState is one device in a voice channel, as it says. That's enough for showing
@@ -61,6 +65,8 @@ type VoiceState struct {
 	Camera      bool   `json:"camera"`
 	Screen      bool   `json:"screen"`
 	Since       int64  `json:"since"`
+	// Call says the room is a direct message's or a group's, which only its members hear about.
+	Call bool `json:"call,omitempty"`
 }
 
 // voiceChange is the frame that tells everyone a device's state, or that it left.
@@ -68,11 +74,12 @@ type voiceChange struct {
 	ChannelID string      `json:"channel_id"`
 	DeviceID  string      `json:"device_id"`
 	UserID    string      `json:"user_id"`
+	Call      bool        `json:"call,omitempty"`
 	State     *VoiceState `json:"state"`
 }
 
-// voiceRooms is who's in the voice channels. It's kept in memory, since apps say
-// again when they reconnect, and a restart ends nothing in LiveKit.
+// voiceRooms is who's in the voice channels and the calls. It's kept in memory, since
+// apps say again when they reconnect, and a restart ends nothing in LiveKit.
 type voiceRooms struct {
 	mu     sync.Mutex
 	states map[string]*VoiceState
@@ -81,21 +88,44 @@ type voiceRooms struct {
 	// The devices that have been let share a screen.
 	shares map[string]*screenShare
 	timers map[string]*time.Timer
+	// The calls going on, by conversation, and how many rings there have been.
+	calls map[string]*callState
+	rings uint64
 }
 
 func newVoiceRooms() *voiceRooms {
-	return &voiceRooms{states: map[string]*VoiceState{}, muted: map[string]bool{}, shares: map[string]*screenShare{}, timers: map[string]*time.Timer{}}
+	return &voiceRooms{states: map[string]*VoiceState{}, muted: map[string]bool{}, shares: map[string]*screenShare{}, timers: map[string]*time.Timer{}, calls: map[string]*callState{}}
 }
 
-func (v *voiceRooms) all() []VoiceState {
+// inChannels is who's in the voice channels, which everyone may know. Calls are left out.
+func (v *voiceRooms) inChannels() []VoiceState {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	states := make([]VoiceState, 0, len(v.states))
 	for _, state := range v.states {
-		states = append(states, *state)
+		if !state.Call {
+			states = append(states, *state)
+		}
 	}
 	sort.Slice(states, func(i, j int) bool { return states[i].Since < states[j].Since })
 	return states
+}
+
+// takeOut removes the devices it's told to from their rooms, along with their shares, and
+// ends any call left with nobody in it. It says who went and which calls ended.
+func (v *voiceRooms) takeOut(leaving func(*VoiceState) bool) ([]VoiceState, []string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	var gone []VoiceState
+	for device, state := range v.states {
+		if leaving(state) {
+			gone = append(gone, *state)
+			delete(v.states, device)
+			delete(v.shares, device)
+			v.stopTimer(device)
+		}
+	}
+	return gone, v.endEmptyCalls(gone)
 }
 
 func (v *voiceRooms) isMuted(userID string) bool {
@@ -219,6 +249,52 @@ func signLiveKitToken(secret string, claims map[string]any) (string, error) {
 // it, so LiveKit can't pass off one person's media as another's.
 func voiceIdentity(userID, deviceID string) string { return userID + "." + deviceID }
 
+// tellVoice says what a device is doing in a room, or that it left: to everyone for a voice
+// channel, and only to the conversation's members for a call.
+func (s *Server) tellVoice(state VoiceState, left bool) {
+	change := voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID, Call: state.Call}
+	if !left {
+		change.State = &state
+	}
+	event := Event{Type: "voice", Data: change}
+	if state.Call {
+		s.toMembers(state.ChannelID, event)
+	} else {
+		s.hub.ToAll(event)
+	}
+}
+
+// voiceRoom is a room on the media server: a voice channel's, or a call's in a direct
+// message or a group, where it's under the conversation's ID.
+type voiceRoom struct {
+	ID          string
+	Call        bool
+	UserLimit   int
+	ScreenLimit int
+}
+
+// roomFor is the room a request is about, of the kind its route is for, or nothing after
+// saying what's wrong.
+func (s *Server) roomFor(w http.ResponseWriter, r *http.Request, call bool) *voiceRoom {
+	if !call {
+		channel := s.voiceChannel(w, r)
+		if channel == nil {
+			return nil
+		}
+		return &voiceRoom{ID: channel.ID, UserLimit: channel.UserLimit, ScreenLimit: channel.ScreenLimit}
+	}
+	group, err := s.db.Group(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeFailure(w, err)
+		return nil
+	}
+	if group.Kind != "dm" && group.Kind != "group" {
+		writeError(w, http.StatusBadRequest, "bad_request", "Calls are for direct messages and groups.")
+		return nil
+	}
+	return &voiceRoom{ID: group.ID, Call: true}
+}
+
 // voiceChannel is the voice channel a request is about, or nothing after saying what's wrong.
 func (s *Server) voiceChannel(w http.ResponseWriter, r *http.Request) *store.Channel {
 	channel, err := s.db.Channel(r.Context(), r.PathValue("id"))
@@ -233,45 +309,48 @@ func (s *Server) voiceChannel(w http.ResponseWriter, r *http.Request) *store.Cha
 	return channel
 }
 
-// handleVoiceToken lets a member into a voice channel's room on the media server,
-// which can only ever see encrypted media. The keys come from the channel's MLS group.
-func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
-	if !s.liveKitConfigured() {
-		writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
-		return
+// handleVoiceToken lets a member into a voice channel's room on the media server, or a
+// conversation's call, which can only ever see encrypted media. The keys come from the
+// channel's or the conversation's MLS group.
+func (s *Server) handleVoiceToken(call bool) memberHandler {
+	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, member *store.GroupMember) {
+		if !s.liveKitConfigured() {
+			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
+			return
+		}
+		if !s.voiceLimiter.Allow(sess.UserID) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
+			return
+		}
+		room := s.roomFor(w, r, call)
+		if room == nil {
+			return
+		}
+		if room.UserLimit > 0 && member.Role != "admin" && s.voice.countIn(room.ID, sess.UserID) >= room.UserLimit {
+			writeError(w, http.StatusForbidden, "channel_full", "This voice channel is full.")
+			return
+		}
+		// A new connection is sharing nothing yet, whatever the last one was doing.
+		s.voice.takeShare(sess.DeviceID)
+		identity := voiceIdentity(sess.UserID, sess.DeviceID)
+		token, err := s.liveKitToken(identity, map[string]any{
+			"room":              room.ID,
+			"roomJoin":          true,
+			"canPublish":        true,
+			"canSubscribe":      true,
+			"canPublishData":    false,
+			"canPublishSources": s.voice.sourcesFor(sess.UserID, sess.DeviceID, room.Call),
+		})
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "server_muted": !room.Call && s.voice.isMuted(sess.UserID)})
 	}
-	if !s.voiceLimiter.Allow(sess.UserID) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
-		return
-	}
-	channel := s.voiceChannel(w, r)
-	if channel == nil {
-		return
-	}
-	if channel.UserLimit > 0 && member.Role != "admin" && s.voice.countIn(channel.ID, sess.UserID) >= channel.UserLimit {
-		writeError(w, http.StatusForbidden, "channel_full", "This voice channel is full.")
-		return
-	}
-	// A new connection is sharing nothing yet, whatever the last one was doing.
-	s.voice.takeShare(sess.DeviceID)
-	identity := voiceIdentity(sess.UserID, sess.DeviceID)
-	token, err := s.liveKitToken(identity, map[string]any{
-		"room":              channel.ID,
-		"roomJoin":          true,
-		"canPublish":        true,
-		"canSubscribe":      true,
-		"canPublishData":    false,
-		"canPublishSources": s.voice.sourcesFor(sess.UserID, sess.DeviceID),
-	})
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "server_muted": s.voice.isMuted(sess.UserID)})
 }
 
-// updateVoice takes what a device says it's doing in a voice channel. Being in one
-// on a second device ends it on the first, which is told why.
+// updateVoice takes what a device says it's doing in a voice channel or a call. Being in
+// one on a second device ends it on the first, which is told why.
 func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 	if frame.Voice == nil || frame.GroupID == "" {
 		s.leaveVoice(c.userID, c.deviceID)
@@ -283,67 +362,90 @@ func (s *Server) updateVoice(ctx context.Context, c *conn, frame clientFrame) {
 	if _, err := s.db.Membership(ctx, frame.GroupID, c.userID); err != nil {
 		return
 	}
-	channel, err := s.db.Channel(ctx, frame.GroupID)
-	if err != nil || channel.Type != "voice" {
+	// A conversation that isn't a channel has calls, and a text channel has neither.
+	call := false
+	if channel, err := s.db.Channel(ctx, frame.GroupID); errors.Is(err, store.ErrNotFound) {
+		call = true
+	} else if err != nil || channel.Type != "voice" {
 		return
+	}
+	var ring []string
+	if call && frame.Voice.Ring {
+		members, err := s.db.GroupMemberIDs(ctx, frame.GroupID)
+		if err != nil {
+			return
+		}
+		ring = members
 	}
 
 	s.voice.mu.Lock()
 	s.voice.stopTimer(c.deviceID)
 	previous := s.voice.states[c.deviceID]
-	// A move to another channel counts as leaving the first.
-	var leftChannel string
+	// A move to another room counts as leaving the first.
+	var gone []VoiceState
 	if previous != nil && previous.ChannelID != frame.GroupID {
-		leftChannel = previous.ChannelID
+		gone = append(gone, *previous)
 		previous = nil
 		delete(s.voice.shares, c.deviceID)
 	}
 	state := &VoiceState{
-		ChannelID:   frame.GroupID,
-		UserID:      c.userID,
-		DeviceID:    c.deviceID,
-		Muted:       frame.Voice.Muted,
-		Deafened:    frame.Voice.Deafened,
-		ServerMuted: s.voice.muted[c.userID],
+		ChannelID: frame.GroupID,
+		UserID:    c.userID,
+		DeviceID:  c.deviceID,
+		Muted:     frame.Voice.Muted,
+		Deafened:  frame.Voice.Deafened,
+		// An admin's mute is for the server's voice channels: a call is between the people in it.
+		ServerMuted: !call && s.voice.muted[c.userID],
 		Camera:      frame.Voice.Camera,
 		Screen:      frame.Voice.Screen,
 		Since:       store.Now(),
+		Call:        call,
 	}
 	if previous != nil {
 		state.Since = previous.Since
 	}
 	s.voice.states[c.deviceID] = state
 	// Only a person's latest device stays in.
-	var others []*VoiceState
+	var others []VoiceState
 	for device, other := range s.voice.states {
 		if other.UserID == c.userID && device != c.deviceID {
-			others = append(others, other)
+			others = append(others, *other)
 			delete(s.voice.states, device)
 			delete(s.voice.shares, device)
 			s.voice.stopTimer(device)
 		}
 	}
+	var callView *Call
+	if call && s.joinCall(frame.GroupID, c.userID, ring) {
+		callView = s.voice.calls[frame.GroupID].view(frame.GroupID)
+	}
+	ended := s.voice.endEmptyCalls(append(gone, others...))
+	joined := *state
 	s.voice.mu.Unlock()
 
-	if leftChannel != "" {
-		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: leftChannel, DeviceID: c.deviceID, UserID: c.userID}})
+	for _, left := range gone {
+		s.tellVoice(left, true)
 	}
 	for _, other := range others {
 		s.hub.ToDevice(other.UserID, other.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": other.ChannelID, "reason": "elsewhere"}})
-		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: other.ChannelID, DeviceID: other.DeviceID, UserID: other.UserID}})
+		s.tellVoice(other, true)
 	}
-	s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID, State: state}})
+	s.tellVoice(joined, false)
+	if callView != nil {
+		s.tellCall(frame.GroupID, callView)
+	}
+	for _, id := range ended {
+		s.tellCall(id, nil)
+	}
 }
 
 func (s *Server) leaveVoice(userID, deviceID string) {
-	s.voice.mu.Lock()
-	s.voice.stopTimer(deviceID)
-	state := s.voice.states[deviceID]
-	delete(s.voice.states, deviceID)
-	delete(s.voice.shares, deviceID)
-	s.voice.mu.Unlock()
-	if state != nil {
-		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: deviceID, UserID: userID}})
+	gone, ended := s.voice.takeOut(func(state *VoiceState) bool { return state.DeviceID == deviceID && state.UserID == userID })
+	for _, state := range gone {
+		s.tellVoice(state, true)
+	}
+	for _, id := range ended {
+		s.tellCall(id, nil)
 	}
 }
 
@@ -371,47 +473,42 @@ func (s *Server) voiceGrace() time.Duration {
 	return voiceSocketGrace
 }
 
-// endVoiceFor takes someone out of every room, and tells them why.
-func (s *Server) endVoiceFor(ctx context.Context, userID, reason string) {
-	s.voice.mu.Lock()
-	var ended []*VoiceState
-	for device, state := range s.voice.states {
-		if state.UserID == userID {
-			ended = append(ended, state)
-			delete(s.voice.states, device)
-			delete(s.voice.shares, device)
-			s.voice.stopTimer(device)
-		}
-	}
-	s.voice.mu.Unlock()
-	for _, state := range ended {
-		s.removeFromRoom(ctx, state)
+// endVoiceFor takes someone out of every voice channel, and out of their calls too if
+// they're leaving the server, and tells them why.
+func (s *Server) endVoiceFor(ctx context.Context, userID, reason string, calls bool) {
+	gone, ended := s.voice.takeOut(func(state *VoiceState) bool { return state.UserID == userID && (calls || !state.Call) })
+	for _, state := range gone {
+		s.removeFromRoom(ctx, &state)
 		s.hub.ToDevice(state.UserID, state.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": state.ChannelID, "reason": reason}})
-		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID}})
+		s.tellVoice(state, true)
+	}
+	for _, id := range ended {
+		s.tellCall(id, nil)
 	}
 }
 
-// endVoiceIn empties a channel's room, when the channel is going.
-func (s *Server) endVoiceIn(ctx context.Context, channelID string) {
+// endVoiceIn empties a room, when its channel or conversation is going.
+func (s *Server) endVoiceIn(ctx context.Context, roomID string) {
+	gone, _ := s.voice.takeOut(func(state *VoiceState) bool { return state.ChannelID == roomID })
 	s.voice.mu.Lock()
-	var ended []*VoiceState
-	for device, state := range s.voice.states {
-		if state.ChannelID == channelID {
-			ended = append(ended, state)
-			delete(s.voice.states, device)
-			delete(s.voice.shares, device)
-			s.voice.stopTimer(device)
+	if call := s.voice.calls[roomID]; call != nil {
+		for user := range call.ringing {
+			call.stopRinging(user)
 		}
+		delete(s.voice.calls, roomID)
 	}
 	s.voice.mu.Unlock()
 	if s.liveKitConfigured() {
-		if err := s.callLiveKit(ctx, channelID, "DeleteRoom", map[string]any{"room": channelID}); err != nil {
-			slog.Warn("closing a voice channel's room", "error", err)
+		if err := s.callLiveKit(ctx, roomID, "DeleteRoom", map[string]any{"room": roomID}); err != nil {
+			slog.Warn("closing a room on the media server", "error", err)
 		}
 	}
-	for _, state := range ended {
-		s.hub.ToDevice(state.UserID, state.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": channelID, "reason": "deleted"}})
-		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: channelID, DeviceID: state.DeviceID, UserID: state.UserID}})
+	// A conversation's members have been told it's gone, which ends its call for them.
+	for _, state := range gone {
+		s.hub.ToDevice(state.UserID, state.DeviceID, Event{Type: "voice_ended", Data: map[string]string{"channel_id": roomID, "reason": "deleted"}})
+		if !state.Call {
+			s.tellVoice(state, true)
+		}
 	}
 }
 
@@ -424,7 +521,7 @@ func (s *Server) handleVoiceDisconnect(w http.ResponseWriter, r *http.Request, s
 		writeError(w, http.StatusForbidden, "forbidden", "You can't disconnect this person.")
 		return
 	}
-	s.endVoiceFor(r.Context(), target, "disconnected")
+	s.endVoiceFor(r.Context(), target, "disconnected", false)
 	writeOK(w)
 }
 
@@ -451,20 +548,19 @@ func (s *Server) handleVoiceMute(w http.ResponseWriter, r *http.Request, sess *s
 	}
 	var changed []VoiceState
 	for _, state := range s.voice.states {
-		if state.UserID == target {
+		if state.UserID == target && !state.Call {
 			state.ServerMuted = body.Muted
 			changed = append(changed, *state)
 		}
 	}
 	s.voice.mu.Unlock()
-	for index := range changed {
-		state := &changed[index]
+	for _, state := range changed {
 		if s.liveKitConfigured() {
-			if err := s.updateRoomSources(r.Context(), state.ChannelID, state.UserID, state.DeviceID); err != nil {
+			if err := s.updateRoomSources(r.Context(), state.ChannelID, false, state.UserID, state.DeviceID); err != nil {
 				slog.Warn("muting someone in a voice channel", "error", err)
 			}
 		}
-		s.hub.ToAll(Event{Type: "voice", Data: voiceChange{ChannelID: state.ChannelID, DeviceID: state.DeviceID, UserID: state.UserID, State: state}})
+		s.tellVoice(state, false)
 	}
 	writeOK(w)
 }

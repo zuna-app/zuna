@@ -285,13 +285,13 @@ func TestHowManyCanShareAtOnce(t *testing.T) {
 	h.mustDo("POST", path, second.token, share, nil)
 	refused(first, path)
 	secondSocket.sendVoice("", nil)
-	secondSocket.waitFor("voice")
+	secondSocket.ping()
 	h.mustDo("POST", path, first.token, share, nil)
 
 	// Across the whole server.
 	owner.setScreenRules(map[string]any{"max_per_server": 1})
 	secondSocket.sendVoice(other.ID, map[string]any{})
-	secondSocket.waitFor("voice")
+	secondSocket.ping()
 	refused(second, "/api/channels/"+other.ID+"/voice/screen")
 
 	// A new connection has nothing of its own going, so it's holding no place.

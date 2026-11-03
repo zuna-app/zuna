@@ -93,6 +93,8 @@ type Config struct {
 	LiveKitSecret      string
 	// VoiceGrace replaces how long a device that lost its socket stays in a voice channel.
 	VoiceGrace time.Duration
+	// CallRing replaces how long a call rings before it counts as missed.
+	CallRing time.Duration
 	// PushWait replaces how long a phone's notification waits while its person is on another device.
 	PushWait time.Duration
 }
@@ -447,12 +449,20 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/channels/{id}/history-grants", s.member(s.handleChannelHistoryGrant))
 
 	// Voice, through a media server that only ever carries encrypted media
-	mux.HandleFunc("POST /api/channels/{id}/voice", s.member(s.handleVoiceToken))
-	mux.HandleFunc("POST /api/channels/{id}/voice/screen", s.member(s.handleStartScreen))
+	mux.HandleFunc("POST /api/channels/{id}/voice", s.member(s.handleVoiceToken(false)))
+	mux.HandleFunc("POST /api/channels/{id}/voice/screen", s.member(s.handleStartScreen(false)))
 	mux.HandleFunc("DELETE /api/channels/{id}/voice/screen", s.member(s.handleStopScreen))
 	mux.HandleFunc("POST /api/channels/{id}/voice/users/{user}/disconnect", s.admin(s.handleVoiceDisconnect))
 	mux.HandleFunc("PUT /api/channels/{id}/voice/users/{user}/mute", s.admin(s.handleVoiceMute))
 	mux.HandleFunc("DELETE /api/channels/{id}/voice/users/{user}/screen", s.admin(s.handleStopScreenOf))
+
+	// Calls in direct messages and groups, in rooms of their own on the same media server
+	mux.HandleFunc("GET /api/calls", s.withDevice(s.handleCalls))
+	mux.HandleFunc("POST /api/groups/{id}/call", s.member(s.handleVoiceToken(true)))
+	mux.HandleFunc("POST /api/groups/{id}/call/screen", s.member(s.handleStartScreen(true)))
+	mux.HandleFunc("DELETE /api/groups/{id}/call/screen", s.member(s.handleStopScreen))
+	mux.HandleFunc("POST /api/groups/{id}/call/ring", s.member(s.handleRing))
+	mux.HandleFunc("POST /api/groups/{id}/call/decline", s.member(s.handleDecline))
 
 	if s.cfg.LiveKitURL == "" && s.cfg.LiveKitInternalURL != "" {
 		mux.Handle("/livekit/", s.liveKitProxy())

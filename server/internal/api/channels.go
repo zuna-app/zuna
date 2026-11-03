@@ -26,7 +26,7 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request, _ *store
 		writeFailure(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"channels": channels, "voice": s.voice.all()})
+	writeJSON(w, http.StatusOK, map[string]any{"channels": channels, "voice": s.voice.inChannels()})
 }
 
 func (s *Server) broadcastChannels() {

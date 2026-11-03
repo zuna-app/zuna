@@ -112,6 +112,8 @@ func (s *Server) saveScreenRules(ctx context.Context, rules ScreenRules) error {
 type screenShare struct {
 	ChannelID string
 	UserID    string
+	// Call says it's in a conversation's call rather than a voice channel.
+	Call bool
 	// Native says it comes from a process of its own, so the device itself only needs to
 	// be let send its sound.
 	Native bool
@@ -152,13 +154,14 @@ func (v *voiceRooms) takeShare(deviceID string) *screenShare {
 	return share
 }
 
-// sourcesFor is what a device in a voice channel may publish right now. Being muted by
-// an admin takes the microphone out, and only a place to share puts a screen in.
-func (v *voiceRooms) sourcesFor(userID, deviceID string) []string {
+// sourcesFor is what a device in a voice channel or a call may publish right now. Being
+// muted by an admin takes the microphone out of voice channels, and only a place to share
+// puts a screen in.
+func (v *voiceRooms) sourcesFor(userID, deviceID string, call bool) []string {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	sources := []string{"camera"}
-	if !v.muted[userID] {
+	if call || !v.muted[userID] {
 		sources = append(sources, "microphone")
 	}
 	if share := v.shares[deviceID]; share != nil {
@@ -174,107 +177,118 @@ func (v *voiceRooms) sourcesFor(userID, deviceID string) []string {
 
 // updateRoomSources tells LiveKit what a device may publish, which also takes down
 // anything it's already publishing that it no longer may.
-func (s *Server) updateRoomSources(ctx context.Context, channelID, userID, deviceID string) error {
-	return s.callLiveKit(ctx, channelID, "UpdateParticipant", map[string]any{
-		"room":     channelID,
+func (s *Server) updateRoomSources(ctx context.Context, roomID string, call bool, userID, deviceID string) error {
+	return s.callLiveKit(ctx, roomID, "UpdateParticipant", map[string]any{
+		"room":     roomID,
 		"identity": voiceIdentity(userID, deviceID),
 		"permission": map[string]any{
 			"can_subscribe":       true,
 			"can_publish":         true,
 			"can_publish_data":    false,
-			"can_publish_sources": sourceNames(s.voice.sourcesFor(userID, deviceID)),
+			"can_publish_sources": sourceNames(s.voice.sourcesFor(userID, deviceID, call)),
 		},
 	})
 }
 
-// handleStartScreen lets a device in a voice channel share its screen, if the rules
-// allow it. A share through the browser goes out over the device's own connection, which
-// LiveKit is told to let it do. A native process joins as a participant of its own,
+// handleStartScreen lets a device in a voice channel or a call share its screen, if the
+// rules allow it. A share through the browser goes out over the device's own connection,
+// which LiveKit is told to let it do. A native process joins as a participant of its own,
 // which can only publish a screen, and gets a token for that.
-func (s *Server) handleStartScreen(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
-	if !s.liveKitConfigured() {
-		writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
-		return
-	}
-	if !s.voiceLimiter.Allow(sess.UserID) {
-		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
-		return
-	}
-	var body struct {
-		Browser bool `json:"browser"`
-		Sound   bool `json:"sound"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	channel := s.voiceChannel(w, r)
-	if channel == nil {
-		return
-	}
-	if !s.voice.deviceIn(channel.ID, sess.DeviceID) {
-		writeError(w, http.StatusConflict, "not_in_voice", "Join the voice channel to share your screen.")
-		return
-	}
-	rules, err := s.screenRules(r.Context())
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	isAdmin := sess.Role == "owner" || sess.Role == "admin"
-	switch {
-	case rules.Who == "nobody":
-		writeError(w, http.StatusForbidden, "screen_forbidden", "Screen sharing is off on this server.")
-		return
-	case rules.Who == "admins" && !isAdmin:
-		writeError(w, http.StatusForbidden, "screen_forbidden", "Only admins can share a screen on this server.")
-		return
-	case channel.ScreenLimit == screenLimitOff:
-		writeError(w, http.StatusForbidden, "screen_forbidden", "Screen sharing is off in this voice channel.")
-		return
-	}
-	perChannel, perServer := rules.MaxPerChannel, rules.MaxPerServer
-	if channel.ScreenLimit > 0 {
-		perChannel = channel.ScreenLimit
-	}
-	if isAdmin && rules.AdminsExempt {
-		perChannel, perServer = 0, 0
-	}
-	share := &screenShare{ChannelID: channel.ID, UserID: sess.UserID, Native: !body.Browser, Sound: body.Sound && rules.Sound}
-	switch s.voice.reserveShare(sess.DeviceID, share, perChannel, perServer) {
-	case "channel":
-		writeError(w, http.StatusConflict, "screen_full", "As many people as this voice channel allows are already sharing.")
-		return
-	case "server":
-		writeError(w, http.StatusConflict, "screen_full", "As many people as this server allows are already sharing.")
-		return
-	}
-	if body.Browser || share.Sound {
-		if err := s.updateRoomSources(r.Context(), channel.ID, sess.UserID, sess.DeviceID); err != nil {
-			s.voice.takeShare(sess.DeviceID)
-			slog.Warn("letting someone share a screen", "error", err)
-			writeError(w, http.StatusBadGateway, "voice_unavailable", "The media server isn't answering.")
+func (s *Server) handleStartScreen(call bool) memberHandler {
+	return func(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {
+		if !s.liveKitConfigured() {
+			writeError(w, http.StatusServiceUnavailable, "voice_unavailable", "This server hasn't set up voice yet.")
 			return
 		}
+		if !s.voiceLimiter.Allow(sess.UserID) {
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many tries at once. Please wait a moment.")
+			return
+		}
+		var body struct {
+			Browser bool `json:"browser"`
+			Sound   bool `json:"sound"`
+		}
+		if !readJSON(w, r, &body) {
+			return
+		}
+		room := s.roomFor(w, r, call)
+		if room == nil {
+			return
+		}
+		if !s.voice.deviceIn(room.ID, sess.DeviceID) {
+			if call {
+				writeError(w, http.StatusConflict, "not_in_voice", "Join the call to share your screen.")
+			} else {
+				writeError(w, http.StatusConflict, "not_in_voice", "Join the voice channel to share your screen.")
+			}
+			return
+		}
+		rules, err := s.screenRules(r.Context())
+		if err != nil {
+			writeFailure(w, err)
+			return
+		}
+		isAdmin := sess.Role == "owner" || sess.Role == "admin"
+		switch {
+		case rules.Who == "nobody":
+			writeError(w, http.StatusForbidden, "screen_forbidden", "Screen sharing is off on this server.")
+			return
+		case rules.Who == "admins" && !isAdmin:
+			writeError(w, http.StatusForbidden, "screen_forbidden", "Only admins can share a screen on this server.")
+			return
+		case room.ScreenLimit == screenLimitOff:
+			writeError(w, http.StatusForbidden, "screen_forbidden", "Screen sharing is off in this voice channel.")
+			return
+		}
+		// A call has no limit of its own, so it keeps to what the rules say of a channel.
+		perChannel, perServer := rules.MaxPerChannel, rules.MaxPerServer
+		if room.ScreenLimit > 0 {
+			perChannel = room.ScreenLimit
+		}
+		if isAdmin && rules.AdminsExempt {
+			perChannel, perServer = 0, 0
+		}
+		share := &screenShare{ChannelID: room.ID, UserID: sess.UserID, Call: room.Call, Native: !body.Browser, Sound: body.Sound && rules.Sound}
+		switch s.voice.reserveShare(sess.DeviceID, share, perChannel, perServer) {
+		case "channel":
+			if call {
+				writeError(w, http.StatusConflict, "screen_full", "As many people as this server allows in a call are already sharing.")
+			} else {
+				writeError(w, http.StatusConflict, "screen_full", "As many people as this voice channel allows are already sharing.")
+			}
+			return
+		case "server":
+			writeError(w, http.StatusConflict, "screen_full", "As many people as this server allows are already sharing.")
+			return
+		}
+		if body.Browser || share.Sound {
+			if err := s.updateRoomSources(r.Context(), room.ID, room.Call, sess.UserID, sess.DeviceID); err != nil {
+				s.voice.takeShare(sess.DeviceID)
+				slog.Warn("letting someone share a screen", "error", err)
+				writeError(w, http.StatusBadGateway, "voice_unavailable", "The media server isn't answering.")
+				return
+			}
+		}
+		if body.Browser {
+			writeJSON(w, http.StatusOK, map[string]any{"sound": share.Sound})
+			return
+		}
+		identity := voiceIdentity(sess.UserID, sess.DeviceID) + ".screen"
+		token, err := s.liveKitToken(identity, map[string]any{
+			"room":              room.ID,
+			"roomJoin":          true,
+			"canPublish":        true,
+			"canSubscribe":      false,
+			"canPublishData":    false,
+			"canPublishSources": []string{"screen_share"},
+		})
+		if err != nil {
+			s.voice.takeShare(sess.DeviceID)
+			writeFailure(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "sound": share.Sound})
 	}
-	if body.Browser {
-		writeJSON(w, http.StatusOK, map[string]any{"sound": share.Sound})
-		return
-	}
-	identity := voiceIdentity(sess.UserID, sess.DeviceID) + ".screen"
-	token, err := s.liveKitToken(identity, map[string]any{
-		"room":              channel.ID,
-		"roomJoin":          true,
-		"canPublish":        true,
-		"canSubscribe":      false,
-		"canPublishData":    false,
-		"canPublishSources": []string{"screen_share"},
-	})
-	if err != nil {
-		s.voice.takeShare(sess.DeviceID)
-		writeFailure(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"url": s.liveKitPublicURL(), "token": token, "identity": identity, "sound": share.Sound})
 }
 
 // handleStopScreen gives up this device's place, once it's stopped sharing.
@@ -285,7 +299,8 @@ func (s *Server) handleStopScreen(w http.ResponseWriter, r *http.Request, sess *
 	writeOK(w)
 }
 
-// handleStopScreenOf is for an admin to stop someone else's share.
+// handleStopScreenOf is for an admin to stop someone else's share in a voice channel. A
+// call is between the people in it.
 func (s *Server) handleStopScreenOf(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	target := r.PathValue("user")
 	if _, allowed, err := s.canModerate(r, sess, target); err != nil {
@@ -295,7 +310,7 @@ func (s *Server) handleStopScreenOf(w http.ResponseWriter, r *http.Request, sess
 		writeError(w, http.StatusForbidden, "forbidden", "You can't stop this person's share.")
 		return
 	}
-	s.endShares(r.Context(), "stopped", func(share *screenShare) bool { return share.UserID == target })
+	s.endShares(r.Context(), "stopped", func(share *screenShare) bool { return share.UserID == target && !share.Call })
 	writeOK(w)
 }
 
@@ -304,7 +319,7 @@ func (s *Server) closeShare(ctx context.Context, deviceID string, share *screenS
 	if !s.liveKitConfigured() {
 		return
 	}
-	if err := s.updateRoomSources(ctx, share.ChannelID, share.UserID, deviceID); err != nil {
+	if err := s.updateRoomSources(ctx, share.ChannelID, share.Call, share.UserID, deviceID); err != nil {
 		slog.Debug("ending a screen share", "error", err)
 	}
 	if !share.Native {

@@ -92,6 +92,7 @@ func (s *Server) handleDeleteGroup(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.removeFiles(r.Context(), files)
+	s.endVoiceIn(r.Context(), groupID)
 	s.hub.ToUsers(memberIDs(group), Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
 	writeOK(w)
 }
@@ -167,6 +168,9 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 	s.hub.ToUsers(memberIDs(group), Event{Type: "group", Data: group})
 	for _, user := range body.RemoveUsers {
 		s.hub.ToUsers([]string{user}, Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
+	}
+	if len(body.RemoveUsers) > 0 {
+		s.endVoiceOf(r.Context(), groupID, body.RemoveUsers)
 	}
 	if len(body.Welcomes) > 0 {
 		s.hub.ToUsers(memberIDs(group), Event{Type: "welcome", Data: map[string]string{"group_id": groupID}})
@@ -295,6 +299,7 @@ func (s *Server) handleLeave(w http.ResponseWriter, r *http.Request, sess *store
 			return
 		}
 		s.removeFiles(r.Context(), files)
+		s.endVoiceIn(r.Context(), groupID)
 		s.hub.ToUsers([]string{sess.UserID}, Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
 		writeOK(w)
 		return
@@ -323,6 +328,7 @@ func (s *Server) removeFromRoster(r *http.Request, groupID, actor, target string
 	s.hub.ToUsers(remaining, Event{Type: "event", Data: event})
 	s.broadcastGroup(r, groupID)
 	s.hub.ToUsers([]string{target}, Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
+	s.endVoiceOf(r.Context(), groupID, []string{target})
 	return nil
 }
 
