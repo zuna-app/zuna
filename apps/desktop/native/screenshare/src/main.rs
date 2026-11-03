@@ -114,6 +114,7 @@ const USAGE: &str = "zuna-screenshare [options]
   --no-cursor            Leave the pointer out of the picture
   --monitor N            Which monitor (0). Linux asks through the portal instead.
   --source KIND          Linux: what the portal offers, screen, window or any (any)
+  --window HWND          Windows: share this window rather than a monitor
   --monitor-at X,Y       The monitor at this point on the desktop
   --crop WxH             Encode this much from the top left of the monitor
   --cpu-input            Give the encoder frames from CPU memory
@@ -197,6 +198,10 @@ fn parse_args() -> std::result::Result<Args, String> {
                     "window" => Source::Window,
                     other => return Err(format!("--source takes screen, window or any, not {other}")),
                 }
+            }
+            "--window" => {
+                args.capture.window = Some(value()?.parse().map_err(number_error)?);
+                args.capture.source = Source::Window;
             }
             "--monitor-at" => {
                 let text = value()?;
@@ -421,8 +426,8 @@ fn share(args: Args) -> Result<()> {
         return Err("--push-to-talk is for Linux".into());
     }
     #[cfg(windows)]
-    if args.capture.source == Source::Window {
-        return Err("Sharing a window natively is only built for Linux".into());
+    if args.capture.source == Source::Window && args.capture.window.is_none() {
+        return Err("Windows shares a window by its HWND, with --window".into());
     }
 
     let access = if args.control { Some(read_access()?) } else { None };
@@ -475,17 +480,19 @@ fn share(args: Args) -> Result<()> {
         None => return Err("Built without LiveKit, so this needs --output".into()),
     };
 
-    // Linux's portal says whether a screen or a window was chosen.
-    #[cfg(target_os = "linux")]
-    let source = capture.source;
-    #[cfg(windows)]
-    let source = "screen";
+    // A window's title is in the description, and could be anything.
     println!(
-        "{{\"type\":\"ready\",\"description\":{:?},\"source\":{source:?},\"width\":{width},\"height\":{height},\"fps\":{},\"e2ee\":{},\"idrFix\":{}}}",
-        capture.description,
-        args.capture.fps,
-        args.e2ee_key.is_some() || access.is_some(),
-        args.fix_idr,
+        "{}",
+        serde_json::json!({
+            "type": "ready",
+            "description": capture.description,
+            "source": capture.source,
+            "width": width,
+            "height": height,
+            "fps": args.capture.fps,
+            "e2ee": args.e2ee_key.is_some() || access.is_some(),
+            "idrFix": args.fix_idr,
+        })
     );
 
     let mut pipeline = Pipeline::new(encoder, sink, width, height, args.capture.fps, bitrate, bitrate_cap, args.fix_idr);

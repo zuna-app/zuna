@@ -1,6 +1,6 @@
 # Native screen sharing
 
-On Windows and Linux, the desktop app shares a whole screen from a small program of its own, and on Linux one window too, which captures and encodes on the GPU and only uses LiveKit to carry the result. Viewers stay in Chromium, or the web app's browser, with nothing native.
+On Windows and Linux, the desktop app shares a whole screen or one window from a small program of its own, which captures and encodes on the GPU and only uses LiveKit to carry the result. Viewers stay in Chromium, or the web app's browser, with nothing native.
 
 ```
 Windows.Graphics.Capture ─┐                       ┌─ NVENC, AMF ─┐
@@ -10,7 +10,7 @@ xdg portal and PipeWire ──┘                       └─ NVENC, VA-API ┘
 
 This exists because screen sharing through Chromium is poor on Linux: it reads every frame back to the CPU with `glReadPixels`, and has no supported hardware encoder there. [The proof of concept's README](../poc/screenshare/README.md) has the measurements. A 2560x1440 share at 60 fps takes about 5% of a core on the sender.
 
-Everything else goes through Chromium: one window on Windows, macOS, the web app, and any build without the program. They all look the same to whoever is watching. On Macs with Apple silicon the program only takes the computer's sound, beside a share through Chromium.
+Everything else goes through Chromium: macOS, the web app, a window under X11, and any build without the program. They all look the same to whoever is watching. On Macs with Apple silicon the program only takes the computer's sound, beside a share through Chromium.
 
 ## How the app runs it
 
@@ -35,6 +35,14 @@ The computer's sound can't come with its pictures. The app captures it apart and
 Under Wayland, nothing but the portal's dialog can say what there is to share, so the native program asks it, and the picker in the app only offers its two tabs: a screen, or a window, which tells the portal which to list. Chromium's own list would ask the portal too, so a native share used to bring up the dialog twice. `portalSources` in `native-screen.ts` asks the program (`--portal-sources`) whether there's a portal and what it shares, once, and where there isn't one, as in a session under X11, the app lists screens and windows itself as before. A share that can't go natively after all asks the portal again, through Chromium.
 
 The portal only says whether a screen or a window was chosen, and the program says the same once it's publishing. A window can change size: PipeWire settles on the new size, and the program opens another encoder at it, keeping to the tallest that was asked, with a keyframe, so someone watching sees it at its new size at once. When the window closes, the compositor takes its PipeWire node away, which the program hears from PipeWire's registry, the same on every compositor, and it leaves, so the share ends without a word.
+
+## Sharing a window on Windows
+
+The picker lists windows from Electron, whose id for one on Windows is `window:<HWND>:0`, and the program is given that HWND with `--window`. Windows.Graphics.Capture captures it from `CreateForWindow`, with its menus and popups from Windows 11 24H2, and the GPU is the one driving the screen it's mostly on.
+
+It follows a window's size as Linux does: another encoder at the new size, keeping to the tallest that was asked, with a keyframe. A frame fills its pool's textures from the top left, so the pool is made as large as the window's screen, and only needs making again when a window grows past that. Dragging a window's edge then changes the size on almost every frame, and each goes out at its own size: measured with NVENC, a new encoder takes about 4 ms, and 28 of 30 fps went out while dragging. A screen whose resolution changes is followed the same way, where it used to end the share.
+
+When the window closes, the program leaves and the share ends without a word. `GraphicsCaptureItem.Closed` never fires for a window here, since the program has no dispatcher queue, so it looks for the window itself while it waits for frames.
 
 ## The computer's sound
 
@@ -65,7 +73,7 @@ On Windows the program also answers one question that has nothing to do with sha
 
 On Linux it does the same for push to talk under Wayland, where nothing but the compositor sees a key held in another window. `--global-shortcuts` says whether the compositor has the global shortcuts portal and lets this app use it, and `--push-to-talk KEY` binds the key through it and says when it goes down and up, until the app closes its standard input (`src/shortcut.rs`, run by `apps/desktop/src/main/global-key.ts`). The portal only gives a shortcut to an app it can name, by the .desktop file installed under the name of the systemd scope the app runs in, which Electron makes from `desktopName`: `zuna.desktop`, which the .deb installs. An AppImage or a development build has none, so there push to talk is greyed out and says why, as it is where the compositor has no such portal.
 
-It's told what to make of the picture on its command line, since none of that is secret: `--fps`, `--bitrate-kbps`, `--max-height`, `--no-cursor`, `--encoder`, `--quality`, `--keyframe-seconds`, and on Linux `--source screen` or `--source window`, which the portal's dialog offers.
+It's told what to make of the picture on its command line, since none of that is secret: `--fps`, `--bitrate-kbps`, `--max-height`, `--no-cursor`, `--encoder`, `--quality`, `--keyframe-seconds`, on Linux `--source screen` or `--source window`, which the portal's dialog offers, and on Windows `--window` with a window's HWND.
 
 ## What a server says, and what a device chooses
 
@@ -156,7 +164,7 @@ Whoever's watching decodes in Chromium, or in the web app's browser. On Linux, C
 | VP9 | 1.1 ms | 1.1 ms |
 | AV1 | 0.4 ms | 0.9 ms |
 
-Windows and macOS decode in hardware without being asked, through D3D11 and VideoToolbox, which hasn't been checked here, and nor have Intel or AMD GPUs on Linux.
+Windows and macOS decode in hardware without being asked, through D3D11 and VideoToolbox. On Windows 11 with an RTX 5070 Ti, `voice-check.mjs` saw H.264 and VP9 decoded by `D3D11VideoDecoder`. VideoToolbox hasn't been checked here, and nor have Intel or AMD GPUs on Linux.
 
 ## Frame rate
 
@@ -192,8 +200,8 @@ The proof of concept's README lists what has run where. Inside the app, Windows 
 - **VA-API and AMF** have never run.
 - **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core, and on Linux with NVENC from DMA-BUFs through the OpenGL blit, at 1280x720 from 1920x1080 and 60 fps, 1.4 ms a frame and 4% of a core. VA-API's `scale_vaapi` has never run.
 - **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.
-- **Leaving the pointer out natively** asks Windows and the portal to. Through KDE's portal it works: with the pointer over the tab bar, a frame someone watching received showed it with the pointer on, and not with it off. On Windows nobody has looked at a picture.
-- **Sharing a window natively** has run on Linux with KWin, in the app on Arch with an RTX 5080: a 908x634 window at 60 fps from DMA-BUFs, the one app's sound chosen for it reaching someone watching, its picture following it to 1288x534 at once, and the share ending quietly as it closed. GNOME, wlroots compositors and Hyprland haven't run it. One that kept a window's stream at one size and marked the window in it as `SPA_META_VideoCrop` would need that read, which the program doesn't ask for. On Windows it isn't built, and a window goes through Chromium: `GraphicsCaptureItem` can come from `CreateForWindow` in `src/capture/windows.rs`, and would need the same new encoder when the window changes size, and to end when it closes.
+- **Leaving the pointer out natively** asks Windows and the portal to. Through KDE's portal it works: with the pointer over the tab bar, a frame someone watching received showed it with the pointer on, and not with it off. On Windows 11 it works too: with the pointer still over text, a frame encoded by NVENC showed its I-beam with the pointer on, and not with `--no-cursor`.
+- **Sharing a window natively** has run on Linux with KWin, in the app on Arch with an RTX 5080: a 908x634 window at 60 fps from DMA-BUFs, the one app's sound chosen for it reaching someone watching, its picture following it to 1288x534 at once, and the share ending quietly as it closed. GNOME, wlroots compositors and Hyprland haven't run it. One that kept a window's stream at one size and marked the window in it as `SPA_META_VideoCrop` would need that read, which the program doesn't ask for. On Windows 11 with an RTX 5070 Ti it has run from the app in `voice-check.mjs`: a 222x181 window at 60 fps over TLS, decoded at 60 by someone watching. By itself, to a file: a window that grew, at once and while dragged, made smaller to 360 lines, and the program leaving as it closed.
 - **The computer's sound on Linux** has run from the app beside a share through the browser, in `apps/desktop/test/sound-check.mjs` on Arch with KDE, PipeWire 1.6 and EasyEffects, and by itself against a player linked straight to a sink without EasyEffects. Beside a native share, one app's sound has run with a window shared through KDE's portal, and the entire system's beside a native screen in `voice-check.mjs`. The same check shares a window on X11, whose app's sound is chosen and sent by itself, and checks that a screen starts with everything.
 - **The computer's sound on macOS** has run from the app beside a share through the browser, in `apps/desktop/test/mac-sound-check.mjs` on macOS 27 on Apple silicon: everything but Zuna, one app alone, and the picker's apps. What it shares is a moving picture standing in for the screen, as macOS's own picker can't be driven, so a real screen with its sound hasn't been seen together. The program by itself has also taken another program's speech while leaving out the app that started it, and its tone, and Apple's converter has taken 44.1 kHz to 48 kHz in a test. An output at another rate, and a change of output during a share, haven't run.
 - **One app's sound on Windows** has run by itself on Windows 11 (build 26300), against a tone played by another program: listing the apps, which app a window belongs to, one app's sound alone, and everything but one program's. Not yet from the app.

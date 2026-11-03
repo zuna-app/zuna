@@ -14,9 +14,8 @@ pub use linux::{list_monitors, portal_sources, Capture};
 #[cfg(windows)]
 pub use windows::{list_monitors, Capture};
 
-/// What the person may choose from. Only Linux's portal shares a window.
+/// What the person may choose from in Linux's portal. Windows is told which window instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(windows, allow(dead_code))]
 pub enum Source {
     #[default]
     Any,
@@ -34,6 +33,9 @@ pub struct Options {
     pub source: Source,
     pub monitor: usize,
     pub monitor_at: Option<(i32, i32)>,
+    /// Windows: the window to capture, by its HWND, rather than a monitor.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub window: Option<u64>,
     pub crop: Option<(u32, u32)>,
     /// Hand the encoder frames from CPU memory, even where it could take GPU textures.
     pub cpu_input: bool,

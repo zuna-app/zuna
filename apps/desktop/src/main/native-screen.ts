@@ -1,6 +1,6 @@
-// Shares a screen from a program of its own, which captures and encodes on the GPU
-// and only uses LiveKit to carry the result. Chromium reads every frame back to the
-// CPU and has no supported hardware encoder on Linux, which is what this avoids.
+// Shares a screen or a window from a program of its own, which captures and encodes on
+// the GPU and only uses LiveKit to carry the result. Chromium reads every frame back to
+// the CPU and has no supported hardware encoder on Linux, which is what this avoids.
 // docs/SCREEN_SHARE.md has the measurements.
 
 import { execFile, spawn, type ChildProcess } from "node:child_process";
@@ -83,6 +83,8 @@ export interface NativeScreenOptions {
   keyframeSeconds: number;
   /** A point on the screen to share, or nothing for what the system's own dialog picks. */
   at: { x: number; y: number } | null;
+  /** Windows: the window to share, by its HWND. */
+  window: string | null;
   /** What the system's own dialog offers, where it picks. */
   kind: "screen" | "window";
 }
@@ -130,7 +132,8 @@ export function startNativeScreen(options: NativeScreenOptions, onEnded: (proble
   if (options.height > 0) args.push("--max-height", whole(options.height, 0));
   if (!options.cursor) args.push("--no-cursor");
   if (options.at) args.push("--monitor-at", `${options.at.x},${options.at.y}`);
-  args.push("--source", options.kind === "window" ? "window" : "screen");
+  if (options.window) args.push("--window", options.window);
+  else args.push("--source", options.kind === "window" ? "window" : "screen");
 
   const child: ChildProcess = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   const send = (message: object) => {

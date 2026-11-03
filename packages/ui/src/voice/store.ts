@@ -572,7 +572,8 @@ export const useVoice = create<VoiceState>((set, get) => {
           }
         } else {
           const screen = choice.source?.startsWith("screen:");
-          const whyNot = !platform.nativeScreen ? null : !screen ? "Only whole screens are captured natively." : !settings.screenNative ? "Capturing on the graphics card is turned off in Screen sharing's settings." : "This build came without native capture.";
+          // A window can be native on Windows and through Linux's portal, but not under X11.
+          const whyNot = !platform.nativeScreen ? null : !settings.screenNative ? "Capturing on the graphics card is turned off in Screen sharing's settings." : !screen ? "Only whole screens are captured natively here." : "This build came without native capture.";
           await browserShare(whyNot);
         }
         announce();

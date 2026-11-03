@@ -299,7 +299,8 @@ export class StreamStats {
         row("Held to the server's limits", share.held.length ? share.held.join(", ") : null),
         row("New frames", fps(latest?.fps)),
         row("Repeated frames", fps(latest?.repeatFps)),
-        // Linux's compositor sends frames, and whether they come evenly is where a stutter starts.
+        // The compositor sends frames, and whether they come evenly is where a stutter starts. Only
+        // Linux leaves out those that come early: Windows waits for their turn, and takes the newest.
         row("From the compositor", latest?.arrivalMs ? `${(1000 / latest.arrivalMs).toFixed(1)} fps, ${latest.arrivalMs.toFixed(1)} ms apart, ±${(latest.arrivalJitterMs ?? 0).toFixed(1)} ms` : null),
         row("Left out for coming early", latest?.arrivalMs ? fps(latest.earlyFps) : null, (latest?.earlyFps ?? 0) > 0),
         row("Frame spacing", latest?.spacingMs ? `${latest.spacingMs.toFixed(1)} ms, ±${(latest.spacingJitterMs ?? 0).toFixed(1)} ms` : null),

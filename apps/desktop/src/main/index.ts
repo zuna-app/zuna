@@ -501,7 +501,8 @@ function registerIpc(): void {
           name: source.name,
           kind,
           thumbnail: source.thumbnail.isEmpty() ? "" : source.thumbnail.toDataURL(),
-          native: native && kind === "screen",
+          // Windows captures a window by its HWND. Linux only through the portal, as above.
+          native: native && (kind === "screen" || process.platform === "win32"),
           // Chromium under Wayland gets a window from the portal, which doesn't say whose it is.
           ownerUnknown: kind === "window" && process.platform === "linux" && !onX11(),
         };
@@ -510,11 +511,13 @@ function registerIpc(): void {
   handle("zuna:choose-display-source", (_event, id: string, audio: boolean) => {
     nextDisplay = { id, audio: !!audio };
   });
-  handle("zuna:native-screen-start", async (event, options: Omit<NativeScreenOptions, "at" | "kind"> & { source: string }) => {
+  handle("zuna:native-screen-start", async (event, options: Omit<NativeScreenOptions, "at" | "window" | "kind"> & { source: string }) => {
     nativeScreen?.stop();
     const display = screenForSource(options.source);
+    // Electron's id for a window on Windows is its HWND.
+    const window = process.platform === "win32" ? (/^window:(\d+):/.exec(options.source)?.[1] ?? null) : null;
     const started = startNativeScreen(
-      { ...options, at: display, kind: options.source === PORTAL_WINDOW ? "window" : "screen" },
+      { ...options, at: display, window, kind: options.source === PORTAL_WINDOW ? "window" : "screen" },
       (problem) => {
         if (nativeScreen !== started) return;
         nativeScreen = null;
@@ -676,8 +679,8 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
       callback(permission === "notifications" || permission === "clipboard-sanitized-write" || permission === "geolocation" || permission === "media" || permission === "display-capture" || permission === "speaker-selection");
     });
-    // Sharing a window, or a screen from a system without native capture, goes through Chromium. What it
-    // gets is what was picked in the app, and nothing happens unless something has been.
+    // A share that can't go natively goes through Chromium, as everything does on macOS. What it gets is
+    // what was picked in the app, and nothing happens unless something has been.
     session.defaultSession.setDisplayMediaRequestHandler(
       (_request, callback) => {
         const wanted = nextDisplay;

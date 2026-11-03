@@ -236,7 +236,7 @@ unsafe fn encode_buffer(shared: &mut Shared, buffer: *mut PwBuffer) -> Result<()
     // Frames can come a little faster than the frame rate, so this trims those that are
     // well ahead of their turn. It can't wait for the turn, as the Windows capture does,
     // without holding on to the compositor's buffer.
-    pipeline.note_arrival();
+    pipeline.note_arrival(None);
     if Instant::now() + shared.interval / 4 < pipeline.next_due() {
         pipeline.note_early();
         return Ok(());

@@ -67,9 +67,10 @@ struct Gaps {
 }
 
 impl Gaps {
-    fn add(&mut self, from: Option<Instant>, to: Instant) {
-        if let Some(from) = from {
-            let ms = to.duration_since(from).as_secs_f64() * 1000.0;
+    /// The time since the last, of which there's none for the first.
+    fn add(&mut self, gap: Option<Duration>) {
+        if let Some(gap) = gap {
+            let ms = gap.as_secs_f64() * 1000.0;
             self.count += 1;
             self.sum += ms;
             self.squares += ms * ms;
@@ -129,7 +130,7 @@ pub struct Pipeline {
     window_started: Instant,
     cpu_at_window_start: Duration,
     totals: Window,
-    last_arrival: Option<Instant>,
+    last_arrival: Option<Duration>,
     last_new_frame: Option<Instant>,
 }
 
@@ -171,12 +172,12 @@ impl Pipeline {
         self.frame_due
     }
 
-    /// A frame came from the compositor, whether or not it's encoded.
-    #[cfg_attr(windows, allow(dead_code))]
-    pub fn note_arrival(&mut self) {
-        let now = Instant::now();
-        self.window.arrivals.add(self.last_arrival, now);
-        self.last_arrival = Some(now);
+    /// A frame came from the compositor, whether or not it's encoded: at a time on a clock of
+    /// the capture's own, where it says, and otherwise now.
+    pub fn note_arrival(&mut self, at: Option<Duration>) {
+        let at = at.unwrap_or_else(|| self.started.elapsed());
+        self.window.arrivals.add(self.last_arrival.map(|last| at.saturating_sub(last)));
+        self.last_arrival = Some(at);
     }
 
     /// A frame came too far ahead of its turn and was left out.
@@ -186,14 +187,12 @@ impl Pipeline {
     }
 
     /// What the encoder is set to send now.
-    #[cfg_attr(windows, allow(dead_code))]
     pub fn bitrate(&self) -> u64 {
         self.bitrate_now
     }
 
     /// Goes on with another encoder, for a picture that changed size. Its first frame is
     /// a keyframe at the new size, and is encoded as soon as it comes.
-    #[cfg_attr(windows, allow(dead_code))]
     pub fn restart(&mut self, encoder: Encoder, width: u32, height: u32) {
         self.encoder = encoder;
         self.width = width;
@@ -229,7 +228,7 @@ impl Pipeline {
         let force_key = self.take_key_request();
         let pts = self.pts();
         let began = Instant::now();
-        self.window.spacing.add(self.last_new_frame, began);
+        self.window.spacing.add(self.last_new_frame.map(|last| began.duration_since(last)));
         self.last_new_frame = Some(began);
         self.encoder.send(input, pts, force_key)?;
         self.last_change = began;

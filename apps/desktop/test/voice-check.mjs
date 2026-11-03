@@ -610,25 +610,39 @@ try {
   await alice.page.getByRole("button", { name: "Stop sharing" }).first().click();
   await bob.page.locator(".voice-tile.is-screen video").first().waitFor({ state: "detached", timeout: 15_000 }).then(() => check("stopping a share takes it away from others", true)).catch(() => check("stopping a share takes it away from others", false));
 
-  // --- Sharing a window, which always goes through Chromium ---
+  // --- Sharing a window: natively on Windows, and through Chromium where the app lists windows elsewhere ---
   await openPicker();
   // Where the system's picker chooses, there's no list of windows here.
   const windowTab = alice.page.getByRole("button", { name: "Windows" });
   if (await windowTab.count()) await windowTab.click();
   const windows = await alice.page.locator(".screen-source").count();
   if (windows > 0) {
-    await alice.page.locator(".screen-source").first().click();
+    // The window moving since the screen was shared, where it's listed, so there's a new frame at every refresh.
+    const moving = alice.page.locator(".screen-source", { hasText: "Moving" });
+    await ((await moving.count()) ? moving.first() : alice.page.locator(".screen-source").first()).click();
+    const nativeWindow = await alice.page.locator(".screen-native").isVisible();
+    console.log(nativeWindow ? "  Sharing a window natively" : "  Chromium shares the window");
     await alice.page.getByRole("button", { name: "Share", exact: true }).click();
     await alice.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 20_000 });
     await bob.page.locator(".voice-tile.is-screen video").first().waitFor({ timeout: 15_000 }).then(() => check("a shared window reaches others", true)).catch(() => check("a shared window reaches others", false));
     await sleep(2500);
-    const asked = await alice.page.evaluate(() => {
-      for (const connection of window.__connections) {
-        for (const sender of connection.getSenders()) if (sender.track?.kind === "video" && sender.track.readyState === "live") return sender.track.getSettings().frameRate;
-      }
-      return null;
-    });
-    check("a window is captured at the frame rate that was asked for", asked === 60, `${asked} fps`);
+    if (nativeWindow) {
+      await alice.page.getByRole("button", { name: "Stream stats" }).click();
+      await sleep(3000);
+      const sharingWindow = (await readStats(alice.page)).find((section) => section.title === "Your screen");
+      await shot(alice, "09-window-stats");
+      await alice.page.getByRole("button", { name: "Close stream stats" }).click();
+      check("a window goes natively", sharingWindow?.rows["Sent through"]?.startsWith("Native") && sharingWindow?.rows["Capture and encoder"]?.startsWith("window"), `${sharingWindow?.rows["Sent through"]}: ${sharingWindow?.rows["Capture and encoder"]}`);
+      check("a native window sends the frame rate that was asked for", fpsIn(sharingWindow?.rows["New frames"]) > 50, sharingWindow?.rows["New frames"]);
+    } else {
+      const asked = await alice.page.evaluate(() => {
+        for (const connection of window.__connections) {
+          for (const sender of connection.getSenders()) if (sender.track?.kind === "video" && sender.track.readyState === "live") return sender.track.getSettings().frameRate;
+        }
+        return null;
+      });
+      check("a window is captured at the frame rate that was asked for", asked === 60, `${asked} fps`);
+    }
     const window = await audioFlow(bob.page, 2);
     check("a shared window decrypts", window.inVideoFrames >= 0 && (await bob.page.evaluate(() => !!window.__lastVideo)), `${window.inVideoFrames.toFixed(0)} frames/s decoded`);
     await alice.page.getByRole("button", { name: "Stop sharing" }).first().click();
