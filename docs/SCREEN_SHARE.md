@@ -138,7 +138,7 @@ Before iOS 27, only an extension can see past the app. It's a process of its own
 
 On iOS 27 the extension is still there for a broadcast started from Control Center, but the button uses ScreenCaptureKit. The `screen-capture` background mode keeps that capture going while another app is on screen, and `audio` keeps the call going.
 
-The picture goes out in H.264, in one layer, encoded in hardware, keeping its sharpness over its frame rate, with the server's terms (`Voice.screenTerms` in `ZunaModels`, as `screenTerms`). The phone has no settings of its own for size, frame rate or bitrate, so it takes what the server suggests. A limit on height holds the screen's shorter side, which a phone held upright has across, as a computer's screen has its height. ScreenCaptureKit on iOS picks its own frame rate, so a limit there only holds the encoder.
+The picture goes out in H.264, in one layer, encoded in hardware, keeping its sharpness over its frame rate, with the server's terms (`Voice.screenTerms` in `ZunaModels`, as `screenTerms`). It always goes at the screen's own size, unless the server's admins hold shares to less, where the limit holds the screen's shorter side, which a phone held upright has across, as a computer's screen has its height. The most it may send is chosen in Voice and video's settings, from the desktop's choices, or left to the server. Its frame rate is the server's suggestion: ScreenCaptureKit on iOS picks its own, so that only holds the encoder.
 
 Sound doesn't go with it. LiveKit's Swift SDK mixes a share's sound into the microphone's track, so it would go out whether the server allows a share's sound or not, at the person's own volume rather than a share's, and stop when they mute. So the app asks for a share without sound.
 

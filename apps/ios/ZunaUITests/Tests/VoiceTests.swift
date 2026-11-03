@@ -40,6 +40,13 @@ final class VoiceTests: XCTestCase {
 
     private let here: [String: Any] = ["muted": false, "deafened": false, "camera": false, "screen": false]
 
+    /// What the app says about its call, as the control server's `voiceState`.
+    private func voiceState() throws -> [String: Any] {
+        let control = zuna.control!
+        let text = try blocking { try await control.host("voiceState") as? String ?? "{}" }
+        return (try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]) ?? [:]
+    }
+
     func testComesIntoAVoiceChannelAndSaysWhatItsDoing() throws {
         let alice = try Peer("alice")
         let carol = try Peer("carol")
@@ -152,6 +159,41 @@ final class VoiceTests: XCTestCase {
         XCTAssertFalse(zuna.element(A11y.Voice.bar).exists)
         XCTAssertFalse(zuna.element(A11y.Channels.occupant(device)).exists)
         try carol.call("setVoiceState", [NSNull(), NSNull()])
+    }
+
+    func testSharesAtTheMostChosenInSettings() throws {
+        let alice = try Peer("alice")
+        let lounge = try channelId(alice, "Lounge")
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+
+        // At most 2 Mbit/s, where the server suggests 20.
+        zuna.tab("Settings").tap()
+        let voiceSettings = zuna.element(A11y.Settings.voice)
+        XCTAssertTrue(voiceSettings.waitForExistence(timeout: 10))
+        voiceSettings.tap()
+        let bitrate = zuna.element(A11y.Settings.screenBitrate)
+        XCTAssertTrue(bitrate.waitForExistence(timeout: 5))
+        XCTAssertTrue(zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Your screen goes out at its own size")).firstMatch.exists)
+        bitrate.tap()
+        let choice = zuna.app.buttons["2 Mbit/s"]
+        XCTAssertTrue(choice.waitForExistence(timeout: 5))
+        choice.tap()
+        zuna.screenshot("99-voice-share-settings")
+        zuna.tab("Chats").tap()
+
+        let row = zuna.element(A11y.Channels.row(lounge))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        try waitFor("alice to see bob come in", timeout: 30) { try self.bobsPhone(alice) != nil }
+        let share = zuna.element(A11y.Voice.shareScreen)
+        XCTAssertTrue(share.waitForExistence(timeout: 10))
+        share.tap()
+        try waitFor("alice to see bob's screen") { try self.bobsPhone(alice)?["screen"] as? Bool == true }
+        XCTAssertEqual(try voiceState()["screenKbps"] as? Int, 2000)
+        zuna.element(A11y.Voice.leave).tap()
+        try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
     }
 
     func testIsTakenOutByAnAdminOrAnotherDevice() throws {

@@ -18,6 +18,8 @@ struct VoiceSettings: Codable, Equatable, Sendable {
     var screenVolume = 1.0
     /// A screen someone starts sharing fills the stage.
     var screenFocus = true
+    /// The most this device's shares may send, in kbit/s, or nil for what the server suggests.
+    var screenBitrate: Int?
 
     private static let key = "zuna-voice-settings"
 
@@ -36,6 +38,7 @@ struct VoiceSettings: Codable, Equatable, Sendable {
         startMuted = try container.decodeIfPresent(Bool.self, forKey: .startMuted) ?? false
         screenVolume = try container.decodeIfPresent(Double.self, forKey: .screenVolume) ?? 1
         screenFocus = try container.decodeIfPresent(Bool.self, forKey: .screenFocus) ?? true
+        screenBitrate = try container.decodeIfPresent(Int.self, forKey: .screenBitrate)
     }
 
     func save() {
@@ -94,6 +97,8 @@ final class VoiceModel {
     private(set) var screen = false
     /// Sharing has been asked for, and waits on the server or the system's picker.
     private(set) var screenStarting = false
+    /// What this device's share goes out with, once it's going.
+    private(set) var screenTerms: ScreenTerms?
     /// The video filling the stage, by its key.
     var focus: String?
     /// The call fills the screen, rather than waiting in the bar at the top.
@@ -234,6 +239,7 @@ final class VoiceModel {
         shareAttempt += 1
         screen = false
         screenStarting = false
+        screenTerms = nil
     }
 
     private func connect(serverId: String, channelId: String, mine: Int) async {
@@ -464,8 +470,9 @@ final class VoiceModel {
         if screen || screenStarting { await stopScreen() } else { await startScreen() }
     }
 
-    /// Shares this device's screen, once the server has made room for it. Only the picture goes: LiveKit on iOS
-    /// would mix the screen's sound into the microphone, past the server's say over a share's sound.
+    /// Shares this device's screen, once the server has made room for it, at the screen's own size and with the most
+    /// it may send chosen in settings, unless the server's admins hold shares to less. Only the picture goes: LiveKit
+    /// on iOS would mix the screen's sound into the microphone, past the server's say over a share's sound.
     func startScreen() async {
         guard let app, let room, let channelId, let serverId, let session, !screen, !screenStarting, canShareScreen else { return }
         if let refusal = shareRefusal {
@@ -473,7 +480,7 @@ final class VoiceModel {
             return
         }
         let server = app.servers[serverId]
-        let terms = Voice.screenTerms(ScreenChoices(), rules: server?.info?.screenShare, role: server?.me?.role)
+        let terms = Self.shareTerms(settings, server: server)
         shareAttempt += 1
         let mine = shareAttempt
         let current = { [weak self] in self?.shareAttempt == mine && self?.room === room }
@@ -494,6 +501,7 @@ final class VoiceModel {
             }
             screenStarting = false
             screen = true
+            screenTerms = terms
             announce()
             sound(.selfJoin)
         } catch {
@@ -502,6 +510,11 @@ final class VoiceModel {
             // Choosing not to share after all is not a failure.
             if (error as? LiveKitError)?.type != .cancelled { refuseShare("Couldn't share your screen.") }
         }
+    }
+
+    /// What a share from this device goes out with on a server: the size is always the screen's own.
+    static func shareTerms(_ settings: VoiceSettings, server: AppModel.ServerState?) -> ScreenTerms {
+        Voice.screenTerms(ScreenChoices(height: 0, kbps: settings.screenBitrate), rules: server?.info?.screenShare, role: server?.me?.role)
     }
 
     /// Stops sharing this device's screen, or asking to, and gives its place back.

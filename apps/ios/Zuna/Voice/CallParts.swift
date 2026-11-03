@@ -252,7 +252,15 @@ struct CallBar: View {
 /// Voice settings that belong to this device. The desktop also chooses
 /// microphones and speakers, filters and a gate, which iOS does for itself.
 struct VoiceSettingsView: View {
+    @Environment(AppModel.self) private var model
     @Environment(VoiceModel.self) private var voice
+
+    /// What the desktop offers, in kbit/s (SCREEN_BITRATES in packages/ui/src/voice/settings.ts).
+    private static let bitrates = [1_000, 2_000, 3_000, 4_500, 6_000, 8_000, 10_000, 12_000, 15_000, 20_000, 25_000, 30_000, 40_000, 50_000, 60_000, 80_000, 100_000]
+
+    private static func bitrateName(_ kbps: Int) -> String {
+        kbps < 1000 ? "\(kbps) kbit/s" : "\((Double(kbps) / 1000).formatted(.number.locale(Locale(identifier: "en_US")))) Mbit/s"
+    }
 
     var body: some View {
         @Bindable var voice = voice
@@ -283,11 +291,38 @@ struct VoiceSettingsView: View {
             } footer: {
                 Text("A screen someone starts sharing fills the call, unless you're already looking at something.")
             }
+            if voice.canShareScreen {
+                sharing($voice.settings.screenBitrate)
+            }
             Section {
             } footer: {
                 Text("The iPhone cancels echo and noise itself. For even less noise, choose Voice Isolation under Mic Mode in Control Center during a call.")
             }
         }
         .navigationTitle("Voice and video")
+    }
+
+    /// The most a share from this phone may send, as it would go out on the server open now.
+    private func sharing(_ bitrate: Binding<Int?>) -> some View {
+        let server = model.activeServerId.flatMap { model.servers[$0] }
+        let terms = VoiceModel.shareTerms(voice.settings, server: server)
+        var suggestion = voice.settings
+        suggestion.screenBitrate = nil
+        let suggested = VoiceModel.shareTerms(suggestion, server: server).kbps
+        let size = terms.held.contains(.height) ? "This server holds shares to \(terms.height)p across." : "Your screen goes out at its own size."
+        let rate = terms.held.contains(.kbps) ? "It's sent at up to \(Self.bitrateName(terms.kbps)), which is this server's limit." : "It sends less when your connection or the screen doesn't need that much."
+        return Section {
+            Picker("Most it may send", selection: bitrate) {
+                Text("Server's choice (\(Self.bitrateName(suggested)))").tag(Int?.none)
+                ForEach(Self.bitrates, id: \.self) { kbps in
+                    Text(Self.bitrateName(kbps)).tag(Int?.some(kbps))
+                }
+            }
+            .accessibilityIdentifier(A11y.Settings.screenBitrate)
+        } header: {
+            Text("Sharing your screen")
+        } footer: {
+            Text("\(rate) \(size)")
+        }
     }
 }

@@ -245,6 +245,7 @@ enum A11y {
         static let appLock = "settings.appLock"
         static let notifications = "settings.notifications"
         static let voice = "settings.voice"
+        static let screenBitrate = "settings.screenBitrate"
         static let notificationsToggle = "settings.notificationsToggle"
         static let notificationSound = "settings.notificationSound"
         static let notificationPreview = "settings.notificationPreview"

@@ -60,6 +60,7 @@ final class CoreController {
                 Self.erase(directory)
                 AppSettings.reset()
                 NotificationSettings.reset()
+                VoiceSettings.reset()
             }
             await startControl()
             #endif
@@ -369,6 +370,7 @@ final class CoreController {
                 "noMic": voice.noMic,
                 "camera": voice.camera,
                 "screen": voice.screen,
+                "screenKbps": voice.screenTerms.map { $0.kbps as Any } ?? NSNull(),
                 "epoch": voice.keyEpoch.map { $0 as Any } ?? NSNull(),
                 "focus": voice.focus.map { $0 as Any } ?? NSNull(),
                 "speaking": Array(voice.speaking),
