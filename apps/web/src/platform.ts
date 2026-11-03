@@ -1,5 +1,5 @@
 // The web app's side of the interface. There are no notifications: the tab's title
-// counts what's unread, and the person's phone is told when they've left the tab.
+// counts what's unread.
 
 import { connectWorker, type Platform } from "@zuna/ui";
 import type { HostConfig } from "./config";
@@ -47,20 +47,6 @@ export function webPlatform(config: HostConfig): Platform {
     openExternal: (url) => void window.open(url, "_blank", "noopener,noreferrer"),
     setUnreadCount(count) {
       document.title = count > 0 ? `(${count}) Zuna` : "Zuna";
-    },
-    // Leaving the tab counts as being away, so the phone gets notifications right away.
-    onPresence(listener) {
-      const away = () => listener("away");
-      const back = () => listener("back");
-      const onVisibility = () => (document.hidden ? away() : back());
-      window.addEventListener("blur", away);
-      window.addEventListener("focus", back);
-      document.addEventListener("visibilitychange", onVisibility);
-      return () => {
-        window.removeEventListener("blur", away);
-        window.removeEventListener("focus", back);
-        document.removeEventListener("visibilitychange", onVisibility);
-      };
     },
     takeDeepLink: async () => takeJoinLink(),
     onDeepLink(listener) {

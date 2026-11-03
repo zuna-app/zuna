@@ -169,6 +169,7 @@ iOS shares its screen without sound (see Known gaps). Desktop and web paths are 
 | Line in a chat when a verification lapses after someone's keys change | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | iOS built on a Mac, but the row hasn't been seen on screen |
 | Server administration: icon, invites, members and bans, emotes, limits | yes | yes | yes | `features/overlays/ServerSettings.tsx` | `Settings/ServerSettingsView.swift` | |
 | Notifications: on or off, sound, previews, badge | yes | yes | no | `features/overlays/Settings.tsx`, `state/store.ts` | `Notifications/Notifications.swift`, `Settings/NotificationSettingsView.swift`, `apps/ios/ZunaNotifications/` | iOS goes through the push relay (`docs/PUSH_RELAY.md`); its previews (`packages/core/src/push.ts`) say only "New message" for what the app wouldn't trust as the sender's: after their device left, after the epoch ended, or a changed key. The desktop words notifications in the session, which applies the same checks. Web: by design. The tab's title counts unread (`apps/web/src/platform.ts`), and only "Away after" is left in settings |
+| Where notifications go, as in Telegram (`System::countTiming`): a device in use notifies at once; one that isn't waits 30 s while the person is on another device, or was in the last 5 minutes and more recently than on it, 1.5 s while they use both, and skips what's read or deleted meanwhile. In use: the window has focus with input in the last 30 s, until 5 s after it loses focus or the screen locks; the phone app on screen | yes | yes | yes | `state/activity.ts`, `packages/core/src/notify.ts` (`notificationDelay`), `packages/core/src/session.ts` (`maybeNotify`) | `CoreController.swift` (`reportActivity`), `Notifications/Notifications.swift` (`showLive`) | The server holds phones' pushes the same way, and drops them when the chat is read or the message deleted (`pushWait` in `server/internal/api/hub.go`, `waitingPushes` in `push.go`). In the background, as during a call, the iPhone leaves to the push what the server pushes it. Server in `push_test.go`, core in `e2e.test.ts`, iOS in `NotificationTests` (`testThePhoneWaitsWhileTheDesktopIsInUse`) |
 
 ## One platform, by design
 
@@ -191,7 +192,6 @@ Where the web differs from the desktop, all in `apps/web/src/` unless written ou
 | Device key in IndexedDB, unprotected, with a warning in Security | `device.ts`, `platform.ts` |
 | One tab at a time: a Web Lock, and "Use here" over a BroadcastChannel | `tab.ts` |
 | Unread count in the tab's title, no notifications or sound | `platform.ts` |
-| Away when the tab loses focus or is hidden, so the phone is notified | `platform.ts` (`onPresence`) |
 | `#join=<invite link>` opens the join screen | `platform.ts` |
 | Link previews fetched by the host | `worker.ts`, `server/internal/webhost/preview.go` |
 | Files, headers and settings from the host | `config.ts`, `server/cmd/zuna-web/main.go`, `server/internal/webhost/webhost.go` |

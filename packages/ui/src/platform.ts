@@ -228,7 +228,7 @@ export interface Platform {
   pushToTalk?(): Promise<{ anywhere: boolean; mouse: boolean; why?: "compositor" | "uninstalled" }>;
   /** "active", "idle" after this many seconds without input anywhere, or "locked". */
   idleState?(seconds: number): Promise<"active" | "idle" | "locked" | "unknown">;
-  /** The screen locking or the computer sleeping ("away"), and coming back ("back"). */
+  /** The screen locking or the computer sleeping ("away"), and coming back ("back"), for the person's other devices. */
   onPresence?(listener: (state: "away" | "back") => void): () => void;
   onFocus?(listener: (focused: boolean) => void): () => void;
   /** An invite link the app was opened with, once. */

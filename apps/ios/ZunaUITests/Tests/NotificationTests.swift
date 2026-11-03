@@ -36,7 +36,8 @@ final class NotificationTests: XCTestCase {
     private func leaveTheApp() throws {
         XCUIDevice.shared.press(.home)
         try waitFor("the app to leave the screen") { self.zuna.app.state != .runningForeground }
-        // While bob uses the phone, nothing is pushed to it; his laptop hears when he stops.
+        // While bob uses the phone, nothing is pushed to it; his laptop hears when he stops,
+        // and after that, the phone was used more recently, so nothing waits.
         let laptop = try Peer("bobLaptop")
         try waitFor("the server to hear bob left the phone") { try laptop.call("isActiveElsewhere") as? Bool == false }
     }
@@ -121,25 +122,39 @@ final class NotificationTests: XCTestCase {
         zuna.screenshotScreen("106-group-notification")
     }
 
-    func testThePhoneKeepsQuietWhileTheDesktopIsInUse() throws {
+    func testThePhoneWaitsWhileTheDesktopIsInUse() throws {
         try start()
         try leaveTheApp()
         let alice = try Peer("alice"), laptop = try Peer("bobLaptop"), aliceId = World.current["alice"].userId
+        let conversations = try alice.call("getConversations") as? [[String: Any]] ?? []
+        let weekend = try XCTUnwrap(conversations.first { $0["title"] as? String == "Weekend" }?["groupId"] as? String)
 
-        // Bob at his laptop: nothing is pushed to the phone.
+        // Bob at his laptop: as in Telegram, the phone is pushed 30 s later, only what he didn't read there.
         _ = try laptop.callClient("setActive", [true])
         RunLoop.current.run(until: Date().addingTimeInterval(1))
-        let pushes = try WorldControl.relayCounts().pushes
+        // Reading may send the phone a silent push, to clear what it showed earlier.
+        func alerts() throws -> Int {
+            let counts = try WorldControl.relayCounts()
+            return counts.pushes - counts.silent
+        }
+        let before = try alerts()
+        let sent = Date()
         try alice.send(to: "user:\(bob)", ["text": "Are you at your desk?"])
-        try waitFor("the laptop to get it") { try laptop.texts(with: aliceId).contains("Are you at your desk?") }
+        try alice.send(to: "group:\(weekend)", ["text": "Who's driving?"])
+        try waitFor("the laptop to get them") { try laptop.texts(with: aliceId).contains("Are you at your desk?") }
+        let chat = try XCTUnwrap(try laptop.conversation("user:\(aliceId)"))
+        let groupId = try XCTUnwrap(chat["groupId"] as? String)
+        let seq = try XCTUnwrap((chat["lastMessage"] as? [String: Any])?["seq"] as? Int)
+        _ = try laptop.call("markRead", [groupId, seq])
         RunLoop.current.run(until: Date().addingTimeInterval(2))
-        XCTAssertEqual(try WorldControl.relayCounts().pushes, pushes)
+        XCTAssertEqual(try alerts(), before)
 
-        // Away from it: the phone gets them again.
-        _ = try laptop.callClient("setActive", [false])
-        RunLoop.current.run(until: Date().addingTimeInterval(1))
-        try alice.send(to: "user:\(bob)", ["text": "Now?"])
+        try waitFor("the group's push", timeout: 45) { try alerts() > before }
+        XCTAssertGreaterThan(Date().timeIntervalSince(sent), 29)
         XCTAssertTrue(banner.waitForExistence(timeout: 20))
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertEqual(try alerts(), before + 1)
+        _ = try laptop.callClient("setActive", [false])
     }
 
     func testClearsWhatWasReadOrDeletedElsewhere() throws {

@@ -288,11 +288,11 @@ function NotificationsSection() {
       <p className="settings-lead">
         {notifies
           ? "Previews are decrypted on this device. No notification service ever sees them."
-          : "New messages are counted in this tab's title. While you're away from it, your phone gets notifications."}
+          : "New messages are counted in this tab's title. While you're here, your phone is told only about what you leave unread."}
       </p>
       {notifies && (
         <>
-          <SettingRow title="Desktop notifications">
+          <SettingRow title="Desktop notifications" hint="While you're on another device, they wait 30 seconds, and don't show if you read the chat there.">
             <Switch on={settings.notifications} onChange={(value) => update({ notifications: value })} label="Desktop notifications" />
           </SettingRow>
           <SettingRow title="Sound">
@@ -300,27 +300,6 @@ function NotificationsSection() {
           </SettingRow>
         </>
       )}
-      <SettingRow
-        title="Away from the computer after"
-        hint={
-          notifies
-            ? "Until then, notifications show here and your phone keeps quiet. Locking the screen counts as away right away."
-            : "Until then, your phone keeps quiet. Leaving this tab counts as away right away."
-        }
-      >
-        <select
-          className="select"
-          style={{ width: 180 }}
-          value={settings.awayAfterMinutes}
-          onChange={(event) => update({ awayAfterMinutes: Number(event.target.value) as AppSettings["awayAfterMinutes"] })}
-        >
-          {([1, 3, 5, 10] as const).map((minutes) => (
-            <option key={minutes} value={minutes}>
-              {minutes === 1 ? "1 minute" : `${minutes} minutes`}
-            </option>
-          ))}
-        </select>
-      </SettingRow>
       {notifies && (
         <SettingRow title="What notifications show" hint="Choose less if others can see your screen.">
           <select className="select" style={{ width: 180 }} value={settings.notificationPreview} onChange={(event) => update({ notificationPreview: event.target.value as AppSettings["notificationPreview"] })}>

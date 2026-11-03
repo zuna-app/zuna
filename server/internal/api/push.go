@@ -27,9 +27,12 @@ import (
 // relay, Apple and Google learn no more than that something arrived; the phone
 // fetches the message itself.
 //
-// As in Telegram, nobody is pushed while they're using one of their devices,
-// which shows the message itself. When a chat is read or a message deleted, a
-// silent push tells the phones that showed a notification for it to clear it.
+// As in Telegram, a device that's in use shows the message itself, and the
+// others wait while the person is on another device, or was in the last few
+// minutes and more recently than on them: they're pushed 30 s later if the
+// chat is still unread and the message still there. When a chat is read or a
+// message deleted, a silent push tells the phones that showed a notification
+// for it to clear it.
 
 const (
 	maxPushHandle   = 4096
@@ -39,6 +42,11 @@ const (
 	// Past this a relay is far behind, and a notification is the one thing here that
 	// can go missing: the message itself is waiting on the server.
 	pushQueueLength = 4096
+	// Telegram's online_cloud_timeout_ms: being on another device this recently
+	// still holds a device's notifications back.
+	elsewhereRecently = 5 * time.Minute
+	// Telegram's notify_cloud_delay_ms: how long they're held.
+	defaultPushWait = 30 * time.Second
 )
 
 // pushLabel binds a sealed push to the registration it was sealed for.
@@ -104,11 +112,12 @@ func (s *Server) handleDeletePush(w http.ResponseWriter, r *http.Request, sess *
 }
 
 // pushMessage wakes the other members' phones for a new message, in the
-// background, unless they're using one of their devices right now.
+// background, unless they're using them right now.
 func (s *Server) pushMessage(groupID string, message *store.Message) {
 	if len(s.cfg.PushRelays) == 0 {
 		return
 	}
+	sent := time.Now()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
 		targets, err := s.db.PushTargets(ctx, groupID, message.SenderUser)
@@ -118,13 +127,33 @@ func (s *Server) pushMessage(groupID string, message *store.Message) {
 			return
 		}
 		for _, target := range targets {
-			if s.hub.Active(target.UserID) {
+			wait, inUse := s.hub.pushWait(target.UserID, target.DeviceID, s.pushWait())
+			if inUse {
 				continue
 			}
-			s.notified.add(target.DeviceID, groupID)
-			s.push(target, pushAlert, map[string]string{"g": groupID, "m": message.ID}, collapseID(target.Key, message.ID))
+			send := func() {
+				s.notified.add(target.DeviceID, groupID)
+				s.push(target, pushAlert, map[string]string{"g": groupID, "m": message.ID}, collapseID(target.Key, message.ID))
+			}
+			if wait == 0 {
+				send()
+				continue
+			}
+			s.waiting.hold(groupID, target.UserID, message.ID, sent, wait, func() {
+				// Picked up meanwhile, the phone shows what's new itself.
+				if _, inUse := s.hub.pushWait(target.UserID, target.DeviceID, 0); !inUse {
+					send()
+				}
+			})
 		}
 	}()
+}
+
+func (s *Server) pushWait() time.Duration {
+	if s.cfg.PushWait > 0 {
+		return s.cfg.PushWait
+	}
+	return defaultPushWait
 }
 
 // collapseID names a notification so a later push can replace it. It goes to the
@@ -138,14 +167,17 @@ func collapseID(key []byte, messageID string) string {
 }
 
 // pushRead tells someone's other phones that a chat was read, so they clear
-// its notifications. Only phones that showed one for it are told.
+// its notifications. Only phones that showed one for it are told. What was
+// waiting for it isn't sent.
 func (s *Server) pushRead(userID, readingDevice, groupID string) {
+	s.waiting.read(groupID, userID)
 	s.pushClearing([]string{userID}, readingDevice, groupID, map[string]string{"t": "read", "g": groupID}, true)
 }
 
 // pushDeletion tells the members' phones that showed a notification for the
 // chat that a message is gone, so they clear its notification.
 func (s *Server) pushDeletion(members []string, groupID, messageID string) {
+	s.waiting.deleted(groupID, messageID)
 	s.pushClearing(members, "", groupID, map[string]string{"t": "delete", "g": groupID, "m": messageID}, false)
 }
 
@@ -288,4 +320,111 @@ func (n *notifiedChats) remove(deviceID, groupID string) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.chats[deviceID], groupID)
+}
+
+// waitingPushes are notifications held back while someone is on another
+// device. Reading the chat or deleting the message lets them go unsent. They're
+// kept in memory: after a restart, one held then isn't sent.
+type waitingPushes struct {
+	mu sync.Mutex
+	// By group, then by user.
+	chats map[string]map[string][]*waitingPush
+	// When each person last read each chat, lately, by group and user: a chat
+	// read before its push could be held has nothing to push.
+	reads map[string]time.Time
+	swept time.Time
+}
+
+// Longer than finding whom to push takes.
+const readsKept = time.Minute
+
+type waitingPush struct {
+	messageID string
+	timer     *time.Timer
+}
+
+// hold sends a push for a message sent at a time after a while, unless the chat
+// is read or the message deleted first.
+func (w *waitingPushes) hold(groupID, userID, messageID string, sent time.Time, wait time.Duration, send func()) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.reads[groupID+"|"+userID].After(sent) {
+		return
+	}
+	if w.chats == nil {
+		w.chats = map[string]map[string][]*waitingPush{}
+	}
+	if w.chats[groupID] == nil {
+		w.chats[groupID] = map[string][]*waitingPush{}
+	}
+	push := &waitingPush{messageID: messageID}
+	push.timer = time.AfterFunc(wait, func() {
+		if w.take(groupID, userID, push) {
+			send()
+		}
+	})
+	w.chats[groupID][userID] = append(w.chats[groupID][userID], push)
+}
+
+// take removes a push whose time has come, reporting whether it was still waiting.
+func (w *waitingPushes) take(groupID, userID string, push *waitingPush) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	waiting := w.chats[groupID][userID]
+	index := slices.Index(waiting, push)
+	if index < 0 {
+		return false
+	}
+	w.set(groupID, userID, slices.Delete(waiting, index, index+1))
+	return true
+}
+
+// read lets go of what's waiting for someone in a chat they read.
+func (w *waitingPushes) read(groupID, userID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	now := time.Now()
+	if w.reads == nil {
+		w.reads = map[string]time.Time{}
+	}
+	w.reads[groupID+"|"+userID] = now
+	if now.Sub(w.swept) > readsKept {
+		w.swept = now
+		for key, at := range w.reads {
+			if now.Sub(at) > readsKept {
+				delete(w.reads, key)
+			}
+		}
+	}
+	for _, push := range w.chats[groupID][userID] {
+		push.timer.Stop()
+	}
+	w.set(groupID, userID, nil)
+}
+
+// deleted lets go of what's waiting for a message that's gone.
+func (w *waitingPushes) deleted(groupID, messageID string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for userID, waiting := range w.chats[groupID] {
+		w.set(groupID, userID, slices.DeleteFunc(waiting, func(push *waitingPush) bool {
+			if push.messageID != messageID {
+				return false
+			}
+			push.timer.Stop()
+			return true
+		}))
+	}
+}
+
+// set replaces what's waiting for someone in a chat, dropping what's empty. The caller holds w.mu.
+func (w *waitingPushes) set(groupID, userID string, waiting []*waitingPush) {
+	if len(waiting) > 0 {
+		w.chats[groupID][userID] = waiting
+		return
+	}
+	delete(w.chats[groupID], userID)
+	if len(w.chats[groupID]) == 0 {
+		delete(w.chats, groupID)
+	}
 }

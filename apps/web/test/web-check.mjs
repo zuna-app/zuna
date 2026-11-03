@@ -347,7 +347,7 @@ async function runIn(name) {
     // Settings that differ on the web
     await second.getByLabel("Settings").click();
     await second.getByText("Notifications", { exact: true }).first().click();
-    check("there are no notification switches", (await second.getByText("Desktop notifications").count()) === 0 && (await second.getByText("Away from the computer after").count()) === 1);
+    check("there are no notification switches", (await second.getByText("Desktop notifications").count()) === 0 && (await second.getByText("Away from the computer after").count()) === 0);
     await second.getByText("Security", { exact: true }).first().click();
     check("Security warns that the browser can't protect the key", (await second.getByText("Browsers can't lock Zuna's local data").count()) === 1);
     const deviceName = await second.locator(".device-row", { hasText: "This device" }).innerText();

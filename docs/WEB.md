@@ -16,7 +16,7 @@ A web app's code comes from its host on every visit. Whoever controls the host c
 | | Desktop | Web |
 |---|---|---|
 | New messages | System notifications, sound, dock or taskbar badge | The tab's title counts them: `(3) Zuna`. No notifications or sound |
-| Your phone | Notified once you're away from the computer | Notified once you leave the tab, or after the chosen time without input |
+| Your phone | While you use the app, notified 30 seconds later about what you didn't read there | The same, while the tab is in front |
 | Invite links | `zuna://` links open the app | Paste the link, or open `https://web.example/#join=<invite link>` |
 | Updates | Signed builds update themselves | A reload, offered when the host has a newer version |
 | Running in the background | Stays in the tray | Runs while its tab is open |

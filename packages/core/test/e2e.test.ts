@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api } from "../src/api";
 import { parseInviteLink } from "../src/account";
 import { migrate, type LocalDb } from "../src/db";
+import { notifyTiming } from "../src/notify";
 import { previewPush } from "../src/push";
 import type { CoreEvent, MessageView } from "../src/types";
 import { createDecipheriv, createHmac } from "node:crypto";
@@ -893,31 +894,61 @@ describe("notifications from a push", () => {
     expect(relay.pushes.length).toBe(quiet);
   });
 
-  it("keeps notifications where the person is, as Telegram does", async () => {
+  it("holds notifications back while the person is on another device, as Telegram does", async () => {
+    const telegram = { ...notifyTiming };
+    Object.assign(notifyTiming, { elsewhereRecently: 4_000, elsewhereDelay: 1_000, bothDelay: 300 });
     const phone = await new TestApp("bob-phone").open();
-    await phone.login(server.url, "bob");
-    const fromAlice = `user:${alice.userId}`;
-    const notified = () => bob.events.filter((event) => event.type === "notify").length;
+    try {
+      await phone.login(server.url, "bob");
+      // A chat of its own, as earlier tests read bob's chat with alice far ahead.
+      const groupId = await alice.session.createGroup("Desk or phone", [bob.userId], false);
+      const chat = `group:${groupId}`;
+      await waitFor(() => bob.session.getConversations().some((item) => item.key === chat), "the laptop to have the group");
+      await waitFor(() => phone.session.getConversations().some((item) => item.key === chat), "the phone to have the group");
+      const shown = (text: string) => bob.events.some((event) => event.type === "notify" && event.body === `alice: ${text}`);
+      // How long the laptop took to notify about a message once it had it.
+      const waited = async (text: string) => {
+        alice.session.sendMessage(chat, { text });
+        await waitFor(() => bob.texts(chat).includes(text), "delivery to the laptop");
+        const arrived = Date.now();
+        await waitFor(() => shown(text), `the laptop's notification of "${text}"`);
+        return Date.now() - arrived;
+      };
 
-    // Bob on his phone: the laptop keeps quiet.
-    phone.client.setActive(true);
-    await waitFor(() => bob.session.isActiveElsewhere(), "the laptop to hear the phone is in use");
-    expect(bob.events.at(-1)).toMatchObject({ type: "activity", elsewhere: true });
-    const before = notified();
-    alice.session.sendMessage(`user:${bob.userId}`, { text: "where are you?" });
-    await waitFor(() => bob.texts(fromAlice).includes("where are you?"), "delivery to the laptop");
-    await sleep(100);
-    expect(notified()).toBe(before);
+      // Bob on his phone: the laptop waits, and then shows what he didn't read there.
+      phone.client.setActive(true);
+      await waitFor(() => bob.session.isActiveElsewhere(), "the laptop to hear the phone is in use");
+      expect(bob.events.filter((event) => event.type === "activity").at(-1)).toMatchObject({ elsewhere: true });
+      expect(await waited("where are you?")).toBeGreaterThanOrEqual(900);
 
-    // At the laptop too: it notifies.
-    bob.client.setActive(true);
-    alice.session.sendMessage(`user:${bob.userId}`, { text: "hello?" });
-    await waitFor(() => notified() > before, "a notification on the laptop");
+      // Read on the phone meanwhile, it doesn't show on the laptop at all.
+      alice.session.sendMessage(chat, { text: "read me there" });
+      await waitFor(() => phone.texts(chat).includes("read me there"), "delivery to the phone");
+      const read = received(phone, "read me there");
+      await phone.session.markRead(read.groupId, read.seq!);
+      await waitFor(() => bob.texts(chat).includes("read me there"), "delivery to the laptop");
+      await sleep(1_300);
+      expect(shown("read me there")).toBe(false);
 
-    bob.client.setActive(false);
-    phone.client.setActive(false);
-    await waitFor(() => !bob.session.isActiveElsewhere(), "the phone to be put away");
-    phone.client.stop();
+      // Using both: a moment's wait.
+      bob.client.setActive(true);
+      const both = await waited("both of them?");
+      expect(both).toBeGreaterThanOrEqual(200);
+      expect(both).toBeLessThan(900);
+
+      // Just put down, the phone was used more recently than the laptop, which still waits.
+      bob.client.setActive(false);
+      phone.client.setActive(false);
+      await waitFor(() => !bob.session.isActiveElsewhere(), "the phone to be put away");
+      expect(await waited("still there?")).toBeGreaterThanOrEqual(900);
+
+      // Not lately: straight away.
+      await sleep(4_000);
+      expect(await waited("anyone?")).toBeLessThan(500);
+    } finally {
+      Object.assign(notifyTiming, telegram);
+      phone.client.stop();
+    }
   });
 
   it("hides your own messages, and names the chat when the message can't be read", async () => {

@@ -421,7 +421,7 @@ final class AppModel {
         case let .notify(serverId, _, _, _, groupId, messageId):
             onNotify?(serverId, groupId, messageId)
         case .activity:
-            // The core already keeps notifications where the person is.
+            // The core already holds notifications back while the person is on another device.
             break
         }
     }

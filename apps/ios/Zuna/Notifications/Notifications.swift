@@ -141,6 +141,14 @@ final class Notifications {
         }
     }
 
+    /// Whether the server pushes this chat's new messages to this device: it's
+    /// registered there, and it isn't a channel, whose messages it never pushes.
+    private func pushes(serverId: String, groupId: String) -> Bool {
+        guard Self.relay != nil, settings.enabled, allowed, token != nil, !unsupported.contains(serverId) else { return false }
+        let channel = model.servers[serverId]?.channels.contains { $0.id == groupId } ?? false
+        return !channel
+    }
+
     /// The relay's handle for this device, remembered for the same token.
     private func relayHandle(relay: String, token: String) async -> String? {
         #if DEBUG
@@ -257,12 +265,15 @@ final class Notifications {
 
     // MARK: While the app runs
 
-    /// A new message while the app runs. The server doesn't push to a phone
-    /// that's in use, so the app shows it itself, laid out as the extension
-    /// would; a banner, unless that chat is on screen.
+    /// A new message while the app runs, once the core's wait is over (as
+    /// Telegram's, while the person is on another device). The server doesn't
+    /// push to a phone that's in use, so the app shows it itself, laid out as
+    /// the extension would; a banner, unless that chat is on screen. Out of
+    /// sight, as during a call, what the server pushes here is left to the push.
     @discardableResult
     func showLive(serverId: String, groupId: String, messageId: String) async -> Bool {
         guard settings.enabled, allowed, let preview else { return false }
+        if UIApplication.shared.applicationState == .background, pushes(serverId: serverId, groupId: groupId) { return false }
         do {
             let message = try await preview(serverId, groupId, messageId)
             guard !message.hidden, !message.muted else { return false }

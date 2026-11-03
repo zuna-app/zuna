@@ -240,9 +240,23 @@ func (s *socket) setActive(active bool) {
 	}
 }
 
-func TestNoPushesWhileSomeoneUsesAnotherDevice(t *testing.T) {
+// pushedBetween waits for a push that reaches the relay no sooner than after and no later than within.
+func (r *fakeRelay) pushedBetween(t *testing.T, after, within time.Duration) {
+	t.Helper()
+	sent := time.Now()
+	push := r.next(t)
+	if waited := time.Since(sent); waited < after || waited > within {
+		t.Fatalf("pushed after %v, want between %v and %v: %+v", waited, after, within, push)
+	}
+}
+
+func TestPushesWaitWhileSomeoneUsesAnotherDevice(t *testing.T) {
 	relay := newFakeRelay(t)
-	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	const wait = 800 * time.Millisecond
+	h := newHarness(t, func(cfg *api.Config) {
+		cfg.PushRelays = []string{relay.URL}
+		cfg.PushWait = wait
+	})
 	owner := h.owner()
 	bob := h.register("bob", owner.newInvite())
 	laptop := bob.anotherDevice()
@@ -250,7 +264,11 @@ func TestNoPushesWhileSomeoneUsesAnotherDevice(t *testing.T) {
 	owner.commit(group.ID, 0, nil)
 	bob.registerPush(relay.URL, "bob-phone", bytesOf(32, 5), store.NewID(), nil)
 
-	// Bob at his laptop: the phone keeps quiet, and the laptop's other windows hear about it.
+	// Nobody at a device: the phone is pushed straight away.
+	owner.send(group.ID, 1, store.NewID())
+	relay.pushedBetween(t, 0, wait/2)
+
+	// Bob at his laptop: the phone waits, and the laptop's other windows hear about it.
 	phoneSocket := bob.connect()
 	laptopSocket := laptop.connect()
 	laptopSocket.setActive(true)
@@ -258,25 +276,50 @@ func TestNoPushesWhileSomeoneUsesAnotherDevice(t *testing.T) {
 	for fmt.Sprint(phoneSocket.waitFor("activity")["active_devices"]) != fmt.Sprint([]any{laptop.device}) {
 	}
 	owner.send(group.ID, 1, store.NewID())
+	relay.pushedBetween(t, wait-100*time.Millisecond, wait+2*time.Second)
+
+	// Read at the laptop meanwhile, or deleted, it isn't pushed at all.
+	owner.send(group.ID, 1, store.NewID())
+	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
+	gone := store.NewID()
+	owner.send(group.ID, 1, gone)
+	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, nil, nil)
+	// Reading clears the notifications the phone showed earlier.
+	if push := relay.next(t); push.Type != "background" {
+		t.Fatalf("pushed %+v", push)
+	}
+	time.Sleep(wait)
 	relay.none(t)
 
-	// Idle, or gone: pushes again.
+	// Just left, the laptop was used more recently than the phone, so the phone still waits.
 	laptopSocket.setActive(false)
+	activity := phoneSocket.waitFor("activity")
+	if recent, _ := activity["recent_devices"].(map[string]any); recent[laptop.device] == nil {
+		t.Fatalf("the laptop isn't among the devices used lately: %v", activity)
+	}
+	owner.send(group.ID, 1, store.NewID())
+	relay.pushedBetween(t, wait-100*time.Millisecond, wait+2*time.Second)
+
+	// Bob on the phone: it shows messages itself, so nothing is pushed to it.
+	phoneSocket.setActive(true)
 	phoneSocket.waitFor("activity")
 	owner.send(group.ID, 1, store.NewID())
-	relay.next(t)
+	time.Sleep(wait)
+	relay.none(t)
+	// Pocketed after the laptop, it's pushed straight away again.
+	phoneSocket.setActive(false)
+	phoneSocket.waitFor("activity")
+	owner.send(group.ID, 1, store.NewID())
+	relay.pushedBetween(t, 0, wait/2)
+
+	// Picked up while one waits, the phone isn't pushed.
 	laptopSocket.setActive(true)
 	phoneSocket.waitFor("activity")
-	laptopSocket.ws.CloseNow()
-	waitUntil(t, "the laptop to count as gone", func() bool {
-		owner.send(group.ID, 1, store.NewID())
-		select {
-		case <-relay.pushes:
-			return true
-		case <-time.After(100 * time.Millisecond):
-			return false
-		}
-	})
+	owner.send(group.ID, 1, store.NewID())
+	phoneSocket.setActive(true)
+	phoneSocket.waitFor("activity")
+	time.Sleep(wait)
+	relay.none(t)
 }
 
 func TestSilentPushesClearChatsReadOrMessagesDeletedElsewhere(t *testing.T) {

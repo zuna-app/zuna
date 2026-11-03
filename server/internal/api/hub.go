@@ -47,8 +47,9 @@ type conn struct {
 	send     chan []byte
 	queued   atomic.Int64
 	close    context.CancelFunc
-	// active is set while the person is using this device: the desktop
-	// without being idle, the phone app on screen. Guarded by the hub's lock.
+	// active is set while the person is using this device: the desktop's
+	// window in front with input in the last 30 s, the phone app on screen.
+	// Guarded by the hub's lock.
 	active bool
 }
 
@@ -58,7 +59,10 @@ type Hub struct {
 	conns        map[string]map[*conn]struct{}
 	hidden       map[string]bool
 	offlineTimer map[string]*time.Timer
-	db           *store.DB
+	// lastUsed is when each of someone's devices was last in use, for those
+	// used in the last few minutes but not now: user -> device -> time.
+	lastUsed map[string]map[string]time.Time
+	db       *store.DB
 }
 
 func newHub(db *store.DB) *Hub {
@@ -66,6 +70,7 @@ func newHub(db *store.DB) *Hub {
 		conns:        map[string]map[*conn]struct{}{},
 		hidden:       map[string]bool{},
 		offlineTimer: map[string]*time.Timer{},
+		lastUsed:     map[string]map[string]time.Time{},
 		db:           db,
 	}
 }
@@ -272,29 +277,80 @@ func (h *Hub) add(c *conn, hidden bool) {
 }
 
 // SetActive records whether the person is using a device right now, and tells
-// their other devices, which keep quiet while they're elsewhere.
+// their other devices, whose notifications wait while they're elsewhere.
 func (h *Hub) SetActive(c *conn, active bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if c.active != active {
 		c.active = active
+		if !active {
+			h.leftDevice(c.userID, c.deviceID)
+		}
 		h.sendActivity(c.userID)
 	}
 }
 
-// Active reports whether someone is using any of their devices right now.
-func (h *Hub) Active(userID string) bool {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+// leftDevice notes when the person stopped using a device, unless another
+// connection of it is still in use. The caller holds h.mu.
+func (h *Hub) leftDevice(userID, deviceID string) {
+	if h.inUse(userID, deviceID) {
+		return
+	}
+	now := time.Now()
+	if h.lastUsed[userID] == nil {
+		h.lastUsed[userID] = map[string]time.Time{}
+	}
+	h.lastUsed[userID][deviceID] = now
+	// Longer ago than this, it makes no difference to anything.
+	for device, at := range h.lastUsed[userID] {
+		if now.Sub(at) > elsewhereRecently {
+			delete(h.lastUsed[userID], device)
+		}
+	}
+}
+
+// inUse reports whether any connection of a device is in use. The caller holds h.mu.
+func (h *Hub) inUse(userID, deviceID string) bool {
 	for c := range h.conns[userID] {
-		if c.active {
+		if c.deviceID == deviceID && c.active {
 			return true
 		}
 	}
 	return false
 }
 
-// activity is the event listing which of someone's devices they're using.
+// pushWait is how long a notification for someone waits before it's pushed to
+// one of their devices, and whether they're using that device now, when it
+// shows the message itself. As in Telegram, a device waits while the person is
+// on another one, or was in the last few minutes and more recently than on
+// this one.
+func (h *Hub) pushWait(userID, deviceID string, wait time.Duration) (time.Duration, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.inUse(userID, deviceID) {
+		return 0, true
+	}
+	now := time.Now()
+	var elsewhere time.Time
+	for c := range h.conns[userID] {
+		if c.active {
+			elsewhere = now
+		}
+	}
+	for device, at := range h.lastUsed[userID] {
+		if device != deviceID && at.After(elsewhere) {
+			elsewhere = at
+		}
+	}
+	here := h.lastUsed[userID][deviceID]
+	if now.Sub(elsewhere) < elsewhereRecently && elsewhere.After(here) {
+		return wait, false
+	}
+	return 0, false
+}
+
+// activity is the event listing which of someone's devices they're using, and
+// how long ago they used the others they used in the last few minutes, in ms.
 // It's built and queued with h.mu held, so each device gets these events in
 // the order the changes happened and the last one it gets is right.
 func (h *Hub) activity(userID string) []byte {
@@ -304,7 +360,14 @@ func (h *Hub) activity(userID string) []byte {
 			devices = append(devices, c.deviceID)
 		}
 	}
-	return encodeEvent(Event{Type: "activity", Data: map[string]any{"active_devices": devices}})
+	now := time.Now()
+	recent := map[string]int64{}
+	for device, at := range h.lastUsed[userID] {
+		if !slices.Contains(devices, device) && now.Sub(at) < elsewhereRecently {
+			recent[device] = now.Sub(at).Milliseconds()
+		}
+	}
+	return encodeEvent(Event{Type: "activity", Data: map[string]any{"active_devices": devices, "recent_devices": recent}})
 }
 
 // sendActivity tells all of someone's devices which of them they're using.
@@ -320,6 +383,7 @@ func (h *Hub) remove(c *conn) {
 	h.mu.Lock()
 	delete(h.conns[c.userID], c)
 	if c.active {
+		h.leftDevice(c.userID, c.deviceID)
 		h.sendActivity(c.userID)
 	}
 	last := len(h.conns[c.userID]) == 0

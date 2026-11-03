@@ -21,8 +21,8 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Disappearing messages** | When each message is due to go, and so how long a chat's messages last | The setting itself, which is in the chat's encrypted details |
 | **Read state** | That someone's read position changed | The position itself |
 | **Typing** | That someone sent a typing signal | Nothing further; it's encrypted but has no other content |
-| **Presence** | Online status, last seen | Hidden from other members if you choose, but not from the server |
-| **Phone notifications** | Which devices get pushes, through which relay; until Apple lets the iPhone app filter notifications, which chats a phone muted and until when, among them direct messages with people the person blocked, which look like any other muted chat | What a push is about: it carries the message's IDs, sealed for the device |
+| **Presence** | Online status, last seen, and which of your devices you're using and when you last used each, which decides when the others are notified | Hidden from other members if you choose, but not from the server |
+| **Phone notifications** | Which devices get pushes, through which relay; until Apple lets the iPhone app filter notifications, which chats a phone muted and until when, among them direct messages with people the person blocked, which look like any other muted chat; that a chat was read, which stops a push waiting for it | What a push is about: it carries the message's IDs, sealed for the device |
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |
 

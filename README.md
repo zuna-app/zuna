@@ -37,7 +37,7 @@ Everyone on a server can message each other straight away. Group chats are invit
 **Notifications**
 - Desktop notifications, and phone notifications that show the message, decrypted on the phone
 - Pushes carry only sealed IDs, so neither the push relay nor Apple sees who wrote what
-- They go where you are, as in Telegram: your phone stays quiet while you use the desktop, and what you read on one device disappears from the others
+- They go where you are, as in Telegram: while you use one device, the others wait 30 seconds and skip what you read there, and what you read on one device disappears from the others
 - Reply and Mark as read from the notification on the phone
 
 **iPhone and iPad**

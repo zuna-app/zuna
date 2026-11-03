@@ -235,9 +235,10 @@ final class CoreController {
         }
     }
 
-    /// On screen, the person is using this device: their other devices keep
-    /// quiet, and nothing is pushed here. Each report sends the state at the
-    /// time it goes out, so a late one can't contradict a newer one.
+    /// On screen, the person is using this device, as in Telegram: nothing is
+    /// pushed here, and their other devices hold notifications back for a while
+    /// and drop those they read here. Each report sends the state at the time
+    /// it goes out, so a late one can't contradict a newer one.
     private func reportActivity() {
         guard let connection else { return }
         Task { try? await connection.setActive(UIApplication.shared.applicationState == .active) }

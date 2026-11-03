@@ -9,8 +9,6 @@ export interface AppSettings {
   closeToTray: boolean;
   reduceMotion: boolean;
   enterToSend: boolean;
-  /** After this long without input, or right away when the screen locks, the phone gets notifications instead. */
-  awayAfterMinutes: 1 | 3 | 5 | 10;
   /** This device fetches a page to preview the first link in a message being written. */
   linkPreviews: boolean;
   /** Before a file is sent, this device takes out where, when and on what it was made. */
@@ -28,7 +26,6 @@ const DEFAULTS: AppSettings = {
   closeToTray: true,
   reduceMotion: false,
   enterToSend: true,
-  awayAfterMinutes: 3,
   linkPreviews: true,
   removeMetadata: true,
 };
@@ -37,8 +34,8 @@ const ACCENTS: AppSettings["accent"][] = ["neutral", "blue", "green", "red", "am
 
 export function loadSettings(): AppSettings {
   try {
-    const stored = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
-    if (![1, 3, 5, 10].includes(stored.awayAfterMinutes)) stored.awayAfterMinutes = DEFAULTS.awayAfterMinutes;
+    const { awayAfterMinutes: _gone, ...saved } = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    const stored = { ...DEFAULTS, ...saved };
     return ACCENTS.includes(stored.accent) ? stored : { ...stored, accent: DEFAULTS.accent };
   } catch {
     return DEFAULTS;

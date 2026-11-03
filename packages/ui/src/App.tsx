@@ -127,7 +127,7 @@ export function App() {
     };
   }, []);
 
-  // Where notifications go: here while the person is at the computer, their phone otherwise.
+  // Where notifications go: whether the person is here holds back their other devices'.
   useEffect(() => (phase === "ready" ? watchActivity() : undefined), [phase]);
 
   // A tab can be closed in the middle of a send. The desktop keeps running in its tray instead.

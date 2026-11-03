@@ -183,7 +183,7 @@ Phones can't keep a connection open in the background, so the server wakes them 
 - **They're on by default.** Servers send notifications through the project's relay, `https://relay.mgalazka.pl`, which the Zuna app registers with. There's nothing to set.
 - **To use another relay,** set `ZUNA_PUSH_RELAYS` to it, such as `https://push.example.com`. With Docker, pass it like `ZUNA_DOMAIN`. From source on Linux, use the script's `--push-relays` option, or `--relay` to run your own next to the server, which points the server at it ([LINUX.md](LINUX.md)). Phones only register with a relay their app was built for.
 - **To turn them off,** set `ZUNA_PUSH_RELAYS=off`. Everything else works, and phones see new messages when they open the app.
-- **Several devices:** notifications go where you are, as in Telegram. While you use the desktop app, your phone stays quiet. After the desktop's away time, or when its screen locks, your phone gets them instead. What you read on one device disappears from the others.
+- **Several devices:** notifications go where you are, as in Telegram. The device you're using notifies straight away. While you're on another one, or were in the last few minutes, the rest wait 30 seconds and skip anything you read in the meantime, so at the desktop your phone only buzzes for what you left unread. What you read on one device disappears from the others.
 
 ## Choosing emotes
 

@@ -100,7 +100,7 @@ import { blobFiles, type FileAdapter } from "./files";
 import { linkInText } from "./links";
 import { MEDIA_KINDS, mediaIn } from "./media";
 import { withoutMetadata, type ByteSource } from "./metadata";
-import { notificationText, previewText } from "./notify";
+import { notificationDelay, notificationText, previewText } from "./notify";
 import { SEARCH_INDEX_VERSION, indexTokens, mediaTag, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import { VOICE_LABEL, voiceIdentity } from "./voice";
@@ -438,6 +438,11 @@ export class ServerSession {
   /** Whether the person is using this device, and another of theirs, as the server last said. */
   private active = false;
   private activeElsewhere = false;
+  /** When the person last stopped using this device, and last used another one that isn't in use now (ms). */
+  private leftHereAt = 0;
+  private usedElsewhereAt = 0;
+  /** Notifications waiting while the person is on another device. */
+  private waitingNotifications = new Set<ReturnType<typeof setTimeout>>();
   /** What the app asked for notifications: where to push, "off" to stop them, or null if it never said. */
   private push: PushSettings | "off" | null = null;
   private deviceNames = new Map<string, string>();
@@ -540,6 +545,7 @@ export class ServerSession {
       onDisconnect: () => {
         this.setConnection("offline");
         // Unknown until the server says again; better to notify than to miss something.
+        this.usedElsewhereAt = 0;
         if (this.activeElsewhere) {
           this.activeElsewhere = false;
           this.emit({ type: "activity", serverId: this.serverId, elsewhere: false });
@@ -584,6 +590,8 @@ export class ServerSession {
     this.reconcileTimers.clear();
     for (const timer of this.grantTimers.values()) clearTimeout(timer);
     this.grantTimers.clear();
+    for (const timer of this.waitingNotifications) clearTimeout(timer);
+    this.waitingNotifications.clear();
   }
 
   /**
@@ -3678,6 +3686,9 @@ export class ServerSession {
         break;
       case "activity": {
         const elsewhere = (data.active_devices as string[]).some((id) => id !== this.account.deviceId);
+        // How long ago the person used their other devices, of those used lately. Servers from before don't say.
+        const recent = Object.entries((data.recent_devices ?? {}) as Record<string, number>).filter(([id]) => id !== this.account.deviceId);
+        this.usedElsewhereAt = Math.max(0, ...recent.map(([, ago]) => Date.now() - ago));
         if (elsewhere !== this.activeElsewhere) {
           this.activeElsewhere = elsewhere;
           this.emit({ type: "activity", serverId: this.serverId, elsewhere });
@@ -4209,22 +4220,48 @@ export class ServerSession {
   }
 
   private maybeNotify(view: MessageView): void {
-    // As in Telegram, notifications go where the person is.
-    if (this.activeElsewhere && !this.active) return;
+    const notification = this.notification(view);
+    if (!notification) return;
+    // As in Telegram, a notification waits while the person is on another device,
+    // and doesn't show if they read the chat there, or here, meanwhile.
+    const delay = notificationDelay({
+      here: this.active,
+      leftHereAt: this.leftHereAt,
+      elsewhereNow: this.activeElsewhere,
+      usedElsewhereAt: this.usedElsewhereAt,
+    });
+    if (delay === 0) {
+      this.emit(notification);
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.waitingNotifications.delete(timer);
+      const row = this.messageRow(view.groupId, view.id);
+      const ownRead = this.groups.get(view.groupId)?.ownRead ?? Infinity;
+      if (!row || row.deleted_at !== null || row.seq === null || row.seq <= ownRead) return;
+      // Muted or edited meanwhile, it's as it is now.
+      const event = this.notification(this.toMessageView(row));
+      if (event) this.emit(event);
+    }, delay);
+    this.waitingNotifications.add(timer);
+  }
+
+  /** The notification for a new message from someone else, or null if it shouldn't notify. */
+  private notification(view: MessageView): Extract<CoreEvent, { type: "notify" }> | null {
     const group = this.groups.get(view.groupId);
-    if (!group) return;
-    if (this.isBlocked(view.senderId)) return;
+    if (!group) return null;
+    if (this.isBlocked(view.senderId)) return null;
     const key = this.conversationKey(group);
     const self = this.account.userId;
     const mentioned = view.mentions.includes(self) || view.reply?.senderId === self;
-    if (onlyMentionsNotify(this.prefs, key) && !mentioned) return;
+    if (onlyMentionsNotify(this.prefs, key) && !mentioned) return null;
     // Everything said in a channel isn't for everyone in it, as in Discord: only what's said to them.
-    if (group.kind === "channel" && !mentioned) return;
+    if (group.kind === "channel" && !mentioned) return null;
     const sender = this.users.get(view.senderId);
     const senderName = sender?.profile.displayName || sender?.username || "Someone";
     const groupName = group.kind === "channel" ? `#${this.channels.get(group.id)?.details?.name ?? "channel"}` : group.meta.name;
     const { title, body } = notificationText(group.kind, groupName, senderName, view);
-    this.emit({ type: "notify", serverId: this.serverId, title, body, conversationKey: key, groupId: view.groupId, messageId: view.id });
+    return { type: "notify", serverId: this.serverId, title, body, conversationKey: key, groupId: view.groupId, messageId: view.id };
   }
 
   previewText(view: Pick<MessageView, "text" | "attachments"> & { location?: MessageView["location"] }): string {
@@ -4559,11 +4596,13 @@ export class ServerSession {
   // --- Notifications ---
 
   /**
-   * Whether the person is using this device right now: the desktop without
-   * being idle, the phone app on screen. While they are, their other devices
-   * keep quiet and nothing is pushed to them.
+   * Whether the person is using this device right now: as in Telegram, the
+   * desktop's window in front with input in the last 30 s, the phone app on
+   * screen. While they are, and for a while after, their other devices'
+   * notifications wait, and don't show if they read the chat here.
    */
   setActive(active: boolean): void {
+    if (this.active && !active) this.leftHereAt = Date.now();
     this.active = active;
     this.socket.setActive(active);
   }

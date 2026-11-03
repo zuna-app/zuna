@@ -93,6 +93,8 @@ type Config struct {
 	LiveKitSecret      string
 	// VoiceGrace replaces how long a device that lost its socket stays in a voice channel.
 	VoiceGrace time.Duration
+	// PushWait replaces how long a phone's notification waits while its person is on another device.
+	PushWait time.Duration
 }
 
 type Server struct {
@@ -132,6 +134,7 @@ type Server struct {
 	pushQueue  chan pushJob
 	pushers    sync.Once
 	notified   notifiedChats
+	waiting    waitingPushes
 }
 
 // New makes a server. A trusted proxy that can't be read is a mistake in the

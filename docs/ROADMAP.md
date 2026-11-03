@@ -28,7 +28,7 @@ The iPhone app's approach carries over:
 | Keychain | Android Keystore protects the device key. |
 | Notifications | The push relay gains Firebase Cloud Messaging next to APNs; servers can also push through UnifiedPush directly, for phones without Google services. |
 
-**Push notifications are built.** A server pushes only the group and message IDs, sealed with a key the device gave it, through `zuna-push`, a small relay the project runs, since Apple and Google tie push credentials to a published app. The relay sees only sealed handles, sealed payloads and timing, and the phone fetches and decrypts the message itself. Nobody is pushed while they use one of their devices, and silent pushes clear what was read or deleted elsewhere.
+**Push notifications are built.** A server pushes only the group and message IDs, sealed with a key the device gave it, through `zuna-push`, a small relay the project runs, since Apple and Google tie push credentials to a published app. The relay sees only sealed handles, sealed payloads and timing, and the phone fetches and decrypts the message itself. As in Telegram, a phone in use isn't pushed, one whose person is on another device is pushed 30 s later if they didn't read the message there, and silent pushes clear what was read or deleted elsewhere.
 
 ## Voice, video and screen sharing
 

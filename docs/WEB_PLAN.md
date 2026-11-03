@@ -130,7 +130,7 @@ The database can only be open in one tab, and two cores on one device would comp
 
 ### Where the phone gets notified
 
-The desktop tells the server when the person is at the computer, so their phone stays quiet (`state/activity.ts`). The web app does the same: the person is here while the tab is visible and focused and there was input within the chosen time. The "Away after" setting stays, and the other notification settings go.
+As on the desktop (`state/activity.ts`), the person is using the app while the tab has focus and there was input in the last 30 s, and 5 s after it loses focus they're not. While they're here, and for a few minutes after, their phone is pushed 30 s later, only about what they didn't read here (`notificationDelay` in the core, `pushWait` on the server).
 
 ### Everything else Electron does
 
