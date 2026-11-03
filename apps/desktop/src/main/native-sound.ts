@@ -1,9 +1,9 @@
-// The computer's sound for a screen share, from the native screen capture program: on
-// Linux and macOS, which Chromium can't capture there, everything playing apart from Zuna,
-// so that nobody in the call hears themselves back, or one app's, from PipeWire or Core
-// Audio's taps. On Windows, where Chromium captures everything but Zuna, one app's, through
-// process loopback. Its samples go to the renderer over a MessagePort, straight to the
-// audio thread that plays them into the published track. docs/SCREEN_SHARE.md has more.
+// The computer's sound for a screen share, from the native screen capture program:
+// everything playing apart from Zuna, so that nobody in the call hears themselves back, or
+// one app's, from PipeWire on Linux, process loopback on Windows and Core Audio's taps on
+// macOS. Chromium can't take one app's anywhere, nor anything on Linux or macOS. Its samples
+// go to the renderer over a MessagePort, straight to the audio thread that plays them into
+// the published track. docs/SCREEN_SHARE.md has more.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";

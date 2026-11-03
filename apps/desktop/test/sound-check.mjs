@@ -21,7 +21,7 @@ import { _electron as electron } from "playwright-core";
 import { ensureLiveKit } from "../../../scripts/lib.mjs";
 
 if (process.platform !== "linux") {
-  console.log("Zuna only captures the computer's sound itself on Linux, so there's nothing to check here.");
+  console.log("This checks Linux's sound; mac-sound-check.mjs checks macOS's and win-sound-check.mjs Windows's.");
   process.exit(0);
 }
 

@@ -535,7 +535,7 @@ function registerIpc(): void {
     nativeScreen?.stop();
     nativeScreen = null;
   });
-  // The computer's sound for a share: on Linux, where Chromium can't capture it, and one app's anywhere.
+  // The computer's sound for a share, everything but Zuna or one app's, from the native program.
   handle("zuna:sound-apps", () => listSoundApps());
   handle("zuna:sound-window-app", (_event, source: unknown) => (typeof source === "string" ? windowSoundApp(source) : null));
   handle("zuna:native-sound-start", async (event, app: unknown) => {
@@ -680,7 +680,8 @@ if (!app.requestSingleInstanceLock()) {
       callback(permission === "notifications" || permission === "clipboard-sanitized-write" || permission === "geolocation" || permission === "media" || permission === "display-capture" || permission === "speaker-selection");
     });
     // A share that can't go natively goes through Chromium, as everything does on macOS. What it gets is
-    // what was picked in the app, and nothing happens unless something has been.
+    // what was picked in the app, and nothing happens unless something has been. Its sound only comes
+    // from Chromium on Windows in a build without the native program, which takes it otherwise.
     session.defaultSession.setDisplayMediaRequestHandler(
       (_request, callback) => {
         const wanted = nextDisplay;

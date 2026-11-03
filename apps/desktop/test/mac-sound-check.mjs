@@ -23,7 +23,7 @@ import { _electron as electron, chromium } from "playwright-core";
 import { ensureLiveKit } from "../../../scripts/lib.mjs";
 
 if (process.platform !== "darwin") {
-  console.log("This checks macOS's sound; sound-check.mjs checks Linux's.");
+  console.log("This checks macOS's sound; sound-check.mjs checks Linux's and win-sound-check.mjs Windows's.");
   process.exit(0);
 }
 
