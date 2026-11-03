@@ -2,8 +2,8 @@ import SwiftUI
 import ZunaModels
 
 /// Making a channel, or changing one, for a server admin, as the desktop's
-/// ChannelDialog. A voice channel's sound, size and screen sharing are set on
-/// the desktop for now.
+/// ChannelDialog: for a voice channel, also its sound, how many fit, and how
+/// many can share a screen there.
 struct ChannelEditor: View {
     enum Target: Identifiable, Hashable {
         case new(ChannelType, category: String)
@@ -28,6 +28,9 @@ struct ChannelEditor: View {
     @State private var name = ""
     @State private var topic = ""
     @State private var category = ""
+    @State private var bitrate = 0
+    @State private var userLimit = 0
+    @State private var screenLimit = 0
     @State private var loaded = false
     @State private var busy = false
     @State private var confirmingDelete = false
@@ -37,6 +40,26 @@ struct ChannelEditor: View {
     private var channel: ChannelView? {
         guard case let .edit(id) = target else { return nil }
         return server?.channels.first { $0.id == id }
+    }
+
+    /// As the desktop offers them (AUDIO_QUALITIES in ChannelDialog.tsx), in kbit/s, 0 being the usual.
+    private static let audioQualities: [(kbps: Int, label: String)] = [
+        (0, "Usual (64 kbit/s)"), (96, "Better (96 kbit/s)"), (128, "Great (128 kbit/s)"), (256, "Best (256 kbit/s)"),
+    ]
+
+    /// How many may share a screen at once (SCREEN_LIMITS in ChannelDialog.tsx): 0 is the server's rules, -1 nobody.
+    private static func screenLimitName(_ limit: Int) -> String {
+        switch limit {
+        case 0: "As the server's rules say"
+        case -1: "Off in this channel"
+        case 1: "One at a time"
+        default: "Up to \(limit) at once"
+        }
+    }
+
+    private var screenLimits: [Int] {
+        let offered = [0, -1, 1, 2, 3, 4, 5, 10]
+        return offered.contains(screenLimit) ? offered : offered + [screenLimit]
     }
 
     /// Text channels go by lowercase names with dashes, as in Discord, which also keeps them easy to mention.
@@ -66,7 +89,7 @@ struct ChannelEditor: View {
                         .accessibilityIdentifier(A11y.Channels.editorType)
                     } footer: {
                         Text(type == .text ? "Messages, pictures and files." : (server?.info?.voice ?? 0) > 0
-                            ? "Talk, share a camera or a screen, from a computer."
+                            ? "Talk, share a camera or a screen."
                             : "This server has no media server yet, so nobody can join voice channels. Whoever runs it can set up LiveKit.")
                     }
                 }
@@ -105,6 +128,9 @@ struct ChannelEditor: View {
                 } footer: {
                     Text("Channels with the same heading are listed together under it.")
                 }
+                if type == .voice {
+                    voiceSection
+                }
                 if channel != nil {
                     Section {
                         Button("Delete channel", role: .destructive) { confirmingDelete = true }
@@ -136,6 +162,38 @@ struct ChannelEditor: View {
         .onAppear(perform: load)
     }
 
+    private var voiceSection: some View {
+        Section {
+            Picker("Audio quality", selection: $bitrate) {
+                ForEach(Self.audioQualities, id: \.kbps) { quality in
+                    Text(quality.label).tag(quality.kbps)
+                }
+            }
+            .accessibilityIdentifier(A11y.Channels.editorBitrate)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("People who fit")
+                    Spacer()
+                    Text(userLimit == 0 ? "No limit" : "\(userLimit)").foregroundStyle(Theme.text2).monospacedDigit()
+                }
+                Slider(value: Binding(get: { Double(userLimit) }, set: { userLimit = Int($0.rounded()) }), in: 0...99, step: 1)
+                    .accessibilityLabel("People who fit")
+                    .accessibilityValue(userLimit == 0 ? "No limit" : "\(userLimit)")
+                    .accessibilityIdentifier(A11y.Channels.editorUserLimit)
+            }
+            Picker("Screen sharing", selection: $screenLimit) {
+                ForEach(screenLimits, id: \.self) { limit in
+                    Text(Self.screenLimitName(limit)).tag(limit)
+                }
+            }
+            .accessibilityIdentifier(A11y.Channels.editorScreenLimit)
+        } header: {
+            Text("Voice")
+        } footer: {
+            Text("Screen sharing can be held to fewer at once here than the server's rules allow, or be off.")
+        }
+    }
+
     private func load() {
         guard !loaded else { return }
         loaded = true
@@ -149,19 +207,31 @@ struct ChannelEditor: View {
             name = channel.name
             topic = channel.topic
             category = channel.category
+            bitrate = channel.bitrate
+            userLimit = channel.userLimit
+            screenLimit = channel.screenLimit
         }
     }
 
     private func save() {
         let session = model.core.session(serverId)
-        let made = NewChannel(type: type, name: finalName, topic: topic.trimmingCharacters(in: .whitespacesAndNewlines), category: category.trimmingCharacters(in: .whitespacesAndNewlines))
+        let voice = type == .voice
+        let made = NewChannel(
+            type: type,
+            name: finalName,
+            topic: topic.trimmingCharacters(in: .whitespacesAndNewlines),
+            category: category.trimmingCharacters(in: .whitespacesAndNewlines),
+            bitrate: voice ? bitrate : nil,
+            userLimit: voice ? userLimit : nil,
+            screenLimit: voice ? screenLimit : nil
+        )
         let channel = channel
         busy = true
         Task {
             defer { busy = false }
             do {
                 if let channel {
-                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category))
+                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit))
                     dismiss()
                 } else {
                     let id = try await session.createChannel(made)

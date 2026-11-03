@@ -184,4 +184,65 @@ final class ChannelsTests: XCTestCase {
         try waitFor("back at the list") { self.zuna.element(A11y.Channels.heading("Text channels")).exists }
         XCTAssertFalse(zuna.element(A11y.Channels.row(made)).exists)
     }
+
+    /// Picks an option from one of the editor's menus.
+    private func choose(_ option: String, in picker: String) {
+        zuna.element(picker).tap()
+        let button = zuna.app.buttons[option]
+        XCTAssertTrue(button.waitForExistence(timeout: 5), "no \(option)")
+        button.tap()
+    }
+
+    func testAdminsSetAVoiceChannelsSoundSizeAndSharing() throws {
+        let carol = try Peer("carol")
+        try zuna.launch()
+        try zuna.signIn(as: "alice")
+        try zuna.waitForChats()
+        let add = zuna.element(A11y.Channels.add("Voice channels"))
+        XCTAssertTrue(add.waitForExistence(timeout: 30))
+
+        // Made with the best sound, room for a few, and one screen at a time.
+        add.tap()
+        XCTAssertTrue(zuna.element(A11y.Channels.editor).waitForExistence(timeout: 5))
+        zuna.type("Studio", into: A11y.Channels.editorName)
+        choose("Best (256 kbit/s)", in: A11y.Channels.editorBitrate)
+        // The last menu brings the slider up from under the keyboard.
+        choose("One at a time", in: A11y.Channels.editorScreenLimit)
+        zuna.element(A11y.Channels.editorUserLimit).adjust(toNormalizedSliderPosition: 0.3)
+        zuna.screenshot("93b-new-voice-channel")
+        zuna.element(A11y.Channels.editorSave).tap()
+        var made = ""
+        try waitFor("carol to see it with its sound, size and sharing", timeout: 30) {
+            guard let channel = try self.channels(carol).first(where: { $0["name"] as? String == "Studio" }) else { return false }
+            made = channel["id"] as? String ?? ""
+            return channel["bitrate"] as? Int == 256 && (channel["userLimit"] as? Int ?? 0) > 0 && channel["screenLimit"] as? Int == 1
+        }
+
+        // Changed from its row: the usual sound, no limit, and no sharing there.
+        let row = zuna.element(A11y.Channels.row(made))
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.press(forDuration: 1.0)
+        let edit = zuna.app.buttons["Edit channel"]
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+        XCTAssertTrue(zuna.element(A11y.Channels.editor).waitForExistence(timeout: 5))
+        choose("Usual (64 kbit/s)", in: A11y.Channels.editorBitrate)
+        choose("Off in this channel", in: A11y.Channels.editorScreenLimit)
+        zuna.element(A11y.Channels.editorUserLimit).adjust(toNormalizedSliderPosition: 0)
+        zuna.element(A11y.Channels.editorSave).tap()
+        try waitFor("carol to see it changed", timeout: 30) {
+            guard let channel = try self.channels(carol).first(where: { $0["id"] as? String == made }) else { return false }
+            return (channel["bitrate"] as? Int ?? 0) == 0 && channel["userLimit"] as? Int == 0 && channel["screenLimit"] as? Int == -1
+        }
+
+        // Deleted, so the other tests find the server as it was.
+        row.press(forDuration: 1.0)
+        XCTAssertTrue(edit.waitForExistence(timeout: 5))
+        edit.tap()
+        zuna.element(A11y.Channels.delete).tap()
+        let confirm = zuna.app.sheets.buttons["Delete channel"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        try waitFor("carol to lose it", timeout: 20) { try !self.channels(carol).contains { $0["id"] as? String == made } }
+    }
 }

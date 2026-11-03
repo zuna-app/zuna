@@ -525,25 +525,39 @@ public struct NewChannel: Codable, Sendable, Equatable {
     public var name: String
     public var topic: String?
     public var category: String?
+    /// For a voice channel, as `ChannelView` has them.
+    public var bitrate: Int?
+    public var userLimit: Int?
+    public var screenLimit: Int?
 
-    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil) {
+    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil) {
         self.type = type
         self.name = name
         self.topic = topic
         self.category = category
+        self.bitrate = bitrate
+        self.userLimit = userLimit
+        self.screenLimit = screenLimit
     }
 }
 
 /// What changes about a channel, for `updateChannel`; nil fields stay as they are.
+/// A `bitrate` of 0 goes back to the usual.
 public struct ChannelChanges: Codable, Sendable, Equatable {
     public var name: String?
     public var topic: String?
     public var category: String?
+    public var bitrate: Int?
+    public var userLimit: Int?
+    public var screenLimit: Int?
 
-    public init(name: String? = nil, topic: String? = nil, category: String? = nil) {
+    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil) {
         self.name = name
         self.topic = topic
         self.category = category
+        self.bitrate = bitrate
+        self.userLimit = userLimit
+        self.screenLimit = screenLimit
     }
 }
 
