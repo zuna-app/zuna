@@ -22,8 +22,8 @@ struct TextStyle {
     /// Emotes stand a little taller than the text, as on the desktop (26 px at 14.5 px).
     var emoteHeight: CGFloat {
         switch jumbo {
-        case 2: 64 * size / 14.5
-        case 1: 48 * size / 14.5
+        case 2: 48 * size / 14.5
+        case 1: 40 * size / 14.5
         default: size * 1.8
         }
     }
@@ -55,7 +55,7 @@ enum MessageTextBuilder {
     static func baseAttributes(_ style: TextStyle) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineHeightMultiple = 1.08
-        return [.font: style.jumbo > 0 ? UIFont.systemFont(ofSize: style.jumbo == 2 ? style.size * 2.9 : style.size * 2.3) : style.font, .foregroundColor: style.color, .paragraphStyle: paragraph]
+        return [.font: style.jumbo > 0 ? UIFont.systemFont(ofSize: style.jumbo == 2 ? style.size * 2.35 : style.size * 1.95) : style.font, .foregroundColor: style.color, .paragraphStyle: paragraph]
     }
 
     private static func append(

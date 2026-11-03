@@ -111,7 +111,7 @@
 .msg.is-jumbo .msg-meta { float: none; display: inline-flex; color: var(--text-3); }
 /* Below the emote, at its right edge, as under a sticker in Telegram. */
 .msg.is-jumbo .bubble > .msg-meta { display: flex; width: fit-content; margin: 1px 0 0 auto; }
-.jumbo-emoji { font-size: 42px; line-height: 1.15; }
+.jumbo-emoji { font-size: 34px; line-height: 1.15; }
 
 .msg-author { display: block; font-size: 13px; font-weight: 600; margin-bottom: 1px; }
 .msg-text { white-space: pre-wrap; }
@@ -232,12 +232,12 @@
 /* Emotes */
 .emote { display: inline-block; vertical-align: middle; object-fit: contain; }
 .emote-inline { height: 26px; max-width: 110px; margin: -3px 1px; }
-.emote-jumbo { height: 64px; max-width: 200px; }
+.emote-jumbo { height: 48px; max-width: 150px; }
 .emote-reaction { height: 18px; max-width: 40px; }
 .emote-picker { width: 100%; height: 100%; }
 /* 7TV zero-width emotes draw on top of the emote before them. */
 .emote-zero-width { margin-left: -28px; }
-.emote-jumbo.emote-zero-width { margin-left: -66px; }
+.emote-jumbo.emote-zero-width { margin-left: -50px; }
 .emote-fallback { color: var(--text-2); }
 
 /* Reactions live inside the bubble, with the time beside them, as in Telegram. */

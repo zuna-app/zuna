@@ -172,8 +172,9 @@
 .msg.is-channel .inline-code { background: var(--bg-3); padding: 0.15em 0.25em; border-radius: 4px; }
 .msg.is-channel .mention { padding: 0 2px; border-radius: 3px; font-weight: 500; background: var(--accent-soft); color: var(--accent-text); }
 .msg.is-channel .mention:hover { background: var(--accent); color: var(--on-accent); }
-.msg.is-channel .jumbo-emoji { font-size: 44px; line-height: 48px; }
-.msg.is-channel .emote-jumbo { height: 48px; }
+.msg.is-channel .jumbo-emoji { font-size: 36px; line-height: 40px; }
+.msg.is-channel .emote-jumbo { height: 40px; }
+.msg.is-channel .emote-jumbo.emote-zero-width { margin-left: -40px; }
 .msg.is-channel.is-jumbo .msg-text { display: block; }
 .msg.is-channel .msg-forwarded { margin: 0 0 2px; padding-left: 8px; border-left: 2px solid var(--spine); font-style: italic; }
 
