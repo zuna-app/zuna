@@ -16,6 +16,7 @@ import {
   PhoneOff,
   Pin,
   PinOff,
+  Settings,
   ShieldOff,
   Shrink,
   UserX,
@@ -74,12 +75,25 @@ function MemberMenu({ userId, channelId, member, x, y, onClose }: { userId: stri
   const toast = useApp((state) => state.toast);
   const localMuted = useVoice((state) => !!state.localMutes[userId]);
   const toggleLocalMute = useVoice((state) => state.toggleLocalMute);
+  const micOff = useVoice((state) => state.muted || state.deafened);
+  const deafened = useVoice((state) => state.deafened);
+  const canTalk = useVoice((state) => !state.serverMuted && !state.noMic);
+  const toggleMute = useVoice((state) => state.toggleMute);
+  const toggleDeafen = useVoice((state) => state.toggleDeafen);
   const selfRole = server?.self?.role;
   const isSelf = userId === server?.self?.userId;
   const target = server?.users[userId];
   const canModerate = !isSelf && (selfRole === "owner" || (selfRole === "admin" && target?.role === "member"));
   const fail = (error: Error) => toast(error.message, "error");
   const entries: MenuEntry[] = [
+    // On yourself, what the buttons below the call do, as there's nothing to do to yourself.
+    ...(isSelf
+      ? [
+          ...(canTalk ? [{ label: micOff ? "Unmute" : "Mute", icon: micOff ? <Mic size={15} /> : <MicOff size={15} />, onSelect: toggleMute }] : []),
+          { label: deafened ? "Undeafen" : "Deafen", icon: deafened ? <Headphones size={15} /> : <HeadphoneOff size={15} />, onSelect: toggleDeafen },
+          { label: "Voice settings", icon: <Settings size={15} />, onSelect: () => setOverlay({ type: "settings", section: "voice" }) },
+        ]
+      : []),
     ...(isSelf ? [] : [{ label: localMuted ? "Unmute for me" : "Mute for me", icon: localMuted ? <Volume2 size={15} /> : <VolumeX size={15} />, onSelect: () => toggleLocalMute(userId) }]),
     ...(isSelf ? [] : [{ label: "Verify with emoji", icon: <Lock size={15} />, onSelect: () => setOverlay({ type: "verify", userId }) }]),
     ...(canModerate

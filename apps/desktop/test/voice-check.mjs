@@ -581,6 +581,12 @@ try {
   await sleep(1200);
   check("and comes back from it", !(await fullScreenTile()) && (await screenTile.getByRole("button", { name: "Full screen" }).count()) === 1);
 
+  // Someone's own menu has what the buttons below the call do, not nothing.
+  await bob.page.locator(".voice-tile", { hasText: "(you)" }).first().click({ button: "right" });
+  const ownMenu = await bob.page.getByRole("menuitem").allTextContents();
+  check("someone's own menu in a call isn't empty", ownMenu.some((entry) => entry.includes("Voice settings")) && ownMenu.some((entry) => /deafen/i.test(entry)), ownMenu.join(", "));
+  await bob.page.keyboard.press("Escape");
+
   // --- Stream stats, and whether the frame rate that was asked for is what's happening ---
   await animateTheScreen(alice);
   await alice.page.getByRole("button", { name: "Stream stats" }).click();
