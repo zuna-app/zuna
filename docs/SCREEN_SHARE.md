@@ -181,6 +181,8 @@ What's sent depends on the screen changing: a still screen gets half a second at
 
 Windows drops a frame that arrives inside its minimum interval, and at the screen's own refresh rate that's a lot of them: asking for 239 fps on that monitor got 208, and asking for half the interval got 239. So it asks for half the interval, and the program waits for each frame's turn itself.
 
+On both systems a frame comes a little unevenly, so the last one is only repeated once an interval longer than usual has gone by without a new one. Without that, a repeat went out just before each late frame. On Windows the late frame then waited for the next turn, by which time a newer one had taken its place: a video playing at 60 fps went out as 30 new frames and 30 repeats, each new one 33.3 ms after the last, which someone watching saw as the picture stepping back to the frame before.
+
 On Linux it asks the compositor for exactly the frame rate, since KWin keeps to that with a timer rather than the screen's refreshes, and it can't wait for a turn without holding on to the compositor's buffer. It asked for a quarter more until KWin was measured, which made it drop every fifth frame, so frames went out unevenly. Measured on KDE with something moving at 360 fps, frames going to the encoder:
 
 | Screen, asked for | A quarter more | Exactly |

@@ -552,7 +552,6 @@ impl Capture {
 
     pub fn run(&mut self, pipeline: &mut Pipeline, stop: &AtomicBool) -> Result<()> {
         let api = self.api;
-        pipeline.allow_late_frames(self.shared.interval);
         unsafe { (api.thread_loop_lock)(self.thread_loop) };
         self.shared.pipeline = pipeline;
         unsafe { (api.thread_loop_unlock)(self.thread_loop) };
