@@ -825,6 +825,8 @@ try {
     await tile.hover();
     const slider = tile.getByRole("slider", { name: "Stream volume" });
     const offered = await slider.isVisible().catch(() => false);
+    await sleep(200);
+    await shot(alice, `09d-stream-volume-${route.replaceAll(" ", "-")}`);
     await tile.getByRole("button", { name: "Mute stream" }).click();
     const silenced = await slider.inputValue();
     const saved = await alice.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem("zuna-voice-stream-volumes") ?? "{}")));
