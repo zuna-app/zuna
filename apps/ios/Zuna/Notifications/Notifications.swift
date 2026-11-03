@@ -14,6 +14,10 @@ final class Notifications {
     static let messageCategory = "message"
     static let replyAction = "reply"
     static let markReadAction = "markRead"
+    /// The category of a call ringing where the system doesn't ring it, with Answer and Decline.
+    static let callCategory = "call"
+    static let answerCallAction = "answerCall"
+    static let declineCallAction = "declineCall"
 
     var settings = NotificationSettings.load() {
         didSet {
@@ -56,7 +60,12 @@ final class Notifications {
             textInputPlaceholder: "Message"
         )
         let read = UNNotificationAction(identifier: markReadAction, title: "Mark as read", options: [.authenticationRequired])
-        return [UNNotificationCategory(identifier: messageCategory, actions: [reply, read], intentIdentifiers: [], options: [])]
+        let answer = UNNotificationAction(identifier: answerCallAction, title: "Answer", options: [.foreground])
+        let decline = UNNotificationAction(identifier: declineCallAction, title: "Decline", options: [.destructive, .authenticationRequired])
+        return [
+            UNNotificationCategory(identifier: messageCategory, actions: [reply, read], intentIdentifiers: [], options: []),
+            UNNotificationCategory(identifier: callCategory, actions: [answer, decline], intentIdentifiers: [], options: []),
+        ]
     }
 
     /// The relay the app registers with: the build's, or a test's.
@@ -213,6 +222,20 @@ final class Notifications {
             await reply(text, to: target)
         case Self.markReadAction:
             await markRead(target)
+        case Self.answerCallAction:
+            if let id = userInfo["call"] as? String, let call = model.voice.incomingCall(id) {
+                await model.voice.answer(call, camera: false)
+            } else if let key = await conversationKey(target) {
+                // It stopped ringing meanwhile: the chat says whether the call goes on.
+                model.selectServer(target.serverId)
+                model.openChat(key)
+            }
+        case Self.declineCallAction:
+            if let id = userInfo["call"] as? String, let call = model.voice.incomingCall(id) {
+                model.voice.decline(call)
+            } else if let groupId = target.groupId ?? userInfo["groupId"] as? String {
+                try? await model.core.session(target.serverId).declineCall(groupId)
+            }
         default:
             model.selectServer(target.serverId)
             if let key = await conversationKey(target) {

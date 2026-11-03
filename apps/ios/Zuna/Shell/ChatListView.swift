@@ -572,6 +572,8 @@ private struct ChatRow: View {
         Group {
             if typing {
                 Text("typing…").foregroundStyle(Theme.link)
+            } else if conversation.groupId.flatMap({ server.calls[$0] }) != nil {
+                Label("In a call", systemImage: "phone.fill").foregroundStyle(Theme.green)
             } else if body.isEmpty, author == nil {
                 Text(isSaved ? "Notes to yourself" : peer.map { "@\($0.username)" } ?? "")
                     .foregroundStyle(Theme.text3)

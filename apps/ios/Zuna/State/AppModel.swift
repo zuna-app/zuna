@@ -16,8 +16,10 @@ final class AppModel {
         var conversations: [ConversationView] = []
         /// The server's channels, in order, apart from the conversations, as the core gives them.
         var channels: [ChannelView] = []
-        /// Who's in the voice channels, by device.
+        /// Who's in the voice channels and the calls, by device.
         var voice: [String: VoiceMember] = [:]
+        /// The calls going on in this person's conversations, by group.
+        var calls: [String: CallView] = [:]
         var users: [String: UserView] {
             didSet { mentionable = Self.mentionable(users) }
         }
@@ -28,7 +30,7 @@ final class AppModel {
         /// groupId -> userId -> when the typing indicator expires.
         var typing: [String: [String: Date]] = [:]
 
-        init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], channels: [ChannelView], voice: [VoiceMember], users: [String: UserView], emotes: EmoteSet, prefs: Preferences) {
+        init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], channels: [ChannelView], voice: [VoiceMember], calls: [CallView] = [], users: [String: UserView], emotes: EmoteSet, prefs: Preferences) {
             self.entry = entry
             self.info = info
             self.connection = connection
@@ -36,6 +38,7 @@ final class AppModel {
             self.conversations = conversations
             self.channels = channels
             self.voice = Dictionary(voice.map { ($0.deviceId, $0) }, uniquingKeysWith: { $1 })
+            self.calls = Dictionary(calls.map { ($0.groupId, $0) }, uniquingKeysWith: { $1 })
             self.users = users
             self.mentionable = Self.mentionable(users)
             self.emotes = emotes
@@ -93,6 +96,15 @@ final class AppModel {
 
         func isBlocked(_ userId: String) -> Bool {
             prefs.blocked?.contains(userId) ?? false
+        }
+
+        /// Whether direct messages and groups can have calls here.
+        var hasCalls: Bool { (info?.calls ?? 0) > 0 }
+
+        /// Who's in a conversation's call, or a voice channel, by user, in the order they came.
+        func inRoom(_ roomId: String) -> [String] {
+            var seen = Set<String>()
+            return voice.values.filter { $0.channelId == roomId }.sorted { $0.since < $1.since }.map(\.userId).filter { seen.insert($0).inserted }
         }
     }
 
@@ -260,6 +272,7 @@ final class AppModel {
             async let conversations = session.getConversations()
             async let channels = session.getChannels()
             async let voice = session.getVoiceMembers()
+            async let calls = session.getCalls()
             async let users = session.getUsers()
             async let emotes = session.getEmotes()
             async let prefs = session.getPreferences()
@@ -274,6 +287,7 @@ final class AppModel {
                 conversations: try await conversations,
                 channels: try await channels,
                 voice: try await voice,
+                calls: try await calls,
                 users: Dictionary(uniqueKeysWithValues: try await users.map { ($0.id, $0) }),
                 emotes: try await emotes,
                 prefs: try await prefs
@@ -375,18 +389,20 @@ final class AppModel {
         case let .channels(serverId):
             refresh("conversations", serverId)
             refresh("voice", serverId)
-        case let .voice(serverId, _, _, deviceId, member):
+        case let .voice(serverId, channelId, userId, deviceId, member):
             servers[serverId]?.voice[deviceId] = member
-            if let member { voice.memberChanged(serverId: serverId, member) }
+            if let member { voice.memberChanged(serverId: serverId, member) } else { voice.memberLeft(serverId: serverId, roomId: channelId, userId: userId) }
         case let .voiceKey(serverId, channelId):
             voice.keyChanged(serverId: serverId, channelId: channelId)
         case let .voiceEnded(serverId, channelId, reason):
             voice.ended(serverId: serverId, channelId: channelId, reason: reason)
         case let .screenEnded(serverId, channelId, reason):
             voice.screenEnded(serverId: serverId, channelId: channelId, reason: reason)
-        case .call, .calls:
-            // The app has no calls in direct messages and groups yet, so its core says nothing of them.
-            break
+        case let .call(serverId, groupId, call):
+            servers[serverId]?.calls[groupId] = call
+            voice.callChanged(serverId: serverId, groupId: groupId, call: call)
+        case let .calls(serverId):
+            refresh("calls", serverId)
         case let .users(serverId):
             refresh("users", serverId)
             refresh("conversations", serverId)
@@ -485,6 +501,13 @@ final class AppModel {
                 case "voice":
                     let members = try await session.getVoiceMembers()
                     servers[serverId]?.voice = Dictionary(members.map { ($0.deviceId, $0) }, uniquingKeysWith: { $1 })
+                case "calls":
+                    async let calls = session.getCalls()
+                    async let members = session.getVoiceMembers()
+                    let (listed, inRooms) = try await (calls, members)
+                    servers[serverId]?.voice = Dictionary(inRooms.map { ($0.deviceId, $0) }, uniquingKeysWith: { $1 })
+                    servers[serverId]?.calls = Dictionary(listed.map { ($0.groupId, $0) }, uniquingKeysWith: { $1 })
+                    voice.callsChanged(serverId: serverId)
                 case "users":
                     let users = try await session.getUsers()
                     let me = try await session.getSelf()

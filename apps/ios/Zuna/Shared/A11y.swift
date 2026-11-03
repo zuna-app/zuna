@@ -114,6 +114,10 @@ enum A11y {
         static let readBy = "chat.readBy"
         static func blockedMessage(_ id: String) -> String { "chat.blocked.\(id)" }
         static let toBottom = "chat.toBottom"
+        static let call = "chat.call"
+        static let videoCall = "chat.videoCall"
+        static let joinCall = "chat.joinCall"
+        static let callBanner = "chat.callBanner"
         static let toMention = "chat.toMention"
         static let unreadLine = "chat.unreadLine"
         static func location(_ messageId: String) -> String { "chat.location.\(messageId)" }
@@ -248,6 +252,12 @@ enum A11y {
         static let stats = "voice.stats"
         static let statsSheet = "voice.stats.sheet"
         static let statsHeadline = "voice.stats.headline"
+        static func ringing(_ userId: String) -> String { "voice.ringing.\(userId)" }
+        static let ringAgain = "voice.ringAgain"
+        static let incoming = "voice.incoming"
+        static let answer = "voice.incoming.answer"
+        static let answerWithVideo = "voice.incoming.answerWithVideo"
+        static let decline = "voice.incoming.decline"
     }
 
     enum Settings {

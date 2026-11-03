@@ -1,5 +1,6 @@
 import AVFoundation
 import CallKit
+import CryptoKit
 import LiveKit
 import os
 import StoreKit
@@ -9,6 +10,10 @@ import StoreKit
 /// comes in. Nothing goes in the Phone app's recents, which iCloud would keep. CallKit
 /// starts the call's audio, so LiveKit's engine waits for it
 /// (livekit/client-sdk-swift's README, "Integration with CallKit").
+///
+/// A direct message's or a group's call ringing this person comes in through it too, as a
+/// phone call does. Where CallKit is left out, as on China's App Store, the app rings by itself
+/// (`VoiceModel.incoming`).
 @MainActor
 final class SystemCall: NSObject {
     struct Actions {
@@ -16,6 +21,14 @@ final class SystemCall: NSObject {
         var mute: (Bool) -> Bool
         /// Ended from the system's controls, or by a phone call taking its place.
         var end: () -> Void
+    }
+
+    /// What the system's screen for a call coming in can do with it.
+    struct Ringing {
+        /// Answered. The call it becomes is the system's current one already.
+        var answer: () -> Void
+        /// Declined, before it was answered.
+        var decline: () -> Void
     }
 
     private let provider: CXProvider
@@ -27,6 +40,8 @@ final class SystemCall: NSObject {
     private var hasConnected = false
     /// Whether the system shows the call muted.
     private var muted = false
+    /// Calls ringing here that the system is showing, by their ID.
+    private var ringing: [UUID: Ringing] = [:]
     /// Whether CallKit has started the call's audio.
     private var audioActive = false
     /// Should CallKit not start the audio, the call still has sound, without it.
@@ -41,7 +56,7 @@ final class SystemCall: NSObject {
 
     /// Apps on the App Store in mainland China may not use CallKit. The phone's region alone doesn't tell: someone
     /// on China's App Store can have theirs set elsewhere.
-    private func allowed() async -> Bool {
+    func allowed() async -> Bool {
         #if DEBUG
         // The simulator's CallKit ends a call as soon as it has it, having no audio to give it, and its audio
         // session is the Mac's. Test builds only hand a call to it when a test asks.
@@ -103,11 +118,81 @@ final class SystemCall: NSObject {
         }
     }
 
-    /// The call has come in.
+    /// The call has come in. One that was answered here already had.
     func connected() {
-        guard let current else { return }
+        guard let current, !hasConnected else { return }
         hasConnected = true
         provider.reportOutgoingCall(with: current, connectedAt: nil)
+    }
+
+    // MARK: Calls coming in
+
+    /// The same ID for a call on every device and in every push, so the system shows it once.
+    nonisolated static func callId(serverId: String, groupId: String, startedAt: Int) -> UUID {
+        var bytes = Array(SHA256.hash(data: Data("zuna/call/v1|\(serverId)|\(groupId)|\(startedAt)".utf8)).prefix(16))
+        // A version 5 UUID's layout, as one made from a name.
+        bytes[6] = (bytes[6] & 0x0f) | 0x50
+        bytes[8] = (bytes[8] & 0x3f) | 0x80
+        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
+    /// Shows a call ringing this person, on the lock screen and over other apps, as a phone call. False where the
+    /// system doesn't take it, and the app rings by itself.
+    func ring(_ id: UUID, title: String, actions: Ringing) async -> Bool {
+        guard await allowed() else { return false }
+        if ringing[id] != nil { return true }
+        ringing[id] = actions
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: title)
+        update.localizedCallerName = title
+        update.supportsHolding = false
+        update.supportsGrouping = false
+        update.supportsUngrouping = false
+        update.supportsDTMF = false
+        do {
+            try await provider.reportNewIncomingCall(with: id, update: update)
+            return true
+        } catch let error as CXErrorCodeIncomingCallError where error.code == .callUUIDAlreadyExists {
+            return true
+        } catch {
+            logger.warning("The system didn't take a call coming in: \(String(describing: error), privacy: .public)")
+            if ringing[id] != nil { ringing[id] = nil }
+            return false
+        }
+    }
+
+    /// A call stopped ringing here without being answered here: answered or declined on another device, ended, or
+    /// not answered for long enough.
+    func stopRinging(_ id: UUID, reason: CXCallEndedReason) {
+        guard ringing.removeValue(forKey: id) != nil else { return }
+        provider.reportCall(with: id, endedAt: nil, reason: reason)
+    }
+
+    /// The app has come into the call that was answered from the system's screen, which ends and mutes it from now on.
+    func answered(_ id: UUID, actions: Actions) {
+        guard current == id else { return }
+        self.actions = actions
+    }
+
+    /// The system's screen answered a call: it becomes the current call, whose audio CallKit starts, so LiveKit waits.
+    private func answeredBySystem(_ id: UUID) -> Bool {
+        guard let actions = ringing.removeValue(forKey: id) else { return false }
+        // Answering while in another call ended that one first, as the system's screen offered.
+        if current != nil { letGo() }
+        current = id
+        hasConnected = true
+        muted = false
+        audioActive = false
+        AudioManager.shared.audioSession.isAutomaticConfigurationEnabled = false
+        try? AudioManager.shared.setEngineAvailability(.none)
+        audioFallback = Task { [weak self] in
+            try? await Task.sleep(for: Self.audioWait)
+            guard let self, !Task.isCancelled, current == id, !audioActive else { return }
+            logger.warning("CallKit didn't start the answered call's audio, so LiveKit does")
+            releaseAudio()
+        }
+        actions.answer()
+        return true
     }
 
     /// The call's camera went on or off, which the system shows as a video call or not.
@@ -161,8 +246,12 @@ final class SystemCall: NSObject {
         try? AudioManager.shared.setEngineAvailability(.default)
     }
 
-    /// Ended from the system's controls. One the app ended has already been let go of.
+    /// Ended from the system's controls. One the app ended has already been let go of. One still ringing was declined.
     private func endedBySystem(_ id: UUID) {
+        if let declined = ringing.removeValue(forKey: id) {
+            declined.decline()
+            return
+        }
         guard id == current else { return }
         // Before the call has come in, it's the system that couldn't keep it, as the simulator's can't, and the
         // call goes on without it, as calls did before CallKit.
@@ -198,9 +287,17 @@ extension SystemCall: CXProviderDelegate {
     nonisolated func providerDidReset(_ provider: CXProvider) {
         MainActor.assumeIsolated {
             let end = actions?.end
+            ringing = [:]
             letGo()
             end?()
         }
+    }
+
+    nonisolated func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
+        // As a call this device starts has it.
+        try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .videoChat, options: [.allowBluetoothHFP, .allowBluetoothA2DP, .allowAirPlay, .defaultToSpeaker])
+        let id = action.callUUID
+        if MainActor.assumeIsolated({ answeredBySystem(id) }) { action.fulfill() } else { action.fail() }
     }
 
     nonisolated func provider(_ provider: CXProvider, perform action: CXStartCallAction) {

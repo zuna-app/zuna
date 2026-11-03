@@ -90,7 +90,8 @@ struct MemberSheet: View {
 
     /// Owners over anyone else, admins over members, as the server allows.
     private var canModerate: Bool {
-        guard member.userId != server.me?.userId else { return false }
+        // A call is between the people in it.
+        guard member.userId != server.me?.userId, !voice.isCall else { return false }
         let role = server.me?.role
         return role == .owner || (role == .admin && server.users[member.userId]?.role == .member)
     }
@@ -192,6 +193,7 @@ struct CallBar: View {
     var body: some View {
         let server = voice.serverId.flatMap { model.servers[$0] }
         let channel = server?.channels.first { $0.id == voice.channelId }
+        let title = voice.isCall ? voice.channelId.flatMap { server?.conversation(groupId: $0)?.title } ?? "Call" : channel?.title ?? "Voice channel"
         HStack(spacing: 10) {
             Button {
                 voice.stageShown = true
@@ -203,10 +205,10 @@ struct CallBar: View {
                         ProgressView().controlSize(.mini).tint(Theme.text1)
                     }
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(voice.status == .connected ? "Voice connected" : voice.status == .reconnecting ? "Reconnecting" : "Connecting")
+                        Text(voice.status == .connected ? (voice.isCall ? "Call connected" : "Voice connected") : voice.status == .reconnecting ? "Reconnecting" : "Connecting")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(voice.status == .connected ? Theme.green : Theme.text2)
-                        Text("\(channel?.title ?? "Voice channel") / \(server?.entry.name ?? "")")
+                        Text("\(title) / \(server?.entry.name ?? "")")
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(Theme.text1)
                             .lineLimit(1)

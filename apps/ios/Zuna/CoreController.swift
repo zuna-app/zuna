@@ -354,6 +354,16 @@ final class CoreController {
         case "voiceLeave":
             model?.voice.leave()
             return "left"
+        case "voiceIncoming":
+            // The calls ringing here, as the app's own card shows them where the system doesn't ring.
+            let calls = model?.voice.incoming.map { ["groupId": $0.groupId, "startedBy": $0.startedBy, "title": $0.title] } ?? []
+            let data = (try? JSONSerialization.data(withJSONObject: calls, options: [.sortedKeys])) ?? Data("[]".utf8)
+            return String(decoding: data, as: UTF8.self)
+        case "voiceAnswer":
+            // Answers the first call ringing here, as its card's button does, and says how that went.
+            guard let model, let call = model.voice.incoming.first else { return "not-ringing" }
+            await model.voice.answer(call, camera: on ?? false)
+            return model.voice.status == .connected ? "connected" : "\(model.voice.status)"
         case "voiceCamera":
             guard let voice = model?.voice else { return "no-call" }
             if voice.camera != (on ?? true) { await voice.toggleCamera() }
@@ -367,6 +377,7 @@ final class CoreController {
             guard let voice = model?.voice else { return "{}" }
             let state: [String: Any] = [
                 "status": "\(voice.status)",
+                "call": voice.isCall,
                 "muted": voice.muted,
                 "deafened": voice.deafened,
                 "serverMuted": voice.serverMuted,

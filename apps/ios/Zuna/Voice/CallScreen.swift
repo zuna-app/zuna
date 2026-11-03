@@ -2,8 +2,8 @@ import LiveKit
 import SwiftUI
 import ZunaModels
 
-/// A voice channel, open: everyone in it, what they're sending, and the controls.
-/// Over the whole app, as calls are on iOS, and down into the bar at the top to
+/// A voice channel or a conversation's call, open: everyone in it, what they're sending, and
+/// the controls. Over the whole app, as calls are on iOS, and down into the bar at the top to
 /// look elsewhere. The desktop's VoiceStage.
 struct CallScreen: View {
     @Environment(AppModel.self) private var model
@@ -16,6 +16,9 @@ struct CallScreen: View {
 
     private var server: AppModel.ServerState? { voice.serverId.flatMap { model.servers[$0] } }
     private var channel: ChannelView? { server?.channels.first { $0.id == voice.channelId } }
+    /// The conversation whose call it is.
+    private var conversation: ConversationView? { voice.isCall ? voice.channelId.flatMap { server?.conversation(groupId: $0) } : nil }
+    private var title: String { voice.isCall ? conversation?.title ?? "Call" : channel?.title ?? "Voice channel" }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,7 +26,7 @@ struct CallScreen: View {
             if voice.status == .connecting {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text("Coming into \(channel?.title ?? "the channel")…")
+                    Text(voice.isCall ? "Connecting the call…" : "Coming into \(channel?.title ?? "the channel")…")
                         .font(.subheadline)
                         .foregroundStyle(Theme.text2)
                 }
@@ -40,8 +43,9 @@ struct CallScreen: View {
                 }
                 stage
             }
-            CallControls(channel: channel)
+            CallControls(chat: voice.isCall ? conversation : channel?.conversation, chatKey: voice.isCall ? conversation?.key : channel?.key)
         }
+        .overlay(alignment: .top) { IncomingCallOverlay() }
         .background(Theme.bg0.ignoresSafeArea())
         .sheet(item: $member) { member in
             if let server {
@@ -57,7 +61,7 @@ struct CallScreen: View {
         .alert("End-to-end encrypted", isPresented: $explaining) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("With keys from this channel's members. The server and the media server can't listen in or watch.")
+            Text(voice.isCall ? "With keys from this conversation's members. The server and the media server can't listen in or watch." : "With keys from this channel's members. The server and the media server can't listen in or watch.")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Voice.stage)
@@ -79,10 +83,10 @@ struct CallScreen: View {
             .accessibilityIdentifier(A11y.Voice.minimize)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Image(systemName: ChannelType.voice.symbol)
+                    Image(systemName: voice.isCall ? "phone.fill" : ChannelType.voice.symbol)
                         .font(.footnote)
                         .foregroundStyle(Theme.text3)
-                    Text(channel?.title ?? "Voice channel")
+                    Text(title)
                         .font(.headline)
                         .lineLimit(1)
                 }
@@ -100,6 +104,18 @@ struct CallScreen: View {
                 .accessibilityIdentifier(A11y.Voice.encrypted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            if canRingAgain {
+                Button {
+                    voice.ringAgain()
+                } label: {
+                    Image(systemName: "bell.and.waves.left.and.right")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 40, height: 40)
+                        .background(Theme.bg3, in: .circle)
+                }
+                .accessibilityLabel("Ring everyone who isn't here")
+                .accessibilityIdentifier(A11y.Voice.ringAgain)
+            }
             Button {
                 showingStats = true
             } label: {
@@ -116,7 +132,15 @@ struct CallScreen: View {
         .padding(.vertical, 8)
     }
 
+    /// In a group's call, someone who isn't here and isn't being rung can be rung again.
+    private var canRingAgain: Bool {
+        guard voice.isCall, voice.status == .connected, let conversation, conversation.kind == .group, let server, let channelId = voice.channelId else { return false }
+        let here = Set(server.inRoom(channelId)), ringing = Set(voice.ringingOthers)
+        return conversation.members.contains { !here.contains($0.userId) && !ringing.contains($0.userId) }
+    }
+
     private var subtitle: String {
+        if voice.isCall { return "Encrypted · \(server?.entry.name ?? "")" }
         let topic = channel?.topic ?? ""
         return topic.isEmpty ? "Encrypted · \(server?.entry.name ?? "")" : "Encrypted · \(topic)"
     }
@@ -136,6 +160,7 @@ struct CallScreen: View {
         let focused = voice.focus.flatMap { key in voice.videos.first { $0.id == key } }
         let tiles: [StageTile] = screens.filter { $0.id != focused?.id }.map(StageTile.screen)
             + members.map { StageTile.person($0, cameras[$0.userId].flatMap { $0.id == focused?.id ? nil : $0 }) }
+            + voice.ringingOthers.map(StageTile.ringing)
         if let focused {
             VStack(spacing: 8) {
                 tile(focused.source == .screen ? .screen(focused) : .person(members.first { $0.userId == focused.userId } ?? placeholder(focused.userId), focused), focusedTile: true)
@@ -201,11 +226,14 @@ struct CallScreen: View {
     private enum StageTile: Identifiable {
         case person(VoiceMember, CallVideo?)
         case screen(CallVideo)
+        /// Someone the call is ringing.
+        case ringing(String)
 
         var id: String {
             switch self {
             case let .person(member, _): "person/\(member.deviceId)"
             case let .screen(tile): tile.id
+            case let .ringing(userId): "ringing/\(userId)"
             }
         }
     }
@@ -237,6 +265,8 @@ struct CallScreen: View {
                         .accessibilityIdentifier(A11y.Voice.flip)
                     }
                 }
+        case let .ringing(userId):
+            RingingTile(server: server, userId: userId)
         case let .screen(video):
             ScreenTile(name: name(of: video.userId), video: video, focused: focusedTile, watch: { watching = video.id })
                 .onTapGesture { voice.focus = focusedTile ? nil : video.id }
@@ -281,6 +311,42 @@ struct QualityIcon: View {
             .font(.footnote)
             .foregroundStyle(voice.quality == .poor || voice.quality == .lost ? Theme.red : Theme.green)
             .accessibilityLabel(words)
+    }
+}
+
+/// Someone the call is ringing, faded until they answer.
+private struct RingingTile: View {
+    let server: AppModel.ServerState?
+    let userId: String
+    @State private var pulsing = false
+
+    var body: some View {
+        let user = server?.users[userId]
+        let name = user?.displayName ?? "Someone"
+        ZStack(alignment: .bottomLeading) {
+            Theme.avatarColor(userId).opacity(0.12)
+            AvatarView(name: name, seed: userId, source: user?.avatar.map { .avatar($0, serverId: server?.entry.id ?? "") } ?? .none, size: 72)
+                .scaleEffect(pulsing ? 0.94 : 1)
+                .opacity(pulsing ? 0.7 : 1)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            HStack(spacing: 4) {
+                Text(name).lineLimit(1)
+                Text("Calling…").foregroundStyle(.white.opacity(0.7))
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.black.opacity(0.55), in: .rect(cornerRadius: 6))
+            .padding(8)
+        }
+        .clipShape(.rect(cornerRadius: 16))
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { pulsing = true }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name), calling")
+        .accessibilityIdentifier(A11y.Voice.ringing(userId))
     }
 }
 
@@ -400,7 +466,9 @@ private struct ScreenTile: View {
 private struct CallControls: View {
     @Environment(AppModel.self) private var model
     @Environment(VoiceModel.self) private var voice
-    let channel: ChannelView?
+    /// The chat that goes with it: a voice channel's, or the conversation whose call it is.
+    let chat: ConversationView?
+    let chatKey: String?
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -442,11 +510,11 @@ private struct CallControls: View {
                 .frame(width: size, height: size)
                 .background(Theme.bg3, in: .circle)
                 .accessibilityLabel("Where sound plays")
-            control("bubble.left.fill", label: "Show chat", dot: (channel?.conversation?.unread ?? 0) > 0, size: size, id: A11y.Voice.chat) {
-                guard let channel, let serverId = voice.serverId else { return }
+            control("bubble.left.fill", label: "Show chat", dot: (chat?.unread ?? 0) > 0, size: size, id: A11y.Voice.chat) {
+                guard let chatKey, let serverId = voice.serverId else { return }
                 voice.stageShown = false
                 model.selectServer(serverId)
-                model.openChat(channel.key)
+                model.openChat(chatKey)
             }
             Button {
                 voice.leave()

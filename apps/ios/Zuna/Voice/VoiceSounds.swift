@@ -1,8 +1,8 @@
 import AVFoundation
 import Foundation
 
-/// The small sounds a voice channel makes, made from the same notes as the
-/// desktop's (packages/ui/src/voice/sounds.ts), so no audio files are bundled.
+/// The small sounds a voice channel makes, and a call's ringing, made from the same
+/// notes as the desktop's (packages/ui/src/voice/sounds.ts), so no audio files are bundled.
 @MainActor
 final class VoiceSounds {
     enum Sound: CaseIterable {
@@ -23,7 +23,26 @@ final class VoiceSounds {
         }
     }
 
+    /// "incoming" rings for a call coming in, where the system doesn't. "outgoing" is what the one calling hears
+    /// while it rings the others.
+    enum Ringing {
+        case incoming, outgoing
+
+        fileprivate var notes: [(offset: Double, frequency: Double, length: Double)] {
+            switch self {
+            case .incoming: [(0, 659.25, 0.16), (0.18, 830.61, 0.16), (0.36, 987.77, 0.3), (0.9, 659.25, 0.16), (1.08, 830.61, 0.16), (1.26, 987.77, 0.3)]
+            case .outgoing: [(0, 440, 1.1)]
+            }
+        }
+
+        /// How long one ring is, silence after it included.
+        fileprivate var every: Double { self == .incoming ? 2.6 : 3 }
+        fileprivate var peak: Double { self == .incoming ? 0.2 : 0.064 }
+    }
+
     private var players: [AVAudioPlayer] = []
+    private var ringer: AVAudioPlayer?
+    private var ringingNow: Ringing?
 
     func play(_ sound: Sound) {
         // Sounds aren't essential.
@@ -33,13 +52,26 @@ final class VoiceSounds {
         player.play()
     }
 
+    /// Rings, over and over, until it's told to ring otherwise or stop with nil.
+    func ring(_ kind: Ringing?) {
+        guard kind != ringingNow else { return }
+        ringingNow = kind
+        ringer?.stop()
+        ringer = nil
+        guard let kind, let player = try? AVAudioPlayer(data: Self.wave(kind.notes, length: kind.every, peak: kind.peak)) else { return }
+        player.numberOfLoops = -1
+        player.play()
+        ringer = player
+    }
+
     private static let rate = 48_000.0
 
-    /// The notes as a WAV file: sines that swell in 10 ms and fade away, as the desktop's do.
-    private static func wave(_ notes: [(offset: Double, frequency: Double, length: Double)]) -> Data {
-        let end = notes.map { $0.offset + $0.length + 0.02 }.max() ?? 0
+    /// The notes as a WAV file: sines that swell in 10 ms and fade away, as the desktop's do. `length` pads it with
+    /// silence, for a ring that repeats.
+    private static func wave(_ notes: [(offset: Double, frequency: Double, length: Double)], length: Double? = nil, peak: Double = 0.08) -> Data {
+        let end = max(length ?? 0, notes.map { $0.offset + $0.length + 0.02 }.max() ?? 0)
         var samples = [Double](repeating: 0, count: Int(end * rate))
-        let peak = 0.08, floor = 0.0001
+        let floor = 0.0001
         for note in notes {
             let start = Int(note.offset * rate)
             let count = Int((note.length + 0.02) * rate)

@@ -88,6 +88,11 @@ struct ChatScreen: View {
                 }
                 .buttonStyle(.plain)
             }
+            if channel == nil, Self.canCall(server, conversation, peer: peer, isSaved: isSaved) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    CallButton(server: server, conversation: conversation)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 // As the desktop's header button: pinned messages have a screen of their own.
                 Button {
@@ -192,10 +197,20 @@ struct ChatScreen: View {
         }
     }
 
+    /// Whether a call can be started here: a direct message with someone else, or a group still had, on a server with calls.
+    private static func canCall(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSaved: Bool) -> Bool {
+        guard server.hasCalls, !conversation.removed else { return false }
+        if conversation.kind == .dm { return !isSaved && conversation.peerId != nil && !conversation.blocked && peer?.banned != true }
+        return conversation.kind == .group
+    }
+
     /// The chat itself: the key's banner, the messages, who's typing, and the composer or what stands in for it.
     private func chat(_ server: AppModel.ServerState, _ conversation: ConversationView, list: MessageList?, listId: String, peer: UserView?, isSaved: Bool, channel: ChannelView?) -> some View {
         let serverId = server.entry.id
         return VStack(spacing: 0) {
+            if channel == nil, let groupId = conversation.groupId, server.calls[groupId] != nil {
+                CallBanner(server: server, groupId: groupId)
+            }
             if let peer, peer.trust == .changed, !isSaved {
                 HStack(spacing: 10) {
                     Label {
@@ -608,6 +623,90 @@ private struct MentionButton: View {
 }
 
 /// The title and, under it, who's typing, members and online, or last seen, as on the desktop.
+/// Starting a call from a chat's bar, by voice with a tap and with the camera from its menu, or joining the one going on.
+private struct CallButton: View {
+    @Environment(VoiceModel.self) private var voice
+    let server: AppModel.ServerState
+    let conversation: ConversationView
+
+    var body: some View {
+        let serverId = server.entry.id
+        let groupId = conversation.groupId
+        if let groupId, voice.serverId == serverId, voice.channelId == groupId, voice.inCall {
+            Button {
+                voice.stageShown = true
+            } label: {
+                Image(systemName: "phone.fill").foregroundStyle(Theme.green)
+            }
+            .accessibilityLabel("Open the call")
+            .accessibilityIdentifier(A11y.Chat.call)
+        } else if let groupId, !server.inRoom(groupId).isEmpty {
+            Button {
+                Task { await voice.join(serverId: serverId, channelId: groupId) }
+            } label: {
+                Text("Join").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.green)
+            }
+            .accessibilityLabel("Join the call")
+            .accessibilityIdentifier(A11y.Chat.joinCall)
+        } else {
+            Menu {
+                Button("Voice call", systemImage: "phone") { start(camera: false) }
+                Button("Video call", systemImage: "video") { start(camera: true) }
+                    .accessibilityIdentifier(A11y.Chat.videoCall)
+            } label: {
+                Image(systemName: "phone")
+            } primaryAction: {
+                start(camera: false)
+            }
+            .accessibilityLabel("Call")
+            .accessibilityIdentifier(A11y.Chat.call)
+        }
+    }
+
+    private func start(camera: Bool) {
+        let serverId = server.entry.id, key = conversation.key
+        Task { await voice.startCall(serverId: serverId, key: key, camera: camera) }
+    }
+}
+
+/// A call going on in this conversation that this device isn't in: who's there, and a way in.
+private struct CallBanner: View {
+    @Environment(VoiceModel.self) private var voice
+    let server: AppModel.ServerState
+    let groupId: String
+
+    var body: some View {
+        let people = server.inRoom(groupId)
+        let me = server.me?.userId
+        let here = voice.serverId == server.entry.id && voice.channelId == groupId && voice.inCall
+        if !here, !people.isEmpty {
+            let elsewhere = people.contains { $0 == me }
+            let names = people.filter { $0 != me }.map { server.users[$0]?.displayName.split(separator: " ").first.map(String.init) ?? "Someone" }
+            let who = names.count <= 2 ? names.joined(separator: " and ") : "\(names[0]), \(names[1]) and \(names.count - 2) more"
+            HStack(spacing: 10) {
+                Image(systemName: "phone.fill").foregroundStyle(Theme.green)
+                Text(elsewhere ? "You're in this call on another device" : "\(who) \(names.count == 1 ? "is" : "are") in a call")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.text1)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button(elsewhere ? "Move here" : "Join") {
+                    let serverId = server.entry.id
+                    Task { await voice.join(serverId: serverId, channelId: groupId) }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.green)
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(Theme.green.opacity(0.1))
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(A11y.Chat.callBanner)
+        }
+    }
+}
+
 private struct ChatHeader: View {
     @Environment(AppModel.self) private var model
     let conversation: ConversationView

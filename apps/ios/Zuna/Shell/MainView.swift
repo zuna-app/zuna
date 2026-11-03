@@ -27,6 +27,9 @@ struct MainView: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: voice.inCall && !voice.stageShown)
+        // A call ringing, where the system doesn't ring it, over whatever's open.
+        .overlay(alignment: .top) { IncomingCallOverlay() }
+        .animation(.snappy(duration: 0.25), value: voice.incoming.first?.id)
         .fullScreenCover(isPresented: $voice.stageShown) {
             CallScreen()
         }

@@ -23,6 +23,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Typing** | That someone sent a typing signal | Nothing further; it's encrypted but has no other content |
 | **Presence** | Online status, last seen, and which of your devices you're using and when you last used each, which decides when the others are notified | Hidden from other members if you choose, but not from the server |
 | **Phone notifications** | Which devices get pushes, through which relay; until Apple lets the iPhone app filter notifications, which chats a phone muted and until when, among them direct messages with people the person blocked, which look like any other muted chat; that a chat was read, which stops a push waiting for it | What a push is about: it carries the message's IDs, sealed for the device |
+| **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it, which is encrypted with a key from the conversation's group |
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |
 

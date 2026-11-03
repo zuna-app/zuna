@@ -199,8 +199,9 @@ public struct SessionCalls: Sendable {
     public func voiceAccess(_ channelId: String) async throws -> VoiceAccess { try await call("voiceAccess", [channelId]) }
     /// The channel's media key for its current epoch, straight from MLS. It's kept nowhere.
     public func voiceKey(_ channelId: String) async throws -> VoiceKey { try await call("voiceKey", [channelId]) }
-    /// What this device is doing in a voice channel, for everyone to see, or nil for both once it's left.
-    public func setVoiceState(_ channelId: String?, _ update: VoiceUpdate?) async throws { try await run("setVoiceState", [channelId, update]) }
+    /// What this device is doing in a voice channel, for everyone to see, or in a call, for the conversation to see, or nil
+    /// for both once it's left. Coming into a call with `ring` starts it, ringing everyone else, if nobody's in it yet.
+    public func setVoiceState(_ channelId: String?, _ update: VoiceUpdate?, ring: Bool = false) async throws { try await run("setVoiceState", [channelId, update, ring]) }
     /// Takes someone out of a voice channel, for a server admin.
     public func voiceDisconnect(_ channelId: String, userId: String) async throws { try await run("voiceDisconnect", [channelId, userId]) }
     /// Mutes someone until an admin unmutes them, for a server admin. The media server makes it stick.
@@ -212,6 +213,21 @@ public struct SessionCalls: Sendable {
     public func voiceScreenStop(_ channelId: String) async throws { try await run("voiceScreenStop", [channelId]) }
     /// Stops someone else's screen share, for a server admin.
     public func voiceScreenStopOf(_ channelId: String, userId: String) async throws { try await run("voiceScreenStopOf", [channelId, userId]) }
+
+    // MARK: Calls in direct messages and groups
+
+    /// The calls going on in this person's conversations. Who's in each are the voice members under its group.
+    public func getCalls() async throws -> [CallView] {
+        let rows: LossyList<CallView> = try await call("getCalls")
+        return rows.items
+    }
+    /// Gets a conversation ready for a call, starting a direct message nobody has written in yet, and says which group
+    /// the call is in. Coming into it is the room's to do, through `voiceAccess`.
+    public func prepareCall(_ key: String) async throws -> String { try await call("prepareCall", [key]) }
+    /// Rings people in the conversation again, from inside its call: those named, or everyone not in it.
+    public func ringCall(_ groupId: String, userIds: [String] = []) async throws { try await run("ringCall", [groupId, userIds]) }
+    /// Stops a call ringing this person, on all their devices.
+    public func declineCall(_ groupId: String) async throws { try await run("declineCall", [groupId]) }
 
     // MARK: Invites and verification
 

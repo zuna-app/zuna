@@ -1,6 +1,6 @@
 # Roadmap
 
-Zuna 1.0 is chat, with text channels everywhere, voice channels on the desktop, the web, the iPhone and the iPad, calls in direct messages and groups on the desktop and the web, desktop apps for Windows, Linux and macOS, and a native app for the iPhone and iPad. The design already allows for Android. This page describes what's left and how they fit.
+Zuna 1.0 is chat, with text channels everywhere, voice channels on the desktop, the web, the iPhone and the iPad, calls in direct messages and groups on all of them, desktop apps for Windows, Linux and macOS, and a native app for the iPhone and iPad. The design already allows for Android. This page describes what's left and how they fit.
 
 ## Phones
 
@@ -39,7 +39,7 @@ The iPhone app's approach carries over:
 | Part | Work |
 |---|---|
 | iPhone and iPad | A share's sound, which LiveKit's Swift SDK only mixes into the microphone ([SCREEN_SHARE.md](SCREEN_SHARE.md#from-an-iphone-or-ipad)). Answering a phone call during a call, with CallKit, which has otherwise been tried on an iPhone: the lock screen, the Dynamic Island, muting and ending from the system's controls, and a phone call declined during one. |
-| Calls in direct messages and groups | Built on the desktop and the web, in the same rooms and with the same keys as voice channels, from that conversation's MLS group. Left: the iPhone and iPad, ringing through CallKit, and waking a phone for a call. |
+| Calls in direct messages and groups | Built everywhere, in the same rooms and with the same keys as voice channels, from that conversation's MLS group, ringing on the iPhone and iPad through CallKit. Left: waking a phone that isn't running for a call, through PushKit, or an alert where CallKit is left out. |
 | Noise cancelling | RNNoise is cheap and needs no setup. DeepFilterNet cleans speech noticeably better, for more CPU and a far larger download, and would have to run off the audio thread. |
 
 ## Other ideas

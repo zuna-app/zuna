@@ -1,9 +1,11 @@
 import AVFoundation
+import CallKit
 import Combine
 import Foundation
 import LiveKit
 import Observation
 import UIKit
+import UserNotifications
 import ZunaModels
 
 /// How this device does voice. These stay on this device, as on the desktop
@@ -69,9 +71,27 @@ struct VoiceSettings: Codable, Equatable, Sendable {
     #endif
 }
 
-/// The voice channel this device is in, wherever in the app the person is looking.
-/// There's one at a time, across all servers, as in Discord. The iPhone's
-/// counterpart of the desktop's packages/ui/src/voice/store.ts.
+/// A call ringing this person, which this device could answer.
+struct IncomingCall: Identifiable, Equatable {
+    let serverId: String
+    let groupId: String
+    let startedAt: Int
+    let startedBy: String
+    let key: String
+    let title: String
+    let kind: GroupKind
+    /// The conversation is muted, so it rings without a sound.
+    let quiet: Bool
+
+    var id: String { "\(serverId)|\(groupId)|\(startedAt)" }
+    /// What the system knows it by.
+    var systemId: UUID { SystemCall.callId(serverId: serverId, groupId: groupId, startedAt: startedAt) }
+}
+
+/// The voice channel or call this device is in, wherever in the app the person is looking.
+/// There's one at a time, across all servers, as in Discord. A call is a direct message's or a
+/// group's, in a room of its own under the conversation's group, and works as a voice channel
+/// does. The iPhone's counterpart of the desktop's packages/ui/src/voice/store.ts.
 @MainActor
 @Observable
 final class VoiceModel {
@@ -79,7 +99,14 @@ final class VoiceModel {
 
     private(set) var status: Status = .idle
     private(set) var serverId: String?
+    /// The voice channel, or the group of the conversation whose call it is.
     private(set) var channelId: String?
+    /// It's a conversation's call rather than a voice channel.
+    private(set) var isCall = false
+    /// Calls ringing this person that this device could answer.
+    private(set) var incoming: [IncomingCall] = []
+    /// Whether calls coming in ring through the system here, once that's known. Where they don't, the app rings by itself.
+    private(set) var systemRings: Bool?
     /// Muted by the person.
     private(set) var muted: Bool
     private(set) var deafened = false
@@ -136,6 +163,15 @@ final class VoiceModel {
     /// When this device's share last went away by itself. The server stopping one takes it out of the room before it says why.
     @ObservationIgnored private var shareVanishedAt: Date?
     @ObservationIgnored private var broadcastWatch: AnyCancellable?
+    /// This device still has to say it's starting the call it's in, which rings everyone else.
+    @ObservationIgnored private var ringOnAnnounce = false
+    /// The camera goes on once in.
+    @ObservationIgnored private var cameraOnJoin = false
+    /// The call this device is in has rung someone, so that nobody being rung any more means something.
+    @ObservationIgnored private var callRang = false
+    @ObservationIgnored private var hangUp: Task<Void, Never>?
+    /// The calls ringing here, by ID, to tell which stopped.
+    @ObservationIgnored private var rung: [String: IncomingCall] = [:]
 
     private static let reconnectAttempts = 3
     private static let reconnectWait: Duration = .seconds(2)
@@ -169,11 +205,13 @@ final class VoiceModel {
         serverId.flatMap { app?.core.session($0) }
     }
 
-    /// Tells everyone on the server what this device is doing.
+    /// Tells everyone on the server what this device is doing, or the conversation's members in a call.
     private func announce() {
         guard let channelId, let session else { return }
         let update = VoiceUpdate(muted: micOff, deafened: deafened, camera: camera, screen: screen)
-        Task { try? await session.setVoiceState(channelId, update) }
+        let ring = ringOnAnnounce
+        ringOnAnnounce = false
+        Task { try? await session.setVoiceState(channelId, update, ring: ring) }
     }
 
     private func applyVolumes() {
@@ -205,11 +243,12 @@ final class VoiceModel {
 
     // MARK: Joining and leaving
 
-    /// Comes into a voice channel, or opens the one this device is already in.
-    func join(serverId: String, channelId: String) async {
+    /// Comes into a voice channel or a call, or opens the one this device is already in. `ring` starts a call, ringing
+    /// everyone else in the conversation, and `answered` is a call the system's screen answered, which it has already.
+    func join(serverId: String, channelId: String, ring: Bool = false, camera: Bool = false, answered: UUID? = nil) async {
         stageShown = true
         if self.serverId == serverId, self.channelId == channelId, status != .idle { return }
-        if status != .idle { leave() }
+        if status != .idle { leave(keepingSystemCall: answered != nil) }
         stageShown = true
         attempt += 1
         let mine = attempt
@@ -217,19 +256,50 @@ final class VoiceModel {
         reset(status: .connecting)
         self.serverId = serverId
         self.channelId = channelId
-        let title = app?.servers[serverId]?.channels.first { $0.id == channelId }?.title ?? "Voice channel"
-        await systemCall.start(title: title, actions: SystemCall.Actions(
+        let server = app?.servers[serverId]
+        let channel = server?.channels.first { $0.id == channelId }
+        isCall = channel == nil
+        ringOnAnnounce = ring && isCall
+        cameraOnJoin = camera
+        refreshIncoming()
+        let title = channel?.title ?? server?.conversation(groupId: channelId)?.title ?? "Voice channel"
+        let actions = SystemCall.Actions(
             mute: { [weak self] muted in self?.mutedBySystem(muted) ?? false },
             end: { [weak self] in self?.leave() }
-        ))
+        )
+        if let answered {
+            systemCall.answered(answered, actions: actions)
+        } else {
+            await systemCall.start(title: title, actions: actions)
+        }
         guard mine == attempt else { return }
         await connect(serverId: serverId, channelId: channelId, mine: mine)
+    }
+
+    /// Calls the people in a conversation, starting a direct message if nobody's written in it yet.
+    func startCall(serverId: String, key: String, camera: Bool) async {
+        guard let app else { return }
+        let groupId: String
+        do {
+            groupId = try await app.core.session(serverId).prepareCall(key)
+        } catch {
+            app.toast((error as? CoreCallError)?.message ?? "Couldn't start the call.", .error)
+            return
+        }
+        // Someone else may have called meanwhile, which this joins rather than ringing anyone.
+        let going = !(app.servers[serverId]?.inRoom(groupId).isEmpty ?? true)
+        await join(serverId: serverId, channelId: groupId, ring: !going, camera: camera)
     }
 
     private func reset(status: Status) {
         self.status = status
         serverId = nil
         channelId = nil
+        isCall = false
+        ringOnAnnounce = false
+        cameraOnJoin = false
+        callRang = false
+        hangUp?.cancel()
         serverMuted = false
         noMic = false
         speaking = []
@@ -301,6 +371,10 @@ final class VoiceModel {
             announce()
             syncVideos()
             if reconnects == 0 { sound(.selfJoin) }
+            if cameraOnJoin, !camera {
+                cameraOnJoin = false
+                await toggleCamera()
+            }
         } catch {
             guard mine == attempt else { return }
             app.toast(Self.describe(error), .error)
@@ -349,18 +423,20 @@ final class VoiceModel {
         }
     }
 
-    func leave() {
+    /// Leaves the room. `keepingSystemCall` is for one answered from the system's screen, which is that call now.
+    func leave(keepingSystemCall: Bool = false) {
         guard status != .idle else { return }
         attempt += 1
         let session = session
         room?.close()
         room = nil
-        systemCall.end()
+        if !keepingSystemCall { systemCall.end() }
         Task { try? await session?.setVoiceState(nil, nil) }
         reset(status: .idle)
         stageShown = false
         sound(.selfLeave)
-        onEnded?()
+        refreshIncoming()
+        if !keepingSystemCall { onEnded?() }
     }
 
     // MARK: What the core says
@@ -383,15 +459,204 @@ final class VoiceModel {
         systemCall.ended(failed: false)
         reset(status: .idle)
         stageShown = false
-        let messages = [
+        let wasCall = app?.servers[serverId]?.channels.contains { $0.id == channelId } == false
+        let messages = wasCall ? [
+            "elsewhere": "You joined this call on another device.",
+            "removed": "You're no longer in this conversation, so you left its call.",
+            "deleted": "That conversation was deleted.",
+            "banned": "You were removed from this server.",
+        ] : [
             "elsewhere": "You joined this voice channel on another device.",
             "disconnected": "An admin took you out of the voice channel.",
             "deleted": "That voice channel was deleted.",
             "banned": "You were removed from this server.",
         ]
-        app?.toast(messages[reason] ?? "You left the voice channel.")
+        app?.toast(messages[reason] ?? (wasCall ? "You left the call." : "You left the voice channel."))
         sound(.selfLeave)
+        refreshIncoming()
         onEnded?()
+    }
+
+    // MARK: Calls ringing
+
+    /// A call in a conversation changed whom it's ringing, or ended. A direct message's call nobody answers ends by
+    /// itself, as a phone call does.
+    func callChanged(serverId: String, groupId: String, call: CallView?) {
+        refreshIncoming()
+        guard self.serverId == serverId, channelId == groupId, status != .idle, let call else { return }
+        if !call.ringing.isEmpty {
+            callRang = true
+            return
+        }
+        guard let server = app?.servers[serverId], let me = server.me?.userId, callRang, call.startedBy == me,
+              let conversation = server.conversation(groupId: groupId), conversation.kind == .dm,
+              !server.inRoom(groupId).contains(where: { $0 != me }) else { return }
+        let name = conversation.peerId.flatMap { server.users[$0]?.displayName } ?? conversation.title
+        leave()
+        app?.toast(conversation.peerId.map { call.declined.contains($0) } == true ? "\(name) declined the call." : "\(name) didn't answer.")
+    }
+
+    /// The calls going on were caught up on.
+    func callsChanged(serverId: String) {
+        refreshIncoming()
+    }
+
+    /// Someone's device left a room. Once the other person in a direct message's call hangs up, it's over, after a
+    /// moment for another of their devices taking over.
+    func memberLeft(serverId: String, roomId: String, userId: String) {
+        guard self.serverId == serverId, channelId == roomId, status != .idle,
+              let server = app?.servers[serverId], userId != server.me?.userId,
+              server.conversation(groupId: roomId)?.kind == .dm else { return }
+        hangUp?.cancel()
+        hangUp = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled, self.serverId == serverId, channelId == roomId,
+                  let server = app?.servers[serverId], let me = server.me?.userId else { return }
+            if !server.inRoom(roomId).contains(where: { $0 != me }) { leave() }
+        }
+    }
+
+    /// Answers a call ringing here, from the app's own card or its notification.
+    func answer(_ call: IncomingCall, camera: Bool) async {
+        app?.selectServer(call.serverId)
+        app?.openChat(call.key)
+        await join(serverId: call.serverId, channelId: call.groupId, camera: camera)
+    }
+
+    /// Stops a call ringing on all this person's devices.
+    func decline(_ call: IncomingCall) {
+        guard let app else { return }
+        let session = app.core.session(call.serverId)
+        Task {
+            do {
+                try await session.declineCall(call.groupId)
+            } catch {
+                app.toast((error as? CoreCallError)?.message ?? "Couldn't decline the call.", .error)
+            }
+        }
+    }
+
+    /// Rings everyone in the call's conversation who isn't in it.
+    func ringAgain() {
+        guard isCall, let channelId, let session else { return }
+        Task { try? await session.ringCall(channelId) }
+    }
+
+    /// Who's being rung in the call this device is in, apart from anyone who has come.
+    var ringingOthers: [String] {
+        guard isCall, let serverId, let channelId, let server = app?.servers[serverId] else { return [] }
+        let here = Set(server.inRoom(channelId))
+        return (server.calls[channelId]?.ringing ?? []).filter { !here.contains($0) }
+    }
+
+    /// Works out which calls ring here now, and starts and stops their ringing: through the system where it can,
+    /// and otherwise with the app's own card, ringtone and notification.
+    private func refreshIncoming() {
+        guard let app else { return }
+        var next: [IncomingCall] = []
+        for (serverId, server) in app.servers {
+            guard let me = server.me?.userId, server.entry.signedOut == nil else { continue }
+            for call in server.calls.values where call.ringing.contains(me) {
+                if self.serverId == serverId, channelId == call.groupId, status != .idle { continue }
+                guard let conversation = server.conversation(groupId: call.groupId), !conversation.removed, !conversation.blocked,
+                      !server.isBlocked(call.startedBy) else { continue }
+                next.append(IncomingCall(
+                    serverId: serverId,
+                    groupId: call.groupId,
+                    startedAt: call.startedAt,
+                    startedBy: call.startedBy,
+                    key: conversation.key,
+                    title: conversation.title,
+                    kind: conversation.kind,
+                    quiet: conversation.muted
+                ))
+            }
+        }
+        next.sort { $0.startedAt < $1.startedAt }
+        let before = rung
+        rung = Dictionary(next.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if incoming != next { incoming = next }
+        for call in next where before[call.id] == nil { startRinging(call) }
+        for (id, call) in before where rung[id] == nil { stoppedRinging(call) }
+        updateRingtone()
+    }
+
+    private func startRinging(_ call: IncomingCall) {
+        let actions = SystemCall.Ringing(
+            answer: { [weak self] in self?.answeredBySystem(call) },
+            decline: { [weak self] in self?.decline(call) }
+        )
+        Task {
+            let system = await systemCall.ring(call.systemId, title: call.title, actions: actions)
+            systemRings = system
+            if !system, rung[call.id] != nil { await notify(call, missed: false) }
+            updateRingtone()
+        }
+    }
+
+    /// The system's screen answered a call: it's the system's call already, so the room comes to it.
+    private func answeredBySystem(_ call: IncomingCall) {
+        // Out of whatever room this device was in, whose call the system has ended by now.
+        if status != .idle { leave(keepingSystemCall: true) }
+        app?.selectServer(call.serverId)
+        app?.openChat(call.key)
+        Task { await join(serverId: call.serverId, channelId: call.groupId, answered: call.systemId) }
+    }
+
+    /// A call stopped ringing here: answered on this device or another, declined, ended, or rung long enough.
+    private func stoppedRinging(_ call: IncomingCall) {
+        let server = app?.servers[call.serverId]
+        let me = server?.me?.userId ?? ""
+        let here = serverId == call.serverId && channelId == call.groupId && status != .idle
+        let elsewhere = !here && server?.inRoom(call.groupId).contains(me) == true
+        let now = server?.calls[call.groupId]
+        let declined = now?.declined.contains(me) == true
+        systemCall.stopRinging(call.systemId, reason: elsewhere ? .answeredElsewhere : declined ? .declinedElsewhere : now == nil ? .remoteEnded : .unanswered)
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["call:\(call.id)"])
+        guard !here, !elsewhere, !declined, !call.quiet else { return }
+        if UIApplication.shared.applicationState == .active {
+            app?.toast(call.kind == .dm ? "Missed call from \(call.title)." : "Missed call from \(name(call.serverId, call.startedBy)) in \(call.title).")
+        } else {
+            Task { await notify(call, missed: true) }
+        }
+    }
+
+    private func name(_ serverId: String, _ userId: String) -> String {
+        app?.servers[serverId]?.users[userId]?.displayName ?? "Someone"
+    }
+
+    /// A call ringing, or missed, as a notification, where the system doesn't ring and the app isn't in front.
+    private func notify(_ call: IncomingCall, missed: Bool) async {
+        let settings = NotificationSettings.load()
+        guard settings.enabled, !call.quiet, UIApplication.shared.applicationState != .active else { return }
+        let content = UNMutableNotificationContent()
+        let caller = name(call.serverId, call.startedBy)
+        content.title = settings.preview == .none ? "Zuna" : call.title
+        content.body = settings.preview == .none ? (missed ? "Missed call" : "Incoming call")
+            : missed ? (call.kind == .dm ? "Missed call" : "Missed call from \(caller)")
+            : call.kind == .dm ? "Calling you" : "\(caller) started a call"
+        content.sound = settings.sound ? (missed ? .default : .defaultRingtone) : nil
+        content.categoryIdentifier = missed ? "" : Notifications.callCategory
+        content.userInfo = ["serverId": call.serverId, "groupId": call.groupId, "conversationKey": call.key, "call": call.id]
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "call:\(call.id)", content: content, trigger: nil))
+    }
+
+    /// A call ringing here, by what its notification says.
+    func incomingCall(_ id: String) -> IncomingCall? {
+        incoming.first { $0.id == id }
+    }
+
+    /// Rings here while a call rings this person and the system doesn't, and for the one calling while it rings the others.
+    private func updateRingtone() {
+        let active = UIApplication.shared.applicationState == .active
+        if systemRings == false, active, incoming.contains(where: { !$0.quiet }) {
+            sounds.ring(.incoming)
+        } else if status == .connected, !ringingOthers.isEmpty, let serverId, let channelId,
+                  app?.servers[serverId]?.inRoom(channelId).contains(where: { $0 != app?.servers[serverId]?.me?.userId }) == false {
+            sounds.ring(settings.sounds ? .outgoing : nil)
+        } else {
+            sounds.ring(nil)
+        }
     }
 
     /// The server stopped this device's share: an admin did, or its rules changed.
@@ -498,7 +763,7 @@ final class VoiceModel {
     /// Why this device can't share its screen here, if it can't: the server's rules, or the channel's.
     var shareRefusal: String? {
         guard let serverId, let server = app?.servers[serverId] else { return nil }
-        let limit = server.channels.first { $0.id == channelId }?.screenLimit ?? 0
+        let limit = isCall ? 0 : server.channels.first { $0.id == channelId }?.screenLimit ?? 0
         return Voice.screenRefusal(rules: server.info?.screenShare, role: server.me?.role, channelLimit: limit)
     }
 

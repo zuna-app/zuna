@@ -2,7 +2,8 @@
 // a real LiveKit, checking what actually reaches each of them: the phone hears the
 // desktop and is heard, sees its camera and its shared screen, and sends its own
 // camera and screen, all under keys from the channel's MLS group, also once someone
-// new has changed them; and an admin's mute holds.
+// new has changed them; and an admin's mute holds. Then a call in a direct message,
+// from the desktop, rings the phone, which answers it.
 //
 //   npm run build -w @zuna/desktop && npm run test:ios:voice [-- screenshot-dir]
 //
@@ -167,7 +168,7 @@ try {
       phone!.waitUntilGone().then(() => Promise.reject(new Error(`the app went away during ${name}`))),
       sleep(60_000).then(() => Promise.reject(new Error(`the app didn't answer ${name} within a minute`))),
     ]);
-  const voiceState = async () => JSON.parse(await command("voiceState")) as { status: string; serverMuted: boolean; camera: boolean; screen: boolean; epoch: number | null; focus: string | null; videos: { id: string; source: string; userId: string; local: boolean }[] };
+  const voiceState = async () => JSON.parse(await command("voiceState")) as { status: string; call: boolean; serverMuted: boolean; camera: boolean; screen: boolean; epoch: number | null; focus: string | null; videos: { id: string; source: string; userId: string; local: boolean }[] };
   const report = async () => JSON.parse(await command("voiceReport")) as Reading[];
   const fromDana = async (source: string) => (await report()).find((reading) => reading.key.startsWith(`${danaId}.`) && reading.key.endsWith(`/${source}`));
   /**
@@ -383,6 +384,38 @@ try {
   await waitFor(() => !alice.session.getVoiceMembers().some((member) => member.userId === bobId), "everyone to see the phone leave", 10_000)
     .then(() => check("leaving is seen by everyone", true))
     .catch(() => check("leaving is seen by everyone", false));
+
+  // --- A call in a direct message, from the desktop, answered on the phone ---
+  await page.locator(".conv-row", { hasText: "bob" }).first().click();
+  await page.getByRole("button", { name: "Start a voice call" }).click();
+  await waitFor(async () => (JSON.parse(await command("voiceIncoming")) as unknown[]).length > 0, "the phone to ring", 20_000)
+    .then(() => check("a call from the desktop rings the phone", true))
+    .catch(() => check("a call from the desktop rings the phone", false));
+  phoneShot("06-phone-ringing");
+  const answered = await command("voiceAnswer");
+  check("the phone answers the call", answered === "connected", answered);
+  check("the phone knows it's in a call, not a voice channel", (await voiceState()).call === true);
+  await page.locator(".voice-tile.is-ringing").waitFor({ state: "detached", timeout: 15_000 }).catch(() => undefined);
+  await sleep(4000);
+  let callHeard = await phoneHears();
+  for (let i = 0; i < 10 && !callHeard.ok; i++) {
+    await sleep(500);
+    callHeard = await phoneHears();
+  }
+  check("the phone hears the desktop in the call, decrypted", callHeard.ok, callHeard.detail);
+  const callPeak = await desktopHears();
+  check("the desktop hears the phone in the call, decrypted", callPeak > 0.02, `peak ${callPeak.toFixed(3)}`);
+  const callCamera = await command("voiceCamera", { on: true });
+  await sleep(4000);
+  const callFrames = await desktopFrames();
+  check("the phone's camera reaches the desktop in the call", callCamera === "on" && callFrames > 10, `${callFrames.toFixed(0)} frames/s decoded`);
+  phoneShot("07-phone-call");
+  await desktopShot("08-desktop-call");
+  // The phone hanging up ends a direct message's call on the desktop too.
+  await command("voiceLeave");
+  await page.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 })
+    .then(() => check("the phone hanging up ends the call on the desktop", true))
+    .catch(() => check("the phone hanging up ends the call on the desktop", false));
 } catch (error) {
   console.error(error);
   failures.push(`the run stopped: ${(error as Error).message}`);

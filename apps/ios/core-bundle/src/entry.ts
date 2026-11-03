@@ -112,6 +112,7 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     web: nativeWeb,
     onEvent: emit,
     channels: true,
+    calls: true,
   });
   // Only test builds' previews may reach this device, for their test pages.
   allowLocalLinks(!!__zunaHost.testHooks);
