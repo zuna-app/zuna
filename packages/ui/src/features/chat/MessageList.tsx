@@ -408,15 +408,21 @@ export function MessageList({
       ownTop = null;
       if (scrolledByHand.current && !own) {
         const away = contentEnd() - element.clientHeight - top;
-        if (away <= AT_BOTTOM_PX) stuck.current = true;
+        // Any way up lets go, however little: a row drawn above as the list moves would
+        // otherwise put it straight back at the end, again and again.
+        if (away <= 1 || (top > lastTop && away <= AT_BOTTOM_PX)) stuck.current = true;
         else if (top < lastTop) stuck.current = false;
         setAtBottom(stuck.current);
         if (top < lastTop && top < LOAD_AHEAD_PX && (!stuck.current || top < 1)) loadMore.current();
       }
       lastTop = top;
     };
-    const onHand = () => {
+    // A chat opened at a place has it at the very top, where going up scrolls nothing,
+    // so no scroll event brings in what's above, and a Mac's trackpad only bounces.
+    const onHand = (event: Event) => {
       scrolledByHand.current = true;
+      const up = event instanceof WheelEvent ? event.deltaY < 0 : event instanceof KeyboardEvent && (event.key === "ArrowUp" || event.key === "PageUp" || event.key === "Home");
+      if (up && element.scrollTop < 1) loadMore.current();
     };
 
     const observer = new ResizeObserver(settle);

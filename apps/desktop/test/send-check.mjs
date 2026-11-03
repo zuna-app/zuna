@@ -410,7 +410,25 @@ try {
   const readOnOpening = await lenaUnread();
   check("opening it reads only what's on screen", readOnOpening > 20 && readOnOpening < 80, `${readOnOpening} of 80 left`);
   check("the way down shows how many are unread", (await page.locator(".to-bottom .to-bottom-badge").textContent()) === String(readOnOpening));
+  // Opened at its first unread message, the list starts at the very top of what's drawn,
+  // where a wheel scrolls nothing. Going up still has to bring in what's above.
+  const lineTop = () => page.evaluate(() => Math.round(document.querySelector(".unread-sep").getBoundingClientRect().top));
+  const lineBefore = await lineTop();
   await page.locator("[data-virtuoso-scroller]").hover();
+  for (let i = 0; i < 15; i++) {
+    await page.mouse.wheel(0, -20);
+    await sleep(25);
+  }
+  await sleep(400);
+  const lineAfter = await lineTop();
+  const asked = await page.evaluate(() => {
+    const view = document.querySelector("[data-virtuoso-scroller]").getBoundingClientRect();
+    const box = [...document.querySelectorAll(".msg.is-own")].find((item) => item.textContent.includes("count to 80"))?.getBoundingClientRect();
+    return !!box && box.top >= view.top && box.bottom <= view.bottom;
+  });
+  check("going up from the first unread message brings in what's above", asked && lineAfter - lineBefore > 40, `the line moved ${lineAfter - lineBefore}px down, "count to 80" ${asked ? "" : "not "}on screen`);
+  await page.locator("[data-virtuoso-scroller]").evaluate((element, by) => (element.scrollTop += by), lineAfter - lineBefore);
+  await sleep(300);
   await page.mouse.wheel(0, 600);
   await sleep(1000);
   const readOnScrolling = await lenaUnread();
@@ -422,6 +440,20 @@ try {
   await page.waitForTimeout(300);
   await opened("open-read-chat", "Lena");
   check("once read, it opens at the newest message without the line", (await page.locator(".unread-sep").count()) === 0);
+  // Going up in small steps, as a trackpad does, never puts it back at the end: a row
+  // drawn above as the list moves once did, again and again.
+  await page.locator("[data-virtuoso-scroller]").hover();
+  await page.evaluate(startRecording);
+  for (let i = 0; i < 30; i++) {
+    await page.mouse.wheel(0, -10);
+    await sleep(25);
+  }
+  await sleep(400);
+  const smallSteps = await page.evaluate(() => window.__stopRecording());
+  writeFileSync(join(output, "small-steps-up.json"), JSON.stringify(smallSteps));
+  const snapsBack = smallSteps.filter((frame, i) => i > 0 && frame.fromEnd < smallSteps[i - 1].fromEnd - 2).length;
+  const wentUp = smallSteps[smallSteps.length - 1]?.fromEnd ?? 0;
+  check("small steps up don't snap back to the newest message", snapsBack === 0 && wentUp > 250, `${snapsBack} snaps back, ${wentUp}px up in the end`);
 
   // In a group, "@" goes to each unread mention of you that hasn't been on screen, oldest first.
   await openChat("Probe group");
