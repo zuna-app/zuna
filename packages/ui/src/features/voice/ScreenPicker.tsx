@@ -240,6 +240,11 @@ function useShareSound(source: DisplaySource | undefined, browserPicks: boolean,
     };
   }, [windowId]);
 
+  // A choice made while the sources were still coming holds for the one they start on.
+  useEffect(() => {
+    if (chosen && chosen.key === null && key !== null) setChosen({ key, pick: chosen.pick });
+  }, [chosen, key]);
+
   const windowApp = lookup?.key === key ? lookup.app : null;
   const fallback = (): SoundPick => {
     if (!byDefault) return "";
