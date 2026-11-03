@@ -38,7 +38,7 @@ The iPhone app's approach carries over:
 
 | Part | Work |
 |---|---|
-| iPhone and iPad | A share's sound, which LiveKit's Swift SDK only mixes into the microphone ([SCREEN_SHARE.md](SCREEN_SHARE.md#from-an-iphone-or-ipad)). Trying CallKit on a phone: calls go to it, for the lock screen and the system's controls, but it has only run in the simulator, which can't keep a call. |
+| iPhone and iPad | A share's sound, which LiveKit's Swift SDK only mixes into the microphone ([SCREEN_SHARE.md](SCREEN_SHARE.md#from-an-iphone-or-ipad)). Answering a phone call during a call, with CallKit, which has otherwise been tried on an iPhone: the lock screen, the Dynamic Island, muting and ending from the system's controls, and a phone call declined during one. |
 | Calls in direct messages and groups | The same room and keys, from that conversation's MLS group, with something that rings. |
 | Noise cancelling | RNNoise is cheap and needs no setup. DeepFilterNet cleans speech noticeably better, for more CPU and a far larger download, and would have to run off the audio thread. |
 
