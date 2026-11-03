@@ -156,6 +156,18 @@ function codecOf(report: RTCStatsReport, rtp: Stat | undefined): string | null {
   return joined(text(codec, "mimeType")?.replace(/^(video|audio)\//, ""), text(codec, "sdpFmtpLine"));
 }
 
+/**
+ * Why a Mac encodes a share in software, where it's the server's doing. Chromium there only
+ * encodes H.264's Baseline on the GPU, and offers it first, so Constrained Baseline in OpenH264
+ * means the server's LiveKit doesn't take Baseline (`LIVEKIT_CONFIG` in `scripts/lib.mjs`).
+ */
+function whyInSoftware(report: RTCStatsReport, rtp: Stat): string | null {
+  if (!navigator.userAgent.includes("Macintosh") || text(rtp, "encoderImplementation") !== "OpenH264") return null;
+  const codec = report.get(text(rtp, "codecId") ?? "") as Stat | undefined;
+  if (!text(codec, "sdpFmtpLine")?.includes("profile-level-id=42e01f")) return null;
+  return "This server's LiveKit doesn't take H.264's Baseline profile, the one a Mac encodes on its graphics card. Updating the server fixes it.";
+}
+
 const SOURCE_NAMES: Record<string, [mine: string, theirs: string]> = {
   [Track.Source.Microphone]: ["Your microphone", "microphone"],
   [Track.Source.Camera]: ["Your camera", "camera"],
@@ -358,6 +370,7 @@ export class StreamStats {
         row("Sent as", layers.length > 1 ? null : size(number(rtp, "frameWidth"), number(rtp, "frameHeight"))),
         row("Codec", codecOf(report, rtp)),
         row("Encoder", joined(text(rtp, "encoderImplementation"), hardware(rtp.powerEfficientEncoder), text(rtp, "scalabilityMode"))),
+        row("Why in software", isShare && layers.length === 1 ? whyInSoftware(report, rtp) : null, true),
         row("Bitrate", bits(bitsPerSecond)),
         row("Most asked for", isShare && share ? bits(share.bitrateKbps * 1000) : null),
         row("Encoder aims for", bits(number(rtp, "targetBitrate"))),

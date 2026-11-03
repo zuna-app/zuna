@@ -9,6 +9,9 @@
 //
 // VOICE_ENCODER, such as h264_mf, has native shares go through that encoder rather than
 // the one that goes with the screen's graphics card.
+//
+// VOICE_LIVEKIT_DEFAULTS=1 runs LiveKit as a server set up before it took H.264's Baseline,
+// so a Mac shares in software and says the server is why.
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -86,7 +89,8 @@ const binary = join(tmpdir(), `zuna-voice-server${process.platform === "win32" ?
 execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server"), env: pathEnv, stdio: "inherit" });
 
 const liveKitPort = 17880;
-const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], { stdio: ["ignore", "pipe", "pipe"] });
+const liveKitDefaults = !!process.env.VOICE_LIVEKIT_DEFAULTS;
+const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), ...(liveKitDefaults ? [] : ["--config-body", LIVEKIT_CONFIG])], { stdio: ["ignore", "pipe", "pipe"] });
 let liveKitOutput = "";
 liveKit.stdout.on("data", (chunk) => (liveKitOutput += chunk));
 liveKit.stderr.on("data", (chunk) => (liveKitOutput += chunk));
@@ -533,6 +537,7 @@ try {
     const startWithSound = who.page.getByRole("switch", { name: "Start with sound on" });
     if (await startWithSound.count()) await startWithSound.click();
     if (process.env.VOICE_ENCODER) await who.page.getByRole("combobox", { name: "Encoder" }).selectOption(process.env.VOICE_ENCODER);
+    if (process.platform === "darwin" && who === alice) check("a Mac has nothing to set for native capture", (await who.page.getByRole("switch", { name: "Capture on your graphics card" }).count()) === 0);
     await who.page.keyboard.press("Escape");
     await sleep(200);
   }
@@ -587,6 +592,11 @@ try {
     check("someone watching can tell how it's being sent", watching?.rows["Sent through"]?.startsWith("Native"), watching?.rows["Sent through"]);
   } else {
     check("capture runs at the frame rate that was asked for", fpsIn(sharing?.rows["Capture agreed to"]) === 60 && fpsIn(sharing?.rows.Capturing) > 50, `agreed to ${sharing?.rows["Capture agreed to"]}, capturing ${sharing?.rows.Capturing}, through ${sharing?.rows.Encoder}`);
+  }
+  if (process.platform === "darwin") {
+    check("a Mac doesn't say why a share isn't native", !sharing?.rows["Why not natively"], sharing?.rows["Why not natively"]);
+    if (liveKitDefaults) check("a Mac says the server is why its share is in software", sharing?.rows.Encoder?.startsWith("OpenH264") && !!sharing?.rows["Why in software"], `${sharing?.rows.Encoder}: ${sharing?.rows["Why in software"]}`);
+    else check("a Mac encodes its share on the GPU", sharing?.rows.Encoder?.includes("hardware") && !sharing?.rows["Why in software"], `${sharing?.rows.Encoder}, ${sharing?.rows.Codec}`);
   }
   const dragFrom = await alice.page.locator(".stream-stats-head").boundingBox();
   await alice.page.mouse.move(dragFrom.x + 60, dragFrom.y + 12);

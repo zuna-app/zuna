@@ -21,6 +21,7 @@ import {
 import { drawCounters } from "./counter";
 
 const isWindows = navigator.userAgent.includes("Windows");
+const isMac = navigator.userAgent.includes("Macintosh");
 
 export interface DesktopBridge {
   /** Whether the system shows times with AM and PM. */
@@ -110,7 +111,8 @@ export function desktopPlatform(): Platform {
     chooseDisplaySource: (id, audio) => desktop.chooseDisplaySource(id, audio),
     systemAudio: isWindows || desktop.nativeSound,
     shareSound: desktop.nativeSound ? nativeSound(desktop) : undefined,
-    nativeScreen: {
+    // Macs share through Chromium, which encodes on the GPU itself, so there's nothing to set or explain.
+    nativeScreen: isMac ? undefined : {
       // Windows captures a window by its handle, and Linux's portal shares one.
       windows: isWindows || navigator.userAgent.includes("Linux"),
       encoders: isWindows
