@@ -118,6 +118,7 @@ Rules the core depends on:
 - **Read it before working on a feature people can see,** to learn what the other platforms do and where.
 - **Update it in the same commit** as any change that adds, changes or removes such a feature, on any platform.
 - **Always add to Known gaps whatever you build that isn't on every platform,** in the same commit, every time: a feature, a change to one, or a fix, including ones nobody sees, such as privacy and security fixes. Mark the others `no` or `partial`, and say what's missing and which file it would go in. Changes in `packages/core` reach every platform, but `packages/ui` is only the desktop and the web, and `apps/*` only its own. Never leave a gap for a later commit. Remove one in the commit that closes it.
+- **What a platform can't have, or what would make no sense on it, isn't a gap.** Mark it `n/a` in its row and list it under "Not possible or pointless there", never in Known gaps.
 - **Only write what you've checked.** If you couldn't build or run a platform, as with Swift without a Mac, say so in that row's notes.
 - **When it disagrees with the code, the code is right.** Correct the file. `docs/IOS_PLAN.md` records iOS's design and test reports, but its parity tables aren't kept current.
 
