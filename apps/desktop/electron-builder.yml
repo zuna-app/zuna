@@ -48,13 +48,14 @@ nsis:
   perMachine: false
   deleteAppDataOnUninstall: false
   artifactName: Zuna-Setup-${version}.${ext}
+# Apple silicon only: no build for Intel Macs is published.
 mac:
   target:
     - target: dmg
-      arch: [x64, arm64]
+      arch: [arm64]
     # Automatic updates on macOS come from this one.
     - target: zip
-      arch: [x64, arm64]
+      arch: [arm64]
   icon: resources/icon.png
   category: public.app-category.social-networking
   hardenedRuntime: true
