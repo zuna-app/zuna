@@ -16,7 +16,7 @@ Zuna needs a server, and the page says so plainly without making it sound like a
 The page looks like the app: dark, monochrome, white as the one accent, Inter for text and JetBrains Mono for anything technical. Colors come from `packages/ui/src/styles/tokens.css`, imported rather than copied, so they never drift.
 
 - Thin 1px lines, a bento grid, large headings with tight tracking.
-- Two effects only: a soft light and grain behind the app window in the hero, and the hero's heading resolving from monospace noise into text as the page loads.
+- Two effects only: a soft light and grain behind the app window in the hero, and the demo's heading resolving from noise into text as it scrolls in.
 - An accent switcher in the navigation: the app's five accents, which recolor the page and the app window as Appearance does in the app.
 - Restrained motion: the hero's window straightens as the page scrolls, messages arrive one by one with a typing indicator, sections fade up. All of it off under `prefers-reduced-motion`.
 

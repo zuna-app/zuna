@@ -24,6 +24,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | Test server, set up with bots and an owner account (port 8787) | `npm run dev:server` |
 | Desktop app with live reload, after pulling (a fast-forward, with nothing uncommitted) and rebuilding whatever changed | `npm run dev` |
 | Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
+| zuna.chat, the landing page, with live reload at `http://localhost:5175`, and prerendered into `apps/site/dist` | `npm run dev -w @zuna/site`, `npm run build -w @zuna/site` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
 | Type checks, core and desktop | `npm run typecheck` |
 | All of crypto, server and core tests | `npm test` |
@@ -61,6 +62,8 @@ Checks in real Electron, after `npm run build -w @zuna/desktop`:
 | `notification-check.mjs` | Windows's notifications or unread badge. `--real-input` moves the real mouse and types, which is the only way to see clicks go through the window and focus arrive |
 
 `packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`.
+
+The landing page has a check of its own, in the same browsers: `npm run build -w @zuna/site && node apps/site/test/site-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. It serves the build as GitHub Pages does, and fails on any request to another origin, a content security policy violation, sideways scrolling, or a section that stays hidden without script or with less motion. Run it after changing `apps/site`.
 
 iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for the quick loop, `npm run test:ios` for the core on the iOS host against desktop peers, `npm run test:ios:ui` for the UI, `npm run test:ios:voice` for a call with the desktop app (after building it), `npm run test:ios:notify` for which of someone's devices is notified when (after building it), and `swift test` in `apps/ios/ZunaKit`. Without a Mac, Swift can't be compiled, so say so in the commit message. `docs/IOS_TESTING.md` covers the rest.
 
@@ -110,6 +113,7 @@ Rules the core depends on:
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
 | What setting up the test server creates (`createWorld` in `packages/core/test/dev-bots.ts`) | `WORLD_VERSION` and `catchUp` there, or test servers set up earlier never get it |
 | Anything `SECURITY.md` or the docs claim | Those docs |
+| Anything the landing page claims, such as a feature, a platform, a limit or a number | `apps/site`, in the same commit. It says only what's been checked |
 
 ## Feature parity
 
@@ -142,6 +146,7 @@ Rules the core depends on:
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
 | Adding bots or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
+| The landing page, zuna.chat, with the privacy policy and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |
 | What's planned | `docs/ROADMAP.md` |
 
 ## Decisions to keep
