@@ -119,6 +119,12 @@ func (r *Relay) Handler() http.Handler {
 	return mux
 }
 
+// The platforms a handle can be for: a phone's push token, or its VoIP token, which only rings for calls.
+const (
+	platformAPNs     = "apns"
+	platformAPNsVoIP = "apns-voip"
+)
+
 // device is what a handle holds.
 type device struct {
 	Platform    string `json:"p"`
@@ -140,7 +146,7 @@ func (r *Relay) handleRegister(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	token, err := hex.DecodeString(body.Token)
-	if body.Platform != "apns" || err != nil || len(token) == 0 || len(token) > 256 ||
+	if (body.Platform != platformAPNs && body.Platform != platformAPNsVoIP) || err != nil || len(token) == 0 || len(token) > 256 ||
 		(body.Environment != "production" && body.Environment != "sandbox") {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
@@ -163,7 +169,7 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 	}
 	var body struct {
 		Handle string `json:"handle"`
-		// "background" for a silent push; anything else shows an alert.
+		// "background" for a silent push, "call" for a call ringing; anything else shows an alert.
 		Type       string            `json:"type"`
 		Data       map[string]string `json:"data"`
 		CollapseID string            `json:"collapse_id"`
@@ -176,7 +182,13 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 		size += len(key) + len(value)
 	}
 	target, ok := r.open(body.Handle)
-	if !ok || size > maxDataBytes {
+	kind := body.Type
+	if kind != KindBackground && kind != KindCall {
+		kind = KindAlert
+	}
+	voip := target.Platform == platformAPNsVoIP
+	// iOS stops waking an app that's pushed through PushKit for anything but a call it rings for.
+	if !ok || size > maxDataBytes || (voip && kind != KindCall) {
 		writeError(w, http.StatusBadRequest, "bad_request")
 		return
 	}
@@ -188,7 +200,7 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "no_apns")
 		return
 	}
-	err := r.apns.Send(req.Context(), target.Token, target.Environment, body.Type == "background", body.Data, body.CollapseID)
+	err := r.apns.Send(req.Context(), target.Token, target.Environment, kind, voip, body.Data, body.CollapseID)
 	switch {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
@@ -211,7 +223,7 @@ func (r *Relay) open(handle string) (device, bool) {
 		return device{}, false
 	}
 	var target device
-	return target, json.Unmarshal(plaintext, &target) == nil && target.Platform == "apns"
+	return target, json.Unmarshal(plaintext, &target) == nil && (target.Platform == platformAPNs || target.Platform == platformAPNsVoIP)
 }
 
 func readJSON(w http.ResponseWriter, req *http.Request, into any) bool {

@@ -5,6 +5,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { equalBytes } from "../src/encoding";
+import { previewCall } from "../src/push";
 import type { CallView, CoreEvent } from "../src/types";
 import { loadCrypto, TestApp, TestServer, waitFor } from "./helpers";
 
@@ -105,6 +106,17 @@ describe("calls in a direct message", () => {
     }
   });
 
+  it("are worded for a phone woken to ring for one, from what it has alone", async () => {
+    const extension = { db: bob.db, deviceKey: bob.deviceKey };
+    expect(await previewCall(extension, bob.serverId, dm, alice.userId)).toMatchObject({ title: "alice", body: "Calling you", conversationKey: `user:${alice.userId}`, muted: false, hidden: false });
+    // Nobody rings for themselves, and a conversation this device doesn't have rings for nothing.
+    expect(await previewCall(extension, bob.serverId, dm, bob.userId)).toMatchObject({ hidden: true });
+    expect(await previewCall(extension, bob.serverId, "f".repeat(32), alice.userId)).toMatchObject({ hidden: true });
+    await bob.session.mute(`user:${alice.userId}`);
+    expect(await previewCall(extension, bob.serverId, dm, alice.userId)).toMatchObject({ muted: true });
+    await bob.session.unmute(`user:${alice.userId}`);
+  });
+
   it("end when the last one leaves", async () => {
     alice.session.setVoiceState(null, null);
     await waitFor(() => !inCall(bob, dm).has(alice.userId), "bob to see alice go");
@@ -139,6 +151,11 @@ describe("calls in a group", () => {
     await expect(carol.session.voiceAccess(group)).rejects.toThrow();
     alice.session.setVoiceState(null, null);
     await waitFor(() => !callIn(bob, group), "the call to end");
+  });
+
+  it("are worded with who started them, for a phone woken to ring", async () => {
+    expect(await previewCall({ db: carol.db, deviceKey: carol.deviceKey }, carol.serverId, group, alice.userId)).toMatchObject({ hidden: true });
+    expect(await previewCall({ db: bob.db, deviceKey: bob.deviceKey }, bob.serverId, group, alice.userId)).toMatchObject({ title: "Weekend", body: "alice started a call" });
   });
 
   it("aren't heard of by an app without calls", async () => {

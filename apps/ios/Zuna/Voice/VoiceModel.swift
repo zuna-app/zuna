@@ -172,6 +172,16 @@ final class VoiceModel {
     @ObservationIgnored private var hangUp: Task<Void, Never>?
     /// The calls ringing here, by ID, to tell which stopped.
     @ObservationIgnored private var rung: [String: IncomingCall] = [:]
+    /// VoIP pushes, which wake the app while Zuna isn't running to ring through CallKit.
+    @ObservationIgnored private let callPushes = CallPushes()
+    /// Calls a VoIP push rang for, by the system's ID, until the app has heard of them itself.
+    @ObservationIgnored private var pushed: [UUID: PushStore.Message] = [:]
+    /// A pushed call answered before the app had heard of it, to come into once it has.
+    @ObservationIgnored private var pendingAnswer: UUID?
+    /// Servers whose calls the app has caught up on since it started, so a pushed call it doesn't know of is over.
+    @ObservationIgnored private var callsKnown: Set<String> = []
+    /// The VoIP token, for the push relay, once PushKit has one.
+    @ObservationIgnored var onCallPushToken: ((String?) -> Void)?
 
     private static let reconnectAttempts = 3
     private static let reconnectWait: Duration = .seconds(2)
@@ -190,7 +200,16 @@ final class VoiceModel {
 
     func attach(_ app: AppModel) {
         self.app = app
+        callPushes.onToken = { [weak self] token in self?.onCallPushToken?(token) }
+        callPushes.onRing = { [weak self] push in self?.rangByPush(push) }
+        // A VoIP push has to ring through CallKit, so there's no token where CallKit is left out.
+        Task {
+            if await systemCall.allowed() { callPushes.start() }
+        }
     }
+
+    /// The VoIP token, once PushKit has given one.
+    var callPushToken: String? { callPushes.token }
 
     var inCall: Bool { status != .idle }
 
@@ -498,7 +517,103 @@ final class VoiceModel {
 
     /// The calls going on were caught up on.
     func callsChanged(serverId: String) {
+        callsKnown.insert(serverId)
         refreshIncoming()
+        Task { await clearStaleCallNotifications() }
+    }
+
+    /// A call's notification, pushed while the app wasn't running, goes once the app knows it's stopped ringing:
+    /// a silent push saying so may not have woken it.
+    private func clearStaleCallNotifications() async {
+        let center = UNUserNotificationCenter.current()
+        let ringing = Set(incoming.map { "\($0.serverId)|\($0.groupId)" })
+        let stale = await center.deliveredNotifications().filter { notification in
+            let content = notification.request.content
+            guard content.categoryIdentifier == Notifications.callCategory else { return false }
+            let opened = PushStore.open(content.userInfo)
+            guard let serverId = content.userInfo["serverId"] as? String ?? opened?.serverId,
+                  let groupId = content.userInfo["groupId"] as? String ?? opened?.groupId else { return false }
+            return callsKnown.contains(serverId) && !ringing.contains("\(serverId)|\(groupId)")
+        }.map(\.request.identifier)
+        if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
+    }
+
+    // MARK: Calls that woke the app
+
+    /// A VoIP push says a call is ringing here. It goes to CallKit at once, as PushKit insists, called what the app
+    /// knows so far, and is answered or let go once the app has caught up with its server.
+    private func rangByPush(_ push: PushStore.Message?) {
+        guard let push, push.kind == .call, let startedAt = push.startedAt, let callerId = push.callerId else {
+            systemCall.ringUnreadable()
+            return
+        }
+        let id = SystemCall.callId(serverId: push.serverId, groupId: push.groupId, startedAt: startedAt)
+        let server = app?.servers[push.serverId]
+        let title = server?.conversation(groupId: push.groupId)?.title ?? server?.users[callerId]?.displayName ?? "Zuna"
+        if serverId == push.serverId, channelId == push.groupId, status != .idle {
+            // Already in it here: the system still has to hear of the push, and ends it at once.
+            systemCall.ringNow(id, title: title, actions: SystemCall.Ringing(answer: {}, decline: {}))
+            systemCall.stopRinging(id, reason: .answeredElsewhere)
+            return
+        }
+        pushed[id] = push
+        systemCall.ringNow(id, title: title, actions: SystemCall.Ringing(
+            answer: { [weak self] in self?.answeredPushed(id) },
+            decline: { [weak self] in self?.declinePushed(id) }
+        ))
+        Task { await settlePushed(id) }
+    }
+
+    /// Once the app has caught up, a pushed call is one it rings for, which is called what its conversation is, or
+    /// one that's over. A phone that can't catch up lets it go after a minute.
+    private func settlePushed(_ id: UUID) async {
+        for _ in 0..<300 {
+            guard let push = pushed[id] else { return }
+            if callsKnown.contains(push.serverId), app?.servers[push.serverId]?.connection == .online { break }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        guard pushed.removeValue(forKey: id) != nil else { return }
+        if let call = rung.values.first(where: { $0.systemId == id }) {
+            systemCall.retitle(id, call.title)
+        } else {
+            pendingAnswer = pendingAnswer == id ? nil : pendingAnswer
+            systemCall.stopRinging(id, reason: .remoteEnded)
+            if systemCall.isCurrent(id), status == .idle { systemCall.ended(failed: false) }
+        }
+    }
+
+    /// Answered from the system's screen: straight in if the app knows the call, or as soon as it does.
+    private func answeredPushed(_ id: UUID) {
+        if let call = incoming.first(where: { $0.systemId == id }) {
+            answeredBySystem(call)
+        } else {
+            pendingAnswer = id
+        }
+    }
+
+    private func declinePushed(_ id: UUID) {
+        guard let push = pushed[id] ?? rung.values.first(where: { $0.systemId == id }).map({ PushStore.Message(kind: .call, serverId: $0.serverId, groupId: $0.groupId, messageId: nil) }),
+              let app else { return }
+        let session = app.core.session(push.serverId), groupId = push.groupId
+        Task {
+            // The core may still be starting, as the push woke the app.
+            for attempt in 0..<5 {
+                do {
+                    try await session.declineCall(groupId)
+                    return
+                } catch {
+                    try? await Task.sleep(for: .seconds(attempt + 1))
+                }
+            }
+        }
+    }
+
+    /// A silent push says a call stopped ringing this person, which the app may not have heard yet.
+    func callEndedByPush(serverId: String, groupId: String) {
+        for (id, push) in pushed where push.serverId == serverId && push.groupId == groupId {
+            pushed[id] = nil
+            systemCall.stopRinging(id, reason: .remoteEnded)
+        }
     }
 
     /// Someone's device left a room. Once the other person in a direct message's call hangs up, it's over, after a
@@ -578,6 +693,10 @@ final class VoiceModel {
         if incoming != next { incoming = next }
         for call in next where before[call.id] == nil { startRinging(call) }
         for (id, call) in before where rung[id] == nil { stoppedRinging(call) }
+        if let pending = pendingAnswer, let call = next.first(where: { $0.systemId == pending }) {
+            pendingAnswer = nil
+            answeredBySystem(call)
+        }
         updateRingtone()
     }
 
@@ -596,6 +715,7 @@ final class VoiceModel {
 
     /// The system's screen answered a call: it's the system's call already, so the room comes to it.
     private func answeredBySystem(_ call: IncomingCall) {
+        pushed[call.systemId] = nil
         // Out of whatever room this device was in, whose call the system has ended by now.
         if status != .idle { leave(keepingSystemCall: true) }
         app?.selectServer(call.serverId)

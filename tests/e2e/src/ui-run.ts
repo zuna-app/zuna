@@ -81,10 +81,13 @@ const relayServer = createServer((request, response) => {
       relay.pushes += 1;
       if (json.type === "background") relay.silent += 1;
       const file = join(runDir, `push-${Date.now()}-${relay.pushes}.json`);
+      // As the relay's: a call without a VoIP token, as in test builds, rings as an alert.
       const aps =
         json.type === "background"
           ? { "content-available": 1 }
-          : { alert: { title: "Zuna", body: "New message" }, "mutable-content": 1, sound: "default", category: "message" };
+          : json.type === "call"
+            ? { alert: { title: "Zuna", body: "Incoming call" }, "mutable-content": 1, sound: "default", category: "call" }
+            : { alert: { title: "Zuna", body: "New message" }, "mutable-content": 1, sound: "default", category: "message" };
       writeFileSync(file, JSON.stringify({ aps, zuna: json.data }));
       execFile("xcrun", ["simctl", "push", udid, BUNDLE_ID, file], () => undefined);
       response.end("{}");

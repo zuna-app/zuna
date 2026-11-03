@@ -55,16 +55,22 @@ enum PushStore {
     }
 
     /// What a push is about, opened with the registration's key: a new
-    /// message, or, in a silent push, a chat read or a message deleted elsewhere.
+    /// message, or, in a silent push, a chat read or a message deleted elsewhere;
+    /// or a call ringing this person, and, silently, that it stopped.
     struct Message: Equatable {
         enum Kind: String {
             case message, read, delete
+            case call
+            case callEnd = "call_end"
         }
 
         let kind: Kind
         let serverId: String
         let groupId: String
         let messageId: String?
+        /// For a call: who started it, and when, which says which call it is.
+        var callerId: String? = nil
+        var startedAt: Int? = nil
     }
 
     static func open(_ userInfo: [AnyHashable: Any]) -> Message? {
@@ -77,7 +83,7 @@ enum PushStore {
               let fields = try? JSONDecoder().decode([String: String].self, from: plaintext),
               let kind = Message.Kind(rawValue: fields["t"] ?? "message"),
               let groupId = fields["g"] else { return nil }
-        return Message(kind: kind, serverId: registration.serverId, groupId: groupId, messageId: fields["m"])
+        return Message(kind: kind, serverId: registration.serverId, groupId: groupId, messageId: fields["m"], callerId: fields["c"], startedAt: fields["s"].flatMap { Int($0) })
     }
 
     /// The badge on the app's icon: the app sets it to the unread count, and

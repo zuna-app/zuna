@@ -15,9 +15,11 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"zuna/server/internal/relay"
 )
@@ -282,4 +284,45 @@ func mustDecode(t *testing.T, text string) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestRingsCallsThroughPushKitOrAsAnAlert(t *testing.T) {
+	h := newHarness(t)
+	data := map[string]string{"r": "registration", "p": "c2VhbGVk"}
+
+	// A VoIP token only ever rings, through PushKit, and not for long.
+	status, reply := h.post("/v1/register", map[string]string{"platform": "apns-voip", "token": token, "environment": "production"})
+	if status != http.StatusOK || reply["handle"] == "" {
+		t.Fatalf("registering a VoIP token: %d %v", status, reply)
+	}
+	voip := reply["handle"]
+	if status, reply := h.post("/v1/push", map[string]any{"handle": voip, "type": "call", "data": data, "collapse_id": "call-1"}); status != http.StatusNoContent {
+		t.Fatalf("ringing: %d %v", status, reply)
+	}
+	rang := h.apns.last(t)
+	for header, want := range map[string]string{"apns-topic": "chat.zuna.mobile.voip", "apns-push-type": "voip", "apns-priority": "10"} {
+		if got := rang.Headers.Get(header); got != want {
+			t.Fatalf("%s = %q, want %q", header, got, want)
+		}
+	}
+	if expiry, _ := strconv.ParseInt(rang.Headers.Get("apns-expiration"), 10, 64); expiry > time.Now().Add(2*time.Minute).Unix() {
+		t.Fatalf("a ring lasts until %d", expiry)
+	}
+	if aps := rang.Body["aps"].(map[string]any); len(aps) != 0 || rang.Body["zuna"].(map[string]any)["p"] != "c2VhbGVk" {
+		t.Fatalf("a VoIP push: %v", rang.Body)
+	}
+	for _, kind := range []string{"", "background"} {
+		if status, _ := h.post("/v1/push", map[string]any{"handle": voip, "type": kind, "data": data}); status != http.StatusBadRequest {
+			t.Fatalf("a %q push to a VoIP token got %d", kind, status)
+		}
+	}
+
+	// Without one, as where CallKit is left out, it's an alert with Answer and Decline.
+	handle := h.register(token, "production")
+	h.post("/v1/push", map[string]any{"handle": handle, "type": "call", "data": data})
+	alert := h.apns.last(t)
+	aps := alert.Body["aps"].(map[string]any)
+	if alert.Headers.Get("apns-push-type") != "alert" || alert.Headers.Get("apns-topic") != "chat.zuna.mobile" || aps["category"] != "call" || aps["alert"].(map[string]any)["body"] != "Incoming call" {
+		t.Fatalf("a call's alert: %v %v", alert.Headers, alert.Body)
+	}
 }

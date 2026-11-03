@@ -8,7 +8,9 @@ import ZunaModels
 /// it. The server only says which message arrived, sealed with this device's
 /// key; it's fetched and decrypted here with the device's keys, by the same
 /// core the app runs. Until the phone has been unlocked with the Zuna password
-/// since it started, the push's own generic text shows instead.
+/// since it started, the push's own generic text shows instead. A call ringing
+/// comes here only where CallKit is left out, as on China's App Store, which
+/// otherwise has it ring as a phone call through PushKit.
 final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
     private let logger = Logger(subsystem: "chat.zuna", category: "notifications")
     private var deliver: ((UNNotificationContent) -> Void)?
@@ -28,6 +30,17 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
         mutable.sound = settings.sound ? .default : nil
         PushStore.badge += 1
         mutable.badge = NSNumber(value: PushStore.badge)
+        if let push = PushStore.open(request.content.userInfo), push.kind == .call, let callerId = push.callerId {
+            PushStore.badge -= 1
+            mutable.badge = nil
+            mutable.userInfo["serverId"] = push.serverId
+            mutable.userInfo["groupId"] = push.groupId
+            nonisolated(unsafe) let content = mutable
+            Task {
+                finish(await ring(content, for: push, callerId: callerId, settings: settings))
+            }
+            return
+        }
         guard let push = PushStore.open(request.content.userInfo), push.kind == .message, let messageId = push.messageId else {
             finish(mutable)
             return
@@ -75,6 +88,30 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             return await MessageNotification.content(for: preview, settings: settings, base: content)
         } catch {
             logger.error("A push couldn't be previewed: \(String(describing: error), privacy: .public)")
+            return content
+        }
+    }
+
+    /// A call ringing, worded as the app would, with a ringtone unless the conversation is muted.
+    private func ring(_ content: UNMutableNotificationContent, for push: PushStore.Message, callerId: String, settings: NotificationSettings) async -> UNNotificationContent {
+        content.sound = settings.sound ? .defaultRingtone : nil
+        content.categoryIdentifier = "call"
+        guard let runtime = Self.makeRuntime() else { return content }
+        do {
+            let call = try await runtime.callPreview(serverId: push.serverId, groupId: push.groupId, callerId: callerId)
+            if call.hidden {
+                guard PushStore.canFilter else { return content }
+                return UNNotificationContent()
+            }
+            if settings.preview != .none {
+                content.title = call.title
+                content.body = call.body
+            }
+            if let key = call.conversationKey { content.userInfo["conversationKey"] = key }
+            if call.muted { content.sound = nil }
+            return content
+        } catch {
+            logger.error("A call's push couldn't be worded: \(String(describing: error), privacy: .public)")
             return content
         }
     }

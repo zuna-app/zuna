@@ -338,7 +338,7 @@ export class Api {
   changePassword = (body: Record<string, unknown>) => this.request("POST", "/api/auth/password", body);
   changeRecoveryKey = (body: Record<string, unknown>) => this.request("POST", "/api/auth/recovery-key", body);
   logout = () => this.request("POST", "/api/auth/logout", {});
-  setPush = (body: { relay: string; handle: string; key: Uint8Array; registration: string; muted: string[]; muted_until: Record<string, number>; filters: boolean }) =>
+  setPush = (body: { relay: string; handle: string; call_handle?: string; key: Uint8Array; registration: string; muted: string[]; muted_until: Record<string, number>; filters: boolean }) =>
     this.request("PUT", "/api/push", body);
   deletePush = () => this.request("DELETE", "/api/push");
 

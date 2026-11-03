@@ -485,6 +485,10 @@ ALTER TABLE channels ADD COLUMN screen_limit INTEGER NOT NULL DEFAULT 0;
 -- Whether a phone's app hides what it shouldn't show itself, so it's pushed for
 -- everything, channels too.
 ALTER TABLE push_registrations ADD COLUMN filters INTEGER NOT NULL DEFAULT 0;
+`, `
+-- The relay's handle for a phone's VoIP token, which calls ring through, or empty where
+-- the phone has none, as where CallKit is left out.
+ALTER TABLE push_registrations ADD COLUMN call_handle TEXT NOT NULL DEFAULT '';
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

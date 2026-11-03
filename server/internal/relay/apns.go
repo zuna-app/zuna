@@ -23,7 +23,7 @@ import (
 // app was deleted; servers should forget it.
 var ErrGone = errors.New("the device can't be reached any more")
 
-// APNs sends alert pushes through Apple's Push Notification service with a
+// APNs sends pushes through Apple's Push Notification service with a
 // token key (.p8 file), over HTTP/2.
 type APNs struct {
 	keyID  string
@@ -68,10 +68,25 @@ func NewAPNs(p8 []byte, keyID, teamID, topic string) (*APNs, error) {
 // UseClient replaces the HTTP client, for tests.
 func (a *APNs) UseClient(client *http.Client) { a.client = client }
 
+// What a push is for.
+const (
+	// KindAlert shows that a message arrived.
+	KindAlert = "alert"
+	// KindBackground only wakes the app, to clear notifications.
+	KindBackground = "background"
+	// KindCall rings for a call: through PushKit, for a VoIP token, or as an alert.
+	KindCall = "call"
+)
+
+// A call rings for 45 seconds, so a push that arrives later than this has nothing to ring for.
+const callExpiry = time.Minute
+
 // Send shows a generic alert, which the app's notification extension replaces
 // with the message once it has fetched and decrypted it; data rides along for
-// it. A silent push (background) only wakes the app, to clear notifications.
-func (a *APNs) Send(ctx context.Context, token, environment string, background bool, data map[string]string, collapseID string) error {
+// it. A silent push (background) only wakes the app, to clear notifications. A
+// call to a VoIP token goes through PushKit, which has the app ring through
+// CallKit, and otherwise shows as an alert with Answer and Decline.
+func (a *APNs) Send(ctx context.Context, token, environment, kind string, voip bool, data map[string]string, collapseID string) error {
 	aps := map[string]any{
 		"alert":           map[string]string{"title": "Zuna", "body": "New message"},
 		"mutable-content": 1,
@@ -79,10 +94,19 @@ func (a *APNs) Send(ctx context.Context, token, environment string, background b
 		// The app's Reply and Mark as read actions.
 		"category": "message",
 	}
-	pushType, priority := "alert", "10"
-	if background {
+	topic, pushType, priority, expiry := a.topic, "alert", "10", 24*time.Hour
+	switch {
+	case voip:
+		// PushKit wants the app to report a call at once, so a VoIP token only ever rings.
+		aps = map[string]any{}
+		topic, pushType, expiry = a.topic+".voip", "voip", callExpiry
+	case kind == KindBackground:
 		aps = map[string]any{"content-available": 1}
 		pushType, priority = "background", "5"
+	case kind == KindCall:
+		aps["alert"] = map[string]string{"title": "Zuna", "body": "Incoming call"}
+		aps["category"] = "call"
+		expiry = callExpiry
 	}
 	body, _ := json.Marshal(map[string]any{"aps": aps, "zuna": data})
 	base := a.Production
@@ -99,10 +123,10 @@ func (a *APNs) Send(ctx context.Context, token, environment string, background b
 			return err
 		}
 		request.Header.Set("authorization", "bearer "+bearer)
-		request.Header.Set("apns-topic", a.topic)
+		request.Header.Set("apns-topic", topic)
 		request.Header.Set("apns-push-type", pushType)
 		request.Header.Set("apns-priority", priority)
-		request.Header.Set("apns-expiration", strconv.FormatInt(time.Now().Add(24*time.Hour).Unix(), 10))
+		request.Header.Set("apns-expiration", strconv.FormatInt(time.Now().Add(expiry).Unix(), 10))
 		if collapseID != "" && len(collapseID) <= 64 {
 			request.Header.Set("apns-collapse-id", collapseID)
 		}

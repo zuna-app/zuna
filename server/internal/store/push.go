@@ -14,6 +14,9 @@ type PushRegistration struct {
 	Relay string
 	// Handle is the relay's opaque name for the device.
 	Handle string
+	// CallHandle is the relay's name for the device's VoIP token, which calls ring
+	// through, or empty if it has none.
+	CallHandle string
 	// Key seals each push, so the relay and Apple or Google see only that one arrived.
 	Key []byte
 	// Registration is the app's own ID for it, which tells the app which server a push is from.
@@ -52,8 +55,8 @@ func decodeMuted(value string) map[string]int64 {
 	return muted
 }
 
-// mutes reports whether a registration's mutes cover the group now.
-func (p PushRegistration) mutes(groupID string, now int64) bool {
+// Mutes reports whether a registration's mutes cover the group now.
+func (p PushRegistration) Mutes(groupID string, now int64) bool {
 	until, ok := p.Muted[groupID]
 	return ok && (until == 0 || until > now)
 }
@@ -61,11 +64,11 @@ func (p PushRegistration) mutes(groupID string, now int64) bool {
 // SetPushRegistration stores a device's registration, replacing any earlier one.
 func (d *DB) SetPushRegistration(ctx context.Context, p PushRegistration) error {
 	_, err := d.sql.ExecContext(ctx,
-		`INSERT INTO push_registrations(device_id, user_id, relay, handle, push_key, registration, muted, filters, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(device_id) DO UPDATE SET relay = excluded.relay, handle = excluded.handle, push_key = excluded.push_key,
+		`INSERT INTO push_registrations(device_id, user_id, relay, handle, call_handle, push_key, registration, muted, filters, updated_at)
+		 VALUES(?,?,?,?,?,?,?,?,?,?)
+		 ON CONFLICT(device_id) DO UPDATE SET relay = excluded.relay, handle = excluded.handle, call_handle = excluded.call_handle, push_key = excluded.push_key,
 		   registration = excluded.registration, muted = excluded.muted, filters = excluded.filters, updated_at = excluded.updated_at`,
-		p.DeviceID, p.UserID, p.Relay, p.Handle, p.Key, p.Registration, encodeMuted(p.Muted), p.Filters, Now())
+		p.DeviceID, p.UserID, p.Relay, p.Handle, p.CallHandle, p.Key, p.Registration, encodeMuted(p.Muted), p.Filters, Now())
 	return err
 }
 
@@ -101,7 +104,7 @@ func (d *DB) PushTargets(ctx context.Context, groupID, senderUserID string, only
 			return nil, err
 		}
 		p.Muted = decodeMuted(muted)
-		if !p.mutes(groupID, now) {
+		if !p.Mutes(groupID, now) {
 			targets = append(targets, p)
 		}
 	}
@@ -118,7 +121,7 @@ func (d *DB) PushRegistrationsOf(ctx context.Context, userIDs []string) ([]PushR
 		args[i] = id
 	}
 	rows, err := d.sql.QueryContext(ctx,
-		`SELECT p.device_id, p.user_id, p.relay, p.handle, p.push_key, p.registration
+		`SELECT p.device_id, p.user_id, p.relay, p.handle, p.call_handle, p.push_key, p.registration, p.muted
 		 FROM push_registrations p
 		 JOIN devices dv ON dv.id = p.device_id AND dv.revoked_at IS NULL
 		 WHERE p.user_id IN (`+placeholders(len(userIDs))+`) AND EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`,
@@ -130,9 +133,11 @@ func (d *DB) PushRegistrationsOf(ctx context.Context, userIDs []string) ([]PushR
 	var registrations []PushRegistration
 	for rows.Next() {
 		var p PushRegistration
-		if err := rows.Scan(&p.DeviceID, &p.UserID, &p.Relay, &p.Handle, &p.Key, &p.Registration); err != nil {
+		var muted string
+		if err := rows.Scan(&p.DeviceID, &p.UserID, &p.Relay, &p.Handle, &p.CallHandle, &p.Key, &p.Registration, &muted); err != nil {
 			return nil, err
 		}
+		p.Muted = decodeMuted(muted)
 		registrations = append(registrations, p)
 	}
 	return registrations, rows.Err()

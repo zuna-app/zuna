@@ -310,6 +310,13 @@ func (h *Hub) leftDevice(userID, deviceID string) {
 }
 
 // inUse reports whether any connection of a device is in use. The caller holds h.mu.
+// inUseNow reports whether a device is connected and in use, taking the hub's lock.
+func (h *Hub) inUseNow(userID, deviceID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.inUse(userID, deviceID)
+}
+
 func (h *Hub) inUse(userID, deviceID string) bool {
 	for c := range h.conns[userID] {
 		if c.deviceID == deviceID && c.active {

@@ -137,6 +137,7 @@ type Server struct {
 	pushers    sync.Once
 	notified   notifiedChats
 	waiting    waitingPushes
+	rings      ringPushes
 }
 
 // New makes a server. A trusted proxy that can't be read is a mistake in the

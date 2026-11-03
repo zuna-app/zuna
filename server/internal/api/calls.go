@@ -2,10 +2,15 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
+	"sync"
 	"time"
 
 	"zuna/server/internal/store"
@@ -164,9 +169,121 @@ func (s *Server) toMembers(groupID string, event Event) {
 	s.hub.ToUsers(members, event)
 }
 
-// tellCall tells a conversation's members how its call stands, or that it ended.
+// tellCall tells a conversation's members how its call stands, or that it ended, and wakes
+// the phones of anyone it's started ringing.
 func (s *Server) tellCall(groupID string, call *Call) {
 	s.toMembers(groupID, Event{Type: "call", Data: map[string]any{"group_id": groupID, "call": call}})
+	s.pushRings(groupID, call)
+}
+
+// ringPushes is what's been pushed about the calls ringing, so that a phone that was rung
+// can be told once it stops.
+type ringPushes struct {
+	mu    sync.Mutex
+	calls map[string]*pushedRing
+}
+
+// pushedRing is one call's ringing, as pushed: whom, and which of their devices were told.
+type pushedRing struct {
+	startedAt int64
+	users     map[string]bool
+	devices   map[string]store.PushRegistration
+}
+
+// pushRings wakes the phones of people a call has started ringing, unless they're using
+// them, which ring from what the server tells them, and tells the phones that were rung
+// once it stops for them, so that they let it go. A phone with a VoIP token rings through
+// it, as a phone call; one without, as where CallKit is left out, is shown a notification.
+func (s *Server) pushRings(groupID string, call *Call) {
+	if len(s.cfg.PushRelays) == 0 {
+		return
+	}
+	s.rings.mu.Lock()
+	if s.rings.calls == nil {
+		s.rings.calls = map[string]*pushedRing{}
+	}
+	before := s.rings.calls[groupID]
+	var stopped []store.PushRegistration
+	if before != nil && (call == nil || call.StartedAt != before.startedAt) {
+		for _, device := range before.devices {
+			stopped = append(stopped, device)
+		}
+		delete(s.rings.calls, groupID)
+		before = nil
+	}
+	var started []string
+	if call != nil {
+		if before == nil {
+			before = &pushedRing{startedAt: call.StartedAt, users: map[string]bool{}, devices: map[string]store.PushRegistration{}}
+			s.rings.calls[groupID] = before
+		}
+		now := map[string]bool{}
+		for _, user := range call.Ringing {
+			now[user] = true
+			if !before.users[user] {
+				started = append(started, user)
+			}
+		}
+		for user := range before.users {
+			if now[user] {
+				continue
+			}
+			for device, target := range before.devices {
+				if target.UserID == user {
+					stopped = append(stopped, target)
+					delete(before.devices, device)
+				}
+			}
+		}
+		before.users = now
+	}
+	s.rings.mu.Unlock()
+
+	for _, target := range stopped {
+		s.push(target, pushBackground, map[string]string{"t": "call_end", "g": groupID}, "")
+	}
+	if len(started) == 0 {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+		targets, err := s.db.PushRegistrationsOf(ctx, started)
+		cancel()
+		if err != nil {
+			slog.Warn("listing devices to ring", "error", err)
+			return
+		}
+		fields := map[string]string{"t": "call", "g": groupID, "c": call.StartedBy, "s": strconv.FormatInt(call.StartedAt, 10)}
+		now := store.Now()
+		for _, target := range targets {
+			if s.hub.inUseNow(target.UserID, target.DeviceID) || target.Mutes(groupID, now) {
+				continue
+			}
+			s.rings.mu.Lock()
+			ring := s.rings.calls[groupID]
+			ringing := ring != nil && ring.startedAt == call.StartedAt && ring.users[target.UserID]
+			if ringing {
+				ring.devices[target.DeviceID] = target
+			}
+			s.rings.mu.Unlock()
+			// It may have stopped ringing them meanwhile.
+			if !ringing {
+				continue
+			}
+			ringer := target
+			if target.CallHandle != "" {
+				ringer.Handle = target.CallHandle
+			}
+			s.push(ringer, pushCall, fields, callCollapseID(target.Key, groupID, call.StartedAt))
+		}
+	}()
+}
+
+// callCollapseID names a call's notification on one phone, as collapseID does a message's.
+func callCollapseID(key []byte, groupID string, startedAt int64) string {
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte("zuna/push-collapse/v1|call|" + groupID + "|" + strconv.FormatInt(startedAt, 10)))
+	return hex.EncodeToString(mac.Sum(nil)[:16])
 }
 
 // endVoiceOf takes people out of one conversation's call, once they're no longer in the

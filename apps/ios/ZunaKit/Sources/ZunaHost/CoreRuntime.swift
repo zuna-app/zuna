@@ -117,6 +117,29 @@ public final class CoreRuntime: @unchecked Sendable {
         }
     }
 
+    /// What a phone shows for a call it was woken to ring for, as JSON (`CallPreview` in the core), from what's on
+    /// the device alone. For the notification extension and for PushKit, which wants a call reported at once.
+    public func previewCall(serverId: String, groupId: String, callerId: String) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            queue.async { [self] in
+                do {
+                    if context == nil { try load() }
+                } catch {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                let done: @convention(block) (JSValue, JSValue) -> Void = { error, json in
+                    if error.isNull || error.isUndefined {
+                        continuation.resume(returning: json.toString() ?? "")
+                    } else {
+                        continuation.resume(throwing: CoreError(description: error.toString() ?? "The call couldn't be read."))
+                    }
+                }
+                call("__zunaPreviewCall", [options.deviceKey, serverId, groupId, callerId, JSValue(object: done, in: context) as Any])
+            }
+        }
+    }
+
     /// Opens a channel to the core. `onMessage` receives replies to this
     /// channel's calls and every event, on the core's queue.
     public func connect(onMessage: @escaping @Sendable (String) -> Void) -> Channel {

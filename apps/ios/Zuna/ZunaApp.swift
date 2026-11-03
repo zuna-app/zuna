@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // The simulator, or a build without the push entitlement: notifications wait for a token.
     }
 
-    /// Silent pushes: what was read or deleted on another device is cleared here.
+    /// Silent pushes: what was read or deleted on another device is cleared here, and a call that stopped ringing.
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
@@ -66,6 +66,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             return
         }
         Task {
+            if push.kind == .callEnd { core.model?.voice.callEndedByPush(serverId: push.serverId, groupId: push.groupId) }
             await Notifications.clear(push)
             completionHandler(.newData)
         }

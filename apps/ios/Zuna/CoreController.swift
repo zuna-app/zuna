@@ -147,6 +147,8 @@ final class CoreController {
         images = ImageStore(core: connection)
         let notifications = Notifications(model: model)
         if let pushToken { notifications.token = pushToken }
+        notifications.callToken = model.voice.callPushToken
+        model.voice.onCallPushToken = { notifications.callToken = $0 }
         notifications.preview = { serverId, groupId, messageId in
             try await runtime.pushPreview(serverId: serverId, groupId: groupId, messageId: messageId, pictures: true)
         }

@@ -141,6 +141,8 @@ export interface PushSettings {
   relay: string;
   /** The relay's handle for this device. */
   handle: string;
+  /** The relay's handle for this device's VoIP token, which calls ring through as phone calls, if it has one. */
+  callHandle?: string;
   /** Seals each push, so the relay sees only that one arrived. */
   key: Uint8Array;
   /** The app's own ID for this registration, so it knows which server a push is from. */

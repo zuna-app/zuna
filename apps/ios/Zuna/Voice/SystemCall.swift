@@ -161,6 +161,53 @@ final class SystemCall: NSObject {
         }
     }
 
+    /// A call a VoIP push says is ringing, handed to the system before this returns, as PushKit insists: an app
+    /// that doesn't is stopped from being woken. Only ever asked for where CallKit is allowed.
+    func ringNow(_ id: UUID, title: String, actions: Ringing) {
+        let known = ringing[id] != nil || current == id
+        if ringing[id] == nil, current != id { ringing[id] = actions }
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: title)
+        update.localizedCallerName = title
+        update.supportsHolding = false
+        update.supportsGrouping = false
+        update.supportsUngrouping = false
+        update.supportsDTMF = false
+        provider.reportNewIncomingCall(with: id, update: update) { [weak self] error in
+            guard let error, !known else { return }
+            Task { @MainActor in
+                self?.logger.warning("The system didn't take a pushed call: \(String(describing: error), privacy: .public)")
+                self?.ringing[id] = nil
+            }
+        }
+    }
+
+    /// A push that couldn't be read still has to be reported as a call, so it's reported and ended at once.
+    func ringUnreadable() {
+        let id = UUID()
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: "Zuna")
+        update.localizedCallerName = "Zuna"
+        provider.reportNewIncomingCall(with: id, update: update) { [weak self] _ in
+            Task { @MainActor in self?.provider.reportCall(with: id, endedAt: nil, reason: .failed) }
+        }
+    }
+
+    /// What a call ringing here is called, once the app knows.
+    func retitle(_ id: UUID, _ title: String) {
+        guard ringing[id] != nil else { return }
+        let update = CXCallUpdate()
+        update.remoteHandle = CXHandle(type: .generic, value: title)
+        update.localizedCallerName = title
+        provider.reportCall(with: id, updated: update)
+    }
+
+    /// Whether the system is ringing for this call.
+    func isRinging(_ id: UUID) -> Bool { ringing[id] != nil }
+
+    /// Whether this is the system's current call.
+    func isCurrent(_ id: UUID) -> Bool { current == id }
+
     /// A call stopped ringing here without being answered here: answered or declined on another device, ended, or
     /// not answered for long enough.
     func stopRinging(_ id: UUID, reason: CXCallEndedReason) {

@@ -4665,7 +4665,7 @@ export class ServerSession {
       if (groupId && until > Date.now()) mutedUntil[groupId] = Math.round(until);
     }
     // An app that hides what it shouldn't show is pushed for everything, channels too.
-    await this.api.setPush({ relay: push.relay, handle: push.handle, key: push.key, registration: push.registration, muted, muted_until: mutedUntil, filters: !push.sendMuted });
+    await this.api.setPush({ relay: push.relay, handle: push.handle, call_handle: push.callHandle, key: push.key, registration: push.registration, muted, muted_until: mutedUntil, filters: !push.sendMuted });
   }
 
   private resendPush(): void {

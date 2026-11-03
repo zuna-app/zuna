@@ -40,3 +40,25 @@ extension CoreRuntime {
         return try JSONDecoder().decode(PushPreview.self, from: Data(json.utf8))
     }
 }
+
+/// What a phone shows for a call it was woken to ring for (`CallPreview` in the core's push.ts).
+public struct CallPreview: Decodable, Sendable, Equatable {
+    public let serverId: String
+    /// The chat it's in, when the device knows it.
+    public let conversationKey: String?
+    /// Who's calling in a direct message, or the group's name.
+    public let title: String
+    public let body: String
+    /// The conversation is muted, so it rings without a sound.
+    public let muted: Bool
+    /// Nothing to ring for: someone blocked, or a conversation this device doesn't have.
+    public let hidden: Bool
+}
+
+extension CoreRuntime {
+    /// Words a call ringing this phone from what's on the device, for the notification extension and for PushKit.
+    public func callPreview(serverId: String, groupId: String, callerId: String) async throws -> CallPreview {
+        let json = try await previewCall(serverId: serverId, groupId: groupId, callerId: callerId)
+        return try JSONDecoder().decode(CallPreview.self, from: Data(json.utf8))
+    }
+}

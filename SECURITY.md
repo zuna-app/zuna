@@ -103,6 +103,7 @@ Media is encrypted in the app with a key from the channel's MLS group, frame by 
 A call is a conversation's own room on the same media server, keyed from that conversation's MLS group exactly as a voice channel is from its own, so everything above holds for it: whoever is in the conversation can hear it, and nobody else.
 
 - **Who hears of a call.** Who's in it, whose devices it's ringing and who declined go only to the conversation's members, never to everyone on the server, as a voice channel's do. The server itself sees all of it, and when, as it sees who's in a voice channel.
+- **Waking a phone for a call** goes through the push relay and Apple, sealed as any push is, with the conversation's ID and who started the call. They can tell a call's push from a message's, so they learn that a phone is being rung, and when, though not by whom or in which conversation.
 - **Ringing is the server's word.** A server can say someone is calling who isn't, or not ring someone. Answering a call nobody made comes into an empty room, and can't let anyone hear anything: the media key still comes from the conversation's group.
 - **Admins have no say in a call**, which is between the people in it: muting someone for everyone, disconnecting them and stopping their share are for voice channels. The server's rules on sharing a screen hold in calls too, and a ban takes someone out of their calls.
 

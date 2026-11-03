@@ -357,3 +357,72 @@ func TestAdminsDontModerateCalls(t *testing.T) {
 	}
 	t.Fatal("someone banned stayed in their call")
 }
+
+func TestACallWakesPhonesThroughTheirVoIPTokenOrAnAlert(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	invite := owner.newInvite()
+	bob := h.register("bob", invite)
+	carol := h.register("carol", invite)
+	dave := h.register("dave", invite)
+	group := owner.group(bob, carol, dave)
+	key := bytesOf(32, 5)
+	registration := store.NewID()
+	// Bob's phone has CallKit, so a VoIP token; Carol's doesn't, as on China's App Store; Dave muted the group.
+	h.mustDo("PUT", "/api/push", bob.token, map[string]any{"relay": relay.URL, "handle": "bob-phone", "call_handle": "bob-voip", "key": key, "registration": registration}, nil)
+	if status, resp := carol.registerPush(relay.URL, "carol-phone", key, registration, nil); status != http.StatusOK {
+		t.Fatalf("registering: %d %v", status, resp)
+	}
+	if status, resp := dave.registerPush(relay.URL, "dave-phone", key, registration, []string{group.ID}); status != http.StatusOK {
+		t.Fatalf("registering: %d %v", status, resp)
+	}
+
+	caller := owner.inCall(group.ID, true)
+	rang := map[string]relayPush{}
+	for range 2 {
+		push := relay.next(t)
+		rang[push.Handle] = push
+	}
+	relay.none(t)
+	for _, handle := range []string{"bob-voip", "carol-phone"} {
+		push, ok := rang[handle]
+		if !ok || push.Type != "call" || push.CollapseID == "" {
+			t.Fatalf("%s was rung with %+v", handle, rang)
+		}
+		fields := openPush(t, key, push)
+		if fields["t"] != "call" || fields["g"] != group.ID || fields["c"] != owner.userID || fields["s"] == "" {
+			t.Fatalf("what %s was told: %v", handle, fields)
+		}
+	}
+
+	// Once it stops ringing someone, their phone hears, through the push it can always have.
+	h.mustDo("POST", "/api/groups/"+group.ID+"/call/decline", bob.token, map[string]any{}, nil)
+	stopped := relay.next(t)
+	if stopped.Handle != "bob-phone" || stopped.Type != "background" || openPush(t, key, stopped)["t"] != "call_end" {
+		t.Fatalf("bob's phone was told %+v", stopped)
+	}
+	relay.none(t)
+
+	// A phone in use rings from what the server tells it, so it isn't pushed.
+	carols := carol.connect()
+	carols.setActive(true)
+	carols.ping()
+	h.mustDo("POST", "/api/groups/"+group.ID+"/call/ring", owner.token, map[string]any{"users": []string{bob.userID}}, nil)
+	if again := relay.next(t); again.Handle != "bob-voip" || again.Type != "call" {
+		t.Fatalf("ringing again pushed %+v", again)
+	}
+	relay.none(t)
+
+	// The call ending tells every phone it was still ringing.
+	caller.sendVoice("", nil)
+	ended := map[string]string{}
+	for range 2 {
+		push := relay.next(t)
+		ended[push.Handle] = push.Type + "/" + openPush(t, key, push)["t"]
+	}
+	if ended["bob-phone"] != "background/call_end" || ended["carol-phone"] != "background/call_end" {
+		t.Fatalf("when the call ended: %v", ended)
+	}
+	relay.none(t)
+}

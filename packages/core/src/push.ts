@@ -3,7 +3,8 @@
 // iOS app's Notification Service Extension, which has too little memory for a
 // whole session and runs beside the app: it reads only the rows it needs from
 // the local databases, never writes, and fetches the one message. The
-// databases stay open for the next push, as the provider keeps them.
+// databases stay open for the next push, as the provider keeps them. A call
+// ringing is worded from what's on the device alone, with nothing to fetch.
 
 import * as wasm from "@zuna/crypto";
 import { Api, decode, type ApiChannel } from "./api";
@@ -13,7 +14,7 @@ import { namesItsSender, openEnvelope } from "./crypto";
 import type { DbProvider } from "./db";
 import { concat, fromBase64, fromUtf8, toBase64 } from "./encoding";
 import { notificationText, previewText } from "./notify";
-import { onlyMentionsNotify, type AvatarRef, type Preferences, type Profile } from "./types";
+import { isMuted, onlyMentionsNotify, type AvatarRef, type Preferences, type Profile } from "./types";
 import { parseChannelDetails, parseMessageBody } from "./validate";
 
 export interface PushPreview {
@@ -160,4 +161,51 @@ export async function previewPush(
     group: group.kind === "dm" ? undefined : { name: groupName, picture: group.kind === "group" ? await picture(group.meta.avatar) : undefined },
     text: previewText(content),
   });
+}
+
+/** What a phone shows for a call it was woken to ring for. */
+export interface CallPreview {
+  serverId: string;
+  /** The chat it's in, when the device knows it. */
+  conversationKey: string | null;
+  /** Who's calling in a direct message, or the group's name. */
+  title: string;
+  body: string;
+  /** The conversation is muted, so it rings without a sound. */
+  muted: boolean;
+  /** Nothing to ring for: someone blocked, or a conversation this device doesn't have. */
+  hidden: boolean;
+}
+
+/** A call ringing this phone, as the app would ring it: from the conversation and its caller, with nothing fetched. */
+export async function previewCall(options: { db: DbProvider; deviceKey: Uint8Array }, serverId: string, groupId: string, callerId: string): Promise<CallPreview> {
+  const key = serverKeyFor(options.deviceKey, serverId);
+  const index = await options.db.open(INDEX_DB);
+  const server = index.get<{ account: Uint8Array; name: string }>("SELECT account, name FROM servers WHERE id = ?", [serverId]);
+  if (!server) throw new Error("This device isn't signed in to that server.");
+  const account = decodeAccount(fromUtf8(wasm.aeadOpen(key, server.account, label("account"))));
+  const db = await options.db.open(serverDbName(serverId));
+  const read = <T>(name: string, data: Uint8Array): T => JSON.parse(fromUtf8(wasm.aeadOpen(key, data, label(name))));
+  const user = (id: string | null) => {
+    const row = id ? db.get<{ data: Uint8Array }>("SELECT data FROM users WHERE id = ?", [id]) : undefined;
+    return row ? read<StoredUser>("user", row.data) : null;
+  };
+  const nameOf = (stored: StoredUser | null) => stored?.profile.displayName || stored?.username || "Someone";
+  const groupRow = db.get<{ data: Uint8Array }>("SELECT data FROM groups WHERE id = ?", [groupId]);
+  const group = groupRow ? read<StoredGroup & { removedAt?: number | null }>("group", groupRow.data) : null;
+  const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
+  const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
+  if (!group || group.kind === "channel" || group.removedAt || callerId === account.userId || prefs.blocked?.includes(callerId)) {
+    return { serverId, conversationKey: null, title: server.name, body: "Incoming call", muted: false, hidden: true };
+  }
+  const conversationKey = group.kind === "dm" ? `user:${group.peerId}` : `group:${group.id}`;
+  const caller = nameOf(user(callerId));
+  return {
+    serverId,
+    conversationKey,
+    title: group.kind === "dm" ? nameOf(user(group.peerId)) : group.meta.name || "Group",
+    body: group.kind === "dm" ? "Calling you" : `${caller} started a call`,
+    muted: isMuted(prefs, conversationKey),
+    hidden: false,
+  };
 }

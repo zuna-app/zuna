@@ -33,6 +33,10 @@ final class Notifications {
     var token: String? {
         didSet { if token != oldValue { Task { await refresh() } } }
     }
+    /// The device's VoIP token, as hex, where CallKit is allowed: calls ring through it as phone calls.
+    var callToken: String? {
+        didSet { if callToken != oldValue { Task { await refresh() } } }
+    }
 
     /// Fetches and decrypts a message as the extension does, with pictures; set by the core controller.
     @ObservationIgnored var preview: ((String, String, String) async throws -> PushPreview)?
@@ -129,8 +133,12 @@ final class Notifications {
         guard let relay = Self.relay else { return }
         let wanted = settings.enabled && allowed
         var handle: String?
+        var callHandle: String?
         if wanted, let token {
             handle = await relayHandle(relay: relay, token: token)
+        }
+        if wanted, let callToken {
+            callHandle = await relayHandle(relay: relay, token: callToken, platform: "apns-voip")
         }
         for serverId in model.order {
             let session = model.core.session(serverId)
@@ -139,7 +147,7 @@ final class Notifications {
                     try await session.setPush(nil)
                 } else if let handle {
                     let (id, registration) = PushStore.registration(for: serverId)
-                    try await session.setPush(PushSettings(relay: relay, handle: handle, key: registration.key, registration: id, sendMuted: !PushStore.canFilter))
+                    try await session.setPush(PushSettings(relay: relay, handle: handle, callHandle: callHandle, key: registration.key, registration: id, sendMuted: !PushStore.canFilter))
                 }
                 unsupported.remove(serverId)
             } catch let error as CoreCallError where error.code == "relay_not_allowed" {
@@ -159,20 +167,20 @@ final class Notifications {
         return !channel || PushStore.canFilter
     }
 
-    /// The relay's handle for this device, remembered for the same token.
-    private func relayHandle(relay: String, token: String) async -> String? {
+    /// The relay's handle for this device's push token, or its VoIP token, remembered for the same token.
+    private func relayHandle(relay: String, token: String, platform: String = "apns") async -> String? {
         #if DEBUG
         let environment = "sandbox"
         #else
         let environment = "production"
         #endif
-        let cacheKey = "zuna-relay-handle|\(relay)|\(token)|\(environment)"
+        let cacheKey = "zuna-relay-handle|\(relay)|\(token)|\(environment)\(platform == "apns" ? "" : "|\(platform)")"
         if let cached = PushStore.defaults.string(forKey: cacheKey) { return cached }
         guard let url = URL(string: "\(relay)/v1/register") else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONEncoder().encode(["platform": "apns", "token": token, "environment": environment])
+        request.httpBody = try? JSONEncoder().encode(["platform": platform, "token": token, "environment": environment])
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard (response as? HTTPURLResponse)?.statusCode == 200,
@@ -223,9 +231,17 @@ final class Notifications {
         case Self.markReadAction:
             await markRead(target)
         case Self.answerCallAction:
-            if let id = userInfo["call"] as? String, let call = model.voice.incomingCall(id) {
-                await model.voice.answer(call, camera: false)
-            } else if let key = await conversationKey(target) {
+            // A call pushed while the app wasn't running is one it hears of once it has caught up.
+            let groupId = target.groupId ?? userInfo["groupId"] as? String
+            for _ in 0..<50 {
+                if let call = (userInfo["call"] as? String).flatMap(model.voice.incomingCall)
+                    ?? model.voice.incoming.first(where: { $0.serverId == target.serverId && $0.groupId == groupId }) {
+                    await model.voice.answer(call, camera: false)
+                    return
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            if let key = await conversationKey(target) {
                 // It stopped ringing meanwhile: the chat says whether the call goes on.
                 model.selectServer(target.serverId)
                 model.openChat(key)
@@ -327,6 +343,8 @@ final class Notifications {
             let info = notification.request.content.userInfo
             let opened = PushStore.open(info)
             guard (info["groupId"] as? String ?? opened?.groupId) == push.groupId else { return false }
+            // A call that stopped ringing takes its notification away, and nothing else.
+            if push.kind == .callEnd { return notification.request.content.categoryIdentifier == callCategory }
             return push.kind == .read || (info["messageId"] as? String ?? opened?.messageId) == push.messageId
         }.map(\.request.identifier)
         Logger(subsystem: "chat.zuna", category: "notifications")

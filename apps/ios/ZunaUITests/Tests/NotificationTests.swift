@@ -186,6 +186,37 @@ final class NotificationTests: XCTestCase {
         try waitFor("the notifications to go", timeout: 20) { try self.zuna.deliveredNotifications() == 0 }
     }
 
+    /// Where CallKit is left out, as in test builds, a call rings a phone that isn't open with a notification,
+    /// declined from there, and which goes once the call is over.
+    func testACallRingsAPhoneThatIsntOpen() throws {
+        try start()
+        try zuna.clearNotifications()
+        try leaveTheApp()
+        let alice = try Peer("alice")
+        let dm = try XCTUnwrap(try alice.call("prepareCall", ["user:\(bob)"]) as? String)
+        try alice.call("setVoiceState", [dm, ["muted": false, "deafened": false, "camera": false, "screen": false], true])
+        let ringing = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Incoming call")).firstMatch
+        XCTAssertTrue(ringing.waitForExistence(timeout: 20))
+        zuna.screenshotScreen("108-call-notification")
+
+        ringing.press(forDuration: 1.2)
+        let decline = springboard.buttons["Decline"]
+        XCTAssertTrue(decline.waitForExistence(timeout: 5))
+        XCTAssertTrue(springboard.buttons["Answer"].exists)
+        zuna.screenshotScreen("109-call-notification-actions")
+        decline.tap()
+        let declined = { try (alice.call("getCalls") as? [[String: Any]] ?? []).first { $0["groupId"] as? String == dm }?["declined"] as? [String] ?? [] }
+        try waitFor("alice to hear bob declined", timeout: 30) { try declined().contains(self.bob) }
+
+        // Rung again, and over before he answers: its notification goes once the app has caught up.
+        try alice.call("ringCall", [dm])
+        try waitFor("the phone to be rung again") { try WorldControl.relayCounts().pushes > 0 && !(try declined().contains(self.bob)) }
+        XCTAssertTrue(ringing.waitForExistence(timeout: 20))
+        try alice.call("setVoiceState", [NSNull(), NSNull()])
+        zuna.app.activate()
+        try waitFor("the call's notification to go", timeout: 20) { try self.zuna.deliveredNotifications() == 0 }
+    }
+
     /// Pulls down the notification center and finds Zuna's notification in it.
     private func openNotificationCenter() -> XCUIElement {
         let top = springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.0))

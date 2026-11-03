@@ -310,15 +310,18 @@ public struct ServerSettingsChanges: Codable, Sendable, Equatable {
 public struct PushSettings: Encodable, Sendable, Equatable {
     public var relay: String
     public var handle: String
+    /// The relay's handle for this device's VoIP token, which calls ring through as phone calls, if it has one.
+    public var callHandle: String?
     public var key: Data
     public var registration: String
     /// Tell the server which chats are muted, for an app that can't hide notifications itself.
     /// Otherwise it's pushed for everything, channels too, and hides what it shouldn't show.
     public var sendMuted: Bool
 
-    public init(relay: String, handle: String, key: Data, registration: String, sendMuted: Bool) {
+    public init(relay: String, handle: String, callHandle: String? = nil, key: Data, registration: String, sendMuted: Bool) {
         self.relay = relay
         self.handle = handle
+        self.callHandle = callHandle
         self.key = key
         self.registration = registration
         self.sendMuted = sendMuted

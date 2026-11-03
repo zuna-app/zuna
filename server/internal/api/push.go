@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"bytes"
@@ -54,8 +54,10 @@ func pushLabel(registration string) []byte { return []byte("zuna/push/v1|" + reg
 
 func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
-		Relay        string           `json:"relay"`
-		Handle       string           `json:"handle"`
+		Relay  string `json:"relay"`
+		Handle string `json:"handle"`
+		// The relay's handle for the phone's VoIP token, which calls ring through.
+		CallHandle   string           `json:"call_handle"`
 		Key          []byte           `json:"key"`
 		Registration string           `json:"registration"`
 		Muted        []string         `json:"muted"`
@@ -71,7 +73,7 @@ func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *sto
 		writeError(w, http.StatusBadRequest, "relay_not_allowed", "This server doesn't send notifications through that relay.")
 		return
 	}
-	valid := body.Handle != "" && len(body.Handle) <= maxPushHandle && len(body.Key) == 32 &&
+	valid := body.Handle != "" && len(body.Handle) <= maxPushHandle && len(body.CallHandle) <= maxPushHandle && len(body.Key) == 32 &&
 		store.ValidID(body.Registration) && len(body.Muted)+len(body.MutedUntil) <= maxMutedGroups
 	muted := map[string]int64{}
 	for _, groupID := range body.Muted {
@@ -94,6 +96,7 @@ func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *sto
 		UserID:       sess.UserID,
 		Relay:        relay,
 		Handle:       body.Handle,
+		CallHandle:   body.CallHandle,
 		Key:          body.Key,
 		Registration: body.Registration,
 		Muted:        muted,
@@ -215,6 +218,7 @@ type pushKind string
 const (
 	pushAlert      pushKind = "alert"
 	pushBackground pushKind = "background"
+	pushCall       pushKind = "call"
 )
 
 type pushJob struct {
