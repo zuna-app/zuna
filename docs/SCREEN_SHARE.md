@@ -198,6 +198,14 @@ Chromium needs asking as well. Without a frame rate in `getDisplayMedia` it capt
 
 Chromium's fake capture runs at 20 fps. `--use-fake-ui-for-media-stream` swaps it in for a screen even when a real one was chosen, so measuring with that flag only measures the fake.
 
+## Bitrate and keyframes
+
+libwebrtc estimates what the network takes, and the program follows it up to the bitrate asked for, starting at 3 Mbit/s. Every change costs a keyframe, as FFmpeg resets NVENC to make it and the other encoders only take a bitrate when opened, and someone watching waits for each keyframe. So `worth_changing` in `src/pipeline.rs` ignores changes under a quarter. A fall goes 2 seconds after the last change, or at once if it's to 60% or less. A rise goes 2 seconds after the last while the bitrate is first climbing, since libwebrtc only raises its estimate a little past what's sent. Once it has had to fall, a rise waits for a keyframe that goes out anyway. Following every rise, a share from Windows at a 40 Mbit/s cap changed its bitrate 24 times in about two minutes. With an estimate going between the cap and three quarters of it every 4 seconds, the tests count 10 changes and 16 keyframes in two minutes where that made 30 and 31.
+
+The regular keyframe, "A full picture every" in the settings, is asked for by the program, counted from the last keyframe of any kind, so one that went out for a new bitrate or for someone who asked isn't followed by another soon after. The encoder's own come at most every minute's worth of frames.
+
+How big a keyframe may be is the VBV, a quarter of a second of the bitrate (`vbv_size` in `native/encoder.c`). Measured with NVENC on an RTX 5080, on 2560x1440 of code that stood still and then scrolled, a keyframe took 128 ms of the bitrate at 15 Mbit/s and 107 ms at 40. A tenth of a second made those 78 and 75 ms, but cost a keyframe 4 to 5 dB of PSNR at 15 Mbit/s, which blurs text, so it stays a quarter.
+
 ## What hasn't been checked
 
 The proof of concept's README lists what has run where. Inside the app, Windows and Linux with NVENC have run so far:

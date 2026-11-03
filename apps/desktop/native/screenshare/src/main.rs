@@ -454,7 +454,10 @@ fn share(args: Args) -> Result<()> {
     let bitrate_cap = args.bitrate_kbps * 1000;
     let publishing = args.output.is_none();
     let bitrate = pipeline::starting_bitrate(bitrate_cap, publishing);
-    let gop = args.capture.fps * args.keyframe_seconds;
+    // The pipeline asks for regular keyframes itself, counted from the last of any kind, so
+    // the encoder's own only need to come less often. Not never, as what AMF and the others
+    // take for that is unknown.
+    let gop = args.capture.fps * (args.keyframe_seconds * 2).max(60);
     let encoder = capture.open_encoder(Stream { width, height, fps: args.capture.fps, gop, bitrate, quality: args.quality })?;
 
     #[cfg(feature = "livekit")]
@@ -495,7 +498,8 @@ fn share(args: Args) -> Result<()> {
         })
     );
 
-    let mut pipeline = Pipeline::new(encoder, sink, width, height, args.capture.fps, bitrate, bitrate_cap, args.fix_idr);
+    let keyframe_every = Duration::from_secs(args.keyframe_seconds.max(1) as u64);
+    let mut pipeline = Pipeline::new(encoder, sink, width, height, args.capture.fps, bitrate, bitrate_cap, keyframe_every, args.fix_idr);
     log::info!("encoding with {}", pipeline.encoder_name());
     let result = capture.run(&mut pipeline, &stop);
     pipeline.finish();
