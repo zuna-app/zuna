@@ -473,6 +473,7 @@ export const useApp = create<AppState>((set, get) => {
       title,
       body,
       route,
+      messageId: event.messageId,
       card: platform.drawsNotifications
         ? {
             messageId: event.messageId,

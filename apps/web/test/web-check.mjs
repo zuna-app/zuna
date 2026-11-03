@@ -157,6 +157,22 @@ async function runIn(name) {
         if (/Content.Security.Policy/i.test(text)) errors.push(`${label}: ${text}`);
       });
     };
+    // The browser's notifications, kept to look at rather than shown, as if allowed.
+    await context.addInitScript(() => {
+      const shown = (window.__notifications = []);
+      window.Notification = class {
+        static permission = "granted";
+        static requestPermission = async () => "granted";
+        constructor(title, options = {}) {
+          Object.assign(this, options, { title, closed: false });
+          shown.push(this);
+        }
+        close() {
+          this.closed = true;
+          this.onclose?.();
+        }
+      };
+    });
     const page = context.pages()[0] ?? (await context.newPage());
     watch(page, "first tab");
 
@@ -311,6 +327,31 @@ async function runIn(name) {
       await page.keyboard.press("Escape");
     }
 
+    // A reply in a chat that isn't open shows a notification, which reading the chat takes back.
+    const notification = (text) =>
+      page.evaluate((text) => {
+        const found = window.__notifications.find((item) => item.body?.includes(text));
+        return found && { title: found.title, body: found.body, icon: found.icon, silent: found.silent, closed: found.closed };
+      }, text);
+    await page.locator(".composer-input").click();
+    await page.keyboard.type("Ping me back");
+    await page.keyboard.press("Enter");
+    await page.locator(".conv-row", { hasText: "Weekend trip" }).click();
+    try {
+      await page.waitForFunction(() => window.__notifications.some((item) => item.body?.includes("You said: Ping me back")), null, { timeout: 15_000 });
+      const shown = await notification("You said: Ping me back");
+      check("a reply in another chat shows a notification", shown.title.includes("Priya") && shown.icon === "/icon-192.png" && shown.silent === true, JSON.stringify(shown));
+      // Answers to what was sent before may have come too, so it opens above them: the way down reads them.
+      await page.locator(".conv-row", { hasText: "Priya" }).click();
+      await sleep(500);
+      const toNewest = page.locator(".to-bottom:not(.to-mention)");
+      if (await toNewest.count()) await toNewest.click();
+      await page.waitForFunction(() => window.__notifications.find((item) => item.body?.includes("You said: Ping me back"))?.closed, null, { timeout: 10_000 });
+      check("reading the chat takes its notification back", true);
+    } catch (error) {
+      check("a reply in another chat shows a notification, until the chat is read", false, JSON.stringify(await notification("You said: Ping me back")) ?? error.message.split("\n")[0]);
+    }
+
     // Everything is still there after a reload
     leaving.add(page);
     await page.reload();
@@ -347,7 +388,9 @@ async function runIn(name) {
     // Settings that differ on the web
     await second.getByLabel("Settings").click();
     await second.getByText("Notifications", { exact: true }).first().click();
-    check("there are no notification switches", (await second.getByText("Desktop notifications").count()) === 0 && (await second.getByText("Away from the computer after").count()) === 0);
+    check("notifications can be turned off", (await second.getByText("Desktop notifications").count()) === 1 && (await second.getByText("Away from the computer after").count()) === 0);
+    await sleep(400);
+    await second.screenshot({ path: prefix("05b-notifications") });
     await second.getByText("Security", { exact: true }).first().click();
     check("Security warns that the browser can't protect the key", (await second.getByText("Browsers can't lock Zuna's local data").count()) === 1);
     const deviceName = await second.locator(".device-row", { hasText: "This device" }).innerText();

@@ -130,6 +130,23 @@ export function App() {
   // Where notifications go: whether the person is here holds back their other devices'.
   useEffect(() => (phase === "ready" ? watchActivity() : undefined), [phase]);
 
+  // A browser asks whether Zuna may notify only after a click or a key press, so it's
+  // asked at the first one, as Telegram Web does.
+  useEffect(() => {
+    if (phase !== "ready" || platform.notificationPermission?.() !== "unknown") return;
+    const ask = () => {
+      window.removeEventListener("pointerdown", ask);
+      window.removeEventListener("keydown", ask);
+      if (useApp.getState().settings.notifications) void platform.askToNotify?.();
+    };
+    window.addEventListener("pointerdown", ask);
+    window.addEventListener("keydown", ask);
+    return () => {
+      window.removeEventListener("pointerdown", ask);
+      window.removeEventListener("keydown", ask);
+    };
+  }, [phase]);
+
   // A tab can be closed in the middle of a send. The desktop keeps running in its tray instead.
   useEffect(() => {
     if (!platform.warnBeforeLeaving) return;

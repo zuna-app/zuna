@@ -19,6 +19,7 @@ export interface NotifyPayload {
   title: string;
   body: string;
   route: NotificationRoute;
+  messageId: string;
   /** What a host that draws its own notifications needs. A system's own go without. */
   card?: NotificationCard;
 }
@@ -203,6 +204,10 @@ export interface Platform {
   drawsNotifications?: boolean;
   notificationState?(): Promise<NotificationState>;
   clearNotifications?(which: NotificationsToClear): void;
+  /** Whether the system lets Zuna notify, where it asks first, as a browser does. */
+  notificationPermission?(): "granted" | "denied" | "unknown";
+  /** Asks to be let notify. A browser only asks right after a click or a key press. */
+  askToNotify?(): Promise<void>;
   /** A reply typed into a notification. */
   onNotificationReply?(listener: (reply: NotificationReply) => void): () => void;
   /** Whether the operating system lets Zuna record, asking the person the first time. */

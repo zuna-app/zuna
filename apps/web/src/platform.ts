@@ -1,9 +1,10 @@
-// The web app's side of the interface. There are no notifications: the tab's title
-// counts what's unread.
+// The web app's side of the interface. Notifications are the browser's, and the
+// tab's title counts what's unread.
 
 import { connectWorker, type Platform } from "@zuna/ui";
 import type { HostConfig } from "./config";
 import { deviceName, loadDeviceKey, removeUnreadableDatabase } from "./device";
+import { askToNotify, clearNotifications, notificationPermission, notify, onOpenConversation } from "./notifications";
 
 const UPDATE_CHECK_MS = 30 * 60_000;
 const UPDATE_CHECK_ON_FOCUS_MS = 60_000;
@@ -48,6 +49,11 @@ export function webPlatform(config: HostConfig): Platform {
     setUnreadCount(count) {
       document.title = count > 0 ? `(${count}) Zuna` : "Zuna";
     },
+    notify,
+    clearNotifications,
+    onOpenConversation,
+    notificationPermission,
+    askToNotify,
     takeDeepLink: async () => takeJoinLink(),
     onDeepLink(listener) {
       const onHashChange = () => {

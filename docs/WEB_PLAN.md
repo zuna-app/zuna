@@ -126,7 +126,11 @@ The database can only be open in one tab, and two cores on one device would comp
 
 - `Zuna` normally, `(n) Zuna` when chats have unread messages. `n` is the desktop's badge count (`updateBadge` in `store.ts`): unread messages in chats that aren't muted, on every server.
 - It changes as soon as a chat is read, and while the tab is in the background.
-- No sound, no system notifications, no blinking, no favicon dot.
+- No blinking and no favicon dot.
+
+### Notifications
+
+Changed on 2026-11-03 to match Telegram Web: the browser's notifications (`apps/web/src/notifications.ts`), asked for at the first click or key press after signing in, since browsers only ask then. One per chat, the newest in place of the one before, silent with the app's own sound, and taken back when the chat is read. The notification settings are the desktop's.
 
 ### Where the phone gets notified
 

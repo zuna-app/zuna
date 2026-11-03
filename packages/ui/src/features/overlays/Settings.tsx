@@ -280,20 +280,31 @@ function KeepMetadataConfirm({ onCancel, onConfirm }: { onCancel: () => void; on
 function NotificationsSection() {
   const settings = useApp((state) => state.settings);
   const update = useApp((state) => state.updateSettings);
-  // The web app has no notifications of its own: its tab's title counts what's unread.
+  const [permission, setPermission] = useState(() => platform.notificationPermission?.() ?? "granted");
   const notifies = !!platform.notify;
+  // Turning them on is a click, which is when a browser can ask.
+  const setNotifications = async (value: boolean) => {
+    update({ notifications: value });
+    if (value && platform.askToNotify) {
+      await platform.askToNotify();
+      setPermission(platform.notificationPermission?.() ?? "granted");
+    }
+  };
   return (
     <>
       <h1>Notifications</h1>
-      <p className="settings-lead">
-        {notifies
-          ? "Previews are decrypted on this device. No notification service ever sees them."
-          : "New messages are counted in this tab's title. While you're here, your phone is told only about what you leave unread."}
-      </p>
+      <p className="settings-lead">Previews are decrypted on this device. No notification service ever sees them.</p>
       {notifies && (
         <>
-          <SettingRow title="Desktop notifications" hint="While you're on another device, they wait 30 seconds, and don't show if you read the chat there.">
-            <Switch on={settings.notifications} onChange={(value) => update({ notifications: value })} label="Desktop notifications" />
+          <SettingRow
+            title="Desktop notifications"
+            hint={
+              settings.notifications && permission === "denied"
+                ? "Your browser blocks notifications from this site. Allow them in its settings for the site."
+                : "While you're on another device, they wait 30 seconds, and don't show if you read the chat there."
+            }
+          >
+            <Switch on={settings.notifications} onChange={(value) => void setNotifications(value)} label="Desktop notifications" />
           </SettingRow>
           <SettingRow title="Sound">
             <Switch on={settings.notificationSound} onChange={(value) => update({ notificationSound: value })} label="Notification sound" />
