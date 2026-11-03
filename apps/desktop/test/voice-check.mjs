@@ -566,6 +566,21 @@ try {
   await shot(bob, "09-screen");
   await shot(alice, "09-sharing");
 
+  // Full screen, which Electron only allows when the app lets it have the permission.
+  const screenTile = bob.page.locator(".voice-tile.is-screen").first();
+  const fullScreenTile = () => bob.page.evaluate(() => !!document.fullscreenElement?.matches(".voice-tile.is-screen"));
+  await screenTile.hover();
+  await screenTile.getByRole("button", { name: "Full screen" }).click();
+  await bob.page.waitForFunction(() => !!document.fullscreenElement, null, { timeout: 5000 }).catch(() => undefined);
+  await sleep(1200);
+  check("a shared screen goes full screen", await fullScreenTile());
+  await shot(bob, "09-full-screen");
+  await screenTile.hover();
+  await screenTile.getByRole("button", { name: "Exit full screen" }).click();
+  await bob.page.waitForFunction(() => !document.fullscreenElement, null, { timeout: 5000 }).catch(() => undefined);
+  await sleep(1200);
+  check("and comes back from it", !(await fullScreenTile()) && (await screenTile.getByRole("button", { name: "Full screen" }).count()) === 1);
+
   // --- Stream stats, and whether the frame rate that was asked for is what's happening ---
   await animateTheScreen(alice);
   await alice.page.getByRole("button", { name: "Stream stats" }).click();

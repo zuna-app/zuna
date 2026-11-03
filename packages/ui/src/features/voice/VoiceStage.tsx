@@ -17,6 +17,7 @@ import {
   Pin,
   PinOff,
   ShieldOff,
+  Shrink,
   UserX,
   Volume2,
   VolumeX,
@@ -118,41 +119,61 @@ const PersonTile = memo(function PersonTile({ member, camera, onMenu }: { member
   );
 });
 
-/** A shared screen. A click fills the stage with it. */
+/** A shared screen. A click fills the stage with it, and a double click the screen. */
 function ScreenTile({ tile, focused, onFocus, onMenu }: { tile: VideoTile; focused: boolean; onFocus: () => void; onMenu: (event: React.MouseEvent, userId: string) => void }) {
   const server = useActiveServer();
   const ref = useRef<HTMLDivElement>(null);
+  const [fullScreen, setFullScreen] = useState(false);
   const name = server?.users[tile.userId]?.displayName ?? "Someone";
+  useEffect(() => {
+    const onChange = () => setFullScreen(!!ref.current && document.fullscreenElement === ref.current);
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+  const toggleFullScreen = () => {
+    if (fullScreen) void document.exitFullscreen().catch(() => undefined);
+    else void ref.current?.requestFullscreen().catch(() => undefined);
+  };
   return (
-    <div ref={ref} className="voice-tile is-screen" onClick={onFocus} onDoubleClick={() => void ref.current?.requestFullscreen?.()} onContextMenu={(event) => onMenu(event, tile.userId)}>
+    <div
+      ref={ref}
+      className="voice-tile is-screen"
+      onClick={() => !fullScreen && onFocus()}
+      onDoubleClick={toggleFullScreen}
+      // Menus open over the app, which a full screen hides.
+      onContextMenu={(event) => (fullScreen ? event.preventDefault() : onMenu(event, tile.userId))}
+    >
       <VideoView tile={tile} contain />
       <div className="voice-tile-label">
         <MonitorUp size={13} />
         <span className="truncate">{tile.local ? "Your screen" : `${name}'s screen`}</span>
       </div>
       <div className="voice-tile-actions">
-        <Tooltip text={focused ? "Back to everyone" : "Fill the stage"}>
+        {!fullScreen && (
+          <Tooltip text={focused ? "Back to everyone" : "Fill the stage"}>
+            <button
+              className="icon-btn is-small"
+              onClick={(event) => {
+                event.stopPropagation();
+                onFocus();
+              }}
+              aria-label={focused ? "Back to everyone" : "Fill the stage"}
+            >
+              {focused ? <PinOff size={15} /> : <Pin size={15} />}
+            </button>
+          </Tooltip>
+        )}
+        <Tooltip text={fullScreen ? "Exit full screen" : "Full screen"}>
           <button
             className="icon-btn is-small"
             onClick={(event) => {
               event.stopPropagation();
-              onFocus();
+              toggleFullScreen();
             }}
-            aria-label={focused ? "Back to everyone" : "Fill the stage"}
+            onDoubleClick={(event) => event.stopPropagation()}
+            aria-label={fullScreen ? "Exit full screen" : "Full screen"}
           >
-            {focused ? <PinOff size={15} /> : <Pin size={15} />}
-          </button>
-        </Tooltip>
-        <Tooltip text="Full screen">
-          <button
-            className="icon-btn is-small"
-            onClick={(event) => {
-              event.stopPropagation();
-              void ref.current?.requestFullscreen?.();
-            }}
-            aria-label="Full screen"
-          >
-            <Expand size={15} />
+            {fullScreen ? <Shrink size={15} /> : <Expand size={15} />}
           </button>
         </Tooltip>
       </div>
