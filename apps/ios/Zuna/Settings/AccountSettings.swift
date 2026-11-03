@@ -24,8 +24,10 @@ struct ProfileView: View {
             Section {
                 VStack(spacing: 10) {
                     if let me {
+                        // Made here, as the picker's label isn't on the main actor.
+                        let avatar = AvatarView(name: me.displayName, seed: me.id, source: me.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 96)
                         PhotosPicker(selection: $photo, matching: .images) {
-                            AvatarView(name: me.displayName, seed: me.id, source: me.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 96)
+                            avatar
                                 .overlay(alignment: .bottomTrailing) {
                                     Image(systemName: "camera.fill")
                                         .font(.footnote)

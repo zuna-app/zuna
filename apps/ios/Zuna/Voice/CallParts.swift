@@ -75,14 +75,14 @@ struct MemberSheet: View {
     /// They're sharing their screen with its sound, which has a level of its own.
     private var streamSound: Bool { voice.videos.contains { $0.userId == member.userId && $0.sound } }
 
-    private func slider(_ title: String, value: Double, id: String, set: @escaping (Double) -> Void) -> some View {
+    private func slider(_ title: String, value: Double, id: String, set: @escaping @MainActor (Double) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(title)
                 Spacer()
                 Text("\(Int((value * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
             }
-            Slider(value: Binding(get: { value }, set: set), in: 0...2)
+            Slider(value: Binding(get: { value }, set: { set($0) }), in: 0...2)
                 .accessibilityLabel(title)
                 .accessibilityIdentifier(id)
         }

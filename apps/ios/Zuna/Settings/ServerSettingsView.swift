@@ -20,8 +20,10 @@ struct ServerSettingsView: View {
             if let server {
                 Section {
                     HStack(spacing: 14) {
+                        // Made here, as the picker's label isn't on the main actor.
+                        let picture = AvatarView(name: server.entry.name, seed: server.entry.url, source: .serverIcon(server.entry), size: 64, rounded: true)
                         PhotosPicker(selection: $icon, matching: .images) {
-                            AvatarView(name: server.entry.name, seed: server.entry.url, source: .serverIcon(server.entry), size: 64, rounded: true)
+                            picture
                                 .overlay(alignment: .bottomTrailing) {
                                     Image(systemName: "photo").font(.caption).foregroundStyle(Theme.text1)
                                         .frame(width: 24, height: 24).background(Theme.bg4, in: .circle)
