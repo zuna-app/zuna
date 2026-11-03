@@ -248,7 +248,7 @@ final class AppUnderTest {
         let field = element(A11y.Onboarding.link)
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         type(link, into: A11y.Onboarding.link)
-        element(A11y.Onboarding.continue).tap()
+        try tapSettled(A11y.Onboarding.continue)
         XCTAssertTrue(app.staticTexts["Set up your server"].waitForExistence(timeout: 15))
 
         type("Fox Mulder", into: A11y.Onboarding.displayName)
@@ -256,7 +256,7 @@ final class AppUnderTest {
         // The password is rated a moment after it's typed.
         let create = element(A11y.Onboarding.create)
         try waitFor("the password to be rated") { create.isEnabled }
-        create.tap()
+        try tapSettled(A11y.Onboarding.create)
         XCTAssertTrue(element(A11y.Onboarding.recoveryKey).waitForExistence(timeout: 30))
         declineSavingPassword()
         toggle(A11y.Onboarding.keyStored)
@@ -266,7 +266,21 @@ final class AppUnderTest {
         XCTAssertTrue(serverName.waitForExistence(timeout: 5))
         type(name, into: A11y.Onboarding.serverName)
         if screenshots { screenshot("47-name-server") }
-        element(A11y.Onboarding.nameDone).tap()
+        try tapSettled(A11y.Onboarding.nameDone)
+    }
+
+    /// Taps an element once it has stayed put for a moment. On an iPad the keyboard
+    /// can go once typing ends, and the sheet moves down under a tap at once.
+    func tapSettled(_ identifier: String) throws {
+        let target = element(identifier)
+        var last = CGRect.null
+        var since = Date()
+        try waitFor("\(identifier) to stay put", timeout: 10) {
+            let frame = target.frame
+            if frame != last { last = frame; since = Date() }
+            return target.exists && Date().timeIntervalSince(since) >= 0.5
+        }
+        target.tap()
     }
 
     /// The back button to the list of servers, over a server's conversations.
