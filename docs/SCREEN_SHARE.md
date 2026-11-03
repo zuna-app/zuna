@@ -164,13 +164,9 @@ Whoever's watching decodes in Chromium, or in the web app's browser. On Linux, C
 | VP9 | 1.1 ms | 1.1 ms |
 | AV1 | 0.4 ms | 0.9 ms |
 
-<<<<<<< Updated upstream
-Windows and macOS decode in hardware without being asked, through D3D11 and VideoToolbox. On Windows 11 with an RTX 5070 Ti, `voice-check.mjs` saw H.264 and VP9 decoded by `D3D11VideoDecoder`. VideoToolbox hasn't been checked here, and nor have Intel or AMD GPUs on Linux.
-=======
-Windows decodes in hardware without being asked, through D3D11, which hasn't been checked here, and nor have Intel or AMD GPUs on Linux. macOS does too, through VideoToolbox, measured on Apple silicon: H.264, H.265 and VP9 in hardware, and VP8, which Macs have no hardware for, and AV1, which only M3 and later do, in software.
+Windows decodes in hardware without being asked, through D3D11. On Windows 11 with an RTX 5070 Ti, `voice-check.mjs` saw H.264 and VP9 decoded by `D3D11VideoDecoder`. Intel and AMD GPUs on Linux haven't been checked here. macOS does too, through VideoToolbox, measured on Apple silicon: H.264, H.265 and VP9 in hardware, and VP8, which Macs have no hardware for, and AV1, which only M3 and later do, in software.
 
 On macOS a share through the browser is encoded on the GPU as well, through VideoToolbox, but only in H.264's Baseline profile: Chromium hands Constrained Baseline, which LiveKit takes by default, to OpenH264 in software, even at 720p. So LiveKit is set to take Baseline too (`LIVEKIT_CONFIG` in `scripts/lib.mjs`, and the same in `deploy/`), which Chromium offers first. Those watching who only declare Constrained Baseline, as the iPhone app does, get the same stream, which they decode. Sending a smaller copy as well, or layers in time, goes back to OpenH264, as Chromium won't encode H.264 simulcast on VideoToolbox. A server set up by hand, without that, sends shares from a Mac in software. Cameras on the desktop go out in VP8, in software everywhere, as their three layers would lose hardware in H.264 too.
->>>>>>> Stashed changes
 
 ## Frame rate
 
