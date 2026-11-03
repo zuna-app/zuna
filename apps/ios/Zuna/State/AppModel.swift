@@ -176,6 +176,10 @@ final class AppModel {
     var pendingAttachments: [URL] = []
     /// Drafts, replies, edits and files being written, by `composerKey(serverId, conversationKey)`.
     var composers: [String: ComposerState] = [:]
+    /// A channel's message being edited where it is, by `listKey`, which leaves the composer's draft alone.
+    var editingInPlace: [String: MessageView] = [:]
+    /// What those edits say so far: apart, so typing in one draws only the editor, not the whole chat.
+    var inPlaceText: [String: String] = [:]
     /// Where each chat was scrolled to, when it wasn't at the newest message: the message at the top of the screen.
     @ObservationIgnored var savedPositions: [String: String] = [:]
     /// The furthest read position waiting to be sent for each chat, by `listKey`, while one is on its way.

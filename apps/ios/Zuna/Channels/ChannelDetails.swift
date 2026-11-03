@@ -162,11 +162,7 @@ struct ChannelDetails: View {
     /// Everyone who can read the channel, which is everyone on the server: online first, then the rest, faded.
     @ViewBuilder
     private func members(_ server: AppModel.ServerState) -> some View {
-        let people = server.users.values
-            .filter { !$0.banned }
-            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-        let online = people.filter(\.online)
-        let offline = people.filter { !$0.online }
+        let (online, offline) = server.channelMembers
         if !online.isEmpty {
             Section("Online — \(online.count)") {
                 ForEach(online) { member($0, server: server) }

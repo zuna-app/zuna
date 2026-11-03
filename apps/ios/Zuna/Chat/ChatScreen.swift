@@ -18,6 +18,9 @@ struct ChatScreen: View {
     /// Messages picked to act on together, in the order picked, or nil when not picking.
     @State private var selection: [String]?
     @State private var confirmingDelete = false
+    /// How wide the chat is, for whether a channel's member list fits beside it.
+    @State private var width: CGFloat = 0
+    @AppStorage(AppSettings.memberListHiddenKey) private var memberListHidden = false
 
     private enum ChatSheet: Identifiable {
         case search
@@ -63,101 +66,15 @@ struct ChatScreen: View {
         let peer = conversation.peerId.flatMap { server.users[$0] }
         let isSaved = conversation.peerId != nil && conversation.peerId == server.me?.userId
         let channel = server.channel(conversation.key)
-        return VStack(spacing: 0) {
-            if let peer, peer.trust == .changed, !isSaved {
-                HStack(spacing: 10) {
-                    Label {
-                        Text("\(Text("\(conversation.title)'s security key changed.").bold()) This can mean someone is intercepting this chat. Compare keys before sharing anything private.")
-                    } icon: {
-                        Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.amber)
-                    }
-                    Button("Verify") { sheet = .verify(userId: peer.id) }
-                        .buttonStyle(.bordered)
-                        .accessibilityIdentifier(A11y.Chat.bannerVerify)
-                }
-                .font(.footnote)
-                .foregroundStyle(Theme.text1)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.amber.opacity(0.12))
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier(A11y.Chat.banner)
-            }
-            ZStack(alignment: .bottomTrailing) {
-                if let list, list.loaded || !list.items.isEmpty {
-                    if list.items.isEmpty, let channel {
-                        // At the bottom, where the first message will be, as in Discord.
-                        ChannelWelcome(channel: channel, edit: editChannel(server, channel))
-                            .frame(maxHeight: .infinity, alignment: .bottom)
-                    } else if list.items.isEmpty {
-                        EmptyChat(conversation: conversation, isSaved: isSaved)
-                    } else {
-                        messages(server, conversation, list, listId: listId)
-                    }
-                } else {
-                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                VStack(spacing: 0) {
-                    if let groupId = conversation.groupId, conversation.kind != .dm {
-                        MentionButton(serverId: serverId, groupId: groupId, conversation: conversation, hidden: atBottom && list?.detached != true)
-                            .id(listId)
-                    }
-                    if let list, !atBottom || list.detached {
-                        toBottom(unread: atBottom ? 0 : conversation.unread) {
-                            if list.detached {
-                                Task { await model.returnToLatest(serverId, listId) }
-                            } else {
-                                bridge.scrollToBottom()
-                            }
-                        }
-                    }
-                }
-            }
-            if channel != nil, !conversation.removed, selection == nil {
-                ChannelTyping(names: typingNames(server, conversation))
-            }
-            if conversation.removed {
-                VStack(spacing: 8) {
-                    Text("You're no longer in this conversation. Its messages stay on this device for 30 days.")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.text2)
-                        .multilineTextAlignment(.center)
-                    Button("Remove now", role: .destructive) {
-                        guard let groupId = conversation.groupId else { return }
-                        model.chatPath = []
-                        Task { try? await model.core.session(serverId).forgetConversation(groupId) }
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(14)
-                .background(Theme.bg1)
-                .accessibilityIdentifier(A11y.Composer.disabled)
-            } else if peer?.banned == true, !isSaved {
-                Label("This person was removed from the server.", systemImage: "xmark")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.text2)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Theme.bg1)
-                    .accessibilityIdentifier(A11y.Composer.disabled)
-            } else if conversation.blocked, let peer {
-                HStack(spacing: 10) {
-                    Label("You blocked \(peer.displayName).", systemImage: "nosign")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.text2)
-                    Button("Unblock") { model.setBlocked(peer.id, false, on: serverId) }
-                        .font(.subheadline.weight(.semibold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(Theme.bg1)
-                .accessibilityIdentifier(A11y.Composer.disabled)
-            } else if let selection, let list {
-                selectionBar(selection, server: server, conversation: conversation, list: list)
-            } else {
-                Composer(serverId: serverId, conversation: conversation, server: server)
+        // As the desktop's, which goes when the chat is narrower than 780 points: on an iPad, with the chat wide enough.
+        let roomForMembers = channel != nil && UIDevice.current.userInterfaceIdiom == .pad && width >= 780
+        return HStack(spacing: 0) {
+            chat(server, conversation, list: list, listId: listId, peer: peer, isSaved: isSaved, channel: channel)
+            if roomForMembers, !memberListHidden {
+                ChannelMemberList(server: server) { sheet = .verify(userId: $0) }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Button {
@@ -183,6 +100,18 @@ struct ChatScreen: View {
                 .accessibilityIdentifier(A11y.Chat.pins)
             }
             if channel != nil {
+                if roomForMembers {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        // Shown or hidden in every channel, as on the desktop.
+                        Button {
+                            memberListHidden.toggle()
+                        } label: {
+                            Image(systemName: memberListHidden ? "person.2" : "person.2.fill")
+                        }
+                        .accessibilityLabel(memberListHidden ? "Show member list" : "Hide member list")
+                        .accessibilityIdentifier(A11y.Channels.memberListToggle)
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         sheet = .search
@@ -263,6 +192,111 @@ struct ChatScreen: View {
         }
     }
 
+    /// The chat itself: the key's banner, the messages, who's typing, and the composer or what stands in for it.
+    private func chat(_ server: AppModel.ServerState, _ conversation: ConversationView, list: MessageList?, listId: String, peer: UserView?, isSaved: Bool, channel: ChannelView?) -> some View {
+        let serverId = server.entry.id
+        return VStack(spacing: 0) {
+            if let peer, peer.trust == .changed, !isSaved {
+                HStack(spacing: 10) {
+                    Label {
+                        Text("\(Text("\(conversation.title)'s security key changed.").bold()) This can mean someone is intercepting this chat. Compare keys before sharing anything private.")
+                    } icon: {
+                        Image(systemName: "exclamationmark.shield.fill").foregroundStyle(Theme.amber)
+                    }
+                    Button("Verify") { sheet = .verify(userId: peer.id) }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier(A11y.Chat.bannerVerify)
+                }
+                .font(.footnote)
+                .foregroundStyle(Theme.text1)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.amber.opacity(0.12))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(A11y.Chat.banner)
+            }
+            ZStack(alignment: .bottomTrailing) {
+                if let list, list.loaded || !list.items.isEmpty {
+                    if list.items.isEmpty, let channel {
+                        // At the bottom, where the first message will be, as in Discord.
+                        ChannelWelcome(channel: channel, edit: editChannel(server, channel))
+                            .frame(maxHeight: .infinity, alignment: .bottom)
+                    } else if list.items.isEmpty {
+                        EmptyChat(conversation: conversation, isSaved: isSaved)
+                    } else {
+                        messages(server, conversation, list, listId: listId)
+                    }
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                VStack(alignment: .trailing, spacing: 0) {
+                    if let groupId = conversation.groupId, conversation.kind != .dm {
+                        MentionButton(serverId: serverId, groupId: groupId, conversation: conversation, hidden: atBottom && list?.detached != true)
+                            .id(listId)
+                    }
+                    if let list, !atBottom || list.detached {
+                        let action = {
+                            if list.detached {
+                                Task { await model.returnToLatest(serverId, listId) }
+                            } else {
+                                bridge.scrollToBottom()
+                            }
+                        }
+                        if channel != nil {
+                            jumpToPresent(unread: atBottom ? 0 : conversation.unread, list: list, server: server, conversation: conversation, action: action)
+                        } else {
+                            toBottom(unread: atBottom ? 0 : conversation.unread, action: action)
+                        }
+                    }
+                }
+            }
+            if channel != nil, !conversation.removed, selection == nil {
+                ChannelTyping(names: typingNames(server, conversation))
+            }
+            if conversation.removed {
+                VStack(spacing: 8) {
+                    Text("You're no longer in this conversation. Its messages stay on this device for 30 days.")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.text2)
+                        .multilineTextAlignment(.center)
+                    Button("Remove now", role: .destructive) {
+                        guard let groupId = conversation.groupId else { return }
+                        model.chatPath = []
+                        Task { try? await model.core.session(serverId).forgetConversation(groupId) }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(14)
+                .background(Theme.bg1)
+                .accessibilityIdentifier(A11y.Composer.disabled)
+            } else if peer?.banned == true, !isSaved {
+                Label("This person was removed from the server.", systemImage: "xmark")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Theme.bg1)
+                    .accessibilityIdentifier(A11y.Composer.disabled)
+            } else if conversation.blocked, let peer {
+                HStack(spacing: 10) {
+                    Label("You blocked \(peer.displayName).", systemImage: "nosign")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.text2)
+                    Button("Unblock") { model.setBlocked(peer.id, false, on: serverId) }
+                        .font(.subheadline.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Theme.bg1)
+                .accessibilityIdentifier(A11y.Composer.disabled)
+            } else if let selection, let list {
+                selectionBar(selection, server: server, conversation: conversation, list: list)
+            } else {
+                Composer(serverId: serverId, conversation: conversation, server: server)
+            }
+        }
+    }
+
     private func messages(_ server: AppModel.ServerState, _ conversation: ConversationView, _ list: MessageList, listId: String) -> some View {
         let serverId = server.entry.id
         let jump = model.jumpTarget.flatMap { $0.listKey == AppModel.listKey(serverId, listId) ? $0 : nil }
@@ -299,7 +333,14 @@ struct ChatScreen: View {
                 if let index = picked.firstIndex(of: message.id) { picked.remove(at: index) } else { picked.append(message.id) }
                 selection = picked.isEmpty ? nil : picked
             },
-            edit: { model.edit(serverId, conversation.key, $0) },
+            // A channel's message is edited where it is, as on the desktop; elsewhere in the composer.
+            edit: { message in
+                if conversation.kind == .channel {
+                    model.editInPlace(serverId, message, in: message.groupId)
+                } else {
+                    model.edit(serverId, conversation.key, message)
+                }
+            },
             pin: { message, pinned in run { try await model.core.session(serverId).setPinned(message.groupId, id: message.id, pinned: pinned) } },
             delete: { message in run { try await model.core.session(serverId).deleteMessage(message.groupId, id: message.id) } },
             discard: { id in run { try await model.core.session(serverId).discardMessage(listId, id: id) } },
@@ -325,6 +366,7 @@ struct ChatScreen: View {
                 conversation: conversation,
                 highlighted: highlighted,
                 selection: selection,
+                editing: conversation.kind == .channel ? model.editingInPlace[AppModel.listKey(serverId, listId)]?.id : nil,
                 jump: jump,
                 actions: actions
             ),
@@ -459,6 +501,44 @@ struct ChatScreen: View {
         .padding(12)
         .accessibilityLabel("Go to the newest messages")
         .accessibilityIdentifier(A11y.Chat.toBottom)
+    }
+
+    /// A channel's way back down, as Discord's: a bar along the bottom of the list
+    /// saying how many new messages are below, and since when.
+    private func jumpToPresent(unread: Int, list: MessageList, server: AppModel.ServerState, conversation: ConversationView, action: @escaping () -> Void) -> some View {
+        let since = unread > 0
+            ? list.items.first { AppModel.isUnread($0, ownRead: conversation.ownRead, selfId: server.me?.userId, blocked: server.prefs.blocked ?? []) }?.createdAt
+            : nil
+        let what = unread > 0
+            ? "\(unread > 99 ? "99+" : "\(unread)") new \(unread == 1 ? "message" : "messages")\(since.map { " since \(Format.time($0))" } ?? "")"
+            : "You're viewing older messages"
+        return Button(action: action) {
+            HStack(spacing: 12) {
+                Text(what)
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                HStack(spacing: 4) {
+                    Text("Jump to present")
+                    Image(systemName: "arrow.down").font(.footnote.weight(.bold))
+                }
+                .fontWeight(.semibold)
+                .foregroundStyle(Theme.text1)
+                .fixedSize()
+            }
+            // Smaller than the desktop's, so a phone has room for the time.
+            .font(.footnote.weight(.medium))
+            .padding(.horizontal, 12)
+            .frame(height: 34)
+            .background(Theme.bg3, in: UnevenRoundedRectangle(topLeadingRadius: 8, topTrailingRadius: 8))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(what). Jump to present")
+        .accessibilityIdentifier(A11y.Channels.jumpToPresent)
     }
 
     // MARK: Read receipts

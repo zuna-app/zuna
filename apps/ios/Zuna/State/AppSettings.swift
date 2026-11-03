@@ -53,12 +53,16 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     private static let collapsedKey = "zuna-collapsed-categories"
 
+    /// A channel's member list was hidden on this device, which keeps it hidden in every channel, as on the desktop.
+    static let memberListHiddenKey = "zuna-member-list-hidden"
+
     #if DEBUG
     /// For tests that start from a fresh install.
     static func reset() {
         UserDefaults.standard.removeObject(forKey: key)
         UserDefaults.standard.removeObject(forKey: lastServerKey)
         UserDefaults.standard.removeObject(forKey: collapsedKey)
+        UserDefaults.standard.removeObject(forKey: memberListHiddenKey)
     }
     #endif
 

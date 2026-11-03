@@ -24,6 +24,8 @@ struct MessageRowContext {
     var channel = false
     /// The oldest message there is, under the channel's welcome.
     var startOfChat = false
+    /// Being edited where it is, in a channel.
+    var editing = false
 }
 
 /// The things a message can ask its chat to do.

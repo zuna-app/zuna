@@ -216,7 +216,11 @@ struct Composer: View {
             return .handled
         case .upArrow:
             guard state.text.isEmpty, let last = lastOwnMessage else { return .ignored }
-            model.edit(serverId, conversation.key, last)
+            if conversation.kind == .channel {
+                model.editInPlace(serverId, last, in: last.groupId)
+            } else {
+                model.edit(serverId, conversation.key, last)
+            }
             return .handled
         default:
             return .ignored

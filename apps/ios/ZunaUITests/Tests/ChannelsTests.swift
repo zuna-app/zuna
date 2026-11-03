@@ -129,6 +129,87 @@ final class ChannelsTests: XCTestCase {
         zuna.screenshot("92-channel-details")
     }
 
+    func testEditsWhereTheMessageIsAndJumpsToThePresent() throws {
+        let alice = try Peer("alice")
+        let carol = try Peer("carol")
+        let general = try channelId(alice, "general")
+        let tag = UUID().uuidString.prefix(4)
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let row = zuna.element(A11y.Channels.row(general))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        try waitFor("the phone to come into #general", timeout: 30) {
+            (try self.appChannel(general)?["conversation"] as? [String: Any])?["ready"] as? Bool == true
+        }
+        row.tap()
+        XCTAssertTrue(zuna.element(A11y.Composer.input).waitForExistence(timeout: 10))
+
+        // Edited where it is, as on the desktop, with the draft left in the box.
+        type("Meet at noon \(tag)")
+        zuna.element(A11y.Composer.send).tap()
+        var mine = ""
+        try waitFor("carol to get it") {
+            mine = try self.messages(carol, in: general).last { $0["text"] as? String == "Meet at noon \(tag)" }?["id"] as? String ?? ""
+            return !mine.isEmpty
+        }
+        type("A draft \(tag)")
+        try menu(mine, "Edit")
+        let editor = zuna.element(A11y.Channels.inPlaceInput)
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        XCTAssertEqual(editor.value as? String, "Meet at noon \(tag)")
+        try waitFor("the editor to take the keyboard") { (editor.value(forKey: "hasKeyboardFocus") as? Bool) == true }
+        editor.typeText(", or one")
+        zuna.screenshot("91b-channel-edit-in-place")
+        zuna.element(A11y.Channels.inPlaceSave).tap()
+        try waitFor("carol to see it edited") {
+            try self.messages(carol, in: general).contains { $0["id"] as? String == mine && $0["text"] as? String == "Meet at noon \(tag), or one" }
+        }
+        try waitFor("the editor to go") { !editor.exists }
+        XCTAssertTrue(zuna.element(A11y.Chat.text(mine)).label.contains("or one"))
+        XCTAssertEqual(zuna.element(A11y.Composer.input).value as? String, "A draft \(tag)")
+
+        // Cancelled, it stays as it was.
+        try menu(mine, "Edit")
+        XCTAssertTrue(editor.waitForExistence(timeout: 5))
+        try waitFor("the editor to take the keyboard") { (editor.value(forKey: "hasKeyboardFocus") as? Bool) == true }
+        editor.typeText(" maybe")
+        zuna.element(A11y.Channels.inPlaceCancel).tap()
+        try waitFor("the editor to go") { !editor.exists }
+        XCTAssertFalse(zuna.element(A11y.Chat.text(mine)).label.contains("maybe"))
+
+        // Further up, a bar along the bottom leads back, as in Discord, rather than the round button.
+        // From alice, so carol's next message in another test starts a run of its own, under her name.
+        for index in 1...40 {
+            try alice.send(to: "group:\(general)", ["text": "Backlog \(tag) \(index)"])
+        }
+        let fortieth = zuna.app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", A11y.Chat.text(""), "Backlog \(tag) 40")).firstMatch
+        try waitFor("alice's messages", timeout: 30) { fortieth.exists }
+        let bar = zuna.element(A11y.Channels.jumpToPresent)
+        try waitFor("the bar", timeout: 15) {
+            if !bar.exists { self.zuna.element(A11y.Chat.list).swipeDown(velocity: .fast) }
+            return bar.waitForExistence(timeout: 2)
+        }
+        XCTAssertTrue(bar.label.contains("You're viewing older messages"))
+        XCTAssertFalse(zuna.element(A11y.Chat.toBottom).exists)
+
+        // What arrives meanwhile is counted on it, with when it started.
+        for index in 41...43 {
+            try alice.send(to: "group:\(general)", ["text": "Backlog \(tag) \(index)"])
+        }
+        try waitFor("the new ones on the bar", timeout: 20) { bar.label.contains("3 new messages since") }
+        zuna.screenshot("91c-channel-jump-to-present")
+        bar.tap()
+        try waitFor("the bar to go") { !bar.exists }
+        let newest = zuna.app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS %@", A11y.Chat.text(""), "Backlog \(tag) 43")).firstMatch
+        try waitFor("the newest message") { newest.isHittable }
+        try waitFor("the channel read") {
+            (try self.appChannel(general)?["conversation"] as? [String: Any])?["unread"] as? Int == 0
+        }
+    }
+
     func testAdminsMakeChangeAndDeleteChannels() throws {
         let carol = try Peer("carol")
         try zuna.launch()

@@ -73,6 +73,15 @@ enum A11y {
         static func add(_ name: String) -> String { "channels.add.\(name)" }
         static func occupant(_ deviceId: String) -> String { "channels.occupant.\(deviceId)" }
         static func member(_ userId: String) -> String { "channels.member.\(userId)" }
+        /// A row of the member list beside the chat, apart from the details' rows.
+        static func listedMember(_ userId: String) -> String { "channels.memberList.\(userId)" }
+        static let memberList = "channels.memberList"
+        static let memberListToggle = "channels.memberList.toggle"
+        static let jumpToPresent = "channels.jumpToPresent"
+        static let inPlaceEditor = "channels.inPlace"
+        static let inPlaceInput = "channels.inPlace.input"
+        static let inPlaceSave = "channels.inPlace.save"
+        static let inPlaceCancel = "channels.inPlace.cancel"
         static let newChannel = "channels.new"
         static let joining = "channels.joining"
         static let welcome = "channels.welcome"

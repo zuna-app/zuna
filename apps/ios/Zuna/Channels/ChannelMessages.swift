@@ -103,7 +103,8 @@ struct ChannelMessageRow: View {
         }
         .contentShape(.rect)
         .contentShape(.contextMenuPreview, .rect)
-        .contextMenu { MessageMenu(context: context, actions: actions) }
+        // Not while it's being edited, where a long press is for the text.
+        .contextMenu { if !context.editing { MessageMenu(context: context, actions: actions) } }
         // While picking, a tap anywhere on the row picks it, instead of opening what's under it.
         .overlay {
             if context.selecting {
@@ -215,32 +216,11 @@ struct ChannelMessageRow: View {
                 .font(.subheadline)
                 .foregroundStyle(Color(hex: 0xF4BCBE))
         } else {
-            Group {
-                if let forwarded = message.forwarded {
-                    ForwardedLabel(forwarded: forwarded, own: false, server: server, open: actions.mention)
-                        .padding(.leading, 8)
-                        .overlay(alignment: .leading) { Rectangle().fill(Theme.spine).frame(width: 2) }
-                }
-                if !message.text.isEmpty {
-                    MessageBodyView(message: message, style: style, server: server, reserveMeta: nil, revealed: revealed, actions: actions, suffix: edited) {
-                        revealed.insert($0)
-                    }
-                    .fixedSize(horizontal: jumbo > 0, vertical: false)
-                }
-                if !message.attachments.isEmpty {
-                    AttachmentsView(message: message, serverId: server.entry.id, flush: false, open: actions.open)
-                        .frame(maxWidth: 420, alignment: .leading)
-                }
-                if let preview = message.preview {
-                    LinkCard(preview: preview, own: false, messageId: message.id)
-                        .frame(maxWidth: 420, alignment: .leading)
-                }
-                if let location = message.location {
-                    LocationCard(location: location, own: false, messageId: message.id)
-                        .frame(maxWidth: 420, alignment: .leading)
-                }
+            if context.editing {
+                InPlaceEditor(message: message, serverId: server.entry.id, size: textSize)
+            } else {
+                said
             }
-            .opacity(message.status == .sending ? 0.55 : 1)
             if !message.reactions.isEmpty {
                 ChannelReactions(message: message, server: server, canAdd: selectable, react: { actions.react(message.id, $0, $1) }, add: { actions.pickReaction(message.id) }, card: actions.emoteCard)
             }
@@ -257,11 +237,111 @@ struct ChannelMessageRow: View {
         }
     }
 
+    /// What the message says and carries: the text, files, a link's preview and a place.
+    private var said: some View {
+        Group {
+            if let forwarded = message.forwarded {
+                ForwardedLabel(forwarded: forwarded, own: false, server: server, open: actions.mention)
+                    .padding(.leading, 8)
+                    .overlay(alignment: .leading) { Rectangle().fill(Theme.spine).frame(width: 2) }
+            }
+            if !message.text.isEmpty {
+                MessageBodyView(message: message, style: style, server: server, reserveMeta: nil, revealed: revealed, actions: actions, suffix: edited) {
+                    revealed.insert($0)
+                }
+                .fixedSize(horizontal: jumbo > 0, vertical: false)
+            }
+            if !message.attachments.isEmpty {
+                AttachmentsView(message: message, serverId: server.entry.id, flush: false, open: actions.open)
+                    .frame(maxWidth: 420, alignment: .leading)
+            }
+            if let preview = message.preview {
+                LinkCard(preview: preview, own: false, messageId: message.id)
+                    .frame(maxWidth: 420, alignment: .leading)
+            }
+            if let location = message.location {
+                LocationCard(location: location, own: false, messageId: message.id)
+                    .frame(maxWidth: 420, alignment: .leading)
+            }
+        }
+        .opacity(message.status == .sending ? 0.55 : 1)
+    }
+
     private func placeholder(_ text: String) -> some View {
         Text(text)
             .font(.system(size: textSize))
             .italic()
             .foregroundStyle(Theme.channelMuted)
+    }
+}
+
+/// A message in a channel edited where it is, as in Discord. On a hardware keyboard
+/// Return saves it and Escape leaves it as it was, as on the desktop; the links under
+/// it do the same on screen. The composer's draft stays as it was.
+private struct InPlaceEditor: View {
+    @Environment(AppModel.self) private var model
+    let message: MessageView
+    let serverId: String
+    let size: CGFloat
+    @FocusState private var focused: Bool
+
+    private var key: String { AppModel.listKey(serverId, message.groupId) }
+
+    private var text: Binding<String> {
+        Binding(get: { model.inPlaceText[key] ?? "" }, set: { model.inPlaceText[key] = $0 })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            TextField("Edit message", text: text, axis: .vertical)
+                .lineLimit(1...12)
+                .font(.system(size: size))
+                .foregroundStyle(Theme.text1)
+                .focused($focused)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(Theme.bg2, in: .rect(cornerRadius: 8))
+                .onKeyPress(phases: .down) { press in handleKey(press) }
+                .accessibilityIdentifier(A11y.Channels.inPlaceInput)
+            HStack(spacing: 5) {
+                Button("Cancel", action: cancel)
+                    .accessibilityIdentifier(A11y.Channels.inPlaceCancel)
+                Text("•").foregroundStyle(Theme.channelMuted).accessibilityHidden(true)
+                Button("Save", action: save)
+                    .accessibilityIdentifier(A11y.Channels.inPlaceSave)
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Theme.link)
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(A11y.Channels.inPlaceEditor)
+        // Once it's in the list, which isn't yet as it first appears.
+        .task { focused = true }
+    }
+
+    private func handleKey(_ press: KeyPress) -> KeyPress.Result {
+        switch press.key {
+        case .escape:
+            cancel()
+            return .handled
+        case .return:
+            if press.modifiers.contains(.shift) { return .ignored }
+            guard model.settings.enterToSend || press.modifiers.contains(.command) || press.modifiers.contains(.control) else { return .ignored }
+            save()
+            return .handled
+        default:
+            return .ignored
+        }
+    }
+
+    private func save() {
+        model.saveInPlace(serverId, in: message.groupId)
+    }
+
+    private func cancel() {
+        model.editInPlace(serverId, nil, in: message.groupId)
     }
 }
 

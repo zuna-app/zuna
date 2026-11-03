@@ -34,6 +34,55 @@ final class PadTests: XCTestCase {
         zuna.screenshot("pad-12-settings")
     }
 
+    func testShowsAChannelsMembersBesideIt() throws {
+        // Landscape, where the chat is wide enough for them, as the desktop's needs 780 points.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        defer { XCUIDevice.shared.orientation = .portrait }
+        let alice = try Peer("alice")
+        let general = try XCTUnwrap((try alice.call("getChannels") as? [[String: Any]])?.first { $0["name"] as? String == "general" }?["id"] as? String)
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let row = zuna.element(A11y.Channels.row(general))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        XCTAssertTrue(zuna.element(A11y.Composer.input).waitForExistence(timeout: 30))
+
+        // Everyone on the server, beside the chat, with a crown for the owner.
+        let list = zuna.element(A11y.Channels.memberList)
+        XCTAssertTrue(list.waitForExistence(timeout: 10))
+        let owner = zuna.element(A11y.Channels.listedMember(World.current["alice"].userId))
+        XCTAssertTrue(owner.waitForExistence(timeout: 10))
+        XCTAssertTrue(owner.label.contains("Owner"))
+        XCTAssertTrue(zuna.element(A11y.Channels.listedMember(World.current["bob"].userId)).exists)
+        zuna.screenshotScreen("pad-15-channel-members")
+
+        // A tap shows their profile.
+        owner.tap()
+        let profile = zuna.element(A11y.Verify.screen)
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        profile.swipeDown(velocity: .fast)
+        try waitFor("the profile to close") { !profile.exists }
+
+        // Hidden, it stays hidden, here and in the channel opened again.
+        let toggle = zuna.element(A11y.Channels.memberListToggle)
+        try waitFor("the member list's button") { toggle.isHittable }
+        toggle.tap()
+        try waitFor("the list to go") { !list.exists }
+        zuna.element(A11y.ChatList.row("user:\(World.current["alice"].userId)")).tap()
+        XCTAssertTrue(zuna.element(A11y.Chat.menu).waitForExistence(timeout: 10))
+        XCTAssertFalse(toggle.exists)
+        row.tap()
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        XCTAssertFalse(list.exists)
+        toggle.tap()
+        XCTAssertTrue(list.waitForExistence(timeout: 5))
+
+        // Narrower than that, in portrait, the list goes, and so does its button.
+        XCUIDevice.shared.orientation = .portrait
+        try waitFor("the list to go in portrait") { !list.exists && !toggle.exists }
+    }
+
     func testListsTheServersInTheSidebar() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")

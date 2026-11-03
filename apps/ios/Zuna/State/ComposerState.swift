@@ -57,28 +57,53 @@ extension AppModel {
         }
     }
 
+    /// Edits a channel's message where it is, as the desktop does, leaving the draft and
+    /// any reply as they were; nil stops.
+    func editInPlace(_ serverId: String, _ message: MessageView?, in groupId: String) {
+        let key = Self.listKey(serverId, groupId)
+        editingInPlace[key] = message
+        inPlaceText[key] = message?.text
+    }
+
+    /// Saves what was edited in place, and stops.
+    func saveInPlace(_ serverId: String, in groupId: String) {
+        let key = Self.listKey(serverId, groupId)
+        guard let message = editingInPlace[key] else { return }
+        let value = (inPlaceText[key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        editInPlace(serverId, nil, in: groupId)
+        saveEdit(serverId, message, value)
+    }
+
+    /// Changes a message's text, unless it's empty or the same.
+    private func saveEdit(_ serverId: String, _ message: MessageView, _ value: String) {
+        guard let server = servers[serverId], !value.isEmpty, value != message.text else { return }
+        let session = core.session(serverId)
+        let emotes = Self.emotes(in: value, server.emotes)
+        let mentions = Self.mentions(in: value, server.users)
+        Task {
+            do {
+                try await session.editMessage(message.groupId, id: message.id, text: value, emotes: emotes, mentions: mentions)
+            } catch {
+                toast(OnboardingText.describe(error), .error)
+            }
+        }
+    }
+
     /// Sends what's in the composer, or saves the edit, as the desktop's composer does.
     func sendComposer(_ serverId: String, _ conversation: ConversationView) {
         let state = composer(serverId, conversation.key)
         let value = state.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let server = servers[serverId], !value.isEmpty || !state.files.isEmpty else { return }
-        let session = core.session(serverId)
-        let emotes = Self.emotes(in: value, server.emotes)
-        let mentions = Self.mentions(in: value, server.users)
 
         if let editing = state.editing {
-            if !value.isEmpty, value != editing.text {
-                Task {
-                    do {
-                        try await session.editMessage(editing.groupId, id: editing.id, text: value, emotes: emotes, mentions: mentions)
-                    } catch {
-                        toast(OnboardingText.describe(error), .error)
-                    }
-                }
-            }
+            saveEdit(serverId, editing, value)
             updateComposer(serverId, conversation.key) { $0 = ComposerState() }
             return
         }
+
+        let session = core.session(serverId)
+        let emotes = Self.emotes(in: value, server.emotes)
+        let mentions = Self.mentions(in: value, server.users)
 
         let preview = state.link.flatMap { value.contains($0.url) ? $0.preview : nil }
         let body = MessageBody(text: value.isEmpty ? nil : value, replyTo: state.replyTo?.id, emotes: emotes, mentions: mentions, preview: preview)

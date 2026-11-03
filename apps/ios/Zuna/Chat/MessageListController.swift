@@ -33,6 +33,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         var highlighted: String?
         /// The messages picked to act on together, or nil when not picking.
         var selection: [String]?
+        /// The channel's message being edited where it is.
+        var editing: String?
         var jump: JumpTarget?
         var actions: ChatActions
     }
@@ -153,6 +155,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 scrollToBottom(animated: true)
             }
             handleJump()
+            if input.editing != previous?.editing { revealEditing() }
             noteSeen()
         }
     }
@@ -162,7 +165,18 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         guard view.window != nil, collectionView.bounds.height != placedHeight else { return }
         placedHeight = collectionView.bounds.height
         placeOpening()
+        revealEditing()
         noteSeen()
+    }
+
+    /// Keeps the message being edited in place on screen, as the keyboard comes up and the list gets shorter.
+    private func revealEditing() {
+        guard let id = input?.editing, let index = dataSource.snapshot().indexOfItem(id) else { return }
+        let indexPath = IndexPath(item: index, section: 0)
+        collectionView.layoutIfNeeded()
+        guard let frame = collectionView.layoutAttributesForItem(at: indexPath)?.frame,
+              !collectionView.bounds.inset(by: collectionView.adjustedContentInset).contains(frame) else { return }
+        collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: true)
     }
 
     /// Grouping and day separators depend on the neighbors, so every row's context is rebuilt.
@@ -191,7 +205,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
                 selecting: input.selection != nil,
                 selected: input.selection?.contains(message.id) ?? false,
                 channel: channel,
-                startOfChat: index == 0 && !input.hasMore && !input.detached
+                startOfChat: index == 0 && !input.hasMore && !input.detached,
+                editing: input.editing == message.id
             )
         }
         contexts = result
