@@ -3,9 +3,9 @@
 On Windows and Linux, the desktop app shares a whole screen or one window from a small program of its own, which captures and encodes on the GPU and only uses LiveKit to carry the result. Viewers stay in Chromium, or the web app's browser, with nothing native.
 
 ```
-Windows.Graphics.Capture ─┐                       ┌─ NVENC, AMF ─┐
-                          ├─ zuna-screenshare ────┤              ├─ LiveKit SDK ─ encrypted ─ media server ─ viewers
-xdg portal and PipeWire ──┘                       └─ NVENC, VA-API ┘   (pre-encoded mode)
+Windows.Graphics.Capture ─┐                       ┌─ NVENC, AMF, Media Foundation ─┐
+                          ├─ zuna-screenshare ────┤                                ├─ LiveKit SDK ─ encrypted ─ media server ─ viewers
+xdg portal and PipeWire ──┘                       └─ NVENC, VA-API ────────────────┘   (pre-encoded mode)
 ```
 
 This exists because screen sharing through Chromium is poor on Linux: it reads every frame back to the CPU with `glReadPixels`, and has no supported hardware encoder there. [The proof of concept's README](../poc/screenshare/README.md) has the measurements. A 2560x1440 share at 60 fps takes about 5% of a core on the sender.
@@ -117,11 +117,13 @@ A native share that can't do what was chosen doesn't fail: it goes through the b
 
 | Route | How |
 |---|---|
-| Windows | D3D11's video processor, in `native/encoder.c` |
+| Windows | D3D11's video processor, in `native/encoder.c`, which also makes NV12 for Media Foundation |
 | Linux, NVENC from DMA-BUFs | An OpenGL blit, in `native/dmabuf_cuda.c` |
 | Linux, VA-API | `scale_vaapi`, which the graph already had for its colours |
 | NVENC or AMF from CPU memory, which is a compositor that can't share DMA-BUFs | It can't, so that share goes through the browser |
 | Through the browser | `height: { max }` in `getDisplayMedia` |
+
+**The encoder** is the one that goes with the graphics card driving the screen, unless another is chosen. On Linux that's NVENC on NVIDIA and VA-API otherwise. On Windows it's NVENC on NVIDIA, AMF on AMD, and on Intel or any other GPU Media Foundation's (`h264_mf`), which is whatever encoder the card's driver gives Windows, in hardware only. Media Foundation's encoders only take NV12, so D3D11's video processor converts each frame on the GPU, as BT.709 at studio range, on the way. Their streams say nothing of what colours they're in, so FFmpeg's `h264_metadata` filter writes that into each SPS, where NVENC and AMF write it themselves. A new one takes longer to open than NVENC: a window dragged for a second went out at 11 sizes rather than 27.
 
 ## Building it
 
@@ -199,7 +201,7 @@ Chromium's fake capture runs at 20 fps. `--use-fake-ui-for-media-stream` swaps i
 The proof of concept's README lists what has run where. Inside the app, Windows and Linux with NVENC have run so far:
 
 - **Linux** has run from the app on Arch with KDE and an RTX 5080, over KRdp with its screen at 1920x1080, publishing over TLS to apps watching: NVENC from DMA-BUFs, 60 fps sent and 60 decoded at 2.3 ms a frame and 4% of a core, and 30 fps asked for gave 30.0. KWin offers any size from 200x200 to 10000x10000 with its screen's own as the default (seen in `pw-dump`), and scales to whatever's taken. PipeWire takes the consumer's default when the range allows it, so the program offers no size at all and gets the screen's own. Until it did, it offered 1920x1080. Since then, `voice-check.mjs` has shared a 2560x1440 screen natively at its own size.
-- **VA-API and AMF** have never run.
+- **VA-API and AMF** have never run. **Media Foundation** has only run on NVIDIA's own encoder for it, on an RTX 5070 Ti: from the app in `voice-check.mjs` with `VOICE_ENCODER=h264_mf`, a screen at 60 fps over TLS, under a new key, and a window at 60 fps, until that run was stopped partway; by itself, a screen made smaller, a window dragged, and colours within 2 of 255 of what was drawn, as NVENC's are. Intel's and other GPUs' haven't, nor has one of a laptop's two GPUs.
 - **Making the picture smaller** has run natively on Windows with NVENC, at 1280x720 from 2560x1440 at about 3.5% of a core, and on Linux with NVENC from DMA-BUFs through the OpenGL blit, at 1280x720 from 1920x1080 and 60 fps, 1.4 ms a frame and 4% of a core. VA-API's `scale_vaapi` has never run.
 - **Effort per frame** has been run at each end on Windows with NVENC, where it costs little at these sizes. Nobody has compared the pictures.
 - **Leaving the pointer out natively** asks Windows and the portal to. Through KDE's portal it works: with the pointer over the tab bar, a frame someone watching received showed it with the pointer on, and not with it off. On Windows 11 it works too: with the pointer still over text, a frame encoded by NVENC showed its I-beam with the pointer on, and not with `--no-cursor`.

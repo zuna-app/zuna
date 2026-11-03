@@ -6,6 +6,9 @@
 //
 // Each app's microphone is a sound file Chromium plays as a fake device: spoken words
 // on Windows and macOS, and on Linux with eSpeak NG installed, and a tone elsewhere.
+//
+// VOICE_ENCODER, such as h264_mf, has native shares go through that encoder rather than
+// the one that goes with the screen's graphics card.
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -529,6 +532,7 @@ try {
     await who.page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
     const startWithSound = who.page.getByRole("switch", { name: "Start with sound on" });
     if (await startWithSound.count()) await startWithSound.click();
+    if (process.env.VOICE_ENCODER) await who.page.getByRole("combobox", { name: "Encoder" }).selectOption(process.env.VOICE_ENCODER);
     await who.page.keyboard.press("Escape");
     await sleep(200);
   }

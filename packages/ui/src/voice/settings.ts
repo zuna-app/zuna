@@ -10,7 +10,7 @@ export type ScreenContent = "detail" | "text" | "motion";
 export type ScreenPriority = "sharp" | "smooth" | "balanced";
 // LiveKit has no end-to-end encryption for AV1, so a share in it would show nothing.
 export type ScreenCodec = "auto" | "h264" | "vp8" | "vp9";
-export type ScreenEncoder = "auto" | "h264_nvenc" | "h264_amf" | "h264_vaapi";
+export type ScreenEncoder = "auto" | "h264_nvenc" | "h264_amf" | "h264_mf" | "h264_vaapi";
 /** How much work a native share's encoder puts into each frame. */
 export type ScreenEffort = "speed" | "balanced" | "best";
 

@@ -108,7 +108,7 @@ const USAGE: &str = "zuna-screenshare [options]
   --e2ee-key KEY         Encrypt with this shared key, as MLS would provide it
   --bitrate-kbps N       The most to send (20000)
   --fps N                Frame rate (60)
-  --encoder NAME         auto, h264_nvenc, h264_amf or h264_vaapi (auto)
+  --encoder NAME         auto, h264_nvenc, h264_amf, h264_mf or h264_vaapi (auto)
   --quality NAME         How much work each frame gets: speed, balanced or best (balanced)
   --max-height N         Make the picture smaller on the GPU if it's taller than this
   --no-cursor            Leave the pointer out of the picture

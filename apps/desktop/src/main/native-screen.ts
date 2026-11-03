@@ -89,7 +89,7 @@ export interface NativeScreenOptions {
   kind: "screen" | "window";
 }
 
-const ENCODERS = new Set(["auto", "h264_nvenc", "h264_amf", "h264_vaapi"]);
+const ENCODERS = new Set(["auto", "h264_nvenc", "h264_amf", "h264_mf", "h264_vaapi"]);
 const EFFORTS = new Set(["speed", "balanced", "best"]);
 const whole = (value: number, fallback: number): string => String(Number.isFinite(value) && value > 0 ? Math.round(value) : fallback);
 

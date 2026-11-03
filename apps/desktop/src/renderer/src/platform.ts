@@ -117,6 +117,7 @@ export function desktopPlatform(): Platform {
         ? [
             { id: "h264_nvenc", name: "NVIDIA (NVENC)" },
             { id: "h264_amf", name: "AMD (AMF)" },
+            { id: "h264_mf", name: "Intel or another (Media Foundation)" },
           ]
         : [
             { id: "h264_nvenc", name: "NVIDIA (NVENC)" },

@@ -53,7 +53,6 @@ use crate::{
 
 const VENDOR_NVIDIA: u32 = 0x10de;
 const VENDOR_AMD: u32 = 0x1002;
-const VENDOR_INTEL: u32 = 0x8086;
 
 const FORMAT: DirectXPixelFormat = DirectXPixelFormat::B8G8R8A8UIntNormalized;
 const POOL_FRAMES: i32 = 3;
@@ -141,20 +140,21 @@ fn adapter_name(desc: &DXGI_ADAPTER_DESC1) -> String {
 fn choose_adapter(encoder: &str, monitor: HMONITOR) -> Result<(IDXGIAdapter1, String, String)> {
     let list = adapters()?;
     let wanted_vendor = match encoder {
-        "auto" => None,
+        "auto" | "h264_mf" => None,
         "h264_nvenc" => Some(VENDOR_NVIDIA),
         "h264_amf" => Some(VENDOR_AMD),
-        other => return Err(format!("This proof of concept doesn't do {other} on Windows: use h264_nvenc or h264_amf")),
+        other => return Err(format!("There's no {other} on Windows: use h264_nvenc, h264_amf or h264_mf")),
     };
     let (adapter, desc) = list
         .iter()
         .find(|(adapter, desc)| wanted_vendor.map_or_else(|| drives_monitor(adapter, monitor), |vendor| desc.VendorId == vendor))
         .ok_or_else(|| format!("No GPU found for {encoder}"))?;
-    let codec = match desc.VendorId {
-        VENDOR_NVIDIA => "h264_nvenc",
-        VENDOR_AMD => "h264_amf",
-        VENDOR_INTEL => return Err("Intel isn't in this proof of concept on Windows, since its encoder doesn't take RGB textures".into()),
-        vendor => return Err(format!("No encoder for GPU vendor {vendor:#x}")),
+    let codec = match (encoder, desc.VendorId) {
+        ("h264_mf", _) => "h264_mf",
+        (_, VENDOR_NVIDIA) => "h264_nvenc",
+        (_, VENDOR_AMD) => "h264_amf",
+        // Intel's, and any other GPU's, through the encoder its driver gives Media Foundation.
+        _ => "h264_mf",
     };
     Ok((adapter.clone(), codec.to_owned(), adapter_name(desc)))
 }

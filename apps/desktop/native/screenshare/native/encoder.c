@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include <libavcodec/avcodec.h>
+#include <libavcodec/bsf.h>
 #include <libavutil/buffer.h>
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
@@ -52,6 +53,7 @@ struct zuna_encoder {
     AVBufferRef *device;
     AVBufferRef *frames;
     AVBufferPool *cpu_pool;
+    AVBSFContext *tagger;
 #ifdef _WIN32
     ID3D11VideoProcessorEnumerator *scaler_enumerator;
     ID3D11VideoProcessor *scaler;
@@ -97,6 +99,12 @@ static int is_scaling(const zuna_encoder *e) {
     return e->config.source_width != e->config.width || e->config.source_height != e->config.height;
 }
 
+// Media Foundation's encoders, which is how Windows reaches Intel's and any other GPU's
+// own, only take NV12. NVENC and AMF take the capture's BGRA as it is.
+static int takes_nv12(const zuna_encoder *e) {
+    return is_codec(e, "h264_mf");
+}
+
 static void set_low_latency_options(zuna_encoder *e) {
     void *options = e->codec->priv_data;
     int quality = e->config.quality;
@@ -121,6 +129,13 @@ static void set_low_latency_options(zuna_encoder *e) {
         av_opt_set_int(options, "frame_skipping", 0, 0);
         av_opt_set_int(options, "filler_data", 0, 0);
         av_opt_set_int(options, "async_depth", 1, 0);
+    } else if (is_codec(e, "h264_mf")) {
+        e->codec->profile = AV_PROFILE_H264_HIGH;
+        av_opt_set(options, "rate_control", "cbr", 0);
+        av_opt_set(options, "scenario", "display_remoting", 0);
+        av_opt_set_int(options, "quality", quality == ZUNA_QUALITY_SPEED ? 0 : quality == ZUNA_QUALITY_BEST ? 100 : 50, 0);
+        // Media Foundation has encoders in software too, which are what this avoids.
+        av_opt_set_int(options, "hw_encoding", 1, 0);
     } else if (is_codec(e, "h264_vaapi")) {
         av_opt_set(options, "rc_mode", "CBR", 0);
         av_opt_set(options, "profile", "high", 0);
@@ -167,6 +182,25 @@ static int open_codec(zuna_encoder *e) {
     return avcodec_open2(c, codec, NULL);
 }
 
+// Media Foundation's encoders say nothing of what colours the stream is in, which leaves
+// whoever's watching to guess, so each SPS is told what the video processor made it.
+static int open_tagger(zuna_encoder *e) {
+    const AVBitStreamFilter *filter = av_bsf_get_by_name("h264_metadata");
+    if (!filter) return AVERROR_BSF_NOT_FOUND;
+    int result = av_bsf_alloc(filter, &e->tagger);
+    if (result < 0) return result;
+    result = avcodec_parameters_from_context(e->tagger->par_in, e->codec);
+    if (result < 0) return result;
+    e->tagger->time_base_in = e->codec->time_base;
+    void *options = e->tagger->priv_data;
+    av_opt_set_int(options, "video_format", 5, 0);
+    av_opt_set_int(options, "video_full_range_flag", 0, 0);
+    av_opt_set_int(options, "colour_primaries", AVCOL_PRI_BT709, 0);
+    av_opt_set_int(options, "transfer_characteristics", AVCOL_TRC_BT709, 0);
+    av_opt_set_int(options, "matrix_coefficients", AVCOL_SPC_BT709, 0);
+    return av_bsf_init(e->tagger);
+}
+
 static void mark(AVFrame *frame, int64_t pts, int force_key) {
     frame->pts = pts;
     frame->pict_type = force_key ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
@@ -201,7 +235,7 @@ static int open_d3d11(zuna_encoder *e) {
     if (!e->frames) return AVERROR(ENOMEM);
     AVHWFramesContext *frames = (AVHWFramesContext *)e->frames->data;
     frames->format = AV_PIX_FMT_D3D11;
-    frames->sw_format = e->sw_format;
+    frames->sw_format = takes_nv12(e) ? AV_PIX_FMT_NV12 : e->sw_format;
     frames->width = e->config.width;
     frames->height = e->config.height;
     // No initial size: textures that bind as render targets can't be an array.
@@ -210,13 +244,13 @@ static int open_d3d11(zuna_encoder *e) {
     return av_hwframe_ctx_init(e->frames);
 }
 
-static ID3D11Texture2D *scaler_texture(ID3D11Device *device, int width, int height, UINT bind_flags) {
+static ID3D11Texture2D *scaler_texture(ID3D11Device *device, int width, int height, DXGI_FORMAT format, UINT bind_flags) {
     D3D11_TEXTURE2D_DESC desc = {
         .Width = (UINT)width,
         .Height = (UINT)height,
         .MipLevels = 1,
         .ArraySize = 1,
-        .Format = DXGI_FORMAT_B8G8R8A8_UNORM,
+        .Format = format,
         .SampleDesc = {.Count = 1},
         .Usage = D3D11_USAGE_DEFAULT,
         .BindFlags = bind_flags,
@@ -226,8 +260,9 @@ static ID3D11Texture2D *scaler_texture(ID3D11Device *device, int width, int heig
 }
 
 // Windows's video processor, which every GPU with an encoder has, makes the picture
-// smaller without it leaving the GPU. A frame goes through two textures of its own, so
-// neither its views nor the processor's filters have to do with what the capture hands over.
+// smaller, and NV12 for an encoder that needs it, without it leaving the GPU. A frame goes
+// through two textures of its own, so neither its views nor the processor's filters have
+// to do with what the capture hands over.
 static int open_scaler(zuna_encoder *e) {
     AVD3D11VADeviceContext *device = ((AVHWDeviceContext *)e->device->data)->hwctx;
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC content = {
@@ -244,8 +279,8 @@ static int open_scaler(zuna_encoder *e) {
         FAILED(ID3D11VideoDevice_CreateVideoProcessor(device->video_device, e->scaler_enumerator, 0, &e->scaler)))
         return AVERROR_EXTERNAL;
 
-    e->scaler_input = scaler_texture(device->device, e->config.source_width, e->config.source_height, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
-    e->scaler_output = scaler_texture(device->device, e->config.width, e->config.height, D3D11_BIND_RENDER_TARGET);
+    e->scaler_input = scaler_texture(device->device, e->config.source_width, e->config.source_height, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE);
+    e->scaler_output = scaler_texture(device->device, e->config.width, e->config.height, takes_nv12(e) ? DXGI_FORMAT_NV12 : DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_RENDER_TARGET);
     if (!e->scaler_input || !e->scaler_output) return AVERROR_EXTERNAL;
 
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC input = {.ViewDimension = D3D11_VPIV_DIMENSION_TEXTURE2D};
@@ -254,12 +289,14 @@ static int open_scaler(zuna_encoder *e) {
         FAILED(ID3D11VideoDevice_CreateVideoProcessorOutputView(device->video_device, (ID3D11Resource *)e->scaler_output, e->scaler_enumerator, &output, &e->scaler_output_view)))
         return AVERROR_EXTERNAL;
 
-    // RGB in and out at full range, with none of what the driver would do for video on its own.
+    // RGB in at full range, with none of what the driver would do for video on its own, and
+    // out as it came or as BT.709 at studio range, which is what the stream says it is.
     D3D11_VIDEO_PROCESSOR_COLOR_SPACE color = {.Usage = 0, .RGB_Range = 0, .YCbCr_Matrix = 1, .Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_0_255};
+    D3D11_VIDEO_PROCESSOR_COLOR_SPACE yuv = {.Usage = 0, .RGB_Range = 0, .YCbCr_Matrix = 1, .Nominal_Range = D3D11_VIDEO_PROCESSOR_NOMINAL_RANGE_16_235};
     device->lock(device->lock_ctx);
     ID3D11VideoContext_VideoProcessorSetStreamFrameFormat(device->video_context, e->scaler, 0, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
     ID3D11VideoContext_VideoProcessorSetStreamColorSpace(device->video_context, e->scaler, 0, &color);
-    ID3D11VideoContext_VideoProcessorSetOutputColorSpace(device->video_context, e->scaler, &color);
+    ID3D11VideoContext_VideoProcessorSetOutputColorSpace(device->video_context, e->scaler, takes_nv12(e) ? &yuv : &color);
     ID3D11VideoContext_VideoProcessorSetStreamAutoProcessingMode(device->video_context, e->scaler, 0, FALSE);
     device->unlock(device->lock_ctx);
     return 0;
@@ -532,6 +569,12 @@ int zuna_encoder_receive(zuna_encoder *e, const uint8_t **data, int *size, int64
     int result = avcodec_receive_packet(e->codec, e->packet);
     if (result == AVERROR(EAGAIN)) return 1;
     if (result < 0) return result;
+    // One packet in and the same one out, as the filter only rewrites SPSs.
+    if (e->tagger) {
+        result = av_bsf_send_packet(e->tagger, e->packet);
+        if (result >= 0) result = av_bsf_receive_packet(e->tagger, e->packet);
+        if (result < 0) return result;
+    }
     *data = e->packet->data;
     *size = e->packet->size;
     *pts = e->packet->pts;
@@ -566,7 +609,7 @@ int zuna_encoder_open(const zuna_encoder_config *config, zuna_encoder **out) {
     }
 #ifdef _WIN32
     if (result >= 0 && config->input == ZUNA_INPUT_D3D11) result = open_d3d11(e);
-    if (result >= 0 && config->input == ZUNA_INPUT_D3D11 && is_scaling(e)) result = open_scaler(e);
+    if (result >= 0 && config->input == ZUNA_INPUT_D3D11 && (is_scaling(e) || takes_nv12(e))) result = open_scaler(e);
 #endif
 #ifdef ZUNA_VAAPI
     if (result >= 0 && is_codec(e, "h264_vaapi")) {
@@ -578,6 +621,7 @@ int zuna_encoder_open(const zuna_encoder_config *config, zuna_encoder **out) {
     if (result >= 0 && is_codec(e, "h264_nvenc") && config->input == ZUNA_INPUT_DMABUF) result = open_cuda(e);
 #endif
     if (result >= 0) result = open_codec(e);
+    if (result >= 0 && is_codec(e, "h264_mf")) result = open_tagger(e);
     if (result < 0) {
         zuna_encoder_close(e);
         return result;
@@ -589,6 +633,7 @@ int zuna_encoder_open(const zuna_encoder_config *config, zuna_encoder **out) {
 void zuna_encoder_close(zuna_encoder *e) {
     if (!e) return;
     av_frame_free(&e->last);
+    av_bsf_free(&e->tagger);
     avcodec_free_context(&e->codec);
 #ifdef _WIN32
     close_scaler(e);
