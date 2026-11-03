@@ -103,7 +103,7 @@ npm run build:server
 
 Installers go to `apps/desktop/release`, and server binaries for every platform to `dist/server`.
 
-On Linux, `dev/build.sh` rebuilds the encryption core and then runs both, giving an AppImage and a `.deb`. `dev/build.sh app` or `dev/build.sh server` builds just one.
+On Linux, `dev/build.sh` rebuilds the encryption core and then runs both, giving a `.deb` for Debian and Ubuntu, an `.rpm` for Fedora and openSUSE, a `.pacman` for Arch, an AppImage and a `.tar.gz`. The `.rpm` needs `rpmbuild`, which `dev/setup.sh` installs. `dev/build.sh app` or `dev/build.sh server` builds just one.
 
 ## Changes touching cryptography
 

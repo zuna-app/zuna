@@ -87,7 +87,7 @@ The [self-hosting guide](docs/SELF_HOSTING.md) covers all of it, with the single
 
 ## Join a server
 
-1. Install the desktop app from the [releases page](https://github.com/SocketByte/zuna-chat/releases). The iPhone and iPad app comes through TestFlight and the App Store later. If you'd rather use a browser, a server's admins can also host the [web app](docs/WEB.md), which is the desktop app without notifications.
+1. Install the desktop app from the [releases page](https://github.com/SocketByte/zuna-chat/releases). On Linux, that's the `.deb` for Debian and Ubuntu, the `.rpm` for Fedora and openSUSE, the `.pacman` for Arch (`sudo pacman -U`), or the AppImage or the `.tar.gz` anywhere else. The iPhone and iPad app comes through TestFlight and the App Store later. If you'd rather use a browser, a server's admins can also host the [web app](docs/WEB.md), which is the desktop app without notifications.
 2. Paste the invite link someone sent you.
 3. Pick a name and password, and save your recovery key.
 

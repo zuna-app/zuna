@@ -164,6 +164,10 @@ jobs:
       - name: Install what native screen capture builds with
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get install -y clang pkg-config libglib2.0-dev libva-dev
+      # electron-builder makes the .rpm for Fedora and openSUSE with rpmbuild.
+      - name: Install what the .rpm builds with
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get install -y rpm
       - name: Build native screen capture
         if: matrix.os != 'macos-latest'
         shell: bash
@@ -213,6 +217,9 @@ jobs:
             apps/desktop/release/*.zip
             apps/desktop/release/*.AppImage
             apps/desktop/release/*.deb
+            apps/desktop/release/*.rpm
+            apps/desktop/release/*.pacman
+            apps/desktop/release/*.tar.gz
             apps/desktop/release/*.blockmap
             apps/desktop/release/latest*.yml
           if-no-files-found: error

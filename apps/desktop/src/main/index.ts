@@ -32,6 +32,7 @@ import { allowLocalLinks, previewable, privateAddress } from "@zuna/core/links";
 import { startPreviewProxy } from "./preview-proxy";
 import { nativeScreenPath } from "./native-screen";
 import { startUpdates } from "./updates";
+import { keepDesktopEntry } from "./desktop-entry";
 
 const APP_SCHEME = "zuna-app";
 const WEB_SCHEME = "zuna-web";
@@ -661,6 +662,8 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.setAppUserModelId("chat.zuna.app");
+  // First, as Linux hands links to the .desktop file it names.
+  keepDesktopEntry(iconPath());
   if (app.isPackaged) app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
 
   app.on("second-instance", (_event, argv) => {

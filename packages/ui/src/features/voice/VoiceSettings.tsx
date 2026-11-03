@@ -264,7 +264,7 @@ export function VoiceSettingsSection() {
         {noPushToTalk && (
           <span className="setting-hint">
             {pushToTalk?.why === "uninstalled"
-              ? "Push to talk can't work here: your system only gives global shortcuts to installed apps, and this copy of Zuna has no desktop entry. The .deb package installs one."
+              ? "Push to talk can't work here: your system only gives global shortcuts to installed apps, and it doesn't see this copy of Zuna as one. Start Zuna from your applications menu, or install the package for your distribution."
               : "Your compositor doesn't support push to talk. It has no global shortcuts, so no app can hear a key held while another window is in front."}
           </span>
         )}

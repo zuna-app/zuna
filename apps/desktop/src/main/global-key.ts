@@ -115,7 +115,8 @@ function triggerOf(code: string): string | null {
 /**
  * Whether a key held in another window can be heard, and a mouse button too. Where it
  * can't, why: the compositor has no global shortcuts, or it only gives them to an app
- * installed with a .desktop file, which an AppImage or a development build isn't.
+ * installed with a .desktop file, which a development build isn't. An AppImage or a
+ * .tar.gz writes its own (`desktop-entry.ts`).
  */
 export interface KeyWatchSupport {
   anywhere: boolean;

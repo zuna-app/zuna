@@ -2,7 +2,8 @@
 # Builds what Zuna ships for Linux. Run dev/setup.sh once first.
 #
 #   dev/build.sh           the app and the server
-#   dev/build.sh app       the app as an AppImage and a .deb, in apps/desktop/release
+#   dev/build.sh app       the app as a .deb, an .rpm, a pacman package, an AppImage
+#                          and a .tar.gz, in apps/desktop/release
 #   dev/build.sh server    the server for every platform, in dist/server
 #
 # Set ZUNA_VERSION to stamp a version into the server, as releases do.
@@ -35,7 +36,7 @@ version=$(node -p 'require("./apps/desktop/package.json").version')
 echo
 echo "Built:"
 if [ "$what" != server ]; then
-  ls -1 apps/desktop/release/Zuna-"$version"-*.AppImage apps/desktop/release/Zuna-"$version"-*.deb
+  ls -1 apps/desktop/release/Zuna-"$version"-*.{deb,rpm,pacman,AppImage,tar.gz}
 fi
 if [ "$what" != app ]; then
   ls -1 dist/server/zuna-server-*
