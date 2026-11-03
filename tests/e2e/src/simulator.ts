@@ -40,11 +40,27 @@ export function simulatorId(): string {
   return simctl("create", SIMULATOR_NAME, type.identifier, runtime.identifier).trim();
 }
 
+/** When the first process whose command line matches started, or null if none is running. */
+function startedAt(matches: (command: string) => boolean): number | null {
+  const rows = execFileSync("ps", ["-axo", "lstart=,command="], { encoding: "utf8", env: { ...process.env, LC_ALL: "C" } }).split("\n");
+  // The start is 24 characters, such as "Mon Nov  2 22:46:27 2026".
+  const row = rows.map((line) => line.trimStart()).find((line) => matches(line.slice(24).trim()));
+  return row ? Date.parse(row.slice(0, 24)) : null;
+}
+
 export function boot(udid: string): void {
   const state = JSON.parse(simctl("list", "devices", "--json")).devices;
-  const booted = Object.values(state as Record<string, { udid: string; state: string }[]>)
+  let booted = Object.values(state as Record<string, { udid: string; state: string }[]>)
     .flat()
     .some((device) => device.udid === udid && device.state === "Booted");
+  // One booted before the Mac's coreaudiod last started has lost its sound, so players there refuse to play.
+  const audio = startedAt((command) => command === "/usr/sbin/coreaudiod");
+  const simulator = startedAt((command) => command.startsWith("launchd_sim ") && command.includes(udid));
+  if (booted && audio !== null && simulator !== null && simulator < audio) {
+    console.log("[simulator] restarting it: it was booted before coreaudiod restarted, so it has no sound");
+    simctl("shutdown", udid);
+    booted = false;
+  }
   if (!booted) simctl("boot", udid);
   simctl("bootstatus", udid, "-b");
 }
