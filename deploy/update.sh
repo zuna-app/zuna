@@ -491,6 +491,28 @@ key_file: /etc/zuna/livekit-keys.yaml
 EOF
     VOICE_RESTART=1
   fi
+  # LiveKit's codecs, with H.264's Baseline profile as well, which Chromium on macOS encodes on the
+  # GPU. Added to a config written before it, keeping whatever was changed there by hand. The same as
+  # LIVEKIT_CONFIG in scripts/lib.mjs.
+  if ! grep -q '^room:' /etc/zuna/livekit.yaml; then
+    cat >>/etc/zuna/livekit.yaml <<EOF
+room:
+  enabled_codecs:
+    - mime: audio/opus
+    - mime: audio/red
+    - mime: audio/pcmu
+    - mime: audio/pcma
+    - mime: video/vp8
+    - mime: video/h264
+    - mime: video/h264
+      fmtp_line: level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+    - mime: video/vp9
+    - mime: video/av1
+    - mime: video/h265
+    - mime: video/rtx
+EOF
+    VOICE_RESTART=1
+  fi
 fi
 
 FIRST_SERVER=0

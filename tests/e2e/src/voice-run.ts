@@ -54,8 +54,9 @@ const speech = join(fixtures, "speech.wav");
 execFileSync("say", ["-o", speech, "--data-format=LEI16@48000", "Testing the voice channel from the desktop. Can the phone hear me? One two three four five. The quick brown fox jumps over the lazy dog, again and again, until someone answers."]);
 
 const liveKitBinary = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => console.log(lib.ensureLiveKit()))"], { cwd: root, encoding: "utf8" }).trim();
+const liveKitConfig = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => process.stdout.write(lib.LIVEKIT_CONFIG))"], { cwd: root, encoding: "utf8" });
 const liveKitPort = 17900 + Math.floor(Math.random() * 50);
-const liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens"], { stdio: ["ignore", "pipe", "pipe"] });
+const liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens", "--config-body", liveKitConfig], { stdio: ["ignore", "pipe", "pipe"] });
 const liveKitLog = createWriteStream(join(shots, "livekit-server.log"));
 liveKit.stdout.pipe(liveKitLog);
 liveKit.stderr.pipe(liveKitLog);

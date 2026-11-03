@@ -43,3 +43,19 @@ services:
           use_external_ip: true
         keys:
           zuna: ${ZUNA_LIVEKIT_SECRET}
+        # LiveKit's codecs, with H.264's Baseline profile as well, which Chromium on macOS encodes
+        # on the GPU. The same as LIVEKIT_CONFIG in scripts/lib.mjs.
+        room:
+          enabled_codecs:
+            - mime: audio/opus
+            - mime: audio/red
+            - mime: audio/pcmu
+            - mime: audio/pcma
+            - mime: video/vp8
+            - mime: video/h264
+            - mime: video/h264
+              fmtp_line: level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+            - mime: video/vp9
+            - mime: video/av1
+            - mime: video/h265
+            - mime: video/rtx

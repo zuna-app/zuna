@@ -161,7 +161,7 @@ docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
 
 **With `deploy/update.sh`,** add `--voice on`, and it installs LiveKit and sets up both sides. [LINUX.md](LINUX.md#voice-channels) has the details.
 
-**Otherwise,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it:
+**Otherwise,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `deploy/docker-compose.voice.yml` as well, which lets screens shared from a Mac be encoded on its GPU:
 
 | Setting | Environment | |
 |---|---|---|

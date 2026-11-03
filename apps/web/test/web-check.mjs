@@ -13,7 +13,7 @@ import { homedir, networkInterfaces, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright-core";
-import { ensureLiveKit } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
@@ -123,7 +123,7 @@ async function runIn(name) {
   const serverPort = randomPort();
   const serverUrl = `http://127.0.0.1:${serverPort}`;
   const liveKitPort = randomPort();
-  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", lanAddress, "--bind", "127.0.0.1", "--node-ip", lanAddress, "--port", String(liveKitPort)]);
+  const liveKit = start(ensureLiveKit(), ["--dev", "--bind", lanAddress, "--bind", "127.0.0.1", "--node-ip", lanAddress, "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG]);
   const server = start(join(bin, `zuna-server${exe}`), ["--listen", `127.0.0.1:${serverPort}`, "--data", data, "--public-url", serverUrl, "--auth-burst", "1000", "--push-relays", "off", "--livekit-internal-url", `http://127.0.0.1:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"]);
   const webPort = randomPort();
   const web = start(join(bin, `zuna-web${exe}`), ["--listen", `127.0.0.1:${webPort}`, "--root", dist, "--dev"]);

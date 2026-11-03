@@ -4,7 +4,7 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, ensureLiveKit, env, root, run } from "./lib.mjs";
+import { LIVEKIT_CONFIG, devData, devServerRunning, devWorld, devWorldFile, ensureBuilt, ensureLiveKit, env, root, run } from "./lib.mjs";
 
 const URL = "http://localhost:8787";
 const serverData = join(devData, "server");
@@ -46,7 +46,7 @@ function fail(message) {
 }
 
 // For voice channels. Its development mode has a key and secret everyone knows, on this machine only.
-const media = spawn(liveKit, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1"], { stdio: ["ignore", "pipe", "pipe"] });
+const media = spawn(liveKit, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--config-body", LIVEKIT_CONFIG], { stdio: ["ignore", "pipe", "pipe"] });
 children.push(media);
 media.stdout.on("data", (chunk) => log.write(chunk));
 media.stderr.on("data", (chunk) => log.write(chunk));

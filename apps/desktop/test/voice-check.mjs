@@ -15,7 +15,7 @@ import { delimiter, dirname, join } from "node:path";
 import { createServer as createTlsServer } from "node:tls";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright-core";
-import { ensureLiveKit } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = join(here, "..");
@@ -83,7 +83,7 @@ const binary = join(tmpdir(), `zuna-voice-server${process.platform === "win32" ?
 execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server"), env: pathEnv, stdio: "inherit" });
 
 const liveKitPort = 17880;
-const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort)], { stdio: ["ignore", "pipe", "pipe"] });
+const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], { stdio: ["ignore", "pipe", "pipe"] });
 let liveKitOutput = "";
 liveKit.stdout.on("data", (chunk) => (liveKitOutput += chunk));
 liveKit.stderr.on("data", (chunk) => (liveKitOutput += chunk));

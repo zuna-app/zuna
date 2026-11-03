@@ -100,7 +100,8 @@ const relayUrl = `http://127.0.0.1:${(relayServer.address() as AddressInfo).port
 // A media server for voice channels, under the keys TestServer gives its own.
 const liveKitPort = 17950 + Math.floor(Math.random() * 40);
 const liveKitBinary = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => console.log(lib.ensureLiveKit()))"], { cwd: root, encoding: "utf8" }).trim().split("\n").at(-1)!;
-const liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens"], { stdio: ["ignore", "pipe", "pipe"] });
+const liveKitConfig = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => process.stdout.write(lib.LIVEKIT_CONFIG))"], { cwd: root, encoding: "utf8" });
+const liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens", "--config-body", liveKitConfig], { stdio: ["ignore", "pipe", "pipe"] });
 const liveKitLog = createWriteStream(join(runDir, "livekit-server.log"));
 liveKit.stdout.pipe(liveKitLog);
 liveKit.stderr.pipe(liveKitLog);

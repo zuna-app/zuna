@@ -20,7 +20,7 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, chromium } from "playwright-core";
-import { ensureLiveKit } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 
 if (process.platform !== "darwin") {
   console.log("This checks macOS's sound; sound-check.mjs checks Linux's and win-sound-check.mjs Windows's.");
@@ -109,7 +109,7 @@ const binary = join(tmpdir(), "zuna-mac-sound-server");
 execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server"), env: pathEnv, stdio: "inherit" });
 
 const liveKitPort = 17895;
-const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort)], { stdio: ["ignore", "pipe", "pipe"] });
+const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], { stdio: ["ignore", "pipe", "pipe"] });
 const liveKitLog = createWriteStream(join(shots, "livekit-server.log"));
 liveKit.stdout.pipe(liveKitLog);
 liveKit.stderr.pipe(liveKitLog);

@@ -101,6 +101,30 @@ export function pullLatest() {
 export const LIVEKIT_TAG = "v1.13.11";
 
 /**
+ * What LiveKit is configured with beyond its defaults, as its --config-body. Change it with the
+ * same in `deploy/docker-compose.voice.yml` and `deploy/update.sh`, which can't read this.
+ *
+ * LiveKit's codecs, with H.264's Baseline profile as well as Constrained Baseline. Chromium on
+ * macOS only encodes Baseline on the GPU, through VideoToolbox, and offers it first, so a share
+ * goes out in hardware. LiveKit only takes a profile beyond its defaults by its exact fmtp line.
+ */
+export const LIVEKIT_CONFIG = `room:
+  enabled_codecs:
+    - mime: audio/opus
+    - mime: audio/red
+    - mime: audio/pcmu
+    - mime: audio/pcma
+    - mime: video/vp8
+    - mime: video/h264
+    - mime: video/h264
+      fmtp_line: level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+    - mime: video/vp9
+    - mime: video/av1
+    - mime: video/h265
+    - mime: video/rtx
+`;
+
+/**
  * A LiveKit server for development, built from its pinned tag the first time. It's
  * stripped, since Windows Defender quarantines Go binaries with debug symbols.
  */

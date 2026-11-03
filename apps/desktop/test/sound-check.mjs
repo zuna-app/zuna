@@ -18,7 +18,7 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron } from "playwright-core";
-import { ensureLiveKit } from "../../../scripts/lib.mjs";
+import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 
 if (process.platform !== "linux") {
   console.log("This checks Linux's sound; mac-sound-check.mjs checks macOS's and win-sound-check.mjs Windows's.");
@@ -91,7 +91,7 @@ const binary = join(tmpdir(), "zuna-sound-server");
 execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server"), env: pathEnv, stdio: "inherit" });
 
 const liveKitPort = 17890;
-const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort)], { stdio: "ignore" });
+const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], { stdio: "ignore" });
 const data = mkdtempSync(join(tmpdir(), "zuna-sound-data-"));
 const port = 21000 + Math.floor(Math.random() * 20000);
 const url = `http://127.0.0.1:${port}`;
