@@ -12,8 +12,10 @@ struct CallVideo: Identifiable, Equatable {
     let source: Source
     let track: VideoTrack
     let local: Bool
+    /// A share someone else is sending with its sound, which can be made quieter here.
+    let sound: Bool
 
-    static func == (a: CallVideo, b: CallVideo) -> Bool { a.id == b.id && a.track === b.track }
+    static func == (a: CallVideo, b: CallVideo) -> Bool { a.id == b.id && a.track === b.track && a.sound == b.sound }
 }
 
 /// One connection to a voice channel's room on the media server, which only ever sees
@@ -273,13 +275,18 @@ final class VoiceRoom {
     /// Everything being sent that can be watched, and from here.
     func videos() -> [CallVideo] {
         var tiles: [CallVideo] = []
+        // A native share's sound goes out from the person's own connection, beside the picture from another.
+        let sound = Set(room.remoteParticipants.values.compactMap { participant -> String? in
+            guard participant.audioTracks.contains(where: { $0.source == .screenShareAudio }) else { return nil }
+            return participant.identity.flatMap { VoiceIdentity($0.stringValue) }?.userId
+        })
         let participants: [(Participant, Bool)] = [(room.localParticipant, true)] + room.remoteParticipants.values.map { ($0, false) }
         for (participant, local) in participants {
             guard let identity = participant.identity?.stringValue, let parsed = VoiceIdentity(identity) else { continue }
             for publication in participant.videoTracks {
                 guard let track = publication.track as? VideoTrack, !publication.isMuted else { continue }
                 let source: CallVideo.Source = publication.source == .screenShareVideo ? .screen : .camera
-                tiles.append(CallVideo(id: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, source: source, track: track, local: local))
+                tiles.append(CallVideo(id: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, source: source, track: track, local: local, sound: source == .screen && !local && sound.contains(parsed.userId)))
             }
         }
         return tiles.sorted { $0.id < $1.id }

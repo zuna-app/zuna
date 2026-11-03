@@ -366,7 +366,7 @@ final class CoreController {
                 "epoch": voice.keyEpoch.map { $0 as Any } ?? NSNull(),
                 "focus": voice.focus.map { $0 as Any } ?? NSNull(),
                 "speaking": Array(voice.speaking),
-                "videos": voice.videos.map { ["id": $0.id, "userId": $0.userId, "source": $0.source == .screen ? "screen" : "camera", "local": $0.local] },
+                "videos": voice.videos.map { ["id": $0.id, "userId": $0.userId, "source": $0.source == .screen ? "screen" : "camera", "local": $0.local, "sound": $0.sound] },
             ]
             let data = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])) ?? Data("{}".utf8)
             return String(decoding: data, as: UTF8.self)

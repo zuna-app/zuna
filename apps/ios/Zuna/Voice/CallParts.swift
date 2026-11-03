@@ -3,9 +3,9 @@ import SwiftUI
 import UIKit
 import ZunaModels
 
-/// Someone in the call, from a long press on them: how loud they are for this
-/// device, muting them for yourself, checking their keys, and what a server
-/// admin can do. The desktop's MemberMenu.
+/// Someone in the call, from a long press on them: how loud they and their shared
+/// screen are for this device, muting them for yourself, checking their keys, and
+/// what a server admin can do. The desktop's MemberMenu.
 struct MemberSheet: View {
     @Environment(AppModel.self) private var model
     @Environment(VoiceModel.self) private var voice
@@ -30,15 +30,9 @@ struct MemberSheet: View {
                     .listRowBackground(Color.clear)
                 }
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text("Volume")
-                            Spacer()
-                            Text("\(Int((volume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
-                        }
-                        Slider(value: Binding(get: { volume }, set: { voice.setVolume($0, for: member.userId) }), in: 0...2)
-                            .accessibilityLabel("Volume")
-                            .accessibilityIdentifier(A11y.Voice.volume)
+                    slider("Volume", value: voice.volumes[member.userId] ?? 1, id: A11y.Voice.volume) { voice.setVolume($0, for: member.userId) }
+                    if streamSound {
+                        slider("Stream volume", value: voice.streamVolumes[member.userId] ?? 1, id: A11y.Voice.streamVolume) { voice.setStreamVolume($0, for: member.userId) }
                     }
                     Toggle("Mute for me", isOn: Binding(get: { voice.localMutes.contains(member.userId) }, set: { _ in voice.toggleLocalMute(member.userId) }))
                         .accessibilityIdentifier(A11y.Voice.muteForMe)
@@ -78,7 +72,21 @@ struct MemberSheet: View {
         .accessibilityIdentifier(A11y.Voice.memberSheet)
     }
 
-    private var volume: Double { voice.volumes[member.userId] ?? 1 }
+    /// They're sharing their screen with its sound, which has a level of its own.
+    private var streamSound: Bool { voice.videos.contains { $0.userId == member.userId && $0.sound } }
+
+    private func slider(_ title: String, value: Double, id: String, set: @escaping (Double) -> Void) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(Int((value * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
+            }
+            Slider(value: Binding(get: { value }, set: set), in: 0...2)
+                .accessibilityLabel(title)
+                .accessibilityIdentifier(id)
+        }
+    }
 
     /// Owners over anyone else, admins over members, as the server allows.
     private var canModerate: Bool {
@@ -94,6 +102,27 @@ struct MemberSheet: View {
         Task {
             do { try await action(session, channelId) } catch { model.toast(OnboardingText.describe(error), .error) }
         }
+    }
+}
+
+/// Silences a share's sound, or brings it back, over the share as a video player has it.
+/// How loud exactly is in the sharer's sheet.
+struct StreamSoundButton: View {
+    @Environment(VoiceModel.self) private var voice
+    let userId: String
+
+    var body: some View {
+        let silent = voice.streamVolumes[userId] == 0
+        Button {
+            voice.toggleStreamMute(userId)
+        } label: {
+            Image(systemName: silent ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(.black.opacity(0.45), in: .circle)
+        }
+        .accessibilityLabel(silent ? "Unmute stream" : "Mute stream")
     }
 }
 
@@ -124,6 +153,11 @@ struct VideoViewer: View {
             .padding(16)
             .accessibilityLabel("Close")
             .accessibilityIdentifier(A11y.Voice.closeViewer)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if let video, video.sound {
+                StreamSoundButton(userId: video.userId).padding(16)
+            }
         }
         .onAppear { Orientation.allowRotation(true) }
         .onDisappear { Orientation.allowRotation(false) }

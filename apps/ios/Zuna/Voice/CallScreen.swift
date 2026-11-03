@@ -335,18 +335,26 @@ private struct ScreenTile: View {
     let watch: () -> Void
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
+        ZStack(alignment: .bottom) {
             Color.black
             SwiftUIVideoView(video.track, layoutMode: .fit)
-            HStack(spacing: 5) {
-                Image(systemName: "display")
-                Text(video.local ? "Your screen" : "\(name)'s screen").lineLimit(1)
+            HStack(spacing: 8) {
+                HStack(spacing: 5) {
+                    Image(systemName: "display")
+                    Text(video.local ? "Your screen" : "\(name)'s screen").lineLimit(1)
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(.black.opacity(0.45), in: .capsule)
+                Spacer(minLength: 0)
+                // At the bottom right, as a video player has it.
+                if video.sound {
+                    StreamSoundButton(userId: video.userId)
+                        .accessibilityIdentifier(A11y.Voice.streamSound(video.id))
+                }
             }
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.black.opacity(0.45), in: .capsule)
             .padding(8)
         }
         .overlay(alignment: .topTrailing) {

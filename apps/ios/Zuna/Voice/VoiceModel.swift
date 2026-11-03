@@ -47,12 +47,20 @@ struct VoiceSettings: Codable, Equatable, Sendable {
         set { UserDefaults.standard.set(newValue, forKey: volumesKey) }
     }
 
+    /// How loud each person's shared screen is for this device, by user.
+    static var streamVolumes: [String: Double] {
+        get { (UserDefaults.standard.dictionary(forKey: streamVolumesKey) as? [String: Double]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: streamVolumesKey) }
+    }
+
     private static let volumesKey = "zuna-voice-volumes"
+    private static let streamVolumesKey = "zuna-voice-stream-volumes"
 
     #if DEBUG
     static func reset() {
         UserDefaults.standard.removeObject(forKey: key)
         UserDefaults.standard.removeObject(forKey: volumesKey)
+        UserDefaults.standard.removeObject(forKey: streamVolumesKey)
     }
     #endif
 }
@@ -93,6 +101,8 @@ final class VoiceModel {
     }
     /// How loud each person is for this device, by user.
     private(set) var volumes = VoiceSettings.volumes
+    /// How loud each person's shared screen is for this device, by user.
+    private(set) var streamVolumes = VoiceSettings.streamVolumes
     /// People muted for this device only.
     private(set) var localMutes: Set<String> = []
     /// What keys the call's media is under, for its details.
@@ -107,6 +117,8 @@ final class VoiceModel {
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var reconnects = 0
     @ObservationIgnored private let sounds = VoiceSounds()
+    /// How loud a share was before being silenced here, to go back to.
+    @ObservationIgnored private var streamVolumeBefore: [String: Double] = [:]
 
     private static let reconnectAttempts = 3
     private static let reconnectWait: Duration = .seconds(2)
@@ -144,7 +156,7 @@ final class VoiceModel {
             guard let self else { return 1 }
             if deafened { return 0 }
             // A share's sound has a level of its own: it isn't how loud the person talks.
-            if source == .screenShareAudio { return settings.screenVolume }
+            if source == .screenShareAudio { return settings.screenVolume * (streamVolumes[userId] ?? 1) }
             return localMutes.contains(userId) ? 0 : volumes[userId] ?? 1
         }
     }
@@ -414,6 +426,19 @@ final class VoiceModel {
         volumes[userId] = volume
         VoiceSettings.volumes = volumes
         applyVolumes()
+    }
+
+    func setStreamVolume(_ volume: Double, for userId: String) {
+        streamVolumes[userId] = volume
+        VoiceSettings.streamVolumes = streamVolumes
+        applyVolumes()
+    }
+
+    /// Silences someone's share, or brings it back to how loud it was.
+    func toggleStreamMute(_ userId: String) {
+        let volume = streamVolumes[userId] ?? 1
+        if volume > 0 { streamVolumeBefore[userId] = volume }
+        setStreamVolume(volume > 0 ? 0 : streamVolumeBefore[userId] ?? 1, for: userId)
     }
 
     func toggleLocalMute(_ userId: String) {

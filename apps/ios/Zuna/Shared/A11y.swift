@@ -214,6 +214,7 @@ enum A11y {
         static func person(_ deviceId: String) -> String { "voice.person.\(deviceId)" }
         static func screen(_ id: String) -> String { "voice.screen.\(id)" }
         static func fullScreen(_ id: String) -> String { "voice.fullScreen.\(id)" }
+        static func streamSound(_ id: String) -> String { "voice.streamSound.\(id)" }
         static let mute = "voice.mute"
         static let deafen = "voice.deafen"
         static let camera = "voice.camera"
@@ -225,6 +226,7 @@ enum A11y {
         static let barLeave = "voice.bar.leave"
         static let memberSheet = "voice.member"
         static let volume = "voice.member.volume"
+        static let streamVolume = "voice.member.streamVolume"
         static let muteForMe = "voice.member.muteForMe"
         static let muteForEveryone = "voice.member.muteForEveryone"
         static let disconnect = "voice.member.disconnect"
