@@ -378,9 +378,8 @@ final class AppModel {
             voice.keyChanged(serverId: serverId, channelId: channelId)
         case let .voiceEnded(serverId, channelId, reason):
             voice.ended(serverId: serverId, channelId: channelId, reason: reason)
-        case .screenEnded:
-            // About a share from this device, which the iPhone app doesn't make.
-            break
+        case let .screenEnded(serverId, channelId, reason):
+            voice.screenEnded(serverId: serverId, channelId: channelId, reason: reason)
         case let .users(serverId):
             refresh("users", serverId)
             refresh("conversations", serverId)

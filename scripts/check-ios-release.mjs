@@ -40,6 +40,8 @@ const forbidden = [
   "ZunaPushToken",
   "ZunaAskForNotifications",
   "clearNotifications",
+  "ZunaFakeCamera",
+  "ZunaFakeScreen",
 ];
 const found = forbidden.filter((word) => strings.includes(word));
 if (found.length > 0) {

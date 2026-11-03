@@ -205,6 +205,11 @@ public struct SessionCalls: Sendable {
     public func voiceDisconnect(_ channelId: String, userId: String) async throws { try await run("voiceDisconnect", [channelId, userId]) }
     /// Mutes someone until an admin unmutes them, for a server admin. The media server makes it stick.
     public func voiceMute(_ channelId: String, userId: String, muted: Bool) async throws { try await run("voiceMute", [channelId, userId, muted]) }
+    /// Asks to share this device's screen over its own connection, which throws with something to tell the person if the
+    /// server's rules say no. Once the media server hears, it lets the connection publish one. The place is held until `voiceScreenStop`.
+    public func voiceScreenAccess(_ channelId: String, _ request: ScreenRequest) async throws -> ScreenAccess { try await call("voiceScreenAccess", [channelId, request]) }
+    /// Gives up this device's place to share a screen, once it's stopped.
+    public func voiceScreenStop(_ channelId: String) async throws { try await run("voiceScreenStop", [channelId]) }
     /// Stops someone else's screen share, for a server admin.
     public func voiceScreenStopOf(_ channelId: String, userId: String) async throws { try await run("voiceScreenStopOf", [channelId, userId]) }
 

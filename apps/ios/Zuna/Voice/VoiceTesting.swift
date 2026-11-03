@@ -6,7 +6,7 @@ import LiveKit
 import os
 import ZunaModels
 
-/// What test builds put in place of the phone's microphone and camera, and how they
+/// What test builds put in place of the phone's microphone, camera and screen, and how they
 /// report what arrives, so a check can tell that media crosses to and from the
 /// desktop, encrypted, without a person to listen or a camera to point. Like the
 /// fake devices `apps/desktop/test/voice-check.mjs` gives Chromium.
@@ -14,6 +14,8 @@ import ZunaModels
 enum VoiceTesting {
     /// A moving picture stands in for the camera, which the simulator hasn't got.
     static var fakeCamera: Bool { UserDefaults.standard.bool(forKey: "ZunaFakeCamera") }
+    /// Another stands in for the screen, without the system's picker, which nothing can answer in a test.
+    static var fakeScreen: Bool { UserDefaults.standard.bool(forKey: "ZunaFakeScreen") }
     /// A steady 440 Hz tone goes out in place of whatever the microphone hears.
     static var toneMicrophone: Bool { UserDefaults.standard.bool(forKey: "ZunaFakeMicrophone") }
 
@@ -23,7 +25,8 @@ enum VoiceTesting {
     }
 
     private static var tone: Tone?
-    private static var camera: FakeCamera?
+    private static var camera: FakeVideo?
+    private static var screen: FakeVideo?
     private static var meters: [String: Meter] = [:]
     private static var cryption: [String: (state: String, failures: Int)] = [:]
 
@@ -40,13 +43,28 @@ enum VoiceTesting {
 
     static func setFakeCamera(_ on: Bool, in participant: LocalParticipant) async throws {
         if on {
-            let camera = await FakeCamera.start()
+            let camera = await FakeVideo.start(name: "camera", source: .camera, width: 640, height: 360)
             self.camera = camera
             _ = try await participant.publish(videoTrack: camera.track, options: VideoPublishOptions(name: "camera", simulcast: true, preferredCodec: .h264))
         } else if let camera {
             self.camera = nil
             camera.stop()
             if let publication = participant.localVideoTracks.first(where: { $0.track === camera.track }) {
+                try await participant.unpublish(publication: publication)
+            }
+        }
+    }
+
+    /// Shares a picture the shape of a phone's screen, with what a real share would be published with.
+    static func setFakeScreen(_ on: Bool, in participant: LocalParticipant, options: VideoPublishOptions) async throws {
+        if on {
+            let screen = await FakeVideo.start(name: Track.screenShareVideoName, source: .screenShareVideo, width: 360, height: 780)
+            self.screen = screen
+            _ = try await participant.publish(videoTrack: screen.track, options: options)
+        } else if let screen {
+            self.screen = nil
+            screen.stop()
+            if let publication = participant.localVideoTracks.first(where: { $0.track === screen.track }) {
                 try await participant.unpublish(publication: publication)
             }
         }
@@ -76,6 +94,8 @@ enum VoiceTesting {
         tone = nil
         camera?.stop()
         camera = nil
+        screen?.stop()
+        screen = nil
         meters = [:]
         cryption = [:]
     }
@@ -180,34 +200,38 @@ enum VoiceTesting {
     }
 
     /// Frames of moving bars, 30 a second.
-    private final class FakeCamera: @unchecked Sendable {
+    private final class FakeVideo: @unchecked Sendable {
         let track: LocalVideoTrack
         private let capturer: BufferCapturer
+        private let width: Int
+        private let height: Int
         private var timer: DispatchSourceTimer?
         private var pool: CVPixelBufferPool?
         private var frame = 0
 
-        private init(track: LocalVideoTrack) {
+        private init(track: LocalVideoTrack, width: Int, height: Int) {
             self.track = track
+            self.width = width
+            self.height = height
             capturer = track.capturer as! BufferCapturer
         }
 
-        static func start() async -> FakeCamera {
-            let track = await LocalVideoTrack.createBufferTrack(name: "camera", source: .camera)
-            let camera = FakeCamera(track: track)
-            camera.run()
-            return camera
+        static func start(name: String, source: Track.Source, width: Int, height: Int) async -> FakeVideo {
+            let track = await LocalVideoTrack.createBufferTrack(name: name, source: source)
+            let video = FakeVideo(track: track, width: width, height: height)
+            video.run()
+            return video
         }
 
         private func run() {
             let attributes: [String: Any] = [
                 kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: 640,
-                kCVPixelBufferHeightKey as String: 360,
+                kCVPixelBufferWidthKey as String: width,
+                kCVPixelBufferHeightKey as String: height,
                 kCVPixelBufferIOSurfacePropertiesKey as String: [:],
             ]
             CVPixelBufferPoolCreate(nil, nil, attributes as CFDictionary, &pool)
-            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "chat.zuna.fake-camera"))
+            let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "chat.zuna.fake-video"))
             timer.schedule(deadline: .now(), repeating: .milliseconds(33))
             timer.setEventHandler { [weak self] in self?.draw() }
             timer.resume()

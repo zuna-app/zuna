@@ -378,8 +378,8 @@ private struct ScreenTile: View {
     }
 }
 
-/// Mute, deafen, the camera, where sound plays, the chat beside the call, and leaving. Smaller
-/// where they wouldn't fit, as in Slide Over on an iPad.
+/// Mute, deafen, the camera, sharing the screen, where sound plays, the chat beside the call, and
+/// leaving. Smaller where they wouldn't fit, as on the smallest phones and in Slide Over on an iPad.
 private struct CallControls: View {
     @Environment(AppModel.self) private var model
     @Environment(VoiceModel.self) private var voice
@@ -389,6 +389,7 @@ private struct CallControls: View {
         ViewThatFits(in: .horizontal) {
             buttons(size: 52, spacing: 10)
             buttons(size: 44, spacing: 8)
+            buttons(size: 40, spacing: 6)
         }
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
@@ -410,6 +411,15 @@ private struct CallControls: View {
             }
             control(voice.camera ? "video.fill" : "video.slash.fill", label: voice.camera ? "Turn off camera" : "Turn on camera", on: voice.camera, size: size, id: A11y.Voice.camera) {
                 Task { await voice.toggleCamera() }
+            }
+            if voice.canShareScreen {
+                let sharing = voice.screen || voice.screenStarting
+                // Tapping it while the server says no says why, as the desktop's tooltip does.
+                control(sharing ? "rectangle.fill.on.rectangle.fill" : "rectangle.on.rectangle", label: sharing ? "Stop sharing" : "Share your screen", on: sharing, size: size, id: A11y.Voice.shareScreen) {
+                    Task { await voice.toggleScreen() }
+                }
+                .opacity(!sharing && voice.shareRefusal != nil ? 0.45 : 1)
+                .accessibilityHint(sharing ? "" : voice.shareRefusal ?? "")
             }
             SwiftUIAudioRoutePickerButton()
                 .frame(width: size, height: size)

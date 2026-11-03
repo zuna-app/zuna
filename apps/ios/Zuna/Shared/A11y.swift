@@ -218,6 +218,7 @@ enum A11y {
         static let mute = "voice.mute"
         static let deafen = "voice.deafen"
         static let camera = "voice.camera"
+        static let shareScreen = "voice.shareScreen"
         static let flip = "voice.flip"
         static let chat = "voice.chat"
         static let leave = "voice.leave"

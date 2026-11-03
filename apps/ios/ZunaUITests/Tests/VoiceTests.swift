@@ -99,6 +99,27 @@ final class VoiceTests: XCTestCase {
         zuna.element(A11y.Voice.camera).tap()
         try waitFor("alice to see it off") { try self.bobsPhone(alice)?["camera"] as? Bool == false }
 
+        // His screen, which everyone is told about too, and which he sees on his own stage.
+        let share = zuna.element(A11y.Voice.shareScreen)
+        XCTAssertTrue(zuna.app.frame.contains(share.frame), "sharing the screen goes past the screen's edge")
+        share.tap()
+        try waitFor("alice to see bob's screen") { try self.bobsPhone(alice)?["screen"] as? Bool == true }
+        let ownScreen = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Your screen")).firstMatch
+        XCTAssertTrue(ownScreen.waitForExistence(timeout: 10))
+        XCTAssertEqual(share.label, "Stop sharing")
+        zuna.screenshot("96b-voice-screen")
+        share.tap()
+        try waitFor("alice to see it stopped") { try self.bobsPhone(alice)?["screen"] as? Bool == false }
+        try waitFor("his screen off his stage") { !ownScreen.exists }
+
+        // Once the server only lets admins share, he's told why, and nothing goes out.
+        let rules: [String: Any] = ["who": "admins", "sound": true, "admins_exempt": false, "max_per_channel": 0, "max_per_server": 0, "max_height": 0, "max_fps": 0, "max_kbps": 0, "max_sound_kbps": 0, "default_height": 0, "default_fps": 60, "default_kbps": 20_000]
+        try alice.call("updateServerSettings", [["screen_share": rules]])
+        share.tap()
+        XCTAssertTrue(zuna.toast(startingWith: "Only admins can share a screen").waitForExistence(timeout: 10))
+        XCTAssertEqual(try bobsPhone(alice)?["screen"] as? Bool, false)
+        try alice.call("updateServerSettings", [["screen_share": rules.merging(["who": "everyone"]) { $1 }]])
+
         // Someone else, from a long press: how loud they are, and muting them here alone.
         zuna.element(A11y.Voice.person(carolDevice)).press(forDuration: 1.0)
         XCTAssertTrue(zuna.element(A11y.Voice.memberSheet).waitForExistence(timeout: 5))

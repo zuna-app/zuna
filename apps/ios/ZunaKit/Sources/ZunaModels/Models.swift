@@ -97,6 +97,24 @@ public struct ScreenRules: Codable, Sendable, Hashable {
     public var defaultFps: Int
     public var defaultKbps: Int
 
+    public init(who: String, sound: Bool, adminsExempt: Bool, maxPerChannel: Int, maxPerServer: Int, maxHeight: Int, maxFps: Int, maxKbps: Int, maxSoundKbps: Int, defaultHeight: Int, defaultFps: Int, defaultKbps: Int) {
+        self.who = who
+        self.sound = sound
+        self.adminsExempt = adminsExempt
+        self.maxPerChannel = maxPerChannel
+        self.maxPerServer = maxPerServer
+        self.maxHeight = maxHeight
+        self.maxFps = maxFps
+        self.maxKbps = maxKbps
+        self.maxSoundKbps = maxSoundKbps
+        self.defaultHeight = defaultHeight
+        self.defaultFps = defaultFps
+        self.defaultKbps = defaultKbps
+    }
+
+    /// What a server's rules come to before its admins have said anything, and on one from before they could. Mirrors `DEFAULT_SCREEN_RULES`.
+    public static let defaults = ScreenRules(who: "everyone", sound: true, adminsExempt: false, maxPerChannel: 0, maxPerServer: 0, maxHeight: 0, maxFps: 0, maxKbps: 0, maxSoundKbps: 0, defaultHeight: 0, defaultFps: 60, defaultKbps: 20_000)
+
     enum CodingKeys: String, CodingKey {
         case who, sound
         case adminsExempt = "admins_exempt"
@@ -466,6 +484,33 @@ public struct VoiceAccess: Codable, Sendable, Equatable {
     public var identity: String
     /// An admin has muted this person, so the microphone won't be let through.
     public var serverMuted: Bool
+}
+
+/// Being let share a screen, which holds a place until it's given back. Mirrors `ScreenAccess`.
+public struct ScreenAccess: Codable, Sendable, Equatable {
+    /// The device's sound may go with it.
+    public var sound: Bool
+    /// How a native process reaches the room, as a participant that can do nothing else. The iPhone app
+    /// shares over its own connection, so it never asks for this.
+    public var native: NativeScreenAccess?
+}
+
+public struct NativeScreenAccess: Codable, Sendable, Equatable {
+    public var url: String
+    public var token: String
+    public var identity: String
+}
+
+/// How a share is asked for, for `voiceScreenAccess`: over this device's own connection, the
+/// desktop's "browser", or from a native process of its own.
+public struct ScreenRequest: Codable, Sendable, Equatable {
+    public var browser: Bool
+    public var sound: Bool
+
+    public init(browser: Bool, sound: Bool) {
+        self.browser = browser
+        self.sound = sound
+    }
 }
 
 /// A voice channel's media key for its current epoch, straight from MLS, as `voiceKey` gives it.

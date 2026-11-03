@@ -49,8 +49,8 @@ final class AppUnderTest {
         if fresh { app.launchArguments += ["-ZunaResetData", "YES"] }
         // Voice messages record a tone: the simulator's microphone is the Mac's, behind the Mac's own permission.
         app.launchArguments += ["-ZunaFakeMicrophone", "YES"]
-        // Calls send moving bars from the camera, which the simulator hasn't got.
-        app.launchArguments += ["-ZunaFakeCamera", "YES"]
+        // Calls send moving bars from the camera, which the simulator hasn't got, and for the screen, as nothing can answer its picker.
+        app.launchArguments += ["-ZunaFakeCamera", "YES", "-ZunaFakeScreen", "YES"]
         app.launchArguments += ["-ZunaAskForNotifications", notifications ? "YES" : "NO"]
         if notifications {
             // The test relay and a made-up token stand in for APNs, which the simulator can't use without the app's key.

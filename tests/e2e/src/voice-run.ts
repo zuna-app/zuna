@@ -1,13 +1,14 @@
 // The iPhone app in a voice channel with the desktop app, through a real server and
 // a real LiveKit, checking what actually reaches each of them: the phone hears the
 // desktop and is heard, sees its camera and its shared screen, and sends its own
-// camera, all under keys from the channel's MLS group, also once someone new has
-// changed them; and an admin's mute holds.
+// camera and screen, all under keys from the channel's MLS group, also once someone
+// new has changed them; and an admin's mute holds.
 //
 //   npm run build -w @zuna/desktop && npm run test:ios:voice [-- screenshot-dir]
 //
-// The phone's microphone is a tone and its camera moving bars (VoiceTesting.swift),
-// since the simulator has no camera. The desktop's are Chromium's fake devices,
+// The phone's microphone is a tone, and its camera and its screen moving bars
+// (VoiceTesting.swift), since the simulator has no camera, and nothing can answer
+// the system's picker for a screen. The desktop's are Chromium's fake devices,
 // with speech from `say` for its gate to let through, and its shared screen is
 // drawn on a canvas, since macOS's own picker can't be driven.
 
@@ -153,7 +154,7 @@ try {
 
   // --- The phone ---
   log("starting the app in the simulator");
-  phone = await new HostApp("bob-iphone", { target: "simulator", args: ["-ZunaFakeMicrophone", "YES", "-ZunaFakeCamera", "YES", "-ZunaVoiceLog", "YES", "-ZunaAskForNotifications", "NO", "-ZunaPushRelay", ""] }).open();
+  phone = await new HostApp("bob-iphone", { target: "simulator", args: ["-ZunaFakeMicrophone", "YES", "-ZunaFakeCamera", "YES", "-ZunaFakeScreen", "YES", "-ZunaVoiceLog", "YES", "-ZunaAskForNotifications", "NO", "-ZunaPushRelay", ""] }).open();
   await phone.register(invite, "bob");
   const bobId = await phone.userId();
   await waitFor(async () => (await phone!.session.getChannels()).some((channel) => channel.id === lounge && channel.conversation?.ready), "the phone to come into the Lounge's group", 30_000);
@@ -166,7 +167,7 @@ try {
       phone!.waitUntilGone().then(() => Promise.reject(new Error(`the app went away during ${name}`))),
       sleep(60_000).then(() => Promise.reject(new Error(`the app didn't answer ${name} within a minute`))),
     ]);
-  const voiceState = async () => JSON.parse(await command("voiceState")) as { status: string; serverMuted: boolean; camera: boolean; epoch: number | null; focus: string | null; videos: { id: string; source: string; userId: string }[] };
+  const voiceState = async () => JSON.parse(await command("voiceState")) as { status: string; serverMuted: boolean; camera: boolean; screen: boolean; epoch: number | null; focus: string | null; videos: { id: string; source: string; userId: string; local: boolean }[] };
   const report = async () => JSON.parse(await command("voiceReport")) as Reading[];
   const fromDana = async (source: string) => (await report()).find((reading) => reading.key.startsWith(`${danaId}.`) && reading.key.endsWith(`/${source}`));
   /**
@@ -233,19 +234,24 @@ try {
       return peak;
     }, seconds);
 
-  /** Video frames the desktop decodes each second, from everything it receives. */
-  const desktopFrames = async (seconds = 2) => {
+  /**
+   * Video frames the desktop decodes each second, from everything it receives, or only what's taller than it's
+   * wide: the phone's screen, as its camera is landscape.
+   */
+  const desktopFrames = async (seconds = 2, upright = false) => {
     const read = () =>
-      page.evaluate(async () => {
+      page.evaluate(async (upright) => {
         let frames = 0;
         for (const connection of (window as unknown as { __connections: RTCPeerConnection[] }).__connections) {
           if (connection.connectionState === "closed") continue;
           (await connection.getStats()).forEach((entry) => {
-            if (entry.type === "inbound-rtp" && entry.kind === "video") frames += entry.framesDecoded ?? 0;
+            if (entry.type !== "inbound-rtp" || entry.kind !== "video") return;
+            if (upright && !((entry.frameHeight ?? 0) > (entry.frameWidth ?? 0))) return;
+            frames += entry.framesDecoded ?? 0;
           });
         }
         return frames;
-      });
+      }, upright);
     const before = await read();
     await sleep(seconds * 1000);
     return ((await read()) - before) / seconds;
@@ -303,6 +309,28 @@ try {
   const state = await voiceState();
   check("a screen someone starts sharing fills the phone's stage", state.videos.some((video) => video.source === "screen" && video.id === state.focus));
   phoneShot("03-phone-screen");
+
+  // --- The phone's screen on the desktop ---
+  const sharing = await command("voiceScreen", { on: true });
+  check("the phone shares its screen", sharing === "on", sharing);
+  await waitFor(() => alice.session.getVoiceMembers().some((member) => member.userId === bobId && member.screen), "everyone to see the phone sharing", 10_000)
+    .then(() => check("everyone on the server sees the phone sharing its screen", true))
+    .catch(() => check("everyone on the server sees the phone sharing its screen", false));
+  await sleep(4000);
+  const phoneScreenTile = page.locator(".voice-tile.is-screen", { hasText: "bob's screen" });
+  check("the desktop shows the phone's screen", (await phoneScreenTile.count()) > 0 && (await phoneScreenTile.locator("video").count()) > 0);
+  const screenDecoded = await desktopFrames(2, true);
+  check("the phone's screen reaches the desktop and decodes", screenDecoded > 10, `${screenDecoded.toFixed(0)} frames/s decoded`);
+  check("the phone shows its own screen on its stage", (await voiceState()).videos.some((video) => video.source === "screen" && video.local));
+  phoneShot("04-phone-sharing");
+  await desktopShot("05-desktop-phone-screen");
+  const stopped = await command("voiceScreen", { on: false });
+  check("the phone stops sharing", stopped === "off", stopped);
+  await waitFor(() => !alice.session.getVoiceMembers().some((member) => member.userId === bobId && member.screen), "everyone to see the phone stop sharing", 10_000)
+    .then(() => check("everyone on the server sees the phone stop sharing", true))
+    .catch(() => check("everyone on the server sees the phone stop sharing", false));
+  await phoneScreenTile.first().waitFor({ state: "detached", timeout: 10_000 }).catch(() => undefined);
+  check("the desktop no longer shows the phone's screen", (await phoneScreenTile.count()) === 0);
 
   // --- A new key when someone new comes in ---
   const epochBefore = state.epoch;

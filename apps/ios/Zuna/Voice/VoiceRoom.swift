@@ -2,6 +2,10 @@ import AVFoundation
 import Foundation
 import LiveKit
 import os
+#if canImport(ScreenCaptureKit)
+import ScreenCaptureKit
+#endif
+import UIKit
 import ZunaModels
 
 /// One video someone is sending. Mirrors `CallVideo` in packages/ui/src/voice/room.ts.
@@ -324,12 +328,163 @@ final class VoiceRoom {
         return (capturer?.position ?? .front) != .back
     }
 
+    // MARK: Screen
+
+    /// How this device shares its screen. From iOS 27, ScreenCaptureKit's picker lets the app capture other apps
+    /// itself. Before it, ReplayKit only lets the app capture its own screen, and a broadcast extension
+    /// (ZunaBroadcast) records the rest, handing each frame over a socket in the App Group. The simulator
+    /// has no ScreenCaptureKit, on any iOS.
+    enum ScreenRoute { case screenCaptureKit, broadcast }
+
+    static var screenRoute: ScreenRoute {
+        #if canImport(ScreenCaptureKit)
+        if #available(iOS 27.0, *), SCContentSharingPicker.shared.isAvailable { return .screenCaptureKit }
+        #endif
+        return .broadcast
+    }
+
+    /// Whether this device can share its screen at all. The broadcast extension hands its frames over a Unix socket
+    /// LiveKit puts in the App Group's container, whose path has to fit in a socket's address. On a device it does,
+    /// but the simulator's containers are too deep for it, so there only ScreenCaptureKit could, which it hasn't got.
+    static var canShareScreen: Bool {
+        #if DEBUG
+        if VoiceTesting.fakeScreen { return true }
+        #endif
+        return screenRoute == .screenCaptureKit || broadcastSocketFits
+    }
+
+    private static let broadcastSocketFits: Bool = {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SharedStorage.appGroup) else { return false }
+        // LiveKit's name for it, in BroadcastBundleInfo.
+        return container.appendingPathComponent("rtc_SSFD").path.utf8.count < MemoryLayout.size(ofValue: sockaddr_un().sun_path)
+    }()
+
+    /// How long the system's broadcast picker is given to be answered, as long as LiveKit gives ScreenCaptureKit's.
+    private static let broadcastWait: Duration = .seconds(60)
+    /// How long the media server is given to let a share out, once the server has said yes.
+    private static let shareAllowedWait: Duration = .seconds(5)
+
+    /// The share from the broadcast extension, which this room published itself.
+    private var broadcastPublication: LocalTrackPublication?
+    /// Each share asked for counts, so stopping can tell one that's still starting it's no longer wanted.
+    private var screenAttempt = 0
+
+    /// Whether this device's screen is going out.
+    var sharingScreen: Bool { room.localParticipant.isScreenShareEnabled() }
+
+    /// Whether it's going out from the broadcast extension, which can be stopped from the system's own controls.
+    var sharingByBroadcast: Bool { broadcastPublication != nil }
+
+    /// Shares this device's screen once the media server lets it, with what the person picks in the system's picker,
+    /// or with the broadcast that's already going. It throws LiveKit's `.cancelled` if they change their mind, or
+    /// `stopScreen` comes first.
+    func startScreen(_ terms: ScreenTerms) async throws {
+        screenAttempt += 1
+        let mine = screenAttempt
+        let wanted = { [weak self] in self.map { !$0.closed && $0.screenAttempt == mine } ?? false }
+        // One layer, in H.264, which the phone encodes in hardware, keeping its sharpness over its frame rate, as the desktop's do.
+        let publish = VideoPublishOptions(
+            screenShareEncoding: VideoEncoding(maxBitrate: terms.kbps * 1000, maxFps: terms.fps),
+            simulcast: false,
+            preferredCodec: .h264,
+            degradationPreference: .maintainResolution
+        )
+        let capture = ScreenShareCaptureOptions(dimensions: Self.screenDimensions(height: terms.height), fps: terms.fps)
+        await whenAllowedToShare()
+        guard wanted() else { throw LiveKitError(.cancelled) }
+        #if DEBUG
+        if VoiceTesting.fakeScreen {
+            try await VoiceTesting.setFakeScreen(true, in: room.localParticipant, options: publish)
+            events.media()
+            return
+        }
+        #endif
+        if Self.screenRoute == .screenCaptureKit, !BroadcastManager.shared.isBroadcasting {
+            // Waits for the picker, which stopping the share cancels.
+            guard try await room.localParticipant.set(source: .screenShareVideo, enabled: true, captureOptions: capture, publishOptions: publish) != nil else {
+                throw LiveKitError(.invalidState, message: "The screen share didn't start")
+            }
+        } else {
+            try await publishBroadcast(capture: capture, publish: publish, wanted: wanted)
+        }
+        guard wanted() else {
+            await stopScreen()
+            throw LiveKitError(.cancelled)
+        }
+        events.media()
+    }
+
+    /// Publishes what the broadcast extension records, asking for a broadcast first unless one is already going,
+    /// as one started from Control Center is.
+    private func publishBroadcast(capture: ScreenShareCaptureOptions, publish: VideoPublishOptions, wanted: () -> Bool) async throws {
+        let broadcasts = BroadcastManager.shared
+        if !broadcasts.isBroadcasting {
+            broadcasts.requestActivation()
+            let deadline = ContinuousClock.now + Self.broadcastWait
+            while !broadcasts.isBroadcasting {
+                guard wanted(), ContinuousClock.now < deadline else { throw LiveKitError(.cancelled) }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+        }
+        guard wanted() else { throw LiveKitError(.cancelled) }
+        let track = await LocalVideoTrack.createBroadcastScreenCapturerTrack(options: capture)
+        do {
+            broadcastPublication = try await room.localParticipant.publish(videoTrack: track, options: publish)
+        } catch {
+            BroadcastSignal.refuse("Zuna couldn't share your screen.")
+            throw error
+        }
+        BroadcastSignal.post(BroadcastSignal.taken)
+    }
+
+    /// Stops sharing this device's screen, or asking to: an unanswered picker is put away.
+    func stopScreen() async {
+        screenAttempt += 1
+        #if DEBUG
+        if VoiceTesting.fakeScreen {
+            try? await VoiceTesting.setFakeScreen(false, in: room.localParticipant, options: VideoPublishOptions())
+            events.media()
+            return
+        }
+        #endif
+        if let publication = broadcastPublication {
+            broadcastPublication = nil
+            try? await room.localParticipant.unpublish(publication: publication)
+        }
+        if BroadcastManager.shared.isBroadcasting { BroadcastManager.shared.requestStop() }
+        _ = try? await room.localParticipant.setScreenShare(enabled: false)
+        events.media()
+    }
+
+    /// Waits to hear from the media server that a share may go out, since it only allows one once the chat server
+    /// has told it to. Should that not come, publishing says what's wrong.
+    private func whenAllowedToShare() async {
+        let deadline = ContinuousClock.now + Self.shareAllowedWait
+        while !closed, ContinuousClock.now < deadline {
+            let allowed = room.localParticipant.permissions.canPublishSources
+            if allowed.isEmpty || allowed.contains(Track.Source.screenShareVideo.rawValue) { return }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    /// The size to capture at: the screen's own, or held to `height` across its shorter side, which a phone held
+    /// upright has as a computer's screen has its height. Its shape is the screen's upright, as iOS draws it.
+    private static func screenDimensions(height: Int) -> Dimensions {
+        let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first
+        let size = screen?.nativeBounds.size ?? CGSize(width: 1080, height: 1920)
+        let across = min(size.width, size.height), along = max(size.width, size.height)
+        let scale = height > 0 && CGFloat(height) < across ? CGFloat(height) / across : 1
+        return Dimensions(width: Int32((across * scale).rounded()), height: Int32((along * scale).rounded()))
+    }
+
     // MARK: Closing
 
     func close() {
         guard !closed else { return }
         closed = true
         sendTask?.cancel()
+        // A broadcast would go on recording for a call that's gone.
+        if broadcastPublication != nil { BroadcastManager.shared.requestStop() }
         if let listener { room.remove(delegate: listener) }
         listener = nil
         #if DEBUG

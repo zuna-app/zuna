@@ -354,6 +354,11 @@ final class CoreController {
             guard let voice = model?.voice else { return "no-call" }
             if voice.camera != (on ?? true) { await voice.toggleCamera() }
             return voice.camera ? "on" : "off"
+        case "voiceScreen":
+            // Shares the screen, or stops, as the button does; test builds share moving bars (-ZunaFakeScreen).
+            guard let voice = model?.voice else { return "no-call" }
+            if voice.screen != (on ?? true) { await voice.toggleScreen() }
+            return voice.screen ? "on" : "off"
         case "voiceState":
             guard let voice = model?.voice else { return "{}" }
             let state: [String: Any] = [
@@ -363,6 +368,7 @@ final class CoreController {
                 "serverMuted": voice.serverMuted,
                 "noMic": voice.noMic,
                 "camera": voice.camera,
+                "screen": voice.screen,
                 "epoch": voice.keyEpoch.map { $0 as Any } ?? NSNull(),
                 "focus": voice.focus.map { $0 as Any } ?? NSNull(),
                 "speaking": Array(voice.speaking),

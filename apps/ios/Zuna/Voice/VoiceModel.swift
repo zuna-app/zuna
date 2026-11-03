@@ -1,4 +1,5 @@
 import AVFoundation
+import Combine
 import Foundation
 import LiveKit
 import Observation
@@ -89,6 +90,10 @@ final class VoiceModel {
     private(set) var quality: ConnectionQuality = .unknown
     private(set) var camera = false
     private(set) var cameraFront = true
+    /// This device's screen is going out.
+    private(set) var screen = false
+    /// Sharing has been asked for, and waits on the server or the system's picker.
+    private(set) var screenStarting = false
     /// The video filling the stage, by its key.
     var focus: String?
     /// The call fills the screen, rather than waiting in the bar at the top.
@@ -119,12 +124,25 @@ final class VoiceModel {
     @ObservationIgnored private let sounds = VoiceSounds()
     /// How loud a share was before being silenced here, to go back to.
     @ObservationIgnored private var streamVolumeBefore: [String: Double] = [:]
+    /// Each share asked for counts, so one that takes a while can tell it's been stopped.
+    @ObservationIgnored private var shareAttempt = 0
+    /// When this device's share last went away by itself. The server stopping one takes it out of the room before it says why.
+    @ObservationIgnored private var shareVanishedAt: Date?
+    @ObservationIgnored private var broadcastWatch: AnyCancellable?
 
     private static let reconnectAttempts = 3
     private static let reconnectWait: Duration = .seconds(2)
 
     init() {
         muted = VoiceSettings.load().startMuted
+        // A broadcast only goes out once the server has made room for it, never as soon as it starts.
+        BroadcastManager.shared.shouldPublishTrack = false
+        broadcastWatch = BroadcastManager.shared.isBroadcastingPublisher
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] on in
+                MainActor.assumeIsolated { self?.broadcastChanged(on) }
+            }
     }
 
     func attach(_ app: AppModel) {
@@ -147,7 +165,7 @@ final class VoiceModel {
     /// Tells everyone on the server what this device is doing.
     private func announce() {
         guard let channelId, let session else { return }
-        let update = VoiceUpdate(muted: micOff, deafened: deafened, camera: camera, screen: false)
+        let update = VoiceUpdate(muted: micOff, deafened: deafened, camera: camera, screen: screen)
         Task { try? await session.setVoiceState(channelId, update) }
     }
 
@@ -171,6 +189,11 @@ final class VoiceModel {
         focus = stillThere && focus != nil ? focus : arrived?.id
         camera = room.cameraOn
         cameraFront = room.cameraFacingFront
+        // Stopped from the system's own controls, or taken out of the room by the server.
+        if screen, !room.sharingScreen {
+            shareVanishedAt = .now
+            Task { await stopScreen() }
+        }
     }
 
     // MARK: Joining and leaving
@@ -203,6 +226,14 @@ final class VoiceModel {
         cameraFront = true
         focus = nil
         keyEpoch = nil
+        forgetShare()
+    }
+
+    /// A share goes with the connection it went out on, and the server knows it's over from the next one.
+    private func forgetShare() {
+        shareAttempt += 1
+        screen = false
+        screenStarting = false
     }
 
     private func connect(serverId: String, channelId: String, mine: Int) async {
@@ -277,6 +308,7 @@ final class VoiceModel {
         guard let serverId, let channelId else { return }
         room?.close()
         room = nil
+        forgetShare()
         switch reason {
         case .participantRemoved, .roomDeleted, .duplicateIdentity, .cancelled:
             leave()
@@ -343,6 +375,17 @@ final class VoiceModel {
         onEnded?()
     }
 
+    /// The server stopped this device's share: an admin did, or its rules changed.
+    func screenEnded(serverId: String, channelId: String, reason: String) {
+        guard self.serverId == serverId, self.channelId == channelId else { return }
+        // The media server may have taken it out of the room already, and that's gone by.
+        let vanished = shareVanishedAt.map { Date.now.timeIntervalSince($0) < 5 } ?? false
+        guard screen || screenStarting || vanished else { return }
+        shareVanishedAt = nil
+        Task { await stopScreen() }
+        app?.toast(reason == "stopped" ? "An admin stopped your screen share." : "This server's rules changed, so your screen share stopped.")
+    }
+
     /// Being muted by an admin, or no longer, comes with the rest of what's said about this device.
     func memberChanged(serverId: String, _ member: VoiceMember) {
         guard self.serverId == serverId, channelId == member.channelId,
@@ -403,6 +446,92 @@ final class VoiceModel {
             announce()
         } catch {
             app?.toast("There's no camera Zuna can use.", .error)
+        }
+    }
+
+    // MARK: Sharing the screen
+
+    var canShareScreen: Bool { VoiceRoom.canShareScreen }
+
+    /// Why this device can't share its screen here, if it can't: the server's rules, or the channel's.
+    var shareRefusal: String? {
+        guard let serverId, let server = app?.servers[serverId] else { return nil }
+        let limit = server.channels.first { $0.id == channelId }?.screenLimit ?? 0
+        return Voice.screenRefusal(rules: server.info?.screenShare, role: server.me?.role, channelLimit: limit)
+    }
+
+    func toggleScreen() async {
+        if screen || screenStarting { await stopScreen() } else { await startScreen() }
+    }
+
+    /// Shares this device's screen, once the server has made room for it. Only the picture goes: LiveKit on iOS
+    /// would mix the screen's sound into the microphone, past the server's say over a share's sound.
+    func startScreen() async {
+        guard let app, let room, let channelId, let serverId, let session, !screen, !screenStarting, canShareScreen else { return }
+        if let refusal = shareRefusal {
+            refuseShare("\(refusal).")
+            return
+        }
+        let server = app.servers[serverId]
+        let terms = Voice.screenTerms(ScreenChoices(), rules: server?.info?.screenShare, role: server?.me?.role)
+        shareAttempt += 1
+        let mine = shareAttempt
+        let current = { [weak self] in self?.shareAttempt == mine && self?.room === room }
+        screenStarting = true
+        do {
+            _ = try await session.voiceScreenAccess(channelId, ScreenRequest(browser: true, sound: false))
+        } catch {
+            if current() { screenStarting = false }
+            refuseShare((error as? CoreCallError)?.message ?? "Couldn't share your screen.")
+            return
+        }
+        do {
+            guard current() else { throw LiveKitError(.cancelled) }
+            try await room.startScreen(terms)
+            guard current() else {
+                await room.stopScreen()
+                throw LiveKitError(.cancelled)
+            }
+            screenStarting = false
+            screen = true
+            announce()
+            sound(.selfJoin)
+        } catch {
+            if current() { screenStarting = false }
+            Task { try? await session.voiceScreenStop(channelId) }
+            // Choosing not to share after all is not a failure.
+            if (error as? LiveKitError)?.type != .cancelled { refuseShare("Couldn't share your screen.") }
+        }
+    }
+
+    /// Stops sharing this device's screen, or asking to, and gives its place back.
+    func stopScreen() async {
+        guard screen || screenStarting, let room else { return }
+        let session = session, channelId = channelId
+        forgetShare()
+        await room.stopScreen()
+        announce()
+        if let session, let channelId { try? await session.voiceScreenStop(channelId) }
+    }
+
+    /// Says why a share didn't start, here and to a broadcast that's waiting for an answer.
+    private func refuseShare(_ message: String) {
+        app?.toast(message, .error)
+        if BroadcastManager.shared.isBroadcasting { BroadcastSignal.refuse(message) }
+    }
+
+    /// A broadcast to Zuna's extension started or stopped: from the call, from Control Center, or from the system's controls.
+    private func broadcastChanged(_ on: Bool) {
+        if on {
+            // One the call asked for is taken where it's waited for.
+            guard !screen, !screenStarting else { return }
+            guard status == .connected else {
+                BroadcastSignal.refuse("Come into a voice channel in Zuna, then share your screen from the call.")
+                return
+            }
+            Task { await startScreen() }
+        } else if screen, room?.sharingByBroadcast == true {
+            Task { await stopScreen() }
         }
     }
 

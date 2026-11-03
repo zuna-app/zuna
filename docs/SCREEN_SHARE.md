@@ -10,7 +10,7 @@ xdg portal and PipeWire ──┘                       └─ NVENC, VA-API ─
 
 This exists because screen sharing through Chromium is poor on Linux: it reads every frame back to the CPU with `glReadPixels`, and has no supported hardware encoder there. [The proof of concept's README](../poc/screenshare/README.md) has the measurements. A 2560x1440 share at 60 fps takes about 5% of a core on the sender.
 
-Everything else goes through Chromium: macOS, the web app, a window under X11, and any build without the program. They all look the same to whoever is watching. On Macs with Apple silicon the program only takes the computer's sound, beside a share through Chromium.
+Everything else goes through Chromium: macOS, the web app, a window under X11, and any build without the program. They all look the same to whoever is watching. On Macs with Apple silicon the program only takes the computer's sound, beside a share through Chromium. The iPhone and iPad share through LiveKit's Swift SDK, as [From an iPhone or iPad](#from-an-iphone-or-ipad) says.
 
 ## How the app runs it
 
@@ -124,6 +124,25 @@ A native share that can't do what was chosen doesn't fail: it goes through the b
 | Through the browser | `height: { max }` in `getDisplayMedia` |
 
 **The encoder** is the one that goes with the graphics card driving the screen, unless another is chosen. On Linux that's NVENC on NVIDIA and VA-API otherwise. On Windows it's NVENC on NVIDIA, AMF on AMD, and on Intel or any other GPU Media Foundation's (`h264_mf`), which is whatever encoder the card's driver gives Windows, in hardware only. Media Foundation's encoders only take NV12, so D3D11's video processor converts each frame on the GPU, as BT.709 at studio range, on the way. Their streams say nothing of what colours they're in, so FFmpeg's `h264_metadata` filter writes that into each SPS, where NVENC and AMF write it themselves. A new one takes longer to open than NVENC: a window dragged for a second went out at 11 sizes rather than 27.
+
+## From an iPhone or iPad
+
+The iPhone app shares over its own connection to the room, as a share through the browser does, so to whoever's watching it's like any other. What captures the screen depends on the version of iOS:
+
+| | Captured by | What can be chosen |
+|---|---|---|
+| iOS 27 and later | ScreenCaptureKit, in the app (`apps/ios/Zuna/Voice/VoiceRoom.swift`) | The whole screen, or Zuna alone, in the system's picker |
+| iOS 18 to 26 | ReplayKit, in a broadcast upload extension (`apps/ios/ZunaBroadcast`) | The whole screen, from the system's broadcast picker or Control Center |
+
+Before iOS 27, only an extension can see past the app. It's a process of its own, held to 50 MB, so it only records: LiveKit's `LKSampleHandler` hands each frame to the app over a socket in the App Group, and the app encrypts and sends it, so the room's keys never leave the app. LiveKit finds it by name, the app's bundle ID with `.broadcast`, in `group.` and the app's bundle ID. A broadcast can also start from Control Center, without the app asking. The app then asks the server for a place, as the button does, and LiveKit is told never to publish one by itself (`shouldPublishTrack`), so nothing goes out before the server has made room. The app tells the extension whether a call took the broadcast (`BroadcastSignal`). With a refusal, or no answer within 15 seconds, as when the app isn't in a call or isn't running, the extension ends the broadcast and the system says why, rather than recording for nobody.
+
+On iOS 27 the extension is still there for a broadcast started from Control Center, but the button uses ScreenCaptureKit. The `screen-capture` background mode keeps that capture going while another app is on screen, and `audio` keeps the call going.
+
+The picture goes out in H.264, in one layer, encoded in hardware, keeping its sharpness over its frame rate, with the server's terms (`Voice.screenTerms` in `ZunaModels`, as `screenTerms`). The phone has no settings of its own for size, frame rate or bitrate, so it takes what the server suggests. A limit on height holds the screen's shorter side, which a phone held upright has across, as a computer's screen has its height. ScreenCaptureKit on iOS picks its own frame rate, so a limit there only holds the encoder.
+
+Sound doesn't go with it. LiveKit's Swift SDK mixes a share's sound into the microphone's track, so it would go out whether the server allows a share's sound or not, at the person's own volume rather than a share's, and stop when they mute. So the app asks for a share without sound.
+
+The simulator can't share at all, so the button isn't there. It has no ScreenCaptureKit on any version of iOS, and LiveKit's socket for the extension goes in the App Group's container, whose path has to fit in a socket's address, 104 bytes: on a device it takes 92, but the simulator's containers are deeper (`canShareScreen` in `VoiceRoom.swift`). Test builds share moving bars in place of the screen (`-ZunaFakeScreen`), past the picker, and `npm run test:ios:voice` checks that they reach the desktop app and decode there, on iOS 27 and 26 alike (`ZUNA_E2E_SIMULATOR` names a simulator on another iOS).
 
 ## Building it
 

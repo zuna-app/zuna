@@ -52,6 +52,7 @@ targets:
       - package: ZunaKit
         product: ZunaControl
       - target: ZunaNotifications
+      - target: ZunaBroadcast
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile
@@ -98,11 +99,13 @@ targets:
         ZunaPushRelay: $(ZUNA_PUSH_RELAY)
         NSUserActivityTypes:
           - INSendMessageIntent
-        # Silent pushes that clear notifications read or deleted elsewhere, and
-        # a voice channel that goes on while the app is out of sight.
+        # Silent pushes that clear notifications read or deleted elsewhere, a voice
+        # channel that goes on while the app is out of sight, and on iOS 27 a screen
+        # shared through ScreenCaptureKit while other apps are on it.
         UIBackgroundModes:
           - remote-notification
           - audio
+          - screen-capture
     entitlements:
       path: Zuna/Zuna.entitlements
       properties:
@@ -154,6 +157,40 @@ targets:
           - group.chat.zuna.mobile
         keychain-access-groups:
           - $(AppIdentifierPrefix)chat.zuna.shared
+
+  # Records the screen for a call before iOS 27, where ScreenCaptureKit can't; see SampleHandler.
+  # LiveKit finds it by name: the app's bundle ID and ".broadcast", in group.<the app's bundle ID>.
+  ZunaBroadcast:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ZunaBroadcast
+      - path: Zuna/Shared/BroadcastSignal.swift
+      - path: Zuna/Shared/SharedStorage.swift
+    dependencies:
+      - package: LiveKit
+        product: LiveKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile.broadcast
+        PRODUCT_NAME: ZunaBroadcast
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: ZunaBroadcast/Info.plist
+      properties:
+        CFBundleDisplayName: Zuna
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    entitlements:
+      path: ZunaBroadcast/ZunaBroadcast.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.chat.zuna.mobile
 
   ZunaUITests:
     type: bundle.ui-testing
