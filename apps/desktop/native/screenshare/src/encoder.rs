@@ -96,10 +96,16 @@ fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloadi
 
 /// DEEPBIND has it look in its own FFmpeg first. Without that, libwebrtc's copy would
 /// win if this program ever exported it, and it's a different version of FFmpeg.
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloading::Error> {
     let flags = libc::RTLD_NOW | libc::RTLD_LOCAL | libc::RTLD_DEEPBIND;
     unsafe { libloading::os::unix::Library::open(Some(path), flags) }.map(Library::from)
+}
+
+/// macOS has no encoder, as it doesn't capture screens natively.
+#[cfg(target_os = "macos")]
+fn open_library(path: &std::path::Path) -> std::result::Result<Library, libloading::Error> {
+    unsafe { Library::new(path) }
 }
 
 fn load_api() -> Result<Api> {

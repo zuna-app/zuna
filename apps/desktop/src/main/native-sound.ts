@@ -1,17 +1,19 @@
 // The computer's sound for a screen share, from the native screen capture program: on
-// Linux, which Chromium can't capture there, everything playing apart from Zuna, so that
-// nobody in the call hears themselves back, or one app's, from PipeWire. On Windows, where
-// Chromium captures everything but Zuna, one app's, through process loopback. Its samples
-// go to the renderer over a MessagePort, straight to the audio thread that plays them
-// into the published track. docs/SCREEN_SHARE.md has more.
+// Linux and macOS, which Chromium can't capture there, everything playing apart from Zuna,
+// so that nobody in the call hears themselves back, or one app's, from PipeWire or Core
+// Audio's taps. On Windows, where Chromium captures everything but Zuna, one app's, through
+// process loopback. Its samples go to the renderer over a MessagePort, straight to the
+// audio thread that plays them into the published track. docs/SCREEN_SHARE.md has more.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { app, MessageChannelMain, type WebContents } from "electron";
 import { nativeScreenPath } from "./native-screen";
 
-/** How long PipeWire gets to answer. */
-const START_TIMEOUT_MS = 10_000;
+/** How long the program gets to answer. */
+const ASK_TIMEOUT_MS = 10_000;
+/** How long it gets to start listening. The first time on macOS, that's while the person is asked whether Zuna may record the computer's sound. */
+const START_TIMEOUT_MS = process.platform === "darwin" ? 120_000 : 10_000;
 /** Two 32-bit floats. */
 const FRAME_BYTES = 8;
 
@@ -26,9 +28,10 @@ export interface WindowSoundApp extends SoundApp {
   covers: string[];
 }
 
-/** Whether this build can capture the computer's sound itself. */
+/** Whether this build can capture the computer's sound itself. On macOS that's only on Apple silicon, which the program is built for. */
 export function nativeSoundAvailable(): boolean {
-  return (process.platform === "linux" || process.platform === "win32") && !!nativeScreenPath();
+  const supported = process.platform === "linux" || process.platform === "win32" || (process.platform === "darwin" && process.arch === "arm64");
+  return supported && !!nativeScreenPath();
 }
 
 /** Zuna's own sound is never taken: Chromium plays it from a process under this one. */
@@ -39,7 +42,7 @@ function ask(args: string[]): Promise<Record<string, unknown> | null> {
   const path = nativeScreenPath();
   if (!path || !nativeSoundAvailable()) return Promise.resolve(null);
   return new Promise((resolve) => {
-    const child = spawn(path, [...args, ...excludeArgs()], { stdio: ["ignore", "pipe", "ignore"], timeout: START_TIMEOUT_MS, windowsHide: true });
+    const child = spawn(path, [...args, ...excludeArgs()], { stdio: ["ignore", "pipe", "ignore"], timeout: ASK_TIMEOUT_MS, windowsHide: true });
     let output = "";
     child.stdout!.setEncoding("utf8").on("data", (text: string) => (output += text));
     child.on("error", () => resolve(null));

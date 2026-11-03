@@ -10,7 +10,7 @@ xdg portal and PipeWire ──┘                       └─ NVENC, VA-API ┘
 
 This exists because screen sharing through Chromium is poor on Linux: it reads every frame back to the CPU with `glReadPixels`, and has no supported hardware encoder there. [The proof of concept's README](../poc/screenshare/README.md) has the measurements. A 2560x1440 share at 60 fps takes about 5% of a core on the sender.
 
-Everything else goes through Chromium: one window on Windows, macOS, the web app, and any build without the program. They all look the same to whoever is watching.
+Everything else goes through Chromium: one window on Windows, macOS, the web app, and any build without the program. They all look the same to whoever is watching. On Macs with Apple silicon the program only takes the computer's sound, beside a share through Chromium.
 
 ## How the app runs it
 
@@ -44,7 +44,8 @@ A share's sound goes out over the device's own connection, beside the picture, w
 |---|---|---|
 | Windows | Everything but Zuna: Chromium's loopback, which `restrictOwnAudio` keeps Zuna out of. One app: this program, through process loopback (`src/sound/windows.rs`) | Everything but Zuna, or one app |
 | Linux | This program, from PipeWire (`src/sound/linux.rs`) | Everything but Zuna, or one app |
-| macOS and the web | The browser | Whatever its own picker offers |
+| macOS, on Apple silicon | This program, through Core Audio's process taps (`src/sound/macos.rs`), from macOS 14.2 | Everything but Zuna, or one app |
+| The web | The browser | Whatever its own picker offers |
 
 `--sound` writes everything playing apart from the process `--exclude-pid` names and those it started, and `--sound-from ID` only one app's, by the id `--sound-apps` or `--window-app` gives it. `pid:N` is a process and those it started.
 
@@ -54,9 +55,11 @@ On Linux, PipeWire has no stream of everything but one program, so the program m
 
 `apps/desktop/src/main/native-sound.ts` runs it. It writes one line of JSON once it's listening, and then only sound: 32-bit floats, two channels interleaved at 48 kHz, and only while something plays. The samples go to the page over a MessagePort, and straight on to the audio thread (`voice/share-sound.worklet.ts`), which plays them into the published track. That keeps 40 ms in hand, more when PipeWire hands over larger pieces, and drops what piles up past 150 ms more, so the sound doesn't fall behind the picture.
 
+On macOS Core Audio's process taps take everything but a list of processes, or a mix of a few. The program reads one through a private aggregate device clocked by the output, and Apple's converter takes it to 48 kHz where the output runs at another rate. A process that starts later isn't in a tap, and macOS won't change one that's being read, so the program makes a new one when Zuna's processes, the chosen app's, or the output change, which misses a moment of sound at most. The first capture asks the person whether Zuna may record the computer's sound (`NSAudioCaptureUsageDescription`), and macOS asks about the app that started the program, so starting waits up to two minutes for the answer. Without permission, macOS hands over silence rather than an error. An app is the process macOS holds responsible for another, so a browser's helpers go with it, and it's named after its bundle. Only Apple silicon is built for; on an Intel Mac a share's sound isn't offered.
+
 On Windows an app is the first process of its program, found by walking up from the one with sound while the parent is the same program, so a browser's sound, which comes from a process it started, goes with it. Process loopback needs Windows 10 version 2004 or later, and before that a share of one app's goes without sound and says so.
 
-The picker lists an app while it has a stream open on Linux, or a session on Windows, which for most is while it plays. A window's app is offered while it's quiet as well, since its sound is taken from whenever it starts.
+The picker lists an app while it has a stream open on Linux, or a session on Windows, which for most is while it plays, and on macOS while it plays. A window's app is offered while it's quiet as well, since its sound is taken from whenever it starts.
 
 On Windows the program also answers one question that has nothing to do with sharing: `--notification-state` prints whether Windows wants quiet right now, and exits, since Node can't ask. The app draws its own notifications there, so they don't get the system's rules for full-screen apps, presentations and Do Not Disturb (`apps/desktop/src/main/notifications.ts`). A build without the program shows notifications regardless.
 
@@ -91,8 +94,8 @@ The second group can't be held that way. The picture is encrypted and LiveKit do
 | Setting | Native | Through the browser |
 |---|---|---|
 | Size, frame rate, most it may send | yes | yes |
-| Sound: starting with it on, its quality | Captured beside the share: by the browser on Windows, by the program on Linux | yes, and on Linux by the program, as for a native share |
-| Whose sound: everything but Zuna, or one app, starting from what's shared | Linux and Windows | Linux and Windows |
+| Sound: starting with it on, its quality | Captured beside the share: by the browser on Windows, by the program on Linux | yes, and on Linux and macOS by the program, as for a native share |
+| Whose sound: everything but Zuna, or one app, starting from what's shared | Linux and Windows | Linux, macOS and Windows |
 | How loud others' shares are, and whether one fills the stage when it starts | Those are for whoever's watching, however it was sent | |
 | Capturing on the graphics card at all | yes | |
 | Showing the pointer | yes | No: Chromium accepts `cursor: "never"` and goes on showing it, measured in Electron on Windows, so it isn't offered |
@@ -118,7 +121,9 @@ A native share that can't do what was chosen doesn't fail: it goes through the b
 npm run build:screenshare
 ```
 
-This fetches a pinned FFmpeg build, checks its SHA-256, builds the program and gathers what it needs into `apps/desktop/native/screenshare/dist`, which `npm run dist` then packs into installers as a resource. Without it, the app shares through Chromium. Once it's built, `npm run dev` rebuilds it whenever its code changes, but the first build is always something to ask for.
+On Windows and Linux this fetches a pinned FFmpeg build, checks its SHA-256, builds the program and gathers what it needs into `apps/desktop/native/screenshare/dist`, which `npm run dist` then packs into installers as a resource. Without it, the app shares through Chromium. Once it's built, `npm run dev` rebuilds it whenever its code changes, but the first build is always something to ask for.
+
+**macOS** builds only the computer's sound, for Apple silicon, without FFmpeg or LiveKit, and needs Xcode's command line tools. Intel Macs share without it.
 
 **Windows** needs Visual Studio's C++ build tools and a Rust MSVC toolchain:
 
@@ -190,5 +195,6 @@ The proof of concept's README lists what has run where. Inside the app, Windows 
 - **Leaving the pointer out natively** asks Windows and the portal to. Through KDE's portal it works: with the pointer over the tab bar, a frame someone watching received showed it with the pointer on, and not with it off. On Windows nobody has looked at a picture.
 - **Sharing a window natively** has run on Linux with KWin, in the app on Arch with an RTX 5080: a 908x634 window at 60 fps from DMA-BUFs, the one app's sound chosen for it reaching someone watching, its picture following it to 1288x534 at once, and the share ending quietly as it closed. GNOME, wlroots compositors and Hyprland haven't run it. One that kept a window's stream at one size and marked the window in it as `SPA_META_VideoCrop` would need that read, which the program doesn't ask for. On Windows it isn't built, and a window goes through Chromium: `GraphicsCaptureItem` can come from `CreateForWindow` in `src/capture/windows.rs`, and would need the same new encoder when the window changes size, and to end when it closes.
 - **The computer's sound on Linux** has run from the app beside a share through the browser, in `apps/desktop/test/sound-check.mjs` on Arch with KDE, PipeWire 1.6 and EasyEffects, and by itself against a player linked straight to a sink without EasyEffects. Beside a native share, one app's sound has run with a window shared through KDE's portal, and the entire system's beside a native screen in `voice-check.mjs`. The same check shares a window on X11, whose app's sound is chosen and sent by itself, and checks that a screen starts with everything.
+- **The computer's sound on macOS** has run from the app beside a share through the browser, in `apps/desktop/test/mac-sound-check.mjs` on macOS 27 on Apple silicon: everything but Zuna, one app alone, and the picker's apps. What it shares is a moving picture standing in for the screen, as macOS's own picker can't be driven, so a real screen with its sound hasn't been seen together. The program by itself has also taken another program's speech while leaving out the app that started it, and its tone, and Apple's converter has taken 44.1 kHz to 48 kHz in a test. An output at another rate, and a change of output during a share, haven't run.
 - **One app's sound on Windows** has run by itself on Windows 11 (build 26300), against a tone played by another program: listing the apps, which app a window belongs to, one app's sound alone, and everything but one program's. Not yet from the app.
 - **Real networks:** a pre-encoded stream has one layer, so a viewer on a slow connection can't be dropped to a lower quality.

@@ -8,8 +8,9 @@ fn main() {
     println!("cargo:rerun-if-env-changed=ZUNA_FFMPEG_DIR");
     println!("cargo:rerun-if-env-changed=ZUNA_CHECK_ONLY");
 
-    // Type-checking another platform's Rust needs no compiler for that platform.
-    if env::var_os("ZUNA_CHECK_ONLY").is_some() {
+    // Type-checking another platform's Rust needs no compiler for that platform, and macOS only
+    // builds the computer's sound, which needs no encoder.
+    if env::var_os("ZUNA_CHECK_ONLY").is_some() || env::var("CARGO_CFG_TARGET_OS").unwrap() == "macos" {
         return;
     }
 

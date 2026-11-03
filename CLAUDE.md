@@ -29,7 +29,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | All of crypto, server and core tests | `npm test` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Installers (`apps/desktop/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
-| Native screen capture, which goes into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
+| Native screen capture, and on macOS a share's sound, which go into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 
@@ -56,6 +56,7 @@ Checks in real Electron, after `npm run build -w @zuna/desktop`:
 | `attack-check.mjs` | How messages are read or rendered, or the content security policy |
 | `voice-check.mjs` | Channels, or anything about voice: real apps against a real LiveKit, checking what audio and video really arrive |
 | `sound-check.mjs` | The computer's sound for a share on Linux, in the app or in the native program's `src/sound`: real apps, a real LiveKit and PipeWire, with players nobody hears, and what sound a window or a screen starts with. It runs the apps on X11 |
+| `mac-sound-check.mjs` | The computer's sound for a share on macOS, in the app or in `src/sound/macos.rs`: real apps and a real LiveKit, everything but Zuna and one app alone. The sharing app is started through `open`, so that macOS asks about Electron, and the tones play quietly out loud |
 | `notification-check.mjs` | Windows's notifications or unread badge. `--real-input` moves the real mouse and types, which is the only way to see clicks go through the window and focus arrive |
 
 `packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`.

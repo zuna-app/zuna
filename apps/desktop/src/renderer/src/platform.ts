@@ -153,7 +153,7 @@ export function desktopPlatform(): Platform {
 /** The computer's sound for a share, which the main process captures and hands over a port. */
 function nativeSound(desktop: DesktopBridge): ShareSound {
   return {
-    // Chromium captures everything but Zuna on Windows, and nothing on Linux.
+    // Chromium captures everything but Zuna on Windows, and nothing on Linux or macOS.
     everything: !isWindows,
     apps: () => desktop.soundApps(),
     windowApp: (source) => desktop.soundWindowApp(source),

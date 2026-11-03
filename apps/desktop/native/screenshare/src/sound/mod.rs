@@ -1,17 +1,21 @@
 //! The computer's sound for a share: everything playing apart from the app that runs
 //! this, one app's, or that of the app a shared window belongs to. Linux takes it from
-//! PipeWire and Windows through process loopback.
+//! PipeWire, Windows through process loopback, and macOS through Core Audio's process taps.
 //!
 //! While capturing it writes one line of JSON to standard output once it's listening, and
 //! from then on only sound: 32-bit floats, two channels interleaved at 48 kHz.
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(windows)]
 mod windows;
 
 #[cfg(target_os = "linux")]
 use linux as platform;
+#[cfg(target_os = "macos")]
+use macos as platform;
 #[cfg(windows)]
 use windows as platform;
 

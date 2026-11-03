@@ -1,6 +1,10 @@
 //! Captures a screen, encodes it on the GPU and publishes it through LiveKit, end to
 //! end encrypted. The app runs this with --control and gives it what it needs on its
 //! standard input, one line of JSON at a time. See docs/SCREEN_SHARE.md.
+//!
+//! On macOS only the computer's sound is built, as screens are shared through the
+//! system's own picker there.
+#![cfg_attr(target_os = "macos", allow(dead_code, unused_imports))]
 
 mod capture;
 mod cpu;
@@ -11,7 +15,7 @@ mod notification_state;
 mod pipeline;
 #[cfg(target_os = "linux")]
 mod shortcut;
-#[cfg(any(target_os = "linux", windows))]
+#[cfg(any(target_os = "linux", windows, target_os = "macos"))]
 mod sound;
 
 use std::{
@@ -25,7 +29,9 @@ use std::{
     time::Duration,
 };
 
-use capture::{Capture, Options, Source};
+#[cfg(not(target_os = "macos"))]
+use capture::Capture;
+use capture::{Options, Source};
 use encoder::{Quality, Result, Stream};
 use pipeline::{Pipeline, Sink};
 
@@ -374,6 +380,15 @@ fn run(args: Args) -> Result<()> {
     if args.sound {
         return sound::capture(sound::Wanted::from_arg(args.sound_from), args.exclude_pid);
     }
+    #[cfg(target_os = "macos")]
+    return Err("Only the computer's sound is built for macOS".into());
+    #[cfg(not(target_os = "macos"))]
+    share(args)
+}
+
+/// Shares a screen, or answers one of the questions about doing so.
+#[cfg(not(target_os = "macos"))]
+fn share(args: Args) -> Result<()> {
     if args.list_monitors {
         capture::list_monitors();
         return Ok(());

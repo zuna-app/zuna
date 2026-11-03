@@ -16,7 +16,7 @@ pub fn time_used() -> Duration {
     Duration::from_nanos((ticks(kernel) + ticks(user)) * 100)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub fn time_used() -> Duration {
     let mut usage = unsafe { std::mem::zeroed::<libc::rusage>() };
     if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } != 0 {
