@@ -233,6 +233,9 @@ enum A11y {
         static let disconnect = "voice.member.disconnect"
         static let viewer = "voice.viewer"
         static let closeViewer = "voice.viewer.close"
+        static let stats = "voice.stats"
+        static let statsSheet = "voice.stats.sheet"
+        static let statsHeadline = "voice.stats.headline"
     }
 
     enum Settings {

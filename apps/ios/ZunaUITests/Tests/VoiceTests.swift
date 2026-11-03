@@ -196,6 +196,64 @@ final class VoiceTests: XCTestCase {
         try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
     }
 
+    func testShowsWhatGoesOutInStreamStats() throws {
+        let alice = try Peer("alice")
+        let lounge = try channelId(alice, "Lounge")
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let row = zuna.element(A11y.Channels.row(lounge))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        try waitFor("alice to see bob come in", timeout: 30) { try self.bobsPhone(alice) != nil }
+
+        // The camera and the screen, before the stats cover the controls.
+        zuna.element(A11y.Voice.camera).tap()
+        try waitFor("alice to see bob's camera") { try self.bobsPhone(alice)?["camera"] as? Bool == true }
+        zuna.element(A11y.Voice.shareScreen).tap()
+        try waitFor("alice to see bob's screen") { try self.bobsPhone(alice)?["screen"] as? Bool == true }
+
+        // From the connection's bars, over the call, each stream's frames counted. The peers here watch nothing, so
+        // the media server soon has the phone stop sending them: what reaches a desktop is in `npm run test:ios:voice`.
+        zuna.element(A11y.Voice.stats).tap()
+        let sheet = zuna.element(A11y.Voice.statsSheet)
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        let headline = { (title: String) in
+            self.zuna.app.descendants(matching: .any).matching(identifier: A11y.Voice.statsHeadline).matching(NSPredicate(format: "label BEGINSWITH %@", "\(title):")).firstMatch
+        }
+        let text = { (start: String) in self.zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", start)).firstMatch }
+        let capturing = { () -> Double in
+            let element = text("Capturing, ")
+            guard element.exists else { return 0 }
+            return Double(element.label.dropFirst("Capturing, ".count).split(separator: " ").first ?? "") ?? 0
+        }
+        // The list only has what's on screen, so what's further down is scrolled to.
+        let reveal = { (element: XCUIElement) in
+            for _ in 0..<12 where !(element.exists && element.isHittable) { sheet.swipeUp() }
+        }
+        XCTAssertTrue(headline("Your camera").waitForExistence(timeout: 10))
+        try waitFor("frames from the camera", timeout: 15) { capturing() > 0 }
+        zuna.screenshot("99b-voice-stats")
+        // The screen's against the frame rate it was asked for.
+        reveal(headline("Your screen"))
+        XCTAssertTrue(headline("Your screen").label.contains("fps sent of "), headline("Your screen").label)
+
+        // Further down, how the screen goes out, the connection, and the microphone.
+        for (start, what) in [("Sent through, Moving bars", "how the screen goes out"), ("Media server", "the media server"), ("Encryption, End to end, key", "the room's key"), ("Your microphone", "the microphone")] {
+            let element = text(start)
+            reveal(element)
+            XCTAssertTrue(element.exists, "no \(what) in the stats")
+        }
+        zuna.screenshot("99c-voice-stats-connection")
+        // What's copied is what `voice-run.ts` reads, through the same text.
+        zuna.app.buttons["Copy all of it"].tap()
+
+        zuna.app.buttons["Done"].tap()
+        try waitFor("the stats to close") { !sheet.exists }
+        zuna.element(A11y.Voice.leave).tap()
+        try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
+    }
+
     func testIsTakenOutByAnAdminOrAnotherDevice() throws {
         let alice = try Peer("alice")
         let bobLaptop = try Peer("bobLaptop")

@@ -47,6 +47,8 @@ final class CoreController {
     private var suspendDelay: Duration = .seconds(20)
     #if DEBUG
     private var control: ControlServer?
+    /// Reads the stream stats for `voiceStats`, kept between calls so what's moved can be told.
+    private var statsReader: StreamStats?
     #endif
 
 
@@ -380,6 +382,12 @@ final class CoreController {
             return String(decoding: data, as: UTF8.self)
         case "voiceReport":
             return VoiceTesting.report()
+        case "voiceStats":
+            // What the stream stats show, as text. The first call only starts reading.
+            guard let voice = model?.voice else { return "" }
+            let reader = statsReader ?? StreamStats()
+            statsReader = reader
+            return StreamStats.asText(voice.readStats(reader))
         case "drift":
             return connection?.driftReports.joined(separator: "\n") ?? ""
         case "clearNotifications":

@@ -13,7 +13,7 @@
 // drawn on a canvas, since macOS's own picker can't be driven.
 
 import { execFileSync, spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
@@ -309,6 +309,25 @@ try {
   const state = await voiceState();
   check("a screen someone starts sharing fills the phone's stage", state.videos.some((video) => video.source === "screen" && video.id === state.focus));
   phoneShot("03-phone-screen");
+
+  // --- The phone's stream stats: the first reading starts them, and the third says what's moved since the second ---
+  await command("voiceStats");
+  await sleep(2000);
+  await command("voiceStats");
+  await sleep(2000);
+  const stats = await command("voiceStats");
+  writeFileSync(join(shots, "phone-stream-stats.txt"), stats);
+  const section = (title: RegExp) => stats.split("\n\n").find((part) => title.test(part.split("\n")[0])) ?? "";
+  const rate = (part: string, label: string) => Number(new RegExp(`^${label}: ([\\d.]+) fps`, "m").exec(part)?.[1] ?? 0);
+  const ownCamera = section(/^# Your camera$/);
+  check("the phone's stream stats count its camera's frames going out", rate(ownCamera, "sent") > 0, /^sent: .*$/m.exec(ownCamera)?.[0] ?? "no section");
+  for (const [kind, what] of [["camera", "camera"], ["screen", "shared screen"]]) {
+    const theirs = section(new RegExp(`^# (?!Your ).+'s ${kind}$`));
+    check(`the phone's stream stats count the desktop's ${what} decoding`, rate(theirs, "decoded") > 0 && /^Decoder: /m.test(theirs) && /^Bitrate: \d/m.test(theirs), [/^decoded: .*$/m.exec(theirs)?.[0] ?? "no section", /^Bitrate: .*$/m.exec(theirs)?.[0]].filter(Boolean).join(", "));
+  }
+  check("the phone's stream stats read the desktop's microphone", /^Codec: opus/m.test(section(/^# (?!Your ).+'s microphone$/)));
+  check("the phone's stream stats read its own microphone", /^Codec: opus/m.test(section(/^# Your microphone$/)));
+  check("the phone's stream stats say which key the call is under", /^Encryption: End to end, key \d+ from epoch \d+$/m.test(section(/^# Connection$/)));
 
   // --- The phone's screen on the desktop ---
   const sharing = await command("voiceScreen", { on: true });

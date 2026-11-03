@@ -12,6 +12,7 @@ struct CallScreen: View {
     @State private var member: VoiceMember?
     @State private var watching: String?
     @State private var explaining = false
+    @State private var showingStats = false
 
     private var server: AppModel.ServerState? { voice.serverId.flatMap { model.servers[$0] } }
     private var channel: ChannelView? { server?.channels.first { $0.id == voice.channelId } }
@@ -46,6 +47,9 @@ struct CallScreen: View {
             if let server {
                 MemberSheet(server: server, member: member)
             }
+        }
+        .sheet(isPresented: $showingStats) {
+            StreamStatsSheet()
         }
         .fullScreenCover(item: Binding(get: { watching.map(Watching.init) }, set: { watching = $0?.id })) { item in
             VideoViewer(tileId: item.id)
@@ -96,7 +100,16 @@ struct CallScreen: View {
                 .accessibilityIdentifier(A11y.Voice.encrypted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            QualityIcon()
+            Button {
+                showingStats = true
+            } label: {
+                QualityIcon()
+                    .frame(width: 40, height: 40)
+                    .background(Theme.bg3, in: .circle)
+            }
+            .accessibilityLabel("Stream stats")
+            .accessibilityValue(QualityIcon.describe(voice.quality).words)
+            .accessibilityIdentifier(A11y.Voice.stats)
         }
         .foregroundStyle(Theme.text1)
         .padding(.horizontal, 16)
@@ -252,14 +265,18 @@ extension VoiceMember: @retroactive Identifiable {
 struct QualityIcon: View {
     @Environment(VoiceModel.self) private var voice
 
-    var body: some View {
-        let (value, words): (Double, String) = switch voice.quality {
+    static func describe(_ quality: ConnectionQuality) -> (value: Double, words: String) {
+        switch quality {
         case .excellent: (1, "Great connection")
         case .good: (0.66, "Good connection")
         case .poor: (0.33, "Weak connection")
         case .lost: (0, "Connection lost")
         default: (1, "Connected")
         }
+    }
+
+    var body: some View {
+        let (value, words) = Self.describe(voice.quality)
         Image(systemName: "cellularbars", variableValue: value)
             .font(.footnote)
             .foregroundStyle(voice.quality == .poor || voice.quality == .lost ? Theme.red : Theme.green)

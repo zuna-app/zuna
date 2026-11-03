@@ -258,7 +258,7 @@ struct VoiceSettingsView: View {
     /// What the desktop offers, in kbit/s (SCREEN_BITRATES in packages/ui/src/voice/settings.ts).
     private static let bitrates = [1_000, 2_000, 3_000, 4_500, 6_000, 8_000, 10_000, 12_000, 15_000, 20_000, 25_000, 30_000, 40_000, 50_000, 60_000, 80_000, 100_000]
 
-    private static func bitrateName(_ kbps: Int) -> String {
+    static func bitrateName(_ kbps: Int) -> String {
         kbps < 1000 ? "\(kbps) kbit/s" : "\((Double(kbps) / 1000).formatted(.number.locale(Locale(identifier: "en_US")))) Mbit/s"
     }
 

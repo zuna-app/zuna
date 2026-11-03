@@ -587,4 +587,20 @@ final class VoiceModel {
         if localMutes.contains(userId) { localMutes.remove(userId) } else { localMutes.insert(userId) }
         applyVolumes()
     }
+
+    // MARK: Stream stats
+
+    /// Everything there is to know about what's going out and coming in, as `reader` last read it.
+    func readStats(_ reader: StreamStats) -> [StatSection] {
+        guard let room else { return [] }
+        let share = screen ? screenTerms.map { StatsShare(through: room.shareRoute, terms: $0) } : nil
+        let users = serverId.flatMap { app?.servers[$0]?.users } ?? [:]
+        let words: String = switch status {
+        case .idle: "closed"
+        case .connecting: "connecting"
+        case .connected: "connected"
+        case .reconnecting: "reconnecting"
+        }
+        return reader.read(room.statsRoom(), status: words, share: share) { users[$0]?.displayName ?? "Someone" }
+    }
 }

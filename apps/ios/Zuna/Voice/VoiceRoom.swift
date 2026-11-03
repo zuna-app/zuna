@@ -59,6 +59,8 @@ final class VoiceRoom {
     private let channelId: String
     private let bitrate: Int
     private let events: Events
+    /// The media server's address, for the stream stats.
+    private var mediaUrl = ""
     /// The keys in use, newest first: what's being sent under may be one behind for a moment.
     private var roomKeys: [(index: Int32, key: Data, epoch: Int)] = []
     private var sendTask: Task<Void, Never>?
@@ -88,6 +90,9 @@ final class VoiceRoom {
         false
         #endif
     }
+
+    /// Whether tracks read their statistics without the stream stats open.
+    static var reportsStatistics: Bool { testing }
 
     private init(session: SessionCalls, channelId: String, bitrate: Int, events: Events) {
         self.session = session
@@ -133,6 +138,7 @@ final class VoiceRoom {
         let access = try await session.voiceAccess(channelId)
         identity = access.identity
         serverMuted = access.serverMuted
+        mediaUrl = access.url
         try await updateKeys(first: true)
         try await connectRoom(url: access.url, token: access.token)
         joined = true
@@ -375,6 +381,14 @@ final class VoiceRoom {
     /// Whether it's going out from the broadcast extension, which can be stopped from the system's own controls.
     var sharingByBroadcast: Bool { broadcastPublication != nil }
 
+    /// How this device's share goes out, in words, for the stream stats.
+    var shareRoute: String {
+        #if DEBUG
+        if VoiceTesting.fakeScreen { return "Moving bars, in place of the screen" }
+        #endif
+        return sharingByBroadcast ? "The broadcast extension" : "ScreenCaptureKit"
+    }
+
     /// Shares this device's screen once the media server lets it, with what the person picks in the system's picker,
     /// or with the broadcast that's already going. It throws LiveKit's `.cancelled` if they change their mind, or
     /// `stopScreen` comes first.
@@ -475,6 +489,34 @@ final class VoiceRoom {
         let across = min(size.width, size.height), along = max(size.width, size.height)
         let scale = height > 0 && CGFloat(height) < across ? CGFloat(height) / across : 1
         return Dimensions(width: Int32((across * scale).rounded()), height: Int32((along * scale).rounded()))
+    }
+
+    // MARK: Stream stats
+
+    /// Where this connection is, and everything going through it that can be read.
+    func statsRoom() -> StatsRoom {
+        var streams: [StatsRoom.Stream] = []
+        let participants: [(Participant, Bool)] = [(room.localParticipant, true)] + room.remoteParticipants.values.map { ($0, false) }
+        for (participant, local) in participants {
+            guard let identity = participant.identity?.stringValue, let parsed = VoiceIdentity(identity) else { continue }
+            for publication in participant.trackPublications.values {
+                guard let track = publication.track else { continue }
+                streams.append(StatsRoom.Stream(key: "\(identity)/\(publication.sid.stringValue)", userId: parsed.userId, local: local, source: publication.source, native: parsed.screen, track: track, publication: publication))
+            }
+        }
+        // A native share comes from a participant of its own, who isn't another person.
+        let people = room.remoteParticipants.values.filter { participant in participant.identity.flatMap { VoiceIdentity($0.stringValue) }.map { !$0.screen } ?? false }.count + 1
+        return StatsRoom(
+            url: mediaUrl,
+            serverVersion: room.serverVersion,
+            serverRegion: room.serverRegion,
+            serverNode: room.serverNodeId,
+            people: people,
+            encrypted: room.e2eeManager != nil,
+            keyIndex: currentKey?.index,
+            keyEpoch: currentKey?.epoch,
+            streams: streams
+        )
     }
 
     // MARK: Closing
