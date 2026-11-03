@@ -398,6 +398,28 @@ final class CoreController {
             return "cleared"
         case "deliveredNotifications":
             return String(await UNUserNotificationCenter.current().deliveredNotifications().count)
+        case "notifications":
+            // Each one shown, with its message and when, and whether a push brought it or the app showed it itself.
+            let shown = await UNUserNotificationCenter.current().deliveredNotifications().map { notification -> [String: Any] in
+                let info = notification.request.content.userInfo
+                let pushed = PushStore.open(info)
+                return [
+                    "groupId": info["groupId"] as? String ?? pushed?.groupId ?? "",
+                    "messageId": info["messageId"] as? String ?? pushed?.messageId ?? "",
+                    "pushed": pushed != nil,
+                    "at": Int(notification.date.timeIntervalSince1970 * 1000),
+                ]
+            }
+            let data = (try? JSONSerialization.data(withJSONObject: shown)) ?? Data("[]".utf8)
+            return String(decoding: data, as: UTF8.self)
+        case "pushKeys":
+            // So a test can open what the server pushes here: each registration's key, by its ID.
+            let keys = PushStore.registrations().mapValues { $0.key.base64EncodedString() }
+            let data = (try? JSONSerialization.data(withJSONObject: keys)) ?? Data("{}".utf8)
+            return String(decoding: data, as: UTF8.self)
+        case "notificationsAllowed":
+            let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            return [.authorized, .provisional, .ephemeral].contains(status) ? "yes" : "no"
         default:
             return "unknown"
         }

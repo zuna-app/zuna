@@ -905,21 +905,27 @@ describe("notifications from a push", () => {
       const chat = `group:${groupId}`;
       await waitFor(() => bob.session.getConversations().some((item) => item.key === chat), "the laptop to have the group");
       await waitFor(() => phone.session.getConversations().some((item) => item.key === chat), "the phone to have the group");
-      const shown = (text: string) => bob.events.some((event) => event.type === "notify" && event.body === `alice: ${text}`);
-      // How long the laptop took to notify about a message once it had it.
+      const shown = (app: TestApp, text: string) => app.events.some((event) => event.type === "notify" && event.body === `alice: ${text}`);
+      // How long each of bob's devices took to notify about a message once it had it.
       const waited = async (text: string) => {
         alice.session.sendMessage(chat, { text });
-        await waitFor(() => bob.texts(chat).includes(text), "delivery to the laptop");
-        const arrived = Date.now();
-        await waitFor(() => shown(text), `the laptop's notification of "${text}"`);
-        return Date.now() - arrived;
+        const on = async (app: TestApp, name: string) => {
+          await waitFor(() => app.texts(chat).includes(text), `delivery to the ${name}`);
+          const arrived = Date.now();
+          await waitFor(() => shown(app, text), `the ${name}'s notification of "${text}"`);
+          return Date.now() - arrived;
+        };
+        const [laptop, phoneWait] = await Promise.all([on(bob, "laptop"), on(phone, "phone")]);
+        return { laptop, phone: phoneWait };
       };
 
-      // Bob on his phone: the laptop waits, and then shows what he didn't read there.
+      // Bob on his phone: it notifies at once, and the laptop waits, then shows what he didn't read there.
       phone.client.setActive(true);
       await waitFor(() => bob.session.isActiveElsewhere(), "the laptop to hear the phone is in use");
       expect(bob.events.filter((event) => event.type === "activity").at(-1)).toMatchObject({ elsewhere: true });
-      expect(await waited("where are you?")).toBeGreaterThanOrEqual(900);
+      const onPhone = await waited("where are you?");
+      expect(onPhone.phone).toBeLessThan(500);
+      expect(onPhone.laptop).toBeGreaterThanOrEqual(900);
 
       // Read on the phone meanwhile, it doesn't show on the laptop at all.
       alice.session.sendMessage(chat, { text: "read me there" });
@@ -928,23 +934,32 @@ describe("notifications from a push", () => {
       await phone.session.markRead(read.groupId, read.seq!);
       await waitFor(() => bob.texts(chat).includes("read me there"), "delivery to the laptop");
       await sleep(1_300);
-      expect(shown("read me there")).toBe(false);
+      expect(shown(bob, "read me there")).toBe(false);
 
-      // Using both: a moment's wait.
+      // Using both: a moment's wait on each.
       bob.client.setActive(true);
+      await sleep(300);
       const both = await waited("both of them?");
-      expect(both).toBeGreaterThanOrEqual(200);
-      expect(both).toBeLessThan(900);
+      for (const wait of [both.laptop, both.phone]) {
+        expect(wait).toBeGreaterThanOrEqual(200);
+        expect(wait).toBeLessThan(900);
+      }
 
-      // Just put down, the phone was used more recently than the laptop, which still waits.
+      // Put down after the laptop, the phone was used more recently: it notifies at once, and the laptop waits.
       bob.client.setActive(false);
+      await sleep(300);
       phone.client.setActive(false);
       await waitFor(() => !bob.session.isActiveElsewhere(), "the phone to be put away");
-      expect(await waited("still there?")).toBeGreaterThanOrEqual(900);
+      await sleep(300);
+      const putDown = await waited("still there?");
+      expect(putDown.phone).toBeLessThan(500);
+      expect(putDown.laptop).toBeGreaterThanOrEqual(900);
 
-      // Not lately: straight away.
+      // Not lately: both at once.
       await sleep(4_000);
-      expect(await waited("anyone?")).toBeLessThan(500);
+      const later = await waited("anyone?");
+      expect(later.phone).toBeLessThan(500);
+      expect(later.laptop).toBeLessThan(500);
     } finally {
       Object.assign(notifyTiming, telegram);
       phone.client.stop();
