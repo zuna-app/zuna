@@ -56,12 +56,12 @@ const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   addMembers: true, banUser: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteChannel: true, deleteGroup: true,
-  deleteMessage: true, deleteMessages: true, discardMessage: true, downloadFile: true, editMessage: true, emoteUrl: true, emotesIn: true,
-  flushOutbox: true, forgetConversation: true, forwardMessage: true, forwardable: true, getChannels: true, getConnectionState: true, getConversations: true,
+  declineCall: true, deleteMessage: true, deleteMessages: true, discardMessage: true, downloadFile: true, editMessage: true, emoteUrl: true, emotesIn: true,
+  flushOutbox: true, forgetConversation: true, forwardMessage: true, forwardable: true, getCalls: true, getChannels: true, getConnectionState: true, getConversations: true,
   getDevices: true, getEmotes: true, getInfo: true, getPreferences: true, getSelf: true, getUsers: true, getVoiceMembers: true, invites: true,
   isActiveElsewhere: true, leaveGroup: true, linkForInvite: true, loadAround: true, loadMedia: true, loadMessages: true, loadPins: true, markChatRead: true, markRead: true,
-  markMentionSeen: true, markVerified: true, mediaCounts: true, messageById: true, mute: true, nudge: true, prepareNewDevice: true, previewText: true, refreshEmotes: true,
-  regenerateRecoveryKey: true, removeMember: true, reorderChannels: true, resume: true, retryMessage: true, revokeDevice: true, revokeInvite: true, rotate: true,
+  markMentionSeen: true, markVerified: true, mediaCounts: true, messageById: true, mute: true, nudge: true, prepareCall: true, prepareNewDevice: true, previewText: true, refreshEmotes: true,
+  regenerateRecoveryKey: true, removeMember: true, reorderChannels: true, resume: true, retryMessage: true, ringCall: true, revokeDevice: true, revokeInvite: true, rotate: true,
   safetyCheck: true, search: true, searchCoverage: true, sendMessage: true, sendTyping: true, sendWithAttachments: true, serverUrl: true,
   setActive: true, setBlocked: true, setDisappearing: true, setEmoteSet: true, setGroupRole: true, setHideLastSeen: true, setMarkedUnread: true, setMentionsOnly: true, setPinned: true, setPush: true, setServerRole: true, setVoiceState: true,
   signOut: true, start: true, stop: true, suspend: true, syncGroup: true, toggleReaction: true, unbanUser: true, unmute: true, unreadMentions: true,

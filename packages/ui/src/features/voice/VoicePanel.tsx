@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { screenRefusal } from "@zuna/core/voice";
 import { Spinner, Tooltip } from "@/components/ui";
 import { keyName } from "@/voice/settings";
-import { useApp } from "@/state/store";
+import { conversationOfGroup, useApp } from "@/state/store";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
 import { ScreenPicker } from "./ScreenPicker";
 
@@ -19,11 +19,12 @@ function QualityIcon() {
   );
 }
 
-/** Stays at the bottom of the sidebar while in a voice channel, wherever else the person is. */
+/** Stays at the bottom of the sidebar while in a voice channel or a call, wherever else the person is. */
 export function VoicePanel() {
   const status = useVoice((state) => state.status);
   const serverId = useVoice((state) => state.serverId);
   const channelId = useVoice((state) => state.channelId);
+  const isCall = useVoice((state) => state.call);
   const muted = useVoice((state) => state.muted);
   const deafened = useVoice((state) => state.deafened);
   const serverMuted = useVoice((state) => state.serverMuted);
@@ -40,7 +41,7 @@ export function VoicePanel() {
   const stopScreen = useVoice((state) => state.stopScreen);
   const leave = useVoice((state) => state.leave);
   const server = useApp((state) => (serverId ? state.servers[serverId] : null));
-  const shareRefusal = screenRefusal(server?.info?.screen_share, server?.self?.role, server?.channels.find((item) => item.id === channelId)?.screenLimit);
+  const shareRefusal = screenRefusal(server?.info?.screen_share, server?.self?.role, isCall ? 0 : server?.channels.find((item) => item.id === channelId)?.screenLimit);
   const selectServer = useApp((state) => state.selectServer);
   const setOverlay = useApp((state) => state.setOverlay);
   const [picking, setPicking] = useState(false);
@@ -56,18 +57,20 @@ export function VoicePanel() {
 
   if (status === "idle" || !server || !channelId) return null;
   const channel = server.channels.find((item) => item.id === channelId);
+  const conversation = isCall ? conversationOfGroup(server, channelId) : undefined;
   const self = server.self ? server.users[server.self.userId] : null;
   const micOff = muted || deafened || serverMuted || noMic;
-  const statusText = status === "connected" ? "Voice connected" : status === "reconnecting" ? "Reconnecting" : "Connecting";
+  const statusText = status === "connected" ? (isCall ? "Call connected" : "Voice connected") : status === "reconnecting" ? "Reconnecting" : "Connecting";
+  const where = isCall ? (conversation?.title ?? "Call") : (channel?.name ?? "Voice channel");
 
   return (
-    <div className="voice-panel" role="region" aria-label="Voice channel">
+    <div className="voice-panel" role="region" aria-label={isCall ? "Call" : "Voice channel"}>
       <div className="voice-panel-top">
         <button
           className="voice-panel-where"
           onClick={() => {
             selectServer(server.entry.id);
-            useApp.getState().selectConversation(`group:${channelId}`);
+            useApp.getState().selectConversation(conversation?.key ?? `group:${channelId}`);
           }}
         >
           <span className={`voice-panel-status is-${status}`}>
@@ -78,11 +81,11 @@ export function VoicePanel() {
             </Tooltip>
           </span>
           <span className="voice-panel-channel truncate">
-            {channel?.name ?? "Voice channel"} / {server.entry.name}
+            {where} / {server.entry.name}
           </span>
         </button>
         <Tooltip text="Disconnect" side="top">
-          <button className="icon-btn voice-leave" onClick={leave} aria-label="Disconnect from voice">
+          <button className="icon-btn voice-leave" onClick={leave} aria-label={isCall ? "Leave the call" : "Disconnect from voice"}>
             <PhoneOff size={17} />
           </button>
         </Tooltip>

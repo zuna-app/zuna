@@ -62,11 +62,13 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var channels: Int?
     /// Whether this server has a media server, without which voice channels can't be joined.
     public var voice: Int?
+    /// Whether direct messages and groups can have calls there.
+    public var calls: Int?
     /// What its admins say about sharing a screen.
     public var screenShare: ScreenRules?
 
     enum CodingKeys: String, CodingKey {
-        case name, version, claimed, registration, channels, voice
+        case name, version, claimed, registration, channels, voice, calls
         case hasIcon = "has_icon"
         case maxUploadMb = "max_upload_mb"
         case allowMemberInvites = "allow_member_invites"
@@ -437,6 +439,7 @@ public struct ChannelView: Codable, Sendable, Equatable, Identifiable {
 
 /// Someone's device in a voice channel, as it says. Mirrors `VoiceMember`.
 public struct VoiceMember: Codable, Sendable, Equatable {
+    /// The voice channel, or the conversation whose call it is.
     public var channelId: String
     public var userId: String
     public var deviceId: String
@@ -459,6 +462,27 @@ public struct VoiceMember: Codable, Sendable, Equatable {
         self.camera = camera
         self.screen = screen
         self.since = since
+    }
+}
+
+/// A call in a direct message or a group, from when someone comes into it until the last one
+/// leaves. Who's in it are the voice members with its conversation's group ID.
+public struct CallView: Codable, Sendable, Equatable {
+    public var groupId: String
+    public var startedBy: String
+    /// When it started (ms).
+    public var startedAt: Int
+    /// People whose devices it's ringing, until they answer or decline, or a while passes.
+    public var ringing: [String]
+    /// People who declined it.
+    public var declined: [String]
+
+    public init(groupId: String, startedBy: String, startedAt: Int, ringing: [String], declined: [String]) {
+        self.groupId = groupId
+        self.startedBy = startedBy
+        self.startedAt = startedAt
+        self.ringing = ringing
+        self.declined = declined
     }
 }
 
@@ -701,6 +725,10 @@ public enum CoreEvent: Sendable, Equatable {
     case voiceEnded(serverId: String, channelId: String, reason: String)
     /// This device's screen share has been stopped.
     case screenEnded(serverId: String, channelId: String, reason: String)
+    /// A call in a conversation started, changed whom it's ringing, or ended (nil).
+    case call(serverId: String, groupId: String, call: CallView?)
+    /// The calls going on were caught up on, so ask again for them and who's in them.
+    case calls(serverId: String)
     case message(serverId: String, message: MessageView, isNew: Bool)
     case messageRemoved(serverId: String, groupId: String, id: String)
     case messageMoved(serverId: String, fromGroupId: String, message: MessageView)
@@ -725,7 +753,7 @@ extension CoreEvent {
     public var serverId: String {
         switch self {
         case let .connection(serverId, _), let .conversations(serverId), let .channels(serverId), let .voice(serverId, _, _, _, _),
-             let .voiceKey(serverId, _), let .voiceEnded(serverId, _, _), let .screenEnded(serverId, _, _), let .message(serverId, _, _),
+             let .voiceKey(serverId, _), let .voiceEnded(serverId, _, _), let .screenEnded(serverId, _, _), let .call(serverId, _, _), let .calls(serverId), let .message(serverId, _, _),
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
              let .settings(serverId, _), let .emotes(serverId), let .preferences(serverId),
@@ -743,7 +771,7 @@ extension CoreEvent {
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId
-        case channelId, deviceId, member
+        case channelId, deviceId, member, call
     }
 
     public init(from decoder: Decoder) throws {
@@ -764,6 +792,8 @@ extension CoreEvent: Codable {
         case "voice_key": self = .voiceKey(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId))
         case "voice_ended": self = .voiceEnded(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId), reason: try c.decode(String.self, forKey: .reason))
         case "screen_ended": self = .screenEnded(serverId: serverId, channelId: try c.decode(String.self, forKey: .channelId), reason: try c.decode(String.self, forKey: .reason))
+        case "call": self = .call(serverId: serverId, groupId: try c.decode(String.self, forKey: .groupId), call: try c.decodeIfPresent(CallView.self, forKey: .call))
+        case "calls": self = .calls(serverId: serverId)
         case "message": self = .message(serverId: serverId, message: try c.decode(MessageView.self, forKey: .message), isNew: try c.decode(Bool.self, forKey: .isNew))
         case "message_removed": self = .messageRemoved(serverId: serverId, groupId: try c.decode(String.self, forKey: .groupId), id: try c.decode(String.self, forKey: .id))
         case "message_moved": self = .messageMoved(serverId: serverId, fromGroupId: try c.decode(String.self, forKey: .fromGroupId), message: try c.decode(MessageView.self, forKey: .message))
@@ -809,6 +839,10 @@ extension CoreEvent: Codable {
             try c.encode("voice_ended", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId); try c.encode(reason, forKey: .reason)
         case let .screenEnded(serverId, channelId, reason):
             try c.encode("screen_ended", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId); try c.encode(reason, forKey: .reason)
+        case let .call(serverId, groupId, call):
+            try c.encode("call", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(groupId, forKey: .groupId); try c.encodeIfPresent(call, forKey: .call)
+        case let .calls(serverId):
+            try c.encode("calls", forKey: .type); try c.encode(serverId, forKey: .serverId)
         case let .message(serverId, message, isNew):
             try c.encode("message", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(message, forKey: .message); try c.encode(isNew, forKey: .isNew)
         case let .messageRemoved(serverId, groupId, id):

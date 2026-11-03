@@ -12,6 +12,7 @@ import {
   decode,
   encodeBody,
   type ApiAccount,
+  type ApiCall,
   type ApiChannel,
   type ApiDevice,
   type ApiEvent,
@@ -122,6 +123,7 @@ import {
 import type {
   Attachment,
   AvatarRef,
+  CallView,
   ChannelType,
   ChannelView,
   ConnectionState,
@@ -502,10 +504,15 @@ export class ServerSession {
   /** Removals from before this server kept generations are nobody's cue to rotate. */
   private protocolSince: number | null = null;
   private channels = new Map<string, CachedChannel>();
-  /** Who's in the voice channels, by device. */
+  /** Who's in the voice channels and the calls, by device. */
   private voiceStates = new Map<string, ApiVoiceState>();
-  /** The voice channel this device is in, what it says it's doing there, and the epoch its key was last for. */
-  private activeVoice: { channelId: string; update: VoiceUpdate; epoch: number } | null = null;
+  /** The calls going on in this person's conversations, by group. */
+  private calls = new Map<string, ApiCall>();
+  /**
+   * The voice channel or call this device is in, what it says it's doing there, the epoch its key was
+   * last for, and whether it still has to say it's starting the call, which rings everyone else.
+   */
+  private activeVoice: { channelId: string; update: VoiceUpdate; epoch: number; ring: boolean } | null = null;
   private joiningChannels: Promise<void> | null = null;
   private grantTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Called when the server told us this session is over (banned, revoked). */
@@ -525,6 +532,8 @@ export class ServerSession {
     private readonly files: FileAdapter = blobFiles,
     /** The app shows channels. One that doesn't takes no part in them. */
     private readonly channelsOn: boolean = false,
+    /** The app has calls in direct messages and groups. One that doesn't hears nothing of them. */
+    private readonly callsOn: boolean = false,
   ) {
     this.api = new Api(account.serverUrl);
     this.api.token = account.token;
@@ -661,7 +670,7 @@ export class ServerSession {
     }
     this.setConnection("syncing");
     // The server only gives a device that went quiet a moment to come back.
-    if (this.activeVoice) this.socket.sendVoice(this.activeVoice.channelId, this.activeVoice.update);
+    if (this.activeVoice) this.sayVoice();
     try {
       await this.syncAll();
       if (this.socket.connected) this.setConnection("online");
@@ -717,6 +726,10 @@ export class ServerSession {
     await this.syncChannels().catch((error) => {
       if (error instanceof ApiError && error.status === 401) throw error;
       console.warn("[zuna] catching up on channels", error);
+    });
+    await this.syncCalls().catch((error) => {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      console.warn("[zuna] catching up on calls", error);
     });
     // After joining, since a grant is only good for epochs before this device came in.
     await this.processHistoryGrants();
@@ -2639,6 +2652,7 @@ export class ServerSession {
     group.removedAt = Date.now();
     this.persistGroup(group);
     this.forgetMlsState(groupId);
+    this.forgetCall(groupId);
     this.emitConversations();
   }
 
@@ -3676,7 +3690,10 @@ export class ServerSession {
         this.onVoiceEnded(data);
         break;
       case "screen_ended":
-        if (this.channelsOn) this.emit({ type: "screen_ended", serverId: this.serverId, channelId: data.channel_id, reason: data.reason });
+        if (this.channelsOn || this.callsOn) this.emit({ type: "screen_ended", serverId: this.serverId, channelId: data.channel_id, reason: data.reason });
+        break;
+      case "call":
+        this.onCallFrame(data);
         break;
       case "read":
         this.onLiveRead(data);
@@ -5717,7 +5734,11 @@ export class ServerSession {
     if (!this.channelsOn || !this.info?.channels) return;
     const { channels, voice } = await this.api.channels();
     this.applyChannels(channels);
-    this.voiceStates = new Map(voice.map((state) => [state.device_id, state]));
+    // Calls are listed by themselves.
+    for (const [device, state] of this.voiceStates) {
+      if (!state.call) this.voiceStates.delete(device);
+    }
+    for (const state of voice) this.voiceStates.set(state.device_id, state);
     this.emit({ type: "channels", serverId: this.serverId });
     await this.joinChannels();
   }
@@ -5877,14 +5898,14 @@ export class ServerSession {
     };
   }
 
-  /** Who's in the voice channels, as each device says. */
+  /** Who's in the voice channels and the calls, as each device says. */
   getVoiceMembers(): VoiceMember[] {
     return [...this.voiceStates.values()].map((state) => this.voiceMember(state));
   }
 
-  private onVoiceFrame(data: { channel_id: string; device_id: string; user_id: string; state: ApiVoiceState | null }): void {
-    if (!this.channelsOn) return;
-    if (data.state) this.voiceStates.set(data.device_id, data.state);
+  private onVoiceFrame(data: { channel_id: string; device_id: string; user_id: string; call?: boolean; state: ApiVoiceState | null }): void {
+    if (data.call ? !this.callsOn : !this.channelsOn) return;
+    if (data.state) this.voiceStates.set(data.device_id, { ...data.state, call: !!data.call });
     else this.voiceStates.delete(data.device_id);
     this.emit({
       type: "voice",
@@ -5897,12 +5918,12 @@ export class ServerSession {
   }
 
   private onVoiceEnded(data: { channel_id: string; reason: string }): void {
-    if (!this.channelsOn) return;
+    if (!this.channelsOn && !this.callsOn) return;
     if (this.activeVoice?.channelId === data.channel_id) this.activeVoice = null;
     this.emit({ type: "voice_ended", serverId: this.serverId, channelId: data.channel_id, reason: data.reason });
   }
 
-  /** Tells the app when the voice channel this device is in has moved to a new key. */
+  /** Tells the app when the voice channel or call this device is in has moved to a new key. */
   private noticeVoiceEpoch(): void {
     const voice = this.activeVoice;
     if (!voice || !this.hasMlsGroup(voice.channelId)) return;
@@ -5912,15 +5933,26 @@ export class ServerSession {
     this.emit({ type: "voice_key", serverId: this.serverId, channelId: voice.channelId });
   }
 
+  /** Whether a room is a conversation's call, rather than a voice channel's. */
+  private isCall(groupId: string): boolean {
+    const kind = this.groups.get(groupId)?.kind;
+    return kind === "dm" || kind === "group";
+  }
+
   private async readyForVoice(channelId: string): Promise<void> {
-    if (this.groups.get(channelId)?.kind !== "channel") await this.joinChannel(channelId);
+    if (this.isCall(channelId)) {
+      if (!this.hasMlsGroup(channelId)) await this.withLock(channelId, () => this.ensureReady(channelId));
+    } else if (this.groups.get(channelId)?.kind !== "channel") await this.joinChannel(channelId);
     else if (!this.hasMlsGroup(channelId)) await this.withLock(channelId, () => this.ensureReady(channelId));
   }
 
-  /** How to reach a voice channel's room. It lets this device in, and nothing else: its media is under keys only members have. */
+  /**
+   * How to reach a voice channel's room, or a conversation's call. It lets this device in, and nothing
+   * else: its media is under keys only members have.
+   */
   async voiceAccess(channelId: string): Promise<VoiceAccess> {
     await this.readyForVoice(channelId);
-    const access = await this.api.voiceToken(channelId);
+    const access = this.isCall(channelId) ? await this.api.callToken(channelId) : await this.api.voiceToken(channelId);
     if (access.identity !== voiceIdentity(this.account.userId, this.account.deviceId)) throw new Error("The server's answer about this voice channel doesn't hold together.");
     return { url: access.url, token: access.token, identity: access.identity, serverMuted: access.server_muted };
   }
@@ -5931,7 +5963,7 @@ export class ServerSession {
    * nothing else, and one through the browser goes out over this device's connection, once the room says so.
    */
   async voiceScreenAccess(channelId: string, how: { browser: boolean; sound: boolean }): Promise<ScreenAccess> {
-    const access = await this.api.startScreen(channelId, how);
+    const access = this.isCall(channelId) ? await this.api.startCallScreen(channelId, how) : await this.api.startScreen(channelId, how);
     // A server from before it had a say lets anyone in the channel share, with sound.
     const sound = access.sound ?? how.sound;
     if (how.browser) return { sound, native: null };
@@ -5941,7 +5973,8 @@ export class ServerSession {
 
   /** Gives up this device's place to share a screen, once it's stopped. */
   async voiceScreenStop(channelId: string): Promise<void> {
-    await this.api.stopScreen(channelId);
+    if (this.isCall(channelId)) await this.api.stopCallScreen(channelId);
+    else await this.api.stopScreen(channelId);
   }
 
   /** Stops someone else's screen share, for a server admin. */
@@ -5950,13 +5983,16 @@ export class ServerSession {
   }
 
   /**
-   * A voice channel's media key for its current epoch, straight from MLS. It's kept
-   * nowhere, unlike the keys to messages, so a later member or a stolen vault can't
-   * open a recording of a call. Anyone who shouldn't be in the group goes first.
+   * A voice channel's or a call's media key for its current epoch, straight from MLS. It's kept
+   * nowhere, unlike the keys to messages, so a later member or a stolen vault can't open a
+   * recording of a call. Anyone who shouldn't be in the group goes first.
    */
   async voiceKey(channelId: string): Promise<{ epoch: number; key: Uint8Array }> {
     return this.withLock(channelId, async () => {
-      if (this.groups.get(channelId)?.kind !== "channel" || !this.hasMlsGroup(channelId)) throw new Error("This device isn't in that channel yet.");
+      const kind = this.groups.get(channelId)?.kind;
+      if ((kind !== "channel" && !this.isCall(channelId)) || this.groups.get(channelId)?.removedAt || !this.hasMlsGroup(channelId)) {
+        throw new Error(kind === "channel" ? "This device isn't in that channel yet." : "This device isn't in that conversation yet.");
+      }
       await this.pullChanges(channelId);
       await this.ensureTreeClean(channelId);
       const epoch = this.mlsEpoch(channelId);
@@ -5964,16 +6000,99 @@ export class ServerSession {
     });
   }
 
-  /** What this device is doing in a voice channel, for everyone to see, or null once it's left. */
-  setVoiceState(channelId: string | null, update: VoiceUpdate | null): void {
+  /**
+   * What this device is doing in a voice channel or a call, for those who may know, or null once it's
+   * left. Coming into a call with `ring` starts it, ringing everyone else, if nobody's in it yet.
+   */
+  setVoiceState(channelId: string | null, update: VoiceUpdate | null, ring = false): void {
     if (!channelId || !update) {
       this.activeVoice = null;
       this.socket.sendVoice(null, null);
       return;
     }
     const epoch = this.hasMlsGroup(channelId) ? this.mlsEpoch(channelId) : 0;
-    this.activeVoice = { channelId, update, epoch: this.activeVoice?.channelId === channelId ? this.activeVoice.epoch : epoch };
-    this.socket.sendVoice(channelId, update);
+    const same = this.activeVoice?.channelId === channelId;
+    this.activeVoice = { channelId, update, epoch: same ? this.activeVoice!.epoch : epoch, ring: (same && this.activeVoice!.ring) || (ring && this.isCall(channelId)) };
+    this.sayVoice();
+  }
+
+  /** Tells the server what this device is doing, and asks it to ring only until it's been heard asking. */
+  private sayVoice(): void {
+    const voice = this.activeVoice;
+    if (!voice) return;
+    if (this.socket.sendVoice(voice.channelId, voice.update, voice.ring)) voice.ring = false;
+  }
+
+  // --- Calls ---
+
+  private callView(call: ApiCall): CallView {
+    return { groupId: call.group_id, startedBy: call.started_by, startedAt: call.started_at, ringing: [...call.ringing], declined: [...call.declined] };
+  }
+
+  /** The calls going on in this person's conversations. Who's in each are the voice members under its group. */
+  getCalls(): CallView[] {
+    return [...this.calls.values()].map((call) => this.callView(call));
+  }
+
+  /** The calls going on and who's in them, as the server has it, once connected. */
+  private async syncCalls(): Promise<void> {
+    if (!this.callsOn || !this.info?.calls) return;
+    const { calls, voice } = await this.api.calls();
+    this.calls = new Map(calls.filter((call) => !this.groups.get(call.group_id)?.removedAt).map((call) => [call.group_id, call]));
+    for (const [device, state] of this.voiceStates) {
+      if (state.call) this.voiceStates.delete(device);
+    }
+    for (const state of voice) this.voiceStates.set(state.device_id, { ...state, call: true });
+    this.emit({ type: "calls", serverId: this.serverId });
+  }
+
+  /**
+   * How a call stands. It's the server's word, like who's in a voice channel: it can say someone's calling
+   * who isn't, but not let anyone hear the call who isn't in the conversation.
+   */
+  private onCallFrame(data: { group_id: string; call: ApiCall | null }): void {
+    if (!this.callsOn) return;
+    if (data.call && !this.groups.get(data.group_id)?.removedAt) this.calls.set(data.group_id, data.call);
+    else this.calls.delete(data.group_id);
+    const call = this.calls.get(data.group_id);
+    this.emit({ type: "call", serverId: this.serverId, groupId: data.group_id, call: call ? this.callView(call) : null });
+  }
+
+  /** A conversation this device is no longer in has no call for it. */
+  private forgetCall(groupId: string): void {
+    let changed = this.calls.delete(groupId);
+    for (const [device, state] of this.voiceStates) {
+      if (state.call && state.channel_id === groupId) {
+        this.voiceStates.delete(device);
+        changed = true;
+      }
+    }
+    if (changed) this.emit({ type: "calls", serverId: this.serverId });
+  }
+
+  /**
+   * Gets a conversation ready for a call, starting a direct message nobody has written in yet, and says
+   * which group the call is in. Coming into it is up to the room, through `voiceAccess`.
+   */
+  async prepareCall(key: string): Promise<string> {
+    if (!this.callsOn || !this.info?.calls) throw new Error("This server can't make calls.");
+    if (key === `user:${this.account.userId}`) throw new Error("There's nobody to call here.");
+    if (key.startsWith("user:") && this.isBlocked(key.slice(5))) throw new Error("You blocked this person.");
+    const groupId = await this.groupIdForKey(key);
+    const group = this.groups.get(groupId);
+    if (!group || group.removedAt || !this.isCall(groupId)) throw new Error("There's nobody to call here.");
+    if (!this.hasMlsGroup(groupId)) await this.withLock(groupId, () => this.ensureReady(groupId));
+    return groupId;
+  }
+
+  /** Rings people in the conversation again, from inside its call: those named, or everyone not in it. */
+  async ringCall(groupId: string, userIds: string[] = []): Promise<void> {
+    await this.api.ringCall(groupId, userIds);
+  }
+
+  /** Stops a call ringing this person, on all their devices. */
+  async declineCall(groupId: string): Promise<void> {
+    await this.api.declineCall(groupId);
   }
 
   /** Takes someone out of a voice channel, for a server admin. */

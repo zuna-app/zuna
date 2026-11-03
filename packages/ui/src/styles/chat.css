@@ -30,6 +30,8 @@
 .security-banner-inner b { font-weight: 600; }
 
 .chat-scroll { flex: 1; min-height: 0; position: relative; display: flex; }
+/* A call above the chat can take its place, which keeps where it was. */
+.chat-scroll[hidden] { display: none; }
 .message-list { flex: 1; min-width: 0; position: relative; }
 /* A thin scrollbar that always has its place, so messages sit the same distance from both edges. */
 .virtuoso { height: 100% !important; scrollbar-gutter: stable; }

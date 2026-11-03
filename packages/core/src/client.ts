@@ -69,6 +69,8 @@ export interface ZunaClientOptions {
   web?: WebAdapter;
   /** The app shows channels. One that doesn't takes no part in them, so its device does no work for them. */
   channels?: boolean;
+  /** The app has calls in direct messages and groups. One that doesn't hears nothing of them. */
+  calls?: boolean;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -137,6 +139,7 @@ export class ZunaClient {
       this.options.deviceName,
       this.options.files,
       this.options.channels ?? false,
+      this.options.calls ?? false,
     );
     // Nothing is erased on the server's word: that's for the person to decide.
     session.onSignedOut = (reason) => {

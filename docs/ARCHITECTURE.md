@@ -96,6 +96,8 @@ Each person's frames are under a key of their own, bound to who they are in the 
 
 **Screens** come from a native program where that's possible, as [SCREEN_SHARE.md](SCREEN_SHARE.md) explains, and from the browser otherwise. Either way a device has to ask first, since being in a room doesn't allow one, and the server's rules decide.
 
+**Calls** in direct messages and groups are rooms of their own on the same media server, under the conversation's group ID, keyed from its MLS group in the same way, so everything above goes for them: the microphone, cameras, screens, a new key whenever someone joins or leaves the conversation. Who's in one only goes to the conversation's members. The first device to come in says it's starting the call, and the server rings everyone else in the conversation until they answer or decline, or for 45 seconds. A direct message's call ends by itself when nobody answers, or when the other person hangs up. A call sits above its conversation's chat, where a voice channel's stage takes the place of its chat.
+
 ## Sync
 
 Each group has one sequence counter. Everything that changes a group takes the next number.

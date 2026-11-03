@@ -1,4 +1,5 @@
-// The small sounds a voice channel makes, synthesized so no audio files are bundled.
+// The small sounds a voice channel makes, and a call's ringing, synthesized so no audio
+// files are bundled.
 
 export type VoiceSound = "join" | "leave" | "self-join" | "self-leave" | "mute" | "unmute" | "deafen" | "undeafen" | "ptt-down" | "ptt-up";
 
@@ -30,6 +31,10 @@ function applySink(): void {
 }
 
 export function playVoiceSound(sound: VoiceSound, volume = 1): void {
+  play(NOTES[sound], volume);
+}
+
+function play(notes: [offset: number, frequency: number, length: number][], volume: number): void {
   try {
     if (!context) {
       context = new AudioContext();
@@ -37,7 +42,7 @@ export function playVoiceSound(sound: VoiceSound, volume = 1): void {
     }
     void context.resume();
     const start = context.currentTime;
-    for (const [offset, frequency, length] of NOTES[sound]) {
+    for (const [offset, frequency, length] of notes) {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.type = "sine";
@@ -53,4 +58,32 @@ export function playVoiceSound(sound: VoiceSound, volume = 1): void {
   } catch {
     // Audio isn't essential.
   }
+}
+
+/** "incoming" rings for a call coming in. "outgoing" is what the one calling hears while it rings. */
+export type Ringing = "incoming" | "outgoing";
+
+const RINGS: Record<Ringing, { every: number; notes: [offset: number, frequency: number, length: number][]; volume: number }> = {
+  incoming: {
+    every: 2600,
+    notes: [[0, 659.25, 0.16], [0.18, 830.61, 0.16], [0.36, 987.77, 0.3], [0.9, 659.25, 0.16], [1.08, 830.61, 0.16], [1.26, 987.77, 0.3]],
+    volume: 2.5,
+  },
+  outgoing: { every: 3000, notes: [[0, 440, 1.1]], volume: 0.8 },
+};
+
+let ringTimer: ReturnType<typeof setInterval> | undefined;
+let ringingNow: Ringing | null = null;
+
+/** Rings, over and over, until it's told to ring otherwise or stop with null. */
+export function setRinging(kind: Ringing | null, volume = 1): void {
+  if (kind === ringingNow) return;
+  clearInterval(ringTimer);
+  ringTimer = undefined;
+  ringingNow = kind;
+  if (!kind) return;
+  const ring = RINGS[kind];
+  const once = () => play(ring.notes, ring.volume * volume);
+  once();
+  ringTimer = setInterval(once, ring.every);
 }

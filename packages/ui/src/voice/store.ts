@@ -1,11 +1,13 @@
-// The voice channel this device is in, wherever in the app the person is looking.
-// There's one at a time, across all servers, as in Discord.
+// The voice channel or call this device is in, wherever in the app the person is looking.
+// There's one at a time, across all servers, as in Discord. A call is a direct message's or a
+// group's, in a room of its own under the conversation's group, and everything a voice channel
+// has works the same in it.
 
 import { screenTerms, voiceSenderKey } from "@zuna/core/voice";
 import { Track } from "livekit-client";
 import { create } from "zustand";
 import { platform } from "@/platform";
-import { useApp } from "@/state/store";
+import { conversationOfGroup, useApp } from "@/state/store";
 import { voiceHooks } from "./events";
 import type { MicReading } from "./mic";
 import { DisconnectReason, VoiceRoom, type RoomQuality, type VideoTile } from "./room";
@@ -31,7 +33,10 @@ export interface ScreenChoice {
 interface VoiceState {
   status: VoiceStatus;
   serverId: string | null;
+  /** The voice channel, or the group of the conversation whose call it is. */
   channelId: string | null;
+  /** It's a conversation's call rather than a voice channel. */
+  call: boolean;
   /** Muted by the person. */
   muted: boolean;
   deafened: boolean;
@@ -62,8 +67,14 @@ interface VoiceState {
   /** People muted for this device only. */
   localMutes: Record<string, true>;
 
-  /** Comes into a voice channel. `returnTo` is what to open again on leaving, if it's said. */
-  join(serverId: string, channelId: string, returnTo?: string | null): Promise<void>;
+  /** Comes into a voice channel or a call. `returnTo` is what to open again on leaving a voice channel, if it's said. */
+  join(serverId: string, channelId: string, returnTo?: string | null, how?: JoinHow): Promise<void>;
+  /** Calls the people in a conversation, starting a direct message if nobody's written in it yet. */
+  startCall(serverId: string, conversationKey: string, camera: boolean): Promise<void>;
+  /** Stops a call ringing on all this person's devices. */
+  decline(serverId: string, groupId: string): void;
+  /** Rings everyone in the call's conversation who isn't in it. */
+  ringAgain(userIds?: string[]): Promise<void>;
   leave(): void;
   toggleMute(): void;
   toggleDeafen(): void;
@@ -80,10 +91,19 @@ interface VoiceState {
   readStats(reader: StreamStats, nameOf: (userId: string) => string): Promise<StatSection[]>;
 }
 
+/** How to come into a room. */
+export interface JoinHow {
+  /** It starts a call, ringing everyone else in the conversation. */
+  ring?: boolean;
+  /** The camera goes on once in. */
+  camera?: boolean;
+}
+
 const NOT_IN_VOICE = {
   status: "idle" as VoiceStatus,
   serverId: null,
   channelId: null,
+  call: false,
   serverMuted: false,
   noMic: false,
   open: false,
@@ -129,6 +149,13 @@ let stopNative: (() => void) | null = null;
 let stopSound: (() => void) | null = null;
 /** What was open before coming into a voice channel. */
 let openBefore: string | null = null;
+/** This device still has to say it's starting the call it's in, which rings everyone else. */
+let ringOnAnnounce = false;
+/** The call this device is in has rung someone, so that nobody being rung any more means something. */
+let callRang = false;
+let hangUpTimer: ReturnType<typeof setTimeout> | undefined;
+/** How long a direct message's call waits, once the other person seems to have gone, in case it's another of their devices taking over. */
+const PEER_GONE_MS = 2000;
 
 const readings = new Set<(reading: MicReading) => void>();
 
@@ -149,10 +176,13 @@ export const useVoice = create<VoiceState>((set, get) => {
     return serverId ? useApp.getState().session(serverId) : null;
   };
 
-  /** Tells everyone on the server what this device is doing. */
+  /** Tells everyone on the server what this device is doing, or the conversation's members in a call. */
   const announce = () => {
     const { channelId, muted, deafened, camera, screen, noMic, serverMuted } = get();
-    if (channelId) void session()?.setVoiceState(channelId, { muted: muted || noMic || serverMuted, deafened, camera, screen: !!screen });
+    if (!channelId) return;
+    const ring = ringOnAnnounce;
+    ringOnAnnounce = false;
+    void session()?.setVoiceState(channelId, { muted: muted || noMic || serverMuted, deafened, camera, screen: !!screen }, ring);
   };
 
   const applyVolumes = () => {
@@ -243,11 +273,11 @@ export const useVoice = create<VoiceState>((set, get) => {
     }
   };
 
-  /** There's nothing to show for a voice channel once out of it, so whatever was open before comes back. */
+  /** There's nothing to show for a voice channel once out of it, so whatever was open before comes back. A call's chat stays. */
   const closeStage = (serverId: string | null, channelId: string | null) => {
     const returnTo = openBefore;
     openBefore = null;
-    if (!serverId || !channelId) return;
+    if (!serverId || !channelId || !useApp.getState().servers[serverId]?.channels.some((channel) => channel.id === channelId)) return;
     useApp.setState((state) => {
       const server = state.servers[serverId];
       if (server?.activeKey !== `group:${channelId}`) return state;
@@ -260,6 +290,9 @@ export const useVoice = create<VoiceState>((set, get) => {
     stopSound?.();
     room?.close();
     room = null;
+    ringOnAnnounce = false;
+    callRang = false;
+    clearTimeout(hangUpTimer);
   };
 
   /** What to do when the room goes away without anyone asking: try coming back, as far as that's worth it. */
@@ -286,7 +319,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     }, RECONNECT_WAIT_MS);
   };
 
-  const connect = async (serverId: string, channelId: string, mine: number) => {
+  const connect = async (serverId: string, channelId: string, mine: number, how: JoinHow = {}) => {
     const app = useApp.getState();
     const channels = app.servers[serverId]?.channels ?? [];
     const bitrate = channels.find((item) => item.id === channelId)?.bitrate ?? 0;
@@ -352,6 +385,7 @@ export const useVoice = create<VoiceState>((set, get) => {
       announce();
       syncVideos();
       if (reconnects === 0) sound("self-join");
+      if (how.camera && !get().camera) await get().toggleCamera();
     } catch (error) {
       console.warn("[zuna] joining a voice channel", error);
       if (mine !== attempt) return;
@@ -380,8 +414,47 @@ export const useVoice = create<VoiceState>((set, get) => {
       deleted: "That voice channel was deleted.",
       banned: "You were removed from this server.",
     };
-    useApp.getState().toast(message[reason] ?? "You left the voice channel.", "info");
+    const call: Record<string, string> = {
+      elsewhere: "You joined this call on another device.",
+      removed: "You're no longer in this conversation, so you left its call.",
+      deleted: "That conversation was deleted.",
+      banned: "You were removed from this server.",
+    };
+    const wasCall = !useApp.getState().servers[serverId]?.channels.some((channel) => channel.id === channelId);
+    useApp.getState().toast((wasCall ? call : message)[reason] ?? (wasCall ? "You left the call." : "You left the voice channel."), "info");
     sound("self-leave");
+  };
+  /** A direct message's call that nobody answers ends by itself, as a phone call does. */
+  voiceHooks.onCall = (serverId, groupId, call) => {
+    const { serverId: inServer, channelId, status } = get();
+    if (inServer !== serverId || channelId !== groupId || status === "idle" || !call) return;
+    if (call.ringing.length > 0) {
+      callRang = true;
+      return;
+    }
+    const server = useApp.getState().servers[serverId];
+    const self = server?.self?.userId;
+    const conversation = conversationOfGroup(server, groupId);
+    if (!callRang || conversation?.kind !== "dm" || call.startedBy !== self) return;
+    const others = Object.values(server!.voice).some((member) => member.channelId === groupId && member.userId !== self);
+    if (others) return;
+    const name = (conversation.peerId && server!.users[conversation.peerId]?.displayName) || conversation.title;
+    get().leave();
+    useApp.getState().toast(conversation.peerId && call.declined.includes(conversation.peerId) ? `${name} declined the call.` : `${name} didn't answer.`, "info");
+  };
+  /** And once the other person in one hangs up, it's over. */
+  voiceHooks.onLeft = (serverId, channelId, userId) => {
+    const { serverId: inServer, channelId: inChannel, status } = get();
+    const server = useApp.getState().servers[serverId];
+    if (inServer !== serverId || inChannel !== channelId || status === "idle" || userId === server?.self?.userId) return;
+    if (conversationOfGroup(server, channelId)?.kind !== "dm") return;
+    clearTimeout(hangUpTimer);
+    hangUpTimer = setTimeout(() => {
+      const now = useApp.getState().servers[serverId];
+      if (get().serverId !== serverId || get().channelId !== channelId) return;
+      const self = now?.self?.userId;
+      if (!Object.values(now?.voice ?? {}).some((member) => member.channelId === channelId && member.userId !== self)) get().leave();
+    }, PEER_GONE_MS);
   };
   voiceHooks.onScreenEnded = (serverId, channelId, reason) => {
     if (get().serverId !== serverId || get().channelId !== channelId) return;
@@ -422,7 +495,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     streamVolumes: loadVolumes("stream"),
     localMutes: {},
 
-    async join(serverId, channelId, returnTo) {
+    async join(serverId, channelId, returnTo, how = {}) {
       const { serverId: inServer, channelId: inChannel, status } = get();
       // Moving between voice channels keeps what was open before the first of them.
       const before = returnTo !== undefined ? returnTo : openBefore;
@@ -432,8 +505,42 @@ export const useVoice = create<VoiceState>((set, get) => {
       openBefore = before;
       const mine = ++attempt;
       reconnects = 0;
-      set({ ...NOT_IN_VOICE, status: "connecting", serverId, channelId });
-      await connect(serverId, channelId, mine);
+      const call = !useApp.getState().servers[serverId]?.channels.some((channel) => channel.id === channelId);
+      set({ ...NOT_IN_VOICE, status: "connecting", serverId, channelId, call });
+      ringOnAnnounce = !!how.ring && call;
+      await connect(serverId, channelId, mine, how);
+    },
+
+    async startCall(serverId, conversationKey, camera) {
+      const app = useApp.getState();
+      let groupId: string;
+      try {
+        groupId = await app.session(serverId).prepareCall(conversationKey);
+      } catch (error) {
+        app.toast((error as Error).message || "Couldn't start the call.", "error");
+        return;
+      }
+      // Someone else may have called meanwhile, which this joins rather than ringing anyone.
+      const going = Object.values(useApp.getState().servers[serverId]?.voice ?? {}).some((member) => member.channelId === groupId);
+      await get().join(serverId, groupId, undefined, { ring: !going, camera });
+    },
+
+    decline(serverId, groupId) {
+      void useApp
+        .getState()
+        .session(serverId)
+        .declineCall(groupId)
+        .catch((error) => useApp.getState().toast((error as Error).message, "error"));
+    },
+
+    async ringAgain(userIds) {
+      const { serverId, channelId, call } = get();
+      if (!serverId || !channelId || !call) return;
+      await useApp
+        .getState()
+        .session(serverId)
+        .ringCall(channelId, userIds)
+        .catch((error) => useApp.getState().toast((error as Error).message, "error"));
     },
 
     leave() {

@@ -86,6 +86,21 @@ final class DriftTests: XCTestCase {
         XCTAssertEqual(try CoreConnection.decoder.decode(CoreEvent.self, from: Data(#"{"type":"channels","serverId":"s1"}"#.utf8)), .channels(serverId: "s1"))
     }
 
+    func testReadsCallsWholly() throws {
+        let ringing = Data(#"""
+        {"type":"call","serverId":"s1","groupId":"g1","call":{"groupId":"g1","startedBy":"u1","startedAt":5,"ringing":["u2"],"declined":[]}}
+        """#.utf8)
+        let event = try CoreConnection.decoder.decode(CoreEvent.self, from: ringing)
+        guard case let .call(_, groupId, call) = event else { return XCTFail("not a call event: \(event)") }
+        XCTAssertEqual(groupId, "g1")
+        XCTAssertEqual(call, CallView(groupId: "g1", startedBy: "u1", startedAt: 5, ringing: ["u2"], declined: []))
+        XCTAssertEqual(Drift.missing(in: ringing, decodedAs: event), [])
+
+        let ended = Data(#"{"type":"call","serverId":"s1","groupId":"g1","call":null}"#.utf8)
+        XCTAssertEqual(try CoreConnection.decoder.decode(CoreEvent.self, from: ended), .call(serverId: "s1", groupId: "g1", call: nil))
+        XCTAssertEqual(try CoreConnection.decoder.decode(CoreEvent.self, from: Data(#"{"type":"calls","serverId":"s1"}"#.utf8)), .calls(serverId: "s1"))
+    }
+
     func testCarriesBytesAndFilesTagged() throws {
         let encoded = String(decoding: try CoreConnection.encoder.encode([Data([1, 2, 3])]), as: UTF8.self)
         XCTAssertEqual(encoded, #"[{"$bytes":"AQID"}]"#)

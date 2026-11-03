@@ -28,6 +28,8 @@ export interface ServerInfo {
   channels?: number;
   /** Whether this server has a media server, without which voice channels can't be joined. */
   voice?: number;
+  /** Whether direct messages and groups can have calls there. Absent on one that can't. */
+  calls?: number;
   /** What its admins say about sharing a screen. Absent on one from before it had a say, and for anyone not signed in. */
   screen_share?: ScreenRules;
 }
@@ -365,8 +367,9 @@ export interface ChannelView {
   conversation: ConversationView | null;
 }
 
-/** Someone's device in a voice channel, as it says. */
+/** Someone's device in a voice channel or a call, as it says. */
 export interface VoiceMember {
+  /** The voice channel, or the conversation whose call it is. */
   channelId: string;
   userId: string;
   deviceId: string;
@@ -380,12 +383,27 @@ export interface VoiceMember {
   since: number;
 }
 
-/** What this device is doing in a voice channel, for everyone to see. */
+/** What this device is doing in a voice channel, for everyone to see, or in a call, for the conversation to see. */
 export interface VoiceUpdate {
   muted: boolean;
   deafened: boolean;
   camera: boolean;
   screen: boolean;
+}
+
+/**
+ * A call in a direct message or a group, from when someone comes into it until the last one
+ * leaves. Who's in it are the voice members with its conversation's group ID.
+ */
+export interface CallView {
+  groupId: string;
+  startedBy: string;
+  /** When it started (ms). */
+  startedAt: number;
+  /** People whose devices it's ringing, until they answer or decline, or a while passes. */
+  ringing: string[];
+  /** People who declined it. */
+  declined: string[];
 }
 
 /** How to reach a voice channel's room. The token only lets this device in: media keys come from MLS. */
@@ -506,6 +524,10 @@ export type CoreEvent =
   | { type: "voice_ended"; serverId: string; channelId: string; reason: string }
   /** This device's screen share has been stopped: "stopped" by an admin, or by a change to the "rules". */
   | { type: "screen_ended"; serverId: string; channelId: string; reason: string }
+  /** A call in a conversation started, changed whom it's ringing, or ended (null). */
+  | { type: "call"; serverId: string; groupId: string; call: CallView | null }
+  /** The calls going on were caught up on, so ask again for them and who's in them. */
+  | { type: "calls"; serverId: string }
   | { type: "message"; serverId: string; message: MessageView; isNew: boolean }
   | { type: "message_removed"; serverId: string; groupId: string; id: string }
   | { type: "message_moved"; serverId: string; fromGroupId: string; message: MessageView }

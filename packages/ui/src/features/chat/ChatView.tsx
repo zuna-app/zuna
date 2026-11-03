@@ -1,12 +1,14 @@
 import type { ConversationView } from "@zuna/core";
-import { Ban, BadgeCheck, Bell, BellOff, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pencil, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Users, Volume2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Ban, BadgeCheck, Bell, BellOff, Bookmark, Copy, Forward, Hash, Lock, PanelRight, Pencil, Phone, Pin, Search, ShieldAlert, Timer, Trash2, Upload, Users, Video, Volume2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Tooltip, TypingDots, useAction } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { timerText } from "@/lib/disappearing";
 import { formatFull, formatLastSeen } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
 import { listIdFor, useActiveServer, useApp } from "@/state/store";
+import { VoiceStage } from "@/features/voice/VoiceStage";
+import { useVoice } from "@/voice/store";
 import { Composer, type ComposerHandle } from "./Composer";
 import { MemberList } from "./MemberList";
 import { MessageList } from "./MessageList";
@@ -46,6 +48,65 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
   if (peer?.banned) return <span key="status" className={statusClass}>Removed from this server</span>;
   if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>online</span>;
   return <span key="status" className={statusClass}>{formatLastSeen(peer?.lastSeenAt ?? null, peer?.hidesLastSeen ?? false)}</span>;
+}
+
+/** Whether a call can be started here: a direct message with someone else, or a group still had. */
+function canCall(conversation: ConversationView, selfId: string | undefined, peerBanned: boolean): boolean {
+  if (conversation.kind === "dm") return !!conversation.peerId && conversation.peerId !== selfId && !conversation.blocked && !peerBanned && !conversation.removed;
+  return conversation.kind === "group" && !conversation.removed;
+}
+
+/** Starting a call, or joining the one going on, from a conversation's header. */
+function CallButtons({ conversation, going }: { conversation: ConversationView; going: boolean }) {
+  const serverId = useApp((state) => state.activeServerId);
+  const startCall = useVoice((state) => state.startCall);
+  const join = useVoice((state) => state.join);
+  if (!serverId) return null;
+  if (going && conversation.groupId) {
+    return (
+      <Tooltip text="Join the call">
+        <button className="btn btn-small call-join" onClick={() => void join(serverId, conversation.groupId!)} aria-label="Join the call">
+          <Phone size={15} /> Join
+        </button>
+      </Tooltip>
+    );
+  }
+  return (
+    <>
+      <Tooltip text="Start a voice call">
+        <button className="icon-btn" onClick={() => void startCall(serverId, conversation.key, false)} aria-label="Start a voice call">
+          <Phone size={17} />
+        </button>
+      </Tooltip>
+      <Tooltip text="Start a video call">
+        <button className="icon-btn" onClick={() => void startCall(serverId, conversation.key, true)} aria-label="Start a video call">
+          <Video size={18} />
+        </button>
+      </Tooltip>
+    </>
+  );
+}
+
+/** A call going on in this conversation that this device isn't in: who's there, and a way in. */
+function CallBanner({ conversation, people }: { conversation: ConversationView; people: string[] }) {
+  const server = useActiveServer();
+  const join = useVoice((state) => state.join);
+  if (!server || !conversation.groupId || people.length === 0) return null;
+  const names = people.map((id) => (id === server.self?.userId ? "You" : (server.users[id]?.displayName.split(" ")[0] ?? "Someone")));
+  const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names[0]}, ${names[1]} and ${names.length - 2} more`;
+  // Being in it on another device of yours is still being in it.
+  const elsewhere = people.includes(server.self?.userId ?? "");
+  return (
+    <div className="call-banner">
+      <Phone size={15} />
+      <span className="grow truncate">
+        {elsewhere ? "You're in this call on another device" : `${who} ${people.length === 1 ? "is" : "are"} in a call`}
+      </span>
+      <button className="btn btn-small btn-primary" onClick={() => void join(server.entry.id, conversation.groupId!)}>
+        {elsewhere ? "Move here" : "Join"}
+      </button>
+    </div>
+  );
 }
 
 /**
@@ -262,6 +323,14 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
   const isSaved = conversation.peerId === server?.self?.userId;
   const selecting = useApp((state) => state.selection?.listId === listId);
   const isChannel = conversation.kind === "channel";
+  const callsHere = !isChannel && !!server?.info?.calls && !isSaved && canCall(conversation, server?.self?.userId, !!peer?.banned);
+  // Who's in this conversation's call, and whether it's this device.
+  const inCall = useVoice((state) => !!conversation.groupId && state.status !== "idle" && state.serverId === server?.entry.id && state.channelId === conversation.groupId);
+  const callPeople = useMemo(
+    () => [...new Set(Object.values(server?.voice ?? {}).filter((member) => member.channelId === conversation.groupId).map((member) => member.userId))],
+    [server?.voice, conversation.groupId],
+  );
+  const [callExpanded, setCallExpanded] = useState(false);
   // A channel's member list stays open or closed across channels, as in Discord.
   const [showMembers, setShowMembers] = useState(() => localStorage.getItem(MEMBERS_KEY) !== "hidden");
   const toggleMembers = () => {
@@ -333,6 +402,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
                   </button>
                 </Tooltip>
               )}
+              {callsHere && !inCall && <CallButtons conversation={conversation} going={callPeople.length > 0} />}
               <Tooltip text="Search this chat">
                 <button className={`icon-btn${panel?.type === "search" ? " is-active" : ""}`} onClick={() => togglePanel("search")} aria-label="Search this chat" disabled={!conversation.groupId}>
                   <Search size={17} />
@@ -366,7 +436,17 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
           </div>
         )}
 
-        <div className="chat-scroll">
+        {inCall && conversation.groupId ? (
+          <VoiceStage
+            room={{ id: conversation.groupId, call: true, title: conversation.title, conversation, screenLimit: 0 }}
+            expanded={callExpanded}
+            onExpand={() => setCallExpanded(!callExpanded)}
+          />
+        ) : (
+          !isChannel && <CallBanner conversation={conversation} people={callPeople} />
+        )}
+
+        <div className="chat-scroll" hidden={inCall && callExpanded}>
           {isChannel ? (
             <MessageList conversation={conversation} listId={listId} emptyState={<ChannelWelcome conversation={conversation} voice={voice} />} start={<ChannelWelcome conversation={conversation} voice={voice} />} />
           ) : (
@@ -374,7 +454,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
           )}
         </div>
 
-        {selecting ? (
+        {inCall && callExpanded ? null : selecting ? (
           <SelectionBar conversation={conversation} listId={listId} />
         ) : conversation.removed ? (
           <RemovedFromChat conversation={conversation} />

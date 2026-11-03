@@ -2,6 +2,7 @@
 
 import type { CoreConnection, RemoteSession } from "@zuna/core/rpc";
 import type {
+  CallView,
   ChannelView,
   ConnectionState,
   ConversationView,
@@ -37,8 +38,10 @@ export interface ServerState {
   self: ServerSelf | null;
   conversations: ConversationView[];
   channels: ChannelView[];
-  /** Who's in the voice channels, by device. */
+  /** Who's in the voice channels and the calls, by device. */
   voice: Record<string, VoiceMember>;
+  /** The calls going on in this person's conversations, by group. */
+  calls: Record<string, CallView>;
   users: Record<string, UserView>;
   /** username -> user ID. Replaced only when the people change, not on presence. */
   mentionable: Map<string, string>;
@@ -182,6 +185,11 @@ function debounced(key: string, fn: () => void, ms = 60): void {
 
 let toastId = 1;
 
+/** The conversation whose call is in a group, if it's one this person has. */
+export function conversationOfGroup(server: ServerState | undefined, groupId: string): ConversationView | undefined {
+  return server?.conversations.find((item) => item.groupId === groupId);
+}
+
 /** A conversation by its key, whether it's in the list or is a channel. */
 export function findConversation(server: ServerState | undefined, key: string): ConversationView | undefined {
   return server?.conversations.find((item) => item.key === key) ?? server?.channels.find((item) => item.conversation?.key === key)?.conversation ?? undefined;
@@ -242,6 +250,77 @@ export const useApp = create<AppState>((set, get) => {
         // The server may have just been removed.
       }
     });
+
+  const refreshCalls = (serverId: string) =>
+    debounced(`calls:${serverId}`, async () => {
+      try {
+        const session = get().session(serverId);
+        const [calls, members] = await Promise.all([session.getCalls(), session.getVoiceMembers()]);
+        const before = get().servers[serverId]?.calls ?? {};
+        patchServer(serverId, { calls: Object.fromEntries(calls.map((call) => [call.groupId, call])), voice: Object.fromEntries(members.map((member) => [member.deviceId, member])) });
+        for (const call of calls) noticeCall(serverId, call.groupId, before[call.groupId], call);
+        for (const groupId of Object.keys(before)) {
+          if (!calls.some((call) => call.groupId === groupId)) noticeCall(serverId, groupId, before[groupId], null);
+        }
+      } catch {
+        // The server may have just been removed.
+      }
+    });
+
+  /**
+   * Tells the system about a call ringing this person, while the app isn't in front, and about one they
+   * missed. The card in the app and its ringing are the call's own.
+   */
+  const noticeCall = (serverId: string, groupId: string, before: CallView | undefined, call: CallView | null) => {
+    const { servers, settings, windowFocused } = get();
+    const server = servers[serverId];
+    const self = server?.self?.userId;
+    if (!server || !self) return;
+    const wasRinging = !!before?.ringing.includes(self);
+    const ringing = !!call?.ringing.includes(self);
+    if (wasRinging === ringing) return;
+    const messageId = `call:${groupId}`;
+    if (wasRinging) platform.clearNotifications?.({ serverId, messageId });
+    const conversation = conversationOfGroup(server, groupId);
+    const caller = (call ?? before)!.startedBy;
+    if (!conversation || conversation.muted || conversation.blocked || server.prefs.blocked?.includes(caller)) return;
+    // Answered on another device, or declined, isn't missed.
+    const answered = Object.values(server.voice).some((member) => member.channelId === groupId && member.userId === self);
+    const missed = wasRinging && !answered && !call?.declined.includes(self);
+    if (!ringing && !missed) return;
+    const name = server.users[caller]?.displayName ?? "Someone";
+    const body = ringing ? (conversation.kind === "dm" ? "Calling you" : `${name} started a call`) : conversation.kind === "dm" ? "Missed call" : `Missed call from ${name}`;
+    if (windowFocused) {
+      if (missed) get().toast(conversation.kind === "dm" ? `Missed call from ${name}.` : `Missed call from ${name} in ${conversation.title}.`, "info");
+      return;
+    }
+    if (!platform.notify || !settings.notifications) return;
+    notifying = notifying
+      .then(async () => {
+        const system = (await platform.notificationState?.()) ?? { show: true, sound: true, waitForInput: true };
+        if (!system.show) return;
+        const preview = settings.notificationPreview;
+        // A call's ringing has its own sound, so the notification makes none.
+        platform.notify?.({
+          title: preview === "none" ? "Zuna" : conversation.title,
+          body: preview === "none" ? (ringing ? "Incoming call" : "Missed call") : body,
+          route: { serverId, key: conversation.key },
+          messageId,
+          card: platform.drawsNotifications
+            ? {
+                messageId,
+                kind: conversation.kind,
+                picture: preview === "none" ? null : await notificationPicture(serverId, conversation.title, conversation.key, conversation),
+                canReply: false,
+                waitForInput: system.waitForInput,
+                accent: settings.accent,
+                reduceMotion: settings.reduceMotion,
+              }
+            : undefined,
+        });
+      })
+      .catch(() => undefined);
+  };
 
   /** When each chat was last notified about, by server: what may still be up. */
   const notified = new Map<string, Map<string, number>>();
@@ -319,6 +398,22 @@ export const useApp = create<AppState>((set, get) => {
           return { voice };
         });
         if (event.member) voiceHooks.onMember?.(event.serverId, event.member);
+        else voiceHooks.onLeft?.(event.serverId, event.channelId, event.userId);
+        break;
+      case "call": {
+        const before = get().servers[event.serverId]?.calls[event.groupId];
+        patchServer(event.serverId, (server) => {
+          const calls = { ...server.calls };
+          if (event.call) calls[event.groupId] = event.call;
+          else delete calls[event.groupId];
+          return { calls };
+        });
+        noticeCall(event.serverId, event.groupId, before, event.call);
+        voiceHooks.onCall?.(event.serverId, event.groupId, event.call);
+        break;
+      }
+      case "calls":
+        refreshCalls(event.serverId);
         break;
       case "voice_key":
         voiceHooks.onKey?.(event.serverId, event.channelId);
@@ -529,7 +624,7 @@ export const useApp = create<AppState>((set, get) => {
       async function loadServerState(entry: ServerEntry) {
         const { core } = get();
         const session = core!.session(entry.id);
-        const [conversations, users, emotes, prefs, self, connection, info, channels, voice] = await Promise.all([
+        const [conversations, users, emotes, prefs, self, connection, info, channels, voice, calls] = await Promise.all([
           session.getConversations(),
           session.getUsers(),
           session.getEmotes(),
@@ -539,6 +634,7 @@ export const useApp = create<AppState>((set, get) => {
           session.getInfo(),
           session.getChannels(),
           session.getVoiceMembers(),
+          session.getCalls(),
         ]);
         set((state) => ({
           servers: {
@@ -551,6 +647,7 @@ export const useApp = create<AppState>((set, get) => {
               conversations,
               channels,
               voice: Object.fromEntries(voice.map((member) => [member.deviceId, member])),
+              calls: Object.fromEntries(calls.map((call) => [call.groupId, call])),
               users: Object.fromEntries(users.map((user) => [user.id, user])),
               mentionable: mentionMap(users),
               emotes,
@@ -577,7 +674,7 @@ export const useApp = create<AppState>((set, get) => {
       const entry = entries.find((item) => item.id === serverId);
       if (!entry) return;
       const session = core.session(serverId);
-      const [conversations, users, emotes, prefs, self, info, connection, channels, voice] = await Promise.all([
+      const [conversations, users, emotes, prefs, self, info, connection, channels, voice, calls] = await Promise.all([
         session.getConversations(),
         session.getUsers(),
         session.getEmotes(),
@@ -587,6 +684,7 @@ export const useApp = create<AppState>((set, get) => {
         session.getConnectionState(),
         session.getChannels(),
         session.getVoiceMembers(),
+        session.getCalls(),
       ]);
       // A sign-in replaces any earlier account on the same server.
       const staleIds = get().order.filter((id) => !entries.some((item) => item.id === id));
@@ -601,6 +699,7 @@ export const useApp = create<AppState>((set, get) => {
           conversations,
           channels,
           voice: Object.fromEntries(voice.map((member) => [member.deviceId, member])),
+          calls: Object.fromEntries(calls.map((call) => [call.groupId, call])),
           users: Object.fromEntries(users.map((user) => [user.id, user])),
           mentionable: mentionMap(users),
           emotes,

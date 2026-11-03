@@ -97,6 +97,14 @@ Media is encrypted in the app with a key from the channel's MLS group, frame by 
 - **The native screen capture** gets its keys over its standard input, never its command line, and its token can only publish a screen. libwebrtc's logs stay off unless `ZUNA_WEBRTC_LOG` is set, since the native frame cryptor has been reported to log keys. `poc/screenshare/scripts/key-log-check.mjs` looks for that.
 - **Push to talk from another window** uses a system-wide key hook in the desktop's main process, only while someone is in a call with it on, and only the one key asked for is ever passed on. Under Wayland there's no such hook: the compositor binds that one key through the global shortcuts portal, and only says when it goes down and up.
 
+### Calls in direct messages and groups
+
+A call is a conversation's own room on the same media server, keyed from that conversation's MLS group exactly as a voice channel is from its own, so everything above holds for it: whoever is in the conversation can hear it, and nobody else.
+
+- **Who hears of a call.** Who's in it, whose devices it's ringing and who declined go only to the conversation's members, never to everyone on the server, as a voice channel's do. The server itself sees all of it, and when, as it sees who's in a voice channel.
+- **Ringing is the server's word.** A server can say someone is calling who isn't, or not ring someone. Answering a call nobody made comes into an empty room, and can't let anyone hear anything: the media key still comes from the conversation's group.
+- **Admins have no say in a call**, which is between the people in it: muting someone for everyone, disconnecting them and stopping their share are for voice channels. The server's rules on sharing a screen hold in calls too, and a ban takes someone out of their calls.
+
 ### Who's in a conversation
 
 The server keeps the list of who's in each conversation, and it says who may do what. What MLS proves is who actually holds the keys. Clients go by that:

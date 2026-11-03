@@ -144,6 +144,16 @@ export interface ApiVoiceState {
   camera: boolean;
   screen: boolean;
   since: number;
+  /** The room is a conversation's call. */
+  call?: boolean;
+}
+
+export interface ApiCall {
+  group_id: string;
+  started_by: string;
+  started_at: number;
+  ringing: string[];
+  declined: string[];
 }
 
 export interface ApiReaction {
@@ -432,6 +442,16 @@ export class Api {
   stopScreenOf = (id: string, userId: string) => this.request("DELETE", at`/api/channels/${id}/voice/users/${userId}/screen`);
   voiceDisconnect = (id: string, userId: string) => this.request("POST", at`/api/channels/${id}/voice/users/${userId}/disconnect`, {});
   voiceMute = (id: string, userId: string, muted: boolean) => this.request("PUT", at`/api/channels/${id}/voice/users/${userId}/mute`, { muted });
+
+  // Calls in direct messages and groups
+  calls = () => this.request<{ calls: ApiCall[]; voice: ApiVoiceState[] }>("GET", "/api/calls");
+  callToken = (groupId: string) =>
+    this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/groups/${groupId}/call`, {});
+  startCallScreen = (groupId: string, how: { browser: boolean; sound: boolean }) =>
+    this.request<{ url?: string; token?: string; identity?: string; sound?: boolean }>("POST", at`/api/groups/${groupId}/call/screen`, how);
+  stopCallScreen = (groupId: string) => this.request("DELETE", at`/api/groups/${groupId}/call/screen`);
+  ringCall = (groupId: string, users: string[]) => this.request("POST", at`/api/groups/${groupId}/call/ring`, { users });
+  declineCall = (groupId: string) => this.request("POST", at`/api/groups/${groupId}/call/decline`, {});
 
   // Messages
   messages = async (groupId: string, options: { before?: number; around?: number; limit?: number }) => {

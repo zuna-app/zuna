@@ -68,6 +68,7 @@ export function serveCoreWorker(fetchPage?: WebAdapter["fetch"]): void {
       const db = await openSqliteProvider();
       const client = new ZunaClient({
         channels: true,
+        calls: true,
         db,
         deviceKey: boot.deviceKey,
         deviceName: boot.deviceName,

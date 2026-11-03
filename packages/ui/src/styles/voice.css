@@ -234,3 +234,35 @@
 .stream-stats-rows dt { flex: none; color: var(--text-3); }
 .stream-stats-rows dd { margin: 0; min-width: 0; font-family: var(--font-mono); font-size: 11px; line-height: 16px; text-align: right; color: var(--text-1); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .stream-stats-rows .is-warn dt, .stream-stats-rows .is-warn dd { color: var(--amber); }
+
+/* Calls in direct messages and groups: the stage sits above the chat, which it can take the whole of. */
+.voice-stage-wrap.is-call { flex: none; height: clamp(240px, 46%, 620px); border-bottom: 1px solid var(--line); }
+.voice-stage-wrap.is-call.is-expanded { flex: 1; height: auto; border-bottom: 0; }
+.voice-head.is-call { height: 40px; padding: 0 10px; gap: 6px; border-bottom: 0; }
+.voice-call-time { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.voice-stage-wrap.is-call .voice-grid-area { padding-top: 0; }
+.voice-stage-wrap.is-call .voice-controls { padding-bottom: 10px; }
+.voice-tile.is-ringing > .avatar { animation: ringing-pulse 1.6s ease-in-out infinite; }
+.voice-tile.is-ringing { opacity: 0.8; }
+.voice-tile-calling { color: rgba(255, 255, 255, 0.7); }
+@keyframes ringing-pulse { 50% { transform: scale(0.94); opacity: 0.7; } }
+
+.call-banner { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 14px; font-size: 13px; color: var(--green); background: color-mix(in srgb, var(--green) 10%, var(--bg-1)); border-bottom: 1px solid var(--line); }
+.call-banner span { color: var(--text-1); }
+.call-join { color: var(--green); gap: 5px; }
+
+/* A call ringing, over everything, wherever the person is. */
+.incoming-calls { position: fixed; top: calc(var(--titlebar-height, 0px) + 12px); left: 50%; transform: translateX(-50%); z-index: 95; display: flex; flex-direction: column; gap: 8px; width: min(380px, calc(100vw - 32px)); }
+.incoming-call {
+  display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: var(--radius-l);
+  background: var(--bg-3); border: 1px solid var(--line-strong); box-shadow: var(--shadow-l); animation: rise-in 0.14s var(--ease-out);
+}
+.incoming-call > .avatar { animation: ringing-pulse 1.6s ease-in-out infinite; }
+.incoming-call-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.incoming-call-who b { font-weight: 600; font-size: 14px; }
+.incoming-call-who span { font-size: 12.5px; color: var(--text-2); }
+.call-button { flex: none; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; transition: filter 0.1s linear; }
+.call-button:hover { filter: brightness(1.12); }
+.call-button.is-decline { background: var(--red); }
+.call-button.is-answer { background: var(--green); }
+.call-button.is-video { background: var(--bg-5); color: var(--text-1); }

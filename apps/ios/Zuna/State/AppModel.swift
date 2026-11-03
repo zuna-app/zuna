@@ -384,6 +384,9 @@ final class AppModel {
             voice.ended(serverId: serverId, channelId: channelId, reason: reason)
         case let .screenEnded(serverId, channelId, reason):
             voice.screenEnded(serverId: serverId, channelId: channelId, reason: reason)
+        case .call, .calls:
+            // The app has no calls in direct messages and groups yet, so its core says nothing of them.
+            break
         case let .users(serverId):
             refresh("users", serverId)
             refresh("conversations", serverId)

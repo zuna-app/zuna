@@ -1,6 +1,7 @@
 // Drives two real Electron apps against a real server and a real LiveKit, with a
-// text channel and a voice channel, and checks what actually reaches each of them:
-// audio that decrypts, noise that doesn't get through, and screens to look over.
+// text channel, a voice channel and a call in a direct message, and checks what
+// actually reaches each of them: audio that decrypts, noise that doesn't get
+// through, screens to look over, and a call that rings.
 //
 //   npm run build -w @zuna/desktop && node apps/desktop/test/voice-check.mjs [screenshot-dir]
 //
@@ -988,6 +989,61 @@ try {
   await alice.page.locator(".chat-title", { hasText: "general-chat" }).waitFor({ timeout: 5000 }).then(() => check("leaving goes back to what was open before", true)).catch(() => check("leaving goes back to what was open before", false));
   await sleep(300);
   await shot(alice, "11-after-leaving");
+
+  // --- Calls in a direct message ---
+  // Alice is on push to talk by now, so she holds the key while she's listened to.
+  const heardBothWays = async () => {
+    const toAlice = await loudness(alice.page, 4);
+    await alice.page.keyboard.down("F8");
+    const toBob = await loudness(bob.page, 5);
+    await alice.page.keyboard.up("F8");
+    return { toAlice, toBob };
+  };
+  await alice.page.locator(".conv-row", { hasText: "Bob" }).first().click();
+  await alice.page.getByRole("button", { name: "Start a voice call" }).click();
+  const ringingBob = bob.page.locator(".incoming-call", { hasText: "Alice" });
+  await ringingBob.waitFor({ timeout: 20_000 }).then(() => check("a call rings the person called", true)).catch(() => check("a call rings the person called", false));
+  await alice.page.locator(".voice-tile.is-ringing", { hasText: "Bob" }).waitFor({ timeout: 10_000 }).then(() => check("the one calling sees whom it's ringing", true)).catch(() => check("the one calling sees whom it's ringing", false));
+  await sleep(500);
+  check("nobody else is rung", (await carol.page.locator(".incoming-call").count()) === 0);
+  check("nobody else sees the call", (await carol.page.locator(".conv-preview.is-call").count()) === 0);
+  await shot(bob, "13-incoming-call");
+  await shot(alice, "13-calling");
+  await ringingBob.getByRole("button", { name: "Answer", exact: true }).click();
+  await bob.page.locator(".voice-panel-status.is-connected", { hasText: "Call connected" }).waitFor({ timeout: 30_000 });
+  await alice.page.locator(".voice-tile.is-ringing").waitFor({ state: "detached", timeout: 20_000 });
+  check("answering takes someone out of their voice channel", (await alice.page.locator(".voice-occupant", { hasText: "Bob" }).count()) === 0);
+  check("answering opens the call above its chat", (await bob.page.locator(".chat .voice-stage-wrap.is-call").count()) === 1 && (await bob.page.locator(".chat .composer-input").count()) === 1);
+  await sleep(4000);
+  const call = await heardBothWays();
+  check("a call's audio decrypts into sound on each side", call.toAlice.in > 0.01 && call.toBob.in > 0.01, `alice hears peak ${call.toAlice.in.toFixed(3)}, bob ${call.toBob.in.toFixed(3)}`);
+
+  await alice.page.getByRole("button", { name: "Turn on camera" }).first().click();
+  await sleep(4000);
+  const callCamera = await audioFlow(bob.page, 2);
+  check("a camera reaches the other person in a call", callCamera.inVideoFrames > 5, `${callCamera.inVideoFrames.toFixed(0)} frames/s decoded`);
+  await alice.page.getByRole("button", { name: "Turn off camera" }).first().click();
+  await pickAndShare(bob);
+  await bob.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
+  await screenOnAlice.waitFor({ timeout: 20_000 }).then(() => check("a screen shared in a call reaches the other person", true)).catch(() => check("a screen shared in a call reaches the other person", false));
+  await sleep(3000);
+  const callScreen = await audioFlow(alice.page, 2);
+  check("a screen shared in a call decrypts", callScreen.inVideoFrames > 1, `${callScreen.inVideoFrames.toFixed(0)} frames/s decoded`);
+  await shot(alice, "14-call");
+  await stopSharing(bob);
+  await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 });
+  await alice.page.getByRole("button", { name: "Hide the chat" }).click();
+  check("a call can take the whole of its chat", !(await alice.page.locator(".chat-scroll").isVisible()));
+  await alice.page.getByRole("button", { name: "Show the chat" }).click();
+
+  await bob.page.locator(".voice-controls").getByRole("button", { name: "Disconnect" }).click();
+  await alice.page.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 }).then(() => check("hanging up ends a direct message's call for both", true)).catch(() => check("hanging up ends a direct message's call for both", false));
+
+  await alice.page.getByRole("button", { name: "Start a voice call" }).click();
+  await ringingBob.getByRole("button", { name: "Decline" }).click({ timeout: 20_000 });
+  await alice.page.locator(".toast", { hasText: "declined the call" }).waitFor({ timeout: 10_000 }).then(() => check("declining ends the call for the one calling", true)).catch(() => check("declining ends the call for the one calling", false));
+  await alice.page.locator(".voice-panel").waitFor({ state: "detached", timeout: 5000 });
+  check("declining stops the ringing", (await bob.page.locator(".incoming-call").count()) === 0);
 
   // Someone new can't open what others send under the old key for a moment, until they all move on to the new one.
   const realErrors = errors.filter((error) => !error.includes("MissingKey"));

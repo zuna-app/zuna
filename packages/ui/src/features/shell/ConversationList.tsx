@@ -14,6 +14,7 @@ import {
   Link as LinkIcon,
   LogOut,
   MessageSquareDot,
+  Phone,
   Pin,
   PinOff,
   Search,
@@ -67,6 +68,7 @@ const ConversationRow = memo(function ConversationRow({
   active,
   peer,
   typing,
+  call,
   preview,
   isSaved,
   onSelect,
@@ -76,6 +78,8 @@ const ConversationRow = memo(function ConversationRow({
   active: boolean;
   peer: UserView | null;
   typing: boolean;
+  /** A call is going on in it. */
+  call: boolean;
   preview: string;
   isSaved: boolean;
   onSelect: (key: string) => void;
@@ -110,10 +114,14 @@ const ConversationRow = memo(function ConversationRow({
           <span className="conv-time">{formatListTime(item.lastMessage?.createdAt ?? 0)}</span>
         </span>
         <span className="conv-line">
-          <span className={`conv-preview truncate${typing ? " is-typing" : ""}`}>
+          <span className={`conv-preview truncate${typing ? " is-typing" : call ? " is-call" : ""}`}>
             {typing ? (
               <>
                 typing <TypingDots />
+              </>
+            ) : call ? (
+              <>
+                <Phone size={12} className="conv-call" /> In a call
               </>
             ) : (
               preview || <span className="faint">{fallback}</span>
@@ -290,6 +298,7 @@ export function ConversationList() {
         active={server.activeKey === item.key}
         peer={item.peerId ? (users[item.peerId] ?? null) : null}
         typing={!!item.groupId && Object.keys(server.typing[item.groupId] ?? {}).length > 0}
+        call={!!item.groupId && !!server.calls[item.groupId]}
         preview={previewFor(item.lastMessage, users, selfId, item.kind)}
         isSaved={item.peerId === selfId}
         onSelect={selectConversation}

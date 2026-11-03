@@ -96,6 +96,8 @@
 .conv-time { flex: none; font-size: 11.5px; color: var(--text-3); }
 .conv-preview { flex: 1; min-width: 0; font-size: 13px; color: var(--text-2); }
 .conv-preview.is-typing { color: var(--text-1); }
+.conv-preview.is-call { color: var(--green); display: flex; align-items: center; gap: 4px; }
+.conv-call { flex: none; }
 .conv-pin { flex: none; color: var(--text-3); transform: rotate(35deg); }
 .conv-badge {
   flex: none; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--on-accent);

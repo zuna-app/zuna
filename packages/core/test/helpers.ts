@@ -199,6 +199,8 @@ export class TestApp {
   web?: WebAdapter;
   /** Whether this app shows channels, as every app does. One that doesn't takes no part in them. */
   channels = true;
+  /** Whether this app has calls in direct messages and groups. */
+  calls = true;
 
   /** Given a folder, the app keeps its data there and can be reopened by a later process. */
   constructor(
@@ -217,6 +219,7 @@ export class TestApp {
       onEvent: (event) => this.events.push(event),
       web: this.web,
       channels: this.channels,
+      calls: this.calls,
     });
     await this.client.open();
     const first = this.client.listServers()[0];

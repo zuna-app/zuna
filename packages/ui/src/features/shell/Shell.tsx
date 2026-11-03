@@ -5,6 +5,8 @@ import { installStickyFocus } from "@/lib/focus";
 import { prefetchEmotes } from "@/lib/media";
 import { useActiveChannel, useActiveConversation, useActiveServer, useApp } from "@/state/store";
 import { ChatView } from "@/features/chat/ChatView";
+import { channelTitle } from "@/features/voice/ChannelList";
+import { IncomingCalls } from "@/features/voice/IncomingCalls";
 import { VoicePanel } from "@/features/voice/VoicePanel";
 import { VoiceStage } from "@/features/voice/VoiceStage";
 import { watchPushToTalk } from "@/voice/ptt";
@@ -192,13 +194,17 @@ export function Shell() {
         </div>
         <div className="sidebar-resizer" onMouseDown={onResizeStart} />
       </aside>
+      <IncomingCalls />
       <main className="main">
         <div className="main-inner">
           {/* Switching chats is instant: messages are already in memory or a few milliseconds away. */}
           {activeServer?.entry.signedOut ? (
             <SignedOut server={activeServer} />
           ) : channel && inThisVoice ? (
-            <VoiceStage key={`${activeServerId}:${channel.id}`} channel={channel} />
+            <VoiceStage
+              key={`${activeServerId}:${channel.id}`}
+              room={{ id: channel.id, call: false, title: channelTitle(channel), topic: channel.topic, conversation: channel.conversation, screenLimit: channel.screenLimit }}
+            />
           ) : conversation ? (
             <ChatView key={`${activeServerId}:${activeKey}`} conversation={conversation} voice={channel?.type === "voice"} />
           ) : channel ? (

@@ -67,8 +67,11 @@ export class Socket {
   }
 
   /** What this device is doing in a voice channel, or that it left. */
-  sendVoice(channelId: string | null, voice: VoiceUpdate | null): void {
-    if (this.connected) this.ws!.send(JSON.stringify({ t: "voice", group_id: channelId ?? "", voice: voice ?? undefined }));
+  /** What this device is doing in a room, or nothing once it's left, and whether that went. `ring` starts a call ringing everyone else. */
+  sendVoice(channelId: string | null, voice: VoiceUpdate | null, ring = false): boolean {
+    if (!this.connected) return false;
+    this.ws!.send(JSON.stringify({ t: "voice", group_id: channelId ?? "", voice: voice ? { ...voice, ring: ring || undefined } : undefined }));
+    return true;
   }
 
   sendTyping(groupId: string, data: Uint8Array): void {
