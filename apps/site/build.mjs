@@ -5,23 +5,11 @@ import { readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "vite";
+import { CONTENT_SECURITY_POLICY } from "./policy.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dist = join(root, "dist");
 const ssr = join(dist, ".ssr");
-
-/** The pages' policy. GitHub Pages can't send headers, so it goes in a meta tag, which can't hold frame-ancestors. */
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self'",
-  "font-src 'self'",
-  "connect-src 'self'",
-  "manifest-src 'self'",
-  "base-uri 'none'",
-  "form-action 'none'",
-].join("; ");
 
 const release = await latestRelease();
 const define = { __RELEASE__: JSON.stringify(release) };

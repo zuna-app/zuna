@@ -54,10 +54,48 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, and `/sup
 - Download links are fetched from the latest GitHub release at build time, since file names carry the version. Without a release, they lead to the releases page. The visitor's browser never contacts GitHub.
 - No cookies, analytics or requests to any other origin, under a strict content security policy. `apps/site/test/site-check.mjs` checks that, with screenshots at 375, 768 and 1440 pixels wide and no sideways scrolling.
 - A sitemap and `robots.txt` are made at build time. The picture a shared link shows, `public/og.png`, is drawn by `og.mjs` in the page's fonts, and kept in the repository.
-- GitHub Pages deploys it, from `.github/workflows/site.yml`, on pushes to `main` that change it and after each release, which brings new download links. It runs the site check first. Until the repository variable `SITE_DEPLOY` is `true`, it only runs when started by hand.
+- The maintainers host it on their own server, not on GitHub. "Hosting" below says how.
+
+## Hosting
+
+Publishing the site is building it and copying `apps/site/dist` to the server's folder for zuna.chat. The token only lets the build see the latest release while the repository is private:
+
+```bash
+GITHUB_TOKEN=$(gh auth token) npm run build -w @zuna/site
+```
+
+Download links are fixed when it's built, so it's built and copied again after each release. Run the site check before copying.
+
+The server has to:
+
+- Serve a folder's `index.html` (`/privacy/` is `privacy/index.html`), and `404.html` with a 404 for anything else.
+- Let browsers keep `/assets/` for a year, since those names change with their content.
+- Send the headers in `HEADERS` in `policy.mjs`, which the site check serves the pages with too: the pages' content security policy with `frame-ancestors 'none'` added, which a meta tag can't carry, `X-Content-Type-Options` and `Referrer-Policy`. And HSTS, which the check can't try over plain HTTP.
+
+With Caddy, which already serves Zuna's own Docker setup:
+
+```
+zuna.chat {
+	root * /srv/zuna.chat
+	encode zstd gzip
+	file_server
+	handle_errors {
+		rewrite * /{err.status_code}.html
+		file_server
+	}
+	header {
+		Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000"
+	}
+	@assets path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+}
+```
 
 ## Left to decide
 
 - The push relay is at `https://relay.mgalazka.pl`. Moving it to `push.zuna.chat` before the iPhone app is released means only one address to keep.
-- The repository is private and has no release yet, so download and GitHub links only work for visitors once it's public. GitHub Pages from a private repository needs a paid plan.
+- The repository is private and has no release yet, so download and GitHub links only work for visitors once it's public.
 - A contact address for `/support` and `/privacy`, which Apple asks for.

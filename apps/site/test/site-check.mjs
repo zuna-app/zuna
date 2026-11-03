@@ -1,4 +1,4 @@
-// Drives the built zuna.chat in real browsers, served as GitHub Pages serves it, and checks what the page
+// Drives the built zuna.chat in real browsers, served as a static host serves it, and checks what the page
 // promises: no request leaves its origin, nothing breaks its content security policy, nothing scrolls sideways,
 // and it all still reads without script or with less motion. Saves a screenshot of each page at each width.
 //
@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright-core";
+import { HEADERS } from "../policy.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "dist");
@@ -31,14 +32,14 @@ function check(name, passed, detail = "") {
   if (!passed) failures.push(`${engine}: ${name}`);
 }
 
-// As GitHub Pages does: a folder's index.html, and 404.html with a 404 for anything else.
+// As the server for zuna.chat does: a folder's index.html, 404.html with a 404 for anything else, and its headers.
 const TYPES = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2", ".xml": "application/xml", ".txt": "text/plain" };
 const server = createServer((request, response) => {
   const path = normalize(decodeURIComponent(new URL(request.url, "http://x").pathname)).replace(/^(\.\.[/\\])+/, "");
   let file = join(dist, path);
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, "index.html");
   const found = existsSync(file) && statSync(file).isFile();
-  response.writeHead(found ? 200 : 404, { "content-type": TYPES[found ? extname(file) : ".html"] ?? "application/octet-stream" });
+  response.writeHead(found ? 200 : 404, { ...HEADERS, "content-type": TYPES[found ? extname(file) : ".html"] ?? "application/octet-stream" });
   response.end(readFileSync(found ? file : join(dist, "404.html")));
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));

@@ -71,10 +71,9 @@ export function Privacy() {
 
         <h2>This website</h2>
         <p>
-          zuna.chat is a set of static pages on GitHub Pages. It sets no cookies, runs no analytics, and makes no requests to other sites: even its fonts come from
-          here. GitHub, which hosts it, may log visitors' IP addresses as any web host does, under the{" "}
-          <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub privacy statement</a>. Downloads come from
-          GitHub's releases.
+          zuna.chat is a set of static pages on the maintainers' own server. It sets no cookies, runs no analytics, and makes no requests to other sites: even
+          its fonts come from here. Like most web servers, the one serving it may log visitors' IP addresses. Downloads come from GitHub's releases, under the{" "}
+          <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub privacy statement</a>.
         </p>
         <p>The demo on the home page encrypts in your browser, with a key made there. Nothing you type in it leaves the page.</p>
 
