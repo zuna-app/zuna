@@ -170,6 +170,43 @@ final class SettingsTests: XCTestCase {
         zuna.screenshot("93-members")
     }
 
+    func testSetsWhatTheServerAllowsForSharingAScreen() throws {
+        let alice = try Peer("alice")
+        let carol = try Peer("carol")
+        let rules = { () throws -> [String: Any] in (try carol.call("getInfo") as? [String: Any])?["screen_share"] as? [String: Any] ?? [:] }
+        let before = try rules()
+        try zuna.launch()
+        try zuna.signIn(as: "alice")
+        try zuna.waitForChats()
+        openSettings(A11y.Settings.server)
+        // Further down than the screen goes, where the list only has rows once they're scrolled to.
+        let link = zuna.element(A11y.Settings.screenRules)
+        XCTAssertTrue(zuna.element(A11y.Settings.memberInvites).waitForExistence(timeout: 10))
+        for _ in 0..<5 where !link.exists { zuna.app.swipeUp() }
+        link.tap()
+
+        // Admins only, without sound, and at most 8 Mbit/s, as a desktop's core then has it.
+        let admins = zuna.app.buttons["Admins"]
+        XCTAssertTrue(admins.waitForExistence(timeout: 5))
+        admins.tap()
+        zuna.app.switches[A11y.Settings.screenSound].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        zuna.element(A11y.Settings.screenMaxKbps).tap()
+        let rate = zuna.app.buttons["8 Mbit/s"]
+        XCTAssertTrue(rate.waitForExistence(timeout: 5))
+        rate.tap()
+        zuna.screenshot("93c-screen-rules")
+        zuna.element(A11y.Settings.save).tap()
+        try waitFor("carol to see the new rules", timeout: 20) {
+            let now = try rules()
+            // What's suggested comes down to what's allowed.
+            return now["who"] as? String == "admins" && now["sound"] as? Bool == false && now["max_kbps"] as? Int == 8000 && now["default_kbps"] as? Int == 8000
+        }
+
+        // Back as they were, for the other tests.
+        try alice.call("updateServerSettings", [["screen_share": before]])
+        try waitFor("the rules to be back") { try rules()["who"] as? String == before["who"] as? String }
+    }
+
     func testAppLockAsksForFaceIdEachTimeTheAppOpens() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")

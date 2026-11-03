@@ -270,13 +270,15 @@ public struct ServerSettingsChanges: Codable, Sendable, Equatable {
     public var allowMemberInvites: Bool?
     public var maxUploadMb: Int?
     public var retentionDays: Int?
+    public var screenShare: ScreenRules?
 
-    public init(name: String? = nil, registration: String? = nil, allowMemberInvites: Bool? = nil, maxUploadMb: Int? = nil, retentionDays: Int? = nil) {
+    public init(name: String? = nil, registration: String? = nil, allowMemberInvites: Bool? = nil, maxUploadMb: Int? = nil, retentionDays: Int? = nil, screenShare: ScreenRules? = nil) {
         self.name = name
         self.registration = registration
         self.allowMemberInvites = allowMemberInvites
         self.maxUploadMb = maxUploadMb
         self.retentionDays = retentionDays
+        self.screenShare = screenShare
     }
 
     enum CodingKeys: String, CodingKey {
@@ -284,6 +286,7 @@ public struct ServerSettingsChanges: Codable, Sendable, Equatable {
         case allowMemberInvites = "allow_member_invites"
         case maxUploadMb = "max_upload_mb"
         case retentionDays = "retention_days"
+        case screenShare = "screen_share"
     }
 }
 

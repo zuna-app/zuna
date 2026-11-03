@@ -280,6 +280,9 @@ enum A11y {
         static let useEmotes = "settings.useEmotes"
         static let maxUpload = "settings.maxUpload"
         static let retention = "settings.retention"
+        static let screenRules = "settings.screenRules"
+        static let screenSound = "settings.screenRules.sound"
+        static let screenMaxKbps = "settings.screenRules.maxKbps"
         static func device(_ id: String) -> String { "settings.device.\(id)" }
         static func member(_ username: String) -> String { "settings.member.\(username)" }
         static func accent(_ id: String) -> String { "settings.accent.\(id)" }
