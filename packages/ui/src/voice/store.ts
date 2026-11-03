@@ -57,6 +57,8 @@ interface VoiceState {
   settings: VoiceSettings;
   /** How loud each person is for this device, by user. */
   volumes: Record<string, number>;
+  /** How loud each person's shared screen is for this device, by user. */
+  streamVolumes: Record<string, number>;
   /** People muted for this device only. */
   localMutes: Record<string, true>;
 
@@ -69,6 +71,7 @@ interface VoiceState {
   startScreen(choice: ScreenChoice): Promise<void>;
   stopScreen(): Promise<void>;
   setVolume(userId: string, volume: number): void;
+  setStreamVolume(userId: string, volume: number): void;
   toggleLocalMute(userId: string): void;
   setFocus(key: string | null): void;
   updateSettings(changes: Partial<VoiceSettings>): void;
@@ -154,10 +157,10 @@ export const useVoice = create<VoiceState>((set, get) => {
 
   const applyVolumes = () => {
     room?.setVolumes((userId, source) => {
-      const { deafened, settings, volumes, localMutes } = get();
+      const { deafened, settings, volumes, streamVolumes, localMutes } = get();
       if (deafened) return 0;
       // A share's sound has a level of its own: it isn't how loud the person talks.
-      if (source === Track.Source.ScreenShareAudio) return settings.outputVolume * settings.screenVolume;
+      if (source === Track.Source.ScreenShareAudio) return settings.outputVolume * settings.screenVolume * (streamVolumes[userId] ?? 1);
       return localMutes[userId] ? 0 : settings.outputVolume * (volumes[userId] ?? 1);
     });
   };
@@ -416,6 +419,7 @@ export const useVoice = create<VoiceState>((set, get) => {
     deafened: false,
     settings: initial,
     volumes: loadVolumes(),
+    streamVolumes: loadVolumes("stream"),
     localMutes: {},
 
     async join(serverId, channelId, returnTo) {
@@ -597,6 +601,13 @@ export const useVoice = create<VoiceState>((set, get) => {
       const volumes = { ...get().volumes, [userId]: volume };
       saveVolumes(volumes);
       set({ volumes });
+      applyVolumes();
+    },
+
+    setStreamVolume(userId, volume) {
+      const streamVolumes = { ...get().streamVolumes, [userId]: volume };
+      saveVolumes(streamVolumes, "stream");
+      set({ streamVolumes });
       applyVolumes();
     },
 

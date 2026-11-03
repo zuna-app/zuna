@@ -820,6 +820,20 @@ try {
     await screenOnAlice.waitFor({ timeout: 20_000 });
     await sleep(2500);
     check(`sound goes with a share ${route}`, (await soundsSent()) === before + 1 && (await bob.page.locator(".toast", { hasText: "without its sound" }).count()) === 0, `${before} before, ${await soundsSent()} now`);
+    // How loud it is, on the share, and in the menu of whoever's sharing it.
+    const tile = alice.page.locator(".voice-tile.is-screen").first();
+    await tile.hover();
+    const slider = tile.getByRole("slider", { name: "Stream volume" });
+    const offered = await slider.isVisible().catch(() => false);
+    await tile.getByRole("button", { name: "Mute stream" }).click();
+    const silenced = await slider.inputValue();
+    const saved = await alice.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem("zuna-voice-stream-volumes") ?? "{}")));
+    await tile.getByRole("button", { name: "Unmute stream" }).click();
+    const back = await slider.inputValue();
+    await tile.click({ button: "right" });
+    const inMenu = await alice.page.locator(".member-volume", { hasText: "Stream volume" }).count();
+    await alice.page.keyboard.press("Escape");
+    check(`a share's sound can be made quieter ${route}`, offered && silenced === "0" && saved.includes(0) && back === "1" && inMenu === 1, `slider ${offered ? "shown" : "missing"}, muted to ${silenced}, saved ${saved}, back to ${back}, ${inMenu} in the menu`);
     await stopSharing(bob);
     await screenOnAlice.waitFor({ state: "detached", timeout: 15_000 });
   };

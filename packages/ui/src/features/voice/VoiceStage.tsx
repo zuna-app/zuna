@@ -55,16 +55,48 @@ function useMemberMenu() {
   return { ...menu, target, openFor: (event: React.MouseEvent, userId: string) => (setTarget(userId), menu.open(event)) };
 }
 
-function VolumeSlider({ userId }: { userId: string }) {
-  const volume = useVoice((state) => state.volumes[userId] ?? 1);
-  const setVolume = useVoice((state) => state.setVolume);
+function VolumeSlider({ userId, stream }: { userId: string; /** The sound of their shared screen, rather than their voice. */ stream?: boolean }) {
+  const volume = useVoice((state) => (stream ? state.streamVolumes : state.volumes)[userId] ?? 1);
+  const setVolume = useVoice((state) => (stream ? state.setStreamVolume : state.setVolume));
   return (
     <label className="member-volume" onMouseDown={(event) => event.stopPropagation()}>
       <span>
-        Volume <b>{Math.round(volume * 100)}%</b>
+        {stream ? "Stream volume" : "Volume"} <b>{Math.round(volume * 100)}%</b>
       </span>
       <input className="voice-slider" type="range" min={0} max={2} step={0.01} value={volume} onChange={(event) => setVolume(userId, Number(event.target.value))} />
     </label>
+  );
+}
+
+/** How loud the person sharing was before being silenced here, to go back to. */
+const streamVolumeBefore = new Map<string, number>();
+
+/** A share's sound, over the share itself, as a video player has it. */
+function StreamVolume({ userId }: { userId: string }) {
+  const volume = useVoice((state) => state.streamVolumes[userId] ?? 1);
+  const setStreamVolume = useVoice((state) => state.setStreamVolume);
+  const silent = volume === 0;
+  const toggle = () => {
+    if (!silent) streamVolumeBefore.set(userId, volume);
+    setStreamVolume(userId, silent ? (streamVolumeBefore.get(userId) ?? 1) : 0);
+  };
+  return (
+    <div className="voice-tile-sound" onClick={(event) => event.stopPropagation()} onDoubleClick={(event) => event.stopPropagation()}>
+      <button className="icon-btn is-small" onClick={toggle} aria-label={silent ? "Unmute stream" : "Mute stream"} title={silent ? "Unmute stream" : "Mute stream"}>
+        {silent ? <VolumeX size={15} /> : <Volume2 size={15} />}
+      </button>
+      <input
+        className="voice-slider"
+        type="range"
+        min={0}
+        max={2}
+        step={0.01}
+        value={volume}
+        onChange={(event) => setStreamVolume(userId, Number(event.target.value))}
+        aria-label="Stream volume"
+        title={`Stream volume ${Math.round(volume * 100)}%`}
+      />
+    </div>
   );
 }
 
@@ -75,6 +107,7 @@ function MemberMenu({ userId, channelId, member, x, y, onClose }: { userId: stri
   const toast = useApp((state) => state.toast);
   const localMuted = useVoice((state) => !!state.localMutes[userId]);
   const toggleLocalMute = useVoice((state) => state.toggleLocalMute);
+  const streamSound = useVoice((state) => state.videos.some((video) => video.userId === userId && video.sound));
   const micOff = useVoice((state) => state.muted || state.deafened);
   const deafened = useVoice((state) => state.deafened);
   const canTalk = useVoice((state) => !state.serverMuted && !state.noMic);
@@ -109,7 +142,13 @@ function MemberMenu({ userId, channelId, member, x, y, onClose }: { userId: stri
         ]
       : []),
   ];
-  return <PopupMenu x={x} y={y} entries={entries} onClose={onClose} header={isSelf ? undefined : <VolumeSlider userId={userId} />} />;
+  const header = isSelf ? undefined : (
+    <>
+      <VolumeSlider userId={userId} />
+      {streamSound && <VolumeSlider userId={userId} stream />}
+    </>
+  );
+  return <PopupMenu x={x} y={y} entries={entries} onClose={onClose} header={header} />;
 }
 
 /** One person in the call: their camera, or their picture, ringed while they talk. */
@@ -162,6 +201,7 @@ function ScreenTile({ tile, focused, onFocus, onMenu }: { tile: VideoTile; focus
         <MonitorUp size={13} />
         <span className="truncate">{tile.local ? "Your screen" : `${name}'s screen`}</span>
       </div>
+      {tile.sound && <StreamVolume userId={tile.userId} />}
       <div className="voice-tile-actions">
         {!fullScreen && (
           <Tooltip text={focused ? "Back to everyone" : "Fill the stage"}>

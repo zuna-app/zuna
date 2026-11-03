@@ -71,6 +71,7 @@ export interface VoiceSettings {
 
 const KEY = "zuna-voice-settings";
 const VOLUMES_KEY = "zuna-voice-volumes";
+const STREAM_VOLUMES_KEY = "zuna-voice-stream-volumes";
 
 export const VOICE_DEFAULTS: VoiceSettings = {
   inputDevice: "default",
@@ -152,18 +153,18 @@ export function saveVoiceSettings(settings: VoiceSettings): void {
   }
 }
 
-/** How loud each person is for this device, from 0 to 2, by user. */
-export function loadVolumes(): Record<string, number> {
+/** How loud each person is for this device, from 0 to 2, by user: their voice, or their shared screen's sound. */
+export function loadVolumes(kind: "voice" | "stream" = "voice"): Record<string, number> {
   try {
-    return JSON.parse(localStorage.getItem(VOLUMES_KEY) ?? "{}");
+    return JSON.parse(localStorage.getItem(kind === "voice" ? VOLUMES_KEY : STREAM_VOLUMES_KEY) ?? "{}");
   } catch {
     return {};
   }
 }
 
-export function saveVolumes(volumes: Record<string, number>): void {
+export function saveVolumes(volumes: Record<string, number>, kind: "voice" | "stream" = "voice"): void {
   try {
-    localStorage.setItem(VOLUMES_KEY, JSON.stringify(volumes));
+    localStorage.setItem(kind === "voice" ? VOLUMES_KEY : STREAM_VOLUMES_KEY, JSON.stringify(volumes));
   } catch {
     // They just won't persist.
   }

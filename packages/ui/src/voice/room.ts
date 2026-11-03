@@ -89,6 +89,8 @@ export interface VideoTile {
   source: VideoSource;
   track: Track;
   local: boolean;
+  /** A share someone else is sending with its sound, which can be made quieter here. */
+  sound?: boolean;
 }
 
 export type RoomStatus = "connecting" | "connected" | "reconnecting" | "closed";
@@ -412,6 +414,12 @@ export class VoiceRoom {
   /** Everything being sent that can be watched, and from here. */
   videos(): VideoTile[] {
     const tiles: VideoTile[] = [];
+    // A native share's sound goes out from the person's own connection, beside the picture from another.
+    const sound = new Set<string>();
+    for (const participant of this.room.remoteParticipants.values()) {
+      const user = userOf(participant.identity);
+      if (user && [...participant.trackPublications.values()].some((publication) => publication.source === Track.Source.ScreenShareAudio)) sound.add(user);
+    }
     const add = (participant: Participant, local: boolean) => {
       const parsed = parseVoiceIdentity(participant.identity);
       // This device's own native share isn't sent back to it.
@@ -420,7 +428,7 @@ export class VoiceRoom {
         const { track } = publication;
         if (publication.kind !== Track.Kind.Video || !track || publication.isMuted) continue;
         const source: VideoSource = publication.source === Track.Source.ScreenShare ? "screen" : "camera";
-        tiles.push({ key: `${participant.identity}/${publication.trackSid}`, userId: parsed.userId, identity: participant.identity, source, track, local });
+        tiles.push({ key: `${participant.identity}/${publication.trackSid}`, userId: parsed.userId, identity: participant.identity, source, track, local, sound: source === "screen" && !local && sound.has(parsed.userId) });
       }
     };
     add(this.room.localParticipant, true);

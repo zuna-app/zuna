@@ -117,6 +117,18 @@
 .voice-tile-actions { position: absolute; right: 8px; top: 8px; display: flex; gap: 4px; opacity: 0; transition: opacity 0.1s linear; }
 .voice-tile:hover .voice-tile-actions { opacity: 1; }
 .voice-tile-actions .icon-btn { background: rgba(0, 0, 0, 0.62); color: #fff; }
+/* A share's sound, at the bottom right as in a video player, with room left for the name. */
+.voice-tile-sound { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 4px; padding-right: 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.62); color: #fff; opacity: 0; transition: opacity 0.1s linear; cursor: default; }
+.voice-tile:hover .voice-tile-sound, .voice-tile-sound:focus-within { opacity: 1; }
+.voice-tile-sound .icon-btn { color: #fff; background: none; }
+.voice-tile-sound .voice-slider { width: 96px; }
+.voice-tile.is-screen:has(.voice-tile-sound) .voice-tile-label { max-width: calc(100% - 150px); }
+/* Too narrow for the slider, the button still mutes it. */
+@container (max-width: 300px) {
+  .voice-tile-sound { padding-right: 0; }
+  .voice-tile-sound .voice-slider { display: none; }
+  .voice-tile.is-screen:has(.voice-tile-sound) .voice-tile-label { max-width: calc(100% - 52px); }
+}
 .voice-tile.is-screen:fullscreen { border-radius: 0; outline: none; cursor: default; }
 .voice-controls { flex: none; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 12px 14px; flex-wrap: wrap; }
 /* A pill with the same space at each end, whatever is in it. */
