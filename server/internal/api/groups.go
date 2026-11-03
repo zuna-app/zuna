@@ -530,9 +530,8 @@ func (s *Server) handleSendMessage(w http.ResponseWriter, r *http.Request, sess 
 		return
 	}
 	s.broadcastMessage(r, groupID, message)
-	// Only a device could tell whether a channel's message mentions someone, so phones aren't woken for them.
-	if group, err := s.db.Group(r.Context(), groupID); created && err == nil && group.Kind != "channel" {
-		s.pushMessage(groupID, message)
+	if group, err := s.db.Group(r.Context(), groupID); created && err == nil {
+		s.pushMessage(groupID, group.Kind == "channel", message)
 	}
 	writeJSON(w, http.StatusCreated, message)
 }

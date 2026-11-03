@@ -22,6 +22,9 @@ type PushRegistration struct {
 	// notifications itself, with when each one's mute ends (ms), or 0 for
 	// until it's unmuted.
 	Muted map[string]int64
+	// Filters is set when the app hides what it shouldn't show itself, so
+	// it's pushed for everything, channels too.
+	Filters bool
 }
 
 // encodeMuted stores mutes as "group" or "group:until", comma-separated.
@@ -58,11 +61,11 @@ func (p PushRegistration) mutes(groupID string, now int64) bool {
 // SetPushRegistration stores a device's registration, replacing any earlier one.
 func (d *DB) SetPushRegistration(ctx context.Context, p PushRegistration) error {
 	_, err := d.sql.ExecContext(ctx,
-		`INSERT INTO push_registrations(device_id, user_id, relay, handle, push_key, registration, muted, updated_at)
-		 VALUES(?,?,?,?,?,?,?,?)
+		`INSERT INTO push_registrations(device_id, user_id, relay, handle, push_key, registration, muted, filters, updated_at)
+		 VALUES(?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(device_id) DO UPDATE SET relay = excluded.relay, handle = excluded.handle, push_key = excluded.push_key,
-		   registration = excluded.registration, muted = excluded.muted, updated_at = excluded.updated_at`,
-		p.DeviceID, p.UserID, p.Relay, p.Handle, p.Key, p.Registration, encodeMuted(p.Muted), Now())
+		   registration = excluded.registration, muted = excluded.muted, filters = excluded.filters, updated_at = excluded.updated_at`,
+		p.DeviceID, p.UserID, p.Relay, p.Handle, p.Key, p.Registration, encodeMuted(p.Muted), p.Filters, Now())
 	return err
 }
 
@@ -75,15 +78,16 @@ func (d *DB) DeletePushRegistration(ctx context.Context, deviceID, handle string
 
 // PushTargets lists the registered devices to wake for a new message in a
 // group: the other members' devices that are signed in and haven't muted it.
-func (d *DB) PushTargets(ctx context.Context, groupID, senderUserID string) ([]PushRegistration, error) {
+// With onlyFiltering, only those whose app hides what it shouldn't show.
+func (d *DB) PushTargets(ctx context.Context, groupID, senderUserID string, onlyFiltering bool) ([]PushRegistration, error) {
 	rows, err := d.sql.QueryContext(ctx,
-		`SELECT p.device_id, p.user_id, p.relay, p.handle, p.push_key, p.registration, p.muted
+		`SELECT p.device_id, p.user_id, p.relay, p.handle, p.push_key, p.registration, p.muted, p.filters
 		 FROM push_registrations p
 		 JOIN group_members m ON m.user_id = p.user_id AND m.group_id = ?
 		 JOIN devices dv ON dv.id = p.device_id AND dv.revoked_at IS NULL
 		 JOIN users u ON u.id = p.user_id AND u.banned_at IS NULL
-		 WHERE p.user_id != ? AND EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`,
-		groupID, senderUserID)
+		 WHERE p.user_id != ? AND (? = 0 OR p.filters = 1) AND EXISTS (SELECT 1 FROM sessions s WHERE s.device_id = p.device_id)`,
+		groupID, senderUserID, onlyFiltering)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +97,7 @@ func (d *DB) PushTargets(ctx context.Context, groupID, senderUserID string) ([]P
 	for rows.Next() {
 		var p PushRegistration
 		var muted string
-		if err := rows.Scan(&p.DeviceID, &p.UserID, &p.Relay, &p.Handle, &p.Key, &p.Registration, &muted); err != nil {
+		if err := rows.Scan(&p.DeviceID, &p.UserID, &p.Relay, &p.Handle, &p.Key, &p.Registration, &muted, &p.Filters); err != nil {
 			return nil, err
 		}
 		p.Muted = decodeMuted(muted)

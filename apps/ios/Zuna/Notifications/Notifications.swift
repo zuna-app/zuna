@@ -142,11 +142,12 @@ final class Notifications {
     }
 
     /// Whether the server pushes this chat's new messages to this device: it's
-    /// registered there, and it isn't a channel, whose messages it never pushes.
+    /// registered there, and a channel's only reach a phone that hides
+    /// notifications itself.
     private func pushes(serverId: String, groupId: String) -> Bool {
         guard Self.relay != nil, settings.enabled, allowed, token != nil, !unsupported.contains(serverId) else { return false }
         let channel = model.servers[serverId]?.channels.contains { $0.id == groupId } ?? false
-        return !channel
+        return !channel || PushStore.canFilter
     }
 
     /// The relay's handle for this device, remembered for the same token.

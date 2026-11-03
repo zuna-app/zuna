@@ -60,6 +60,8 @@ func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *sto
 		Registration string           `json:"registration"`
 		Muted        []string         `json:"muted"`
 		MutedUntil   map[string]int64 `json:"muted_until"`
+		// The app hides what it shouldn't show itself, so it's pushed everything.
+		Filters bool `json:"filters"`
 	}
 	if !readJSON(w, r, &body) {
 		return
@@ -95,6 +97,7 @@ func (s *Server) handleSetPush(w http.ResponseWriter, r *http.Request, sess *sto
 		Key:          body.Key,
 		Registration: body.Registration,
 		Muted:        muted,
+		Filters:      body.Filters,
 	})
 	if err != nil {
 		writeFailure(w, err)
@@ -112,15 +115,17 @@ func (s *Server) handleDeletePush(w http.ResponseWriter, r *http.Request, sess *
 }
 
 // pushMessage wakes the other members' phones for a new message, in the
-// background, unless they're using them right now.
-func (s *Server) pushMessage(groupID string, message *store.Message) {
+// background, unless they're using them right now. A channel's messages only
+// go to phones that hide notifications themselves, since only a device can
+// tell which mention someone.
+func (s *Server) pushMessage(groupID string, channel bool, message *store.Message) {
 	if len(s.cfg.PushRelays) == 0 {
 		return
 	}
 	sent := time.Now()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), pushTimeout)
-		targets, err := s.db.PushTargets(ctx, groupID, message.SenderUser)
+		targets, err := s.db.PushTargets(ctx, groupID, message.SenderUser, channel)
 		cancel()
 		if err != nil {
 			slog.Warn("listing devices to notify", "error", err)

@@ -297,6 +297,7 @@ public struct PushSettings: Encodable, Sendable, Equatable {
     public var key: Data
     public var registration: String
     /// Tell the server which chats are muted, for an app that can't hide notifications itself.
+    /// Otherwise it's pushed for everything, channels too, and hides what it shouldn't show.
     public var sendMuted: Bool
 
     public init(relay: String, handle: String, key: Data, registration: String, sendMuted: Bool) {

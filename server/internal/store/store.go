@@ -481,6 +481,10 @@ ALTER TABLE group_members ADD COLUMN history_wanted INTEGER NOT NULL DEFAULT 0;
 -- How many may share a screen at once in a voice channel: 0 leaves it to the server's
 -- rules, and -1 is nobody.
 ALTER TABLE channels ADD COLUMN screen_limit INTEGER NOT NULL DEFAULT 0;
+`, `
+-- Whether a phone's app hides what it shouldn't show itself, so it's pushed for
+-- everything, channels too.
+ALTER TABLE push_registrations ADD COLUMN filters INTEGER NOT NULL DEFAULT 0;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

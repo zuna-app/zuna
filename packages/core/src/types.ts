@@ -143,7 +143,11 @@ export interface PushSettings {
   key: Uint8Array;
   /** The app's own ID for this registration, so it knows which server a push is from. */
   registration: string;
-  /** Tell the server which chats are muted, so it skips them, for an app that can't hide notifications itself. */
+  /**
+   * Tell the server which chats are muted, so it skips them, for an app that
+   * can't hide notifications itself. Otherwise it's pushed for everything,
+   * channels too, and hides what it shouldn't show.
+   */
   sendMuted: boolean;
 }
 

@@ -174,7 +174,7 @@ func TestPushesWakeOtherMembersWithSealedIDsOnly(t *testing.T) {
 	owner.send(group.ID, 1, store.NewID())
 	relay.next(t)
 	waitUntil(t, "the registration to go", func() bool {
-		targets, _ := h.db.PushTargets(context.Background(), group.ID, owner.userID)
+		targets, _ := h.db.PushTargets(context.Background(), group.ID, owner.userID, false)
 		return len(targets) == 0
 	})
 	relay.gone.Store(false)
@@ -196,7 +196,7 @@ func TestPushesStopWhenTheDeviceSignsOut(t *testing.T) {
 	h.mustDo("POST", "/api/auth/logout", bob.token, nil, nil)
 	owner.send(group.ID, 1, store.NewID())
 	relay.none(t)
-	if targets, _ := h.db.PushTargets(context.Background(), group.ID, owner.userID); len(targets) != 0 {
+	if targets, _ := h.db.PushTargets(context.Background(), group.ID, owner.userID, false); len(targets) != 0 {
 		t.Fatalf("a signed-out device is still registered: %+v", targets)
 	}
 }
@@ -319,6 +319,29 @@ func TestPushesWaitWhileSomeoneUsesAnotherDevice(t *testing.T) {
 	phoneSocket.setActive(true)
 	phoneSocket.waitFor("activity")
 	time.Sleep(wait)
+	relay.none(t)
+}
+
+func TestChannelsArePushedOnlyToPhonesThatHideNotificationsThemselves(t *testing.T) {
+	relay := newFakeRelay(t)
+	h := newHarness(t, func(cfg *api.Config) { cfg.PushRelays = []string{relay.URL} })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	carol := h.register("carol", owner.newInvite())
+	channel := owner.createChannel("text", 0)
+	bob.joinChannel(channel.ID, false)
+	carol.joinChannel(channel.ID, false)
+	owner.commit(channel.ID, 0, nil)
+
+	// Only a device can tell what mentions someone, so a phone that can't drop a notification gets none.
+	bob.registerPush(relay.URL, "bob-phone", bytesOf(32, 5), store.NewID(), nil)
+	h.mustDo("PUT", "/api/push", carol.token, map[string]any{
+		"relay": relay.URL, "handle": "carol-phone", "key": bytesOf(32, 6), "registration": store.NewID(), "filters": true,
+	}, nil)
+	owner.send(channel.ID, 1, store.NewID())
+	if push := relay.next(t); push.Handle != "carol-phone" {
+		t.Fatalf("pushed %+v", push)
+	}
 	relay.none(t)
 }
 
