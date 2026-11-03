@@ -95,6 +95,8 @@ export function startNativeSound(app: string | null, renderer: WebContents, onEn
   if (!path || !nativeSoundAvailable()) throw new Error("This build can't capture your computer's sound.");
   const args = [...(app ? ["--sound-from", app] : ["--sound"]), ...excludeArgs()];
   const child: ChildProcess = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  // Once it's gone, writing to it fails with EPIPE, which unheard would stop the app with an error.
+  child.stdin?.on("error", () => undefined);
   const { port1, port2 } = new MessageChannelMain();
   const said: string[] = [];
   let stopping = false;

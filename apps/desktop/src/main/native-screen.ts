@@ -136,6 +136,8 @@ export function startNativeScreen(options: NativeScreenOptions, onEnded: (proble
   else args.push("--source", options.kind === "window" ? "window" : "screen");
 
   const child: ChildProcess = spawn(path, args, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  // Once it's gone, writing to it fails with EPIPE, which unheard would stop the app with an error.
+  child.stdin?.on("error", () => undefined);
   const send = (message: object) => {
     if (child.stdin?.writable) child.stdin.write(`${JSON.stringify(message)}\n`);
   };

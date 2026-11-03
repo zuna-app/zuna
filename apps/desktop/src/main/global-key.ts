@@ -159,6 +159,8 @@ function startShortcutWatch(code: string, listener: (down: boolean) => void, onB
   const path = nativeScreenPath();
   if (!path || code.startsWith("Mouse")) return null;
   const child = spawn(path, ["--push-to-talk", triggerOf(code) ?? ""], { stdio: ["pipe", "pipe", "pipe"] });
+  // Once it's gone, writing to it fails with EPIPE, which unheard would stop the app with an error.
+  child.stdin?.on("error", () => undefined);
   createInterface({ input: child.stdout! }).on("line", (line) => {
     let message: { type?: string; trigger?: unknown };
     try {
