@@ -153,7 +153,7 @@ struct Composer: View {
             }
             .presentationDetents([.medium, .large])
         }
-        .onChange(of: trigger?.query) { selectedSuggestion = 0 }
+        .onChange(of: trigger?.query) { selectedSuggestion = tentative ? -1 : 0 }
         .task(id: "\(model.settings.linkPreviews)|\(state.editing?.id ?? "")|\(state.text)") {
             await model.updateLinkPreview(serverId, conversation.key, text: state.text)
         }
@@ -184,9 +184,12 @@ struct Composer: View {
                 selectedSuggestion = (selectedSuggestion + 1) % shown.count
                 return .handled
             case .upArrow:
-                selectedSuggestion = (selectedSuggestion - 1 + shown.count) % shown.count
+                selectedSuggestion = selectedSuggestion < 0 ? shown.count - 1 : (selectedSuggestion - 1 + shown.count) % shown.count
                 return .handled
-            case .return, .tab:
+            case .tab:
+                apply(shown[min(max(0, selectedSuggestion), shown.count - 1)])
+                return .handled
+            case .return where selectedSuggestion >= 0:
                 apply(shown[min(selectedSuggestion, shown.count - 1)])
                 return .handled
             default:
@@ -518,24 +521,36 @@ struct Composer: View {
         return current.utf16.distance(from: current.startIndex, to: range.upperBound)
     }
 
-    /// `:name` for emotes and `@name` for people, just before the caret.
+    /// `:name` for emotes, from the `:` on, and `@name` for people, just before the caret.
     private var trigger: (kind: Character, query: String, start: Int, end: Int)? {
         let current = state.text
         let end = caretOffset ?? current.utf16.count
         let before = String(current.utf16.prefix(end)) ?? current
-        let pattern = try! NSRegularExpression(pattern: #"(?:^|\s)([:@])([\p{L}\p{N}_.-]{1,32})$"#)
+        let pattern = try! NSRegularExpression(pattern: #"(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$"#)
         let ns = before as NSString
         guard let match = pattern.firstMatch(in: before, range: NSRange(location: 0, length: ns.length)) else { return nil }
         let kind = Character(ns.substring(with: match.range(at: 1)))
         let query = ns.substring(with: match.range(at: 2))
+        if kind == "@" && query.isEmpty { return nil }
         return (kind, query.lowercased(), match.range(at: 1).location, end)
+    }
+
+    /// Until two letters are typed, as in ":D", Return sends what's written, and only the
+    /// arrows or Tab pick an emote, so nothing is picked to begin with.
+    private var tentative: Bool {
+        guard let trigger else { return false }
+        return trigger.kind == ":" && trigger.query.count < 2
     }
 
     private var suggestions: [Suggestion] {
         guard let trigger else { return [] }
         if trigger.kind == ":" {
-            guard trigger.query.count >= 2 else { return [] }
             let all = server.emotes.emotes
+            if trigger.query.isEmpty {
+                return all.prefix(Self.maxSuggestions).map {
+                    Suggestion(id: $0.id, label: $0.name, hint: $0.owner.isEmpty ? nil : "by \($0.owner)", insert: "\($0.name) ", emote: $0, user: nil)
+                }
+            }
             let starts = all.filter { $0.name.lowercased().hasPrefix(trigger.query) }
             let contains = all.filter { !$0.name.lowercased().hasPrefix(trigger.query) && $0.name.lowercased().contains(trigger.query) }
             return (starts + contains).prefix(Self.maxSuggestions).map {

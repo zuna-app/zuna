@@ -180,17 +180,28 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
 
   useImperativeHandle(ref, () => ({ addFiles: (incoming) => void addFiles(incoming) }), [addFiles]);
 
-  // Autocomplete: ":name" for emotes and "@name" for people.
+  // Autocomplete: ":name" for emotes, from the ":" on, and "@name" for people.
   const trigger = useMemo(() => {
     const before = text.slice(0, caret);
-    const match = before.match(/(?:^|\s)([:@])([\p{L}\p{N}_.-]{1,32})$/u);
-    return match ? { kind: match[1] as ":" | "@", query: match[2]!.toLowerCase(), start: caret - match[2]!.length - 1 } : null;
+    const match = before.match(/(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$/u);
+    if (!match || (match[1] === "@" && !match[2])) return null;
+    return { kind: match[1] as ":" | "@", query: match[2]!.toLowerCase(), start: caret - match[2]!.length - 1 };
   }, [text, caret]);
+  // Until two letters are typed, as in ":D", Enter sends what's written, and only the
+  // arrows or Tab pick an emote, so nothing is picked to begin with.
+  const tentative = trigger?.kind === ":" && trigger.query.length < 2;
+  const emoteSuggestion = (emote: ServerEmote): Suggestion => ({
+    key: emote.id,
+    label: emote.name,
+    hint: emote.owner ? `by ${emote.owner}` : undefined,
+    insert: `${emote.name} `,
+    render: <Emote name={emote.name} emote={{ id: emote.id, animated: emote.animated }} serverUrl={serverUrl} size="reaction" hoverCard={false} />,
+  });
 
   const suggestions: Suggestion[] = useMemo(() => {
     if (!trigger) return [];
     if (trigger.kind === ":") {
-      if (trigger.query.length < 2) return [];
+      if (!trigger.query) return emotes.slice(0, MAX_SUGGESTIONS).map(emoteSuggestion);
       const starts: typeof emotes = [];
       const contains: typeof emotes = [];
       for (const emote of emotes) {
@@ -199,13 +210,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         else if (lower.includes(trigger.query)) contains.push(emote);
         if (starts.length >= MAX_SUGGESTIONS) break;
       }
-      return [...starts, ...contains].slice(0, MAX_SUGGESTIONS).map((emote) => ({
-        key: emote.id,
-        label: emote.name,
-        hint: emote.owner ? `by ${emote.owner}` : undefined,
-        insert: `${emote.name} `,
-        render: <Emote name={emote.name} emote={{ id: emote.id, animated: emote.animated }} serverUrl={serverUrl} size="reaction" hoverCard={false} />,
-      }));
+      return [...starts, ...contains].slice(0, MAX_SUGGESTIONS).map(emoteSuggestion);
     }
     // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet.
     const members = conversation.kind === "group" ? conversation.members.map((member) => member.userId) : Object.keys(users);
@@ -223,7 +228,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
       }));
   }, [trigger, emotes, users, serverUrl, conversation.kind, conversation.members]);
 
-  useEffect(() => setSelected(0), [trigger?.query, trigger?.kind]);
+  useEffect(() => setSelected(tentative ? -1 : 0), [trigger?.query, trigger?.kind]);
 
   const applySuggestion = (suggestion: Suggestion) => {
     if (!trigger) return;
@@ -361,12 +366,12 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setSelected((value) => (value - 1 + suggestions.length) % suggestions.length);
+        setSelected((value) => (value < 0 ? suggestions.length - 1 : (value - 1 + suggestions.length) % suggestions.length));
         return;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      if (event.key === "Tab" || (event.key === "Enter" && selected >= 0)) {
         event.preventDefault();
-        applySuggestion(suggestions[selected]!);
+        applySuggestion(suggestions[Math.max(0, selected)]!);
         return;
       }
     }

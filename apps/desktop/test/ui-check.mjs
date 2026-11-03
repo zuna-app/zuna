@@ -315,6 +315,24 @@ try {
   await sleep(150);
   check("focus returns after closing the picker", await composerFocused());
 
+  // Emotes are offered from the ":" on, and until two letters are typed only the
+  // arrows or Tab pick one, so ":D" and Enter still sends ":D".
+  const composer = page.locator(".composer-input");
+  await page.keyboard.type(":");
+  await page.locator(".suggestion").first().waitFor({ timeout: 3000 });
+  const offered = await page.locator(".suggestion").count();
+  const pickedAtFirst = await page.locator(".suggestion.is-selected").count();
+  await shot("09b-emote-suggestions");
+  await page.keyboard.press("ArrowDown");
+  const first = (await page.locator(".suggestion.is-selected .truncate").first().textContent()) ?? "";
+  await page.keyboard.press("Enter");
+  check("typing \":\" offers emotes, and the arrows pick one", offered > 0 && pickedAtFirst === 0 && !!first && (await composer.inputValue()) === `${first} `, `${offered} offered, ${pickedAtFirst} picked at first, "${await composer.inputValue()}"`);
+  await composer.fill("");
+  await page.keyboard.type(":D");
+  await sleep(150);
+  await page.keyboard.press("Enter");
+  await page.locator(".msg.is-own .msg-text", { hasText: ":D" }).last().waitFor({ timeout: 5000 }).then(() => check("\":D\" and Enter still sends \":D\"", true)).catch(() => check("\":D\" and Enter still sends \":D\"", false));
+
   // Code
   await openChat("Jordan");
   await page.locator(".code-block").waitFor();
