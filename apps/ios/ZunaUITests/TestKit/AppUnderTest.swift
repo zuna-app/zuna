@@ -38,7 +38,7 @@ final class AppUnderTest {
     /// Launches the app. `fresh` erases its data first; `bootSession` simulates a restart of the phone.
     /// `notifications` lets the app ask for notifications, as it does once its
     /// chats first show; other tests keep the system's question out of the way.
-    func launch(fresh: Bool = true, bootSession: String? = nil, textSize: String? = nil, notifications: Bool = false) throws {
+    func launch(fresh: Bool = true, bootSession: String? = nil, textSize: String? = nil, notifications: Bool = false, systemCall: Bool = false) throws {
         let port = Int.random(in: 40_000..<50_000)
         app.launchArguments = [
             "-ZunaControlPort", String(port),
@@ -51,6 +51,8 @@ final class AppUnderTest {
         app.launchArguments += ["-ZunaFakeMicrophone", "YES"]
         // Calls send moving bars from the camera, which the simulator hasn't got, and for the screen, as nothing can answer its picker.
         app.launchArguments += ["-ZunaFakeCamera", "YES", "-ZunaFakeScreen", "YES"]
+        // Calls go to CallKit only for a test about that: its audio holds up the simulator.
+        if systemCall { app.launchArguments += ["-ZunaSystemCall", "YES"] }
         app.launchArguments += ["-ZunaAskForNotifications", notifications ? "YES" : "NO"]
         if notifications {
             // The test relay and a made-up token stand in for APNs, which the simulator can't use without the app's key.

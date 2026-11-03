@@ -127,6 +127,8 @@ final class VoiceModel {
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var reconnects = 0
     @ObservationIgnored private let sounds = VoiceSounds()
+    /// The call as the system shows it, on the lock screen and in its call controls.
+    @ObservationIgnored private let systemCall = SystemCall()
     /// How loud a share was before being silenced here, to go back to.
     @ObservationIgnored private var streamVolumeBefore: [String: Double] = [:]
     /// Each share asked for counts, so one that takes a while can tell it's been stopped.
@@ -215,6 +217,12 @@ final class VoiceModel {
         reset(status: .connecting)
         self.serverId = serverId
         self.channelId = channelId
+        let title = app?.servers[serverId]?.channels.first { $0.id == channelId }?.title ?? "Voice channel"
+        await systemCall.start(title: title, actions: SystemCall.Actions(
+            mute: { [weak self] muted in self?.mutedBySystem(muted) ?? false },
+            end: { [weak self] in self?.leave() }
+        ))
+        guard mine == attempt else { return }
         await connect(serverId: serverId, channelId: channelId, mine: mine)
     }
 
@@ -288,6 +296,8 @@ final class VoiceModel {
             await room.setMuted(micOff)
             status = .connected
             keyEpoch = room.currentKey?.epoch
+            systemCall.connected()
+            systemCall.setMuted(micOff)
             announce()
             syncVideos()
             if reconnects == 0 { sound(.selfJoin) }
@@ -298,6 +308,7 @@ final class VoiceModel {
             let session = app.core.session(serverId)
             reset(status: .idle)
             stageShown = false
+            systemCall.ended(failed: true)
             Task { try? await session.setVoiceState(nil, nil) }
             onEnded?()
         }
@@ -344,6 +355,7 @@ final class VoiceModel {
         let session = session
         room?.close()
         room = nil
+        systemCall.end()
         Task { try? await session?.setVoiceState(nil, nil) }
         reset(status: .idle)
         stageShown = false
@@ -368,6 +380,7 @@ final class VoiceModel {
         attempt += 1
         room?.close()
         room = nil
+        systemCall.ended(failed: false)
         reset(status: .idle)
         stageShown = false
         let messages = [
@@ -398,6 +411,7 @@ final class VoiceModel {
               member.deviceId == app?.servers[serverId]?.me?.deviceId, member.serverMuted != serverMuted else { return }
         serverMuted = member.serverMuted
         Task { await room?.setMuted(micOff) }
+        systemCall.setMuted(micOff)
         app?.toast(member.serverMuted ? "An admin muted you." : "An admin unmuted you.")
         sound(member.serverMuted ? .mute : .unmute)
     }
@@ -435,7 +449,28 @@ final class VoiceModel {
     private func applyMute() {
         let off = micOff
         Task { await room?.setMuted(off) }
+        systemCall.setMuted(off)
         announce()
+    }
+
+    /// The system's call controls muted the call or unmuted it, as on the lock screen. False if that can't be done.
+    private func mutedBySystem(_ muted: Bool) -> Bool {
+        guard muted != micOff else { return true }
+        if muted {
+            self.muted = true
+            applyMute()
+            sound(.mute)
+            return true
+        }
+        guard !noMic, !serverMuted else { return false }
+        // As the app's own button does, unmuting while deafened undoes both.
+        let wasDeafened = deafened
+        deafened = false
+        self.muted = false
+        if wasDeafened { applyVolumes() }
+        applyMute()
+        sound(wasDeafened ? .undeafen : .unmute)
+        return true
     }
 
     func toggleCamera() async {
@@ -449,6 +484,7 @@ final class VoiceModel {
             try await room.setCamera(on)
             camera = on
             cameraFront = room.cameraFacingFront
+            systemCall.video(on)
             announce()
         } catch {
             app?.toast("There's no camera Zuna can use.", .error)
@@ -587,6 +623,11 @@ final class VoiceModel {
         if localMutes.contains(userId) { localMutes.remove(userId) } else { localMutes.insert(userId) }
         applyVolumes()
     }
+
+    #if DEBUG
+    /// What the system has of the call, for tests.
+    var systemCallReport: [String: Any] { systemCall.report }
+    #endif
 
     // MARK: Stream stats
 

@@ -100,11 +100,13 @@ targets:
         NSUserActivityTypes:
           - INSendMessageIntent
         # Silent pushes that clear notifications read or deleted elsewhere, a voice
-        # channel that goes on while the app is out of sight, and on iOS 27 a screen
-        # shared through ScreenCaptureKit while other apps are on it.
+        # channel that goes on while the app is out of sight, its call handed to the
+        # system through CallKit, which refuses an app without voip, and on iOS 27 a
+        # screen shared through ScreenCaptureKit while other apps are on it.
         UIBackgroundModes:
           - remote-notification
           - audio
+          - voip
           - screen-capture
     entitlements:
       path: Zuna/Zuna.entitlements

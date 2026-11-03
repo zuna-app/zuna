@@ -254,6 +254,35 @@ final class VoiceTests: XCTestCase {
         try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
     }
 
+    /// What the system has of the call (`SystemCall.report`).
+    private func systemCall() throws -> [String: Any] {
+        try voiceState()["systemCall"] as? [String: Any] ?? [:]
+    }
+
+    /// The simulator's CallKit takes a call and ends it at once, having no audio to give it, so this checks
+    /// that a call handed to it goes on all the same. The lock screen and its buttons need a device.
+    func testHandsTheCallToTheSystemAndGoesOnWithoutIt() throws {
+        let alice = try Peer("alice")
+        let lounge = try channelId(alice, "Lounge")
+        try zuna.launch(systemCall: true)
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let row = zuna.element(A11y.Channels.row(lounge))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        try waitFor("alice to see bob come in", timeout: 30) { try self.bobsPhone(alice) != nil }
+        XCTAssertEqual(try systemCall()["handed"] as? Bool, true, "the system didn't take the call")
+
+        // Still in once the system has let go of it, and muting still reaches everyone.
+        try waitFor("the system to let go of the call") { try self.systemCall()["current"] as? Bool == false }
+        zuna.element(A11y.Voice.mute).tap()
+        try waitFor("alice to see bob muted") { try self.bobsPhone(alice)?["muted"] as? Bool == true }
+        XCTAssertTrue(zuna.element(A11y.Voice.stage).exists)
+
+        zuna.element(A11y.Voice.leave).tap()
+        try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
+    }
+
     func testIsTakenOutByAnAdminOrAnotherDevice() throws {
         let alice = try Peer("alice")
         let bobLaptop = try Peer("bobLaptop")
