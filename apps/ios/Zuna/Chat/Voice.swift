@@ -171,6 +171,11 @@ final class VoicePlayer: NSObject, AVAudioPlayerDelegate {
     @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var timer: Timer?
 
+    enum Failure: LocalizedError {
+        case unavailable
+        var errorDescription: String? { "Sound isn't available right now." }
+    }
+
     func play(_ url: URL, id: String, from time: TimeInterval) throws {
         if current != id || player == nil {
             stop()
@@ -183,7 +188,11 @@ final class VoicePlayer: NSObject, AVAudioPlayerDelegate {
             current = id
         }
         player?.currentTime = time
-        player?.play()
+        // With nothing to play sound on it refuses, and would never say it finished.
+        guard player?.play() == true else {
+            stop()
+            throw Failure.unavailable
+        }
         isPlaying = true
         position = time
         timer?.invalidate()
