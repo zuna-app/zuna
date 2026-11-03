@@ -18,7 +18,7 @@ enum VoiceTesting {
     static var fakeScreen: Bool { UserDefaults.standard.bool(forKey: "ZunaFakeScreen") }
     /// A steady 440 Hz tone goes out in place of whatever the microphone hears.
     static var toneMicrophone: Bool { UserDefaults.standard.bool(forKey: "ZunaFakeMicrophone") }
-    /// Calls are handed to CallKit, which test builds otherwise leave out (`SystemCall.allowed`).
+    /// Calls are handed to CallKit, which test builds otherwise leave out (`SystemCall.allowed()`).
     static var systemCall: Bool { UserDefaults.standard.bool(forKey: "ZunaSystemCall") }
 
     /// LiveKit says everything it does, for a check that wants to know why a call didn't connect.

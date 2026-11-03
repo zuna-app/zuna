@@ -2,6 +2,7 @@ import AVFoundation
 import CallKit
 import LiveKit
 import os
+import StoreKit
 
 /// The call as the system knows it, through CallKit: on the lock screen, in the Dynamic Island
 /// and the system's call controls, which can mute and end it, and before a phone call that
@@ -35,14 +36,19 @@ final class SystemCall: NSObject {
     /// How long CallKit is given to start the audio before LiveKit starts it itself.
     private static let audioWait: Duration = .seconds(3)
 
-    /// Apps on the App Store in mainland China may not use CallKit.
-    static var allowed: Bool {
+    /// The App Store's country, looked up as the app starts, since coming into a channel waits for it.
+    private let storefront = Task { await Storefront.current?.countryCode }
+
+    /// Apps on the App Store in mainland China may not use CallKit. The phone's region alone doesn't tell: someone
+    /// on China's App Store can have theirs set elsewhere.
+    private func allowed() async -> Bool {
         #if DEBUG
         // The simulator's CallKit ends a call as soon as it has it, having no audio to give it, and its audio
         // session is the Mac's. Test builds only hand a call to it when a test asks.
         if VoiceTesting.toneMicrophone, !VoiceTesting.systemCall { return false }
         #endif
-        return Locale.current.region?.identifier != "CN"
+        if Locale.current.region?.identifier == "CN" { return false }
+        return await storefront.value != "CHN"
     }
 
     override init() {
@@ -59,8 +65,10 @@ final class SystemCall: NSObject {
 
     /// Hands a call that's starting to the system, which then shows it as connecting.
     func start(title: String, actions: Actions) async {
+        // Asked first, so nothing waits between ending the last call and taking this one.
+        let handOver = await allowed()
         end()
-        guard Self.allowed else { return }
+        guard handOver else { return }
         let id = UUID()
         current = id
         hasConnected = false
