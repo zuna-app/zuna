@@ -1,8 +1,8 @@
 import AVFoundation
 import XCTest
 
-/// Voice messages, picking several messages to act on together, and muting a
-/// chat for a while. Each test checks what the desktop received.
+/// Voice and video messages, picking several messages to act on together, and
+/// muting a chat for a while. Each test checks what the desktop received.
 final class MessageActionsTests: XCTestCase {
     private let zuna = AppUnderTest()
 
@@ -34,6 +34,10 @@ final class MessageActionsTests: XCTestCase {
         try aliceMessages(alice).filter { (($0["attachments"] as? [[String: Any]])?.first?["voice"] as? Bool) == true }
     }
 
+    private func videoMessages(_ alice: Peer) throws -> [[String: Any]] {
+        try aliceMessages(alice).filter { (($0["attachments"] as? [[String: Any]])?.first?["round"] as? Bool) == true }
+    }
+
     private func type(_ text: String) {
         let input = zuna.element(A11y.Composer.input)
         if (input.value(forKey: "hasKeyboardFocus") as? Bool) != true { input.tap() }
@@ -63,9 +67,16 @@ final class MessageActionsTests: XCTestCase {
         let microphone = zuna.element(A11y.Composer.microphone)
         XCTAssertTrue(microphone.waitForExistence(timeout: 5))
 
-        // A tap is too short, and says how to record.
+        // A tap is too short to record: it switches to video messages, and another back, saying how to record.
+        // Whatever an earlier test left it on, this starts from voice messages.
+        if microphone.label == "Record a video message" { microphone.tap() }
+        try waitFor("voice messages") { microphone.label == "Record a voice message" }
         microphone.tap()
-        XCTAssertTrue(zuna.toast(startingWith: "Hold to record").waitForExistence(timeout: 5))
+        XCTAssertTrue(zuna.toast(startingWith: "Hold to record a video message").waitForExistence(timeout: 5))
+        try waitFor("video messages") { microphone.label == "Record a video message" }
+        microphone.tap()
+        XCTAssertTrue(zuna.toast(startingWith: "Hold to record a voice message").waitForExistence(timeout: 5))
+        try waitFor("voice messages again") { microphone.label == "Record a voice message" }
 
         // Held, it records; let go, it sends.
         microphone.press(forDuration: 2.5)
@@ -128,6 +139,67 @@ final class MessageActionsTests: XCTestCase {
         XCTAssertTrue(opusCard.buttons["Play voice message"].waitForExistence(timeout: 15))
         // As Chromium wrote the durations, it would stop at 4.3 s.
         XCTAssertGreaterThan(Date().timeIntervalSince(started), 4.6)
+    }
+
+    func testRecordsVideoMessagesAndPlaysThem() throws {
+        try openAlice()
+        let alice = try Peer("alice")
+        let before = try videoMessages(alice).count
+        let microphone = zuna.element(A11y.Composer.microphone)
+        XCTAssertTrue(microphone.waitForExistence(timeout: 5))
+        // Back to voice messages once this one's done, for the tests after.
+        defer {
+            if microphone.label == "Record a video message" {
+                microphone.tap()
+                try? waitFor("voice messages") { microphone.label == "Record a voice message" }
+            }
+        }
+
+        // A tap switches to video messages, as in Telegram.
+        if microphone.label != "Record a video message" { microphone.tap() }
+        try waitFor("video messages") { microphone.label == "Record a video message" }
+
+        // Held, it records, moving bars standing in for the camera; let go, it sends, square.
+        microphone.press(forDuration: 2.5)
+        try waitFor("alice to get the video message", timeout: 40) { try self.videoMessages(alice).count > before }
+        let sent = try XCTUnwrap(try videoMessages(alice).last)
+        let file = try XCTUnwrap((sent["attachments"] as? [[String: Any]])?.first)
+        XCTAssertEqual(file["mime"] as? String, "video/mp4")
+        XCTAssertEqual(file["name"] as? String, "Video message.mp4")
+        XCTAssertEqual(file["width"] as? Int, 480)
+        XCTAssertEqual(file["height"] as? Int, 480)
+        XCTAssertNotNil(file["thumb"] as? String)
+        let duration = try XCTUnwrap(file["duration"] as? Double)
+        XCTAssertTrue((1.5...3.5).contains(duration), "\(duration)")
+        let bytes = try WorldControl.download("alice", file)
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).mp4")
+        try bytes.write(to: copy)
+        let size = try blocking { try await AVURLAsset(url: copy).loadTracks(withMediaType: .video).first?.load(.naturalSize) }
+        XCTAssertEqual(size, CGSize(width: 480, height: 480))
+        let ownId = try XCTUnwrap(sent["id"] as? String)
+        XCTAssertTrue(zuna.element(A11y.Chat.round(ownId)).waitForExistence(timeout: 15))
+
+        // One from the desktop, as Chromium records it, plays with its sound on a tap.
+        let recorded = try Data(contentsOf: try XCTUnwrap(Bundle(for: Self.self).url(forResource: "chromium-round", withExtension: "mp4")))
+        _ = try alice.call("sendWithAttachments", [
+            "user:\(bobId)",
+            [[
+                "blob": ["$blob": ["bytes": recorded.base64EncodedString(), "type": "video/mp4"]],
+                "name": "Video message.mp4", "mime": "video/mp4", "width": 480, "height": 480, "duration": 2.4, "round": true,
+            ]],
+            [:],
+        ])
+        try waitFor("bob's phone to show it", timeout: 20) { try self.videoMessages(alice).count == before + 2 }
+        let fromAlice = try XCTUnwrap(try videoMessages(alice).last?["id"] as? String)
+        let card = zuna.element(A11y.Chat.round(fromAlice))
+        XCTAssertTrue(card.waitForExistence(timeout: 15))
+        zuna.screenshot("121-video-messages")
+        card.tap()
+        let failure = zuna.toast(startingWith: "Couldn't play")
+        try waitFor(failure.exists ? failure.label : "it to play with its sound", timeout: 10) { (card.value as? String) == "Playing" }
+        zuna.screenshot("121b-video-message-playing")
+        // It plays to the end, and goes back to playing by itself without sound.
+        try waitFor("it to finish", timeout: 15) { (card.value as? String) != "Playing" }
     }
 
     func testPicksMessagesToCopyForwardAndDelete() throws {

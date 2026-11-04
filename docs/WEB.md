@@ -27,7 +27,7 @@ A web app's code comes from its host on every visit. Whoever controls the host c
 Current Chrome, Edge, Firefox and Safari can all run it. Two things to know:
 
 - **Safari clears a site's data after 7 days without a visit,** and keeps nothing for private windows, where Zuna says it can't run. If your data is cleared, sign in again and your history comes back from your servers.
-- **Firefox hasn't been checked yet,** and its voice messages may not play on iPhones. The project's browser checks couldn't run Firefox on the Mac they ran on.
+- **Firefox hasn't been checked yet,** and its voice and video messages may not play on iPhones. The project's browser checks couldn't run Firefox on the Mac they ran on.
 
 ## Running it
 

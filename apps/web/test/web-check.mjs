@@ -141,7 +141,7 @@ async function runIn(name) {
     // A browser's own profile, as people use: Safari keeps no files for a private window.
     const profile = () => engines[name].launchPersistentContext(mkdtempSync(join(tmpdir(), `zuna-web-${name}-`)), { ...launchOptions(name), viewport: { width: 1280, height: 800 } });
     context = await profile();
-    if (name !== "firefox") await context.grantPermissions(["microphone"], { origin: appUrl.slice(0, -1) }).catch(() => undefined);
+    if (name !== "firefox") await context.grantPermissions(["microphone", "camera"], { origin: appUrl.slice(0, -1) }).catch(() => undefined);
     // A request to the server cut off as a tab reloads or hands over, such as a read
     // position on its way, is one WebKit reports as failing its access control checks.
     // That's only expected while this check is itself reloading, handing over or
@@ -323,6 +323,60 @@ async function runIn(name) {
       check("an iPhone could play what this browser records (AAC in MP4)", /aac/i.test(info), `${recorded.type}${info ? `, ${info.match(/Data format:.*/)?.[0]}` : ", unreadable to Apple's decoder"}`);
     } else if (recorded.error) {
       notes.push(`${name} couldn't record: ${recorded.error}`);
+    }
+
+    // Video messages: recorded from the camera, sent, and shown as a circle; and whether an iPhone could play what this browser records.
+    const videoFormats = await page.evaluate(() =>
+      ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1.42E01E,opus", "video/mp4", "video/webm;codecs=vp8,opus"].filter((type) => window.MediaRecorder?.isTypeSupported(type)),
+    );
+    notes.push(`${name} records video messages as: ${videoFormats[0] ?? "nothing"}`);
+    try {
+      await page.evaluate(() => {
+        window.__recorded = [];
+        const start = MediaRecorder.prototype.start;
+        MediaRecorder.prototype.start = function (...args) {
+          this.addEventListener("dataavailable", (event) => window.__recorded.push(event.data));
+          return start.apply(this, args);
+        };
+      });
+      await page.getByLabel("Record a video message").click();
+      await page.locator(".round-preview video").waitFor({ timeout: 10_000 });
+      await sleep(2000);
+      await page.getByLabel("Send video message").click();
+      const round = page.locator(".msg.is-own.is-round .round").last();
+      await round.locator("video").waitFor({ timeout: 20_000 });
+      const size = await round.locator("video").evaluate((video) => new Promise((resolve) => setTimeout(() => resolve(`${video.videoWidth}x${video.videoHeight}`), 1000)));
+      check("a video message is recorded, sent and shown as a circle", size === "480x480", size);
+      await page.screenshot({ path: prefix("03c-video-message") });
+      const roundFile = await page.evaluate(async () => {
+        const bytes = new Uint8Array(await new Blob(window.__recorded).arrayBuffer());
+        let binary = "";
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        return btoa(binary);
+      });
+      if (process.platform === "darwin") {
+        const file = join(shots, `${name}-round.mp4`);
+        writeFileSync(file, Buffer.from(roundFile, "base64"));
+        const script = join(shots, "read-round.swift");
+        writeFileSync(
+          script,
+          `import AVFoundation
+let asset = AVURLAsset(url: URL(fileURLWithPath: CommandLine.arguments[1]))
+let video = try await asset.loadTracks(withMediaType: .video)
+let size = try await video.first!.load(.naturalSize)
+print(Int(size.width), Int(size.height), try await asset.loadTracks(withMediaType: .audio).count)
+`,
+        );
+        let read = "";
+        try {
+          read = execFileSync("xcrun", ["swift", script, file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+        } catch {
+          // AVFoundation can't read it.
+        }
+        check("an iPhone could play the video messages this browser records", read === "480 480 1", read || "unreadable to AVFoundation");
+      }
+    } catch (error) {
+      check("a video message is recorded, sent and shown as a circle", false, error.message.split("\n")[0]);
     }
 
     // Sharing a location: the host's headers have to let the page ask where it is.

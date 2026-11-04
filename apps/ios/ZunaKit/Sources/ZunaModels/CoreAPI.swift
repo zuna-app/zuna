@@ -383,8 +383,9 @@ public struct OutgoingFile: Codable, Sendable, Equatable {
     public var duration: Double?
     public var voice: Bool?
     public var waveform: String?
+    public var round: Bool?
 
-    public init(blob: WireFile, name: String, mime: String, width: Int? = nil, height: Int? = nil, thumb: String? = nil, duration: Double? = nil, voice: Bool? = nil, waveform: String? = nil) {
+    public init(blob: WireFile, name: String, mime: String, width: Int? = nil, height: Int? = nil, thumb: String? = nil, duration: Double? = nil, voice: Bool? = nil, waveform: String? = nil, round: Bool? = nil) {
         self.blob = blob
         self.name = name
         self.mime = mime
@@ -394,6 +395,7 @@ public struct OutgoingFile: Codable, Sendable, Equatable {
         self.duration = duration
         self.voice = voice
         self.waveform = waveform
+        self.round = round
     }
 }
 

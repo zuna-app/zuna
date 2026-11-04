@@ -190,6 +190,11 @@ const worldMethods: Record<string, (...args: any[]) => Promise<unknown>> = {
     execFileSync("xcrun", ["simctl", "push", udid, BUNDLE_ID, file]);
     return true;
   },
+  /** A file as a peer decrypts it, as bytes, since a blob can't cross as it is. */
+  async download(name: string, attachment: unknown) {
+    const blob = await peers[name]!.session.downloadFile(attachment as Parameters<TestApp["session"]["downloadFile"]>[0]);
+    return new Uint8Array(await blob.arrayBuffer());
+  },
   /** The sounds from the soundboard a peer has heard someone play, as its core told it. */
   async soundsHeard(name: string) {
     return peers[name]!.events.flatMap((event) => (event.type === "sound" ? [{ userId: event.userId, soundId: event.soundId }] : []));

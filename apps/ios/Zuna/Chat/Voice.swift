@@ -158,8 +158,8 @@ final class VoiceRecorder {
     }
 }
 
-/// Plays voice messages, one at a time. Through AVPlayer, as AVAudioPlayer can't read
-/// Opus in MP4, which the Linux desktop records.
+/// Plays voice messages and video messages with their sound, one at a time. Through
+/// AVPlayer, as AVAudioPlayer can't read Opus in MP4, which the Linux desktop records.
 @MainActor
 @Observable
 final class VoicePlayer {
@@ -171,6 +171,8 @@ final class VoicePlayer {
     private(set) var position: TimeInterval = 0
 
     @ObservationIgnored private var player: AVPlayer?
+    /// The player of a video message playing with its sound, for its circle to show.
+    private(set) var videoPlayer: AVPlayer?
     @ObservationIgnored private var ticks: Any?
     @ObservationIgnored private var ended: NSObjectProtocol?
 
@@ -179,10 +181,10 @@ final class VoicePlayer {
         var errorDescription: String? { "Sound isn't available right now." }
     }
 
-    func play(_ url: URL, id: String, from time: TimeInterval) async throws {
+    func play(_ url: URL, id: String, from time: TimeInterval, video: Bool = false) async throws {
         if current != id || player == nil {
             stop()
-            let playable = try await Self.playable(url)
+            let playable = video ? url : try await Self.playable(url)
             // Another one was asked for meanwhile.
             guard player == nil else { return }
             // Voice messages play even with the phone set to silent, as in other messengers.
@@ -191,6 +193,7 @@ final class VoicePlayer {
             let item = AVPlayerItem(url: playable)
             let player = AVPlayer(playerItem: item)
             self.player = player
+            videoPlayer = video ? player : nil
             current = id
             ended = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.stop() }
@@ -230,6 +233,7 @@ final class VoicePlayer {
         ended = nil
         player?.pause()
         player = nil
+        videoPlayer = nil
         current = nil
         isPlaying = false
         position = 0

@@ -5367,7 +5367,7 @@ export class ServerSession {
    */
   async sendWithAttachments(
     groupKey: string,
-    files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string }[],
+    files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string; round?: boolean }[],
     body: MessageBody,
     options: { previewUrl?: string; keepMetadata?: boolean } = {},
   ): Promise<string> {
@@ -5388,6 +5388,7 @@ export class ServerSession {
       duration: file.duration,
       voice: file.voice,
       waveform: file.waveform,
+      round: file.round,
     }));
     const echo = this.ensureLocalEcho(groupKey, id, { ...body, attachments: placeholders });
     const groupId = echo.groupId;
@@ -5403,8 +5404,8 @@ export class ServerSession {
       const attachments: Attachment[] = [];
       let uploaded = 0;
       for (const [index, file] of files.entries()) {
-        // A voice message is recorded by the app, so it holds nothing of the kind.
-        const source = options.keepMetadata || file.voice ? this.whole(file.blob) : await withoutMetadata(this.whole(file.blob), file.mime, file.name);
+        // A voice or video message is recorded by the app, so it holds nothing of the kind.
+        const source = options.keepMetadata || file.voice || file.round ? this.whole(file.blob) : await withoutMetadata(this.whole(file.blob), file.mime, file.name);
         const ref = await this.uploadBlob(source, (loaded) => {
           const current = this.messageRow(groupId, id);
           if (!current) return;

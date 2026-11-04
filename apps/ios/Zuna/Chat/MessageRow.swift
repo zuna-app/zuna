@@ -287,7 +287,12 @@ private struct MessageItem: View {
 
     /// Pictures and videos, which fill the bubble, with the time over them, when they're all a message has.
     private var media: [Attachment] {
-        message.attachments.filter { ($0.mime.hasPrefix("image/") && $0.width != nil) || ($0.mime.hasPrefix("video/") && $0.voice != true) }
+        message.attachments.filter { ($0.mime.hasPrefix("image/") && $0.width != nil) || ($0.mime.hasPrefix("video/") && $0.voice != true && $0.round != true) }
+    }
+
+    /// A video message alone is a circle, without a bubble, as large emoji are.
+    private var onlyRound: Bool {
+        message.text.isEmpty && message.attachments.count == 1 && message.attachments[0].round == true && message.reply == nil && message.forwarded == nil
     }
 
     private var onlyMedia: Bool {
@@ -370,11 +375,11 @@ private struct MessageItem: View {
             }
             content
         }
-        .padding(.horizontal, jumbo > 0 || onlyMedia ? 0 : 12)
-        .padding(.top, jumbo > 0 || onlyMedia ? 0 : 6)
-        .padding(.bottom, jumbo > 0 || onlyMedia ? 0 : 7)
-        .frame(minWidth: jumbo > 0 ? 0 : 64, alignment: .leading)
-        .background(jumbo > 0 ? .clear : own ? accent.bubbleOwn : Theme.bubbleOther, in: shape)
+        .padding(.horizontal, jumbo > 0 || onlyMedia || onlyRound ? 0 : 12)
+        .padding(.top, jumbo > 0 || onlyMedia || onlyRound ? 0 : 6)
+        .padding(.bottom, jumbo > 0 || onlyMedia || onlyRound ? 0 : 7)
+        .frame(minWidth: jumbo > 0 || onlyRound ? 0 : 64, alignment: .leading)
+        .background(jumbo > 0 || onlyRound ? .clear : own ? accent.bubbleOwn : Theme.bubbleOther, in: shape)
         .clipShape(onlyMedia ? AnyShape(shape) : AnyShape(Rectangle()))
         .overlay {
             if message.status == .failed { shape.stroke(Theme.red) }
@@ -414,7 +419,14 @@ private struct MessageItem: View {
             if let reply = message.reply {
                 ReplyQuote(reply: reply, own: own, server: server) { actions.jump(reply.id) }
             }
-            if !message.attachments.isEmpty {
+            if onlyRound {
+                // A video message has the time below it, at its right edge, as large emoji do.
+                VStack(alignment: .trailing, spacing: 2) {
+                    AttachmentsView(message: message, serverId: server.entry.id, flush: false, own: own, open: actions.open)
+                    if message.reactions.isEmpty { meta }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            } else if !message.attachments.isEmpty {
                 AttachmentsView(message: message, serverId: server.entry.id, flush: onlyMedia, own: own, open: actions.open)
                     .overlay(alignment: .bottomTrailing) {
                         if onlyMedia { meta.padding(.horizontal, 6).padding(.vertical, 1).background(.black.opacity(0.55), in: .capsule).padding(7) }
@@ -447,7 +459,7 @@ private struct MessageItem: View {
                 ReactionsView(message: message, own: own, server: server, react: { actions.react(message.id, $0, $1) }, card: actions.emoteCard) {
                     meta
                 }
-            } else if !metaInText && !onlyMedia {
+            } else if !metaInText && !onlyMedia && !onlyRound {
                 meta.frame(maxWidth: .infinity, alignment: .trailing)
             }
         }

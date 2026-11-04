@@ -127,6 +127,8 @@ export interface Attachment {
   voice?: boolean;
   /** A voice message's loudness over time: one byte (0 to 255) per bar, base64. */
   waveform?: string;
+  /** A video message recorded in the app: square, shown in a circle, playing by itself without sound. */
+  round?: boolean;
 }
 
 export interface EmoteRef {

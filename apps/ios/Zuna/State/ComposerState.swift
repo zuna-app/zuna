@@ -160,6 +160,31 @@ extension AppModel {
         }
     }
 
+    /// Sends a video message, as the desktop does: square, with its first frame to show until it's loaded.
+    func sendRound(_ serverId: String, _ conversation: ConversationView, _ recording: RoundRecorder.Recording) {
+        let replyTo = composer(serverId, conversation.key).replyTo?.id
+        updateComposer(serverId, conversation.key) { $0.replyTo = nil }
+        let file = OutgoingFile(
+            blob: WireFile(path: recording.url.path, type: "video/mp4"),
+            name: "Video message.mp4",
+            mime: "video/mp4",
+            width: RoundRecorder.size,
+            height: RoundRecorder.size,
+            thumb: recording.thumb,
+            duration: recording.duration,
+            round: true
+        )
+        let session = core.session(serverId)
+        Task {
+            do {
+                try await session.sendWithAttachments(conversation.key, files: [file], body: MessageBody(replyTo: replyTo))
+                try? FileManager.default.removeItem(at: recording.url)
+            } catch {
+                toast(OnboardingText.describe(error), .error)
+            }
+        }
+    }
+
     /// Makes the preview of a draft's first link once typing pauses, as the desktop does.
     /// Edits keep the preview they had.
     func updateLinkPreview(_ serverId: String, _ conversationKey: String, text: String) async {

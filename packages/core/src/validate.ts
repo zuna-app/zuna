@@ -104,6 +104,8 @@ function parseAttachment(value: unknown): Attachment | null {
   if (thumb) attachment.thumb = thumb;
   if (typeof value.duration === "number" && value.duration >= 0 && Number.isFinite(value.duration)) attachment.duration = value.duration;
   if (value.voice === true) attachment.voice = true;
+  // Only a video can be a video message, whatever else says it is one.
+  if (value.round === true && attachment.mime.startsWith("video/")) attachment.round = true;
   if (isString(value.waveform, MAX_WAVEFORM_LENGTH) && BASE64.test(value.waveform)) attachment.waveform = value.waveform;
   return attachment;
 }

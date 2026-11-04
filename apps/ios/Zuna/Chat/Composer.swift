@@ -21,9 +21,14 @@ struct Composer: View {
     /// The highlighted suggestion, moved with a hardware keyboard's arrows.
     @State private var selectedSuggestion = 0
     @State private var recorder = VoiceRecorder()
+    @State private var round = RoundRecorder()
+    /// The button records video messages rather than voice ones, as it was last left, as in Telegram.
+    @AppStorage("zuna-records-video") private var recordsVideo = false
     /// The finger is on the microphone; how far it slid to the left, toward cancelling.
     @State private var holding = false
     @State private var slide: CGFloat = 0
+
+    private var isRecording: Bool { recorder.isRecording || round.isRecording }
 
     private static let maxSuggestions = 8
 
@@ -54,7 +59,7 @@ struct Composer: View {
                 filesBar
             }
             HStack(alignment: .bottom, spacing: 8) {
-                if state.editing == nil && !recorder.isRecording {
+                if state.editing == nil && !isRecording {
                     Menu {
                         Button("Photos and videos", systemImage: "photo.on.rectangle") { choosingPhotos = true }
                         Button("Files", systemImage: "doc") { choosingFiles = true }
@@ -81,7 +86,7 @@ struct Composer: View {
                     .accessibilityLabel("Attach files")
                     .accessibilityIdentifier(A11y.Composer.attach)
                 }
-                if recorder.isRecording {
+                if isRecording {
                     recordingBar
                 } else {
                     HStack(alignment: .bottom, spacing: 4) {
@@ -133,6 +138,28 @@ struct Composer: View {
         }
         .background(Theme.bg0)
         .overlay(alignment: .top) { Divider().overlay(Theme.line) }
+        .overlay(alignment: .top) {
+            // What the camera sees while a video message is recorded, above the message box, with the minute going round.
+            if round.isRecording {
+                ZStack {
+                    CameraPreview(session: round.session)
+                        .scaleEffect(x: -1, y: 1)
+                    Circle()
+                        .trim(from: 0, to: min(1, round.elapsed / RoundRecorder.limit))
+                        .stroke(model.settings.accent.color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .padding(2)
+                }
+                .frame(width: 240, height: 240)
+                .background(.black)
+                .clipShape(.circle)
+                .shadow(radius: 12)
+                .alignmentGuide(.top) { dimensions in dimensions[.bottom] + 16 }
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
+                .accessibilityIdentifier(A11y.Composer.roundPreview)
+            }
+        }
+        .animation(.spring(duration: 0.3), value: round.isRecording)
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: OutgoingFiles.limit, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, items in
             guard !items.isEmpty else { return }
@@ -285,15 +312,17 @@ struct Composer: View {
 
     // MARK: Voice messages
 
-    /// Hold to record and let go to send, as in Telegram; sliding left throws it away.
+    /// Hold to record and let go to send, as in Telegram; sliding left throws it away. A tap switches
+    /// between voice messages and video messages.
     private var microphone: some View {
-        Image(systemName: "mic.fill")
+        Image(systemName: recordsVideo ? "video.fill" : "mic.fill")
             .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(recorder.isRecording ? Color.white : Theme.text2)
+            .foregroundStyle(isRecording ? Color.white : Theme.text2)
             .frame(width: 36, height: 36)
-            .background(recorder.isRecording ? Theme.red : Theme.bg3, in: .circle)
-            .scaleEffect(recorder.isRecording ? 1.35 : 1)
-            .animation(.spring(duration: 0.25), value: recorder.isRecording)
+            .background(isRecording ? Theme.red : Theme.bg3, in: .circle)
+            .scaleEffect(isRecording ? 1.35 : 1)
+            .animation(.spring(duration: 0.25), value: isRecording)
+            .contentTransition(.symbolEffect(.replace))
             .padding(.bottom, 1)
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -310,16 +339,20 @@ struct Composer: View {
                         slide = 0
                     }
             )
-            .accessibilityLabel("Record a voice message")
-            .accessibilityHint("Hold to record, and let go to send")
+            .accessibilityLabel(recordsVideo ? "Record a video message" : "Record a voice message")
+            .accessibilityHint("Hold to record, and let go to send. Tap to switch between voice and video.")
+            .accessibilityAction(named: recordsVideo ? "Switch to voice messages" : "Switch to video messages") { recordsVideo.toggle() }
             .accessibilityIdentifier(A11y.Composer.microphone)
     }
+
+    /// How long a hold has to last before it records, so that a tap switches between voice and video instead.
+    private static let holdDelay: Duration = .milliseconds(250)
 
     private var recordingBar: some View {
         HStack(spacing: 8) {
             Circle().fill(Theme.red).frame(width: 9, height: 9)
                 .phaseAnimator([1, 0.3]) { dot, opacity in dot.opacity(opacity) } animation: { _ in .easeInOut(duration: 0.6) }
-            Text(Format.duration(recorder.elapsed))
+            Text(Format.duration(round.isRecording ? round.elapsed : recorder.elapsed))
                 .font(.body.monospacedDigit())
                 .foregroundStyle(Theme.text1)
             Spacer(minLength: 0)
@@ -331,7 +364,7 @@ struct Composer: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 38)
-        .onChange(of: recorder.elapsed >= VoiceRecorder.limit) { _, over in
+        .onChange(of: recorder.elapsed >= VoiceRecorder.limit || round.elapsed >= RoundRecorder.limit) { _, over in
             if over { finishRecording() }
         }
         .accessibilityElement(children: .combine)
@@ -339,13 +372,17 @@ struct Composer: View {
     }
 
     private func startRecording() async {
+        try? await Task.sleep(for: Self.holdDelay)
+        // A tap: it switches between voice messages and video messages, as in Telegram.
+        guard holding else {
+            recordsVideo.toggle()
+            model.toast(recordsVideo ? "Hold to record a video message. Tap for voice." : "Hold to record a voice message. Tap for video.")
+            return
+        }
         do {
-            try await recorder.start()
-            // The finger came off already: a tap, or while the app asked for the microphone.
-            if !holding {
-                recorder.cancel()
-                model.toast("Hold to record, and let go to send.")
-            }
+            if recordsVideo { try await round.start() } else { try await recorder.start() }
+            // The finger came off while the app asked for the camera or the microphone.
+            if !holding { cancelRecording() }
         } catch {
             holding = false
             model.toast(error.localizedDescription, .error)
@@ -354,9 +391,25 @@ struct Composer: View {
 
     private func cancelRecording() {
         recorder.cancel()
+        round.cancel()
     }
 
     private func finishRecording() {
+        if round.isRecording {
+            Task {
+                do {
+                    guard let recording = try await round.stop() else { return }
+                    if recording.duration < 0.5 {
+                        try? FileManager.default.removeItem(at: recording.url)
+                        return
+                    }
+                    model.sendRound(serverId, conversation, recording)
+                } catch {
+                    model.toast(OnboardingText.describe(error), .error)
+                }
+            }
+            return
+        }
         guard recorder.isRecording else { return }
         do {
             guard let recording = try recorder.stop() else { return }

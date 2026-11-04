@@ -41,6 +41,7 @@ import { emoteFor, jumboSize, renderMarkup } from "@/lib/markup";
 import { timerChangeText } from "@/lib/disappearing";
 import { accuracyText, coordinatesText, mapLink } from "@/lib/location";
 import { downloadAttachment, loadsByItself, useDecryptedUrl } from "@/lib/media";
+import { RoundAttachment } from "./Round";
 import { decodeWaveform, playOnly } from "@/lib/voice";
 import { useApp } from "@/state/store";
 import { emotesIn, mentionsIn } from "./Composer";
@@ -385,6 +386,7 @@ function Attachments({ message, serverId, flush, own }: { message: MessageView; 
         const key = attachment.fileId || `file-${index}`;
         const progress = fileProgress(message, attachment);
         if (attachment.voice) return <VoiceAttachment key={key} attachment={attachment} serverId={serverId} own={own} uploadProgress={progress} />;
+        if (attachment.round && attachment.mime.startsWith("video/")) return <RoundAttachment key={key} attachment={attachment} serverId={serverId} uploadProgress={progress} />;
         if (attachment.mime.startsWith("video/")) return <VideoAttachment key={key} attachment={attachment} serverId={serverId} uploadProgress={progress} />;
         if (attachment.mime.startsWith("audio/")) return <AudioAttachment key={key} attachment={attachment} serverId={serverId} uploadProgress={progress} />;
         return <FileAttachment key={key} attachment={attachment} serverId={serverId} uploadProgress={progress} />;
@@ -695,6 +697,7 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     !!message.text && !jumbo && !message.preview && !hasReactions && !isDeleted && message.status !== "undecryptable" && message.status !== "unverified" && message.status !== "invalid";
   const images = message.attachments.filter((item) => item.mime.startsWith("image/") && item.width);
   const onlyImages = !message.text && images.length > 0 && images.length === message.attachments.length && !hasReactions;
+  const onlyRound = !message.text && message.attachments.length === 1 && !!message.attachments[0]!.round && !message.reply && !message.forwarded;
 
   const meta = (
     <span
@@ -863,6 +866,8 @@ export const MessageItem = memo(function MessageItem({ message, listId, isGroup,
     lastInGroup ? "is-last" : "",
     highlighted ? "is-highlighted" : "",
     jumbo ? "is-jumbo" : "",
+    // A video message alone is a circle, without a bubble, as large emoji are.
+    onlyRound ? "is-jumbo is-round" : "",
     fresh ? "is-fresh" : "",
     selecting ? "is-selecting" : "",
     selected ? "is-selected" : "",

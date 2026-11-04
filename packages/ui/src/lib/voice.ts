@@ -117,10 +117,10 @@ export class VoiceRecorder {
   }
 }
 
-/** Only one voice message plays at a time. */
-let playing: HTMLAudioElement | null = null;
+/** Only one voice or video message plays at a time. */
+let playing: HTMLMediaElement | null = null;
 
-export function playOnly(audio: HTMLAudioElement): void {
+export function playOnly(audio: HTMLMediaElement): void {
   if (playing && playing !== audio) playing.pause();
   playing = audio;
 }

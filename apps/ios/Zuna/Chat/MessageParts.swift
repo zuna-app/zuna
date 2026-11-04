@@ -28,6 +28,8 @@ struct AttachmentsView: View {
                 let progress = progress(of: attachment)
                 if attachment.voice == true {
                     VoiceCard(attachment: attachment, serverId: serverId, own: own, messageId: message.id, uploadProgress: progress)
+                } else if attachment.round == true, attachment.mime.hasPrefix("video/") {
+                    RoundVideoCard(attachment: attachment, serverId: serverId, messageId: message.id, uploadProgress: progress)
                 } else if attachment.mime.hasPrefix("video/") {
                     VideoTile(attachment: attachment, serverId: serverId, uploadProgress: progress, flush: flush) { open(attachment) }
                 } else {

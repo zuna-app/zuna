@@ -117,6 +117,18 @@ enum WorldControl {
         return (counts["registrations"] ?? 0, counts["pushes"] ?? 0, counts["silent"] ?? 0)
     }
 
+    /// A file as a peer decrypts it.
+    static func download(_ name: String, _ attachment: [String: Any]) throws -> Data {
+        let url = URL(string: "\(World.current.peersUrl)/world")!
+        let encoded = try JSONSerialization.data(withJSONObject: attachment)
+        let data = try blocking {
+            let socket = try await RPCSocket.connect(to: url)
+            return try JSONSerialization.data(withJSONObject: try await socket.call("download", [name, try JSONSerialization.jsonObject(with: encoded)]))
+        }
+        let value = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        return Data(base64Encoded: value?["$bytes"] as? String ?? "") ?? Data()
+    }
+
     /// The sounds from the soundboard a peer has heard someone play, by who and which.
     static func soundsHeard(_ name: String) throws -> [[String: String]] {
         let url = URL(string: "\(World.current.peersUrl)/world")!

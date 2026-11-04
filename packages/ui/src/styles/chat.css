@@ -328,6 +328,23 @@ button.media-load:hover { background: rgba(0, 0, 0, 0.7); }
 .voice.is-own .voice-wave i.is-played { background: var(--bubble-own-text); }
 .voice-time { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--bubble-meta); }
 
+/* Video messages: a circle, playing by itself without sound until it's clicked, as in Telegram. */
+.round { position: relative; display: block; width: 240px; height: 240px; border-radius: 50%; overflow: hidden; background: var(--bg-3); isolation: isolate; }
+.round:disabled { cursor: default; }
+.round video, .round-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.round-thumb { filter: blur(8px); transform: scale(1.1); }
+.round-state { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; }
+.round-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); pointer-events: none; }
+.round-ring circle { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linecap: round; }
+.round-time, .round-muted { position: absolute; left: 50%; transform: translateX(-50%); padding: 2px 7px; border-radius: 99px; background: rgba(0, 0, 0, 0.5); color: #fff; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.round-time { bottom: 14px; }
+.round-muted { top: 14px; display: grid; place-items: center; padding: 4px; }
+.msg.is-round .bubble > .msg-meta { margin-top: 3px; }
+/* While recording one, what the camera sees, mirrored as a mirror is, over the chat. */
+.round-preview { position: absolute; right: 18px; bottom: calc(100% + 14px); width: 240px; height: 240px; border-radius: 50%; overflow: hidden; background: #000; box-shadow: var(--shadow-m); }
+.round-preview video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.recording-label { font-size: 13.5px; color: var(--text-2); }
+
 .selection-bar { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px 12px 8px; }
 .selection-count { font-size: 13.5px; font-weight: 500; }
 

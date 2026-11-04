@@ -135,7 +135,7 @@ enum Format {
         } else if message.location != nil {
             body = "Location"
         } else if let attachment = message.attachments.first {
-            body = attachment.voice == true ? "Voice message"
+            body = attachment.voice == true ? "Voice message" : attachment.round == true ? "Video message"
                 : attachment.mime.hasPrefix("image/") ? "Photo" : attachment.mime.hasPrefix("video/") ? "Video" : attachment.name
         } else {
             body = ""

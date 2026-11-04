@@ -18,6 +18,7 @@ export function previewText(view: Preview): string {
   const first = view.attachments[0];
   if (!first) return "";
   if (first.mime.startsWith("image/")) return "📷 Photo";
+  if (first.round) return "📹 Video message";
   if (first.mime.startsWith("video/")) return "🎬 Video";
   if (first.voice) return "🎤 Voice message";
   if (first.mime.startsWith("audio/")) return "🎵 Audio";

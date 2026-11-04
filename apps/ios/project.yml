@@ -266,6 +266,8 @@ targets:
       - path: Zuna/Shared/A11y.swift
       - path: ZunaKit/Tests/ZunaHostTests/Fixtures/chromium-opus.m4a
         buildPhase: resources
+      - path: ZunaKit/Tests/ZunaHostTests/Fixtures/chromium-round.mp4
+        buildPhase: resources
     dependencies:
       - target: Zuna
     settings:

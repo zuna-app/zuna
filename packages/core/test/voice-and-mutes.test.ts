@@ -1,5 +1,5 @@
-// Voice messages, chats muted for a while, and acting on several messages at
-// once, end to end through a real server.
+// Voice and video messages, chats muted for a while, and acting on several
+// messages at once, end to end through a real server.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { previewText } from "../src/notify";
@@ -60,6 +60,35 @@ describe("voice messages", () => {
     expect(new Uint8Array(await (await bob.session.downloadFile(voice.attachments[0]!)).arrayBuffer())).toEqual(audio);
     expect(previewText(voice)).toBe("🎤 Voice message");
     expect(notified(bob).at(-1)?.body).toBe("🎤 Voice message");
+  });
+});
+
+describe("video messages", () => {
+  it("arrive as they were recorded, with their length and first frame, and read as video messages", async () => {
+    const video = new Uint8Array(40_000).map((_, i) => (i * 7) & 255);
+    const thumb = "data:image/jpeg;base64,/9j/4AAQ";
+    await alice.session.sendWithAttachments(
+      `user:${bob.userId}`,
+      [{ blob: new Blob([video], { type: "video/mp4" }), name: "Video message.mp4", mime: "video/mp4", width: 480, height: 480, duration: 4.2, thumb, round: true }],
+      {},
+    );
+    await waitFor(() => bob.events.some((event) => event.type === "message" && event.message.attachments[0]?.round === true && event.message.status === "sent"), "bob to get it");
+    const round = bob.events
+      .filter((event): event is Extract<CoreEvent, { type: "message" }> => event.type === "message")
+      .map((event) => event.message)
+      .find((message) => message.attachments[0]?.round)!;
+    expect(round.attachments[0]).toMatchObject({ mime: "video/mp4", width: 480, height: 480, duration: 4.2, thumb, round: true });
+    // Recorded by the app, so it goes as it is: what's taken out of other videos isn't in it.
+    expect(new Uint8Array(await (await bob.session.downloadFile(round.attachments[0]!)).arrayBuffer())).toEqual(video);
+    expect(previewText(round)).toBe("📹 Video message");
+    expect(notified(bob).at(-1)?.body).toBe("📹 Video message");
+  });
+
+  it("are only ever videos, whatever a message says", async () => {
+    const said = { blob: new Blob([new Uint8Array(100)], { type: "audio/mp4" }), name: "not a video.m4a", mime: "audio/mp4", round: true };
+    await alice.session.sendWithAttachments(`user:${bob.userId}`, [said], { text: "a round that isn't" });
+    await waitFor(() => !!latest(bob, "a round that isn't"), "bob to get it");
+    expect(latest(bob, "a round that isn't")!.attachments[0]!.round).toBeUndefined();
   });
 });
 

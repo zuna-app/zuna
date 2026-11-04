@@ -213,6 +213,8 @@ public struct Attachment: Codable, Sendable, Equatable, Hashable {
     public var voice: Bool?
     /// A voice message's loudness over time: one byte (0 to 255) per bar, base64.
     public var waveform: String?
+    /// A video message recorded in the app: square, shown in a circle, playing by itself without sound.
+    public var round: Bool?
 }
 
 public struct EmoteRef: Codable, Sendable, Equatable, Hashable {

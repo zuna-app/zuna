@@ -54,6 +54,8 @@ function previewFor(message: MessageView | null, users: Record<string, UserView>
       : message.attachments[0]
       ? message.attachments[0].voice
         ? "Voice message"
+        : message.attachments[0].round
+        ? "Video message"
         : message.attachments[0].mime.startsWith("image/")
         ? "Photo"
         : message.attachments[0].mime.startsWith("video/")

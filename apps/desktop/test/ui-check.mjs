@@ -612,6 +612,73 @@ try {
     check("the desktop plays AAC from Apple's encoder", played > 0.9 && played < 1.2, `${played} s`);
   }
 
+  // Video messages: the camera in a circle while recording, then a circle in the chat that plays by
+  // itself without sound, and from the start with it on a click.
+  // What the app's recorder gives, kept to read back, since the page may not fetch its own files.
+  await page.evaluate(() => {
+    window.__recorded = [];
+    const start = MediaRecorder.prototype.start;
+    MediaRecorder.prototype.start = function (...args) {
+      this.addEventListener("dataavailable", (event) => window.__recorded.push(event.data));
+      return start.apply(this, args);
+    };
+  });
+  await page.getByLabel("Record a video message").click();
+  await page.locator(".round-preview video").waitFor();
+  await sleep(2200);
+  check("recording a video message shows the camera in a circle", await page.locator(".round-preview video").evaluate((video) => video.videoWidth > 0));
+  await shot("19g3-recording-round");
+  await page.getByLabel("Send video message").click();
+  const round = page.locator(".msg.is-own.is-round .round").last();
+  await round.locator("video").waitFor({ timeout: 20_000 });
+  check("a video message shows its length", /^0:0[1-3]$/.test(await round.locator(".round-time").innerText()), await round.locator(".round-time").innerText());
+  const looping = await round.locator("video").evaluate(
+    (video) => new Promise((resolve) => setTimeout(() => resolve({ muted: video.muted, loop: video.loop, playing: !video.paused, at: video.currentTime, width: video.videoWidth, height: video.videoHeight }), 1200)),
+  );
+  check("a video message plays by itself, without sound, over and over", looping.muted && looping.loop && looping.playing && looping.at > 0, JSON.stringify(looping));
+  check("a video message is square, 480 across", looping.width === 480 && looping.height === 480, `${looping.width}x${looping.height}`);
+  await round.click();
+  await page.locator(".round.is-heard").waitFor({ timeout: 5000 });
+  const heard = await round.locator("video").evaluate((video) => ({ muted: video.muted, loop: video.loop, at: video.currentTime }));
+  check("a click plays it from the start, with its sound", !heard.muted && !heard.loop && heard.at < 1, JSON.stringify(heard));
+  await sleep(600);
+  await shot("19g4-round");
+  await round.click();
+  // What the desktop records goes to the iPhone app, which reads it with Apple's AVFoundation.
+  const roundFile = await page.evaluate(async () => {
+    const bytes = new Uint8Array(await new Blob(window.__recorded).arrayBuffer());
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  });
+  const desktopRound = join(shots, "desktop-round.mp4");
+  writeFileSync(desktopRound, Buffer.from(roundFile, "base64"));
+  check("the desktop records video messages as MP4", Buffer.from(roundFile, "base64").subarray(4, 8).toString() === "ftyp");
+  if (process.platform === "darwin") {
+    const script = join(shots, "read-round.swift");
+    writeFileSync(
+      script,
+      `import AVFoundation
+let asset = AVURLAsset(url: URL(fileURLWithPath: CommandLine.arguments[1]))
+let video = try await asset.loadTracks(withMediaType: .video)
+let audio = try await asset.loadTracks(withMediaType: .audio)
+let size = try await video.first!.load(.naturalSize)
+let codec = try await video.first!.load(.formatDescriptions).first.map { CMFormatDescriptionGetMediaSubType($0) } ?? 0
+let generator = AVAssetImageGenerator(asset: asset)
+let frame = try await generator.image(at: CMTime(seconds: 0.5, preferredTimescale: 600)).image
+print(Int(size.width), Int(size.height), audio.count, codec == kCMVideoCodecType_H264 ? "h264" : "other", try await asset.load(.duration).seconds, frame.width)
+`,
+    );
+    let read = "";
+    try {
+      read = execFileSync("xcrun", ["swift", script, desktopRound], { encoding: "utf8" }).trim();
+    } catch (error) {
+      read = String(error.stderr ?? error);
+    }
+    const [width, height, sounds, codec, seconds] = read.split(" ");
+    check("AVFoundation reads the desktop's video message: H.264 with sound, square", width === "480" && height === "480" && sounds === "1" && codec === "h264" && Number(seconds) > 1, read);
+  }
+
   // Picking several messages
   await page.locator(".msg", { hasText: "Perfect. Booking" }).first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Select" }).click();

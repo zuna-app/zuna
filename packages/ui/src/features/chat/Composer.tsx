@@ -2,18 +2,20 @@ import type { ConversationView, Emote as ServerEmote, EmoteRef, LinkPreview, Mes
 import { findLink } from "@zuna/core/links";
 import { MAX_TEXT_LENGTH } from "@zuna/core/validate";
 import { plainText } from "@zuna/core/plain-text";
-import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, MapPin, Mic, Paperclip, Pencil, SendHorizontal, Smile, Trash2, X } from "lucide-react";
+import { Check, CornerUpLeft, File as FileIcon, Link as LinkIcon, MapPin, Mic, Paperclip, Pencil, SendHorizontal, Smile, Trash2, Video, X } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
 import { Avatar, PopupMenu, Tooltip } from "@/components/ui";
 import { focusComposer, registerComposer } from "@/lib/focus";
 import { formatBytes, formatDuration } from "@/lib/format";
+import { MAX_ROUND_SECONDS, ROUND_SIZE, RoundRecorder } from "@/lib/round";
 import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
 import { prepareFile, type PreparedFile } from "@/lib/media";
 import type { NotificationReply } from "@/platform";
 import { findConversation, useActiveServer, useApp } from "@/state/store";
 import { EmotePicker, type Pick } from "./EmotePicker";
+import { RoundPreview } from "./Round";
 
 export interface ComposerHandle {
   addFiles(files: File[]): void;
@@ -118,6 +120,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const [dismissedLink, setDismissedLink] = useState<string | null>(null);
   const [recording, setRecording] = useState<{ recorder: VoiceRecorder; levels: number[]; elapsed: number } | null>(null);
   const recorder = useRef<VoiceRecorder | null>(null);
+  const [round, setRound] = useState<{ recorder: RoundRecorder; elapsed: number } | null>(null);
+  const roundRecorder = useRef<RoundRecorder | null>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -337,25 +341,80 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     setReply(listId, null);
   };
 
+  // --- Video messages ---
+
+  const startRound = async () => {
+    try {
+      const started = await RoundRecorder.start();
+      roundRecorder.current = started;
+      setRound({ recorder: started, elapsed: 0 });
+    } catch (error) {
+      toast((error as Error).message, "error");
+    }
+  };
+
+  const cancelRound = () => {
+    roundRecorder.current?.cancel();
+    roundRecorder.current = null;
+    setRound(null);
+    focusComposer();
+  };
+
+  const sendRound = async () => {
+    const active = roundRecorder.current;
+    if (!active) return;
+    roundRecorder.current = null;
+    setRound(null);
+    const video = await active.stop();
+    focusComposer();
+    // A click on the camera and straight back isn't a message.
+    if (video.duration < 0.5) return;
+    const extension = video.mime === "video/mp4" ? "mp4" : "webm";
+    void session()
+      .sendWithAttachments(
+        conversation.key,
+        [{ blob: video.blob, name: `Video message.${extension}`, mime: video.mime, width: ROUND_SIZE, height: ROUND_SIZE, duration: video.duration, thumb: video.thumb, round: true }],
+        { replyTo: replyTo?.id },
+      )
+      .catch((error: Error) => toast(error.message, "error"));
+    setReply(listId, null);
+  };
+
+  // The time going round, while a video message is recorded.
+  const recordingRound = !!round;
+  useEffect(() => {
+    if (!recordingRound) return;
+    const timer = setInterval(() => setRound((current) => current && { ...current, elapsed: current.recorder.elapsed }), 100);
+    return () => clearInterval(timer);
+  }, [recordingRound]);
+
   // Enter sends a recording and Escape throws it away; a very long one is sent when it reaches the limit.
   useEffect(() => {
-    if (!recording) return;
+    if (!recording && !round) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Enter") {
         event.preventDefault();
-        void sendRecording();
+        void (round ? sendRound() : sendRecording());
       } else if (event.key === "Escape") {
         event.preventDefault();
-        cancelRecording();
+        if (round) cancelRound();
+        else cancelRecording();
       }
     };
     window.addEventListener("keydown", onKey, true);
-    if (recording.elapsed >= MAX_VOICE_SECONDS) void sendRecording();
+    if (recording && recording.elapsed >= MAX_VOICE_SECONDS) void sendRecording();
+    if (round && round.elapsed >= MAX_ROUND_SECONDS) void sendRound();
     return () => window.removeEventListener("keydown", onKey, true);
   });
 
   // Leaving the chat throws an unsent recording away.
-  useEffect(() => () => recorder.current?.cancel(), []);
+  useEffect(
+    () => () => {
+      recorder.current?.cancel();
+      roundRecorder.current?.cancel();
+    },
+    [],
+  );
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (suggestions.length > 0) {
@@ -532,7 +591,22 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
           </div>
         )}
 
-        {recording ? (
+        {round ? (
+          <div className="composer-row recording-row">
+            <RoundPreview stream={round.recorder.preview} progress={round.elapsed / MAX_ROUND_SECONDS} />
+            <Tooltip text="Delete recording" side="top">
+              <button className="icon-btn" onClick={cancelRound} aria-label="Delete recording">
+                <Trash2 size={18} />
+              </button>
+            </Tooltip>
+            <span className="recording-dot" />
+            <span className="recording-time">{formatDuration(round.elapsed)}</span>
+            <span className="recording-label grow">Recording a video message</span>
+            <button className="send-button is-ready" onClick={() => void sendRound()} aria-label="Send video message">
+              <SendHorizontal size={18} />
+            </button>
+          </div>
+        ) : recording ? (
           <div className="composer-row recording-row">
             <Tooltip text="Delete recording" side="top">
               <button className="icon-btn" onClick={cancelRecording} aria-label="Delete recording">
@@ -613,6 +687,13 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                 <Smile size={18} />
               </button>
             </Tooltip>
+            {!canSend && !editing && (
+              <Tooltip text="Record a video message" side="top">
+                <button className="icon-btn" onClick={() => void startRound()} aria-label="Record a video message">
+                  <Video size={18} />
+                </button>
+              </Tooltip>
+            )}
             {!canSend && !editing ? (
               <Tooltip text="Record a voice message" side="top">
                 <button className="send-button is-ready" onClick={() => void startRecording()} aria-label="Record a voice message">
