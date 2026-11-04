@@ -20,7 +20,7 @@ export const PAGES: Page[] = [
     file: "index.html",
     title: "Zuna: end-to-end encrypted chat on servers you run",
     description:
-      "Messages, groups, voice channels, calls and screen sharing at up to 240 fps, on a server you and your friends run. Even whoever hosts it can't read a word. Free and open source.",
+      "Messages, groups, voice channels, calls and screen sharing, on a server you and your friends run. Even whoever hosts it can't read a word. Free and open source.",
   },
   {
     id: "privacy",

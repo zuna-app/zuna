@@ -36,7 +36,7 @@ const html = `<!doctype html>
   </div>
   <div class="pill">Open source · End-to-end encrypted · Self-hosted</div>
   <h1>The chat app nobody owns.</h1>
-  <p>Chat, voice and screen sharing at up to 240 fps, on servers you run.</p>
+  <p>Chat, voice and screen sharing, on servers you run.</p>
   <div class="url">zuna.chat</div>
 </main>`;
 
