@@ -140,7 +140,8 @@ try {
   });
   await page.reload();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1280, 832));
-  await page.getByLabel("Invite link").fill(invite, { timeout: 30_000 });
+  await page.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
+  await page.getByLabel("Invite link").fill(invite);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Dana", { timeout: 15_000 });
   await page.getByPlaceholder(/username/i).fill("dana").catch(() => undefined);

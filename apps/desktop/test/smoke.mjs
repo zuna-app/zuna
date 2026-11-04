@@ -87,8 +87,10 @@ try {
   }
   console.log("previews only connect where they're checked: yes");
 
-  await page.getByLabel("Invite link").fill(link, { timeout: 30_000 });
+  await page.getByRole("button", { name: "Join with an invite" }).waitFor({ timeout: 30_000 });
   await page.screenshot({ path: join(shots, "1-welcome.png") });
+  await page.getByRole("button", { name: "Join with an invite" }).click();
+  await page.getByLabel("Invite link").fill(link);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Smoke Tester", { timeout: 15_000 });
   await page.locator('input[type="password"]').fill("smoke-test-only-Pass-9182");

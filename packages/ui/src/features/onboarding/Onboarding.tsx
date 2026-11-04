@@ -1,7 +1,7 @@
 // First-run flow. It's also reused inside the app for joining another server.
 
 import type { InvitePreview } from "@zuna/core";
-import { ArrowLeft, ArrowRight, Check, Copy, Download, KeyRound, Lock, Server, ShieldCheck, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, Copy, Download, KeyRound, LinkIcon, Lock, Server, ShieldCheck, Users } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { platform } from "@/platform";
 import { Avatar, Field, Logo, PasswordField, Spinner } from "@/components/ui";
@@ -12,7 +12,8 @@ import { usePasswordStrength } from "@/lib/password";
 import { useApp } from "@/state/store";
 
 type Step =
-  | { name: "start" }
+  | { name: "welcome" }
+  | { name: "link" }
   | { name: "signin"; url?: string }
   | { name: "recover"; url: string; username: string }
   | { name: "invite"; preview: InvitePreview }
@@ -37,7 +38,11 @@ export function Onboarding() {
 
 /** Join, sign in or recover. `onDone` runs after the account is ready. */
 export function JoinFlow({ initialLink, initialSignInUrl, onDone, embedded }: { initialLink?: string; initialSignInUrl?: string; onDone?: () => void; embedded?: boolean }) {
-  const [step, setStep] = useState<Step>(initialSignInUrl ? { name: "signin", url: initialSignInUrl } : { name: "start" });
+  const [step, setStep] = useState<Step>(
+    initialSignInUrl ? { name: "signin", url: initialSignInUrl } : embedded || initialLink ? { name: "link" } : { name: "welcome" },
+  );
+  // Inside the app, for another server, the link is the first screen.
+  const home: Step = embedded ? { name: "link" } : { name: "welcome" };
   const addServer = useApp((state) => state.addServer);
   const core = useApp((state) => state.core)!;
 
@@ -49,10 +54,14 @@ export function JoinFlow({ initialLink, initialSignInUrl, onDone, embedded }: { 
   return (
     <>
       <div key={step.name} className="onboarding-step">
-        {step.name === "start" && (
-          <StartStep
+        {step.name === "welcome" && (
+          <WelcomeStep onJoin={() => setStep({ name: "link" })} onSignIn={() => setStep({ name: "signin" })} />
+        )}
+        {step.name === "link" && (
+          <InviteLinkStep
             embedded={embedded}
             initialLink={initialLink}
+            onBack={embedded ? undefined : () => setStep({ name: "welcome" })}
             onInvite={(preview) => setStep({ name: "invite", preview })}
             onSignIn={() => setStep({ name: "signin" })}
           />
@@ -60,7 +69,7 @@ export function JoinFlow({ initialLink, initialSignInUrl, onDone, embedded }: { 
         {step.name === "invite" && (
           <InviteStep
             preview={step.preview}
-            onBack={() => setStep({ name: "start" })}
+            onBack={() => setStep({ name: "link" })}
             onCreated={(serverId, recoveryKey) =>
               setStep({ name: "recovery-key", serverId, recoveryKey, setup: step.preview.setup })
             }
@@ -79,7 +88,7 @@ export function JoinFlow({ initialLink, initialSignInUrl, onDone, embedded }: { 
         {step.name === "signin" && (
           <SignInStep
             initialUrl={step.url}
-            onBack={() => setStep({ name: "start" })}
+            onBack={() => setStep(home)}
             onForgot={(url, username) => setStep({ name: "recover", url, username })}
             onSignedIn={(serverId) => void finish(serverId)}
           />
@@ -113,14 +122,55 @@ function StepHeader({ icon, title, children, onBack }: { icon?: ReactNode; title
   );
 }
 
-function StartStep({
+/** The first screen: what Zuna is, and the two ways in, as on iOS. */
+function WelcomeStep({ onJoin, onSignIn }: { onJoin: () => void; onSignIn: () => void }) {
+  return (
+    <div className="col" style={{ gap: 26 }}>
+      <div className="step-header">
+        <div className="hero-logo">
+          <Logo size={64} />
+        </div>
+        <h1>Welcome to Zuna</h1>
+        <p>Private chat on servers you and your friends run.</p>
+        <div className="trust-chips">
+          <span><Lock size={13} /> End-to-end encrypted</span>
+          <span><ShieldCheck size={13} /> Open source</span>
+          <span><Server size={13} /> Self-hosted</span>
+        </div>
+      </div>
+      <div className="col" style={{ gap: 10 }}>
+        <button type="button" className="btn btn-primary btn-large btn-block" onClick={onJoin}>
+          <LinkIcon size={16} /> Join with an invite
+        </button>
+        <button type="button" className="btn btn-large btn-block" onClick={onSignIn}>
+          Sign in
+        </button>
+        <button
+          type="button"
+          className="link-button step-host"
+          onClick={() => {
+            platform.openExternal(`${PROJECT_URL}/blob/main/docs/SELF_HOSTING.md`);
+          }}
+        >
+          <Server size={14} /> Host your own server <ArrowUpRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The invite link, pasted or typed. A plain address works for servers with open sign-ups.
+ * Inside the app, for another server, it's the first screen, with signing in under it. */
+function InviteLinkStep({
   embedded,
   initialLink,
+  onBack,
   onInvite,
   onSignIn,
 }: {
   embedded?: boolean;
   initialLink?: string;
+  onBack?: () => void;
   onInvite: (preview: InvitePreview) => void;
   onSignIn: () => void;
 }) {
@@ -153,19 +203,9 @@ function StartStep({
 
   return (
     <form onSubmit={submit} className="col" style={{ gap: 18 }}>
-      <div className="step-header">
-        {!embedded && (
-          <div className="hero-logo">
-            <Logo size={52} />
-          </div>
-        )}
-        <h1>{embedded ? "Join a server" : "Welcome to Zuna"}</h1>
-        <p>
-          {embedded
-            ? "Paste the invite link someone sent you."
-            : "Private chat on servers you and your friends run. Paste the invite link someone sent you to get started."}
-        </p>
-      </div>
+      <StepHeader icon={<LinkIcon size={26} />} title="Join a server" onBack={onBack}>
+        Paste the invite link someone sent you.
+      </StepHeader>
       <Field
         placeholder="https://chat.example.com/invite/..."
         value={link}
@@ -181,28 +221,11 @@ function StartStep({
       <button className="btn btn-primary btn-large btn-block" disabled={!link.trim() || busy}>
         {busy ? <Spinner /> : <>Continue <ArrowRight size={17} /></>}
       </button>
-      <div className="step-links">
-        <button type="button" className="link-button" onClick={onSignIn}>
+      {/* On the first run the welcome screen offers signing in, one step back. */}
+      {embedded && (
+        <button type="button" className="btn btn-large btn-block" onClick={onSignIn}>
           I already have an account
         </button>
-        {!embedded && (
-          <button
-            type="button"
-            className="link-button"
-            onClick={() => {
-              platform.openExternal(`${PROJECT_URL}/blob/main/docs/SELF_HOSTING.md`);
-            }}
-          >
-            <Server size={14} /> Host your own server
-          </button>
-        )}
-      </div>
-      {!embedded && (
-        <div className="trust-row">
-          <span><Lock size={13} /> End-to-end encrypted</span>
-          <span><ShieldCheck size={13} /> Open source</span>
-          <span><Server size={13} /> Self-hosted</span>
-        </div>
       )}
     </form>
   );

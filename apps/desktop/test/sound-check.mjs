@@ -144,7 +144,8 @@ async function launch(name) {
 }
 
 async function signUp({ page }, link, displayName, first) {
-  await page.getByLabel("Invite link").fill(link, { timeout: 30_000 });
+  await page.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
+  await page.getByLabel("Invite link").fill(link);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill(displayName, { timeout: 15_000 });
   if (first === false) await page.getByPlaceholder(/username/i).fill(displayName.toLowerCase()).catch(() => undefined);

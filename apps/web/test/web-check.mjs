@@ -98,7 +98,8 @@ function launchOptions(name) {
 }
 
 async function signUp(page, link, serverName) {
-  await page.getByLabel("Invite link").fill(link, { timeout: 30_000 });
+  await page.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
+  await page.getByLabel("Invite link").fill(link);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Alex Rivera", { timeout: 15_000 });
   await page.getByLabel("Username").fill("alex");
@@ -180,7 +181,7 @@ async function runIn(name) {
     const response = await page.goto(appUrl);
     const headers = response.headers();
     check("the page comes with the content security policy", (headers["content-security-policy"] ?? "").includes("script-src 'self' 'wasm-unsafe-eval'"));
-    await page.getByLabel("Invite link").waitFor({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Join with an invite" }).waitFor({ timeout: 30_000 });
     check("the app starts", true);
     await page.screenshot({ path: prefix("01-welcome") });
 
@@ -408,7 +409,7 @@ async function runIn(name) {
     const again = fresh.pages()[0] ?? (await fresh.newPage());
     watch(again, "fresh browser");
     await again.goto(appUrl);
-    await again.getByRole("button", { name: "I already have an account" }).click();
+    await again.getByRole("button", { name: "Sign in", exact: true }).click();
     await again.getByLabel("Server address").fill(serverUrl);
     await again.getByLabel("Username").fill("alex");
     await again.locator('input[type="password"]').fill("web-check-only-Pass-9182");
