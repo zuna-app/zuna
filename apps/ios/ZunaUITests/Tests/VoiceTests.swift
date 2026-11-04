@@ -108,6 +108,13 @@ final class VoiceTests: XCTestCase {
             XCTAssertTrue(zuna.app.frame.contains(zuna.element(id).frame), "\(id) goes past the screen's edge")
         }
         zuna.screenshot("96-voice-camera")
+        // Down in the bar the camera still goes out to the others, so the screen stays on.
+        zuna.element(A11y.Voice.minimize).tap()
+        XCTAssertTrue(zuna.element(A11y.Voice.bar).waitForExistence(timeout: 5))
+        try waitFor("the stage to go down") { !self.zuna.element(A11y.Voice.stage).exists }
+        XCTAssertEqual(try voiceState()["awake"] as? Bool, true)
+        try zuna.tapSettled(A11y.Voice.bar)
+        XCTAssertTrue(zuna.element(A11y.Voice.stage).waitForExistence(timeout: 5))
         zuna.element(A11y.Voice.camera).tap()
         try waitFor("alice to see it off") { try self.bobsPhone(alice)?["camera"] as? Bool == false }
         try waitFor("the screen to dim again") { try self.voiceState()["awake"] as? Bool == false }
@@ -148,6 +155,7 @@ final class VoiceTests: XCTestCase {
         let bar = zuna.element(A11y.Voice.bar)
         XCTAssertTrue(bar.waitForExistence(timeout: 5))
         XCTAssertTrue(bar.label.contains("Lounge"))
+        XCTAssertEqual(try voiceState()["awake"] as? Bool, false)
         zuna.screenshot("98-voice-bar")
         bar.tap()
         XCTAssertTrue(zuna.element(A11y.Voice.stage).waitForExistence(timeout: 5))

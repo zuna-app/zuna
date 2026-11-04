@@ -190,11 +190,12 @@ enum Orientation {
     }
 }
 
-/// The screen stays on while a camera or a screen is on it, as the desktop's does while a video
-/// plays in its window, and otherwise dims and locks as Auto-Lock says, during a call that's only heard too.
+/// The screen stays on while a camera or a screen is on it, or this device's camera or screen is
+/// going out, as the desktop's does, and otherwise dims and locks as Auto-Lock says, during a call
+/// that's only heard too.
 @MainActor
 enum ScreenAwake {
-    enum Reason { case call, viewer, testing }
+    enum Reason { case call, viewer, sending, testing }
 
     private static var reasons: Set<Reason> = []
 

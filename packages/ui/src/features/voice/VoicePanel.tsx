@@ -2,6 +2,7 @@ import { Camera, CameraOff, Headphones, HeadphoneOff, Lock, Mic, MicOff, Monitor
 import { useEffect, useState } from "react";
 import { screenRefusal } from "@zuna/core/voice";
 import { Spinner, Tooltip } from "@/components/ui";
+import { useScreenAwake } from "@/lib/awake";
 import { keyName } from "@/voice/settings";
 import { conversationOfGroup, useApp } from "@/state/store";
 import { selfIsSpeaking, useVoice } from "@/voice/store";
@@ -54,6 +55,8 @@ export function VoicePanel() {
     window.addEventListener("pagehide", onLeave);
     return () => window.removeEventListener("pagehide", onLeave);
   }, []);
+  // A camera or a screen going out is watched by the others wherever this person is in the app, so the screen stays on for it.
+  useScreenAwake(status !== "idle" && (camera || !!screen));
 
   if (status === "idle" || !server || !channelId) return null;
   const channel = server.channels.find((item) => item.id === channelId);

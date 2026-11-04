@@ -121,10 +121,14 @@ final class VoiceModel {
     private(set) var speaking: Set<String> = []
     private(set) var videos: [CallVideo] = []
     private(set) var quality: ConnectionQuality = .unknown
-    private(set) var camera = false
+    private(set) var camera = false {
+        didSet { holdAwake() }
+    }
     private(set) var cameraFront = true
     /// This device's screen is going out.
-    private(set) var screen = false
+    private(set) var screen = false {
+        didSet { holdAwake() }
+    }
     /// Sharing has been asked for, and waits on the server or the system's picker.
     private(set) var screenStarting = false
     /// What this device's share goes out with, once it's going.
@@ -256,6 +260,11 @@ final class VoiceModel {
             if source == .screenShareAudio { return settings.screenVolume * (streamVolumes[userId] ?? 1) }
             return localMutes.contains(userId) ? 0 : volumes[userId] ?? 1
         }
+    }
+
+    /// A camera or a screen going out is watched by the others wherever this person is in the app, so the screen stays on for it.
+    private func holdAwake() {
+        ScreenAwake.hold(.sending, camera || screen)
     }
 
     private func syncVideos() {

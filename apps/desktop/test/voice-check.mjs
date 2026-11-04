@@ -591,6 +591,15 @@ try {
   const awakeWithCamera = await awake();
   check("a camera keeps the screen on, for whoever has it on and whoever watches", awakeWithCamera.length === 2, awakeWithCamera.join(", ") || "nobody");
   await shot(bob, "07-camera");
+  // Away from the call, a camera going out still keeps the screen on, and only watching one doesn't.
+  await rowFor(alice.page, "general-chat").click();
+  await rowFor(bob.page, "general-chat").click();
+  await sleep(500);
+  const awakeAway = await awake();
+  check("a camera going out keeps the screen on away from the call, and watching doesn't", awakeAway.join(", ") === "alice", awakeAway.join(", ") || "nobody");
+  await rowFor(alice.page, "Lounge").click();
+  await rowFor(bob.page, "Lounge").click();
+  await bob.page.locator(".voice-tile video").first().waitFor({ timeout: 15_000 }).catch(() => undefined);
   await alice.page.getByRole("button", { name: "Turn off camera" }).first().click();
   await bob.page.locator(".voice-tile video").first().waitFor({ state: "detached", timeout: 10_000 }).catch(() => undefined);
   await sleep(500);
