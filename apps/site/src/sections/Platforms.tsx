@@ -10,7 +10,7 @@ export function Platforms() {
     <section className="section" id="download">
       <div className="wrap">
         <div className="section-head center reveal">
-          <p className="eyebrow">Get the app{RELEASE ? ` · ${RELEASE.version}` : ""}</p>
+          <p className="eyebrow">{RELEASE ? `Get Zuna ${RELEASE.version}` : "Get the app"}</p>
           <h2 className="heading">Got an invite? You're three steps away.</h2>
           <ol className="join-steps">
             {STEPS.map((step, index) => (

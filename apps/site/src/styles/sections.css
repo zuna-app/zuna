@@ -16,7 +16,7 @@
 .hero-inner { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; }
 .hero-lead { margin-inline: auto; max-width: 640px; }
 .hero .actions { justify-content: center; }
-.hero-platforms { margin: 22px 0 0; font: 13px/1.5 var(--font-mono); color: var(--text-2); }
+.hero-platforms { margin: 22px 0 0; font-size: 14.5px; color: var(--text-2); }
 .hero-stage { position: relative; margin-top: clamp(48px, 7vw, 84px); padding-bottom: 24px; perspective: 1800px; }
 .hero-stage::after { content: ""; position: absolute; inset: auto 0 0; height: 150px; pointer-events: none; background: linear-gradient(transparent, var(--bg-0)); }
 .hero-tilt { max-width: 1080px; margin-inline: auto; transform-origin: 50% 0; }
@@ -47,13 +47,6 @@
 .chip-float-right { right: -40px; top: 20%; animation-delay: -3s; }
 .chip-label { color: var(--text-2); }
 @keyframes float { from { transform: translateY(-6px); } to { transform: translateY(6px); } }
-
-/* Facts */
-
-.facts { border-block: 1px solid var(--line); background: var(--bg-1); }
-.facts-list { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 28px; margin: 0 auto; padding-block: 22px; list-style: none; }
-.facts-list li { display: flex; align-items: center; gap: 10px; font: 13px/1.4 var(--font-mono); color: var(--text-2); }
-.facts-list li::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--text-3); }
 
 /* The demo */
 
@@ -322,7 +315,6 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
   .sees-never { border-top: 1px solid var(--line); border-left: 0; }
   .flow-step:nth-child(2) .flow-arrow { display: block; }
   .flow-arrow { top: auto; right: auto; bottom: -20px; left: 50%; transform: translateX(-50%) rotate(90deg); }
-  .facts-list { justify-content: flex-start; }
   .meter-screen { height: 200px; }
   .stream-facts { margin-top: 48px; }
 }

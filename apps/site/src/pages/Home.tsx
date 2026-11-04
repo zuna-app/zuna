@@ -1,7 +1,7 @@
 import { CipherDemo } from "../sections/CipherDemo";
 import { Faq, FinalCall } from "../sections/Faq";
 import { Features } from "../sections/Features";
-import { Facts, Hero } from "../sections/Hero";
+import { Hero } from "../sections/Hero";
 import { Platforms } from "../sections/Platforms";
 import { Push } from "../sections/Push";
 import { Security } from "../sections/Security";
@@ -12,7 +12,6 @@ export function Home() {
   return (
     <>
       <Hero />
-      <Facts />
       <CipherDemo />
       <Features />
       <Streaming />
