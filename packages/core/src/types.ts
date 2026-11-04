@@ -30,6 +30,8 @@ export interface ServerInfo {
   voice?: number;
   /** Whether direct messages and groups can have calls there. Absent on one that can't. */
   calls?: number;
+  /** Whether this server has a soundboard, for its voice channels and calls. Absent on one that doesn't. */
+  sounds?: number;
   /** What its admins say about sharing a screen. Absent on one from before it had a say, and for anyone not signed in. */
   screen_share?: ScreenRules;
 }
@@ -363,10 +365,21 @@ export interface ChannelView {
   userLimit: number;
   /** For a voice channel: how many may share a screen at once, 0 for what the server's rules say, or -1 for nobody. */
   screenLimit: number;
+  /** For a voice channel: whether the soundboard plays there. */
+  sounds: boolean;
   /** The details couldn't be read or checked, so they aren't shown. */
   unreadable: boolean;
   /** Null until this device has joined it, which it does by itself. */
   conversation: ConversationView | null;
+}
+
+/** A sound on the server's soundboard. */
+export interface SoundView {
+  id: string;
+  name: string;
+  /** An emoji to show with it, or empty. */
+  emoji: string;
+  durationMs: number;
 }
 
 /** Someone's device in a voice channel or a call, as it says. */
@@ -541,6 +554,10 @@ export type CoreEvent =
   | { type: "read"; serverId: string; groupId: string; userId: string; seq: number }
   | { type: "settings"; serverId: string; info: ServerInfo }
   | { type: "emotes"; serverId: string }
+  /** The soundboard changed. */
+  | { type: "sounds"; serverId: string }
+  /** Someone else in the voice channel or call this device is in played a sound. */
+  | { type: "sound"; serverId: string; channelId: string; userId: string; soundId: string }
   | { type: "preferences"; serverId: string }
   | { type: "signed_out"; serverId: string; reason: string }
   /** A session that seemed to be over is working after all. */

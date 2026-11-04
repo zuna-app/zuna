@@ -129,6 +129,15 @@ export interface ApiChannel {
   position: number;
   user_limit: number;
   screen_limit?: number;
+  /** Whether the soundboard plays there. Absent on a server from before it had one. */
+  sounds?: boolean;
+  details: string;
+  created_by: string;
+  created_at: number;
+}
+
+export interface ApiSound {
+  id: string;
   details: string;
   created_by: string;
   created_at: number;
@@ -424,10 +433,10 @@ export class Api {
 
   // Channels and voice
   channels = () => this.request<{ channels: ApiChannel[]; voice: ApiVoiceState[] }>("GET", "/api/channels");
-  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; proof: Uint8Array }) =>
+  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; sounds?: boolean; proof: Uint8Array }) =>
     this.request<{ channel: ApiChannel; group: ApiGroup }>("POST", "/api/channels", body);
-  updateChannel = (id: string, details: Uint8Array, userLimit?: number, screenLimit?: number) =>
-    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit, screen_limit: screenLimit });
+  updateChannel = (id: string, details: Uint8Array, userLimit?: number, screenLimit?: number, sounds?: boolean) =>
+    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit, screen_limit: screenLimit, sounds });
   orderChannels = (ids: string[]) => this.request("PUT", "/api/channels/order", { ids });
   deleteChannel = (id: string) => this.request("DELETE", at`/api/channels/${id}`);
   joinChannel = (id: string, proof: Uint8Array, wantHistory: boolean) =>
@@ -442,6 +451,7 @@ export class Api {
   stopScreenOf = (id: string, userId: string) => this.request("DELETE", at`/api/channels/${id}/voice/users/${userId}/screen`);
   voiceDisconnect = (id: string, userId: string) => this.request("POST", at`/api/channels/${id}/voice/users/${userId}/disconnect`, {});
   voiceMute = (id: string, userId: string, muted: boolean) => this.request("PUT", at`/api/channels/${id}/voice/users/${userId}/mute`, { muted });
+  playSound = (id: string, data: Uint8Array) => this.request("POST", at`/api/channels/${id}/voice/sound`, { data });
 
   // Calls in direct messages and groups
   calls = () => this.request<{ calls: ApiCall[]; voice: ApiVoiceState[] }>("GET", "/api/calls");
@@ -452,6 +462,7 @@ export class Api {
   stopCallScreen = (groupId: string) => this.request("DELETE", at`/api/groups/${groupId}/call/screen`);
   ringCall = (groupId: string, users: string[]) => this.request("POST", at`/api/groups/${groupId}/call/ring`, { users });
   declineCall = (groupId: string) => this.request("POST", at`/api/groups/${groupId}/call/decline`, {});
+  playCallSound = (groupId: string, data: Uint8Array) => this.request("POST", at`/api/groups/${groupId}/call/sound`, { data });
 
   // Messages
   messages = async (groupId: string, options: { before?: number; around?: number; limit?: number }) => {
@@ -503,6 +514,12 @@ export class Api {
   emotes = () => this.request<{ set_id: string; set_name: string; emotes: Emote[] }>("GET", "/api/emotes");
   emoteUrl = (id: string, size: 1 | 2 | 3 | 4 = 2) => `${this.baseUrl}${at`/api/emotes/${id}`}/${size}x.webp`;
   iconUrl = () => `${this.baseUrl}/api/icon`;
+
+  // The soundboard
+  sounds = async () => (await this.request<{ sounds: ApiSound[] }>("GET", "/api/sounds")).sounds;
+  createSound = (id: string, details: Uint8Array, fileId: string) => this.request<{ sound: ApiSound }>("POST", "/api/sounds", { id, details, file_id: fileId });
+  updateSound = (id: string, details: Uint8Array) => this.request("PATCH", at`/api/sounds/${id}`, { details });
+  deleteSound = (id: string) => this.request("DELETE", at`/api/sounds/${id}`);
 
   // Administration
   invites = async () => (await this.request<{ invites: Invite[] }>("GET", "/api/invites")).invites;

@@ -20,6 +20,7 @@ import {
   type ApiLink,
   type ApiMessage,
   type ApiReaction,
+  type ApiSound,
   type ApiUser,
   type ApiVoiceState,
 } from "./api";
@@ -104,6 +105,8 @@ import { withoutMetadata, type ByteSource } from "./metadata";
 import { notificationDelay, notificationText, previewText } from "./notify";
 import { SEARCH_INDEX_VERSION, indexTokens, mediaTag, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
+import { openSoundDetails, sealSoundDetails } from "./soundboard";
+import { prepareSound, readWav } from "./sounds";
 import { VOICE_LABEL, voiceIdentity } from "./voice";
 import {
   MAX_EXPIRES_IN,
@@ -112,13 +115,16 @@ import {
   parseEmoteRef,
   parseGroupDetails,
   parseMessageBody,
+  parsePlay,
   parsePreferences,
   parseProfile,
   parseReaction,
   parseReadState,
+  parseSoundDetails,
   parseSystemEvent,
   type ChannelDetails,
   type GroupDetails,
+  type SoundDetails,
 } from "./validate";
 import type {
   Attachment,
@@ -152,6 +158,7 @@ import type {
   SafetyCheck,
   SearchResult,
   ServerInfo,
+  SoundView,
   SystemEvent,
   TrustState,
   UserView,
@@ -171,6 +178,8 @@ const PREVIEW_WAIT_MS = 4000;
 /** How long `sendNow` waits for a message to go once its files are up. */
 const SEND_NOW_WAIT_MS = 60_000;
 const UPLOAD_CONCURRENCY = 3;
+/** How far a sound someone played may be from now, by their clock, and how long it's remembered so it plays once. */
+const PLAY_FRESH_MS = 5 * 60_000;
 const KEY_PACKAGE_TARGET = 40;
 const KEY_PACKAGE_LOW = 15;
 const LAST_RESORT_MAX_AGE_MS = 21 * 24 * 3600 * 1000;
@@ -309,6 +318,14 @@ interface CachedGroup {
 interface CachedChannel {
   api: ApiChannel;
   details: ChannelDetails | null;
+  /** The newest version of its details seen, so an older copy isn't taken for new. */
+  version: number;
+}
+
+/** A sound as the server listed it, and what its sealed details turned out to say. */
+interface CachedSound {
+  api: ApiSound;
+  details: SoundDetails | null;
   /** The newest version of its details seen, so an older copy isn't taken for new. */
   version: number;
 }
@@ -510,6 +527,12 @@ export class ServerSession {
   private voiceStates = new Map<string, ApiVoiceState>();
   /** The calls going on in this person's conversations, by group. */
   private calls = new Map<string, ApiCall>();
+  /** The soundboard, by sound: only those whose details open and were signed by someone here. */
+  private sounds = new Map<string, CachedSound>();
+  /** Sounds' files once fetched and checked, by file. */
+  private soundFiles = new Map<string, Promise<Blob>>();
+  /** Sounds played lately, by the value each was sealed with, so one handed on again doesn't play twice. */
+  private playsSeen = new Map<string, number>();
   /**
    * The voice channel or call this device is in, what it says it's doing there, the epoch its key was
    * last for, and whether it still has to say it's starting the call, which rings everyone else.
@@ -733,6 +756,10 @@ export class ServerSession {
       if (error instanceof ApiError && error.status === 401) throw error;
       console.warn("[zuna] catching up on calls", error);
     });
+    await this.syncSounds().catch((error) => {
+      if (error instanceof ApiError && error.status === 401) throw error;
+      console.warn("[zuna] catching up on the soundboard", error);
+    });
     // After joining, since a grant is only good for epochs before this device came in.
     await this.processHistoryGrants();
     await this.topUpKeyPackages();
@@ -812,6 +839,7 @@ export class ServerSession {
     const names = this.getKv<Record<string, string>>("device_names") ?? {};
     for (const [id, name] of Object.entries(names)) this.deviceNames.set(id, name);
     if (this.channelsOn) this.applyChannels(this.getKv<ApiChannel[]>("channels") ?? [], false);
+    if (this.channelsOn || this.callsOn) this.applySounds(this.getKv<ApiSound[]>("sounds") ?? [], false);
   }
 
   private persistUser(user: CachedUser): void {
@@ -3738,6 +3766,12 @@ export class ServerSession {
       case "emotes":
         void this.refreshEmotes().catch((error) => console.warn("[zuna] emotes", error));
         break;
+      case "sounds":
+        void this.syncSounds().catch((error) => console.warn("[zuna] soundboard", error));
+        break;
+      case "sound":
+        this.onSoundFrame(data);
+        break;
       case "device_revoked":
         if (data.device_id === this.account.deviceId) this.signedOut("device_revoked");
         break;
@@ -5853,6 +5887,7 @@ export class ServerSession {
           position: api.position,
           userLimit: api.user_limit,
           screenLimit: api.screen_limit ?? 0,
+          sounds: api.sounds ?? false,
           unreadable: !details,
           conversation: group && !group.removedAt ? this.conversationOf(group, now) : null,
         };
@@ -5860,13 +5895,21 @@ export class ServerSession {
   }
 
   /** Makes a channel, for a server admin. Everyone else's apps join it by themselves. */
-  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number }): Promise<string> {
+  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean }): Promise<string> {
     const id = randomId();
     const details = parseChannelDetails(input);
     if (!details) throw new Error("A channel needs a name.");
     const { communityKey } = this.account.core;
     const sealed = sealChannelDetails(communityKey, id, details, 1, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
-    const created = await this.api.createChannel({ id, type: input.type, details: sealed, user_limit: input.userLimit ?? 0, screen_limit: input.screenLimit ?? 0, proof: channelProof(communityKey, id, this.account.userId) });
+    const created = await this.api.createChannel({
+      id,
+      type: input.type,
+      details: sealed,
+      user_limit: input.userLimit ?? 0,
+      screen_limit: input.screenLimit ?? 0,
+      sounds: input.sounds,
+      proof: channelProof(communityKey, id, this.account.userId),
+    });
     if (created.group.id !== id || created.group.kind !== "channel" || created.channel.id !== id) {
       throw new Error("The channel wasn't created: the server's answer doesn't hold together.");
     }
@@ -5879,16 +5922,20 @@ export class ServerSession {
   }
 
   /** Changes what a channel says about itself, for a server admin. */
-  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number }): Promise<void> {
+  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean }): Promise<void> {
     const channel = this.channels.get(id);
     if (!channel) throw new Error("That channel doesn't exist.");
-    const { userLimit, screenLimit, ...text } = changes;
+    const { userLimit, screenLimit, sounds, ...text } = changes;
     const details = parseChannelDetails({ ...channel.details, ...text });
     if (!details) throw new Error("A channel needs a name.");
     const version = channel.version + 1;
     const sealed = sealChannelDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
-    await this.api.updateChannel(id, sealed, userLimit, screenLimit);
-    this.channels.set(id, { api: { ...channel.api, details: toBase64(sealed), user_limit: userLimit ?? channel.api.user_limit, screen_limit: screenLimit ?? channel.api.screen_limit }, details, version });
+    await this.api.updateChannel(id, sealed, userLimit, screenLimit, sounds);
+    this.channels.set(id, {
+      api: { ...channel.api, details: toBase64(sealed), user_limit: userLimit ?? channel.api.user_limit, screen_limit: screenLimit ?? channel.api.screen_limit, sounds: sounds ?? channel.api.sounds },
+      details,
+      version,
+    });
     this.applyChannels([...this.channels.values()].map((item) => item.api));
     this.emitConversations();
   }
@@ -6130,6 +6177,146 @@ export class ServerSession {
   /** Mutes someone until an admin unmutes them. It's the media server that makes this stick. */
   async voiceMute(channelId: string, userId: string, muted: boolean): Promise<void> {
     await this.api.voiceMute(channelId, userId, muted);
+  }
+
+  // --- Soundboard ---
+
+  /** Takes on what the server lists, believing only the details a device of someone here signed. */
+  private applySounds(list: ApiSound[], save = true): void {
+    const versions = this.getKv<Record<string, number>>("sound_versions") ?? {};
+    const next = new Map<string, CachedSound>();
+    for (const api of list) {
+      const previous = this.sounds.get(api.id);
+      let details = previous?.details ?? null;
+      let version = Math.max(previous?.version ?? 0, versions[api.id] ?? 0);
+      const signed = openSoundDetails(this.account.core.communityKey, api.id, decode(api.details));
+      if (signed && signed.version >= version) {
+        const device = this.users.get(signed.signer.userId)?.devices.get(signed.signer.deviceId);
+        const parsed = parseSoundDetails(signed.details);
+        if (device && parsed && signed.signedBy(device.signatureKey)) {
+          details = parsed;
+          version = signed.version;
+        } else if (!device) {
+          // Not known yet. Looked up, and read again once that's done.
+          void this.ensureUser(signed.signer.userId, true)
+            .then((user) => {
+              if (user?.devices.has(signed.signer.deviceId)) this.applySounds([...this.sounds.values()].map((sound) => sound.api));
+            })
+            .catch(() => undefined);
+        }
+      }
+      next.set(api.id, { api, details, version });
+      versions[api.id] = version;
+    }
+    this.sounds = next;
+    if (!save) return;
+    this.setKv("sounds", list);
+    this.setKv("sound_versions", versions);
+    this.emit({ type: "sounds", serverId: this.serverId });
+  }
+
+  private async syncSounds(): Promise<void> {
+    if ((!this.channelsOn && !this.callsOn) || !this.info?.sounds) return;
+    this.applySounds(await this.api.sounds());
+  }
+
+  /** The soundboard, oldest first, without any whose details couldn't be read or checked. */
+  getSounds(): SoundView[] {
+    const sounds: SoundView[] = [];
+    for (const { api, details } of [...this.sounds.values()].sort((a, b) => a.api.created_at - b.api.created_at || a.api.id.localeCompare(b.api.id))) {
+      if (details) sounds.push({ id: api.id, name: details.name, emoji: details.emoji, durationMs: details.durationMs });
+    }
+    return sounds;
+  }
+
+  /**
+   * Adds a sound, for a server admin, from WAV in one channel at 48 kHz, as each app makes from what's
+   * picked. Its silence is cut, it's held to five seconds, and it's made about as loud as the rest.
+   */
+  async addSound(file: Blob, name: string, emoji = ""): Promise<string> {
+    if (!parseSoundDetails({ name, emoji, durationMs: 1, file: { fileId: "0".repeat(32), key: "", prefix: "", chunks: 1 } })) {
+      throw new Error("A sound needs a name, of up to 32 characters.");
+    }
+    const { wav, durationMs } = prepareSound(await this.files.read(file, 0, this.files.size(file)));
+    const ref = await this.uploadBlob({ size: wav.length, read: async (start, end) => wav.subarray(start, end) });
+    const details = parseSoundDetails({ name, emoji, durationMs, file: { fileId: ref.fileId, key: ref.key, prefix: ref.prefix, chunks: ref.chunks } });
+    if (!details) throw new Error("That sound couldn't be added.");
+    const id = randomId();
+    const sealed = sealSoundDetails(this.account.core.communityKey, id, details, 1, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
+    const { sound } = await this.api.createSound(id, sealed, ref.fileId);
+    this.sounds.set(id, { api: sound, details, version: 1 });
+    this.applySounds([...this.sounds.values()].map((item) => item.api));
+    return id;
+  }
+
+  /** Renames a sound, or gives it another emoji, for a server admin. */
+  async updateSound(id: string, changes: { name?: string; emoji?: string }): Promise<void> {
+    const sound = this.sounds.get(id);
+    if (!sound?.details) throw new Error("That sound isn't on the soundboard anymore.");
+    const details = parseSoundDetails({ ...sound.details, ...changes });
+    if (!details) throw new Error("A sound needs a name, of up to 32 characters.");
+    const version = sound.version + 1;
+    const sealed = sealSoundDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
+    await this.api.updateSound(id, sealed);
+    this.sounds.set(id, { api: { ...sound.api, details: toBase64(sealed) }, details, version });
+    this.applySounds([...this.sounds.values()].map((item) => item.api));
+  }
+
+  /** Takes a sound off the soundboard, for a server admin. */
+  async deleteSound(id: string): Promise<void> {
+    await this.api.deleteSound(id);
+    this.sounds.delete(id);
+    this.applySounds([...this.sounds.values()].map((item) => item.api));
+  }
+
+  /** A sound's file, fetched once and checked to be the WAV every sound is, for playing. */
+  soundFile(id: string): Promise<Blob> {
+    const details = this.sounds.get(id)?.details;
+    if (!details) return Promise.reject(new Error("That sound isn't on the soundboard anymore."));
+    const { file } = details;
+    let fetched = this.soundFiles.get(file.fileId);
+    if (!fetched) {
+      fetched = this.downloadFile({ ...file, mime: "audio/wav" }).then(async (blob) => {
+        if (!readWav(await this.files.read(blob, 0, this.files.size(blob)))) throw new Error("That sound's file isn't what it should be.");
+        return blob;
+      });
+      fetched.catch(() => this.soundFiles.delete(file.fileId));
+      this.soundFiles.set(file.fileId, fetched);
+    }
+    return fetched;
+  }
+
+  /**
+   * Plays a sound to everyone else in the voice channel or call this device is in, who each play its
+   * file themselves. What's sent says which sound, under the room's key, and names who played it.
+   */
+  async playSound(channelId: string, soundId: string): Promise<void> {
+    if (!this.sounds.get(soundId)?.details) throw new Error("That sound isn't on the soundboard anymore.");
+    if (this.activeVoice?.channelId !== channelId || !this.hasMlsGroup(channelId)) throw new Error("Join the voice channel to play sounds.");
+    const epoch = this.rememberCurrentEpochKey(channelId);
+    const key = this.epochKey(channelId, epoch);
+    if (!key) throw new Error("This device can't play sounds here yet.");
+    const sealed = sealSignal(key, "play", channelId, epoch, { sound: soundId, user: this.account.userId, at: Date.now(), nonce: randomId() });
+    await (this.isCall(channelId) ? this.api.playCallSound(channelId, sealed) : this.api.playSound(channelId, sealed));
+  }
+
+  /**
+   * Someone else in the room played a sound. It plays here only if it opens under the room's key, was
+   * played by whom the server says, and is new: the server handing it on again plays nothing.
+   */
+  private onSoundFrame(data: { channel_id: string; user_id: string; data: string }): void {
+    if (this.activeVoice?.channelId !== data.channel_id || data.user_id === this.account.userId || this.isBlocked(data.user_id)) return;
+    const sealed = decodeFrameData(data.data);
+    const key = this.epochKey(data.channel_id, signalEpoch(sealed));
+    const play = key ? parsePlay(openSignal(key, "play", data.channel_id, sealed)) : null;
+    if (!play || play.user !== data.user_id || !this.sounds.get(play.sound)?.details) return;
+    const now = Date.now();
+    for (const [nonce, seen] of this.playsSeen) {
+      if (now - seen > PLAY_FRESH_MS) this.playsSeen.delete(nonce);
+    }
+    if (Math.abs(now - play.at) > PLAY_FRESH_MS || this.playsSeen.has(play.nonce)) return;
+    this.playsSeen.set(play.nonce, now);
+    this.emit({ type: "sound", serverId: this.serverId, channelId: data.channel_id, userId: data.user_id, soundId: play.sound });
   }
 
   // --- Emotes ---

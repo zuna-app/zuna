@@ -94,6 +94,8 @@ Each person's frames are under a key of their own, bound to who they are in the 
 
 **The microphone** goes through an AudioWorklet before it's published: RNNoise takes out noise and says how likely each 10 ms is to be speech, and a gate only lets speech through, holding 20 ms back so it opens before a word starts. Past the gate, the track is silent, which costs almost nothing to send. It can go by a level instead, or a key being held. The track stays the same when the device changes, so nothing has to be published again.
 
+**The soundboard** is a server's sounds, which its admins add and anyone in a voice channel or a call can play to the others there. Each sound is WAV in one channel at 48 kHz, at most five seconds long: the app that adds one decodes what was picked, and the core cuts its silence, holds it to five seconds and makes it about as loud as every other sound, with its loudest sample just under full scale. Its name, emoji and the key to its file are sealed with the community key and signed by the device, as a channel's details are. Playing one isn't media: the core seals which sound, who played it, when and a value used once, under the room's group's content key, and the server hands that to the others in the room, refusing someone muted or deafened, a channel whose admins turned the soundboard off, and more than a sound every two seconds after two at once. Each of them plays the file themselves.
+
 **Screens** come from a native program where that's possible, as [SCREEN_SHARE.md](SCREEN_SHARE.md) explains, and from the browser otherwise. Either way a device has to ask first, since being in a room doesn't allow one, and the server's rules decide.
 
 **Calls** in direct messages and groups are rooms of their own on the same media server, under the conversation's group ID, keyed from its MLS group in the same way, so everything above goes for them: the microphone, cameras, screens, a new key whenever someone joins or leaves the conversation. Who's in one only goes to the conversation's members. The first device to come in says it's starting the call, and the server rings everyone else in the conversation until they answer or decline, or for 45 seconds. A direct message's call ends by itself when nobody answers, or when the other person hangs up. A call sits above its conversation's chat on the desktop and the web, where a voice channel's stage takes the place of its chat. On the iPhone and iPad a call rings through CallKit, as a phone call does, and where CallKit is left out, as on China's App Store, the app rings by itself. A phone that isn't in use is woken by a push through `zuna-push`: a VoIP push, which PushKit has the app hand to CallKit at once, or, without CallKit, an alert with Answer and Decline. A silent push tells it once the call stops ringing.
@@ -133,7 +135,7 @@ account key (random, one per generation)
   \- vault items: every epoch's content key, preferences, verifications, and a manifest
                  listing every pin and verification under a number that only goes up
 
-MLS epoch --exporter--> content key --> messages, reactions, group details, read state, typing
+MLS epoch --exporter--> content key --> messages, reactions, group details, read state, typing, sounds played
 
 file key (random, per file) --> STREAM-encrypted chunks
 ```

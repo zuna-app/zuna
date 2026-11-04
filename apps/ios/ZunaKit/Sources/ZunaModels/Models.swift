@@ -64,11 +64,13 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var voice: Int?
     /// Whether direct messages and groups can have calls there.
     public var calls: Int?
+    /// Whether this server has a soundboard, for its voice channels and calls.
+    public var sounds: Int?
     /// What its admins say about sharing a screen.
     public var screenShare: ScreenRules?
 
     enum CodingKeys: String, CodingKey {
-        case name, version, claimed, registration, channels, voice, calls
+        case name, version, claimed, registration, channels, voice, calls, sounds
         case hasIcon = "has_icon"
         case maxUploadMb = "max_upload_mb"
         case allowMemberInvites = "allow_member_invites"
@@ -431,10 +433,39 @@ public struct ChannelView: Codable, Sendable, Equatable, Identifiable {
     public var userLimit: Int
     /// For a voice channel: how many may share a screen at once, 0 for what the server's rules say, or -1 for nobody.
     public var screenLimit: Int
+    /// For a voice channel: whether the soundboard plays there.
+    public var sounds: Bool
     /// The details couldn't be read or checked, so they aren't shown.
     public var unreadable: Bool
     /// Nil until this device has joined it, which it does by itself.
     public var conversation: ConversationView?
+}
+
+/// A sound on the server's soundboard. Mirrors `SoundView`.
+public struct SoundView: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    /// An emoji to show with it, or empty.
+    public var emoji: String
+    public var durationMs: Int
+
+    public init(id: String, name: String, emoji: String, durationMs: Int) {
+        self.id = id
+        self.name = name
+        self.emoji = emoji
+        self.durationMs = durationMs
+    }
+}
+
+/// What changes about a sound, for `updateSound`; nil fields stay as they are.
+public struct SoundChanges: Codable, Sendable, Equatable {
+    public var name: String?
+    public var emoji: String?
+
+    public init(name: String? = nil, emoji: String? = nil) {
+        self.name = name
+        self.emoji = emoji
+    }
 }
 
 /// Someone's device in a voice channel, as it says. Mirrors `VoiceMember`.
@@ -553,8 +584,10 @@ public struct NewChannel: Codable, Sendable, Equatable {
     public var bitrate: Int?
     public var userLimit: Int?
     public var screenLimit: Int?
+    /// For a voice channel: whether the soundboard plays there, which it does unless this says otherwise.
+    public var sounds: Bool?
 
-    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil) {
+    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil) {
         self.type = type
         self.name = name
         self.topic = topic
@@ -562,6 +595,7 @@ public struct NewChannel: Codable, Sendable, Equatable {
         self.bitrate = bitrate
         self.userLimit = userLimit
         self.screenLimit = screenLimit
+        self.sounds = sounds
     }
 }
 
@@ -574,14 +608,16 @@ public struct ChannelChanges: Codable, Sendable, Equatable {
     public var bitrate: Int?
     public var userLimit: Int?
     public var screenLimit: Int?
+    public var sounds: Bool?
 
-    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil) {
+    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil) {
         self.name = name
         self.topic = topic
         self.category = category
         self.bitrate = bitrate
         self.userLimit = userLimit
         self.screenLimit = screenLimit
+        self.sounds = sounds
     }
 }
 
@@ -738,6 +774,10 @@ public enum CoreEvent: Sendable, Equatable {
     case read(serverId: String, groupId: String, userId: String, seq: Int)
     case settings(serverId: String, info: ServerInfo)
     case emotes(serverId: String)
+    /// The soundboard changed.
+    case sounds(serverId: String)
+    /// Someone else in the voice channel or call this device is in played a sound.
+    case sound(serverId: String, channelId: String, userId: String, soundId: String)
     case preferences(serverId: String)
     case signedOut(serverId: String, reason: String)
     /// A session that seemed to be over is working after all.
@@ -756,7 +796,7 @@ extension CoreEvent {
              let .voiceKey(serverId, _), let .voiceEnded(serverId, _, _), let .screenEnded(serverId, _, _), let .call(serverId, _, _), let .calls(serverId), let .message(serverId, _, _),
              let .messageRemoved(serverId, _, _), let .messageMoved(serverId, _, _), let .users(serverId),
              let .presence(serverId, _, _, _), let .typing(serverId, _, _), let .read(serverId, _, _, _),
-             let .settings(serverId, _), let .emotes(serverId), let .preferences(serverId),
+             let .settings(serverId, _), let .emotes(serverId), let .sounds(serverId), let .sound(serverId, _, _, _), let .preferences(serverId),
              let .signedOut(serverId, _), let .signedIn(serverId), let .security(serverId, _, _), let .notify(serverId, _, _, _, _, _),
              let .activity(serverId, _):
             serverId
@@ -771,7 +811,7 @@ extension CoreEvent {
 extension CoreEvent: Codable {
     private enum Keys: String, CodingKey {
         case type, serverId, state, message, isNew, groupId, id, fromGroupId, userId, online, lastSeenAt, seq, info, reason, title, body, conversationKey, elsewhere, messageId
-        case channelId, deviceId, member, call
+        case channelId, deviceId, member, call, soundId
     }
 
     public init(from decoder: Decoder) throws {
@@ -803,6 +843,14 @@ extension CoreEvent: Codable {
         case "read": self = .read(serverId: serverId, groupId: try c.decode(String.self, forKey: .groupId), userId: try c.decode(String.self, forKey: .userId), seq: try c.decode(Int.self, forKey: .seq))
         case "settings": self = .settings(serverId: serverId, info: try c.decode(ServerInfo.self, forKey: .info))
         case "emotes": self = .emotes(serverId: serverId)
+        case "sounds": self = .sounds(serverId: serverId)
+        case "sound":
+            self = .sound(
+                serverId: serverId,
+                channelId: try c.decode(String.self, forKey: .channelId),
+                userId: try c.decode(String.self, forKey: .userId),
+                soundId: try c.decode(String.self, forKey: .soundId)
+            )
         case "preferences": self = .preferences(serverId: serverId)
         case "signed_out": self = .signedOut(serverId: serverId, reason: try c.decode(String.self, forKey: .reason))
         case "signed_in": self = .signedIn(serverId: serverId)
@@ -861,6 +909,11 @@ extension CoreEvent: Codable {
             try c.encode("settings", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(info, forKey: .info)
         case let .emotes(serverId):
             try c.encode("emotes", forKey: .type); try c.encode(serverId, forKey: .serverId)
+        case let .sounds(serverId):
+            try c.encode("sounds", forKey: .type); try c.encode(serverId, forKey: .serverId)
+        case let .sound(serverId, channelId, userId, soundId):
+            try c.encode("sound", forKey: .type); try c.encode(serverId, forKey: .serverId); try c.encode(channelId, forKey: .channelId)
+            try c.encode(userId, forKey: .userId); try c.encode(soundId, forKey: .soundId)
         case let .preferences(serverId):
             try c.encode("preferences", forKey: .type); try c.encode(serverId, forKey: .serverId)
         case let .signedOut(serverId, reason):

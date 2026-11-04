@@ -280,6 +280,37 @@ export function parseGroupDetails(value: unknown): GroupDetails | null {
 }
 
 /** A channel's details, as someone's device signed them, or null if they make no sense. */
+/** A sound on the soundboard: what it's called, an emoji to show with it, and its file. */
+export interface SoundDetails {
+  name: string;
+  emoji: string;
+  durationMs: number;
+  file: { fileId: string; key: string; prefix: string; chunks: number };
+}
+
+const MAX_SOUND_NAME = 32;
+const MAX_SOUND_EMOJI = 32;
+const MAX_SOUND_MS = 5_000;
+
+export function parseSoundDetails(value: unknown): SoundDetails | null {
+  if (!isObject(value) || !isString(value.name, MAX_SOUND_NAME) || !isCount(value.durationMs, MAX_SOUND_MS) || value.durationMs === 0) return null;
+  const name = plainName(value.name).trim();
+  if (!name) return null;
+  const emoji = absent(value.emoji) ? "" : isString(value.emoji, MAX_SOUND_EMOJI) ? plainName(value.emoji).trim() : null;
+  if (emoji === null || !isObject(value.file)) return null;
+  const { fileId, key, prefix, chunks } = value.file;
+  if (!isString(fileId, MAX_ID_LENGTH) || !MESSAGE_ID.test(fileId)) return null;
+  if (!isString(key, 256) || !BASE64.test(key) || !isString(prefix, 256) || !BASE64.test(prefix) || chunks !== 1) return null;
+  return { name, emoji, durationMs: value.durationMs, file: { fileId, key, prefix, chunks } };
+}
+
+/** Which sound someone played, who says they played it, when, and a value that's only ever used once. */
+export function parsePlay(value: unknown): { sound: string; user: string; at: number; nonce: string } | null {
+  if (!isObject(value) || !isString(value.sound, MAX_ID_LENGTH) || !MESSAGE_ID.test(value.sound) || !isString(value.user, MAX_ID_LENGTH)) return null;
+  if (typeof value.at !== "number" || !Number.isFinite(value.at) || !isString(value.nonce, 64) || value.nonce === "") return null;
+  return { sound: value.sound, user: value.user, at: value.at, nonce: value.nonce };
+}
+
 export function parseChannelDetails(value: unknown): ChannelDetails | null {
   if (!isObject(value) || !isString(value.name, MAX_CHANNEL_NAME)) return null;
   const name = plainName(value.name).trim();

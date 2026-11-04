@@ -237,6 +237,26 @@ public struct SessionCalls: Sendable {
     /// Stops a call ringing this person, on all their devices.
     public func declineCall(_ groupId: String) async throws { try await run("declineCall", [groupId]) }
 
+    // MARK: Soundboard
+
+    /// The server's soundboard, oldest first.
+    public func getSounds() async throws -> [SoundView] {
+        let rows: LossyList<SoundView> = try await call("getSounds")
+        return rows.items
+    }
+    /// Adds a sound, for a server admin, from WAV in one channel at 48 kHz. The core cuts its silence, holds it to five
+    /// seconds and makes it about as loud as the rest, and returns its ID.
+    public func addSound(_ wav: WireFile, name: String, emoji: String) async throws -> String { try await call("addSound", [wav, name, emoji]) }
+    /// Renames a sound, or gives it another emoji, for a server admin.
+    public func updateSound(_ id: String, _ changes: SoundChanges) async throws { try await run("updateSound", [id, changes]) }
+    /// Takes a sound off the soundboard, for a server admin.
+    public func deleteSound(_ id: String) async throws { try await run("deleteSound", [id]) }
+    /// A sound's file, decrypted and checked to be the WAV every sound is, for playing.
+    public func soundFile(_ id: String) async throws -> WireFile { try await call("soundFile", [id]) }
+    /// Plays a sound to the others in the voice channel or call this device is in, who each play it themselves. It
+    /// throws with something to tell the person when the server says no, as while muted.
+    public func playSound(_ channelId: String, soundId: String) async throws { try await run("playSound", [channelId, soundId]) }
+
     // MARK: Invites and verification
 
     public func invites() async throws -> [Invite] { try await call("invites") }

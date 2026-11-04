@@ -60,13 +60,27 @@ final class DriftTests: XCTestCase {
         XCTAssertEqual(Set(Drift.missing(in: data, decodedAs: message)), ["forwardedFrom", "reactions[].brandNew"])
     }
 
+    func testReadsTheSoundboardWholly() throws {
+        let sound = Data(#"{"id":"s1","name":"Airhorn","emoji":"📯","durationMs":1010}"#.utf8)
+        let decoded = try CoreConnection.decoder.decode(SoundView.self, from: sound)
+        XCTAssertEqual(decoded, SoundView(id: "s1", name: "Airhorn", emoji: "📯", durationMs: 1010))
+        XCTAssertEqual(Drift.missing(in: sound, decodedAs: decoded), [])
+
+        let played = Data(#"{"type":"sound","serverId":"x","channelId":"c2","userId":"u1","soundId":"s1"}"#.utf8)
+        let event = try CoreConnection.decoder.decode(CoreEvent.self, from: played)
+        XCTAssertEqual(event, .sound(serverId: "x", channelId: "c2", userId: "u1", soundId: "s1"))
+        XCTAssertEqual(try CoreConnection.decoder.decode(CoreEvent.self, from: JSONEncoder().encode(event)), event)
+        XCTAssertEqual(try CoreConnection.decoder.decode(CoreEvent.self, from: Data(#"{"type":"sounds","serverId":"x"}"#.utf8)), .sounds(serverId: "x"))
+    }
+
     func testReadsChannelsAndWhoIsInThemWholly() throws {
         let channel = Data(#"""
         {"id":"c1","type":"text","key":"group:c1","name":"general","topic":"Anything goes","category":"","bitrate":0,"position":0,
-         "userLimit":0,"screenLimit":0,"unreadable":false,"conversation":null}
+         "userLimit":0,"screenLimit":0,"sounds":true,"unreadable":false,"conversation":null}
         """#.utf8)
         let decoded = try CoreConnection.decoder.decode(ChannelView.self, from: channel)
         XCTAssertEqual(decoded.key, "group:c1")
+        XCTAssertTrue(decoded.sounds)
         XCTAssertNil(decoded.conversation)
         XCTAssertEqual(Drift.missing(in: channel, decodedAs: decoded), [])
 
