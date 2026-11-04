@@ -63,8 +63,8 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
     private var seen = 0
     private var seenPending = false
     private var handledJump: Int?
-    private var swiping: (cell: UICollectionViewCell, message: MessageView)?
-    private let replyIcon = UIImageView(image: UIImage(systemName: "arrowshape.turn.up.left.circle.fill"))
+    private var swiping: (cell: MessageCell, message: MessageView)?
+    private let replyFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     private static let groupWindow = 5 * 60 * 1000
     private static let flip = CGAffineTransform(scaleX: 1, y: -1)
@@ -93,17 +93,21 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let swipe = UIPanGestureRecognizer(target: self, action: #selector(swiped(_:)))
         swipe.delegate = self
         collectionView.addGestureRecognizer(swipe)
-        replyIcon.tintColor = UIColor(Theme.text2)
-        replyIcon.frame = CGRect(x: 0, y: 0, width: 30, height: 30)
-        replyIcon.alpha = 0
-        view.addSubview(replyIcon)
 
-        let registration = UICollectionView.CellRegistration<UICollectionViewCell, String> { [weak self] cell, _, id in
+        let registration = UICollectionView.CellRegistration<MessageCell, String> { [weak self] cell, _, id in
             guard let self, let input, let context = contexts[id] else { return }
+            // A cell taken for another message starts at rest.
+            if cell.messageId != id {
+                cell.messageId = id
+                cell.swipe.offset = 0
+                cell.swipe.armed = false
+            }
+            let swipe = cell.swipe
             cell.contentConfiguration = UIHostingConfiguration {
                 MessageRow(context: context, server: input.server, actions: input.actions)
                     .environment(self.model)
                     .environment(self.images)
+                    .environment(swipe)
             }
             .margins(.all, 0)
             cell.contentView.transform = Self.flip
@@ -329,34 +333,42 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         return velocity.x < 0 && abs(velocity.x) > abs(velocity.y) * 1.5
     }
 
+    /// The row follows through its `RowSwipe`: a transform on the cell's content view
+    /// doesn't last, as the cell sets that view's frame again whenever it lays out.
     @objc private func swiped(_ gesture: UIPanGestureRecognizer) {
-        let threshold: CGFloat = 64
         switch gesture.state {
         case .began:
             let point = gesture.location(in: collectionView)
             guard let indexPath = collectionView.indexPathForItem(at: point),
-                  let cell = collectionView.cellForItem(at: indexPath),
+                  let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
                   let id = dataSource.itemIdentifier(for: indexPath),
                   let message = input?.items.first(where: { $0.id == id }),
                   message.seq != nil, message.deletedAt == nil, message.status == .sent, message.system == nil else { return }
             swiping = (cell, message)
+            replyFeedback.prepare()
         case .changed:
-            guard let swiping else { return }
-            let offset = max(-threshold * 1.4, min(0, gesture.translation(in: collectionView).x))
-            swiping.cell.contentView.transform = Self.flip.translatedBy(x: offset, y: 0)
-            let frame = swiping.cell.convert(swiping.cell.bounds, to: view)
-            replyIcon.center = CGPoint(x: frame.maxX - 26, y: frame.midY)
-            replyIcon.alpha = min(1, -offset / threshold)
+            guard let swiping, swiping.cell.messageId == swiping.message.id else { return }
+            let threshold = RowSwipe.threshold
+            let pull = max(0, -gesture.translation(in: collectionView).x)
+            // Under the finger to the threshold, then less and less, as Telegram's does.
+            let shown = pull <= threshold ? pull : threshold + (1 - 1 / ((pull - threshold) * 0.4 / 600 + 1)) * 600
+            let swipe = swiping.cell.swipe
+            swipe.offset = -shown
+            if (pull >= threshold) != swipe.armed {
+                swipe.armed.toggle()
+                // Felt as it passes the threshold, so it's known that letting go answers.
+                if swipe.armed { replyFeedback.impactOccurred() }
+            }
         case .ended, .cancelled, .failed:
             guard let swiping else { return }
             self.swiping = nil
-            if gesture.state == .ended, gesture.translation(in: collectionView).x <= -threshold {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            let swipe = swiping.cell.swipe
+            if gesture.state == .ended, swipe.armed, swiping.cell.messageId == swiping.message.id {
                 input?.actions.reply(swiping.message)
             }
-            UIView.animate(withDuration: 0.2) {
-                swiping.cell.contentView.transform = Self.flip
-                self.replyIcon.alpha = 0
+            withAnimation(.smooth(duration: 0.3)) {
+                swipe.offset = 0
+                swipe.armed = false
             }
         default:
             break
@@ -376,6 +388,12 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
             DispatchQueue.main.async { [weak self] in self?.onNearOldest() }
         }
     }
+}
+
+/// A message's cell, which keeps how far its message is pulled to answer it.
+private final class MessageCell: UICollectionViewCell {
+    let swipe = RowSwipe()
+    var messageId: String?
 }
 
 /// Upside down, the cells' order is newest first; VoiceOver reads them top to bottom, as they look.

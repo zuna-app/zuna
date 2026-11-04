@@ -118,6 +118,7 @@ struct ChannelMessageRow: View {
             }
         }
         .animation(.easeOut(duration: 0.4), value: context.highlighted)
+        .swipeToReply(inset: 0)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Chat.message(message.id))
     }

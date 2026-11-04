@@ -60,6 +60,58 @@ struct ChatActions {
 /// The reactions offered first, as on the desktop.
 let quickReactions = ["👍", "❤️", "😂", "🔥", "😮", "😢"]
 
+/// How far a message is pulled to the left to answer it. The list sets it as the
+/// finger moves, and the row follows.
+@MainActor
+@Observable
+final class RowSwipe {
+    /// How far to pull before letting go answers the message.
+    static let threshold: CGFloat = 64
+    var offset: CGFloat = 0
+    /// Pulled past the threshold, so letting go answers.
+    var armed = false
+}
+
+extension View {
+    /// Follows a pull to the left to answer the message, as in Telegram: an arrow comes in
+    /// from the screen's edge, `inset` past this view's trailing edge, and pops once letting
+    /// go would answer.
+    func swipeToReply(inset: CGFloat) -> some View {
+        modifier(SwipeToReply(inset: inset))
+    }
+}
+
+/// Reads the pull itself, so that only this follows the finger, not the message's own view.
+private struct SwipeToReply: ViewModifier {
+    @Environment(RowSwipe.self) private var swipe: RowSwipe?
+    let inset: CGFloat
+
+    func body(content: Content) -> some View {
+        let offset = swipe?.offset ?? 0
+        let size: CGFloat = 32
+        content
+            .offset(x: offset)
+            .overlay(alignment: .trailing) {
+                if let swipe, offset < 0 {
+                    let progress = min(1, -offset / RowSwipe.threshold)
+                    Image(systemName: "arrowshape.turn.up.left.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Theme.text1)
+                        .frame(width: size, height: size)
+                        .background(Theme.bg4, in: .circle)
+                        .scaleEffect(swipe.armed ? 1 : 0.5 + 0.35 * progress)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.5), value: swipe.armed)
+                        .opacity(progress)
+                        // Just past the screen's edge at rest, coming in with the message.
+                        .offset(x: inset + size + offset)
+                        .transition(.scale(scale: 0.2).combined(with: .opacity))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
 /// One message in the list, with the day's separator above it when a new day starts.
 struct MessageRow: View {
     @Environment(AppModel.self) private var model
@@ -122,6 +174,7 @@ struct MessageRow: View {
                     }
                 }
                 .background(context.selected ? model.settings.accent.color.opacity(0.18) : .clear, in: .rect(cornerRadius: 12))
+                .swipeToReply(inset: 8)
             }
         }
         .padding(.horizontal, 8)
