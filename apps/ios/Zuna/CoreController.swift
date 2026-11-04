@@ -67,6 +67,8 @@ final class CoreController {
             let directory = try SharedStorage.dataDirectory()
             self.directory = directory
             #if DEBUG
+            // A phone being tested by hand stays unlocked while the app is in front, from the moment it starts.
+            if UserDefaults.standard.bool(forKey: "ZunaKeepAwake") { UIApplication.shared.isIdleTimerDisabled = true }
             if UserDefaults.standard.bool(forKey: "ZunaResetData") {
                 DeviceKeyStore.forget()
                 Self.erase(directory)
@@ -455,6 +457,20 @@ final class CoreController {
         case "foreground":
             didBecomeActive()
             return "active"
+        case "roundStart", "roundStop":
+            // The open chat's composer records a video message, or sends it, as holding its button and letting go do.
+            NotificationCenter.default.post(name: RoundRecorder.control, object: name == "roundStart" ? "start" : "stop")
+            return name ?? ""
+        case "openChat":
+            // Opens a conversation, by its key, on the server at `path`, as tapping its row does.
+            guard let model, let path, let channel, let server = model.servers.values.first(where: { $0.entry.url == path }) else { return "no-server" }
+            model.selectServer(server.entry.id)
+            model.openChat(channel)
+            return "opened"
+        case "keepAwake":
+            // A phone being tested by hand stays unlocked while the app is in front, whatever its Auto-Lock says.
+            UIApplication.shared.isIdleTimerDisabled = on ?? true
+            return UIApplication.shared.isIdleTimerDisabled ? "awake" : "may-sleep"
         case "attachFile":
             // The open chat's composer stages it, as it would a picked file.
             guard let path, let model else { return "no-chat" }

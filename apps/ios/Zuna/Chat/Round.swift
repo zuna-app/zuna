@@ -1,5 +1,6 @@
 import AVFoundation
 import AVKit
+import os
 import SwiftUI
 import UIKit
 import ZunaModels
@@ -22,17 +23,36 @@ final class RoundRecorder {
     /// How many pixels across a video message is.
     static let size = 480
 
+    private static let log = Logger(subsystem: "chat.zuna", category: "round")
+
+    #if DEBUG
+    /// The control channel starting and stopping a recording, as holding the button and letting go do.
+    static let control = Notification.Name("ZunaRoundControl")
+    #endif
+
     private(set) var elapsed: TimeInterval = 0
     private(set) var isRecording = false
+    /// The camera is on and its circle shows: from just before recording, until it's over.
+    private(set) var isPreviewing = false
 
     /// What the camera sees, for the circle the person watches themselves in while recording.
     @ObservationIgnored let session = AVCaptureSession()
+    /// The camera as the person sees themselves, mirrored as a mirror is. It's made before the session starts:
+    /// one added to a session that's already recording rebuilds it, which stops the recording.
+    @ObservationIgnored private(set) lazy var preview: AVCaptureVideoPreviewLayer = {
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        return layer
+    }()
     @ObservationIgnored private let output = AVCaptureMovieFileOutput()
     @ObservationIgnored private let queue = DispatchQueue(label: "chat.zuna.round")
     @ObservationIgnored private let delegate = RecordingDelegate()
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var startedAt = Date()
     @ObservationIgnored private var raw: URL?
+    /// Keeps the preview level with the screen, which for the front camera, mirrored, isn't the recording's own turn.
+    @ObservationIgnored private var rotation: AVCaptureDevice.RotationCoordinator?
+    @ObservationIgnored private var rotationWatch: NSKeyValueObservation?
 
     #if DEBUG
     /// UI tests record moving bars instead: the simulator has no camera.
@@ -42,12 +62,13 @@ final class RoundRecorder {
     #endif
 
     enum Failure: LocalizedError {
-        case camera, microphone, unavailable, unreadable
+        case camera, microphone, unavailable, unrecorded, unreadable
         var errorDescription: String? {
             switch self {
             case .camera: "Zuna can't use the camera. Allow it in Settings, under Zuna."
             case .microphone: "Zuna can't use the microphone. Allow it in Settings, under Zuna."
             case .unavailable: "The camera isn't available right now."
+            case .unrecorded: "The camera stopped recording. Try again."
             case .unreadable: "The video message couldn't be made."
             }
         }
@@ -57,7 +78,8 @@ final class RoundRecorder {
     func start() async throws {
         guard !isRecording else { return }
         if fake {
-            try begin()
+            try FileManager.default.createDirectory(at: OutgoingFiles.folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
+            try begin(OutgoingFiles.folder.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov"))
             return
         }
         guard await AVCaptureDevice.requestAccess(for: .video) else { throw Failure.camera }
@@ -66,10 +88,13 @@ final class RoundRecorder {
               let microphone = AVCaptureDevice.default(for: .audio),
               let cameraInput = try? AVCaptureDeviceInput(device: camera),
               let microphoneInput = try? AVCaptureDeviceInput(device: microphone) else { throw Failure.unavailable }
+        // The app's audio is set up for recording here rather than by the session, which keeps the mode it finds:
+        // after a call that's the call's, which the camera's recording can't take sound in (kAudioUnitErr_FormatNotSupported).
+        // An audio session of the recording's own interrupts the app's, which ends the recording a moment in.
+        session.automaticallyConfiguresApplicationAudioSession = false
         let audio = AVAudioSession.sharedInstance()
         try audio.setCategory(.playAndRecord, mode: .videoRecording, options: [.defaultToSpeaker, .allowBluetoothHFP])
         try audio.setActive(true)
-
         session.beginConfiguration()
         for input in session.inputs { session.removeInput(input) }
         session.sessionPreset = .hd1280x720
@@ -89,6 +114,13 @@ final class RoundRecorder {
             }
         }
         session.commitConfiguration()
+        let rotation = AVCaptureDevice.RotationCoordinator(device: camera, previewLayer: preview)
+        self.rotation = rotation
+        preview.connection?.videoRotationAngle = rotation.videoRotationAngleForHorizonLevelPreview
+        rotationWatch = rotation.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] coordinator, _ in
+            let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+            Task { @MainActor in self?.preview.connection?.videoRotationAngle = angle }
+        }
         output.maxRecordedDuration = CMTime(seconds: Self.limit + 1, preferredTimescale: 600)
         // Starting takes a while, so it's done off the main thread, as Apple says; the session copes.
         nonisolated(unsafe) let starting = session
@@ -99,14 +131,37 @@ final class RoundRecorder {
             }
         }
         guard session.isRunning else { throw Failure.unavailable }
-        try begin()
-        output.startRecording(to: raw!, recordingDelegate: delegate)
+        // The circle shows first, and recording waits for the preview to be on screen and turned level with it:
+        // turning the preview once recording has started rebuilds the session, which ends the recording there.
+        isPreviewing = true
+        for _ in 0..<40 where preview.superlayer == nil {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        try? await Task.sleep(for: .milliseconds(150))
+        rotationWatch?.invalidate()
+        rotationWatch = nil
+        if preview.connection?.videoRotationAngle != rotation.videoRotationAngleForHorizonLevelPreview {
+            preview.connection?.videoRotationAngle = rotation.videoRotationAngleForHorizonLevelPreview
+        }
+        // A recording started before the camera's connection is live captures nothing.
+        for _ in 0..<40 where output.connection(with: .video)?.isActive != true {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        delegate.error = nil
+        try FileManager.default.createDirectory(at: OutgoingFiles.folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
+        let raw = OutgoingFiles.folder.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+        // The clock starts once the camera really writes, a moment after it's asked to, so what's shown is what's sent.
+        await withCheckedContinuation { (started: CheckedContinuation<Void, Never>) in
+            delegate.onStart = { started.resume() }
+            output.startRecording(to: raw, recordingDelegate: delegate)
+        }
+        try begin(raw)
     }
 
-    /// Where the camera's file goes, and the clock.
-    private func begin() throws {
-        try FileManager.default.createDirectory(at: OutgoingFiles.folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
-        raw = OutgoingFiles.folder.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+    /// Where the camera's file goes, and the clock, from now.
+    private func begin(_ raw: URL) throws {
+        self.raw = raw
+        isPreviewing = true
         elapsed = 0
         startedAt = Date()
         isRecording = true
@@ -127,8 +182,22 @@ final class RoundRecorder {
         #if DEBUG
         if fake { try await Self.writeBars(to: raw, seconds: duration) }
         #endif
-        let url = try await Self.square(raw)
-        return Recording(url: url, duration: duration, thumb: await Self.thumb(url))
+        if let error = delegate.error, (error as NSError).userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool != true {
+            Self.log.error("Recording a video message failed: \(String(describing: error), privacy: .public)")
+            throw Failure.unrecorded
+        }
+        do {
+            let url = try await Self.square(raw)
+            // As long as what was really recorded, which the clock can only come close to.
+            let recorded = (try? await AVURLAsset(url: url).load(.duration).seconds).flatMap { $0 > 0 ? $0 : nil } ?? duration
+            let camera = (try? await AVURLAsset(url: raw).load(.duration).seconds) ?? -1
+            Self.log.info("A video message: \(duration, privacy: .public) s by the clock, \(camera, privacy: .public) s from the camera, \(recorded, privacy: .public) s made square")
+            return Recording(url: url, duration: recorded, thumb: await Self.thumb(url))
+        } catch {
+            let size = (try? FileManager.default.attributesOfItem(atPath: raw.path)[.size] as? Int) ?? -1
+            Self.log.error("Making a video message square failed, from \(size) bytes: \(String(describing: error), privacy: .public)")
+            throw error
+        }
     }
 
     /// Stops and throws the recording away.
@@ -144,6 +213,9 @@ final class RoundRecorder {
         timer?.invalidate()
         timer = nil
         isRecording = false
+        isPreviewing = false
+        rotationWatch?.invalidate()
+        rotationWatch = nil
         if fake { return }
         if output.isRecording {
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -152,20 +224,22 @@ final class RoundRecorder {
             }
         }
         nonisolated(unsafe) let stopping = session
-        queue.async { stopping.stopRunning() }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        queue.async {
+            stopping.stopRunning()
+            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        }
     }
 
     /// The middle of the recording, square, upright and smaller, as H.264 and AAC in MP4.
     private static func square(_ source: URL) async throws -> URL {
         let asset = AVURLAsset(url: source)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw Failure.unreadable }
-        let (natural, transform) = try await track.load(.naturalSize, .preferredTransform)
-        let upright = CGRect(origin: .zero, size: natural).applying(transform)
-        let side = min(upright.width, upright.height)
+        // The frames are already upright, as the connection was asked, and as the preview showed them. The file's
+        // own turn is how the phone was held as it started, which a picture already upright mustn't be turned by again.
+        let natural = try await track.load(.naturalSize)
+        let side = min(natural.width, natural.height)
         let scale = CGFloat(size) / side
-        let placed = transform
-            .concatenating(CGAffineTransform(translationX: -upright.minX - (upright.width - side) / 2, y: -upright.minY - (upright.height - side) / 2))
+        let placed = CGAffineTransform(translationX: -(natural.width - side) / 2, y: -(natural.height - side) / 2)
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))
         let layer = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
         layer.setTransform(placed, at: .zero)
@@ -237,30 +311,50 @@ final class RoundRecorder {
 /// Hears when the camera's file is finished, which is when it can be read.
 private final class RecordingDelegate: NSObject, AVCaptureFileOutputRecordingDelegate, @unchecked Sendable {
     var onFinish: (() -> Void)?
+    var onStart: (() -> Void)?
+    /// How the last recording ended, if it went wrong, which can be after the file was finished all the same.
+    var error: Error?
+
+    func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+        let start = onStart
+        onStart = nil
+        start?()
+    }
 
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+        self.error = error
+        // One that never started still finishes, with why.
+        let start = onStart
+        onStart = nil
+        start?()
         let finish = onFinish
         onFinish = nil
         finish?()
     }
 }
 
-/// The camera, as the person sees themselves: mirrored, filling a circle.
+/// The camera, as the person sees themselves, filling a circle: the recorder's own preview, which it
+/// made before recording, as one added later would stop the recording.
 struct CameraPreview: UIViewRepresentable {
-    let session: AVCaptureSession
+    let preview: AVCaptureVideoPreviewLayer
 
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
-        view.preview.session = session
-        view.preview.videoGravity = .resizeAspectFill
+        view.layer.addSublayer(preview)
         return view
     }
 
     func updateUIView(_ view: PreviewView, context: Context) {}
 
+    static func dismantleUIView(_ view: PreviewView, coordinator: ()) {
+        view.layer.sublayers?.forEach { $0.removeFromSuperlayer() }
+    }
+
     final class PreviewView: UIView {
-        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-        var preview: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            layer.sublayers?.forEach { $0.frame = bounds }
+        }
     }
 }
 

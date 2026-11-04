@@ -140,10 +140,9 @@ struct Composer: View {
         .overlay(alignment: .top) { Divider().overlay(Theme.line) }
         .overlay(alignment: .top) {
             // What the camera sees while a video message is recorded, above the message box, with the minute going round.
-            if round.isRecording {
+            if round.isPreviewing {
                 ZStack {
-                    CameraPreview(session: round.session)
-                        .scaleEffect(x: -1, y: 1)
+                    CameraPreview(preview: round.preview)
                     Circle()
                         .trim(from: 0, to: min(1, round.elapsed / RoundRecorder.limit))
                         .stroke(model.settings.accent.color, style: StrokeStyle(lineWidth: 4, lineCap: .round))
@@ -154,12 +153,26 @@ struct Composer: View {
                 .background(.black)
                 .clipShape(.circle)
                 .shadow(radius: 12)
-                .alignmentGuide(.top) { dimensions in dimensions[.bottom] + 16 }
+                // Wholly above the message box, which an overlay of it would otherwise start at.
+                .offset(y: -(240 + 16))
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
                 .accessibilityIdentifier(A11y.Composer.roundPreview)
             }
         }
-        .animation(.spring(duration: 0.3), value: round.isRecording)
+        .animation(.spring(duration: 0.3), value: round.isPreviewing)
+        #if DEBUG
+        .onReceive(NotificationCenter.default.publisher(for: RoundRecorder.control)) { note in
+            // As holding the button in video mode and letting go do.
+            if note.object as? String == "start" {
+                recordsVideo = true
+                holding = true
+                Task { await startRecording() }
+            } else {
+                holding = false
+                finishRecording()
+            }
+        }
+        #endif
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: OutgoingFiles.limit, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, items in
             guard !items.isEmpty else { return }
@@ -377,6 +390,12 @@ struct Composer: View {
         guard holding else {
             recordsVideo.toggle()
             model.toast(recordsVideo ? "Hold to record a video message. Tap for voice." : "Hold to record a voice message. Tap for video.")
+            return
+        }
+        // A call has the camera and the microphone, as it does in Telegram.
+        if recordsVideo, model.voice.inCall {
+            holding = false
+            model.toast("You can't record a video message during a call.")
             return
         }
         do {
