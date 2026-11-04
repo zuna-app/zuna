@@ -134,7 +134,7 @@ struct ChatListView: View {
         .confirmationDialog(deletingChannel.map { "Delete #\($0.title)? Its messages go for everyone." } ?? "", isPresented: Binding(get: { deletingChannel != nil }, set: { if !$0 { deletingChannel = nil } }), titleVisibility: .visible, presenting: deletingChannel) { channel in
             Button("Delete channel", role: .destructive) { deleteChannel(channel) }
         }
-        .toolbarBackground(Theme.bg1, for: .navigationBar)
+        .toolbarBackground(Theme.bg0, for: .navigationBar)
         .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .task(id: SearchKey(serverId: model.activeServerId, query: query)) { await searchMessages() }
         .onChange(of: model.activeServerId) {

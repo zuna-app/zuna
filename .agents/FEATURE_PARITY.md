@@ -194,7 +194,7 @@ These aren't gaps, so don't port them without being asked.
 - **Desktop only:** native screen capture, and push to talk from another window.
 - **Desktop and web:** in a call, RNNoise, the gate and push to talk, the microphone test and choice of microphone, and the channel's chat beside the call. iOS uses Apple's voice processing and Voice Isolation, the system's route picker, and opens the chat with the call in the bar, as asked.
 - **Web only:** one tab at a time with "Use here", the unread count in the tab's title, the "Zuna was updated" reload prompt, and the "Make the window bigger" notice below 860 × 540.
-- **iOS only:** App lock with Face ID or passcode, the cover in the app switcher, the iPad split layout, and a voice call in the system's call controls through CallKit.
+- **iOS only:** App lock with Face ID or passcode, the cover in the app switcher, the iPad split layout, and a voice call in the system's call controls through CallKit. A pure black background (`Theme.bg0`) on an iPhone, as asked.
 
 ## Not possible or pointless there
 

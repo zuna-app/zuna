@@ -26,7 +26,7 @@ struct ServerListView: View {
         .background(Theme.bg0)
         .navigationTitle("Servers")
         .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(Theme.bg1, for: .navigationBar)
+        .toolbarBackground(Theme.bg0, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { EditButton() }
             ToolbarItem(placement: .topBarTrailing) {

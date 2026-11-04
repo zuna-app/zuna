@@ -108,7 +108,7 @@ struct SettingsView: View {
             .background(Theme.bg0)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Theme.bg1, for: .navigationBar)
+            .toolbarBackground(Theme.bg0, for: .navigationBar)
             .accessibilityIdentifier(A11y.Settings.screen)
         }
     }

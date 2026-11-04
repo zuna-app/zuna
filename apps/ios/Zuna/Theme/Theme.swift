@@ -2,10 +2,11 @@ import SwiftUI
 import UIKit
 
 /// The desktop's design tokens (packages/ui/src/styles/tokens.css),
-/// so both apps look like the same product.
+/// so both apps look like the same product, on a pure black background.
 enum Theme {
-    // Surfaces: true neutrals, each step lighter than the last.
-    static let bg0 = Color(hex: 0x0F0F11)
+    // Surfaces: true neutrals, each step lighter than the last. The screens
+    // and their bars are black, as on an OLED phone; sheets and cards sit above.
+    static let bg0 = Color(hex: 0x000000)
     static let bg1 = Color(hex: 0x151517)
     static let bg2 = Color(hex: 0x1B1B1E)
     static let bg3 = Color(hex: 0x232326)

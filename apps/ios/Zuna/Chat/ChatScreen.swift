@@ -53,7 +53,7 @@ struct ChatScreen: View {
         .background(Theme.bg0)
         .toolbar(.hidden, for: .tabBar)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(Theme.bg1, for: .navigationBar)
+        .toolbarBackground(Theme.bg0, for: .navigationBar)
         // A container, so the screen's identifier doesn't replace its elements' own.
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Chat.screen)
@@ -282,7 +282,7 @@ struct ChatScreen: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(14)
-                .background(Theme.bg1)
+                .background(Theme.bg0)
                 .accessibilityIdentifier(A11y.Composer.disabled)
             } else if peer?.banned == true, !isSaved {
                 Label("This person was removed from the server.", systemImage: "xmark")
@@ -290,7 +290,7 @@ struct ChatScreen: View {
                     .foregroundStyle(Theme.text2)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(Theme.bg1)
+                    .background(Theme.bg0)
                     .accessibilityIdentifier(A11y.Composer.disabled)
             } else if conversation.blocked, let peer {
                 HStack(spacing: 10) {
@@ -302,7 +302,7 @@ struct ChatScreen: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(Theme.bg1)
+                .background(Theme.bg0)
                 .accessibilityIdentifier(A11y.Composer.disabled)
             } else if let selection, let list {
                 selectionBar(selection, server: server, conversation: conversation, list: list)
@@ -446,7 +446,7 @@ struct ChatScreen: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .background(Theme.bg1)
+        .background(Theme.bg0)
         .overlay(alignment: .top) { Divider().overlay(Theme.line) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Chat.selectionBar)

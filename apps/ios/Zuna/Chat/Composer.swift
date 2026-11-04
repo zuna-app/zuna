@@ -131,7 +131,7 @@ struct Composer: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
         }
-        .background(Theme.bg1)
+        .background(Theme.bg0)
         .overlay(alignment: .top) { Divider().overlay(Theme.line) }
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: OutgoingFiles.limit, matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, items in
