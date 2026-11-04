@@ -104,7 +104,7 @@ The attackers that matter most are combinations: the old-key holder with the rea
 - **G3.** They can't change who the account trusts by planting vault items.
 - **G4.** The person loses no data and does nothing new.
 
-**Not goals:** past history, metadata, a remaining device that's compromised (`SECURITY.md:118`), and a password holder before the password changes.
+**Not goals:** past history, metadata, a remaining device that's compromised, and a password holder before the password changes.
 
 ## 5. What rotates
 
