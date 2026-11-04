@@ -1,13 +1,15 @@
 import { Check, Copy } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
+import { GitHubMark } from "../components/brand";
 import { doc } from "../pages";
 
-/** The two ways to host from a terminal, as the README's "Host a server" gives them, and what follows each. */
+/** The two ways to host from a terminal, as the README's "Host a server" gives them, what follows each, and its whole guide. */
 const METHODS = [
   {
     id: "docker",
     name: "Docker",
     caption: "# With Docker",
+    guide: doc("docs/SELF_HOSTING.md"),
     commands: [
       "git clone https://github.com/SocketByte/zuna-chat.git",
       "cd zuna-chat/deploy",
@@ -26,6 +28,7 @@ const METHODS = [
     id: "systemd",
     name: "systemd",
     caption: "# Without Docker, with systemd",
+    guide: doc("docs/LINUX.md"),
     commands: ["sudo git clone https://github.com/SocketByte/zuna-chat.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/update.sh --server chat.example.com \\\n    --voice on"],
     output: [
       "# Runs Zuna on port 8080, and LiveKit for calls, with systemd.",
@@ -96,61 +99,67 @@ export function SelfHost() {
             ))}
           </div>
         </div>
-        <div className="terminal reveal">
-          <div className="terminal-bar">
-            <span className="terminal-lights" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
-            <div className="terminal-tabs" role="tablist" aria-label="How to host" onKeyDown={move}>
+        <div className="host-side reveal">
+          <div className="terminal">
+            <div className="terminal-bar">
+              <span className="terminal-lights" aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              <div className="terminal-tabs" role="tablist" aria-label="How to host" onKeyDown={move}>
+                {METHODS.map((option, index) => (
+                  <button
+                    key={option.id}
+                    ref={(element) => {
+                      tabs.current[index] = element;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`host-tab-${option.id}`}
+                    aria-controls={`host-panel-${option.id}`}
+                    aria-selected={index === chosen}
+                    tabIndex={index === chosen ? 0 : -1}
+                    onClick={() => choose(index)}
+                  >
+                    {option.name}
+                  </button>
+                ))}
+              </div>
+              <button type="button" className="terminal-copy" onClick={copy}>
+                {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <div className="terminal-panels">
               {METHODS.map((option, index) => (
-                <button
+                <pre
                   key={option.id}
-                  ref={(element) => {
-                    tabs.current[index] = element;
-                  }}
-                  type="button"
-                  role="tab"
-                  id={`host-tab-${option.id}`}
-                  aria-controls={`host-panel-${option.id}`}
-                  aria-selected={index === chosen}
-                  tabIndex={index === chosen ? 0 : -1}
-                  onClick={() => choose(index)}
+                  className={`terminal-body ${index === chosen ? "is-active" : ""}`}
+                  role="tabpanel"
+                  id={`host-panel-${option.id}`}
+                  aria-labelledby={`host-tab-${option.id}`}
                 >
-                  {option.name}
-                </button>
+                  <code className="terminal-out terminal-caption">{option.caption}</code>
+                  {option.commands.map((command) => (
+                    <code key={command}>
+                      <span className="terminal-prompt">$ </span>
+                      {command}
+                    </code>
+                  ))}
+                  {option.output.map((line) => (
+                    <code key={line} className="terminal-out">
+                      {line}
+                    </code>
+                  ))}
+                </pre>
               ))}
             </div>
-            <button type="button" className="terminal-copy" onClick={copy}>
-              {copied ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
-              {copied ? "Copied" : "Copy"}
-            </button>
           </div>
-          <div className="terminal-panels">
-            {METHODS.map((option, index) => (
-              <pre
-                key={option.id}
-                className={`terminal-body ${index === chosen ? "is-active" : ""}`}
-                role="tabpanel"
-                id={`host-panel-${option.id}`}
-                aria-labelledby={`host-tab-${option.id}`}
-              >
-                <code className="terminal-out terminal-caption">{option.caption}</code>
-                {option.commands.map((command) => (
-                  <code key={command}>
-                    <span className="terminal-prompt">$ </span>
-                    {command}
-                  </code>
-                ))}
-                {option.output.map((line) => (
-                  <code key={line} className="terminal-out">
-                    {line}
-                  </code>
-                ))}
-              </pre>
-            ))}
-          </div>
+          <a className="host-guide" href={method.guide}>
+            <GitHubMark size={16} />
+            The full installation guide, on GitHub
+          </a>
         </div>
         <ul className="extras reveal">
           {EXTRAS.map((extra) => (

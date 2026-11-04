@@ -135,11 +135,13 @@ async function interactions(browser) {
   const script = await shownPanels();
   check("systemd's tab shows only the script, with voice", script.length === 1 && script[0].includes("update.sh") && script[0].includes("--voice on"), script.join(" | "));
   const steps = await page.locator("#host .steps").evaluateAll((lists) => lists.filter((list) => getComputedStyle(list).visibility === "visible").map((list) => list.textContent));
+  check("and its guide is the script's", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/LINUX.md"));
   check("and the steps follow it", steps.length === 1 && steps[0].includes("run the script"), steps.join(" | "));
   check("switching how to host doesn't move the page", (await place()) === placed);
   await page.keyboard.press("ArrowLeft");
   const docker = await shownPanels();
   check("the arrow keys go back to Docker", docker.length === 1 && docker[0].includes("docker compose up"), docker.join(" | "));
+  check("and to the whole self-hosting guide", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/SELF_HOSTING.md"));
 
   const downloads = await page.locator("#download .platform a.button").evaluateAll((links) => links.map((a) => a.href));
   check("Windows, macOS and Linux each have a download", downloads.length === 3, String(downloads.length));

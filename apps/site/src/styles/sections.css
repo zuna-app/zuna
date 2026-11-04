@@ -219,6 +219,9 @@
 .steps li > span:last-child { display: flex; flex-direction: column; gap: 3px; color: var(--text-2); font-size: 15px; }
 .steps b { color: var(--text-1); font-size: 16px; font-weight: 600; }
 .step-number { display: grid; flex: none; place-items: center; width: 28px; height: 28px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--bg-3); color: var(--text-1); font: 600 13px/1 var(--font-mono); }
+.host-guide { display: inline-flex; align-items: center; gap: 9px; margin-top: 18px; color: var(--text-2); font-size: 14.5px; transition: color 0.15s; }
+.host-guide:hover { color: var(--text-1); }
+.host-guide::after { content: "→"; }
 .terminal { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 16px; background: #0a0a0c; box-shadow: var(--shadow-l); }
 .terminal-bar { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 14px; border-bottom: 1px solid var(--line); color: var(--text-2); font: 12.5px/1 var(--font-mono); }
 .terminal-lights { display: flex; gap: 6px; }
