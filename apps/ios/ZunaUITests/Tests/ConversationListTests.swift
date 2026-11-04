@@ -136,7 +136,7 @@ final class ConversationListTests: XCTestCase {
         zuna.screenshot("55-removed-by-admins")
         remove.tap()
         // It was the only server, so the welcome screens are back.
-        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 10))
+        XCTAssertTrue(zuna.element(A11y.Onboarding.joinWithInvite).waitForExistence(timeout: 10))
         XCTAssertEqual(try zuna.serverCount(), 0)
     }
 

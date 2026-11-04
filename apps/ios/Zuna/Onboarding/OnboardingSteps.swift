@@ -3,11 +3,90 @@ import SwiftUI
 import UniformTypeIdentifiers
 import ZunaModels
 
-// The steps of the join flow, as on the desktop: start, join (or set up), the
-// recovery key, the server's name, sign in, and recovery.
+// The steps of the join flow, as on the desktop: welcome, the invite link, join
+// (or set up), the recovery key, the server's name, sign in, and recovery.
+
+/// The first screen: what Zuna is in the middle, and the two ways in at the
+/// bottom, within reach of a thumb, as in Telegram's and Signal's.
+struct WelcomeStep: View {
+    let onJoin: () -> Void
+    let onSignIn: () -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 24)
+                    VStack(spacing: 18) {
+                        StepHeader("Welcome to Zuna", message: Text("Private chat on servers you and your friends run.")) {
+                            ZunaLogo(size: 88)
+                        }
+                        TrustRow()
+                    }
+                    Spacer(minLength: 40)
+                    VStack(spacing: 10) {
+                        PrimaryButton(title: "Join with an invite", systemImage: "link", action: onJoin)
+                            .accessibilityIdentifier(A11y.Onboarding.joinWithInvite)
+                        SecondaryButton(title: "Sign in", action: onSignIn)
+                            .accessibilityIdentifier(A11y.Onboarding.signIn)
+                        Link(destination: OnboardingText.selfHostingURL) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "server.rack")
+                                Text("Host your own server")
+                                Image(systemName: "arrow.up.right")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(Theme.text2)
+                            .frame(minHeight: 44)
+                            .contentShape(.rect)
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
+                .frame(maxWidth: 480)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .background(Theme.bg0)
+        .accessibilityIdentifier(A11y.Onboarding.welcome)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// What Zuna promises, in three chips, on two lines where one is too narrow.
+private struct TrustRow: View {
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) { encrypted; openSource; selfHosted }
+            VStack(spacing: 6) {
+                HStack(spacing: 6) { encrypted; openSource }
+                selfHosted
+            }
+        }
+        .labelStyle(CompactLabelStyle())
+        .font(.caption.weight(.medium))
+        .foregroundStyle(Theme.text2)
+    }
+
+    private var encrypted: some View { chip(Label("End-to-end encrypted", systemImage: "lock.fill")) }
+    private var openSource: some View { chip(Label("Open source", systemImage: "checkmark.shield.fill")) }
+    private var selfHosted: some View { chip(Label("Self-hosted", systemImage: "server.rack")) }
+
+    private func chip(_ label: some View) -> some View {
+        label
+            .fixedSize()
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Theme.bg2, in: .capsule)
+    }
+}
 
 /// The invite link, pasted or typed. A plain address works for servers with open sign-ups.
-struct StartStep: View {
+/// Inside the app, for another server, it's the first screen, with signing in under it.
+struct InviteLinkStep: View {
     let embedded: Bool
     let onInvite: (InvitePreview) -> Void
     let onSignIn: () -> Void
@@ -19,13 +98,7 @@ struct StartStep: View {
 
     var body: some View {
         StepScreen {
-            if embedded {
-                StepHeader("Join a server", message: Text("Paste the invite link someone sent you."), systemImage: "link")
-            } else {
-                StepHeader("Welcome to Zuna", message: Text("Private chat on servers you and your friends run. Paste the invite link someone sent you to get started.")) {
-                    ZunaLogo(size: 76)
-                }
-            }
+            StepHeader("Join a server", message: Text("Paste the invite link someone sent you."), systemImage: "link")
 
             FormField(label: nil, error: error) {
                 HStack(spacing: 8) {
@@ -46,7 +119,7 @@ struct StartStep: View {
                                 submit()
                             }
                         }
-                        .labelStyle(.iconOnly)
+                        .labelStyle(.titleAndIcon)
                         .buttonBorderShape(.capsule)
                         .controlSize(.small)
                         .accessibilityIdentifier(A11y.Onboarding.paste)
@@ -67,32 +140,12 @@ struct StartStep: View {
                 .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
                 .accessibilityIdentifier(A11y.Onboarding.continue)
 
-            VStack(spacing: 14) {
-                Button("I already have an account", action: onSignIn)
+            // On the first run the welcome screen offers signing in, one step back.
+            if embedded {
+                SecondaryButton(title: "I already have an account", action: onSignIn)
                     .accessibilityIdentifier(A11y.Onboarding.signIn)
-                if !embedded {
-                    Link(destination: OnboardingText.selfHostingURL) {
-                        Label("Host your own server", systemImage: "server.rack")
-                    }
-                }
-            }
-            .font(.callout.weight(.medium))
-            .foregroundStyle(Theme.text2)
-            .padding(.top, 4)
-
-            if !embedded {
-                HStack(spacing: 14) {
-                    Label("End-to-end encrypted", systemImage: "lock.fill")
-                    Label("Open source", systemImage: "checkmark.shield.fill")
-                    Label("Self-hosted", systemImage: "server.rack")
-                }
-                .labelStyle(CompactLabelStyle())
-                .font(.caption)
-                .foregroundStyle(Theme.text3)
-                .padding(.top, 12)
             }
         }
-        .accessibilityIdentifier(A11y.Onboarding.welcome)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: takePendingLink)
         .onChange(of: model.pendingLink) { takePendingLink() }

@@ -9,7 +9,7 @@ final class LaunchAndUnlockTests: XCTestCase {
 
     func testAFreshInstallStartsWithoutAPassword() throws {
         try zuna.launch()
-        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 15))
+        XCTAssertTrue(zuna.element(A11y.Onboarding.joinWithInvite).waitForExistence(timeout: 15))
         XCTAssertFalse(zuna.element(A11y.Unlock.screen).exists)
     }
 

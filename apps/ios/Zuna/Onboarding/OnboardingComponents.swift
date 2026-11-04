@@ -140,11 +140,13 @@ struct StrengthMeter: View {
 }
 
 /// The screen's main action: full width, in the accent color, with a spinner while busy.
+/// Until it can go, it's a gray one with its title still readable, not a faded accent.
 struct PrimaryButton: View {
     @Environment(AppModel.self) private var model
     @Environment(\.isEnabled) private var isEnabled
     let title: String
     var busyTitle: String?
+    var systemImage: String?
     var busy = false
     let action: () -> Void
 
@@ -154,16 +156,51 @@ struct PrimaryButton: View {
             HStack(spacing: 8) {
                 if busy {
                     ProgressView().tint(accent.onAccent)
+                } else if let systemImage {
+                    Image(systemName: systemImage)
                 }
                 Text(busy ? busyTitle ?? title : title)
-                    .font(.body.weight(.semibold))
             }
+            .font(.body.weight(.semibold))
             .frame(maxWidth: .infinity, minHeight: 52)
-            .foregroundStyle(accent.onAccent)
-            .background(accent.color.opacity(isEnabled ? 1 : 0.35), in: .rect(cornerRadius: 14, style: .continuous))
+            .foregroundStyle(isEnabled ? accent.onAccent : Theme.text3)
+            .background(isEnabled ? accent.color : Theme.bg2, in: .rect(cornerRadius: 14, style: .continuous))
+            .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(StepButtonStyle())
         .disabled(busy)
+    }
+}
+
+/// The other way forward from a screen: as big as the main button, on a quieter fill.
+struct SecondaryButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .foregroundStyle(Theme.text1)
+                .background(Theme.bg3, in: .rect(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Theme.lineStrong)
+                }
+                .contentShape(.rect)
+        }
+        .buttonStyle(StepButtonStyle())
+    }
+}
+
+/// Fades while pressed. Unlike `.plain`, it leaves a disabled button's colors
+/// alone, which on the black background had faded the main button away.
+private struct StepButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 

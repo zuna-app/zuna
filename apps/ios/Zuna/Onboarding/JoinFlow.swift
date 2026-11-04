@@ -6,6 +6,7 @@ import ZunaModels
 /// same steps as the desktop's onboarding, laid out like Telegram's sign-in.
 struct JoinFlow: View {
     enum Step: Hashable {
+        case link
         case invite(InvitePreview)
         case recoveryKey(serverId: String, key: String, setup: Bool)
         case nameServer(serverId: String)
@@ -28,10 +29,16 @@ struct JoinFlow: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            StartStep(embedded: embedded) { preview in
-                path.append(.invite(preview))
-            } onSignIn: {
-                path.append(.signIn(url: nil))
+            Group {
+                if embedded {
+                    linkStep
+                } else {
+                    WelcomeStep {
+                        path.append(.link)
+                    } onSignIn: {
+                        path.append(.signIn(url: nil))
+                    }
+                }
             }
             .toolbar {
                 if embedded {
@@ -47,15 +54,34 @@ struct JoinFlow: View {
             }
         }
         .interactiveDismissDisabled(path.contains { $0.isAfterSignUp } || model.accountFlowActive)
+        .onAppear {
+            // Opened by a link, the first run goes straight to the screen that reads it.
+            if model.pendingLink != nil, !embedded, path.isEmpty {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { path = [.link] }
+            }
+        }
         .onChange(of: model.pendingLink) { _, link in
             // A link opened from outside starts over, unless an account was just made here.
-            if link != nil, !path.contains(where: \.isAfterSignUp) { path = [] }
+            if link != nil, !path.contains(where: \.isAfterSignUp) { path = embedded ? [] : [.link] }
+        }
+    }
+
+    /// Where the link is read, which takes one opened from outside the app.
+    private var linkStep: some View {
+        InviteLinkStep(embedded: embedded) { preview in
+            path.append(.invite(preview))
+        } onSignIn: {
+            path.append(.signIn(url: nil))
         }
     }
 
     @ViewBuilder
     private func destination(_ step: Step) -> some View {
         switch step {
+        case .link:
+            linkStep
         case let .invite(preview):
             InviteStep(preview: preview) { serverId, recoveryKey in
                 path.append(.recoveryKey(serverId: serverId, key: recoveryKey, setup: preview.setup))

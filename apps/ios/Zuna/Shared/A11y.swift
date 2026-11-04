@@ -9,6 +9,7 @@ enum A11y {
 
     enum Onboarding {
         static let welcome = "onboarding.welcome"
+        static let joinWithInvite = "onboarding.joinWithInvite"
         static let link = "onboarding.link"
         static let paste = "onboarding.paste"
         static let `continue` = "onboarding.continue"

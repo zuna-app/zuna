@@ -132,7 +132,7 @@ final class SettingsTests: XCTestCase {
         let confirm = zuna.app.buttons["Sign out and erase local data"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
-        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 20))
+        XCTAssertTrue(zuna.element(A11y.Onboarding.joinWithInvite).waitForExistence(timeout: 20))
         XCTAssertEqual(try zuna.serverCount(), 0)
         XCTAssertEqual(try zuna.lockEntries(), "0")
     }

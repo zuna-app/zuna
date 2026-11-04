@@ -12,8 +12,16 @@ final class OnboardingTests: XCTestCase {
 
     func testJoinsWithAnInviteLinkAndKeepsTheRecoveryKey() throws {
         try zuna.launch()
-        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 15))
+        // The two ways in, at the bottom, and the link on a screen of its own.
+        let joinWithInvite = zuna.element(A11y.Onboarding.joinWithInvite)
+        XCTAssertTrue(joinWithInvite.waitForExistence(timeout: 15))
+        XCTAssertTrue(zuna.element(A11y.Onboarding.signIn).exists)
+        XCTAssertFalse(zuna.element(A11y.Onboarding.link).exists)
         zuna.screenshot("40-welcome")
+        joinWithInvite.tap()
+        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 5))
+        XCTAssertFalse(zuna.element(A11y.Onboarding.signIn).exists)
+        zuna.screenshot("40-invite-link")
 
         zuna.type(World.current.invite, into: A11y.Onboarding.link)
         zuna.element(A11y.Onboarding.continue).tap()
@@ -104,7 +112,7 @@ final class OnboardingTests: XCTestCase {
 
     func testOpensInviteLinksFromOutsideTheApp() throws {
         try zuna.launch()
-        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 15))
+        XCTAssertTrue(zuna.element(A11y.Onboarding.joinWithInvite).waitForExistence(timeout: 15))
         try open(World.current.invite)
         XCTAssertTrue(zuna.element(A11y.Onboarding.joinScreen).waitForExistence(timeout: 15))
 

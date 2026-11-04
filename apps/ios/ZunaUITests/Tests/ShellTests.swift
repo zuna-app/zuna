@@ -49,6 +49,8 @@ final class ShellTests: XCTestCase {
         zuna.screenshot("21-servers-sheet")
         zuna.element(A11y.Servers.join).tap()
         XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 10))
+        // Inside the app the link comes first, with signing in to another server under it.
+        XCTAssertTrue(zuna.element(A11y.Onboarding.signIn).exists)
         zuna.app.buttons["Cancel"].tap()
         try waitFor("the join screens to close") { !self.zuna.element(A11y.Onboarding.link).exists }
 
