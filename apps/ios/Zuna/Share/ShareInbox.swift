@@ -76,6 +76,7 @@ final class ShareInbox {
                 }
                 try? ShareMailbox.write(result, to: folder.appendingPathComponent("result"), deviceKey: deviceKey)
                 ShareMailbox.post(ShareMailbox.sent)
+                await ShareSender.suggest(request, through: core)
                 sending -= 1
                 if sending == 0 { onIdle?() }
                 UIApplication.shared.endBackgroundTask(task)

@@ -240,6 +240,7 @@ final class ShareModel {
         core.onProgress = { [weak self] fraction in self?.progress = fraction }
         defer { core.onProgress = nil }
         try await ShareSender.send(request, through: core.connection)
+        await ShareSender.suggest(request, through: core.connection)
     }
 
     /// The app is awake: it sends, and says how that went. If it goes to sleep

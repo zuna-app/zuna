@@ -131,6 +131,7 @@ extension AppModel {
                     try await session.sendWithAttachments(conversation.key, files: files.map(\.file), body: body, previewUrl: pendingLink, keepMetadata: keepMetadata)
                     files.forEach(OutgoingFiles.discard)
                 }
+                await sentTo(serverId, conversation)
             } catch {
                 toast(OnboardingText.describe(error), .error)
             }
@@ -154,6 +155,7 @@ extension AppModel {
             do {
                 try await session.sendWithAttachments(conversation.key, files: [file], body: MessageBody(replyTo: replyTo))
                 try? FileManager.default.removeItem(at: recording.url)
+                await sentTo(serverId, conversation)
             } catch {
                 toast(OnboardingText.describe(error), .error)
             }
@@ -179,10 +181,16 @@ extension AppModel {
             do {
                 try await session.sendWithAttachments(conversation.key, files: [file], body: MessageBody(replyTo: replyTo))
                 try? FileManager.default.removeItem(at: recording.url)
+                await sentTo(serverId, conversation)
             } catch {
                 toast(OnboardingText.describe(error), .error)
             }
         }
+    }
+
+    /// Tells iOS who this device sent to, for the share sheet's suggestions.
+    func sentTo(_ serverId: String, _ conversation: ConversationView) async {
+        await ShareSuggestions.sent(to: conversation.key, on: serverId, title: conversation.title, avatar: conversation.avatar, through: core)
     }
 
     /// Makes the preview of a draft's first link once typing pauses, as the desktop does.

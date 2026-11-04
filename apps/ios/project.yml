@@ -211,7 +211,9 @@ targets:
       - path: Zuna/Shared/Glass.swift
       - path: Zuna/Shared/OutgoingFiles.swift
       - path: Zuna/Shared/PullSearchList.swift
+      - path: Zuna/Shared/PushStore.swift
       - path: Zuna/Shared/ShareMailbox.swift
+      - path: Zuna/Shared/ShareSuggestions.swift
       - path: Zuna/Shared/SharedStorage.swift
       - path: Zuna/State/AppSettings.swift
       - path: Zuna/Theme/Theme.swift

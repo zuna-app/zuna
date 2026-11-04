@@ -195,6 +195,7 @@ struct ShareLocationSheet: View {
             do {
                 _ = try await model.core.session(serverId).sendMessage(conversationKey, MessageBody(location: found))
                 dismiss()
+                if let conversation = model.servers[serverId]?.conversation(conversationKey) { await model.sentTo(serverId, conversation) }
             } catch {
                 model.toast(OnboardingText.describe(error), .error)
                 sending = false

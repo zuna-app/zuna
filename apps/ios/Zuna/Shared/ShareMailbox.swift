@@ -204,6 +204,14 @@ enum ShareSender {
         }
         if !failed.isEmpty { throw ShareFailure(message: failed.joined(separator: "\n")) }
     }
+
+    /// Tells iOS who was shared to, for the share sheet's suggestions, once whoever
+    /// waits on the send has heard how it went.
+    static func suggest(_ request: ShareRequest, through core: CoreConnection) async {
+        for target in request.targets {
+            await ShareSuggestions.sent(to: target.key, on: target.serverId, title: target.title, avatar: target.avatar, through: core)
+        }
+    }
 }
 
 struct ShareFailure: Error, CustomStringConvertible {

@@ -278,6 +278,7 @@ final class Notifications {
         let session = model.core.session(target.serverId)
         do {
             let sent = try await session.sendMessage(key, MessageBody(text: text))
+            if let conversation = model.servers[target.serverId]?.conversation(key) { await model.sentTo(target.serverId, conversation) }
             // Wait for it to leave the outbox before the app may be suspended again.
             for _ in 0..<75 {
                 let page = try await session.loadMessages(sent.groupId)
