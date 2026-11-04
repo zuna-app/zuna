@@ -34,8 +34,10 @@ button { font: inherit; }
 
 /* Type */
 
+/* A clipped background is only painted inside the box, and these line heights leave the tails of g, p and y below it,
+   so the padding gives them room and the margin takes it back. */
 .display, .heading {
-  margin: 0; text-wrap: balance;
+  margin: 0 0 -0.15em; padding-bottom: 0.15em; text-wrap: balance;
   background: linear-gradient(180deg, #ffffff 35%, rgba(255, 255, 255, 0.6));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
