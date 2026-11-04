@@ -31,6 +31,7 @@ struct ChannelEditor: View {
     @State private var bitrate = 0
     @State private var userLimit = 0
     @State private var screenLimit = 0
+    @State private var sounds = true
     @State private var loaded = false
     @State private var busy = false
     @State private var confirmingDelete = false
@@ -187,10 +188,14 @@ struct ChannelEditor: View {
                 }
             }
             .accessibilityIdentifier(A11y.Channels.editorScreenLimit)
+            if (server?.info?.sounds ?? 0) > 0 {
+                Toggle("Soundboard", isOn: $sounds)
+                    .accessibilityIdentifier(A11y.Channels.editorSounds)
+            }
         } header: {
             Text("Voice")
         } footer: {
-            Text("Screen sharing can be held to fewer at once here than the server's rules allow, or be off.")
+            Text("Screen sharing can be held to fewer at once here than the server's rules allow, or be off. With the soundboard, anyone in the channel can play the server's sounds to everyone there.")
         }
     }
 
@@ -210,6 +215,7 @@ struct ChannelEditor: View {
             bitrate = channel.bitrate
             userLimit = channel.userLimit
             screenLimit = channel.screenLimit
+            sounds = channel.sounds
         }
     }
 
@@ -223,7 +229,8 @@ struct ChannelEditor: View {
             category: category.trimmingCharacters(in: .whitespacesAndNewlines),
             bitrate: voice ? bitrate : nil,
             userLimit: voice ? userLimit : nil,
-            screenLimit: voice ? screenLimit : nil
+            screenLimit: voice ? screenLimit : nil,
+            sounds: voice ? sounds : nil
         )
         let channel = channel
         busy = true
@@ -231,7 +238,7 @@ struct ChannelEditor: View {
             defer { busy = false }
             do {
                 if let channel {
-                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit))
+                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit, sounds: made.sounds))
                     dismiss()
                 } else {
                     let id = try await session.createChannel(made)

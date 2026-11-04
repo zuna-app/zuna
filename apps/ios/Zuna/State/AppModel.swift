@@ -26,11 +26,13 @@ final class AppModel {
         /// Lowercased username to user ID, for highlighting mentions. Changes only with the people, not with presence.
         private(set) var mentionable: [String: String]
         var emotes: EmoteSet
+        /// The server's soundboard, for its voice channels and calls.
+        var sounds: [SoundView]
         var prefs: Preferences
         /// groupId -> userId -> when the typing indicator expires.
         var typing: [String: [String: Date]] = [:]
 
-        init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], channels: [ChannelView], voice: [VoiceMember], calls: [CallView] = [], users: [String: UserView], emotes: EmoteSet, prefs: Preferences) {
+        init(entry: ServerEntry, info: ServerInfo?, connection: ConnectionState, me: SelfInfo?, conversations: [ConversationView], channels: [ChannelView], voice: [VoiceMember], calls: [CallView] = [], users: [String: UserView], emotes: EmoteSet, sounds: [SoundView] = [], prefs: Preferences) {
             self.entry = entry
             self.info = info
             self.connection = connection
@@ -42,6 +44,7 @@ final class AppModel {
             self.users = users
             self.mentionable = Self.mentionable(users)
             self.emotes = emotes
+            self.sounds = sounds
             self.prefs = prefs
         }
 
@@ -284,6 +287,7 @@ final class AppModel {
             async let calls = session.getCalls()
             async let users = session.getUsers()
             async let emotes = session.getEmotes()
+            async let sounds = session.getSounds()
             async let prefs = session.getPreferences()
             async let me = session.getSelf()
             async let connection = session.getConnectionState()
@@ -299,6 +303,7 @@ final class AppModel {
                 calls: try await calls,
                 users: Dictionary(uniqueKeysWithValues: try await users.map { ($0.id, $0) }),
                 emotes: try await emotes,
+                sounds: try await sounds,
                 prefs: try await prefs
             )
         } catch {
@@ -438,6 +443,10 @@ final class AppModel {
             servers[serverId]?.entry.hasIcon = info.hasIcon
         case let .emotes(serverId):
             refresh("emotes", serverId)
+        case let .sounds(serverId):
+            refresh("sounds", serverId)
+        case let .sound(serverId, channelId, userId, soundId):
+            voice.soundPlayed(serverId: serverId, channelId: channelId, userId: userId, soundId: soundId)
         case let .preferences(serverId):
             refresh("preferences", serverId)
         case let .signedOut(serverId, reason):
@@ -523,6 +532,9 @@ final class AppModel {
                     let emotes = try await session.getEmotes()
                     servers[serverId]?.emotes = emotes
                     prefetchEmotesSoon()
+                case "sounds":
+                    let sounds = try await session.getSounds()
+                    servers[serverId]?.sounds = sounds
                 case "preferences":
                     let prefs = try await session.getPreferences()
                     servers[serverId]?.prefs = prefs

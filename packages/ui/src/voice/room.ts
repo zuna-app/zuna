@@ -409,6 +409,28 @@ export class VoiceRoom {
     }
   }
 
+  // --- Soundboard ---
+
+  /** Reads a sound's file into what can be played. */
+  decodeSound(data: ArrayBuffer): Promise<AudioBuffer> {
+    return this.audio.decodeAudioData(data);
+  }
+
+  /**
+   * Plays a sound from the soundboard on this device, through the same context as everyone's voices,
+   * so it goes where they go and the microphone's echo cancelling treats it as it does them.
+   */
+  playSound(sound: AudioBuffer, volume: number): void {
+    if (this.closed) return;
+    const source = this.audio.createBufferSource();
+    const gain = this.audio.createGain();
+    source.buffer = sound;
+    gain.gain.value = volume;
+    source.connect(gain).connect(this.audio.destination);
+    source.onended = () => gain.disconnect();
+    source.start();
+  }
+
   // --- Video ---
 
   /** Everything being sent that can be watched, and from here. */

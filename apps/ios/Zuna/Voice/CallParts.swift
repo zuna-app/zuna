@@ -278,6 +278,19 @@ struct VoiceSettingsView: View {
                 Text("When people come and go, and when you mute.")
             }
             Section {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Soundboard volume")
+                        Spacer()
+                        Text(voice.settings.soundboardVolume == 0 ? "Off" : "\(Int((voice.settings.soundboardVolume * 100).rounded()))%").foregroundStyle(Theme.text2).monospacedDigit()
+                    }
+                    Slider(value: $voice.settings.soundboardVolume, in: 0...1)
+                        .accessibilityLabel("Soundboard volume")
+                }
+            } footer: {
+                Text("All the way down, no sounds from the soundboard play for you.")
+            }
+            Section {
                 Toggle("Open a share when it starts", isOn: $voice.settings.screenFocus)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {

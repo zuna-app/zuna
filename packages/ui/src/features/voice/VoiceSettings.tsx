@@ -250,6 +250,13 @@ export function VoiceSettingsSection() {
         </span>
         <input className="voice-slider" type="range" min={0} max={2} step={0.01} value={settings.outputVolume} onChange={(event) => update({ outputVolume: Number(event.target.value) })} />
       </label>
+      <label className="field">
+        <span className="field-label">
+          Soundboard volume <b style={{ fontWeight: 500 }}>{settings.soundboardVolume === 0 ? "off" : `${Math.round(settings.soundboardVolume * 100)}%`}</b>
+        </span>
+        <input className="voice-slider" type="range" min={0} max={1} step={0.01} value={settings.soundboardVolume} onChange={(event) => update({ soundboardVolume: Number(event.target.value) })} />
+        <span className="setting-hint">All the way down, no sounds from the soundboard play for you.</span>
+      </label>
 
       <div className="field">
         <span className="field-label">When sound goes out</span>

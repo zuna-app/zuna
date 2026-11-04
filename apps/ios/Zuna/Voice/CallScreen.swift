@@ -371,6 +371,16 @@ private struct PersonTile: View {
                 AvatarView(name: name, seed: member.userId, source: user?.avatar.map { .avatar($0, serverId: server?.entry.id ?? "") } ?? .none, size: 72)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            if let sounding = voice.sounding[member.userId] {
+                Text(sounding)
+                    .font(.system(size: 17))
+                    .frame(minWidth: 30, minHeight: 30)
+                    .padding(.horizontal, 4)
+                    .background(.black.opacity(0.45), in: .capsule)
+                    .padding(8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .transition(.scale.combined(with: .opacity))
+            }
             HStack(spacing: 5) {
                 if member.serverMuted {
                     Image(systemName: "mic.slash.fill").foregroundStyle(Theme.red)
@@ -406,6 +416,7 @@ private struct PersonTile: View {
         if voice.localMutes.contains(member.userId) { parts.append("muted for you") }
         if camera != nil { parts.append("camera on") }
         if speaking { parts.append("speaking") }
+        if voice.sounding[member.userId] != nil { parts.append("playing a sound") }
         return parts.joined(separator: ", ")
     }
 }
@@ -469,16 +480,24 @@ private struct CallControls: View {
     /// The chat that goes with it: a voice channel's, or the conversation whose call it is.
     let chat: ConversationView?
     let chatKey: String?
+    @State private var soundboard = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
             buttons(size: 52, spacing: 10)
             buttons(size: 44, spacing: 8)
             buttons(size: 40, spacing: 6)
+            buttons(size: 36, spacing: 5)
         }
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
         .background(Theme.bg1.ignoresSafeArea(edges: .bottom))
+        .sheet(isPresented: $soundboard) { SoundboardSheet() }
+    }
+
+    /// The server's soundboard plays in its voice channels and calls, where it has one.
+    private var hasSoundboard: Bool {
+        (voice.serverId.flatMap { model.servers[$0]?.info?.sounds } ?? 0) > 0
     }
 
     private func buttons(size: CGFloat, spacing: CGFloat) -> some View {
@@ -505,6 +524,9 @@ private struct CallControls: View {
                 }
                 .opacity(!sharing && voice.shareRefusal != nil ? 0.45 : 1)
                 .accessibilityHint(sharing ? "" : voice.shareRefusal ?? "")
+            }
+            if hasSoundboard {
+                control("waveform", label: "Soundboard", size: size, id: A11y.Voice.soundboardButton) { soundboard = true }
             }
             SwiftUIAudioRoutePickerButton()
                 .frame(width: size, height: size)

@@ -266,3 +266,45 @@
 .call-button.is-decline { background: var(--red); }
 .call-button.is-answer { background: var(--green); }
 .call-button.is-video { background: var(--bg-5); color: var(--text-1); }
+
+/* The soundboard: a panel over the call's controls, and its sounds in a server's settings. */
+.soundboard {
+  position: fixed; z-index: 80; width: 336px; max-width: calc(100vw - 16px); max-height: min(440px, calc(100vh - 96px)); display: flex; flex-direction: column; gap: 8px; padding: 10px;
+  background: var(--bg-3); border: 1px solid var(--line-strong); border-radius: var(--radius-l); box-shadow: var(--shadow-m);
+}
+.soundboard-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 600; color: var(--text-1); }
+.soundboard-head > svg { color: var(--text-2); flex: none; }
+.soundboard-note { font-size: 12.5px; color: var(--text-2); background: var(--bg-2); border-radius: var(--radius-s); padding: 6px 9px; }
+.soundboard-empty { font-size: 13px; color: var(--text-2); padding: 8px 2px; }
+.soundboard-link { color: var(--accent-text, var(--accent)); font-weight: 500; }
+.soundboard-link:hover { text-decoration: underline; }
+.soundboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; overflow-y: auto; min-height: 0; }
+.soundboard-sound {
+  display: flex; align-items: center; gap: 6px; min-width: 0; height: 36px; padding: 0 9px; border-radius: var(--radius-m);
+  background: var(--bg-2); color: var(--text-1); font-size: 13px; text-align: left; transition: background 0.08s linear;
+}
+.soundboard-sound:hover:not(:disabled) { background: var(--bg-4); }
+.soundboard-sound:active:not(:disabled) { background: var(--bg-5); }
+.soundboard-sound:disabled { opacity: 0.5; cursor: not-allowed; }
+.soundboard-emoji { flex: none; font-size: 16px; line-height: 1; }
+.soundboard-volume { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12.5px; color: var(--text-2); }
+.soundboard-volume b { font-weight: 500; color: var(--text-1); font-variant-numeric: tabular-nums; }
+/* Someone playing a sound shows it on their tile for as long as it plays. */
+.voice-tile-played {
+  position: absolute; right: 8px; top: 8px; min-width: 30px; height: 30px; padding: 0 6px; display: flex; align-items: center; justify-content: center;
+  border-radius: 15px; background: rgba(0, 0, 0, 0.62); font-size: 17px; line-height: 1; animation: voice-played-in 0.16s ease-out;
+}
+@keyframes voice-played-in { from { opacity: 0; transform: scale(0.7); } }
+@media (prefers-reduced-motion: reduce) { .voice-tile-played { animation: none; } }
+.channel-switch { flex-direction: row; align-items: center; gap: 12px; }
+.sound-add { display: flex; flex-direction: column; gap: 10px; }
+.sound-add-fields { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px; }
+.sound-add-actions { display: flex; gap: 8px; }
+.sound-add-actions .btn:first-child { max-width: 260px; min-width: 0; }
+.sound-add-file { max-width: 220px; }
+.sound-list { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+.sound-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 6px 4px 12px; border-radius: var(--radius-m); background: var(--bg-2); font-size: 13.5px; }
+.sound-row.is-editing { padding: 6px; gap: 8px; }
+.sound-row-emoji { flex: none; width: 22px; text-align: center; font-size: 17px; line-height: 1; }
+.sound-row-length { font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.sound-emoji-input { width: 64px; flex: none; text-align: center; }

@@ -117,6 +117,16 @@ enum WorldControl {
         return (counts["registrations"] ?? 0, counts["pushes"] ?? 0, counts["silent"] ?? 0)
     }
 
+    /// The sounds from the soundboard a peer has heard someone play, by who and which.
+    static func soundsHeard(_ name: String) throws -> [[String: String]] {
+        let url = URL(string: "\(World.current.peersUrl)/world")!
+        let data = try blocking {
+            let socket = try await RPCSocket.connect(to: url)
+            return try JSONSerialization.data(withJSONObject: try await socket.call("soundsHeard", [name]))
+        }
+        return try JSONSerialization.jsonObject(with: data) as? [[String: String]] ?? []
+    }
+
     /// Delivers a push to the app, as APNs would.
     static func push(_ payload: [String: Any]) throws {
         let url = URL(string: "\(World.current.peersUrl)/world")!

@@ -18,6 +18,7 @@ import type { AddressInfo } from "node:net";
 import { join, relative } from "node:path";
 import { WebSocketServer } from "ws";
 import { serveCore } from "@zuna/core/rpc";
+import { SOUND_RATE, writeWav } from "@zuna/core/sounds";
 import { TestApp, TestServer, loadCrypto, png, waitFor } from "../../../packages/core/test/helpers";
 import { startFake7TV } from "./fake7tv";
 import { root } from "./paths";
@@ -149,6 +150,10 @@ await carol.session.toggleReaction(general, welcome.id, "👍");
 await alice.session.sendMessage(`group:${general}`, { text: "Everyone on the server can read this, and the server itself can't." });
 await waitFor(inGeneral(bobLaptop, "Everyone on the server can read this, and the server itself can't."), "bob's laptop to read #general");
 
+// A sound on the soundboard: three seconds of a tone that falls, long enough to be seen playing.
+const horn = Int16Array.from({ length: SOUND_RATE * 3 }, (_, index) => Math.round(Math.sin((2 * Math.PI * (660 - (index / SOUND_RATE) * 120) * index) / SOUND_RATE) * 8000));
+await alice.session.addSound(new Blob([writeWav(horn)], { type: "audio/wav" }), "Airhorn", "📯");
+
 // A website for link previews: any page is an article with a picture.
 const site = createServer((request, response) => {
   if (request.url?.endsWith(".png")) {
@@ -184,6 +189,10 @@ const worldMethods: Record<string, (...args: any[]) => Promise<unknown>> = {
     writeFileSync(file, JSON.stringify(payload));
     execFileSync("xcrun", ["simctl", "push", udid, BUNDLE_ID, file]);
     return true;
+  },
+  /** The sounds from the soundboard a peer has heard someone play, as its core told it. */
+  async soundsHeard(name: string) {
+    return peers[name]!.events.flatMap((event) => (event.type === "sound" ? [{ userId: event.userId, soundId: event.soundId }] : []));
   },
   /** Signs in to an account on another new device, as if on a new laptop. */
   async newDevice(name: string, password: string = PASSWORD) {

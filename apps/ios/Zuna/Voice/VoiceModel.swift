@@ -22,6 +22,8 @@ struct VoiceSettings: Codable, Equatable, Sendable {
     var screenFocus = true
     /// The most this device's shares may send, in kbit/s, or nil for what the server suggests.
     var screenBitrate: Int?
+    /// How loud sounds from the soundboard are, from 0 to 1. At 0 none of them plays.
+    var soundboardVolume = 0.6
 
     private static let key = "zuna-voice-settings"
 
@@ -41,6 +43,7 @@ struct VoiceSettings: Codable, Equatable, Sendable {
         screenVolume = try container.decodeIfPresent(Double.self, forKey: .screenVolume) ?? 1
         screenFocus = try container.decodeIfPresent(Bool.self, forKey: .screenFocus) ?? true
         screenBitrate = try container.decodeIfPresent(Int.self, forKey: .screenBitrate)
+        soundboardVolume = try container.decodeIfPresent(Double.self, forKey: .soundboardVolume) ?? 0.6
     }
 
     func save() {
@@ -142,6 +145,8 @@ final class VoiceModel {
     private(set) var streamVolumes = VoiceSettings.streamVolumes
     /// People muted for this device only.
     private(set) var localMutes: Set<String> = []
+    /// Who's playing a sound from the soundboard right now, by user, with what to show for it.
+    private(set) var sounding: [String: String] = [:]
     /// What keys the call's media is under, for its details.
     private(set) var keyEpoch: Int?
 
@@ -156,6 +161,11 @@ final class VoiceModel {
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var reconnects = 0
     @ObservationIgnored private let sounds = VoiceSounds()
+    /// Sounds from the soundboard once fetched, by server and sound.
+    @ObservationIgnored private var soundFiles: [String: Data] = [:]
+    /// What's playing from the soundboard, held until it ends.
+    @ObservationIgnored private var soundPlayers: [AVAudioPlayer] = []
+    @ObservationIgnored private var soundingEnds: [String: Task<Void, Never>] = [:]
     /// The call as the system shows it, on the lock screen and in its call controls.
     @ObservationIgnored private let systemCall = SystemCall()
     /// How loud a share was before being silenced here, to go back to.
@@ -333,6 +343,7 @@ final class VoiceModel {
         cameraFront = true
         focus = nil
         keyEpoch = nil
+        sounding = [:]
         forgetShare()
     }
 
@@ -1022,6 +1033,68 @@ final class VoiceModel {
     func toggleLocalMute(_ userId: String) {
         if localMutes.contains(userId) { localMutes.remove(userId) } else { localMutes.insert(userId) }
         applyVolumes()
+    }
+
+    // MARK: Soundboard
+
+    /// Why this person can't play a sound in the room they're in, if they can't, as the desktop's soundboard says.
+    var soundRefusal: String? {
+        guard let serverId, let server = app?.servers[serverId] else { return nil }
+        if !isCall, server.channels.first(where: { $0.id == channelId })?.sounds == false { return "The soundboard is off in this voice channel." }
+        if serverMuted { return "An admin muted you, so you can't play sounds." }
+        if deafened { return "Undeafen to play sounds." }
+        // Without a microphone, someone can only listen, and so they're muted.
+        if muted || noMic { return "Unmute to play sounds." }
+        return nil
+    }
+
+    /// Plays a sound from the soundboard to everyone in the voice channel or call, once the server says it may, and here too.
+    func playSound(_ soundId: String) async {
+        guard let serverId, let channelId, let session, let me = app?.servers[serverId]?.me else { return }
+        do {
+            try await session.playSound(channelId, soundId: soundId)
+        } catch {
+            app?.toast(OnboardingText.describe(error), .error)
+            return
+        }
+        await playHere(serverId: serverId, soundId: soundId, userId: me.userId)
+    }
+
+    /// Someone else in the room played a sound.
+    func soundPlayed(serverId: String, channelId: String, userId: String, soundId: String) {
+        guard serverId == self.serverId, channelId == self.channelId else { return }
+        Task { await playHere(serverId: serverId, soundId: soundId, userId: userId) }
+    }
+
+    /// Plays a sound from its file on this device, as someone played it, unless this device hears nothing of theirs:
+    /// deafened, the person muted for this device, or the soundboard turned all the way down.
+    private func playHere(serverId: String, soundId: String, userId: String) async {
+        guard room != nil, serverId == self.serverId, !deafened, !localMutes.contains(userId), settings.soundboardVolume > 0, let app else { return }
+        let key = "\(serverId)/\(soundId)"
+        var data = soundFiles[key]
+        if data == nil {
+            do {
+                let file = try await app.core.session(serverId).soundFile(soundId)
+                data = try Data(contentsOf: URL(fileURLWithPath: file.path))
+                soundFiles[key] = data
+            } catch {
+                return
+            }
+        }
+        guard let data, serverId == self.serverId, !deafened, let player = try? AVAudioPlayer(data: data) else { return }
+        player.volume = Float(settings.soundboardVolume)
+        soundPlayers.removeAll { !$0.isPlaying }
+        soundPlayers.append(player)
+        player.play()
+        let emoji = app.servers[serverId]?.sounds.first { $0.id == soundId }?.emoji ?? ""
+        sounding[userId] = emoji.isEmpty ? "🔊" : emoji
+        soundingEnds[userId]?.cancel()
+        soundingEnds[userId] = Task { [weak self] in
+            // Held a little past its end, so a short one is seen.
+            try? await Task.sleep(for: .seconds(player.duration + 0.6))
+            guard !Task.isCancelled else { return }
+            self?.sounding[userId] = nil
+        }
     }
 
     #if DEBUG

@@ -78,11 +78,19 @@ struct ServerSettingsView: View {
                         NavigationLink(server.channels.count == 1 ? "1 channel" : "\(server.channels.count) channels") { ChannelsSettingsView(serverId: serverId) }
                     }
                 }
-                // Only a server that has rules for sharing says what they are.
-                if server.info?.screenShare != nil {
+                // Only a server that has rules for sharing says what they are, and one from before the soundboard has none.
+                if server.info?.screenShare != nil || (server.info?.sounds ?? 0) > 0 {
                     Section("Voice") {
-                        NavigationLink("Screen sharing") { ScreenRulesView(serverId: serverId) }
-                            .accessibilityIdentifier(A11y.Settings.screenRules)
+                        if server.info?.screenShare != nil {
+                            NavigationLink("Screen sharing") { ScreenRulesView(serverId: serverId) }
+                                .accessibilityIdentifier(A11y.Settings.screenRules)
+                        }
+                        if (server.info?.sounds ?? 0) > 0 {
+                            NavigationLink { SoundboardSettingsView(serverId: serverId) } label: {
+                                LabeledContent("Soundboard", value: server.sounds.count == 1 ? "1 sound" : "\(server.sounds.count) sounds")
+                            }
+                            .accessibilityIdentifier(A11y.Settings.soundboard)
+                        }
                     }
                 }
                 Section("Emotes") {

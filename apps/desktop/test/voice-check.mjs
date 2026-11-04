@@ -61,10 +61,14 @@ function wavFrom(samples, rate = 48000) {
 const fixtures = mkdtempSync(join(tmpdir(), "zuna-voice-sounds-"));
 const noisePath = join(fixtures, "noise.wav");
 const speechPath = join(fixtures, "speech.wav");
+const hornPath = join(fixtures, "horn.wav");
 {
   // Steady noise, like a fan. It has plenty of energy, and none of it is speech.
   const noise = Float32Array.from({ length: 48000 * 4 }, () => (Math.random() * 2 - 1) * 0.12);
   writeFileSync(noisePath, wavFrom(noise));
+  // For the soundboard: 0.3 s of silence, then 1.2 s of a quiet tone, at a rate the app has to change.
+  const horn = Float32Array.from({ length: 44100 * 1.5 }, (_, index) => (index < 44100 * 0.3 ? 0 : Math.sin((2 * Math.PI * 523.25 * index) / 44100) * 0.05));
+  writeFileSync(hornPath, wavFrom(horn, 44100));
 }
 const spoken = "Testing the voice channel. Can you hear me? One two three four five. The quick brown fox jumps over the lazy dog, again and again, until someone answers.";
 try {
@@ -163,6 +167,13 @@ async function launch(name, soundFile) {
     if (text.includes("[zuna]") || process.env.VOICE_DEBUG) console.log(`  [${name}] ${message.type()}: ${text}`);
   });
   await page.addInitScript((standInScreen) => {
+    // Which sounds from files the app plays, by how long each is, as the soundboard's are.
+    window.__soundsPlayed = [];
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (...args) {
+      window.__soundsPlayed.push(this.buffer?.duration ?? 0);
+      return start.apply(this, args);
+    };
     // So that what's really being sent and received can be asked for.
     const Original = window.RTCPeerConnection;
     window.__connections = [];
@@ -493,6 +504,46 @@ try {
   check("muting stops the sound going out", whileMuted.in < 0.001, `peak ${whileMuted.in.toFixed(4)}`);
   check("everyone sees someone is muted", true);
   await alice.page.getByRole("button", { name: "Unmute", exact: true }).first().click();
+
+  // --- The soundboard ---
+  // Alice adds a sound in the server's settings, and plays it to Bob, whose app plays its file itself.
+  await alice.page.locator(".server-title").click();
+  await alice.page.getByRole("menuitem", { name: "Server settings" }).click();
+  await alice.page.locator(".settings-nav-item", { hasText: "Soundboard" }).click();
+  await alice.page.locator('input[type="file"][accept="audio/*"]').setInputFiles(hornPath);
+  await alice.page.getByPlaceholder("Airhorn").fill("Horn");
+  await alice.page.getByPlaceholder("🔊").first().fill("📯");
+  await alice.page.getByRole("button", { name: "Add sound" }).click();
+  const hornRow = alice.page.locator(".sound-row", { hasText: "Horn" });
+  await hornRow.waitFor({ timeout: 15_000 });
+  const hornLength = await hornRow.locator(".sound-row-length").textContent();
+  check("an admin adds a sound, its silence cut, from a file at another rate", hornLength === "1.2 s", hornLength ?? "");
+  await shot(alice, "06b-soundboard-settings");
+  await alice.page.keyboard.press("Escape");
+
+  await bob.page.getByRole("button", { name: "Soundboard", exact: true }).click();
+  await bob.page.locator(".soundboard-sound", { hasText: "Horn" }).waitFor({ timeout: 10_000 }).then(() => check("everyone on the server sees the sound", true)).catch(() => check("everyone on the server sees the sound", false));
+  await bob.page.keyboard.press("Escape");
+
+  const playedBefore = await bob.page.evaluate(() => window.__soundsPlayed.length);
+  await alice.page.getByRole("button", { name: "Soundboard", exact: true }).click();
+  await shot(alice, "06c-soundboard");
+  await alice.page.locator(".soundboard-sound", { hasText: "Horn" }).click();
+  const shown = await bob.page.locator(".voice-tile-played").waitFor({ timeout: 10_000 }).then(() => true).catch(() => false);
+  await shot(bob, "06d-someone-played-a-sound");
+  check("someone playing a sound shows on their tile for the others", shown);
+  const heardSound = (page, after) => page.evaluate((after) => window.__soundsPlayed.slice(after).some((length) => Math.abs(length - 1.21) < 0.05), after);
+  check("the others' apps play a sound someone plays, from its file", await heardSound(bob.page, playedBefore));
+  check("the one who plays a sound hears it too", await heardSound(alice.page, 0));
+  await alice.page.keyboard.press("Escape");
+
+  // Someone muted can't, and the soundboard says why.
+  await bob.page.getByRole("button", { name: "Mute", exact: true }).first().click();
+  await bob.page.getByRole("button", { name: "Soundboard", exact: true }).click();
+  const why = await bob.page.locator(".soundboard-note").textContent({ timeout: 5000 }).catch(() => "");
+  check("the soundboard says to unmute to play sounds", why === "Unmute to play sounds." && (await bob.page.locator(".soundboard-sound", { hasText: "Horn" }).isDisabled()), why ?? "");
+  await bob.page.keyboard.press("Escape");
+  await bob.page.getByRole("button", { name: "Unmute", exact: true }).first().click();
 
   // --- A new key when someone new comes in ---
   const carol = await launch("carol", noisePath);

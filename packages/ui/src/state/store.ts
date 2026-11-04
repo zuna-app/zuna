@@ -13,6 +13,7 @@ import type {
   Preferences,
   ServerEntry,
   ServerInfo,
+  SoundView,
   UserView,
   VoiceMember,
 } from "@zuna/core";
@@ -46,6 +47,8 @@ export interface ServerState {
   /** username -> user ID. Replaced only when the people change, not on presence. */
   mentionable: Map<string, string>;
   emotes: EmoteSet;
+  /** The server's soundboard, for its voice channels and calls. */
+  sounds: SoundView[];
   prefs: Preferences;
   activeKey: string | null;
   /** groupId -> userId -> time the typing indicator expires. */
@@ -509,6 +512,16 @@ export const useApp = create<AppState>((set, get) => {
           .then((emotes) => patchServer(event.serverId, { emotes }))
           .catch(() => undefined);
         break;
+      case "sounds":
+        void get()
+          .session(event.serverId)
+          .getSounds()
+          .then((sounds) => patchServer(event.serverId, { sounds }))
+          .catch(() => undefined);
+        break;
+      case "sound":
+        voiceHooks.onSound?.(event.serverId, event.channelId, event.userId, event.soundId);
+        break;
       case "preferences":
         void get()
           .session(event.serverId)
@@ -624,7 +637,7 @@ export const useApp = create<AppState>((set, get) => {
       async function loadServerState(entry: ServerEntry) {
         const { core } = get();
         const session = core!.session(entry.id);
-        const [conversations, users, emotes, prefs, self, connection, info, channels, voice, calls] = await Promise.all([
+        const [conversations, users, emotes, prefs, self, connection, info, channels, voice, calls, sounds] = await Promise.all([
           session.getConversations(),
           session.getUsers(),
           session.getEmotes(),
@@ -635,6 +648,7 @@ export const useApp = create<AppState>((set, get) => {
           session.getChannels(),
           session.getVoiceMembers(),
           session.getCalls(),
+          session.getSounds(),
         ]);
         set((state) => ({
           servers: {
@@ -651,6 +665,7 @@ export const useApp = create<AppState>((set, get) => {
               users: Object.fromEntries(users.map((user) => [user.id, user])),
               mentionable: mentionMap(users),
               emotes,
+              sounds,
               prefs,
               activeKey: null,
               typing: {},
@@ -674,7 +689,7 @@ export const useApp = create<AppState>((set, get) => {
       const entry = entries.find((item) => item.id === serverId);
       if (!entry) return;
       const session = core.session(serverId);
-      const [conversations, users, emotes, prefs, self, info, connection, channels, voice, calls] = await Promise.all([
+      const [conversations, users, emotes, prefs, self, info, connection, channels, voice, calls, sounds] = await Promise.all([
         session.getConversations(),
         session.getUsers(),
         session.getEmotes(),
@@ -685,6 +700,7 @@ export const useApp = create<AppState>((set, get) => {
         session.getChannels(),
         session.getVoiceMembers(),
         session.getCalls(),
+        session.getSounds(),
       ]);
       // A sign-in replaces any earlier account on the same server.
       const staleIds = get().order.filter((id) => !entries.some((item) => item.id === id));
@@ -703,6 +719,7 @@ export const useApp = create<AppState>((set, get) => {
           users: Object.fromEntries(users.map((user) => [user.id, user])),
           mentionable: mentionMap(users),
           emotes,
+          sounds,
           prefs,
           activeKey: null,
           typing: {},

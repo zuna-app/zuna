@@ -438,7 +438,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
 
         {inCall && conversation.groupId ? (
           <VoiceStage
-            room={{ id: conversation.groupId, call: true, title: conversation.title, conversation, screenLimit: 0 }}
+            room={{ id: conversation.groupId, call: true, title: conversation.title, conversation, screenLimit: 0, sounds: true }}
             expanded={callExpanded}
             onExpand={() => setCallExpanded(!callExpanded)}
           />

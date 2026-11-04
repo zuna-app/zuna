@@ -66,6 +66,8 @@ interface VoiceState {
   streamVolumes: Record<string, number>;
   /** People muted for this device only. */
   localMutes: Record<string, true>;
+  /** Who's playing a sound from the soundboard right now, by user, with what to show for it. */
+  sounding: Record<string, string>;
 
   /** Comes into a voice channel or a call. `returnTo` is what to open again on leaving a voice channel, if it's said. */
   join(serverId: string, channelId: string, returnTo?: string | null, how?: JoinHow): Promise<void>;
@@ -84,6 +86,8 @@ interface VoiceState {
   setVolume(userId: string, volume: number): void;
   setStreamVolume(userId: string, volume: number): void;
   toggleLocalMute(userId: string): void;
+  /** Plays a sound from the soundboard to everyone in the voice channel or call, here too. */
+  playSound(soundId: string): Promise<void>;
   setFocus(key: string | null): void;
   updateSettings(changes: Partial<VoiceSettings>): void;
   setKeyHeld(down: boolean): void;
@@ -116,6 +120,7 @@ const NOT_IN_VOICE = {
   camera: false,
   screen: null,
   focus: null,
+  sounding: {},
 };
 
 const RECONNECT_ATTEMPTS = 3;
@@ -156,6 +161,12 @@ let callRang = false;
 let hangUpTimer: ReturnType<typeof setTimeout> | undefined;
 /** How long a direct message's call waits, once the other person seems to have gone, in case it's another of their devices taking over. */
 const PEER_GONE_MS = 2000;
+
+/** Sounds from the soundboard, read and ready to play, by server and sound. */
+const soundBuffers = new Map<string, Promise<AudioBuffer>>();
+/** How long someone shows as playing a sound past its end, so a short one is seen. */
+const SOUNDING_HOLD_MS = 600;
+const soundingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const readings = new Set<(reading: MicReading) => void>();
 
@@ -466,6 +477,47 @@ export const useVoice = create<VoiceState>((set, get) => {
   voiceHooks.onServerGone = (serverId) => {
     if (get().serverId === serverId) get().leave();
   };
+
+  /**
+   * Plays a sound from the soundboard here, as someone played it, unless this device hears nothing
+   * of theirs: deafened, the person muted for this device, or the soundboard turned all the way down.
+   */
+  const playHere = async (serverId: string, soundId: string, userId: string) => {
+    const playing = room;
+    const { settings, deafened, localMutes } = get();
+    if (!playing || get().serverId !== serverId || deafened || localMutes[userId] || settings.soundboardVolume <= 0) return;
+    const key = `${serverId}/${soundId}`;
+    let ready = soundBuffers.get(key);
+    if (!ready) {
+      ready = useApp
+        .getState()
+        .session(serverId)
+        .soundFile(soundId)
+        .then((file) => file.arrayBuffer())
+        .then((data) => playing.decodeSound(data));
+      ready.catch(() => soundBuffers.delete(key));
+      soundBuffers.set(key, ready);
+    }
+    const buffer = await ready;
+    if (room !== playing || get().deafened) return;
+    playing.playSound(buffer, get().settings.outputVolume * get().settings.soundboardVolume);
+    const emoji = useApp.getState().servers[serverId]?.sounds.find((sound) => sound.id === soundId)?.emoji || "🔊";
+    set({ sounding: { ...get().sounding, [userId]: emoji } });
+    clearTimeout(soundingTimers.get(userId));
+    soundingTimers.set(
+      userId,
+      setTimeout(() => {
+        soundingTimers.delete(userId);
+        const sounding = { ...get().sounding };
+        delete sounding[userId];
+        set({ sounding });
+      }, buffer.duration * 1000 + SOUNDING_HOLD_MS),
+    );
+  };
+  voiceHooks.onSound = (serverId, channelId, userId, soundId) => {
+    if (get().serverId !== serverId || get().channelId !== channelId) return;
+    void playHere(serverId, soundId, userId).catch((error) => console.warn("[zuna] playing a sound", error));
+  };
   /** Being muted by an admin, or no longer, comes with the rest of what's said about this device. */
   voiceHooks.onMember = (serverId, member) => {
     if (get().serverId !== serverId || get().channelId !== member.channelId) return;
@@ -724,6 +776,21 @@ export const useVoice = create<VoiceState>((set, get) => {
       else localMutes[userId] = true;
       set({ localMutes });
       applyVolumes();
+    },
+
+    async playSound(soundId) {
+      const { serverId, channelId } = get();
+      const app = useApp.getState();
+      const self = serverId ? app.servers[serverId]?.self : null;
+      if (!serverId || !channelId || !self) return;
+      try {
+        // The server says first whether it may be played, and only then does it play here.
+        await app.session(serverId).playSound(channelId, soundId);
+      } catch (error) {
+        app.toast((error as Error).message, "error");
+        return;
+      }
+      await playHere(serverId, soundId, self.userId).catch((error) => console.warn("[zuna] playing a sound", error));
     },
 
     setFocus(focus) {

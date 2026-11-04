@@ -35,6 +35,7 @@ import { selfIsSpeaking, useVoice } from "@/voice/store";
 import { screenRefusal } from "@zuna/core/voice";
 import { ChatView } from "@/features/chat/ChatView";
 import { ScreenPicker } from "./ScreenPicker";
+import { SoundboardButton } from "./Soundboard";
 import { StreamStatsPanel } from "./StreamStatsPanel";
 
 /** Shows one video. A track can be attached to many elements, and each is let go of when it's gone. */
@@ -175,11 +176,17 @@ const PersonTile = memo(function PersonTile({ member, camera, onMenu }: { member
   const isSelf = member.userId === server?.self?.userId;
   const speaking = useVoice((state) => (isSelf ? selfIsSpeaking(state) : !!state.speaking[member.userId]));
   const localMuted = useVoice((state) => !!state.localMutes[member.userId]);
+  const sounding = useVoice((state) => state.sounding[member.userId]);
   const user = server?.users[member.userId];
   const name = user?.displayName ?? "Someone";
   return (
     <div className={`voice-tile${speaking ? " is-speaking" : ""}`} onContextMenu={(event) => onMenu(event, member.userId)} style={camera ? undefined : { background: `color-mix(in srgb, ${avatarColor(member.userId)} 16%, var(--bg-2))` }}>
       {camera ? <VideoView tile={camera} /> : <Avatar name={name} seed={member.userId} avatar={user?.avatar} size={84} />}
+      {sounding && (
+        <span className="voice-tile-played" role="status" aria-label={`${name} played a sound`}>
+          {sounding}
+        </span>
+      )}
       <div className="voice-tile-label">
         {member.serverMuted ? <MicOff size={13} className="voice-server-muted" /> : member.muted && <MicOff size={13} />}
         {member.deafened && <HeadphoneOff size={13} />}
@@ -278,6 +285,7 @@ function Controls({
   chatUnread,
   onToggleChat,
   shareRefusal,
+  sounds,
 }: {
   chatOpen: boolean;
   /** Something new in the chat beside the call, which only those in it would want to know. */
@@ -286,6 +294,8 @@ function Controls({
   onToggleChat?: () => void;
   /** Why this person can't share a screen here, if they can't. */
   shareRefusal: string | null;
+  /** Whether the soundboard plays here. */
+  sounds: boolean;
 }) {
   const muted = useVoice((state) => state.muted);
   const deafened = useVoice((state) => state.deafened);
@@ -338,6 +348,7 @@ function Controls({
           {screen ? <MonitorOff size={20} /> : <MonitorUp size={20} />}
         </button>
       </Tooltip>
+      <SoundboardButton roomSounds={sounds} />
       {onToggleChat && (
         <Tooltip text={chatOpen ? "Hide chat" : "Show chat"} side="top">
           <button className={`voice-control${chatOpen ? " is-on" : ""}`} onClick={onToggleChat} aria-label={chatOpen ? "Hide chat" : "Show chat"} aria-pressed={chatOpen}>
@@ -368,6 +379,8 @@ export interface StageRoom {
   conversation: ConversationView | null;
   /** How many may share a screen at once: 0 for what the server's rules say, or -1 for nobody. */
   screenLimit: number;
+  /** Whether the soundboard plays there, which it always does in a call. */
+  sounds: boolean;
 }
 
 /** How long a call has gone on, as a call shows it. */
@@ -524,6 +537,7 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
               chatUnread={(room.conversation?.unread ?? 0) > 0}
               onToggleChat={room.call ? undefined : () => setChatOpen(!chatOpen)}
               shareRefusal={shareRefusal}
+              sounds={room.sounds}
             />
           </>
         )}

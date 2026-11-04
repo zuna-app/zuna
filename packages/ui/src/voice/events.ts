@@ -14,4 +14,6 @@ export const voiceHooks: {
   onCall: ((serverId: string, groupId: string, call: CallView | null) => void) | null;
   /** This device is no longer on a server, so it can't be in any of its voice channels. */
   onServerGone: ((serverId: string) => void) | null;
-} = { onKey: null, onEnded: null, onScreenEnded: null, onMember: null, onLeft: null, onCall: null, onServerGone: null };
+  /** Someone else in the voice channel or call this device is in played a sound from the soundboard. */
+  onSound: ((serverId: string, channelId: string, userId: string, soundId: string) => void) | null;
+} = { onKey: null, onEnded: null, onScreenEnded: null, onMember: null, onLeft: null, onCall: null, onServerGone: null, onSound: null };

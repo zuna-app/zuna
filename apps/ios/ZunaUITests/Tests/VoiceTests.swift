@@ -162,6 +162,55 @@ final class VoiceTests: XCTestCase {
         try carol.call("setVoiceState", [NSNull(), NSNull()])
     }
 
+    func testPlaysASoundFromTheSoundboardToEveryoneInTheChannel() throws {
+        let alice = try Peer("alice")
+        let carol = try Peer("carol")
+        let lounge = try channelId(alice, "Lounge")
+        // Carol is in already, and hears whatever's played there.
+        try carol.call("setVoiceState", [lounge, here])
+        defer { _ = try? carol.call("setVoiceState", [NSNull(), NSNull()]) }
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let device = try phoneDevice()
+        zuna.tab("Channels").tap()
+        let row = zuna.element(A11y.Channels.row(lounge))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        row.tap()
+        XCTAssertTrue(zuna.element(A11y.Voice.person(device)).waitForExistence(timeout: 30))
+        try waitFor("alice to see bob come in") { try self.bobsPhone(alice)?["channelId"] as? String == lounge }
+        let heard = try WorldControl.soundsHeard("carol").count
+
+        // The server's sounds, from the call's controls.
+        let button = zuna.element(A11y.Voice.soundboardButton)
+        XCTAssertTrue(zuna.app.frame.contains(button.frame), "the soundboard goes past the screen's edge")
+        button.tap()
+        XCTAssertTrue(zuna.element(A11y.Voice.soundboard).waitForExistence(timeout: 5))
+        let horn = zuna.element(A11y.Voice.sound("Airhorn"))
+        XCTAssertTrue(horn.waitForExistence(timeout: 15))
+        zuna.screenshot("99-voice-soundboard")
+        horn.tap()
+        zuna.app.buttons["Done"].tap()
+
+        // Carol's app is told bob played it, and his tile here says he's playing a sound.
+        try waitFor("carol to hear bob's sound") { try WorldControl.soundsHeard("carol").count > heard }
+        XCTAssertEqual(try WorldControl.soundsHeard("carol").last?["userId"], bobId)
+        try waitFor("bob's tile to say he's playing a sound") { self.zuna.element(A11y.Voice.person(device)).label.contains("playing a sound") }
+        zuna.screenshot("99b-voice-sound-playing")
+
+        // Muted, the soundboard says why, and nothing can be played.
+        zuna.element(A11y.Voice.mute).tap()
+        try waitFor("alice to see bob muted") { try self.bobsPhone(alice)?["muted"] as? Bool == true }
+        button.tap()
+        XCTAssertTrue(zuna.element(A11y.Voice.soundRefusal).waitForExistence(timeout: 5))
+        XCTAssertFalse(zuna.element(A11y.Voice.sound("Airhorn")).isEnabled)
+        zuna.app.buttons["Done"].tap()
+        zuna.element(A11y.Voice.mute).tap()
+
+        zuna.element(A11y.Voice.leave).tap()
+        try waitFor("alice to see bob leave") { try self.bobsPhone(alice) == nil }
+    }
+
     func testSharesAtTheMostChosenInSettings() throws {
         let alice = try Peer("alice")
         let lounge = try channelId(alice, "Lounge")

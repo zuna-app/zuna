@@ -106,6 +106,7 @@ enum A11y {
         static let editorBitrate = "channels.editor.bitrate"
         static let editorUserLimit = "channels.editor.userLimit"
         static let editorScreenLimit = "channels.editor.screenLimit"
+        static let editorSounds = "channels.editor.sounds"
         static let edit = "channels.edit"
         static let delete = "channels.delete"
         static let manage = "channels.manage"
@@ -278,6 +279,10 @@ enum A11y {
         static let statsHeadline = "voice.stats.headline"
         static func ringing(_ userId: String) -> String { "voice.ringing.\(userId)" }
         static let ringAgain = "voice.ringAgain"
+        static let soundboardButton = "voice.soundboardButton"
+        static let soundboard = "voice.soundboard"
+        static func sound(_ name: String) -> String { "voice.sound.\(name)" }
+        static let soundRefusal = "voice.sound.refusal"
         static let incoming = "voice.incoming"
         static let answer = "voice.incoming.answer"
         static let answerWithVideo = "voice.incoming.answerWithVideo"
@@ -285,6 +290,12 @@ enum A11y {
     }
 
     enum Settings {
+        static let soundboard = "settings.soundboard"
+        static let soundEmoji = "settings.soundboard.emoji"
+        static let soundName = "settings.soundboard.name"
+        static let chooseSound = "settings.soundboard.choose"
+        static let addSound = "settings.soundboard.add"
+        static func sound(_ name: String) -> String { "settings.soundboard.sound.\(name)" }
         static let screen = "settings.screen"
         static let serverPicker = "settings.serverPicker"
         static let appearance = "settings.appearance"

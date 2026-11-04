@@ -34,13 +34,30 @@ export function playVoiceSound(sound: VoiceSound, volume = 1): void {
   play(NOTES[sound], volume);
 }
 
+function soundContext(): AudioContext {
+  if (!context) {
+    context = new AudioContext();
+    applySink();
+  }
+  void context.resume();
+  return context;
+}
+
+/** Plays a sound's file once, outside any call, as when an admin listens to one on the soundboard. */
+export async function playClip(data: ArrayBuffer, volume = 1): Promise<void> {
+  const context = soundContext();
+  const source = context.createBufferSource();
+  const gain = context.createGain();
+  source.buffer = await context.decodeAudioData(data);
+  gain.gain.value = volume;
+  source.connect(gain).connect(context.destination);
+  source.onended = () => gain.disconnect();
+  source.start();
+}
+
 function play(notes: [offset: number, frequency: number, length: number][], volume: number): void {
   try {
-    if (!context) {
-      context = new AudioContext();
-      applySink();
-    }
-    void context.resume();
+    const context = soundContext();
     const start = context.currentTime;
     for (const [offset, frequency, length] of notes) {
       const oscillator = context.createOscillator();

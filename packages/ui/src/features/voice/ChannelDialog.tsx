@@ -1,6 +1,6 @@
 import { Hash, Trash2, Volume2 } from "lucide-react";
 import { useState } from "react";
-import { Field, Modal, Spinner, useAction } from "@/components/ui";
+import { Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
 import { useActiveServer, useApp } from "@/state/store";
 
 const AUDIO_QUALITIES = [
@@ -32,6 +32,7 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
   const [userLimit, setUserLimit] = useState(channel?.userLimit ?? 0);
   const [bitrate, setBitrate] = useState(channel?.bitrate ?? 0);
   const [screenLimit, setScreenLimit] = useState(channel?.screenLimit ?? 0);
+  const [sounds, setSounds] = useState(channel?.sounds ?? true);
   const { busy, run } = useAction();
   const categories = [...new Set((server?.channels ?? []).map((item) => item.category).filter(Boolean))];
   const finalName = type === "text" ? textChannelName(name).replace(/^-|-$/g, "") : name.trim();
@@ -41,9 +42,9 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
     run(async () => {
       const details = { name: finalName, topic: topic.trim(), category: category.trim(), bitrate: type === "voice" && bitrate ? bitrate : undefined };
       if (channel) {
-        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0 });
+        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined });
       } else {
-        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0 });
+        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined });
         // Opening a voice channel is coming into it, which making one isn't asking for.
         if (type === "text") selectConversation(`group:${id}`);
       }
@@ -147,6 +148,15 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
               ))}
             </select>
           </div>
+          {server?.info?.sounds && (
+            <div className="field channel-switch">
+              <span className="grow">
+                <span className="field-label">Soundboard</span>
+                <span className="setting-hint">Anyone in the channel can play the server's sounds to everyone there.</span>
+              </span>
+              <Switch on={sounds} onChange={setSounds} label="Soundboard in this channel" />
+            </div>
+          )}
         </>
       )}
       <p className="channel-note">
