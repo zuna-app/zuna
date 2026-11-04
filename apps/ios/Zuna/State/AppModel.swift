@@ -163,9 +163,10 @@ final class AppModel {
     }
 
     /// Opens a conversation from anywhere, like the desktop's selectConversation.
-    /// A channel opens on the Channels tab, anything else on Chats.
-    func openChat(_ conversationKey: String) {
-        tab = activeServer?.channel(conversationKey) != nil ? .channels : .chats
+    /// A channel opens on the Channels tab, anything else on Chats; `channel` says
+    /// which where the model may not know yet, as for a channel just made.
+    func openChat(_ conversationKey: String, channel: Bool? = nil) {
+        tab = (channel ?? (activeServer?.channel(conversationKey) != nil)) ? .channels : .chats
         chatPath = [.chat(conversationKey)]
         // Opening a chat marked as unread takes the mark off, as in Telegram.
         if let serverId = activeServerId, servers[serverId]?.conversation(conversationKey)?.markedUnread == true {

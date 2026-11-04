@@ -237,7 +237,7 @@ struct ChannelEditor: View {
                     let id = try await session.createChannel(made)
                     dismiss()
                     // Opening a voice channel is coming into it, which making one isn't asking for.
-                    if made.type == .text, opensWhenMade { model.openChat("group:\(id)") }
+                    if made.type == .text, opensWhenMade { model.openChat("group:\(id)", channel: true) }
                 }
             } catch {
                 model.toast(OnboardingText.describe(error), .error)
