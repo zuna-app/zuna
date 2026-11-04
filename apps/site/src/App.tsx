@@ -12,7 +12,7 @@ export function App({ page }: { page: PageId }) {
   return (
     <>
       <a className="skip" href="#main">Skip to content</a>
-      <Nav home={page === "home"} />
+      <Nav />
       <main id="main">
         {page === "home" && <Home />}
         {page === "privacy" && <Privacy />}

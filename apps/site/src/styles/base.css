@@ -99,18 +99,6 @@ button { font: inherit; }
 .nav-end { display: flex; align-items: center; gap: 12px; margin-left: auto; }
 .nav-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; color: var(--text-2); transition: color 0.15s, background 0.15s; }
 .nav-icon:hover { color: var(--text-1); background: var(--hover); }
-.accents { display: flex; gap: 7px; padding: 6px 9px; border-radius: 999px; border: 1px solid var(--line); }
-.accent-dot {
-  width: 14px; height: 14px; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); transition: box-shadow 0.15s, transform 0.15s;
-}
-.accent-dot:hover { transform: scale(1.12); }
-.accent-dot[aria-checked="true"] { box-shadow: 0 0 0 2px var(--bg-0), 0 0 0 3.5px var(--text-1); }
-.accent-neutral { background: #ececee; }
-.accent-blue { background: #4b8fe0; }
-.accent-green { background: #3fa772; }
-.accent-red { background: #d9534f; }
-.accent-amber { background: #d9962a; }
 
 /* Footer */
 
@@ -146,5 +134,4 @@ button { font: inherit; }
 @media (max-width: 640px) {
   .wrap { padding-inline: 16px; }
   .nav-inner { gap: 12px; }
-  .accents { display: none; }
 }

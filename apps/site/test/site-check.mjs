@@ -110,7 +110,7 @@ async function visit(context, path, width) {
   await page.close();
 }
 
-/** The demo, the accent switcher and the download links. */
+/** The demo and the download links. */
 async function interactions(browser) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const { outside, problems } = watch(page);
@@ -124,11 +124,6 @@ async function interactions(browser) {
   const size = await page.locator(".demo-meta div:last-child dd").textContent();
   check("the demo encrypts what's typed, padded to 256-byte blocks", size === "512 bytes", size ?? "");
   check("the demo's message shows what was typed", (await page.locator(".demo-bubble").textContent()) === "x".repeat(300));
-
-  await page.getByRole("radio", { name: "Green" }).click();
-  check("the accent switcher recolors the page", (await page.evaluate(() => document.documentElement.dataset.accent)) === "green");
-  await page.getByRole("radio", { name: "Neutral" }).click();
-  check("and goes back to neutral", (await page.evaluate(() => document.documentElement.dataset.accent)) === undefined);
 
   const downloads = await page.locator("#download .platform a.button").evaluateAll((links) => links.map((a) => a.href));
   check("Windows, macOS and Linux each have a download", downloads.length === 3, String(downloads.length));

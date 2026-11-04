@@ -1,7 +1,7 @@
 import { Bookmark, ChevronDown, Hash, Lock, Mic, Paperclip, Pin, Search, Send, Settings, Smile, SquarePen, Users, Volume2 } from "lucide-react";
 
 /**
- * The desktop app, drawn with its own colors so it's sharp at any size and takes the accent switcher.
+ * The desktop app, drawn with its own colors so it's sharp at any size.
  * It follows the layout of packages/ui: the server rail, the conversation list, the open chat.
  */
 export function AppWindow() {
