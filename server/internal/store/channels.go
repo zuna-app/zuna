@@ -25,13 +25,16 @@ type Channel struct {
 	CreatedAt   int64  `json:"created_at"`
 	// Whether the soundboard can be played in a voice channel.
 	Sounds bool `json:"sounds"`
+	// Slow mode: how long each person waits between messages, in seconds, or 0. It
+	// doesn't hold back the channel's admins.
+	SlowMode int `json:"slow_mode"`
 }
 
-const channelColumns = `id, type, position, user_limit, screen_limit, details, created_by, created_at, sounds`
+const channelColumns = `id, type, position, user_limit, screen_limit, details, created_by, created_at, sounds, slow_mode`
 
 func scanChannel(row interface{ Scan(...any) error }) (*Channel, error) {
 	var c Channel
-	if err := row.Scan(&c.ID, &c.Type, &c.Position, &c.UserLimit, &c.ScreenLimit, &c.Details, &c.CreatedBy, &c.CreatedAt, &c.Sounds); err != nil {
+	if err := row.Scan(&c.ID, &c.Type, &c.Position, &c.UserLimit, &c.ScreenLimit, &c.Details, &c.CreatedBy, &c.CreatedAt, &c.Sounds, &c.SlowMode); err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -65,7 +68,7 @@ func (d *DB) Channel(ctx context.Context, id string) (*Channel, error) {
 
 // CreateChannel makes a channel at the end of the list, with its creator as its
 // first member. Everyone else joins by themselves.
-func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit, screenLimit int, sounds bool, proof []byte) (*Channel, error) {
+func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit, screenLimit int, sounds bool, slowMode int, proof []byte) (*Channel, error) {
 	now := Now()
 	err := d.tx(ctx, func(tx *sql.Tx) error {
 		var count, last int64
@@ -81,8 +84,8 @@ func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string,
 			}
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(id, type, position, user_limit, screen_limit, sounds, details, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
-			id, channelType, last+1, userLimit, screenLimit, sounds, details, creator, now); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO channels(id, type, position, user_limit, screen_limit, sounds, slow_mode, details, created_by, created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			id, channelType, last+1, userLimit, screenLimit, sounds, slowMode, details, creator, now); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at, proof) VALUES(?, ?, 'admin', ?, ?)`, id, creator, now, proof)
@@ -94,10 +97,10 @@ func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string,
 	return d.Channel(ctx, id)
 }
 
-// UpdateChannel replaces a channel's sealed details and, if given, its limits and whether
-// the soundboard plays there.
-func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userLimit, screenLimit *int, sounds *bool) error {
-	res, err := d.sql.ExecContext(ctx, `UPDATE channels SET details = ?, user_limit = COALESCE(?, user_limit), screen_limit = COALESCE(?, screen_limit), sounds = COALESCE(?, sounds) WHERE id = ?`, details, userLimit, screenLimit, sounds, id)
+// UpdateChannel replaces a channel's sealed details and, if given, its limits, whether
+// the soundboard plays there, and its slow mode.
+func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userLimit, screenLimit *int, sounds *bool, slowMode *int) error {
+	res, err := d.sql.ExecContext(ctx, `UPDATE channels SET details = ?, user_limit = COALESCE(?, user_limit), screen_limit = COALESCE(?, screen_limit), sounds = COALESCE(?, sounds), slow_mode = COALESCE(?, slow_mode) WHERE id = ?`, details, userLimit, screenLimit, sounds, slowMode, id)
 	if err != nil {
 		return err
 	}
@@ -105,6 +108,35 @@ func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userL
 		return ErrNotFound
 	}
 	return nil
+}
+
+// takeSlowModeTurn refuses a message in a channel whose slow mode still holds its sender
+// back, and otherwise notes when they sent it. The channel's admins aren't held back,
+// and a group that isn't a channel has nothing to check.
+func takeSlowModeTurn(ctx context.Context, tx *sql.Tx, groupID, userID string, now int64) error {
+	var slowMode int64
+	var role string
+	err := tx.QueryRowContext(ctx, `SELECT c.slow_mode, COALESCE(m.role, '') FROM channels c
+		LEFT JOIN group_members m ON m.group_id = c.id AND m.user_id = ? WHERE c.id = ?`, userID, groupID).Scan(&slowMode, &role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if slowMode > 0 && role != "admin" {
+		var last int64
+		switch err := tx.QueryRowContext(ctx, `SELECT sent_at FROM channel_sends WHERE channel_id = ? AND user_id = ?`, groupID, userID).Scan(&last); {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return err
+		case last+slowMode*1000 > now:
+			return &SlowModeError{Wait: last + slowMode*1000 - now}
+		}
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO channel_sends(channel_id, user_id, sent_at) VALUES(?,?,?)
+		ON CONFLICT(channel_id, user_id) DO UPDATE SET sent_at = excluded.sent_at`, groupID, userID, now)
+	return err
 }
 
 // OrderChannels puts the listed channels in that order. Those left out, such as

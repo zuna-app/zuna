@@ -146,6 +146,45 @@ describe("text channels", () => {
     await waitFor(() => bob.events.some((event) => event.type === "message" && event.message.id === received(alice, "delete me")?.id && event.message.deletedAt !== null), "bob to see it gone");
   });
 
+  it("hold each person back in slow mode, but not admins, sending what waited once it may go", async () => {
+    const id = await alice.session.createChannel({ type: "text", name: "slow" });
+    const key = `group:${id}`;
+    await waitFor(() => joined(bob, id), "bob to come into the channel");
+    const conversation = (app: TestApp) => channel(app, "slow")!.conversation!;
+    expect(channel(bob, "slow")!.slowMode).toBe(0);
+    await expect(bob.session.updateChannel(id, { slowMode: 2 })).rejects.toThrow();
+    await alice.session.updateChannel(id, { slowMode: 2 });
+    await waitFor(() => channel(bob, "slow")?.slowMode === 2, "bob to see slow mode on");
+    expect(conversation(bob)).toMatchObject({ slowMode: 2, slowUntil: 0 });
+
+    // The wait shows as soon as a message is on its way.
+    bob.session.sendMessage(key, { text: "slow first" });
+    expect(conversation(bob).slowUntil).toBeGreaterThan(Date.now() + 1500);
+    await waitFor(() => !!received(alice, "slow first"), "alice to get the first");
+
+    // One sent anyway waits, for this chat alone, and goes by itself once it may.
+    const sentAt = Date.now();
+    bob.session.sendMessage(key, { text: "slow second" });
+    bob.session.sendMessage(`user:${alice.userId}`, { text: "not held back" });
+    await waitFor(() => !!received(alice, "not held back"), "a direct message to go meanwhile");
+    expect(received(alice, "slow second")).toBeUndefined();
+    await waitFor(() => !!received(alice, "slow second"), "the second to go after the wait");
+    expect(Date.now() - sentAt).toBeGreaterThan(1000);
+    expect(received(bob, "slow second")).toBeDefined();
+    expect(conversation(bob).slowUntil).toBeGreaterThan(Date.now());
+
+    // Admins aren't held back.
+    alice.session.sendMessage(key, { text: "admin one" });
+    alice.session.sendMessage(key, { text: "admin two" });
+    expect(conversation(alice).slowUntil).toBe(0);
+    await waitFor(() => !!received(bob, "admin two"), "bob to get both of alice's");
+
+    // Off again, nothing waits.
+    await alice.session.updateChannel(id, { slowMode: 0 });
+    await waitFor(() => channel(bob, "slow")?.slowMode === 0, "bob to see slow mode off");
+    expect(conversation(bob).slowUntil).toBe(0);
+  });
+
   it("refuse an older copy of their details", async () => {
     const id = await alice.session.createChannel({ type: "text", name: "versioned" });
     await waitFor(() => joined(bob, id), "bob to come in");

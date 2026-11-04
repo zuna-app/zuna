@@ -27,8 +27,18 @@ struct Composer: View {
     /// The finger is on the microphone; how far it slid to the left, toward cancelling.
     @State private var holding = false
     @State private var slide: CGFloat = 0
+    /// When the message just sent from here lets the next one go in slow mode (ms), until the core says.
+    @State private var sentUntil: Double = 0
+    /// Moves on while slow mode holds back the next message, for its countdown.
+    @State private var now = Date.now
 
     private var isRecording: Bool { recorder.isRecording || round.isRecording }
+
+    private var slowUntil: Double { conversation.slowMode > 0 ? max(conversation.slowUntil, sentUntil) : 0 }
+    /// How many seconds until the channel's slow mode lets the next message go, or 0.
+    private var slowWait: Int { max(0, Int((slowUntil - now.timeIntervalSince1970 * 1000) / 1000 + 0.999)) }
+    /// Slow mode holds back a new message, and a voice or video message with it, while what's written waits. An edit isn't held back.
+    private var waiting: Bool { slowWait > 0 && state.editing == nil }
 
     private static let maxSuggestions = 8
 
@@ -116,7 +126,18 @@ struct Composer: View {
                     .background(Theme.bg2, in: .rect(cornerRadius: 19, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 19, style: .continuous).stroke(Theme.line))
                 }
-                if !state.canSend && state.editing == nil {
+                if waiting {
+                    Text(Format.wait(slowWait))
+                        .font(.footnote.weight(.semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.text2)
+                        .padding(.horizontal, 6)
+                        .frame(minWidth: 36, minHeight: 36)
+                        .background(Theme.bg3, in: .capsule)
+                        .padding(.bottom, 1)
+                        .accessibilityLabel("Slow mode: you can send again in \(Format.wait(slowWait))")
+                        .accessibilityIdentifier(A11y.Composer.slowWait)
+                } else if !state.canSend && state.editing == nil {
                     microphone
                 } else {
                     Button(action: send) {
@@ -135,6 +156,13 @@ struct Composer: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+        }
+        .task(id: slowUntil) {
+            now = .now
+            while slowUntil > Date.now.timeIntervalSince1970 * 1000 {
+                try? await Task.sleep(for: .milliseconds(250))
+                now = .now
+            }
         }
         .background(Theme.bg0)
         .overlay(alignment: .top) { Divider().overlay(Theme.line) }
@@ -276,13 +304,25 @@ struct Composer: View {
     }
 
     private var placeholder: String {
+        // As Telegram says it, while the countdown is where the send button was.
+        if conversation.slowMode > 0 { return "Slow mode: \(Format.timer(conversation.slowMode))" }
         if conversation.kind == .channel { return "Message #\(conversation.title)" }
         return conversation.peerId != nil && conversation.peerId == server.me?.userId ? "Write a note to yourself" : "Message \(conversation.title)"
     }
 
     private func send() {
+        // What's written stays until it may go.
+        guard !waiting else { return }
+        let sending = state.canSend && state.editing == nil
         model.sendComposer(serverId, conversation)
+        if sending { startSlowWait() }
         selection = nil
+    }
+
+    /// A message is on its way, so in slow mode the next one waits from now, unless you're an admin.
+    private func startSlowWait() {
+        let admin = conversation.members.contains { $0.userId == server.me?.userId && $0.role == .admin }
+        if conversation.slowMode > 0 && !admin { sentUntil = Date.now.timeIntervalSince1970 * 1000 + Double(conversation.slowMode) * 1000 }
     }
 
     // MARK: Reply and edit
@@ -423,6 +463,7 @@ struct Composer: View {
                         return
                     }
                     model.sendRound(serverId, conversation, recording)
+                    startSlowWait()
                 } catch {
                     model.toast(OnboardingText.describe(error), .error)
                 }
@@ -438,6 +479,7 @@ struct Composer: View {
                 return
             }
             model.sendVoice(serverId, conversation, recording)
+            startSlowWait()
         } catch {
             model.toast(OnboardingText.describe(error), .error)
         }

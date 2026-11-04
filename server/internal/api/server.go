@@ -715,6 +715,7 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 func writeFailure(w http.ResponseWriter, err error) {
 	var conflict *store.EpochConflictError
 	var stale *store.GenerationConflictError
+	var slow *store.SlowModeError
 	switch {
 	case errors.As(err, &conflict):
 		writeJSON(w, http.StatusConflict, map[string]any{
@@ -727,6 +728,13 @@ func writeFailure(w http.ResponseWriter, err error) {
 			"error":      "stale_generation",
 			"message":    "This account's keys changed. Catch up and retry.",
 			"generation": stale.Current,
+		})
+	case errors.As(err, &slow):
+		w.Header().Set("Retry-After", strconv.FormatInt((slow.Wait+999)/1000, 10))
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{
+			"error":   "slow_mode",
+			"message": "Slow mode is on in this channel, so your next message has to wait.",
+			"wait_ms": slow.Wait,
 		})
 	case errors.Is(err, store.ErrDevicesChanged):
 		writeError(w, http.StatusConflict, "devices_changed", "This account's devices changed. Look again and retry.")

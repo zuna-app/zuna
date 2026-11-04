@@ -373,6 +373,7 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE messages DROP COLUMN pin_by;
 		DROP INDEX messages_expires;
 		ALTER TABLE messages DROP COLUMN expires_at;
+		DROP TABLE channel_sends;
 		DROP TABLE channels;
 		ALTER TABLE group_members DROP COLUMN proof;
 		ALTER TABLE group_members DROP COLUMN history_wanted;

@@ -223,6 +223,82 @@ func TestChannelMessagesArentPushedOrReadByOthers(t *testing.T) {
 	}
 }
 
+func TestSlowModeHoldsBackEachPersonButNotAdmins(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	member := h.register("member", owner.newInvite())
+	carol := h.register("carol", owner.newInvite())
+	channel := owner.createChannel("text", 0)
+	if channel.SlowMode != 0 {
+		t.Fatalf("a new channel starts with a slow mode of %d s", channel.SlowMode)
+	}
+	member.joinChannel(channel.ID, false)
+	carol.joinChannel(channel.ID, false)
+	owner.commit(channel.ID, 0, nil)
+	message := func(c *client, id string) (int, map[string]any) {
+		return h.do("POST", "/api/groups/"+channel.ID+"/messages", c.token, map[string]any{"id": id, "epoch": 1, "envelope": []byte("ciphertext-" + id)}, nil)
+	}
+	slowMode := func(c *client, seconds int) int {
+		status, _ := h.do("PATCH", "/api/channels/"+channel.ID, c.token, map[string]any{"details": []byte("sealed"), "slow_mode": seconds}, nil)
+		return status
+	}
+
+	// Off, nothing waits.
+	first := store.NewID()
+	member.send(channel.ID, 1, first)
+	member.send(channel.ID, 1, store.NewID())
+
+	if status := slowMode(member, 30); status != http.StatusForbidden {
+		t.Fatalf("a member setting slow mode got %d", status)
+	}
+	if status := slowMode(owner, 6*60*60+1); status != http.StatusBadRequest {
+		t.Fatalf("a slow mode over six hours got %d", status)
+	}
+	if status := slowMode(owner, 60); status != http.StatusOK {
+		t.Fatalf("setting slow mode got %d", status)
+	}
+	var list struct {
+		Channels []*store.Channel `json:"channels"`
+	}
+	h.mustDo("GET", "/api/channels", member.token, nil, &list)
+	if len(list.Channels) != 1 || list.Channels[0].SlowMode != 60 {
+		t.Fatalf("the channel list says %+v", list.Channels[0])
+	}
+
+	// Their last message was a moment ago, so the next waits for the rest of the minute.
+	status, body := message(member, store.NewID())
+	if wait, _ := body["wait_ms"].(float64); status != http.StatusTooManyRequests || body["error"] != "slow_mode" || wait <= 55_000 || wait > 60_000 {
+		t.Fatalf("a message during slow mode got %d %v", status, body)
+	}
+	// A message that already arrived, sent again, isn't a new one.
+	if status, body := message(member, first); status >= 300 {
+		t.Fatalf("a retry of a message that arrived got %d %v", status, body)
+	}
+	// Each person waits on their own, and admins don't.
+	carol.send(channel.ID, 1, store.NewID())
+	if status, _ := message(carol, store.NewID()); status != http.StatusTooManyRequests {
+		t.Fatalf("carol's second message got %d", status)
+	}
+	owner.send(channel.ID, 1, store.NewID())
+	owner.send(channel.ID, 1, store.NewID())
+
+	// Once the wait is over, one more goes.
+	if status := slowMode(owner, 1); status != http.StatusOK {
+		t.Fatalf("shortening slow mode got %d", status)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	member.send(channel.ID, 1, store.NewID())
+	if status, _ := message(member, store.NewID()); status != http.StatusTooManyRequests {
+		t.Fatalf("a message straight after got %d", status)
+	}
+
+	// Turned off, nothing waits again.
+	if status := slowMode(owner, 0); status != http.StatusOK {
+		t.Fatalf("turning slow mode off got %d", status)
+	}
+	member.send(channel.ID, 1, store.NewID())
+}
+
 func TestVoiceTokensAreForMembersOfVoiceChannels(t *testing.T) {
 	h := newHarness(t, withLiveKit("wss://voice.example"))
 	owner := h.owner()

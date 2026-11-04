@@ -208,7 +208,22 @@ function ChannelTyping({ conversation }: { conversation: ConversationView }) {
           </span>
         </>
       )}
+      {conversation.slowMode > 0 && <SlowMode conversation={conversation} />}
     </div>
+  );
+}
+
+/** That slow mode is on, at the right of the line under the box, as in Discord. How long until you may send again is where the send button was. */
+function SlowMode({ conversation }: { conversation: ConversationView }) {
+  return (
+    <span className="channel-slow">
+      <Tooltip text={`One message every ${timerText(conversation.slowMode)} for each person, except admins`} side="top">
+        <span className="channel-slow-text">
+          <Timer size={14} />
+          Slow mode is on
+        </span>
+      </Tooltip>
+    </span>
   );
 }
 

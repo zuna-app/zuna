@@ -131,6 +131,8 @@ export interface ApiChannel {
   screen_limit?: number;
   /** Whether the soundboard plays there. Absent on a server from before it had one. */
   sounds?: boolean;
+  /** Slow mode: how long each person waits between messages, in seconds, or 0. Absent on a server from before it. */
+  slow_mode?: number;
   details: string;
   created_by: string;
   created_at: number;
@@ -274,6 +276,11 @@ export class Api {
   prove: ((input: Uint8Array) => Uint8Array) | null = null;
   /** How far the server's clock is from this device's, once a proof has shown it's off. */
   private clockOffset = 0;
+
+  /** How far the server's clock is ahead of this device's, as far as is known. */
+  get serverAhead(): number {
+    return this.clockOffset;
+  }
 
   constructor(readonly baseUrl: string) {}
 
@@ -433,10 +440,10 @@ export class Api {
 
   // Channels and voice
   channels = () => this.request<{ channels: ApiChannel[]; voice: ApiVoiceState[] }>("GET", "/api/channels");
-  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; sounds?: boolean; proof: Uint8Array }) =>
+  createChannel = (body: { id: string; type: "text" | "voice"; details: Uint8Array; user_limit: number; screen_limit: number; sounds?: boolean; slow_mode?: number; proof: Uint8Array }) =>
     this.request<{ channel: ApiChannel; group: ApiGroup }>("POST", "/api/channels", body);
-  updateChannel = (id: string, details: Uint8Array, userLimit?: number, screenLimit?: number, sounds?: boolean) =>
-    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit, screen_limit: screenLimit, sounds });
+  updateChannel = (id: string, details: Uint8Array, userLimit?: number, screenLimit?: number, sounds?: boolean, slowMode?: number) =>
+    this.request("PATCH", at`/api/channels/${id}`, { details, user_limit: userLimit, screen_limit: screenLimit, sounds, slow_mode: slowMode });
   orderChannels = (ids: string[]) => this.request("PUT", "/api/channels/order", { ids });
   deleteChannel = (id: string) => this.request("DELETE", at`/api/channels/${id}`);
   joinChannel = (id: string, proof: Uint8Array, wantHistory: boolean) =>

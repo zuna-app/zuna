@@ -134,11 +134,14 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quo
 		if err := countBytes(ctx, tx, storedBytes, m.SenderUser, int64(len(m.Envelope)), quota); err != nil {
 			return err
 		}
+		now := Now()
+		if err := takeSlowModeTurn(ctx, tx, m.GroupID, m.SenderUser, now); err != nil {
+			return err
+		}
 		seq, err := nextSeq(ctx, tx, m.GroupID)
 		if err != nil {
 			return err
 		}
-		now := Now()
 		var expiresAt *int64
 		if expiresIn > 0 {
 			at := now + expiresIn

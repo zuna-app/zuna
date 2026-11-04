@@ -2,8 +2,8 @@ import SwiftUI
 import ZunaModels
 
 /// Making a channel, or changing one, for a server admin, as the desktop's
-/// ChannelDialog: for a voice channel, also its sound, how many fit, and how
-/// many can share a screen there.
+/// ChannelDialog: its slow mode, and for a voice channel also its sound, how many
+/// fit, and how many can share a screen there.
 struct ChannelEditor: View {
     enum Target: Identifiable, Hashable {
         case new(ChannelType, category: String)
@@ -32,6 +32,9 @@ struct ChannelEditor: View {
     @State private var userLimit = 0
     @State private var screenLimit = 0
     @State private var sounds = true
+    @State private var slowOn = false
+    /// Slow mode's time, in seconds, kept while it's off so turning it on again brings it back.
+    @State private var slowMode = 30
     @State private var loaded = false
     @State private var busy = false
     @State private var confirmingDelete = false
@@ -61,6 +64,10 @@ struct ChannelEditor: View {
     private var screenLimits: [Int] {
         let offered = [0, -1, 1, 2, 3, 4, 5, 10]
         return offered.contains(screenLimit) ? offered : offered + [screenLimit]
+    }
+
+    private var slowModes: [Int] {
+        Format.slowModeTimes.contains(slowMode) ? Format.slowModeTimes : Format.slowModeTimes + [slowMode]
     }
 
     /// Text channels go by lowercase names with dashes, as in Discord, which also keeps them easy to mention.
@@ -128,6 +135,20 @@ struct ChannelEditor: View {
                     Text("Heading")
                 } footer: {
                     Text("Channels with the same heading are listed together under it.")
+                }
+                Section {
+                    Toggle("Slow mode", isOn: $slowOn)
+                        .accessibilityIdentifier(A11y.Channels.editorSlowMode)
+                    if slowOn {
+                        Picker("Time between messages", selection: $slowMode) {
+                            ForEach(slowModes, id: \.self) { seconds in
+                                Text(Format.timer(seconds)).tag(seconds)
+                            }
+                        }
+                        .accessibilityIdentifier(A11y.Channels.editorSlowModeTime)
+                    }
+                } footer: {
+                    Text("Each person waits between messages, except admins.")
                 }
                 if type == .voice {
                     voiceSection
@@ -216,6 +237,8 @@ struct ChannelEditor: View {
             userLimit = channel.userLimit
             screenLimit = channel.screenLimit
             sounds = channel.sounds
+            slowOn = channel.slowMode > 0
+            if channel.slowMode > 0 { slowMode = channel.slowMode }
         }
     }
 
@@ -230,7 +253,8 @@ struct ChannelEditor: View {
             bitrate: voice ? bitrate : nil,
             userLimit: voice ? userLimit : nil,
             screenLimit: voice ? screenLimit : nil,
-            sounds: voice ? sounds : nil
+            sounds: voice ? sounds : nil,
+            slowMode: slowOn ? slowMode : nil
         )
         let channel = channel
         busy = true
@@ -238,7 +262,7 @@ struct ChannelEditor: View {
             defer { busy = false }
             do {
                 if let channel {
-                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit, sounds: made.sounds))
+                    try await session.updateChannel(channel.id, ChannelChanges(name: made.name, topic: made.topic, category: made.category, bitrate: made.bitrate, userLimit: made.userLimit, screenLimit: made.screenLimit, sounds: made.sounds, slowMode: slowOn ? slowMode : 0))
                     dismiss()
                 } else {
                     let id = try await session.createChannel(made)

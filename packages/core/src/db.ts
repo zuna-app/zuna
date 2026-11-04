@@ -145,6 +145,8 @@ const MIGRATIONS: string[] = [
   // A mention of this account, or a reply to it, that was jumped to before the chat
   // was read that far, so it no longer counts as waiting.
   `ALTER TABLE messages ADD COLUMN mention_seen INTEGER NOT NULL DEFAULT 0;`,
+  // Someone's own last message in a channel, which its slow mode counts from.
+  `CREATE INDEX messages_sender ON messages(group_id, sender_user, created_at);`,
 ];
 
 export function migrate(db: LocalDb): void {

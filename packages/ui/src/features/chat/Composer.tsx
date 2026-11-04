@@ -10,6 +10,7 @@ import { Avatar, PopupMenu, Tooltip } from "@/components/ui";
 import { focusComposer, registerComposer } from "@/lib/focus";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { MAX_ROUND_SECONDS, ROUND_SIZE, RoundRecorder } from "@/lib/round";
+import { useSlowWait, waitText } from "@/lib/slow-mode";
 import { MAX_VOICE_SECONDS, VoiceRecorder } from "@/lib/voice";
 import { prepareFile, type PreparedFile } from "@/lib/media";
 import type { NotificationReply } from "@/platform";
@@ -94,6 +95,15 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const settings = useApp((state) => state.settings);
   const replyTo = useApp((state) => state.replyTo[listId] ?? null);
   const isChannel = conversation.kind === "channel";
+  /** When the message just sent from here lets the next go, in this chat, until the core says. */
+  const [sent, setSent] = useState<{ key: string; until: number } | null>(null);
+  /** How long the channel's slow mode still holds back the next message, in seconds. Editing one isn't held back. */
+  const slowWait = useSlowWait(conversation, sent?.key === conversation.key ? sent.until : 0);
+  /** A message is on its way, so in slow mode the next one waits from now, unless you're an admin. */
+  const startSlowWait = () => {
+    const admin = conversation.members.some((member) => member.userId === server?.self?.userId && member.role === "admin");
+    if (conversation.slowMode > 0 && !admin) setSent({ key: conversation.key, until: Date.now() + conversation.slowMode * 1000 });
+  };
   // A channel's messages are edited where they are, so its message box only ever writes new ones.
   const editing = useApp((state) => (isChannel ? null : (state.editing[listId] ?? null)));
   const setReply = useApp((state) => state.setReply);
@@ -264,6 +274,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
       focusComposer();
       return;
     }
+    // What's written stays until it may go.
+    if (slowWait > 0) return;
     const body = {
       text: value || undefined,
       replyTo: replyTo?.id,
@@ -291,6 +303,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         .sendMessage(conversation.key, body, options)
         .catch((error: Error) => toast(error.message, "error"));
     }
+    startSlowWait();
     // From a window of older messages, sending goes back to the newest.
     if (useApp.getState().lists[listId]?.detached) void useApp.getState().returnToLatest(listId);
     setText("");
@@ -338,6 +351,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         { replyTo: replyTo?.id },
       )
       .catch((error: Error) => toast(error.message, "error"));
+    startSlowWait();
     setReply(listId, null);
   };
 
@@ -377,6 +391,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
         { replyTo: replyTo?.id },
       )
       .catch((error: Error) => toast(error.message, "error"));
+    startSlowWait();
     setReply(listId, null);
   };
 
@@ -492,6 +507,8 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
   const context: MessageView | null = editing ?? replyTo;
   const contextSender = context ? (context.senderId === server?.self?.userId ? "yourself" : (users[context.senderId]?.displayName ?? "Unknown")) : "";
   const canSend = !!text.trim() || files.length > 0;
+  // Slow mode holds back a new message, and a voice or video message with it, while what's written waits.
+  const waiting = slowWait > 0 && !editing;
 
   return (
     <div className={`composer-area${isChannel ? " is-channel" : ""}`}>
@@ -687,14 +704,18 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
                 <Smile size={18} />
               </button>
             </Tooltip>
-            {!canSend && !editing && (
+            {!canSend && !editing && !waiting && (
               <Tooltip text="Record a video message" side="top">
                 <button className="icon-btn" onClick={() => void startRound()} aria-label="Record a video message">
                   <Video size={18} />
                 </button>
               </Tooltip>
             )}
-            {!canSend && !editing ? (
+            {waiting ? (
+              <span className="send-button is-waiting" role="timer" aria-label={`Slow mode: you can send again in ${waitText(slowWait)}`}>
+                {waitText(slowWait)}
+              </span>
+            ) : !canSend && !editing ? (
               <Tooltip text="Record a voice message" side="top">
                 <button className="send-button is-ready" onClick={() => void startRecording()} aria-label="Record a voice message">
                   <Mic size={18} />

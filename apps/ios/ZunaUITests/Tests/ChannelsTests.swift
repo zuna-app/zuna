@@ -256,9 +256,15 @@ final class ChannelsTests: XCTestCase {
         let topic = zuna.element(A11y.Channels.editorTopic)
         topic.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
         topic.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 30) + "Who drives, and where we stop")
+        // Slow mode, off until it's turned on, at a time chosen from the desktop's.
+        let slowMode = zuna.app.switches[A11y.Channels.editorSlowMode]
+        XCTAssertEqual(slowMode.value as? String, "0")
+        slowMode.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        choose("10 seconds", in: A11y.Channels.editorSlowModeTime)
         zuna.element(A11y.Channels.editorSave).tap()
-        try waitFor("carol to see the new topic", timeout: 20) {
-            try self.channels(carol).first { $0["id"] as? String == made }?["topic"] as? String == "Who drives, and where we stop"
+        try waitFor("carol to see the new topic and slow mode", timeout: 20) {
+            let channel = try self.channels(carol).first { $0["id"] as? String == made }
+            return channel?["topic"] as? String == "Who drives, and where we stop" && channel?["slowMode"] as? Int == 10
         }
         XCTAssertEqual(zuna.element(A11y.Chat.status).label, "Who drives, and where we stop")
 
@@ -273,6 +279,41 @@ final class ChannelsTests: XCTestCase {
         try waitFor("carol to lose it", timeout: 20) { try !self.channels(carol).contains { $0["id"] as? String == made } }
         try waitFor("back at the list") { self.zuna.element(A11y.Channels.heading("Text channels")).exists }
         XCTAssertFalse(zuna.element(A11y.Channels.row(made)).exists)
+    }
+
+    func testHoldsBackTheNextMessageInSlowMode() throws {
+        let alice = try Peer("alice")
+        let made = try XCTUnwrap(try alice.call("createChannel", [["type": "text", "name": "slow-lane"]]) as? String)
+        defer { _ = try? alice.call("deleteChannel", [made]) }
+        _ = try alice.call("updateChannel", [made, ["slowMode": 5]])
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        zuna.tab("Channels").tap()
+        let row = zuna.element(A11y.Channels.row(made))
+        XCTAssertTrue(row.waitForExistence(timeout: 30))
+        try waitFor("the phone to come into it", timeout: 30) {
+            (try self.appChannel(made)?["conversation"] as? [String: Any])?["ready"] as? Bool == true
+        }
+        row.tap()
+
+        // The box says so, and once a message goes, the next waits, with the time where the send button was.
+        XCTAssertEqual(zuna.element(A11y.Composer.input).placeholderValue, "Slow mode: 5 seconds")
+        type("First, at once")
+        zuna.element(A11y.Composer.send).tap()
+        let wait = zuna.element(A11y.Composer.slowWait)
+        XCTAssertTrue(wait.waitForExistence(timeout: 2))
+        type("Second, after the wait")
+        XCTAssertFalse(zuna.element(A11y.Composer.send).exists)
+        zuna.screenshot("94b-slow-mode")
+        try waitFor("alice to get the first") { try self.messages(alice, in: made).contains { $0["text"] as? String == "First, at once" } }
+
+        // Once it's over, the send button is back, and the second goes.
+        let send = zuna.element(A11y.Composer.send)
+        XCTAssertTrue(send.waitForExistence(timeout: 10))
+        XCTAssertFalse(wait.exists)
+        send.tap()
+        try waitFor("alice to get the second") { try self.messages(alice, in: made).contains { $0["text"] as? String == "Second, after the wait" } }
     }
 
     /// Picks an option from one of the editor's menus.

@@ -382,6 +382,14 @@ type Mutex = Promise<unknown>;
 const emptyProfile = (username: string): Profile => ({ displayName: username });
 
 const MESSAGE_ID = /^[0-9a-f]{32}$/;
+/** The longest slow mode a server allows, in seconds. */
+const MAX_SLOW_MODE = 6 * 3600;
+
+/** A channel's slow mode as the server says, in seconds, within what it allows. */
+const slowModeOf = (api: ApiChannel | undefined): number => {
+  const seconds = api?.slow_mode ?? 0;
+  return Number.isSafeInteger(seconds) && seconds > 0 ? Math.min(seconds, MAX_SLOW_MODE) : 0;
+};
 
 /** What the server says about a message, which has to at least have the right shape. */
 const validApiMessage = (message: ApiMessage): boolean =>
@@ -485,6 +493,8 @@ export class ServerSession {
   private lastTypingSent = new Map<string, number>();
   private flushing: Promise<void> | null = null;
   private flushRetry: ReturnType<typeof setTimeout> | undefined;
+  /** Chats whose next message a channel's slow mode holds back, by conversation key, and until when (ms). */
+  private slowHeld = new Map<string, number>();
   /** Updates the conversations when the next chat muted for a while is heard again. */
   private muteTimer: ReturnType<typeof setTimeout> | undefined;
   /** Erases the next disappearing message when it's due, and when that is (ms). */
@@ -4487,6 +4497,8 @@ export class ServerSession {
         ready: false,
         removed: false,
         disappearAfter: 0,
+        slowMode: 0,
+        slowUntil: 0,
       });
     }
     return out.sort(
@@ -4541,7 +4553,30 @@ export class ServerSession {
       ready: group.epoch > 0 && !group.removedAt && (group.kind !== "channel" || this.hasMlsGroup(group.id)),
       removed: !!group.removedAt,
       disappearAfter: this.disappearAfter(group),
+      slowMode: group.kind === "channel" ? slowModeOf(this.channels.get(group.id)?.api) : 0,
+      slowUntil: this.slowUntil(group, now),
     };
+  }
+
+  /**
+   * When a channel's slow mode lets this person send there again, from the last message
+   * any of their devices sent, or one still going from here, or what the server said
+   * when it held one back. The server decides; this is only for showing it.
+   */
+  private slowUntil(group: CachedGroup, now: number): number {
+    const slowMode = group.kind === "channel" ? slowModeOf(this.channels.get(group.id)?.api) : 0;
+    if (slowMode === 0 || group.members.some((member) => member.userId === this.account.userId && member.role === "admin")) return 0;
+    const own = this.db.get<{ sent: number | null; going: number | null }>(
+      `SELECT MAX(CASE WHEN seq IS NOT NULL THEN created_at END) AS sent, MAX(CASE WHEN seq IS NULL AND status = 'sending' THEN created_at END) AS going
+       FROM messages WHERE group_id = ? AND sender_user = ?`,
+      [group.id, this.account.userId],
+    );
+    const held = this.slowHeld.get(this.conversationKey(group)) ?? 0;
+    // One still going goes once it's let through, and the wait starts again from there.
+    const going = own?.going ? Math.max(own.going, held, now) : 0;
+    const sent = Math.max((own?.sent ?? 0) - this.api.serverAhead, this.getKv<EarlierMessage>(`sent/${group.id}`)?.at ?? 0);
+    const until = Math.max(sent, going) + slowMode * 1000;
+    return until > now ? until : 0;
   }
 
   /**
@@ -4983,15 +5018,29 @@ export class ServerSession {
   private async runOutbox(): Promise<void> {
     clearTimeout(this.flushRetry);
     for (;;) {
+      // A chat that slow mode holds back waits, with everything after it there, but no other chat does.
+      const now = Date.now();
+      for (const [key, until] of this.slowHeld) if (until <= now) this.slowHeld.delete(key);
+      const held = [...this.slowHeld.keys()];
       const row = this.db.get<{ id: string; group_key: string; payload: Uint8Array }>(
-        "SELECT id, group_key, payload FROM outbox ORDER BY created_at LIMIT 1",
+        `SELECT id, group_key, payload FROM outbox WHERE group_key NOT IN (${held.map(() => "?").join(",")}) ORDER BY created_at LIMIT 1`,
+        held,
       );
-      if (!row || this.stopped) return;
+      if (!row || this.stopped) {
+        if (held.length > 0 && !this.stopped) this.flushRetry = setTimeout(() => void this.flushOutbox(), Math.min(...this.slowHeld.values()) - now);
+        return;
+      }
       const entry = this.openJson<OutboxEntry>("outbox", row.payload);
       try {
         await this.deliver(row.group_key, entry);
         this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
       } catch (error) {
+        if (error instanceof ApiError && error.code === "slow_mode") {
+          const wait = Number(error.body.wait_ms);
+          this.slowHeld.set(row.group_key, Date.now() + (Number.isFinite(wait) && wait > 0 ? Math.min(wait, MAX_SLOW_MODE * 1000) : 1000));
+          this.emitConversations();
+          continue;
+        }
         if (error instanceof ApiError && error.retryable) {
           this.flushRetry = setTimeout(() => void this.flushOutbox(), 5000);
           return;
@@ -5789,6 +5838,11 @@ export class ServerSession {
     this.setKv("channels", list);
     this.setKv("channel_versions", versions);
     this.emit({ type: "channels", serverId: this.serverId });
+    // A slow mode made shorter, or turned off, lets what it held back try again.
+    if (this.slowHeld.size > 0) {
+      this.slowHeld.clear();
+      void this.flushOutbox();
+    }
   }
 
   /** The server's channels and who's in them, then joining any this device isn't in yet. */
@@ -5889,6 +5943,7 @@ export class ServerSession {
           userLimit: api.user_limit,
           screenLimit: api.screen_limit ?? 0,
           sounds: api.sounds ?? false,
+          slowMode: slowModeOf(api),
           unreadable: !details,
           conversation: group && !group.removedAt ? this.conversationOf(group, now) : null,
         };
@@ -5896,7 +5951,7 @@ export class ServerSession {
   }
 
   /** Makes a channel, for a server admin. Everyone else's apps join it by themselves. */
-  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean }): Promise<string> {
+  async createChannel(input: { type: ChannelType; name: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; slowMode?: number }): Promise<string> {
     const id = randomId();
     const details = parseChannelDetails(input);
     if (!details) throw new Error("A channel needs a name.");
@@ -5909,6 +5964,8 @@ export class ServerSession {
       user_limit: input.userLimit ?? 0,
       screen_limit: input.screenLimit ?? 0,
       sounds: input.sounds,
+      // Only when it's on, which a server from before slow mode would refuse anyway.
+      slow_mode: input.slowMode || undefined,
       proof: channelProof(communityKey, id, this.account.userId),
     });
     if (created.group.id !== id || created.group.kind !== "channel" || created.channel.id !== id) {
@@ -5923,17 +5980,24 @@ export class ServerSession {
   }
 
   /** Changes what a channel says about itself, for a server admin. */
-  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean }): Promise<void> {
+  async updateChannel(id: string, changes: { name?: string; topic?: string; category?: string; bitrate?: number; userLimit?: number; screenLimit?: number; sounds?: boolean; slowMode?: number }): Promise<void> {
     const channel = this.channels.get(id);
     if (!channel) throw new Error("That channel doesn't exist.");
-    const { userLimit, screenLimit, sounds, ...text } = changes;
+    const { userLimit, screenLimit, sounds, slowMode, ...text } = changes;
     const details = parseChannelDetails({ ...channel.details, ...text });
     if (!details) throw new Error("A channel needs a name.");
     const version = channel.version + 1;
     const sealed = sealChannelDetails(this.account.core.communityKey, id, details, version, { userId: this.account.userId, deviceId: this.account.deviceId }, this.account.deviceSecret);
-    await this.api.updateChannel(id, sealed, userLimit, screenLimit, sounds);
+    await this.api.updateChannel(id, sealed, userLimit, screenLimit, sounds, slowMode);
     this.channels.set(id, {
-      api: { ...channel.api, details: toBase64(sealed), user_limit: userLimit ?? channel.api.user_limit, screen_limit: screenLimit ?? channel.api.screen_limit, sounds: sounds ?? channel.api.sounds },
+      api: {
+        ...channel.api,
+        details: toBase64(sealed),
+        user_limit: userLimit ?? channel.api.user_limit,
+        screen_limit: screenLimit ?? channel.api.screen_limit,
+        sounds: sounds ?? channel.api.sounds,
+        slow_mode: slowMode ?? channel.api.slow_mode,
+      },
       details,
       version,
     });

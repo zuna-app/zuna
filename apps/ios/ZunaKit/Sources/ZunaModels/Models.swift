@@ -413,6 +413,10 @@ public struct ConversationView: Codable, Sendable, Equatable, Identifiable {
     public var removed: Bool
     /// How long messages sent here now last, in seconds, or 0 if they don't disappear.
     public var disappearAfter: Int
+    /// In a channel with slow mode: how long each person waits between messages, in seconds, or 0.
+    public var slowMode: Int
+    /// When slow mode lets you send here again (ms), or 0 if it does now. Always 0 for the channel's admins, whom it doesn't hold back.
+    public var slowUntil: Double
 
     public var id: String { key }
 }
@@ -437,6 +441,8 @@ public struct ChannelView: Codable, Sendable, Equatable, Identifiable {
     public var screenLimit: Int
     /// For a voice channel: whether the soundboard plays there.
     public var sounds: Bool
+    /// Slow mode: how long each person waits between messages, in seconds, or 0 for off. It doesn't hold back the channel's admins.
+    public var slowMode: Int
     /// The details couldn't be read or checked, so they aren't shown.
     public var unreadable: Bool
     /// Nil until this device has joined it, which it does by itself.
@@ -588,8 +594,10 @@ public struct NewChannel: Codable, Sendable, Equatable {
     public var screenLimit: Int?
     /// For a voice channel: whether the soundboard plays there, which it does unless this says otherwise.
     public var sounds: Bool?
+    /// Slow mode, in seconds, or nil or 0 for off.
+    public var slowMode: Int?
 
-    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil) {
+    public init(type: ChannelType, name: String, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, slowMode: Int? = nil) {
         self.type = type
         self.name = name
         self.topic = topic
@@ -598,6 +606,7 @@ public struct NewChannel: Codable, Sendable, Equatable {
         self.userLimit = userLimit
         self.screenLimit = screenLimit
         self.sounds = sounds
+        self.slowMode = slowMode
     }
 }
 
@@ -611,8 +620,10 @@ public struct ChannelChanges: Codable, Sendable, Equatable {
     public var userLimit: Int?
     public var screenLimit: Int?
     public var sounds: Bool?
+    /// Slow mode, in seconds, or 0 to turn it off.
+    public var slowMode: Int?
 
-    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil) {
+    public init(name: String? = nil, topic: String? = nil, category: String? = nil, bitrate: Int? = nil, userLimit: Int? = nil, screenLimit: Int? = nil, sounds: Bool? = nil, slowMode: Int? = nil) {
         self.name = name
         self.topic = topic
         self.category = category
@@ -620,6 +631,7 @@ public struct ChannelChanges: Codable, Sendable, Equatable {
         self.userLimit = userLimit
         self.screenLimit = screenLimit
         self.sounds = sounds
+        self.slowMode = slowMode
     }
 }
 

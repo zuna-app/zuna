@@ -196,6 +196,9 @@ export interface SharedLocation {
 /** How long a chat's messages can be set to last, in seconds: an hour, a day, a week and a month. */
 export const DISAPPEARING_TIMES: readonly number[] = [3600, 86400, 7 * 86400, 30 * 86400];
 
+/** How long a channel's slow mode can hold each person back between messages, in seconds, as Discord's: 5 seconds to 6 hours. */
+export const SLOW_MODE_TIMES: readonly number[] = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600];
+
 /** A message a device sent: its ID, its epoch, and when, by that device's clock (ms). */
 export interface EarlierMessage {
   id: string;
@@ -344,6 +347,10 @@ export interface ConversationView {
   removed: boolean;
   /** How long messages sent here now last, in seconds, or 0 if they don't disappear. */
   disappearAfter: number;
+  /** In a channel with slow mode: how long each person waits between messages, in seconds, or 0. */
+  slowMode: number;
+  /** When slow mode lets you send here again (ms), or 0 if it does now. Always 0 for the channel's admins, whom it doesn't hold back. */
+  slowUntil: number;
 }
 
 /**
@@ -369,6 +376,8 @@ export interface ChannelView {
   screenLimit: number;
   /** For a voice channel: whether the soundboard plays there. */
   sounds: boolean;
+  /** Slow mode: how long each person waits between messages, in seconds, or 0 for off. It doesn't hold back the channel's admins. */
+  slowMode: number;
   /** The details couldn't be read or checked, so they aren't shown. */
   unreadable: boolean;
   /** Null until this device has joined it, which it does by itself. */

@@ -112,6 +112,15 @@ enum Format {
     /// How long a chat's messages can be set to last, as the core offers: an hour, a day, a week and a month.
     static let disappearingTimes = [3600, 86400, 7 * 86400, 30 * 86400]
 
+    /// How long a channel's slow mode can hold each person back, as the core offers (SLOW_MODE_TIMES): 5 seconds to 6 hours.
+    static let slowModeTimes = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600]
+
+    /// A wait as a clock shows it, as the desktop's waitText: "0:24", "4:59" or "1:59:59".
+    static func wait(_ seconds: Int) -> String {
+        let hours = seconds / 3600, minutes = seconds % 3600 / 60, rest = seconds % 60
+        return hours > 0 ? String(format: "%d:%02d:%02d", hours, minutes, rest) : String(format: "%d:%02d", minutes, rest)
+    }
+
     /// The preview under a conversation's title, as the desktop builds it.
     static func preview(_ message: MessageView?, users: [String: UserView], selfId: String, kind: GroupKind) -> (author: String?, body: String) {
         guard let message else { return (nil, "") }

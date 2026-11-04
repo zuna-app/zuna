@@ -34,6 +34,14 @@ func (e *EpochConflictError) Error() string {
 	return fmt.Sprintf("stale epoch: group is at %d", e.Current)
 }
 
+// SlowModeError reports that a channel's slow mode holds back someone's next message
+// for Wait more milliseconds.
+type SlowModeError struct{ Wait int64 }
+
+func (e *SlowModeError) Error() string {
+	return fmt.Sprintf("slow mode: %d ms to wait", e.Wait)
+}
+
 type DB struct {
 	sql *sql.DB
 }
@@ -502,6 +510,16 @@ CREATE TABLE sounds (
 );
 -- Whether the soundboard can be played in a voice channel.
 ALTER TABLE channels ADD COLUMN sounds INTEGER NOT NULL DEFAULT 1;
+`, `
+-- Slow mode: how long each person waits between messages in a channel, in seconds, or 0.
+ALTER TABLE channels ADD COLUMN slow_mode INTEGER NOT NULL DEFAULT 0;
+-- When each person last sent a message in a channel, which leaving it doesn't forget.
+CREATE TABLE channel_sends (
+	channel_id TEXT NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	sent_at INTEGER NOT NULL,
+	PRIMARY KEY (channel_id, user_id)
+);
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

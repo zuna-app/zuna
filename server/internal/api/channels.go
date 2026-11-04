@@ -11,6 +11,8 @@ const (
 	maxChannelDetails = 8 << 10
 	maxChannelProof   = 256
 	maxUserLimit      = 99
+	// The longest slow mode, as Discord's: six hours.
+	maxSlowMode = 6 * 60 * 60
 	// A channel's older keys, sealed to someone joining: tens of thousands of them.
 	maxChannelGrant = 4 << 20
 )
@@ -18,6 +20,8 @@ const (
 func validChannelType(value string) bool { return value == "text" || value == "voice" }
 
 func validUserLimit(limit int) bool { return limit >= 0 && limit <= maxUserLimit }
+
+func validSlowMode(seconds int) bool { return seconds >= 0 && seconds <= maxSlowMode }
 
 // handleChannels lists every channel, and who's in the voice channels.
 func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request, _ *store.Session) {
@@ -42,17 +46,19 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		UserLimit   int    `json:"user_limit"`
 		ScreenLimit int    `json:"screen_limit"`
 		// Left out, the soundboard plays there.
-		Sounds *bool  `json:"sounds"`
-		Proof  []byte `json:"proof"`
+		Sounds *bool `json:"sounds"`
+		// Seconds each person waits between messages, or 0.
+		SlowMode int    `json:"slow_mode"`
+		Proof    []byte `json:"proof"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
 	}
-	if !store.ValidID(body.ID) || !validChannelType(body.Type) || !validUserLimit(body.UserLimit) || !validScreenLimit(body.ScreenLimit) || len(body.Details) == 0 || len(body.Details) > maxChannelDetails || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
+	if !store.ValidID(body.ID) || !validChannelType(body.Type) || !validUserLimit(body.UserLimit) || !validScreenLimit(body.ScreenLimit) || !validSlowMode(body.SlowMode) || len(body.Details) == 0 || len(body.Details) > maxChannelDetails || len(body.Proof) == 0 || len(body.Proof) > maxChannelProof {
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
-	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds == nil || *body.Sounds, body.Proof)
+	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds == nil || *body.Sounds, body.SlowMode, body.Proof)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -72,16 +78,17 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *
 		UserLimit   *int   `json:"user_limit"`
 		ScreenLimit *int   `json:"screen_limit"`
 		Sounds      *bool  `json:"sounds"`
+		SlowMode    *int   `json:"slow_mode"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
 	}
-	if len(body.Details) == 0 || len(body.Details) > maxChannelDetails || (body.UserLimit != nil && !validUserLimit(*body.UserLimit)) || (body.ScreenLimit != nil && !validScreenLimit(*body.ScreenLimit)) {
+	if len(body.Details) == 0 || len(body.Details) > maxChannelDetails || (body.UserLimit != nil && !validUserLimit(*body.UserLimit)) || (body.ScreenLimit != nil && !validScreenLimit(*body.ScreenLimit)) || (body.SlowMode != nil && !validSlowMode(*body.SlowMode)) {
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds); err != nil {
+	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds, body.SlowMode); err != nil {
 		writeFailure(w, err)
 		return
 	}

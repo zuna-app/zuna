@@ -102,6 +102,8 @@ enum A11y {
         static let editorFinalName = "channels.editor.finalName"
         static let editorTopic = "channels.editor.topic"
         static let editorHeading = "channels.editor.heading"
+        static let editorSlowMode = "channels.editor.slowMode"
+        static let editorSlowModeTime = "channels.editor.slowModeTime"
         static let editorSave = "channels.editor.save"
         static let editorBitrate = "channels.editor.bitrate"
         static let editorUserLimit = "channels.editor.userLimit"
@@ -156,6 +158,7 @@ enum A11y {
     enum Composer {
         static let input = "composer.input"
         static let send = "composer.send"
+        static let slowWait = "composer.slowWait"
         static let attach = "composer.attach"
         static let sendLocation = "composer.sendLocation"
         static let emoji = "composer.emoji"

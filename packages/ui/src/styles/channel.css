@@ -252,3 +252,8 @@
   .channel-search span { display: none; }
   .msg.is-channel { padding-right: 16px; }
 }
+/* Slow mode, at the right of the same line, and how long until the next message in place of the send button. */
+.channel-slow { margin-left: auto; flex: none; }
+.channel-slow-text { display: flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.send-button.is-waiting { width: auto; min-width: 36px; padding: 0 6px; font-size: 13px; font-weight: 500; color: var(--text-2); font-variant-numeric: tabular-nums; cursor: default; }
+.composer-area.is-channel .send-button.is-waiting { width: auto; padding: 0 10px 0 6px; line-height: 44px; }

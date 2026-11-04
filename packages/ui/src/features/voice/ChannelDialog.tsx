@@ -1,6 +1,8 @@
+import { SLOW_MODE_TIMES } from "@zuna/core";
 import { Hash, Trash2, Volume2 } from "lucide-react";
 import { useState } from "react";
 import { Field, Modal, Spinner, Switch, useAction } from "@/components/ui";
+import { timerText } from "@/lib/disappearing";
 import { useActiveServer, useApp } from "@/state/store";
 
 const AUDIO_QUALITIES = [
@@ -33,6 +35,8 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
   const [bitrate, setBitrate] = useState(channel?.bitrate ?? 0);
   const [screenLimit, setScreenLimit] = useState(channel?.screenLimit ?? 0);
   const [sounds, setSounds] = useState(channel?.sounds ?? true);
+  const [slowOn, setSlowOn] = useState((channel?.slowMode ?? 0) > 0);
+  const [slowMode, setSlowMode] = useState(channel?.slowMode || 30);
   const { busy, run } = useAction();
   const categories = [...new Set((server?.channels ?? []).map((item) => item.category).filter(Boolean))];
   const finalName = type === "text" ? textChannelName(name).replace(/^-|-$/g, "") : name.trim();
@@ -42,9 +46,9 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
     run(async () => {
       const details = { name: finalName, topic: topic.trim(), category: category.trim(), bitrate: type === "voice" && bitrate ? bitrate : undefined };
       if (channel) {
-        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined });
+        await session().updateChannel(channel.id, { ...details, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, slowMode: slowOn ? slowMode : 0 });
       } else {
-        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined });
+        const id = await session().createChannel({ ...details, type, userLimit: type === "voice" ? userLimit : 0, screenLimit: type === "voice" ? screenLimit : 0, sounds: type === "voice" ? sounds : undefined, slowMode: slowOn ? slowMode : 0 });
         // Opening a voice channel is coming into it, which making one isn't asking for.
         if (type === "text") selectConversation(`group:${id}`);
       }
@@ -120,6 +124,25 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
           <option key={item} value={item} />
         ))}
       </datalist>
+      <div className="field channel-switch">
+        <span className="grow">
+          <span className="field-label">Slow mode</span>
+          <span className="setting-hint">Each person waits between messages, except admins.</span>
+        </span>
+        <Switch on={slowOn} onChange={setSlowOn} label="Slow mode" />
+      </div>
+      {slowOn && (
+        <div className="field">
+          <span className="field-label">Time between messages</span>
+          <select className="select" value={slowMode} onChange={(event) => setSlowMode(Number(event.target.value))} aria-label="Time between messages">
+            {[...SLOW_MODE_TIMES, ...(SLOW_MODE_TIMES.includes(slowMode) ? [] : [slowMode])].map((seconds) => (
+              <option key={seconds} value={seconds}>
+                {timerText(seconds)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {type === "voice" && (
         <>
           <div className="field">
