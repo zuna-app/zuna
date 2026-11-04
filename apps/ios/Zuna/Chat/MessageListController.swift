@@ -150,8 +150,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         if oldIds.isEmpty, !input.detached {
             openedAt = openAt ?? model.savedPositions[input.listKey]
         }
-        let apply = {
-            self.dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
+        let apply = { [weak self] in
+            guard let self else { return }
+            dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
                 guard let self else { return }
                 if let anchor { restore(anchor) }
                 if oldIds.isEmpty { placeOpening() }
