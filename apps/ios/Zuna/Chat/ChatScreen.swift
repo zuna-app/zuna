@@ -79,7 +79,7 @@ struct ChatScreen: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Button {
-                    model.chatPath.append(.details(conversation.key))
+                    openDetails(conversation.key)
                 } label: {
                     Group {
                         if let channel {
@@ -122,7 +122,7 @@ struct ChatScreen: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     // The picture opens the details, as Telegram's, where calls, search and pins are.
                     Button {
-                        model.chatPath.append(.details(conversation.key))
+                        openDetails(conversation.key)
                     } label: {
                         if isSaved {
                             Image(systemName: "bookmark.fill")
@@ -183,6 +183,14 @@ struct ChatScreen: View {
         .onChange(of: scenePhase) {
             markRead(serverId, conversation)
         }
+    }
+
+    /// The chat's details, with the keyboard put away first. Left up, UIKit gives the
+    /// message box its focus back on the way back, and the keyboard comes up over the
+    /// chat before the chat has made room for it.
+    private func openDetails(_ key: String) {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        model.chatPath.append(.details(key))
     }
 
     /// Whether a call can be started here: a direct message with someone else, or a group still had, on a server with calls.
