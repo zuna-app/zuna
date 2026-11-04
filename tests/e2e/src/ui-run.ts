@@ -111,11 +111,13 @@ liveKit.stderr.pipe(liveKitLog);
 
 const server = new TestServer({ pushRelays: [relayUrl], liveKit: `ws://127.0.0.1:${liveKitPort}` });
 await server.start();
-// Servers nobody has set up yet: for the owner's flow, and for the iPad's list of servers.
+// Servers nobody has set up yet: for the owner's flow, the iPad's list of servers, and choosing a server to share to.
 const spare = new TestServer();
 await spare.start();
 const padSpare = new TestServer();
 await padSpare.start();
+const shareSpare = new TestServer();
+await shareSpare.start();
 
 const alice = await new TestApp("alice-laptop").open();
 await alice.register(server.setupLink, "alice", PASSWORD);
@@ -227,6 +229,7 @@ const world = {
   invite,
   setupLink: spare.setupLink,
   padSetupLink: padSpare.setupLink,
+  shareSetupLink: shareSpare.setupLink,
   pushRelay: relayUrl,
   siteUrl,
   peersUrl,
@@ -288,6 +291,7 @@ peerServer.close();
 await server.stop();
 await spare.stop();
 await padSpare.stop();
+await shareSpare.stop();
 liveKit.kill();
 relayServer.close();
 site.close();

@@ -163,6 +163,8 @@ Sensitive local data is encrypted with a device key held in your OS keychain (DP
 
 The web app has no keychain to use, so its device key is in the browser's own storage, next to the data it protects. Anyone who can copy the browser's profile can read that data, and Settings says so.
 
+On the iPhone and iPad, the share extension uses the same data and device key as the app, from the same Keychain group, and asks for Face ID or the passcode first when App lock is on. What it hands the app while the app is awake is sealed with a key from the device key. Files being shared wait in the App Group until they're sent, as readable as they were in the app they came from.
+
 ## Limits
 
 These are real limitations, stated plainly:

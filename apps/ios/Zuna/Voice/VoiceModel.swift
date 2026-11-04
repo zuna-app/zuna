@@ -145,7 +145,7 @@ final class VoiceModel {
     /// What keys the call's media is under, for its details.
     private(set) var keyEpoch: Int?
 
-    /// Called when the call ends, so the app can let go of what it kept running for it in the background.
+    /// Called when the call ends, or one stops ringing here, so the app can let go of what it kept running for it in the background.
     @ObservationIgnored var onEnded: (() -> Void)?
 
     @ObservationIgnored private weak var app: AppModel?
@@ -212,6 +212,9 @@ final class VoiceModel {
     var callPushToken: String? { callPushes.token }
 
     var inCall: Bool { status != .idle }
+
+    /// In a call, or one is ringing here: the core stays connected while the app is out of sight.
+    var keepsCoreAwake: Bool { inCall || !rung.isEmpty || !pushed.isEmpty }
 
     /// Sound is going out from here, as far as this device can tell.
     var micOff: Bool { muted || deafened || serverMuted || noMic }
@@ -579,6 +582,7 @@ final class VoiceModel {
             pendingAnswer = pendingAnswer == id ? nil : pendingAnswer
             systemCall.stopRinging(id, reason: .remoteEnded)
             if systemCall.isCurrent(id), status == .idle { systemCall.ended(failed: false) }
+            if !keepsCoreAwake { onEnded?() }
         }
     }
 
@@ -693,6 +697,7 @@ final class VoiceModel {
         if incoming != next { incoming = next }
         for call in next where before[call.id] == nil { startRinging(call) }
         for (id, call) in before where rung[id] == nil { stoppedRinging(call) }
+        if !before.isEmpty, !keepsCoreAwake { onEnded?() }
         if let pending = pendingAnswer, let call = next.first(where: { $0.systemId == pending }) {
             pendingAnswer = nil
             answeredBySystem(call)

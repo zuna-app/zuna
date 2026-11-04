@@ -18,6 +18,8 @@ struct World: Decodable {
     let setupLink: String
     /// The setup link of a third, for the iPad's test of the list of servers.
     let padSetupLink: String
+    /// The setup link of a fourth, for choosing a server to share to.
+    let shareSetupLink: String
     /// The orchestrator's stand-in for zuna-push, which the server allows.
     let pushRelay: String
     /// A website on the Mac, for link previews.

@@ -26,10 +26,13 @@ extension CoreConnection {
     public func reorderServers(_ ids: [String]) async throws { try await call("reorderServers", [ids]) }
     public func leaveServer(_ serverId: String) async throws { try await call("leaveServer", [serverId]) }
     public func nudge() async throws { try await call("nudge") }
-    /// Closes every connection while the app is in the background.
+    /// Closes every connection while the app is in the background, and writes nothing until `resume()` or `reload()`.
     public func suspend() async throws { try await call("suspend") }
-    /// Reconnects after `suspend()` and catches up.
-    public func resume() async throws { try await call("resume") }
+    /// Reconnects after `suspend()` and catches up. True if it read everything again first, as `reload()` does.
+    @discardableResult
+    public func resume() async throws -> Bool { try await call("resume") }
+    /// Reads everything again and reconnects, after the share extension used this device's data.
+    public func reload() async throws { try await call("reload") }
     /// Whether the person is using this device: while they are, their other devices keep quiet and nothing is pushed.
     public func setActive(_ active: Bool) async throws { try await call("setActive", [active]) }
 
@@ -110,6 +113,11 @@ public struct SessionCalls: Sendable {
     /// What the files say about where, when and on what they were made is taken out, unless `keepMetadata`.
     public func sendWithAttachments(_ conversationKey: String, files: [OutgoingFile], body: MessageBody, previewUrl: String? = nil, keepMetadata: Bool = false) async throws {
         try await run("sendWithAttachments", [conversationKey, files, body, SendOptions(previewUrl: previewUrl, keepMetadata: keepMetadata ? true : nil)])
+    }
+
+    /// Sends a message, with any files, and returns once it's gone, for the share extension, which stops straight after.
+    public func sendNow(_ conversationKey: String, files: [OutgoingFile], body: MessageBody, previewUrl: String? = nil, keepMetadata: Bool = false) async throws {
+        try await run("sendNow", [conversationKey, files, body, SendOptions(previewUrl: previewUrl, keepMetadata: keepMetadata ? true : nil)])
     }
 
     public func emotesIn(_ text: String) async throws -> [String: EmoteRef] { try await call("emotesIn", [text]) }

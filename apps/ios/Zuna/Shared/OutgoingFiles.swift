@@ -24,9 +24,10 @@ enum OutgoingFiles {
         return caches.appendingPathComponent("outgoing", isDirectory: true)
     }
 
-    /// Copies a file into the staging folder and reads what a message records about it.
-    static func stage(_ source: URL, name: String? = nil) throws -> StagedFile {
+    /// Copies a file into the staging folder, or `destination`, and reads what a message records about it.
+    static func stage(_ source: URL, name: String? = nil, into destination: URL? = nil) throws -> StagedFile {
         let fileManager = FileManager.default
+        let folder = destination ?? folder
         try fileManager.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.protectionKey: FileProtectionType.complete])
         let originalName = name ?? source.lastPathComponent
         let type = UTType(filenameExtension: source.pathExtension) ?? .data

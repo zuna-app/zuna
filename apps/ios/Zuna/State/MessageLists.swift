@@ -85,6 +85,21 @@ extension AppModel {
         }
     }
 
+    /// After the core read everything again, as when the share extension sent
+    /// something while the app slept: the servers, and each loaded chat's newest page.
+    func reloaded() async {
+        await load()
+        for (key, list) in lists where list.loaded && !list.detached {
+            let parts = key.split(separator: "/", maxSplits: 1).map(String.init)
+            guard parts.count == 2, !parts[1].hasPrefix("pending:"),
+                  let page = try? await core.session(parts[0]).loadMessages(parts[1]), var current = lists[key] else { continue }
+            var byId = Dictionary(current.items.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+            for message in page.messages { byId[message.id] = message }
+            current.items = Self.sorted(Array(byId.values))
+            lists[key] = current
+        }
+    }
+
     /// The page before the oldest loaded message.
     func loadOlder(_ serverId: String, _ listId: String) async {
         let key = Self.listKey(serverId, listId)

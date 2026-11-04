@@ -38,11 +38,12 @@ final class AppUnderTest {
     /// Launches the app. `fresh` erases its data first; `bootSession` simulates a restart of the phone.
     /// `notifications` lets the app ask for notifications, as it does once its
     /// chats first show; other tests keep the system's question out of the way.
-    func launch(fresh: Bool = true, bootSession: String? = nil, textSize: String? = nil, notifications: Bool = false, systemCall: Bool = false) throws {
+    /// `suspendDelay` is how long the app stays awake out of sight, in seconds.
+    func launch(fresh: Bool = true, bootSession: String? = nil, textSize: String? = nil, notifications: Bool = false, systemCall: Bool = false, suspendDelay: Double = 0.5) throws {
         let port = Int.random(in: 40_000..<50_000)
         app.launchArguments = [
             "-ZunaControlPort", String(port),
-            "-ZunaSuspendDelay", "0.5",
+            "-ZunaSuspendDelay", String(suspendDelay),
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
         ]
@@ -95,10 +96,10 @@ final class AppUnderTest {
     }
 
     /// Creates an account through the app's core, as the join screens would, and returns its recovery key.
-    func register(_ username: String, password: String) throws -> String {
+    func register(_ username: String, password: String, invite: String = World.current.invite) throws -> String {
         let control = control!
         let result = try blocking {
-            let preview = try await control.call("previewInvite", [World.current.invite]) as? [String: Any] ?? [:]
+            let preview = try await control.call("previewInvite", [invite]) as? [String: Any] ?? [:]
             return try await control.call("register", [preview, username, password, ["displayName": username.capitalized]]) as? [String: Any] ?? [:]
         }
         serverId = result["serverId"] as? String ?? ""

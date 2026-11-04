@@ -42,6 +42,14 @@ final class CoreController {
     private var directory: URL?
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var suspendTask: Task<Void, Never>?
+    /// Which process runs the core on this device's data: this app, except while it sleeps, when the share extension may.
+    private var lock: CoreLock?
+    /// The core is connected and the lock is this app's, rather than both put away in the background.
+    private var awake = false
+    /// Going to sleep and waking up, one after another, since each waits for the core or the lock.
+    private var lifecycle: Task<Void, Never>?
+    /// What the share extension hands over while the app is awake.
+    private var shareInbox: ShareInbox?
     private let network = NWPathMonitor()
     /// How long the core keeps running after the app goes to the background, so sends can finish.
     private var suspendDelay: Duration = .seconds(20)
@@ -128,7 +136,17 @@ final class CoreController {
         options.logToStandardError = true
         #endif
         let runtime = try CoreRuntime(options: options)
-        try await runtime.start()
+        // The share extension may be sending with a core of its own: this one starts once it's done.
+        let lock = try self.lock ?? CoreLock(directory: directory)
+        self.lock = lock
+        _ = await lock.take(as: .app)
+        do {
+            try await runtime.start()
+        } catch {
+            lock.release()
+            throw error
+        }
+        awake = true
         self.runtime = runtime
         // Events arrive on the core's queue and are applied on the main actor in the order they were sent.
         let (events, continuation) = AsyncStream.makeStream(of: CoreEvent.self)
@@ -167,6 +185,13 @@ final class CoreController {
         model.voice.onEnded = { [weak self] in
             if UIApplication.shared.applicationState == .background { self?.didEnterBackground() }
         }
+        let shareInbox = ShareInbox(model: model, core: connection, deviceKey: key)
+        // So does something the share extension handed over, once it's gone.
+        shareInbox.onIdle = { [weak self] in
+            if UIApplication.shared.applicationState == .background { self?.didEnterBackground() }
+        }
+        shareInbox.listening = true
+        self.shareInbox = shareInbox
         reportActivity()
         self.notifications = notifications
         Task { await notifications.updateAuthorization() }
@@ -175,6 +200,8 @@ final class CoreController {
         control?.attach(runtime)
         #endif
         phase = .ready
+        // Launched in the background, as for a push: it goes to sleep as it would on leaving the screen.
+        if UIApplication.shared.applicationState == .background { didEnterBackground() }
     }
 
     /// An invite link opened from outside the app (`zuna://join?link=…`).
@@ -190,14 +217,16 @@ final class CoreController {
     // MARK: Lifecycle
 
     /// iOS stops the app soon after it leaves the screen. The core gets a
-    /// background task to finish sending, then closes its connections cleanly.
-    /// Not during a call, which goes on out of sight: the server would take
-    /// this device out of its voice channel once its connection had gone.
+    /// background task to finish sending, then closes its connections cleanly,
+    /// and hands its data to the share extension until the app is back.
+    /// Not during a call, which goes on out of sight, or one ringing: the
+    /// server would take this device out of its voice channel once its
+    /// connection had gone. Nor while sending what the share extension handed over.
     func didEnterBackground() {
         reportActivity()
-        guard connection != nil, suspendTask == nil, model?.voice.inCall != true else { return }
+        guard connection != nil, suspendTask == nil, !keptAwake else { return }
         backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Finish sending") { [weak self] in
-            MainActor.assumeIsolated { self?.suspendNow() }
+            MainActor.assumeIsolated { self?.timeIsUp() }
         }
         let delay = suspendDelay
         suspendTask = Task { [weak self] in
@@ -205,6 +234,10 @@ final class CoreController {
             guard !Task.isCancelled else { return }
             self?.suspendNow()
         }
+    }
+
+    private var keptAwake: Bool {
+        model?.voice.keepsCoreAwake == true || shareInbox?.busy == true
     }
 
     /// Acts on a notification once the core is running: the app may have just
@@ -218,7 +251,7 @@ final class CoreController {
         // The core may have closed its connections when the app left the screen.
         suspendTask?.cancel()
         suspendTask = nil
-        try? await connection?.resume()
+        await inTurn { [self] in await wakeUp() }.value
         await notifications?.respond(to: response)
         if UIApplication.shared.applicationState != .active { suspendNow() }
     }
@@ -231,8 +264,8 @@ final class CoreController {
         endBackgroundTask()
         reportActivity()
         guard let connection else { return }
-        Task {
-            try? await connection.resume()
+        inTurn { [self] in
+            await wakeUp()
             try? await connection.nudge()
         }
     }
@@ -249,13 +282,70 @@ final class CoreController {
     private func suspendNow() {
         suspendTask?.cancel()
         suspendTask = nil
-        guard model?.voice.inCall != true else {
+        guard !keptAwake else {
             endBackgroundTask()
             return
         }
-        let connection = connection
-        Task { try? await connection?.suspend() }
+        inTurn { [self] in
+            await goToSleep()
+            endBackgroundTask()
+        }
+    }
+
+    /// The background task's time is up, and iOS suspends the app once this returns:
+    /// the lock has to be let go of now, though the core is a moment from stopping.
+    private func timeIsUp() {
+        suspendTask?.cancel()
+        suspendTask = nil
+        if awake, !keptAwake {
+            let connection = connection
+            Task { try? await connection?.suspend() }
+            awake = false
+            shareInbox?.listening = false
+            lock?.release()
+        }
         endBackgroundTask()
+    }
+
+    /// Closes the core's connections and lets go of its data, which nothing in
+    /// the app may write to until it wakes, so the share extension can use it.
+    private func goToSleep() async {
+        // Back on screen before its turn came.
+        guard awake, UIApplication.shared.applicationState != .active else { return }
+        try? await connection?.suspend()
+        awake = false
+        shareInbox?.listening = false
+        lock?.release()
+    }
+
+    /// Takes the data back, once the share extension is done with it if it was
+    /// using it, and reconnects. If it sent something meanwhile, the core reads
+    /// everything again and the app's state follows.
+    private func wakeUp() async {
+        guard !awake, let lock, let connection else { return }
+        let moved = await lock.take(as: .app)
+        awake = true
+        let reloaded: Bool
+        if moved {
+            try? await connection.reload()
+            reloaded = true
+        } else {
+            reloaded = (try? await connection.resume()) ?? false
+        }
+        shareInbox?.listening = true
+        if reloaded { await model?.reloaded() }
+    }
+
+    /// Runs a step of going to sleep or waking after the ones asked for before it.
+    @discardableResult
+    private func inTurn(_ step: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        let previous = lifecycle
+        let next = Task { @MainActor in
+            await previous?.value
+            await step()
+        }
+        lifecycle = next
+        return next
     }
 
     private func endBackgroundTask() {
@@ -292,7 +382,8 @@ final class CoreController {
 
     private static func erase(_ directory: URL) {
         let fileManager = FileManager.default
-        for file in (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] {
+        // The lock stays: the share extension may have it open.
+        for file in (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] where file.lastPathComponent != "core.lock" {
             try? fileManager.removeItem(at: file)
         }
     }

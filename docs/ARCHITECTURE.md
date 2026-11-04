@@ -148,6 +148,8 @@ History reaches new members with an **HPKE-sealed grant**: an admin seals the gr
 
 SQLite runs as WebAssembly in the Worker, with files in the origin-private file system. The core encrypts sensitive columns itself with a key derived from the device key in the OS keychain, or in IndexedDB in the web app, which has no keychain. MLS state is stored as an encrypted key-value table, with changes written atomically after each operation.
 
+On the iPhone and iPad the databases are in the App Group, where the notification extension reads them and the share extension uses them too. Only one process runs a core on them at a time, through a file lock there (`CoreLock.swift`): the app while it's awake, and the share extension while the app sleeps. A core holds its MLS groups in memory, so a sleeping one writes nothing, and once another process has had the data it reads everything again before going on (`reload` in `client.ts`). While the app is awake, as in a call, the share extension asks it for the chats and hands it what to send instead.
+
 Search uses an FTS5 table holding keyed hashes of words and their prefixes, which supports prefix search without readable text on disk. A second table counts each message's photos, videos, files, audio files, voice messages and links, for the lists in a chat's details, and marks the ones that mention you or reply to you, for jumping to unread mentions, naming each kind by a keyed hash the same way.
 
 ## Emotes

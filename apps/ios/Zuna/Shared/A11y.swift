@@ -174,6 +174,18 @@ enum A11y {
         static func row(_ title: String) -> String { "forward.row.\(title)" }
     }
 
+    /// The share extension's sheet.
+    enum Share {
+        static let sheet = "share.sheet"
+        static func row(_ title: String) -> String { "share.row.\(title)" }
+        static let comment = "share.comment"
+        static let send = "share.send"
+        static let sending = "share.sending"
+        static let notice = "share.notice"
+        static let servers = "share.servers"
+        static func server(_ name: String) -> String { "share.server.\(name)" }
+    }
+
     enum Details {
         static let screen = "details.screen"
         static let header = "details.header"

@@ -17,8 +17,12 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     private static let key = "zuna-settings"
 
+    /// In the App Group, so the share extension follows them too: App lock, link previews and metadata.
+    private static var shared: UserDefaults { UserDefaults(suiteName: SharedStorage.appGroup) ?? .standard }
+
     static func load() -> AppSettings {
-        guard let data = UserDefaults.standard.data(forKey: key),
+        // Saved by a version from before the share extension, in the app's own defaults.
+        guard let data = shared.data(forKey: key) ?? UserDefaults.standard.data(forKey: key),
               let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else { return AppSettings() }
         return settings
     }
@@ -37,10 +41,10 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     init() {}
 
-    /// The server that was open last, to open it again at launch.
+    /// The server that was open last, to open it again at launch, and first in the share extension.
     static var lastServer: String? {
-        get { UserDefaults.standard.string(forKey: lastServerKey) }
-        set { UserDefaults.standard.set(newValue, forKey: lastServerKey) }
+        get { shared.string(forKey: lastServerKey) ?? UserDefaults.standard.string(forKey: lastServerKey) }
+        set { shared.set(newValue, forKey: lastServerKey) }
     }
 
     private static let lastServerKey = "zuna-last-server"
@@ -59,7 +63,9 @@ struct AppSettings: Codable, Equatable, Sendable {
     #if DEBUG
     /// For tests that start from a fresh install.
     static func reset() {
+        shared.removeObject(forKey: key)
         UserDefaults.standard.removeObject(forKey: key)
+        shared.removeObject(forKey: lastServerKey)
         UserDefaults.standard.removeObject(forKey: lastServerKey)
         UserDefaults.standard.removeObject(forKey: collapsedKey)
         UserDefaults.standard.removeObject(forKey: memberListHiddenKey)
@@ -67,6 +73,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     #endif
 
     func save() {
-        if let data = try? JSONEncoder().encode(self) { UserDefaults.standard.set(data, forKey: Self.key) }
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        Self.shared.set(data, forKey: Self.key)
+        UserDefaults.standard.removeObject(forKey: Self.key)
     }
 }

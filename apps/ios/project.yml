@@ -53,6 +53,7 @@ targets:
         product: ZunaControl
       - target: ZunaNotifications
       - target: ZunaBroadcast
+      - target: ZunaShare
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile
@@ -193,6 +194,69 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.chat.zuna.mobile
+
+  # Zuna in the share sheet: sends what another app shares, with a core of its own while the
+  # app sleeps, or through the app while it runs; see ShareModel.
+  ZunaShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ZunaShare
+      - path: Zuna/Shared/A11y.swift
+      - path: Zuna/Shared/AppLock.swift
+      - path: Zuna/Shared/AvatarView.swift
+      - path: Zuna/Shared/CoreLock.swift
+      - path: Zuna/Shared/DeviceKeyStore.swift
+      - path: Zuna/Shared/Format.swift
+      - path: Zuna/Shared/Glass.swift
+      - path: Zuna/Shared/OutgoingFiles.swift
+      - path: Zuna/Shared/PullSearchList.swift
+      - path: Zuna/Shared/ShareMailbox.swift
+      - path: Zuna/Shared/SharedStorage.swift
+      - path: Zuna/State/AppSettings.swift
+      - path: Zuna/Theme/Theme.swift
+    dependencies:
+      - package: ZunaKit
+        product: ZunaHost
+      - package: ZunaKit
+        product: ZunaModels
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: chat.zuna.mobile.share
+        PRODUCT_NAME: ZunaShare
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: ZunaShare/Info.plist
+      properties:
+        CFBundleDisplayName: Zuna
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        UIUserInterfaceStyle: Dark
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # The share sheet's row of people, from the conversations notifications donate.
+            IntentsSupported:
+              - INSendMessageIntent
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 50
+              NSExtensionActivationSupportsMovieWithMaxCount: 50
+              NSExtensionActivationSupportsFileWithMaxCount: 50
+              NSExtensionActivationSupportsAttachmentsWithMaxCount: 50
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
+    entitlements:
+      path: ZunaShare/ZunaShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.chat.zuna.mobile
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)chat.zuna.shared
 
   ZunaUITests:
     type: bundle.ui-testing
