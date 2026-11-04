@@ -71,7 +71,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        let layout = UICollectionViewCompositionalLayout { _, _ in
+        let layout = ChatLayout { _, _ in
             let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(64))
             let group = NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [NSCollectionLayoutItem(layoutSize: size)])
             return NSCollectionLayoutSection(group: group)
@@ -150,18 +150,22 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         if oldIds.isEmpty, !input.detached {
             openedAt = openAt ?? model.savedPositions[input.listKey]
         }
-        dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
-            guard let self else { return }
-            if let anchor { restore(anchor) }
-            if oldIds.isEmpty { placeOpening() }
-            // Sending always brings you to the newest message.
-            if let newest = input.items.last, newest.id != oldIds.first, newest.senderId == input.server.me?.userId, previous != nil {
-                scrollToBottom(animated: true)
+        let apply = {
+            self.dataSource.apply(snapshot, animatingDifferences: animate) { [weak self] in
+                guard let self else { return }
+                if let anchor { restore(anchor) }
+                if oldIds.isEmpty { placeOpening() }
+                // Sending always brings you to the newest message.
+                if let newest = input.items.last, newest.id != oldIds.first, newest.senderId == input.server.me?.userId, previous != nil {
+                    scrollToBottom(animated: true)
+                }
+                handleJump()
+                if input.editing != previous?.editing { revealEditing() }
+                noteSeen()
             }
-            handleJump()
-            if input.editing != previous?.editing { revealEditing() }
-            noteSeen()
         }
+        // Telegram's spring, critically damped, which the list's own animation inside takes on.
+        if animate { UIView.animate(springDuration: 0.267, bounce: 0, animations: apply) } else { apply() }
     }
 
     override func viewDidLayoutSubviews() {
@@ -387,6 +391,32 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         if remaining < 800 {
             DispatchQueue.main.async { [weak self] in self?.onNearOldest() }
         }
+    }
+}
+
+/// The list's layout, which brings a new message up from under the composer, as Telegram's
+/// does, instead of fading it in where it lands.
+private final class ChatLayout: UICollectionViewCompositionalLayout {
+    private var inserted: Set<IndexPath> = []
+
+    override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
+        super.prepare(forCollectionViewUpdates: updateItems)
+        inserted = Set(updateItems.compactMap { $0.updateAction == .insert ? $0.indexPathAfterUpdate : nil })
+    }
+
+    override func finalizeCollectionViewUpdates() {
+        super.finalizeCollectionViewUpdates()
+        inserted = []
+    }
+
+    override func initialLayoutAttributesForAppearingItem(at itemIndexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
+        let attributes = super.initialLayoutAttributesForAppearingItem(at: itemIndexPath)
+        guard inserted.contains(itemIndexPath), let below = attributes?.copy() as? UICollectionViewLayoutAttributes else { return attributes }
+        // Upside down, below on screen is up here. From further than its height, as in Telegram,
+        // so it comes up a little behind the messages it pushes. Moved by a transform, as the
+        // cell taking its size puts its frame back where it lands.
+        below.transform = CGAffineTransform(translationX: 0, y: -below.size.height * 1.6)
+        return below
     }
 }
 
