@@ -85,8 +85,12 @@ struct ChatSearchSheet: View {
         }
     }
 
+    /// Back to the chat, at the message, also from the details, where the search is too.
     private func open(_ message: MessageView) {
         dismiss()
+        if let index = model.chatPath.firstIndex(of: .chat(conversation.key)) {
+            model.chatPath = Array(model.chatPath.prefix(through: index))
+        }
         Task { await model.jumpToMessage(serverId, groupId: message.groupId, messageId: message.id, seq: message.seq) }
     }
 }
