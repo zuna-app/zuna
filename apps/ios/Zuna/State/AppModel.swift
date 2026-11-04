@@ -53,11 +53,26 @@ final class AppModel {
         /// A chat only marked as unread counts as one, and in a channel only
         /// what mentions you or answers you counts, as on the desktop.
         var unread: Int {
-            let chats = conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread > 0 ? $1.unread : $1.markedUnread ? 1 : 0) }
-            return channels.reduce(chats) { total, channel in
+            chatsUnread + channelMentions
+        }
+
+        /// What's unread in the conversations, for the Chats tab.
+        var chatsUnread: Int {
+            conversations.reduce(0) { $0 + ($1.muted ? 0 : $1.unread > 0 ? $1.unread : $1.markedUnread ? 1 : 0) }
+        }
+
+        /// What mentions you or answers you in channels that aren't muted, for the Channels tab.
+        var channelMentions: Int {
+            channels.reduce(0) { total, channel in
                 guard let conversation = channel.conversation, !conversation.muted else { return total }
                 return total + conversation.unreadMentions
             }
+        }
+
+        /// Anything new at all, even what doesn't count, such as a text channel's
+        /// messages that don't mention you, for the desktop rail's pill.
+        var hasNew: Bool {
+            unread > 0 || channels.contains { $0.type == .text && ($0.conversation.map { !$0.muted && $0.unread > 0 } ?? false) }
         }
 
         /// The server has channels to show: some, or none yet for an admin to make.
@@ -115,7 +130,7 @@ final class AppModel {
         let message: String
     }
 
-    enum Tab: Hashable { case chats, settings }
+    enum Tab: Hashable { case chats, channels, settings }
 
     private(set) var servers: [String: ServerState] = [:]
     private(set) var order: [String] = []
@@ -124,9 +139,6 @@ final class AppModel {
         didSet { AppSettings.lastServer = activeServerId }
     }
     var tab: Tab = .chats
-    /// The list of servers is on screen rather than a server's chats. Only
-    /// with more than one server; with one, the Chats tab opens on its chats.
-    var showingServers = false
     /// The welcome screens: until the first server is joined, and again if none are left.
     private(set) var onboarding = false
     /// While the join screens are signing up or in. They decide when they're
@@ -137,12 +149,23 @@ final class AppModel {
     /// An invite link opened from outside the app, for the join screens to pick up.
     var pendingLink: String?
     /// The screens opened from the conversation list: chats and their details.
-    var chatPath: [ChatRoute] = []
+    /// On an iPad, which has no tabs, also the channels beside them.
+    var chatsPath: [ChatRoute] = []
+    /// The screens opened from the Channels tab, apart, so each tab keeps its place.
+    var channelsPath: [ChatRoute] = []
+
+    /// The screens opened from the tab on show: chats or channels, and their details.
+    var chatPath: [ChatRoute] {
+        get { tab == .channels ? channelsPath : chatsPath }
+        set {
+            if tab == .channels { channelsPath = newValue } else { chatsPath = newValue }
+        }
+    }
 
     /// Opens a conversation from anywhere, like the desktop's selectConversation.
+    /// A channel opens on the Channels tab, anything else on Chats.
     func openChat(_ conversationKey: String) {
-        tab = .chats
-        showingServers = false
+        tab = activeServer?.channel(conversationKey) != nil ? .channels : .chats
         chatPath = [.chat(conversationKey)]
         // Opening a chat marked as unread takes the mark off, as in Telegram.
         if let serverId = activeServerId, servers[serverId]?.conversation(conversationKey)?.markedUnread == true {
@@ -150,35 +173,10 @@ final class AppModel {
         }
     }
 
-    /// With more than one server, the Chats tab starts at the list of them, as
-    /// Mail starts at its mailboxes.
+    /// More than one server: an iPad lists them beside the chats, as Mail lists
+    /// its mailboxes, and Settings asks which one it's for.
     var hasServerList: Bool {
         order.count > 1
-    }
-
-    /// The Chats tab's stack on a phone: the active server's chats over the
-    /// list of servers, when there is one, then the chats opened from them.
-    var chatsStack: [ChatRoute] {
-        get {
-            guard hasServerList else { return chatPath }
-            guard !showingServers, let activeServerId else { return [] }
-            return [.server(activeServerId)] + chatPath
-        }
-        set {
-            guard hasServerList else {
-                chatPath = newValue
-                return
-            }
-            guard case let .server(serverId)? = newValue.first else {
-                // Back at the list of servers.
-                showingServers = true
-                chatPath = []
-                return
-            }
-            selectServer(serverId)
-            showingServers = false
-            chatPath = Array(newValue.dropFirst())
-        }
     }
     /// Loaded messages, by `listKey(serverId, listId)` (see MessageLists.swift).
     var lists: [String: MessageList] = [:]
@@ -230,9 +228,19 @@ final class AppModel {
         activeServerId.flatMap { servers[$0] }
     }
 
-    /// Unread messages on every server, for the Chats tab, like the desktop's dock badge.
+    /// Unread messages on every server, like the desktop's dock badge.
     var totalUnread: Int {
         servers.values.reduce(0) { $0 + $1.unread }
+    }
+
+    /// What's unread on the servers that aren't open, for the server button, as the desktop's rail counts them.
+    var otherServersUnread: Int {
+        servers.values.reduce(0) { $0 + ($1.entry.id == activeServerId ? 0 : $1.unread) }
+    }
+
+    /// Something new on a server that isn't open, though nothing that counts, for the server button's dot.
+    var otherServersHaveNew: Bool {
+        servers.values.contains { $0.entry.id != activeServerId && $0.hasNew }
     }
 
 
@@ -341,7 +349,6 @@ final class AppModel {
         accountFlowActive = false
         onboarding = order.isEmpty
         joining = false
-        showingServers = false
         tab = .chats
     }
 
@@ -353,14 +360,14 @@ final class AppModel {
 
     /// Makes a server the active one, for its chats and its settings.
     func selectServer(_ serverId: String) {
-        if serverId != activeServerId { chatPath = [] }
+        if serverId != activeServerId { closeChats() }
         activeServerId = serverId
     }
 
-    /// Opens a server's chats from the list of servers.
-    func openServer(_ serverId: String) {
-        selectServer(serverId)
-        showingServers = false
+    /// Back to the lists on both tabs, as when the server changes.
+    private func closeChats() {
+        chatsPath = []
+        channelsPath = []
     }
 
     /// Reorders the list of servers, as dragging them on the desktop's rail does.
@@ -468,10 +475,8 @@ final class AppModel {
         lists = lists.filter { !$0.key.hasPrefix("\(serverId)/") }
         order.removeAll { $0 == serverId }
         if activeServerId == serverId {
-            chatPath = []
+            closeChats()
             activeServerId = order.first
-            // Back to the servers that are left, rather than into one of them.
-            showingServers = hasServerList
         }
         if order.isEmpty { onboarding = true }
     }
@@ -650,7 +655,6 @@ final class AppModel {
 /// A screen on the Chats tab's stack: a server's chats, over the list of
 /// servers, and the chats and details opened from them.
 enum ChatRoute: Hashable {
-    case server(String)
     case chat(String)
     case details(String)
     case pins(String)

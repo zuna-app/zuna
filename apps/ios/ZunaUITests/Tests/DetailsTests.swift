@@ -40,8 +40,9 @@ final class DetailsTests: XCTestCase {
         try start()
         open("user:\(aliceId)")
         openDetails()
-        let header = zuna.element(A11y.Details.header)
-        XCTAssertTrue(header.staticTexts["@alice"].exists)
+        // Their username in the card under the buttons, as Telegram's.
+        XCTAssertTrue(zuna.element(A11y.Details.header).exists)
+        XCTAssertTrue(zuna.element(A11y.Details.username).label.contains("@alice"))
         zuna.screenshot("80-details-person")
 
         zuna.element(A11y.Details.trust).tap()
@@ -280,14 +281,21 @@ final class DetailsTests: XCTestCase {
         open("user:\(carolId)")
         openDetails()
         let key = "user:\(carolId)"
-        let toggle = zuna.app.switches[A11y.Details.notifications]
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
-        // Turning notifications off asks for how long.
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        // From the row under the name, where turning notifications off asks for how long.
+        let mute = zuna.element(A11y.Details.action("mute"))
+        XCTAssertTrue(mute.waitForExistence(timeout: 5))
+        mute.tap()
         let forever = zuna.app.buttons["Until I turn it back on"]
         XCTAssertTrue(forever.waitForExistence(timeout: 5))
         forever.tap()
         try waitFor("the chat to be muted") { try self.zuna.preferences()["muted"]?.contains(key) == true }
+        // Back on from the switch further down, which says the same.
+        let toggle = zuna.app.switches[A11y.Details.notifications]
+        try waitFor("the notifications switch", timeout: 10) {
+            if !toggle.isHittable { self.zuna.app.swipeUp() }
+            return toggle.isHittable
+        }
+        XCTAssertEqual(toggle.value as? String, "0")
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
         try waitFor("the chat to be unmuted") { try self.zuna.preferences()["muted"]?.contains(key) == false }
     }

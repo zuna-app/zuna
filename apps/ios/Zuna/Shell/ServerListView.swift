@@ -1,13 +1,91 @@
 import SwiftUI
 import ZunaModels
 
+/// The server button's place at the top left, on its own rather than in a
+/// glass bubble from iOS 26, so the picture and its count have room.
+struct ServerToolbarItem: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) { ServerButton() }
+            .withoutSharedBackground()
+    }
+}
+
+/// The open server's picture, at the top left of Chats and Channels on a
+/// phone, which opens the list of servers in a sheet. It carries what's
+/// unread on the others, as the desktop's rail does: a count, or a dot for
+/// what's new there but doesn't count.
+struct ServerButton: View {
+    @Environment(AppModel.self) private var model
+    @State private var choosing = false
+    @State private var joinAfter = false
+
+    var body: some View {
+        let unread = model.otherServersUnread
+        let dot = unread == 0 && model.otherServersHaveNew
+        Button {
+            choosing = true
+        } label: {
+            Group {
+                if let server = model.activeServer {
+                    AvatarView(name: server.entry.name, seed: server.entry.url, source: .serverIcon(server.entry), size: 36, rounded: true)
+                } else {
+                    Image(systemName: "square.stack")
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if unread > 0 {
+                    Text(unread > 99 ? "99+" : "\(unread)")
+                        .font(.caption2.weight(.bold))
+                        .monospacedDigit()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .frame(minWidth: 18, minHeight: 18)
+                        .background(Theme.red, in: .capsule)
+                        .overlay(Capsule().stroke(Theme.bg0, lineWidth: 2))
+                        .offset(x: 8, y: -6)
+                } else if dot {
+                    Circle()
+                        .fill(Theme.text1)
+                        .frame(width: 10, height: 10)
+                        .overlay(Circle().stroke(Theme.bg0, lineWidth: 2))
+                        .offset(x: 3, y: -3)
+                }
+            }
+        }
+        .accessibilityLabel(model.activeServer.map { "Servers, \($0.entry.name)" } ?? "Servers")
+        .accessibilityValue(unread > 0 ? "\(unread) unread on other servers" : dot ? "New messages on other servers" : "")
+        .accessibilityIdentifier(A11y.Shell.servers)
+        // The join screens are a sheet of the app's, so they wait for this one to go.
+        .sheet(isPresented: $choosing, onDismiss: {
+            if joinAfter {
+                joinAfter = false
+                model.joining = true
+            }
+        }) {
+            NavigationStack {
+                ServerListView(onPick: { choosing = false }, onJoin: {
+                    joinAfter = true
+                    choosing = false
+                })
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(Theme.bg1)
+        }
+    }
+}
+
 /// Every server, as Mail lists its mailboxes: the picture, the name, the
-/// latest message and the unread count. Shown when there's more than one
-/// server; with one, the Chats tab opens on its conversations.
+/// latest message and the unread count. On a phone, in a sheet from the
+/// server button; on an iPad, beside the chats when there's more than one.
 struct ServerListView: View {
     @Environment(AppModel.self) private var model
     /// On an iPad, the sidebar beside the open server's chats, with that server marked.
     var sidebar = false
+    /// In the sheet on a phone: a server was picked, so the sheet can close.
+    var onPick: (() -> Void)?
+    /// In the sheet on a phone: the join screens come once the sheet has closed.
+    var onJoin: (() -> Void)?
     @State private var inviting: String?
     @State private var signingOut: String?
 
@@ -23,15 +101,15 @@ struct ServerListView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(Theme.bg0)
+        .background(background)
         .navigationTitle("Servers")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbarBackground(Theme.bg0, for: .navigationBar)
+        .navigationBarTitleDisplayMode(onPick == nil ? .large : .inline)
+        .toolbarBackground(background, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) { EditButton() }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    model.joining = true
+                    if let onJoin { onJoin() } else { model.joining = true }
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -57,17 +135,23 @@ struct ServerListView: View {
         let id: String
     }
 
+    /// A sheet sits above the screen, a step lighter; the sidebar is the screen's own black.
+    private var background: Color {
+        onPick == nil ? Theme.bg0 : Theme.bg1
+    }
+
     private func row(_ server: AppModel.ServerState) -> some View {
         let id = server.entry.id
-        let open = sidebar && id == model.activeServerId
+        let open = (sidebar || onPick != nil) && id == model.activeServerId
         return Button {
-            model.openServer(id)
+            model.selectServer(id)
+            onPick?()
         } label: {
             ServerRow(server: server)
         }
         .buttonStyle(.plain)
         .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 14))
-        .listRowBackground(open ? Theme.bg3 : Theme.bg0)
+        .listRowBackground(open ? Theme.bg3 : background)
         .listRowSeparatorTint(Theme.line)
         .alignmentGuide(.listRowSeparatorLeading) { _ in 78 }
         .accessibilityAddTraits(open ? .isSelected : [])
@@ -119,6 +203,13 @@ private struct ServerRow: View {
                             .background(model.settings.accent.color, in: .capsule)
                             .padding(.top, 2)
                             .accessibilityLabel("\(server.unread) unread")
+                    } else if server.hasNew {
+                        // New in channels, but nothing for you: the desktop rail's pill.
+                        Circle()
+                            .fill(Theme.text1)
+                            .frame(width: 10, height: 10)
+                            .padding(.top, 8)
+                            .accessibilityLabel("New messages")
                     }
                 }
             }

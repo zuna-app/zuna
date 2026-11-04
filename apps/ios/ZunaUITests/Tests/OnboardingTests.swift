@@ -118,35 +118,36 @@ final class OnboardingTests: XCTestCase {
         zuna.screenshot("46-link-while-signed-in")
     }
 
-    func testSetsUpASecondServerAndListsThemLikeMailboxes() throws {
+    func testSetsUpASecondServerAndSwitchesFromTheServerButton() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
-        // With one server, its chats are the first screen.
-        XCTAssertFalse(zuna.serversButton.exists)
         try zuna.setUpServer(World.current.setupLink, name: "Book club", password: password, screenshots: true)
 
-        // The new server opens, over the list of both.
+        // The new server opens, with its picture on the server button.
         let title = zuna.element(A11y.Shell.title)
         try waitFor("the new server to open") { title.label == "Book club" }
         XCTAssertEqual(try zuna.serverCount(), 2)
-        XCTAssertTrue(zuna.serversButton.waitForExistence(timeout: 5))
-        zuna.serversButton.tap()
+        try waitFor("the new server on the button") { self.zuna.serverButton.label.contains("Book club") }
+
+        // Both are in the sheet the button opens.
+        zuna.serverButton.tap()
         let servers = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", A11y.Servers.row("")))
         try waitFor("both servers in the list") { servers.count == 2 }
         let first = zuna.element(A11y.Servers.row(zuna.serverId))
         XCTAssertTrue(first.label.contains(World.current.serverName), first.label)
         zuna.screenshot("48-two-servers")
 
-        // The one opened last opens again with the app.
+        // Picking one opens it and closes the sheet; the one opened last opens again with the app.
         first.tap()
         try waitFor("the first server to open") { title.label == World.current.serverName }
+        XCTAssertFalse(zuna.element(A11y.Servers.list).exists)
         zuna.app.terminate()
         try zuna.launch(fresh: false)
         try zuna.waitForChats()
         // The title says "Updating…" while the app catches up.
         try waitFor("the first server to open again") { title.label == World.current.serverName }
-        XCTAssertTrue(zuna.serversButton.exists)
+        XCTAssertTrue(zuna.serverButton.label.contains(World.current.serverName))
 
         // Settings say which server the account's sections are for.
         zuna.tab("Settings").tap()

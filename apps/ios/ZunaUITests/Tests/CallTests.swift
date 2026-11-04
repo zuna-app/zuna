@@ -82,7 +82,11 @@ final class CallTests: XCTestCase {
         let row = zuna.element(A11y.ChatList.row("user:\(aliceId)"))
         XCTAssertTrue(row.waitForExistence(timeout: 20))
         row.tap()
-        let callButton = zuna.element(A11y.Chat.call)
+        // From the details, as Telegram's: the chat's bar has only the name and the picture.
+        let details = zuna.element(A11y.Chat.menu)
+        XCTAssertTrue(details.waitForExistence(timeout: 10))
+        details.tap()
+        let callButton = zuna.element(A11y.Details.action("call"))
         XCTAssertTrue(callButton.waitForExistence(timeout: 10))
         callButton.tap()
 

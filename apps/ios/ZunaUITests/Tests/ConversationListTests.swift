@@ -42,8 +42,8 @@ final class ConversationListTests: XCTestCase {
         try waitFor("people only") { carol.exists && !self.rows.firstMatch.label.contains("Weekend") }
         filters.buttons["All"].tap()
 
-        // People by name, and messages in the index on this device.
-        let search = zuna.app.searchFields.firstMatch
+        // People by name, and messages in the index on this device, from the field a pull brings down.
+        let search = try zuna.pulledDownSearch(A11y.ChatList.search)
         search.tap()
         search.typeText("car")
         try waitFor("carol alone") { carol.exists && !alice.exists }

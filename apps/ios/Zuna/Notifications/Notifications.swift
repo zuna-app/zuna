@@ -209,7 +209,7 @@ final class Notifications {
     /// While the app is open, notifications show as banners, except for the chat on screen.
     func presentation(for notification: UNNotification) -> UNNotificationPresentationOptions {
         if let target = target(of: notification.request.content.userInfo), let key = target.key,
-           model.activeServerId == target.serverId, model.tab == .chats, model.chatPath.last == .chat(key) {
+           model.activeServerId == target.serverId, model.tab != .settings, model.chatPath.last == .chat(key) {
             return []
         }
         return settings.sound ? [.banner, .list, .sound] : [.banner, .list]
@@ -258,7 +258,6 @@ final class Notifications {
                 model.openChat(key)
             } else {
                 model.tab = .chats
-                model.showingServers = false
             }
         }
     }

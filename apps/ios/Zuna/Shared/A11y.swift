@@ -47,6 +47,8 @@ enum A11y {
 
     enum Shell {
         static let chatsTab = "shell.tab.chats"
+        static let channelsTab = "shell.tab.channels"
+        static let servers = "shell.servers"
         static let settingsTab = "shell.tab.settings"
         static let newGroup = "shell.newGroup"
         static let title = "shell.title"
@@ -60,6 +62,7 @@ enum A11y {
 
     enum ChatList {
         static let list = "chatList.list"
+        static let search = "chatList.search"
         static let empty = "chatList.empty"
         static let filter = "chatList.filter"
         static let hiddenToggle = "chatList.hiddenToggle"
@@ -83,6 +86,9 @@ enum A11y {
         static let inPlaceSave = "channels.inPlace.save"
         static let inPlaceCancel = "channels.inPlace.cancel"
         static let newChannel = "channels.new"
+        static let list = "channels.list"
+        static let listSearch = "channels.list.search"
+        static let empty = "channels.empty"
         static let joining = "channels.joining"
         static let welcome = "channels.welcome"
         static let welcomeEdit = "channels.welcome.edit"
@@ -180,7 +186,12 @@ enum A11y {
         static let edit = "details.edit"
         static let addMembers = "details.addMembers"
         static let leave = "details.leave"
+        static let bio = "details.bio"
+        static let username = "details.username"
+        static let description = "details.description"
         static func member(_ id: String) -> String { "details.member.\(id)" }
+        /// A button in the row under the name: `call`, `video`, `join`, `mute`, `search` or `pins`.
+        static func action(_ name: String) -> String { "details.action.\(name)" }
         /// The row for one kind of thing in the chat: `photo`, `file`, `groups` and so on.
         static func shared(_ kind: String) -> String { "details.shared.\(kind)" }
     }

@@ -2,7 +2,7 @@ import SwiftUI
 import ZunaModels
 
 /// A channel's details, as Discord's phone app opens them from the channel's name:
-/// its topic, search, pins and notifications, what's been shared, and the member
+/// its topic, a row for notifications, search and pins, what's been shared, and the member
 /// list, which on the desktop is on the right: everyone on the server, online
 /// first, with a crown for the owner.
 struct ChannelDetails: View {
@@ -56,8 +56,20 @@ struct ChannelDetails: View {
                             .foregroundStyle(Theme.text2)
                             .multilineTextAlignment(.center)
                     }
+                    if let conversation {
+                        DetailsActions(actions: [
+                            .init(id: "mute", title: conversation.muted ? "Unmute" : "Mute", icon: conversation.muted ? "bell.slash.fill" : "bell.fill") {
+                                if conversation.muted { model.unmute(conversation.key, on: serverId) } else { choosingMute = true }
+                            },
+                            .init(id: "search", title: "Search", icon: "magnifyingglass") { sheet = .search },
+                            .init(id: "pins", title: "Pins", icon: "pin.fill") { model.chatPath.append(.pins(conversation.key)) },
+                        ])
+                        .padding(.top, 18)
+                    }
                 }
                 .frame(maxWidth: .infinity)
+                // The buttons as wide as the cards under them.
+                .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0))
             }
             .listRowBackground(Color.clear)
 
@@ -70,11 +82,6 @@ struct ChannelDetails: View {
 
             if let conversation {
                 Section {
-                    Button("Search", systemImage: "magnifyingglass") { sheet = .search }
-                        .accessibilityIdentifier(A11y.Channels.search)
-                    NavigationLink(value: ChatRoute.pins(conversation.key)) {
-                        Label("Pinned messages", systemImage: "pin")
-                    }
                     Toggle(isOn: Binding(get: { !conversation.muted }, set: { on in
                         if on { model.unmute(conversation.key, on: serverId) } else { choosingMute = true }
                     })) {
@@ -87,9 +94,6 @@ struct ChannelDetails: View {
                     }
                     .tint(model.settings.accent.switchTint)
                     .accessibilityIdentifier(A11y.Details.notifications)
-                    .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
-                        MuteButtons(conversationKey: conversation.key, serverId: serverId)
-                    }
                 }
                 .foregroundStyle(Theme.text1)
                 .listRowBackground(Theme.bg2)
@@ -117,6 +121,10 @@ struct ChannelDetails: View {
             if mediaCounts != nil { try? await Task.sleep(for: .milliseconds(150)) }
             guard !Task.isCancelled, let counts = try? await model.core.session(serverId).mediaCounts(groupId), !Task.isCancelled else { return }
             mediaCounts = counts
+        }
+        // On the list, not the switch: a list leaves out rows off screen, and the row under the name asks too.
+        .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
+            if let conversation { MuteButtons(conversationKey: conversation.key, serverId: serverId) }
         }
         .sheet(item: $sheet) { sheet in
             switch sheet {

@@ -62,10 +62,11 @@ final class ComposerTests: XCTestCase {
         button.tap()
     }
 
-    /// An item of the chat's menu, under the avatar. A menu closing just before may swallow the first tap.
-    private func chatMenu(_ item: String) throws {
-        let button = zuna.app.buttons[item]
-        try waitFor("\(item) in the chat's menu", timeout: 10) {
+    /// A button in the row under the name in the chat's details, opened from the avatar.
+    /// A menu closing just before may swallow the first tap.
+    private func detailsAction(_ name: String) throws {
+        let button = zuna.element(A11y.Details.action(name))
+        try waitFor("\(name) in the chat's details", timeout: 10) {
             if !button.exists { self.zuna.element(A11y.Chat.menu).tap() }
             return button.waitForExistence(timeout: 2)
         }
@@ -162,8 +163,8 @@ final class ComposerTests: XCTestCase {
         }
         zuna.screenshot("72-pinned-and-reacted")
 
-        // Search in this chat finds it in the index on the phone.
-        try chatMenu("Search")
+        // Search in this chat finds it in the index on the phone, and goes back to the chat at it.
+        try detailsAction("search")
         let field = zuna.app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
@@ -173,8 +174,8 @@ final class ComposerTests: XCTestCase {
         result.tap()
         XCTAssertTrue(message(note).waitForExistence(timeout: 10))
 
-        // Unpinned from the screen of pins, opened from the bar as on the desktop.
-        zuna.element(A11y.Chat.pins).tap()
+        // Unpinned from the screen of pins, opened from the details as in Telegram.
+        try detailsAction("pins")
         XCTAssertTrue(zuna.element(A11y.Chat.result(note)).waitForExistence(timeout: 10))
         let unpin = zuna.app.buttons["Unpin"]
         XCTAssertTrue(unpin.waitForExistence(timeout: 10))

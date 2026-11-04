@@ -62,7 +62,8 @@ final class ChannelsTests: XCTestCase {
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
 
-        // Above the chats, under their headings, joined by this device by itself.
+        // On a tab of their own, under their headings, joined by this device by itself.
+        zuna.tab("Channels").tap()
         let row = zuna.element(A11y.Channels.row(general))
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         XCTAssertTrue(zuna.element(A11y.Channels.heading("Text channels")).exists)
@@ -74,13 +75,19 @@ final class ChannelsTests: XCTestCase {
         // Something said to bob is counted on the row; the rest only marks it.
         try carol.send(to: "group:\(general)", ["text": "@bob are you around this weekend?", "mentions": [bobId]])
         try waitFor("the mention on the row") { row.label.contains("1 mentioning you") }
-        zuna.screenshot("90-channels-in-the-list")
+        zuna.screenshot("90-channels-tab")
 
-        // The Channels filter shows only them.
-        zuna.element(A11y.ChatList.filter).buttons["Channels"].tap()
+        // The chats leave them out, unless a search names one.
+        zuna.tab("Chats").tap()
         let aliceRow = zuna.element(A11y.ChatList.row("user:\(World.current["alice"].userId)"))
-        try waitFor("only channels") { row.exists && !aliceRow.exists }
-        zuna.element(A11y.ChatList.filter).buttons["All"].tap()
+        try waitFor("the chats without channels") { aliceRow.exists && !row.exists }
+        let search = try zuna.pulledDownSearch(A11y.ChatList.search)
+        search.tap()
+        search.typeText("general")
+        try waitFor("the channel found by its name") { row.exists && !aliceRow.exists }
+        zuna.app.buttons["Cancel"].tap()
+        try waitFor("the search to close") { aliceRow.exists }
+        zuna.tab("Channels").tap()
 
         // Opened: its name and topic in the bar, the messages under names, and the new ones under a red line.
         row.tap()
@@ -137,6 +144,7 @@ final class ChannelsTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
+        zuna.tab("Channels").tap()
         let row = zuna.element(A11y.Channels.row(general))
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         try waitFor("the phone to come into #general", timeout: 30) {
@@ -215,6 +223,7 @@ final class ChannelsTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "alice")
         try zuna.waitForChats()
+        zuna.tab("Channels").tap()
         XCTAssertTrue(zuna.element(A11y.Channels.heading("Text channels")).waitForExistence(timeout: 30))
 
         // Made under a heading, with a name the way text channels are written.
@@ -279,6 +288,7 @@ final class ChannelsTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "alice")
         try zuna.waitForChats()
+        zuna.tab("Channels").tap()
         let add = zuna.element(A11y.Channels.add("Voice channels"))
         XCTAssertTrue(add.waitForExistence(timeout: 30))
 

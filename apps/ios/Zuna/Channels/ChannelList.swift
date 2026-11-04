@@ -11,6 +11,20 @@ extension ChannelView {
     var title: String { name.isEmpty ? (unreadable ? "Unreadable channel" : "Channel") : name }
 }
 
+extension AppModel {
+    /// Deletes a channel for everyone, and closes it if it's open.
+    func deleteChannel(_ channel: ChannelView, on serverId: String) {
+        Task {
+            do {
+                try await core.session(serverId).deleteChannel(channel.id)
+                if chatPath.first == .chat(channel.key) { chatPath = [] }
+            } catch {
+                toast(OnboardingText.describe(error), .error)
+            }
+        }
+    }
+}
+
 /// A channel where a picture would be, such as among the chats to forward to.
 struct ChannelIcon: View {
     let type: ChannelType
@@ -59,9 +73,10 @@ struct ChannelRows: View {
     var body: some View {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
         let shown = needle.isEmpty ? server.channels : server.channels.filter { $0.name.lowercased().contains(needle) }
-        ForEach(headings(shown)) { heading in
+        let all = headings(shown)
+        ForEach(all) { heading in
             let folded = collapsed.contains(heading.name) && needle.isEmpty
-            headingRow(heading, folded: folded)
+            headingRow(heading, folded: folded, first: heading.id == all.first?.id)
             // A folded heading keeps showing what mentions you.
             ForEach(folded ? heading.channels.filter { ($0.conversation?.unreadMentions ?? 0) > 0 } : heading.channels) { channel in
                 row(channel)
@@ -100,7 +115,8 @@ struct ChannelRows: View {
         return headings
     }
 
-    private func headingRow(_ heading: Heading, folded: Bool) -> some View {
+    /// The first heading sits close under what's above the list; the rest keep a gap between groups.
+    private func headingRow(_ heading: Heading, folded: Bool, first: Bool) -> some View {
         HStack(spacing: 4) {
             Button {
                 withAnimation(model.reduceMotion ? nil : .snappy(duration: 0.2)) {
@@ -137,7 +153,7 @@ struct ChannelRows: View {
             }
         }
         .foregroundStyle(Theme.channelMuted)
-        .listRowInsets(EdgeInsets(top: 12, leading: 14, bottom: 2, trailing: 10))
+        .listRowInsets(EdgeInsets(top: first ? 4 : 12, leading: 14, bottom: 2, trailing: 10))
         .listRowBackground(Theme.bg0)
         .listRowSeparator(.hidden)
     }

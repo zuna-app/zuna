@@ -240,16 +240,32 @@ final class AppUnderTest {
         try waitFor("the conversation list", timeout: timeout) { title.exists }
     }
 
-    /// Sets up a new server from its setup link, as its owner, from the
+    /// Sets up a new server from its setup link, as its owner: on a phone from
+    /// the list of servers under the server button, on an iPad from the
     /// conversation list's menu, which offers it while there's one server.
     func setUpServer(_ link: String, name: String, password: String, screenshots: Bool = false) throws {
-        element(A11y.Shell.title).tap()
-        app.buttons["Join a server"].tap()
+        if isPad {
+            element(A11y.Shell.title).tap()
+            app.buttons["Join a server"].tap()
+        } else {
+            element(A11y.Shell.servers).tap()
+            let join = element(A11y.Servers.join)
+            XCTAssertTrue(join.waitForExistence(timeout: 5))
+            join.tap()
+        }
         let field = element(A11y.Onboarding.link)
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         type(link, into: A11y.Onboarding.link)
         try tapSettled(A11y.Onboarding.continue)
-        XCTAssertTrue(app.staticTexts["Set up your server"].waitForExistence(timeout: 15))
+        // On an iPad the keyboard goes once typing ends and the sheet moves, sometimes from under
+        // the tap; tapped again, Continue does nothing while the link is being looked at.
+        let setUp = app.staticTexts["Set up your server"]
+        try waitFor("the screen to set the server up", timeout: 30) {
+            if setUp.waitForExistence(timeout: 5) { return true }
+            let next = self.element(A11y.Onboarding.continue)
+            if next.exists, next.isHittable { next.tap() }
+            return setUp.exists
+        }
 
         type("Fox Mulder", into: A11y.Onboarding.displayName)
         type(password, into: A11y.Onboarding.password)
@@ -283,9 +299,19 @@ final class AppUnderTest {
         target.tap()
     }
 
-    /// The back button to the list of servers, over a server's conversations.
-    var serversButton: XCUIElement {
-        app.navigationBars.buttons["Servers"]
+    /// The open server's picture at the top left of Chats and Channels on a phone, which opens the list of servers.
+    var serverButton: XCUIElement {
+        element(A11y.Shell.servers)
+    }
+
+    /// The search field over a list, which waits out of sight until the list is pulled down, as Telegram's.
+    func pulledDownSearch(_ identifier: String) throws -> XCUIElement {
+        let field = element(identifier)
+        try waitFor("the search field", timeout: 15) {
+            if !field.isHittable { self.app.collectionViews.firstMatch.swipeDown() }
+            return field.isHittable
+        }
+        return field
     }
 
     var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }

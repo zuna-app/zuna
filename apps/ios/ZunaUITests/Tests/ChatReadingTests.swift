@@ -270,7 +270,7 @@ final class ChatReadingTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
-        let search = zuna.app.searchFields.firstMatch
+        let search = try zuna.pulledDownSearch(A11y.ChatList.search)
         search.tap()
         search.typeText("hike")
         let hit = zuna.app.descendants(matching: .any)

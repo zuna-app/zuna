@@ -60,6 +60,7 @@ final class VoiceTests: XCTestCase {
         let carolDevice = try XCTUnwrap(try members(alice).first { $0["channelId"] as? String == lounge }?["deviceId"] as? String)
 
         // A tap comes in, with the call over the app, encrypted.
+        zuna.tab("Channels").tap()
         let row = zuna.element(A11y.Channels.row(lounge))
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
@@ -181,8 +182,8 @@ final class VoiceTests: XCTestCase {
         XCTAssertTrue(choice.waitForExistence(timeout: 5))
         choice.tap()
         zuna.screenshot("99-voice-share-settings")
-        zuna.tab("Chats").tap()
 
+        zuna.tab("Channels").tap()
         let row = zuna.element(A11y.Channels.row(lounge))
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
@@ -202,6 +203,7 @@ final class VoiceTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
+        zuna.tab("Channels").tap()
         let row = zuna.element(A11y.Channels.row(lounge))
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
@@ -267,6 +269,7 @@ final class VoiceTests: XCTestCase {
         try zuna.launch(systemCall: true)
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
+        zuna.tab("Channels").tap()
         let row = zuna.element(A11y.Channels.row(lounge))
         XCTAssertTrue(row.waitForExistence(timeout: 30))
         row.tap()
@@ -290,6 +293,7 @@ final class VoiceTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
+        zuna.tab("Channels").tap()
         let row = zuna.element(A11y.Channels.row(lounge))
         XCTAssertTrue(row.waitForExistence(timeout: 30))
 

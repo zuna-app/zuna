@@ -2,8 +2,9 @@ import SwiftUI
 import ZunaModels
 
 /// A chat, laid out like Telegram's: who it's with and their status in the
-/// bar, the messages with a button back to the newest one, and the composer.
-/// Pinned messages have a screen of their own, as on the desktop.
+/// middle of the bar, their picture on the right for the details, which hold
+/// calls, search and pins, then the messages with a button back to the newest
+/// one, and the composer. Pinned messages have a screen of their own, as on the desktop.
 struct ChatScreen: View {
     let conversationKey: String
 
@@ -80,29 +81,20 @@ struct ChatScreen: View {
                 Button {
                     model.chatPath.append(.details(conversation.key))
                 } label: {
-                    if let channel {
-                        ChannelHeader(channel: channel, muted: conversation.muted)
-                    } else {
-                        ChatHeader(conversation: conversation, server: server, peer: peer, isSaved: isSaved)
+                    Group {
+                        if let channel {
+                            ChannelHeader(channel: channel, muted: conversation.muted)
+                        } else {
+                            ChatHeader(conversation: conversation, server: server, peer: peer, isSaved: isSaved)
+                        }
                     }
+                    // In a bubble of its own, as Telegram's title, the bar's buttons' height.
+                    .padding(.horizontal, 18)
+                    .frame(minHeight: 44)
+                    .glassCapsule()
+                    .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
-            }
-            if channel == nil, Self.canCall(server, conversation, peer: peer, isSaved: isSaved) {
-                ToolbarItem(placement: .topBarTrailing) {
-                    CallButton(server: server, conversation: conversation)
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                // As the desktop's header button: pinned messages have a screen of their own.
-                Button {
-                    model.chatPath.append(.pins(conversation.key))
-                } label: {
-                    Image(systemName: "pin")
-                }
-                .disabled(conversation.groupId == nil)
-                .accessibilityLabel("Pinned messages")
-                .accessibilityIdentifier(A11y.Chat.pins)
             }
             if channel != nil {
                 if roomForMembers {
@@ -128,24 +120,20 @@ struct ChatScreen: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button(conversation.kind == .group ? "Group details" : "Details", systemImage: "info.circle") {
-                            model.chatPath.append(.details(conversation.key))
-                        }
-                        Button("Search", systemImage: "magnifyingglass") { sheet = .search }
-                            .disabled(conversation.groupId == nil)
-                        Button("Pinned messages", systemImage: "pin") { model.chatPath.append(.pins(conversation.key)) }
-                            .disabled(conversation.groupId == nil)
+                    // The picture opens the details, as Telegram's, where calls, search and pins are.
+                    Button {
+                        model.chatPath.append(.details(conversation.key))
                     } label: {
                         if isSaved {
                             Image(systemName: "bookmark.fill")
-                                .frame(width: 34, height: 34)
+                                .frame(width: 36, height: 36)
                                 .background(Theme.bg4, in: .circle)
                         } else {
-                            AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 34, online: peer?.online ?? false)
+                            AvatarView(name: conversation.title, seed: conversation.peerId ?? conversation.groupId ?? conversation.key, source: conversation.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36, online: peer?.online ?? false)
                         }
                     }
-                    .accessibilityLabel("Chat options")
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(conversation.kind == .group ? "Group details" : "Details")
                     .accessibilityIdentifier(A11y.Chat.menu)
                 }
                 // The avatar is a picture of its own, without the bar's gray glass behind it.
@@ -198,7 +186,7 @@ struct ChatScreen: View {
     }
 
     /// Whether a call can be started here: a direct message with someone else, or a group still had, on a server with calls.
-    private static func canCall(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSaved: Bool) -> Bool {
+    static func canCall(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSaved: Bool) -> Bool {
         guard server.hasCalls, !conversation.removed else { return false }
         if conversation.kind == .dm { return !isSaved && conversation.peerId != nil && !conversation.blocked && peer?.banned != true }
         return conversation.kind == .group
@@ -623,52 +611,6 @@ private struct MentionButton: View {
 }
 
 /// The title and, under it, who's typing, members and online, or last seen, as on the desktop.
-/// Starting a call from a chat's bar, by voice with a tap and with the camera from its menu, or joining the one going on.
-private struct CallButton: View {
-    @Environment(VoiceModel.self) private var voice
-    let server: AppModel.ServerState
-    let conversation: ConversationView
-
-    var body: some View {
-        let serverId = server.entry.id
-        let groupId = conversation.groupId
-        if let groupId, voice.serverId == serverId, voice.channelId == groupId, voice.inCall {
-            Button {
-                voice.stageShown = true
-            } label: {
-                Image(systemName: "phone.fill").foregroundStyle(Theme.green)
-            }
-            .accessibilityLabel("Open the call")
-            .accessibilityIdentifier(A11y.Chat.call)
-        } else if let groupId, !server.inRoom(groupId).isEmpty {
-            Button {
-                Task { await voice.join(serverId: serverId, channelId: groupId) }
-            } label: {
-                Text("Join").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.green)
-            }
-            .accessibilityLabel("Join the call")
-            .accessibilityIdentifier(A11y.Chat.joinCall)
-        } else {
-            Menu {
-                Button("Voice call", systemImage: "phone") { start(camera: false) }
-                Button("Video call", systemImage: "video") { start(camera: true) }
-                    .accessibilityIdentifier(A11y.Chat.videoCall)
-            } label: {
-                Image(systemName: "phone")
-            } primaryAction: {
-                start(camera: false)
-            }
-            .accessibilityLabel("Call")
-            .accessibilityIdentifier(A11y.Chat.call)
-        }
-    }
-
-    private func start(camera: Bool) {
-        let serverId = server.entry.id, key = conversation.key
-        Task { await voice.startCall(serverId: serverId, key: key, camera: camera) }
-    }
-}
-
 /// A call going on in this conversation that this device isn't in: who's there, and a way in.
 private struct CallBanner: View {
     @Environment(VoiceModel.self) private var voice
@@ -857,7 +799,20 @@ private struct EmptyChat: View {
     }
 }
 
-private extension ToolbarContent {
+extension View {
+    /// On a capsule of Liquid Glass from iOS 26, as the bar's buttons are, and a plain one before.
+    /// Interactive glass answers a touch as a button does, which a field holding buttons of its own shouldn't.
+    @ViewBuilder
+    func glassCapsule(interactive: Bool = true) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(interactive ? .regular.interactive() : .regular, in: .capsule)
+        } else {
+            background(Theme.bg3, in: .capsule)
+        }
+    }
+}
+
+extension ToolbarContent {
     /// Without the glass iOS 26 puts behind items in the navigation bar.
     @ToolbarContentBuilder
     func withoutSharedBackground() -> some ToolbarContent {

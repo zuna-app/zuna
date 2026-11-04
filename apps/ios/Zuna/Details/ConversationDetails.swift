@@ -5,10 +5,12 @@ import ZunaModels
 /// A chat's details, laid out like Telegram's profile pages, with what the
 /// desktop's side panel shows: for a person, their profile, encryption and the
 /// chat's settings; for a group, its picture and name, members and admin tools.
+/// Under the name, a row for calls, notifications, search and pins.
 struct ConversationDetails: View {
     let conversationKey: String
 
     @Environment(AppModel.self) private var model
+    @Environment(VoiceModel.self) private var voice
     @State private var sheet: DetailsSheet?
     @State private var memberMenu: String?
     @State private var choosingMute = false
@@ -18,13 +20,14 @@ struct ConversationDetails: View {
     @State private var mediaCounts: MediaCounts?
 
     enum DetailsSheet: Identifiable {
-        case verify(String), edit, addMembers
+        case verify(String), edit, addMembers, search
 
         var id: String {
             switch self {
             case let .verify(userId): "verify-\(userId)"
             case .edit: "edit"
             case .addMembers: "add"
+            case .search: "search"
             }
         }
     }
@@ -61,8 +64,13 @@ struct ConversationDetails: View {
         let isSelf = conversation.peerId == selfId
         let isAdmin = conversation.members.first { $0.userId == selfId }?.role == .admin
         return List {
-            Section { header(server, conversation, peer: peer, isSelf: isSelf, isAdmin: isAdmin) }
-                .listRowBackground(Color.clear)
+            Section {
+                header(server, conversation, peer: peer, isSelf: isSelf, isAdmin: isAdmin)
+                    // The buttons as wide as the cards under them.
+                    .listRowInsets(EdgeInsets(top: 12, leading: 0, bottom: 12, trailing: 0))
+            }
+            .listRowBackground(Color.clear)
+            about(conversation, peer: peer, isSelf: isSelf)
 
             if conversation.kind == .group {
                 Section {
@@ -133,9 +141,6 @@ struct ConversationDetails: View {
                 }
                 .tint(model.settings.accent.switchTint)
                 .accessibilityIdentifier(A11y.Details.notifications)
-                .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
-                    MuteButtons(conversationKey: conversation.key, serverId: serverId)
-                }
                 if conversation.kind == .group {
                     Toggle(isOn: Binding(get: { conversation.mentionsOnly }, set: { model.setMentionsOnly(conversation.key, $0, on: serverId) })) {
                         Label {
@@ -211,6 +216,10 @@ struct ConversationDetails: View {
             guard !Task.isCancelled, let counts = try? await model.core.session(serverId).mediaCounts(groupId), !Task.isCancelled else { return }
             mediaCounts = counts
         }
+        // On the list, not the switch: a list leaves out rows off screen, and the row under the name asks too.
+        .confirmationDialog("Mute notifications", isPresented: $choosingMute, titleVisibility: .visible) {
+            MuteButtons(conversationKey: conversation.key, serverId: serverId)
+        }
         .sheet(item: $sheet) { sheet in
             switch sheet {
             case let .verify(userId):
@@ -219,6 +228,8 @@ struct ConversationDetails: View {
                 EditGroupSheet(serverId: serverId, conversation: conversation)
             case .addMembers:
                 AddMembersSheet(serverId: serverId, conversation: conversation)
+            case .search:
+                ChatSearchSheet(serverId: serverId, conversation: conversation, server: server)
             }
         }
         .confirmationDialog(confirmTitle(conversation), isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible, presenting: confirming) { confirmation in
@@ -279,23 +290,86 @@ struct ConversationDetails: View {
                     .accessibilityIdentifier(A11y.Details.edit)
                 }
             }
-            if let peer {
-                Text("@\(peer.username)").font(.subheadline).foregroundStyle(Theme.text2)
-                if !isSelf {
-                    Text(peer.online ? "online" : Format.lastSeen(peer.lastSeenAt, hidden: peer.hidesLastSeen))
-                        .font(.footnote)
-                        .foregroundStyle(peer.online ? Theme.green : Theme.text3)
-                }
-                if !peer.bio.isEmpty {
-                    Text(peer.bio).font(.subheadline).foregroundStyle(Theme.text1).multilineTextAlignment(.center).padding(.top, 4).textSelection(.enabled)
-                }
-            } else if !conversation.description.isEmpty {
-                Text(conversation.description).font(.subheadline).foregroundStyle(Theme.text1).multilineTextAlignment(.center).textSelection(.enabled)
+            if let peer, !isSelf {
+                Text(peer.online ? "online" : Format.lastSeen(peer.lastSeenAt, hidden: peer.hidesLastSeen))
+                    .font(.footnote)
+                    .foregroundStyle(peer.online ? Theme.green : Theme.text3)
             }
+            DetailsActions(actions: actions(server, conversation, peer: peer, isSelf: isSelf))
+                .padding(.top, 22)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(A11y.Details.header)
+    }
+
+    // MARK: About
+
+    /// Who they are, in a card of labelled rows under the buttons, as Telegram's
+    /// profile pages have it: a person's bio and username, or a group's description.
+    @ViewBuilder
+    private func about(_ conversation: ConversationView, peer: UserView?, isSelf: Bool) -> some View {
+        if let peer, !isSelf {
+            Section {
+                if !peer.bio.isEmpty {
+                    aboutRow("bio", peer.bio).accessibilityIdentifier(A11y.Details.bio)
+                }
+                aboutRow("username", "@\(peer.username)", color: Theme.link).accessibilityIdentifier(A11y.Details.username)
+            }
+            .listRowBackground(Theme.bg2)
+        } else if conversation.kind == .group, !conversation.description.isEmpty {
+            Section {
+                aboutRow("description", conversation.description).accessibilityIdentifier(A11y.Details.description)
+            }
+            .listRowBackground(Theme.bg2)
+        }
+    }
+
+    private func aboutRow(_ label: String, _ value: String, color: Color = Theme.text1) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.footnote)
+                .foregroundStyle(Theme.channelMuted)
+            Text(value)
+                .foregroundStyle(color)
+                .textSelection(.enabled)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: Actions
+
+    /// What the chat's bar had: a call, or the one going on, then mute, search and pins.
+    private func actions(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSelf: Bool) -> [DetailsActions.Action] {
+        let serverId = server.entry.id, key = conversation.key
+        var actions: [DetailsActions.Action] = []
+        if ChatScreen.canCall(server, conversation, peer: peer, isSaved: isSelf) {
+            if let groupId = conversation.groupId, voice.inCall, voice.serverId == serverId, voice.channelId == groupId {
+                actions.append(.init(id: "call", title: "In call", icon: "phone.fill", tint: Theme.green) { voice.stageShown = true })
+            } else if let groupId = conversation.groupId, !server.inRoom(groupId).isEmpty {
+                actions.append(.init(id: "join", title: "Join", icon: "phone.fill", tint: Theme.green) {
+                    Task { await voice.join(serverId: serverId, channelId: groupId) }
+                })
+            } else {
+                actions.append(.init(id: "call", title: "Call", icon: "phone.fill") {
+                    Task { await voice.startCall(serverId: serverId, key: key, camera: false) }
+                })
+                actions.append(.init(id: "video", title: "Video", icon: "video.fill") {
+                    Task { await voice.startCall(serverId: serverId, key: key, camera: true) }
+                })
+            }
+        }
+        if !isSelf {
+            actions.append(.init(id: "mute", title: conversation.muted ? "Unmute" : "Mute", icon: conversation.muted ? "bell.slash.fill" : "bell.fill") {
+                if conversation.muted { model.unmute(key, on: serverId) } else { choosingMute = true }
+            })
+        }
+        actions.append(.init(id: "search", title: "Search", icon: "magnifyingglass", disabled: conversation.groupId == nil) { sheet = .search })
+        actions.append(.init(id: "pins", title: "Pins", icon: "pin.fill", disabled: conversation.groupId == nil) {
+            model.chatPath.append(.pins(key))
+        })
+        return actions
     }
 
     // MARK: Shared media

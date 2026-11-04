@@ -34,23 +34,30 @@ final class ShellTests: XCTestCase {
         zuna.screenshot("11-chat-list-new-message")
     }
 
-    func testOneServerOpensOnItsChatsWithItsMenuInTheTitle() throws {
+    func testOpensOnTheServersChatsWithItsMenuInTheTitleAndJoinsFromTheServerButton() throws {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
-        // No list of servers to go back to while there's only one.
-        XCTAssertFalse(zuna.serversButton.exists)
+        // The chats are the first screen, with the server's picture at the top left.
         XCTAssertFalse(zuna.element(A11y.Servers.list).exists)
+        XCTAssertTrue(zuna.serverButton.label.contains(World.current.serverName), zuna.serverButton.label)
 
+        // Joining another server starts from the list of servers.
+        zuna.serverButton.tap()
+        XCTAssertTrue(zuna.element(A11y.Servers.list).waitForExistence(timeout: 5))
+        XCTAssertTrue(zuna.element(A11y.Servers.row(zuna.serverId)).exists)
+        zuna.screenshot("21-servers-sheet")
+        zuna.element(A11y.Servers.join).tap()
+        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 10))
+        zuna.app.buttons["Cancel"].tap()
+        try waitFor("the join screens to close") { !self.zuna.element(A11y.Onboarding.link).exists }
+
+        // The server's own menu is under its name, last, as nothing closes it but a choice.
         zuna.element(A11y.Shell.title).tap()
-        for item in ["Invite people", "New group", "Join a server"] {
+        for item in ["Invite people", "New group"] {
             XCTAssertTrue(zuna.app.buttons[item].waitForExistence(timeout: 5), item)
         }
         zuna.screenshot("20-server-menu")
-        zuna.app.buttons["Join a server"].tap()
-        XCTAssertTrue(zuna.element(A11y.Onboarding.link).waitForExistence(timeout: 5))
-        zuna.app.buttons["Cancel"].tap()
-        try waitFor("the join screens to close") { !self.zuna.element(A11y.Onboarding.link).exists }
     }
 
     func testSettingsShowTheAccountAndKeepTheAccent() throws {

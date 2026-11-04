@@ -3,7 +3,7 @@ import ZunaModels
 
 /// The server ended this device's session. Nothing is erased on its word: what's
 /// here stays until the person signs in again or clears it, or after a month.
-private struct SignedOutView: View {
+struct SignedOutView: View {
     @Environment(AppModel.self) private var model
     let server: AppModel.ServerState
     let reason: String
@@ -41,7 +41,8 @@ private struct SignedOutView: View {
 
 /// The active server's conversations, laid out like Telegram's chat list: a
 /// search bar, filters, then the rows. The title shows the connection state
-/// while it isn't connected, as Telegram does.
+/// while it isn't connected, as Telegram does. On a phone the channels have
+/// a tab of their own; on an iPad, which has no tabs, they head this list.
 struct ChatListView: View {
     enum Filter: String, CaseIterable, Identifiable {
         case all = "All", channels = "Channels", people = "People", groups = "Groups", unread = "Unread"
@@ -99,6 +100,9 @@ struct ChatListView: View {
         .background(Theme.bg0)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if !sidebar {
+                ServerToolbarItem()
+            }
             if let onSettings {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(action: onSettings) {
@@ -132,16 +136,17 @@ struct ChatListView: View {
             MuteButtons(conversationKey: target.key, serverId: target.serverId)
         }
         .confirmationDialog(deletingChannel.map { "Delete #\($0.title)? Its messages go for everyone." } ?? "", isPresented: Binding(get: { deletingChannel != nil }, set: { if !$0 { deletingChannel = nil } }), titleVisibility: .visible, presenting: deletingChannel) { channel in
-            Button("Delete channel", role: .destructive) { deleteChannel(channel) }
+            Button("Delete channel", role: .destructive) {
+                if let serverId = model.activeServerId { model.deleteChannel(channel, on: serverId) }
+            }
         }
         .toolbarBackground(Theme.bg0, for: .navigationBar)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
         .task(id: SearchKey(serverId: model.activeServerId, query: query)) { await searchMessages() }
         .onChange(of: model.activeServerId) {
             query = ""
             showHidden = false
         }
-        .onChange(of: model.activeServer?.showsChannels ?? false) { _, shows in
+        .onChange(of: model.activeServer.map(showsChannels) ?? false) { _, shows in
             if !shows, filter == .channels { filter = .all }
         }
     }
@@ -151,8 +156,10 @@ struct ChatListView: View {
     private func list(_ server: AppModel.ServerState) -> some View {
         let (visible, hidden) = partition(server)
         let needle = query.trimmingCharacters(in: .whitespaces)
-        let channels = server.showsChannels && (filter == .all || filter == .channels)
-        return List {
+        // On a phone the channels have a tab of their own, but searching here still finds them by name.
+        let channelHits = !needle.isEmpty && server.showsChannels && server.channels.contains { $0.name.lowercased().contains(needle.lowercased()) }
+        let channels = (showsChannels(server) || channelHits) && (filter == .all || filter == .channels)
+        return PullSearchList(query: $query, prompt: "Search", identifier: A11y.ChatList.search, resetKey: model.activeServerId) {
             Section {
                 // The server's channels first, as on the desktop.
                 if channels {
@@ -166,12 +173,11 @@ struct ChatListView: View {
                     }
                 }
                 ForEach(visible) { row($0, server) }
-                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty, filter != .channels {
+                if visible.isEmpty, hidden.isEmpty, messageHits.isEmpty, !channelHits, filter != .channels {
                     emptyState(searching: !needle.isEmpty)
                 }
-            } header: {
-                filterBar(server)
             }
+            .listSectionSeparator(.hidden, edges: .top)
             if !hidden.isEmpty {
                 Section {
                     if showHidden {
@@ -215,13 +221,22 @@ struct ChatListView: View {
                 }
             }
         }
+        // On the list itself: on what holds the filters too, it would take the filters' own.
+        .accessibilityIdentifier(A11y.ChatList.list)
         .listStyle(.plain)
         // Channel rows are Discord's height, lower than the list's usual rows.
         .environment(\.defaultMinListRowHeight, 1)
+        // The filters stay above the list, close under the search bar: a plain
+        // list's section header would take a gap above it that can't be set.
+        .contentMargins(.top, 0, for: .scrollContent)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            filterBar(server)
+                .padding(.horizontal, 16)
+                .background(Theme.bg0)
+        }
         .scrollContentBackground(.hidden)
         .scrollDismissesKeyboard(.immediately)
         .animation(model.reduceMotion ? nil : .snappy(duration: 0.25), value: visible.map(\.key))
-        .accessibilityIdentifier(A11y.ChatList.list)
     }
 
     private func row(_ conversation: ConversationView, _ server: AppModel.ServerState) -> some View {
@@ -344,12 +359,13 @@ struct ChatListView: View {
     private func filterBar(_ server: AppModel.ServerState) -> some View {
         Picker("Show", selection: $filter) {
             // Channels, when the server has some, as the desktop's tab.
-            ForEach(Filter.allCases.filter { $0 != .channels || server.showsChannels }) { item in
+            ForEach(Filter.allCases.filter { $0 != .channels || showsChannels(server) }) { item in
                 Text(item.rawValue).tag(item)
             }
         }
         .pickerStyle(.segmented)
-        .padding(.vertical, 6)
+        .padding(.top, 4)
+        .padding(.bottom, 8)
         .accessibilityIdentifier(A11y.ChatList.filter)
     }
 
@@ -375,6 +391,11 @@ struct ChatListView: View {
 
     // MARK: Channels
 
+    /// Channels are in this list only beside the open chat on an iPad.
+    private func showsChannels(_ server: AppModel.ServerState) -> Bool {
+        sidebar && server.showsChannels
+    }
+
     private func channelActions(_ server: AppModel.ServerState) -> ChannelListActions {
         ChannelListActions(
             create: { type, category in sheet = .channel(.new(type, category: category)) },
@@ -382,18 +403,6 @@ struct ChatListView: View {
             delete: { deletingChannel = $0 },
             mute: { muting = MutingTarget(key: $0.key, title: "#\($0.title)", serverId: server.entry.id) }
         )
-    }
-
-    private func deleteChannel(_ channel: ChannelView) {
-        guard let serverId = model.activeServerId else { return }
-        Task {
-            do {
-                try await model.core.session(serverId).deleteChannel(channel.id)
-                if model.chatPath.first == .chat(channel.key) { model.chatPath = [] }
-            } catch {
-                model.toast(OnboardingText.describe(error), .error)
-            }
-        }
     }
 
     // MARK: Message search
@@ -427,16 +436,16 @@ struct ChatListView: View {
 
     // MARK: Navigation bar
 
-    /// The server's menu under its name, as on the desktop. With one server,
-    /// joining another starts here; with more, from the list of servers.
+    /// The server's menu under its name, as on the desktop. On an iPad with one
+    /// server, joining another starts here; otherwise, from the list of servers.
     private var serverMenu: some View {
         Menu {
             Button("Invite people", systemImage: "link") { sheet = .invite }
             Button("New group", systemImage: "person.2") { sheet = .newGroup }
-            if model.activeServer.map({ $0.isAdmin && ($0.info?.channels ?? 0) > 0 }) ?? false {
+            if sidebar, model.activeServer.map({ $0.isAdmin && ($0.info?.channels ?? 0) > 0 }) ?? false {
                 Button("New channel", systemImage: "number") { sheet = .channel(.new(.text, category: "")) }
             }
-            if !model.hasServerList {
+            if sidebar, !model.hasServerList {
                 Divider()
                 Button("Join a server", systemImage: "plus") { model.joining = true }
             }
@@ -673,8 +682,6 @@ struct ChatRouteView: View {
 
     var body: some View {
         switch route {
-        // Always the active server's, since opening a server makes it the active one.
-        case .server: ChatListView()
         case let .chat(key): ChatScreen(conversationKey: key)
         case let .details(key):
             if model.activeServer?.channel(key) != nil {

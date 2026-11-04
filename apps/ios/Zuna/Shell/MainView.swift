@@ -1,10 +1,9 @@
 import SwiftUI
 import ZunaModels
 
-/// The app once it has a server: Chats and Settings tabs, as in Telegram.
-/// The Chats tab starts at the list of servers, as Mail starts at its
-/// mailboxes, or at the chats when there's only one. A Calls tab comes with
-/// calls.
+/// The app once it has a server: Channels, Chats and Settings tabs, as in
+/// Telegram, opening on Chats. Both lists are the active server's, picked
+/// with the server button at their top left. A Calls tab comes with calls.
 struct MainView: View {
     @Environment(AppModel.self) private var model
     @Environment(Notifications.self) private var notifications
@@ -39,10 +38,17 @@ struct MainView: View {
     private var compact: some View {
         @Bindable var model = model
         return TabView(selection: $model.tab) {
+            Tab("Channels", systemImage: "number", value: AppModel.Tab.channels) {
+                ChannelsTab()
+            }
+            // The open server's alone, as the server button carries the others'.
+            .badge(model.activeServer?.channelMentions ?? 0)
+            .accessibilityIdentifier(A11y.Shell.channelsTab)
+
             Tab("Chats", systemImage: "bubble.left.and.bubble.right.fill", value: AppModel.Tab.chats) {
                 ChatsTab()
             }
-            .badge(model.totalUnread)
+            .badge(model.activeServer?.chatsUnread ?? 0)
             .accessibilityIdentifier(A11y.Shell.chatsTab)
 
             Tab("Settings", systemImage: "gearshape.fill", value: AppModel.Tab.settings) {
@@ -57,22 +63,16 @@ struct MainView: View {
     }
 }
 
-/// The Chats tab on a phone: the servers, then a server's chats pushed over
-/// them, then its chats and their details.
+/// The Chats tab on a phone: the active server's chats, then the chats and
+/// their details pushed over them.
 private struct ChatsTab: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         @Bindable var model = model
-        NavigationStack(path: $model.chatsStack) {
-            Group {
-                if model.hasServerList {
-                    ServerListView()
-                } else {
-                    ChatListView()
-                }
-            }
-            .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
+        NavigationStack(path: $model.chatsPath) {
+            ChatListView()
+                .navigationDestination(for: ChatRoute.self) { ChatRouteView(route: $0) }
         }
     }
 }
