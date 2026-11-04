@@ -174,6 +174,12 @@ async function launch(name, soundFile) {
       window.__soundsPlayed.push(this.buffer?.duration ?? 0);
       return start.apply(this, args);
     };
+    // Each screen wake lock the app holds.
+    window.__wakeLocks = [];
+    const request = WakeLock.prototype.request;
+    WakeLock.prototype.request = function (...args) {
+      return request.apply(this, args).then((lock) => (window.__wakeLocks.push(lock), lock));
+    };
     // So that what's really being sent and received can be asked for.
     const Original = window.RTCPeerConnection;
     window.__connections = [];
@@ -573,14 +579,23 @@ try {
   await bob.page.getByRole("button", { name: "Unmute", exact: true }).first().click();
 
   // --- Camera ---
+  const awake = async () => (await Promise.all([alice, bob].map((who) => who.page.evaluate(() => window.__wakeLocks.some((lock) => !lock.released))))).map((held, index) => (held ? ["alice", "bob"][index] : "")).filter(Boolean);
+  const awakeBefore = await awake();
+  check("a call that's only heard lets the screen sleep", awakeBefore.length === 0, awakeBefore.join(", "));
   await alice.page.getByRole("button", { name: "Turn on camera" }).first().click();
   await bob.page.locator(".voice-tile video").first().waitFor({ timeout: 15_000 }).catch(() => undefined);
   await rowFor(bob.page, "Lounge").click();
   await sleep(4000);
   const video = await audioFlow(bob.page, 2);
   check("a camera's picture reaches others and decrypts", video.inVideoFrames > 5, `${video.inVideoFrames.toFixed(0)} frames/s decoded`);
+  const awakeWithCamera = await awake();
+  check("a camera keeps the screen on, for whoever has it on and whoever watches", awakeWithCamera.length === 2, awakeWithCamera.join(", ") || "nobody");
   await shot(bob, "07-camera");
   await alice.page.getByRole("button", { name: "Turn off camera" }).first().click();
+  await bob.page.locator(".voice-tile video").first().waitFor({ state: "detached", timeout: 10_000 }).catch(() => undefined);
+  await sleep(500);
+  const awakeAfter = await awake();
+  check("turning the camera off lets the screen sleep again", awakeAfter.length === 0, awakeAfter.join(", "));
 
   // --- Sharing a whole screen, natively where this build can ---
   // Shares start with sound, which the checks below ask for only where they mean to.

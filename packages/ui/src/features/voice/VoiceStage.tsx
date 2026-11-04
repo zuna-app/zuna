@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Avatar, PopupMenu, Spinner, Tooltip, useContextMenu, type MenuEntry } from "@/components/ui";
+import { useScreenAwake } from "@/lib/awake";
 import { avatarColor } from "@/lib/format";
 import { useActiveServer, useApp } from "@/state/store";
 import type { VideoTile } from "@/voice/room";
@@ -428,6 +429,8 @@ export function VoiceStage({ room, expanded, onExpand }: { room: StageRoom; expa
   const people = members.length + ringing.length + screens.length + (nativeSelfShare ? 1 : 0);
   const columns = Math.min(4, Math.ceil(Math.sqrt(Math.max(1, people))));
   const shareRefusal = screenRefusal(server?.info?.screen_share, server?.self?.role, room.screenLimit);
+  // A camera or a shared screen is watched rather than listened to, so the screen stays on while one is here.
+  useScreenAwake(status !== "connecting" && (videos.length > 0 || !!nativeSelfShare));
 
   return (
     <div className={`voice-stage-wrap${room.call ? " is-call" : ""}${expanded ? " is-expanded" : ""}`}>

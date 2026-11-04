@@ -678,10 +678,10 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(() => {
     // The renderer needs notifications, the microphone and camera for voice channels and voice messages,
-    // where this device is for sharing it, which it only asks for when someone chooses to, and the full
-    // screen for watching a shared one.
+    // where this device is for sharing it, which it only asks for when someone chooses to, the full
+    // screen for watching a shared one, and keeping the screen on while a camera or a share is on a call.
     session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-      callback(permission === "notifications" || permission === "clipboard-sanitized-write" || permission === "geolocation" || permission === "media" || permission === "display-capture" || permission === "speaker-selection" || permission === "fullscreen");
+      callback(permission === "notifications" || permission === "clipboard-sanitized-write" || permission === "geolocation" || permission === "media" || permission === "display-capture" || permission === "speaker-selection" || permission === "fullscreen" || permission === "screen-wake-lock");
     });
     // A share that can't go natively goes through Chromium, as everything does on macOS. What it gets is
     // what was picked in the app, and nothing happens unless something has been. Its sound only comes

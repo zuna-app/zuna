@@ -472,6 +472,23 @@ print(Int(size.width), Int(size.height), try await asset.loadTracks(withMediaTyp
     await context.close();
     context = undefined;
     fresh = await profile();
+    // Each wake lock the app asks for, and what the browser said.
+    await fresh.addInitScript(() => {
+      const asked = (window.__wakeLocks = []);
+      if (!window.WakeLock) return;
+      const request = WakeLock.prototype.request;
+      WakeLock.prototype.request = function (type) {
+        const entry = { type, lock: null, refused: "" };
+        asked.push(entry);
+        return request.call(this, type).then(
+          (lock) => (entry.lock = lock),
+          (error) => {
+            entry.refused = error.name;
+            throw error;
+          },
+        );
+      };
+    });
     const again = fresh.pages()[0] ?? (await fresh.newPage());
     watch(again, "fresh browser");
     await again.goto(appUrl);
@@ -512,6 +529,26 @@ print(Int(size.width), Int(size.height), try await asset.loadTracks(withMediaTyp
     await connection.waitFor({ timeout: 5000 });
     check("stream stats read the call", (await connection.innerText()).includes("End to end"));
     await again.getByRole("button", { name: "Close stream stats" }).click();
+
+    // A camera on the call keeps the screen on, and only while it's there.
+    const awake = () =>
+      again.evaluate(() => ({
+        asked: window.__wakeLocks.length,
+        held: window.__wakeLocks.some((entry) => entry.lock && !entry.lock.released),
+        refused: window.__wakeLocks.find((entry) => entry.refused)?.refused ?? "",
+      }));
+    check("a call with no video lets the screen sleep", (await awake()).asked === 0);
+    // Playwright's WebKit refuses what isn't on the list it's given, and this profile has no camera until it is.
+    if (name === "webkit") await fresh.grantPermissions(["camera", "screen-wake-lock"], { origin: appUrl.slice(0, -1) });
+    await again.getByRole("toolbar", { name: "Call" }).getByRole("button", { name: "Turn on camera" }).click();
+    await again.locator(".voice-video").first().waitFor({ timeout: 15_000 });
+    await again.waitForFunction(() => window.__wakeLocks.some((entry) => entry.lock || entry.refused), null, { timeout: 5000 }).catch(() => undefined);
+    const lit = await awake();
+    // Playwright's Chromium is a headless shell, which refuses every page a wake lock. Full Chromium holds it.
+    check("a camera on the call keeps the screen on", lit.held || (name === "chromium" && lit.refused === "NotAllowedError"), lit.held ? "held" : `asked ${lit.asked}, ${lit.refused || "no answer"}`);
+    await again.getByRole("toolbar", { name: "Call" }).getByRole("button", { name: "Turn off camera" }).click();
+    await again.waitForFunction(() => !window.__wakeLocks.some((entry) => entry.lock && !entry.lock.released), null, { timeout: 5000 }).catch(() => undefined);
+    check("turning the camera off lets the screen sleep again", !(await awake()).held);
     await again.getByRole("button", { name: "Disconnect from voice" }).click();
     await again.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
 
