@@ -48,6 +48,8 @@ final class CoreController {
     private var awake = false
     /// Going to sleep and waking up, one after another, since each waits for the core or the lock.
     private var lifecycle: Task<Void, Never>?
+    /// Going to sleep was asked for, and not called off by coming back before its turn.
+    private var sleepWanted = false
     /// What the share extension hands over while the app is awake.
     private var shareInbox: ShareInbox?
     private let network = NWPathMonitor()
@@ -185,6 +187,7 @@ final class CoreController {
         model.voice.onEnded = { [weak self] in
             if UIApplication.shared.applicationState == .background { self?.didEnterBackground() }
         }
+        model.voice.onPushed = { [weak self] in self?.callPushed() }
         let shareInbox = ShareInbox(model: model, core: connection, deviceKey: key)
         // So does something the share extension handed over, once it's gone.
         shareInbox.onIdle = { [weak self] in
@@ -261,6 +264,7 @@ final class CoreController {
         Task { await notifications?.updateAuthorization() }
         suspendTask?.cancel()
         suspendTask = nil
+        sleepWanted = false
         endBackgroundTask()
         reportActivity()
         guard let connection else { return }
@@ -286,9 +290,24 @@ final class CoreController {
             endBackgroundTask()
             return
         }
+        sleepWanted = true
         inTurn { [self] in
-            await goToSleep()
+            if sleepWanted { await goToSleep() }
             endBackgroundTask()
+        }
+    }
+
+    /// A VoIP push woke the app for a call, which goes to CallKit at once and is answered or let go once
+    /// the core has caught up with it, so the core wakes if it was asleep. It stays awake while the call
+    /// rings (`keepsCoreAwake`), and goes to sleep again after, out of sight, through `onEnded`.
+    private func callPushed() {
+        suspendTask?.cancel()
+        suspendTask = nil
+        endBackgroundTask()
+        guard let connection else { return }
+        inTurn { [self] in
+            await wakeUp()
+            try? await connection.nudge()
         }
     }
 
@@ -310,8 +329,7 @@ final class CoreController {
     /// Closes the core's connections and lets go of its data, which nothing in
     /// the app may write to until it wakes, so the share extension can use it.
     private func goToSleep() async {
-        // Back on screen before its turn came.
-        guard awake, UIApplication.shared.applicationState != .active else { return }
+        guard awake else { return }
         try? await connection?.suspend()
         awake = false
         shareInbox?.listening = false
@@ -322,6 +340,7 @@ final class CoreController {
     /// using it, and reconnects. If it sent something meanwhile, the core reads
     /// everything again and the app's state follows.
     private func wakeUp() async {
+        sleepWanted = false
         guard !awake, let lock, let connection else { return }
         let moved = await lock.take(as: .app)
         awake = true
@@ -404,14 +423,16 @@ final class CoreController {
             let path = command["path"] as? String
             let channel = command["channel"] as? String
             let on = command["on"] as? Bool
-            return await self?.handleControl(name: name, password: password, account: account, path: path, channel: channel, on: on)
+            let caller = command["caller"] as? String
+            let startedAt = command["startedAt"] as? Int
+            return await self?.handleControl(name: name, password: password, account: account, path: path, channel: channel, on: on, caller: caller, startedAt: startedAt)
         }
         control = server
         guard let bound = try? await server.start(port: UInt16(port)) else { return }
         print("ZUNA_HOST_READY port=\(bound)")
     }
 
-    private func handleControl(name: String?, password: String?, account: Int?, path: String?, channel: String?, on: Bool?) async -> String {
+    private func handleControl(name: String?, password: String?, account: Int?, path: String?, channel: String?, on: Bool?, caller: String?, startedAt: Int?) async -> String {
         switch name {
         case "state":
             switch phase {
@@ -452,6 +473,11 @@ final class CoreController {
             let calls = model?.voice.incoming.map { ["groupId": $0.groupId, "startedBy": $0.startedBy, "title": $0.title] } ?? []
             let data = (try? JSONSerialization.data(withJSONObject: calls, options: [.sortedKeys])) ?? Data("[]".utf8)
             return String(decoding: data, as: UTF8.self)
+        case "voipPush":
+            // A call ringing by a VoIP push, as PushKit hands it to the app, which the simulator can't.
+            guard let model, let channel, let caller, let startedAt, let serverId = model.activeServerId else { return "no-server" }
+            model.voice.ringByPush(PushStore.Message(kind: .call, serverId: serverId, groupId: channel, messageId: nil, callerId: caller, startedAt: startedAt))
+            return "rung"
         case "voiceAnswer":
             // Answers the first call ringing here, as its card's button does, and says how that went.
             guard let model, let call = model.voice.incoming.first else { return "not-ringing" }

@@ -147,6 +147,8 @@ final class VoiceModel {
 
     /// Called when the call ends, or one stops ringing here, so the app can let go of what it kept running for it in the background.
     @ObservationIgnored var onEnded: (() -> Void)?
+    /// Called when a VoIP push says a call is ringing: iOS woke the app for it, and its core may be asleep.
+    @ObservationIgnored var onPushed: (() -> Void)?
 
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private var room: VoiceRoom?
@@ -543,9 +545,17 @@ final class VoiceModel {
 
     // MARK: Calls that woke the app
 
+    #if DEBUG
+    /// As PushKit hands the app a VoIP push, for tests: the simulator has no PushKit.
+    func ringByPush(_ push: PushStore.Message) {
+        rangByPush(push)
+    }
+    #endif
+
     /// A VoIP push says a call is ringing here. It goes to CallKit at once, as PushKit insists, called what the app
     /// knows so far, and is answered or let go once the app has caught up with its server.
     private func rangByPush(_ push: PushStore.Message?) {
+        onPushed?()
         guard let push, push.kind == .call, let startedAt = push.startedAt, let callerId = push.callerId else {
             systemCall.ringUnreadable()
             return

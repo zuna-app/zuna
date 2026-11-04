@@ -103,6 +103,46 @@ final class CallTests: XCTestCase {
         try waitFor("the call to close") { !self.zuna.element(A11y.Voice.stage).exists && !self.zuna.element(A11y.Voice.bar).exists }
     }
 
+    /// A VoIP push wakes an app iOS had suspended, whose core went to sleep when it left the screen.
+    /// The simulator has no PushKit, so the push is handed over as PushKit would, with the core asleep
+    /// as it is out of sight; CallKit, which a pushed call goes to, is on for this.
+    func testACallPushedWhileTheAppSleepsWakesItsCore() throws {
+        let alice = try Peer("alice")
+        try zuna.launch(systemCall: true)
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let control = zuna.control!
+        try blocking { _ = try await control.host("background") }
+        try waitFor("the core to go to sleep") { try self.zuna.connectionState() == "offline" }
+
+        let dm = try XCTUnwrap(try alice.call("prepareCall", ["user:\(bobId)"]) as? String)
+        try alice.call("setVoiceState", [dm, here, true])
+        var startedAt = 0
+        try waitFor("alice's call to start") {
+            startedAt = try self.call(alice, dm)?["startedAt"] as? Int ?? 0
+            return startedAt > 0
+        }
+        let started = startedAt
+        let rung = try blocking { try await control.host("voipPush", ["channel": dm, "caller": self.aliceId, "startedAt": started]) as? String }
+        XCTAssertEqual(rung, "rung")
+
+        // The core catches up with the call, which can then be answered.
+        try waitFor("the core to wake for the call", timeout: 30) { try self.zuna.connectionState() == "online" }
+        do {
+            try waitFor("the call to ring here", timeout: 20) {
+                (try blocking { try await control.host("voiceIncoming") as? String ?? "" }).contains(dm)
+            }
+        } catch {
+            XCTFail("Not ringing; alice's call is \(String(describing: try? self.call(alice, dm)))")
+        }
+        let answered = try blocking { try await control.host("voiceAnswer") as? String }
+        XCTAssertEqual(answered, "connected")
+        let device = try phoneDevice()
+        try waitFor("alice to see bob in the call", timeout: 30) { try self.inCall(alice, dm).contains(device) }
+        try alice.call("setVoiceState", [NSNull(), NSNull()])
+        try waitFor("the server to see bob gone") { try self.inCall(alice, dm).isEmpty }
+    }
+
     func testAGroupsCallCanBeJoinedAndRingsAgain() throws {
         let alice = try Peer("alice")
         let carol = try Peer("carol")
