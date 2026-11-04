@@ -12,7 +12,7 @@ import { normalizeServerUrl, Api, ApiError } from "./api";
 import { coreFromJson, coreToJson, randomId } from "./crypto";
 import type { RotationPlan } from "./generations";
 import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
-import { migrate, type DbProvider, type LocalDb } from "./db";
+import { migrate, type DbProvider, type LocalDb, type SqlValue } from "./db";
 import type { FileAdapter } from "./files";
 import { findLink, makeLinkPreview, type WebAdapter } from "./links";
 import { ServerSession } from "./session";
@@ -77,16 +77,66 @@ const PREVIEWS_KEPT = 50;
 /** How long what's on this device stays after a server ended its session, unless the person clears it first. */
 const SIGNED_OUT_KEPT_MS = 30 * 24 * 3600 * 1000;
 
+/**
+ * A database that can stop taking writes, while the app is suspended: another
+ * process may use the same data meanwhile, such as the iOS share extension.
+ * A write refused means what's in memory may no longer match what's stored.
+ */
+class PausableDb implements LocalDb {
+  paused = false;
+  refused = false;
+
+  constructor(private readonly db: LocalDb) {}
+
+  private check(): void {
+    if (!this.paused) return;
+    this.refused = true;
+    throw new Error("This device's data is in use elsewhere for a moment. Please try again.");
+  }
+
+  run(sql: string, params?: SqlValue[]): void {
+    this.check();
+    this.db.run(sql, params);
+  }
+
+  all<T = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): T[] {
+    return this.db.all<T>(sql, params);
+  }
+
+  get<T = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): T | undefined {
+    return this.db.get<T>(sql, params);
+  }
+
+  transaction<T>(fn: () => T): T {
+    this.check();
+    return this.db.transaction(fn);
+  }
+
+  close(): void {
+    this.db.close();
+  }
+}
+
 export class ZunaClient {
   private sessions = new Map<string, ServerSession>();
   private index!: LocalDb;
+  /** Every database the sessions and the index write to, so they can be paused together. */
+  private dbs: PausableDb[] = [];
+  /** Sessions `reload()` put away, whose late events nobody should hear. */
+  private replaced = new WeakSet<ServerSession>();
   private active = false;
   private previews = new Map<string, Promise<LinkPreview | null>>();
 
   constructor(private readonly options: ZunaClientOptions) {}
 
+  private pausable(db: LocalDb): PausableDb {
+    const pausable = new PausableDb(db);
+    this.dbs.push(pausable);
+    return pausable;
+  }
+
   async open(): Promise<void> {
-    this.index = await this.options.db.open(INDEX_DB);
+    this.index = this.pausable(await this.options.db.open(INDEX_DB));
     this.index.run(`CREATE TABLE IF NOT EXISTS servers (
       id TEXT PRIMARY KEY,
       position INTEGER NOT NULL,
@@ -128,14 +178,18 @@ export class ZunaClient {
   }
 
   private async createSession(serverId: string, account: AccountState): Promise<ServerSession> {
-    const db = await this.options.db.open(serverDbName(serverId));
+    const db = this.pausable(await this.options.db.open(serverDbName(serverId)));
     migrate(db);
-    const session = new ServerSession(
+    // A session put away by `reload()` writes through the index it began with, which is paused, and says nothing more.
+    const index = this.index;
+    const session: ServerSession = new ServerSession(
       serverId,
       account,
       db,
       this.serverKey(serverId),
-      (event) => this.handle(event),
+      (event) => {
+        if (!this.replaced.has(session)) this.handle(event);
+      },
       this.options.deviceName,
       this.options.files,
       this.options.channels ?? false,
@@ -143,14 +197,14 @@ export class ZunaClient {
     );
     // Nothing is erased on the server's word: that's for the person to decide.
     session.onSignedOut = (reason) => {
-      this.index.run("UPDATE servers SET signed_out = ?, signed_out_at = COALESCE(signed_out_at, ?) WHERE id = ?", [reason, Date.now(), serverId]);
+      index.run("UPDATE servers SET signed_out = ?, signed_out_at = COALESCE(signed_out_at, ?) WHERE id = ?", [reason, Date.now(), serverId]);
     };
     session.onSignedIn = () => {
-      this.index.run("UPDATE servers SET signed_out = NULL, signed_out_at = NULL WHERE id = ?", [serverId]);
+      index.run("UPDATE servers SET signed_out = NULL, signed_out_at = NULL WHERE id = ?", [serverId]);
     };
     session.onAccountChanged = (changed) => {
       const sealed = wasm.aeadSeal(this.serverKey(serverId), utf8(encodeAccount(changed)), label("account"));
-      this.index.run("UPDATE servers SET account = ? WHERE id = ?", [sealed, serverId]);
+      index.run("UPDATE servers SET account = ? WHERE id = ?", [sealed, serverId]);
     };
     if (this.options.web) session.linkPreview = (url) => this.linkPreview(url);
     session.setActive(this.active);
@@ -335,14 +389,47 @@ export class ZunaClient {
     for (const session of this.sessions.values()) session.nudge();
   }
 
-  /** Closes every connection while the app can't run (an iOS app in the background). */
+  /**
+   * Closes every connection while the app can't run (an iOS app in the
+   * background), and takes no writes until `resume()`, since the share
+   * extension may use the same data meanwhile.
+   */
   suspend(): void {
     for (const session of this.sessions.values()) session.suspend();
+    for (const db of this.dbs) db.paused = true;
   }
 
-  /** Reconnects after `suspend()` and catches up on what happened meanwhile. */
-  resume(): void {
+  /**
+   * Reconnects after `suspend()` and catches up on what happened meanwhile.
+   * If something tried to write while suspended, such as a send that was
+   * still under way, everything is read again first, as in `reload()`, and
+   * this says so.
+   */
+  async resume(): Promise<boolean> {
+    if (this.dbs.some((db) => db.refused)) {
+      await this.reload();
+      return true;
+    }
+    for (const db of this.dbs) db.paused = false;
     for (const session of this.sessions.values()) session.resume();
+    return false;
+  }
+
+  /**
+   * Reads everything again from this device's databases and reconnects, for
+   * an app that was suspended while another process used them, such as the
+   * iOS share extension: what it held in memory, its MLS groups above all,
+   * may be behind what's stored. Work left over from before can't write.
+   */
+  async reload(): Promise<void> {
+    for (const session of this.sessions.values()) {
+      session.stop();
+      this.replaced.add(session);
+    }
+    for (const db of this.dbs) db.paused = true;
+    this.sessions.clear();
+    this.dbs = [];
+    await this.open();
   }
 
   stop(): void {

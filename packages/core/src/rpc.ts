@@ -51,7 +51,7 @@ type MethodName<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknow
 // someone has taken over. TypeScript checks that each is exactly the public methods.
 const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
   findLink: true, forwardMessages: true, leaveServer: true, linkPreview: true, listServers: true, login: true, nudge: true, open: true,
-  previewInvite: true, recover: true, register: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
+  previewInvite: true, recover: true, register: true, reload: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
   stop: true, suspend: true
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
@@ -62,7 +62,7 @@ const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
   isActiveElsewhere: true, leaveGroup: true, linkForInvite: true, loadAround: true, loadMedia: true, loadMessages: true, loadPins: true, markChatRead: true, markRead: true,
   markMentionSeen: true, markVerified: true, mediaCounts: true, messageById: true, mute: true, nudge: true, prepareCall: true, prepareNewDevice: true, previewText: true, refreshEmotes: true,
   regenerateRecoveryKey: true, removeMember: true, reorderChannels: true, resume: true, retryMessage: true, ringCall: true, revokeDevice: true, revokeInvite: true, rotate: true,
-  safetyCheck: true, search: true, searchCoverage: true, sendMessage: true, sendTyping: true, sendWithAttachments: true, serverUrl: true,
+  safetyCheck: true, search: true, searchCoverage: true, sendMessage: true, sendNow: true, sendTyping: true, sendWithAttachments: true, serverUrl: true,
   setActive: true, setBlocked: true, setDisappearing: true, setEmoteSet: true, setGroupRole: true, setHideLastSeen: true, setMarkedUnread: true, setMentionsOnly: true, setPinned: true, setPush: true, setServerRole: true, setVoiceState: true,
   signOut: true, start: true, stop: true, suspend: true, syncGroup: true, toggleReaction: true, unbanUser: true, unmute: true, unreadMentions: true,
   updateChannel: true, updateGroupMeta: true, updatePreferences: true, updateProfile: true, updateServerIcon: true, updateServerSettings: true,

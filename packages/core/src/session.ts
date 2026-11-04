@@ -168,6 +168,8 @@ const CLAIM_ATTEMPTS = 6;
 const CLAIM_WAIT_MS = 2100;
 /** How long a message waits for its link's preview before it goes without one. */
 const PREVIEW_WAIT_MS = 4000;
+/** How long `sendNow` waits for a message to go once its files are up. */
+const SEND_NOW_WAIT_MS = 60_000;
 const UPLOAD_CONCURRENCY = 3;
 const KEY_PACKAGE_TARGET = 40;
 const KEY_PACKAGE_LOW = 15;
@@ -5334,7 +5336,7 @@ export class ServerSession {
     files: { blob: Blob; name: string; mime: string; width?: number; height?: number; thumb?: string; duration?: number; voice?: boolean; waveform?: string }[],
     body: MessageBody,
     options: { previewUrl?: string; keepMetadata?: boolean } = {},
-  ): Promise<void> {
+  ): Promise<string> {
     assertSendable(body);
     const id = randomId();
     const totalBytes = files.reduce((sum, file) => sum + this.files.size(file.blob), 0);
@@ -5394,6 +5396,31 @@ export class ServerSession {
     } catch (error) {
       this.markFailed(groupKey, id);
       throw error;
+    }
+    return id;
+  }
+
+  /**
+   * Sends a message, with any files, and resolves once it's gone, for a
+   * process that stops straight after: the iOS share extension. One still
+   * waiting after a minute, as when the server can't be reached, stays in
+   * the outbox and goes when the app is next online, and this says so.
+   */
+  async sendNow(
+    groupKey: string,
+    files: Parameters<ServerSession["sendWithAttachments"]>[1],
+    body: MessageBody,
+    options: { previewUrl?: string; keepMetadata?: boolean } = {},
+  ): Promise<void> {
+    const id = files.length > 0 ? await this.sendWithAttachments(groupKey, files, body, options) : this.sendMessage(groupKey, body, options).id;
+    const deadline = Date.now() + SEND_NOW_WAIT_MS;
+    for (;;) {
+      // The ID is random and new, wherever the message has moved since, such as into a DM just started.
+      const status = this.db.get<{ status: string }>("SELECT status FROM messages WHERE id = ?", [id])?.status;
+      if (status === "sent") return;
+      if (status === "failed") throw new Error("This message couldn't be sent.");
+      if (Date.now() > deadline) throw new Error("This message is taking a while to send. It goes once Zuna is back online.");
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
 
