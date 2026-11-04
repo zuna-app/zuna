@@ -22,26 +22,27 @@ const METHODS = [
     ],
   },
   {
-    // docs/LINUX.md has the details.
-    id: "script",
-    name: "Script",
-    caption: "# Without Docker, with the script",
-    commands: ["sudo git clone https://github.com/SocketByte/zuna-chat.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/update.sh --server chat.example.com"],
+    // deploy/update.sh, as docs/LINUX.md describes it.
+    id: "systemd",
+    name: "systemd",
+    caption: "# Without Docker, with systemd",
+    commands: ["sudo git clone https://github.com/SocketByte/zuna-chat.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/update.sh --server chat.example.com \\\n    --voice on"],
     output: [
-      "# Builds Zuna and runs it with systemd on port 8080.",
-      "# Point your HTTPS proxy at it, then open the setup link.",
+      "# Runs Zuna on port 8080, and LiveKit for calls, with systemd.",
+      "# Point your HTTPS proxy at 8080, then open the setup link.",
+      "# Calls' media skips the proxy: open 7881/tcp and 7882/udp.",
       "# Run it again to update. A build that won't start is undone.",
     ],
     steps: [
       { title: "Point a domain at a Linux machine", text: "One with systemd, such as Debian, Ubuntu or Fedora." },
-      { title: "Clone it and run the script", text: "It installs Go if needed, builds the server from git and runs it as a hardened systemd service." },
+      { title: "Clone it and run the script", text: "It builds the server from git, installs LiveKit for voice, and runs both as systemd services." },
       { title: "Open the setup link in Zuna", text: "The script prints it. Once your reverse proxy adds HTTPS, make the owner account and invite people." },
     ],
   },
 ] as const;
 
 const EXTRAS = [
-  { label: "Voice channels and calls", href: doc("docs/SELF_HOSTING.md#voice-channels"), text: "Add LiveKit, which only ever sees encrypted media." },
+  { label: "Voice channels and calls", href: doc("docs/SELF_HOSTING.md#voice-channels"), text: "LiveKit carries them, and only ever sees encrypted media." },
   { label: "The web app", href: doc("docs/WEB.md"), text: "Host zuna-web for friends who'd rather use a browser." },
   { label: "Backups", href: doc("docs/SELF_HOSTING.md#backups"), text: "Everything is in one data folder, copied with SQLite's backup command." },
 ];

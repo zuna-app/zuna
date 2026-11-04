@@ -131,9 +131,9 @@ async function interactions(browser) {
   const placed = await place();
   const shownPanels = () =>
     page.locator("#host [role=tabpanel]").evaluateAll((panels) => panels.filter((panel) => getComputedStyle(panel).visibility === "visible").map((panel) => panel.textContent));
-  await page.getByRole("tab", { name: "Script" }).click();
+  await page.getByRole("tab", { name: "systemd" }).click();
   const script = await shownPanels();
-  check("the script's tab shows only the script", script.length === 1 && script[0].includes("update.sh"), script.join(" | "));
+  check("systemd's tab shows only the script, with voice", script.length === 1 && script[0].includes("update.sh") && script[0].includes("--voice on"), script.join(" | "));
   const steps = await page.locator("#host .steps").evaluateAll((lists) => lists.filter((list) => getComputedStyle(list).visibility === "visible").map((list) => list.textContent));
   check("and the steps follow it", steps.length === 1 && steps[0].includes("run the script"), steps.join(" | "));
   check("switching how to host doesn't move the page", (await place()) === placed);
