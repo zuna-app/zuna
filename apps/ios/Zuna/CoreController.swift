@@ -68,7 +68,7 @@ final class CoreController {
             self.directory = directory
             #if DEBUG
             // A phone being tested by hand stays unlocked while the app is in front, from the moment it starts.
-            if UserDefaults.standard.bool(forKey: "ZunaKeepAwake") { UIApplication.shared.isIdleTimerDisabled = true }
+            if UserDefaults.standard.bool(forKey: "ZunaKeepAwake") { ScreenAwake.hold(.testing, true) }
             if UserDefaults.standard.bool(forKey: "ZunaResetData") {
                 DeviceKeyStore.forget()
                 Self.erase(directory)
@@ -469,7 +469,7 @@ final class CoreController {
             return "opened"
         case "keepAwake":
             // A phone being tested by hand stays unlocked while the app is in front, whatever its Auto-Lock says.
-            UIApplication.shared.isIdleTimerDisabled = on ?? true
+            ScreenAwake.hold(.testing, on ?? true)
             return UIApplication.shared.isIdleTimerDisabled ? "awake" : "may-sleep"
         case "attachFile":
             // The open chat's composer stages it, as it would a picked file.
@@ -525,6 +525,7 @@ final class CoreController {
                 "speaking": Array(voice.speaking),
                 "videos": voice.videos.map { ["id": $0.id, "userId": $0.userId, "source": $0.source == .screen ? "screen" : "camera", "local": $0.local, "sound": $0.sound] },
                 "systemCall": voice.systemCallReport,
+                "awake": UIApplication.shared.isIdleTimerDisabled,
             ]
             let data = (try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys])) ?? Data("{}".utf8)
             return String(decoding: data, as: UTF8.self)

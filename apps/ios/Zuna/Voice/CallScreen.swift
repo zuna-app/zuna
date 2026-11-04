@@ -47,6 +47,9 @@ struct CallScreen: View {
         }
         .overlay(alignment: .top) { IncomingCallOverlay() }
         .background(Theme.bg0.ignoresSafeArea())
+        .onAppear { ScreenAwake.hold(.call, !voice.videos.isEmpty) }
+        .onChange(of: voice.videos.isEmpty) { _, none in ScreenAwake.hold(.call, !none) }
+        .onDisappear { ScreenAwake.hold(.call, false) }
         .sheet(item: $member) { member in
             if let server {
                 MemberSheet(server: server, member: member)

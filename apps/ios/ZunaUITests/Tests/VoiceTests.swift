@@ -94,10 +94,14 @@ final class VoiceTests: XCTestCase {
         XCTAssertTrue(zuna.toast(startingWith: "An admin unmuted you").waitForExistence(timeout: 10))
         try waitFor("the microphone to be back") { self.zuna.element(A11y.Voice.mute).isEnabled }
 
-        // The camera, which everyone is told about, and which shows on his own tile.
+        // A call that's only heard leaves the screen to dim and lock as Auto-Lock says.
+        XCTAssertEqual(try voiceState()["awake"] as? Bool, false)
+
+        // The camera, which everyone is told about, and which shows on his own tile, keeping the screen on.
         zuna.element(A11y.Voice.camera).tap()
         try waitFor("alice to see bob's camera") { try self.bobsPhone(alice)?["camera"] as? Bool == true }
         try waitFor("his picture on his tile") { self.zuna.element(A11y.Voice.person(device)).label.contains("camera on") }
+        try waitFor("the screen to stay on") { try self.voiceState()["awake"] as? Bool == true }
         XCTAssertTrue(zuna.element(A11y.Voice.flip).exists)
         // All of it on the screen, the camera's switch too, which once pushed the controls past both edges.
         for id in [A11y.Voice.mute, A11y.Voice.leave, A11y.Voice.flip, A11y.Voice.person(device), A11y.Voice.person(carolDevice)] {
@@ -106,6 +110,7 @@ final class VoiceTests: XCTestCase {
         zuna.screenshot("96-voice-camera")
         zuna.element(A11y.Voice.camera).tap()
         try waitFor("alice to see it off") { try self.bobsPhone(alice)?["camera"] as? Bool == false }
+        try waitFor("the screen to dim again") { try self.voiceState()["awake"] as? Bool == false }
 
         // His screen, which everyone is told about too, and which he sees on his own stage.
         let share = zuna.element(A11y.Voice.shareScreen)
@@ -115,6 +120,7 @@ final class VoiceTests: XCTestCase {
         let ownScreen = zuna.app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Your screen")).firstMatch
         XCTAssertTrue(ownScreen.waitForExistence(timeout: 10))
         XCTAssertEqual(share.label, "Stop sharing")
+        try waitFor("the screen to stay on while it's shown") { try self.voiceState()["awake"] as? Bool == true }
         zuna.screenshot("96b-voice-screen")
         share.tap()
         try waitFor("alice to see it stopped") { try self.bobsPhone(alice)?["screen"] as? Bool == false }

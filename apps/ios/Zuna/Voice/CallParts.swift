@@ -160,8 +160,14 @@ struct VideoViewer: View {
                 StreamSoundButton(userId: video.userId).padding(16)
             }
         }
-        .onAppear { Orientation.allowRotation(true) }
-        .onDisappear { Orientation.allowRotation(false) }
+        .onAppear {
+            Orientation.allowRotation(true)
+            ScreenAwake.hold(.viewer, true)
+        }
+        .onDisappear {
+            Orientation.allowRotation(false)
+            ScreenAwake.hold(.viewer, false)
+        }
         // Nothing to watch once they've stopped.
         .onChange(of: video == nil) { _, gone in if gone { dismiss() } }
         .accessibilityElement(children: .contain)
@@ -181,6 +187,20 @@ enum Orientation {
             scene.keyWindow?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
             if !allowed { scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait)) }
         }
+    }
+}
+
+/// The screen stays on while a camera or a screen is on it, as the desktop's does while a video
+/// plays in its window, and otherwise dims and locks as Auto-Lock says, during a call that's only heard too.
+@MainActor
+enum ScreenAwake {
+    enum Reason { case call, viewer, testing }
+
+    private static var reasons: Set<Reason> = []
+
+    static func hold(_ reason: Reason, _ held: Bool) {
+        if held { reasons.insert(reason) } else { reasons.remove(reason) }
+        UIApplication.shared.isIdleTimerDisabled = !reasons.isEmpty
     }
 }
 
