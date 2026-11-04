@@ -170,23 +170,29 @@ On the iPhone and iPad, the share extension uses the same data and device key as
 
 ## Limits
 
-These are real limitations, stated plainly:
+These are real limitations, stated plainly.
+
+### If the server is malicious
+
+These need the server against you: its operator, someone who broke into it, or someone with a copy of its data.
 
 - **A malicious server can try to guess weak passwords.** It holds what's needed to test guesses offline. Argon2id slows this down, and the app refuses a new password that lists of common passwords, words and names would guess within about a billion tries, but a long, unique password is your real protection.
-- **Stealing your account key exposes your history.** Anyone with your password or recovery key, combined with the server's data, can read everything you had access to. Stored history has no forward secrecy; this is the cost of history on new devices.
-- **Replacing your keys only takes effect once the secret has changed.** If you think your password or recovery key was stolen, change them and remove any device you don't recognize in Settings. Removing a device evicts someone who has that device but not your password, and changing your password evicts someone who only had that. What they could already read, they keep.
 - **A server can show a brand-new device an older manifest.** The device only knows which manifest was current when your keys were last replaced. A server could show it any copy from since then, leaving out whoever you verified or came to trust later, and the device would take that copy as all there is.
 - **Someone with your old keys and the server's help can fool a brand-new device of yours.** A new device has nothing to compare with, so they can give it an account key of their choosing, and read what it stores in your vault after that. It can't read your real history, and your contacts and other devices see a device that doesn't follow from the chain they hold, and warn. Without your old keys, a server can't do this.
 - **A contact can't always tell a real change of key from a stolen one.** Someone with your old identity key and a malicious server's help can show a false chain to a contact who hasn't seen the real one. The first one a contact sees stays, a second produces a warning, and comparing emoji shows which is real.
+- **A kicked member keeps the community key.** They could still read profile data if they had access to the server's database. They lose access to the server itself and to new messages.
+- **A server can see some emote pictures being fetched.** The apps fetch a server's whole emote set in the background, so showing an emote asks the server for nothing. An emote from outside the current set is still fetched when a message first shows it, which tells the server which emote, from which address, and roughly when. So is any emote while nothing has been fetched ahead: when someone has asked to save data (Low Data Mode on iPhone and iPad), or after iPhone and iPad clear space, until the app next starts.
+- **The time shown comes from the server.** The sender's device also signs the time it sent a message, and the app flags a message if the two are far apart.
+- **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.
+
+### Even with an honest server
+
+- **Stealing your account key exposes your history.** Anyone with your password or recovery key can read everything you had access to, by signing in or from a copy of the server's data. Stored history has no forward secrecy; this is the cost of history on new devices.
+- **Replacing your keys only takes effect once the secret has changed.** If you think your password or recovery key was stolen, change them and remove any device you don't recognize in Settings. Removing a device evicts someone who has that device but not your password, and changing your password evicts someone who only had that. What they could already read, they keep.
 - **A member can hold up a group for a while.** MLS can't let the server check a commit, so a member can send one nobody can apply. Any member's app then undoes it, without anyone doing anything, back to what the server held before, and whoever sent it has to wait longer each time. The same undoing means a member can make another wait, by undoing their commits. An admin can remove someone doing either, and a plain member can't undo an admin's commit.
 - **A server's limits on a share's size, frame rate and bitrate are kept by the apps.** The picture is encrypted, so neither the server nor LiveKit can check it, and a modified app could send more. Who may share, with sound, and how many at once are enforced, except that a modified app could use a token from an earlier share again for the few minutes it lasts.
-- **A kicked member keeps the community key.** They could still read profile data if they had access to the server's database. They lose access to the server itself and to new messages.
-- **The server can withhold or delay delivery.** If it holds back a message and delivers the next one from the same device, your app notices, since each message names the one before it: it asks for that one, and says so if the server claims there's no such message. Holding back someone's latest message, or all of them, goes unnoticed. The server can also show a device that never saw an edit, pin or unpin what was there before, and hide a message as deleted. A device that has seen one keeps it, since each is signed with which one it is. It can't forge content, pin a message nobody pinned, or make your app erase a message: see "What the server can't make your app do". Who is a group's admin, and so may delete others' messages there, is the server's word.
-- **A server can see some emote pictures being fetched.** The apps fetch a server's whole emote set in the background, so showing an emote asks the server for nothing. An emote from outside the current set is still fetched when a message first shows it, which tells the server which emote, from which address, and roughly when. So is any emote while nothing has been fetched ahead: when someone has asked to save data (Low Data Mode on iPhone and iPad), or after iPhone and iPad clear space, until the app next starts.
 - **iOS learns who you write to on an iPhone or iPad.** As in Messages and Telegram, the app tells iOS which chats it sends to and which messages its notifications are about, with names and pictures, so the share sheet can suggest them. What was said in a message sent stays out; a notification's text goes in as the notification shows it. Setting notifications to show nothing stops both.
-- **The time shown comes from the server.** The sender's device also signs the time it sent a message, and the app flags a message if the two are far apart.
 - **Deleting is best effort.** "Delete for everyone" removes the server's copy and the copies on members' apps, but a modified client or a screenshot can keep it. Disappearing messages are the same, and so is a notification already shown, except on Windows, where the app draws its own and takes it back, and where message text doesn't go into the system's notification history.
-- **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.
 
 ## The web app
 
