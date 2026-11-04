@@ -43,6 +43,14 @@ export function JoinFlow({ initialLink, initialSignInUrl, onDone, embedded }: { 
   );
   // Inside the app, for another server, the link is the first screen.
   const home: Step = embedded ? { name: "link" } : { name: "welcome" };
+  // The link as it was last entered, there again on coming back to it. One opened from
+  // outside goes ahead by itself only the first time, or Back would bounce forward again.
+  const [link, setLink] = useState(initialLink ?? "");
+  const [linkGoesAhead, setLinkGoesAhead] = useState(Boolean(initialLink));
+  const leaveLink = (next: Step) => {
+    setLinkGoesAhead(false);
+    setStep(next);
+  };
   const addServer = useApp((state) => state.addServer);
   const core = useApp((state) => state.core)!;
 
@@ -60,10 +68,14 @@ export function JoinFlow({ initialLink, initialSignInUrl, onDone, embedded }: { 
         {step.name === "link" && (
           <InviteLinkStep
             embedded={embedded}
-            initialLink={initialLink}
-            onBack={embedded ? undefined : () => setStep({ name: "welcome" })}
-            onInvite={(preview) => setStep({ name: "invite", preview })}
-            onSignIn={() => setStep({ name: "signin" })}
+            initialLink={link}
+            goAhead={linkGoesAhead}
+            onBack={embedded ? undefined : () => leaveLink({ name: "welcome" })}
+            onInvite={(preview, used) => {
+              setLink(used);
+              leaveLink({ name: "invite", preview });
+            }}
+            onSignIn={() => leaveLink({ name: "signin" })}
           />
         )}
         {step.name === "invite" && (
@@ -164,17 +176,19 @@ function WelcomeStep({ onJoin, onSignIn }: { onJoin: () => void; onSignIn: () =>
 function InviteLinkStep({
   embedded,
   initialLink,
+  goAhead,
   onBack,
   onInvite,
   onSignIn,
 }: {
   embedded?: boolean;
-  initialLink?: string;
+  initialLink: string;
+  goAhead: boolean;
   onBack?: () => void;
-  onInvite: (preview: InvitePreview) => void;
+  onInvite: (preview: InvitePreview, link: string) => void;
   onSignIn: () => void;
 }) {
-  const [link, setLink] = useState(initialLink ?? "");
+  const [link, setLink] = useState(initialLink);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const core = useApp((state) => state.core)!;
@@ -185,7 +199,7 @@ function InviteLinkStep({
     setBusy(true);
     setError(null);
     try {
-      onInvite(await core.client.previewInvite(link.trim()));
+      onInvite(await core.client.previewInvite(link.trim()), link.trim());
     } catch (failure) {
       setError(describeError(failure));
     } finally {
@@ -195,11 +209,11 @@ function InviteLinkStep({
 
   const tried = useRef(false);
   useEffect(() => {
-    if (initialLink && !tried.current) {
+    if (goAhead && initialLink && !tried.current) {
       tried.current = true;
       void submit();
     }
-  }, [initialLink]);
+  }, [goAhead, initialLink]);
 
   return (
     <form onSubmit={submit} className="col" style={{ gap: 18 }}>

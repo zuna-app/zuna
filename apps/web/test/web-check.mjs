@@ -194,6 +194,18 @@ async function runIn(name) {
     await page.getByRole("button", { name: "Create invite link" }).click();
     const invite = await page.locator(".invite-link span").first().textContent({ timeout: 10_000 });
     await page.keyboard.press("Escape");
+
+    // An invite link opened from outside goes ahead by itself, once: Back stays on the link.
+    await page.evaluate((link) => (location.hash = `join=${encodeURIComponent(link)}`), invite);
+    await page.getByRole("heading", { name: "Join Friends" }).waitFor({ timeout: 15_000 });
+    await page.getByRole("button", { name: "Back" }).click();
+    await sleep(1500);
+    const linkField = page.getByLabel("Invite link");
+    check(
+      "Back from a link opened from outside stays on the link",
+      (await linkField.count()) === 1 && (await linkField.inputValue()) === invite && !(await page.getByRole("heading", { name: "Join Friends" }).isVisible()),
+    );
+    await page.keyboard.press("Escape");
     bots = start("npx", ["vite-node", "test/dev-bots.ts", invite], { cwd: join(root, "packages", "core"), detached: process.platform !== "win32", shell: process.platform === "win32" });
     await waitFor(bots.output, "Bots are ready", "the bots").catch(async () => {
       for (let i = 0; i < 1200 && !bots.output().includes("Bots are ready"); i++) await sleep(100);
