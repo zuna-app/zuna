@@ -44,6 +44,8 @@ type ServerInfo struct {
 	Voice    int `json:"voice,omitempty"`
 	// Calls says direct messages and groups can have calls, on the same media server.
 	Calls int `json:"calls,omitempty"`
+	// Sounds says this server has a soundboard, for its voice channels and calls.
+	Sounds int `json:"sounds,omitempty"`
 	// ScreenShare is for members: someone without an account has no need of it.
 	ScreenShare *ScreenRules `json:"screen_share,omitempty"`
 	// CommunityKey is only present in open sign-up mode, where admins accepted
@@ -71,7 +73,7 @@ func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
 
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
-	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, RequestProofs: 1, Disappearing: 1, Channels: 1}
+	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, RequestProofs: 1, Disappearing: 1, Channels: 1, Sounds: 1}
 	if s.liveKitConfigured() {
 		info.Voice = 1
 		info.Calls = 1

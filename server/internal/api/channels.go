@@ -41,7 +41,9 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		Details     []byte `json:"details"`
 		UserLimit   int    `json:"user_limit"`
 		ScreenLimit int    `json:"screen_limit"`
-		Proof       []byte `json:"proof"`
+		// Left out, the soundboard plays there.
+		Sounds *bool  `json:"sounds"`
+		Proof  []byte `json:"proof"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
@@ -50,7 +52,7 @@ func (s *Server) handleCreateChannel(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusBadRequest, "bad_request", "That channel isn't valid.")
 		return
 	}
-	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Proof)
+	channel, err := s.db.CreateChannel(r.Context(), body.ID, sess.UserID, body.Type, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds == nil || *body.Sounds, body.Proof)
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -69,6 +71,7 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *
 		Details     []byte `json:"details"`
 		UserLimit   *int   `json:"user_limit"`
 		ScreenLimit *int   `json:"screen_limit"`
+		Sounds      *bool  `json:"sounds"`
 	}
 	if !readJSONUpTo(w, r, maxDetailsBody, &body) {
 		return
@@ -78,7 +81,7 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request, _ *
 		return
 	}
 	id := r.PathValue("id")
-	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit); err != nil {
+	if err := s.db.UpdateChannel(r.Context(), id, body.Details, body.UserLimit, body.ScreenLimit, body.Sounds); err != nil {
 		writeFailure(w, err)
 		return
 	}

@@ -271,6 +271,8 @@ type voiceRoom struct {
 	Call        bool
 	UserLimit   int
 	ScreenLimit int
+	// Whether the soundboard plays there, which it always does in a call.
+	Sounds bool
 }
 
 // roomFor is the room a request is about, of the kind its route is for, or nothing after
@@ -281,7 +283,7 @@ func (s *Server) roomFor(w http.ResponseWriter, r *http.Request, call bool) *voi
 		if channel == nil {
 			return nil
 		}
-		return &voiceRoom{ID: channel.ID, UserLimit: channel.UserLimit, ScreenLimit: channel.ScreenLimit}
+		return &voiceRoom{ID: channel.ID, UserLimit: channel.UserLimit, ScreenLimit: channel.ScreenLimit, Sounds: channel.Sounds}
 	}
 	group, err := s.db.Group(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -292,7 +294,7 @@ func (s *Server) roomFor(w http.ResponseWriter, r *http.Request, call bool) *voi
 		writeError(w, http.StatusBadRequest, "bad_request", "Calls are for direct messages and groups.")
 		return nil
 	}
-	return &voiceRoom{ID: group.ID, Call: true}
+	return &voiceRoom{ID: group.ID, Call: true, Sounds: true}
 }
 
 // voiceChannel is the voice channel a request is about, or nothing after saying what's wrong.

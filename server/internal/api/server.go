@@ -130,6 +130,7 @@ type Server struct {
 
 	voice        *voiceRooms
 	voiceLimiter *ratelimit.Keyed
+	soundLimiter *ratelimit.Keyed
 	liveKit      *http.Client
 
 	pushClient *http.Client
@@ -190,6 +191,7 @@ func New(cfg Config, db *store.DB) *Server {
 		commitHolds:       ratelimit.NewBackoff(0, time.Minute, time.Hour),
 		voice:             newVoiceRooms(),
 		voiceLimiter:      ratelimit.NewKeyed(rate.Limit(1), 20),
+		soundLimiter:      ratelimit.NewKeyed(rate.Every(2*time.Second), 2), // Plenty to be heard.
 		liveKit:           &http.Client{Timeout: liveKitTimeout},
 		pushClient:        &http.Client{Timeout: pushTimeout},
 		pushQueue:         make(chan pushJob, pushQueueLength),
@@ -456,6 +458,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/channels/{id}/voice/users/{user}/disconnect", s.admin(s.handleVoiceDisconnect))
 	mux.HandleFunc("PUT /api/channels/{id}/voice/users/{user}/mute", s.admin(s.handleVoiceMute))
 	mux.HandleFunc("DELETE /api/channels/{id}/voice/users/{user}/screen", s.admin(s.handleStopScreenOf))
+	mux.HandleFunc("POST /api/channels/{id}/voice/sound", s.member(s.handlePlaySound(false)))
 
 	// Calls in direct messages and groups, in rooms of their own on the same media server
 	mux.HandleFunc("GET /api/calls", s.withDevice(s.handleCalls))
@@ -464,6 +467,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/groups/{id}/call/screen", s.member(s.handleStopScreen))
 	mux.HandleFunc("POST /api/groups/{id}/call/ring", s.member(s.handleRing))
 	mux.HandleFunc("POST /api/groups/{id}/call/decline", s.member(s.handleDecline))
+	mux.HandleFunc("POST /api/groups/{id}/call/sound", s.member(s.handlePlaySound(true)))
 
 	if s.cfg.LiveKitURL == "" && s.cfg.LiveKitInternalURL != "" {
 		mux.Handle("/livekit/", s.liveKitProxy())
@@ -490,6 +494,12 @@ func (s *Server) Handler() http.Handler {
 
 	// Emotes
 	mux.HandleFunc("GET /api/emotes", s.withDevice(s.handleEmotes))
+
+	// The soundboard, which admins fill
+	mux.HandleFunc("GET /api/sounds", s.withDevice(s.handleSounds))
+	mux.HandleFunc("POST /api/sounds", s.admin(s.handleCreateSound))
+	mux.HandleFunc("PATCH /api/sounds/{id}", s.admin(s.handleUpdateSound))
+	mux.HandleFunc("DELETE /api/sounds/{id}", s.admin(s.handleDeleteSound))
 
 	// Server administration
 	mux.HandleFunc("GET /api/invites", s.withDevice(s.handleListInvites))

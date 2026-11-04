@@ -489,6 +489,19 @@ ALTER TABLE push_registrations ADD COLUMN filters INTEGER NOT NULL DEFAULT 0;
 -- The relay's handle for a phone's VoIP token, which calls ring through, or empty where
 -- the phone has none, as where CallKit is left out.
 ALTER TABLE push_registrations ADD COLUMN call_handle TEXT NOT NULL DEFAULT '';
+`, `
+-- The soundboard: sounds a server's admins add, which anyone in a voice channel or a
+-- call can play to the others there. What each is called, and the key to its file,
+-- are sealed with the community key.
+CREATE TABLE sounds (
+	id TEXT PRIMARY KEY,
+	details BLOB NOT NULL,
+	file_id TEXT NOT NULL UNIQUE,
+	created_by TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+-- Whether the soundboard can be played in a voice channel.
+ALTER TABLE channels ADD COLUMN sounds INTEGER NOT NULL DEFAULT 1;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.
