@@ -43,8 +43,9 @@
   font: 500 12.5px/1 var(--font-mono); color: var(--text-1); animation: float 7s ease-in-out infinite alternate;
 }
 .chip-float svg { color: var(--green); }
-.chip-float-left { left: -40px; top: 36%; }
-.chip-float-right { right: -40px; top: 20%; animation-delay: -3s; }
+/* Out past the window by 40px where the page has room, and never closer than 16px to the screen's edge where it hasn't. */
+.chip-float-left { left: max(-40px, 16px - max(0px, (100vw - 1200px) / 2)); top: 36%; }
+.chip-float-right { right: max(-40px, 16px - max(0px, (100vw - 1200px) / 2)); top: 20%; animation-delay: -3s; }
 .chip-label { color: var(--text-2); }
 @keyframes float { from { transform: translateY(-6px); } to { transform: translateY(6px); } }
 
