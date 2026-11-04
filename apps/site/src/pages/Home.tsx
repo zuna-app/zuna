@@ -1,4 +1,5 @@
 import { CipherDemo } from "../sections/CipherDemo";
+import { Devices } from "../sections/Devices";
 import { Faq, FinalCall } from "../sections/Faq";
 import { Features } from "../sections/Features";
 import { Hero } from "../sections/Hero";
@@ -14,6 +15,7 @@ export function Home() {
       <Hero />
       <CipherDemo />
       <Features />
+      <Devices />
       <Streaming />
       <Security />
       <Push />

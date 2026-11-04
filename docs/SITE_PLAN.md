@@ -26,14 +26,15 @@ The page looks like the app: dark, monochrome, white as the one accent, Inter fo
 | 1 | Hero | The chat app nobody owns. | Download for the visitor's system, Host a server, the platforms in a sentence, and a live app window built from the app's tokens, with floating chips for MLS and what the server sees |
 | 2 | Demo | Your server only ever sees noise. | Type a message: the left shows what a friend sees, the right what the server stores, really encrypted with WebCrypto and padded to 256-byte blocks as Zuna pads, labelled as an illustration |
 | 3 | Features | All the chat. None of the snooping. | Bento: servers and channels, voice channels and calls, 7TV emotes, search on the device, link previews made by the sender; smaller features as chips |
-| 4 | Streaming | Your screen, sharp and smooth. | Up to 240 fps, up to 4K and about 80 ms of latency, side by side and none made the headline, said to be each setting's most rather than one share; a bar moving at the visitor's own refresh rate with the measured Hz, a 1440p60 share costing about 5% of a core, one app's sound |
-| 5 | Security | Private by math, not by promise. | MLS in every chat, the 16-emoji check, the password staying on the device, a short "can see / never sees" from `SECURITY.md`, and the missing independent audit said up front |
-| 6 | Notifications | Your phone buzzes. Nobody else learns why. | Server → zuna-push → Apple → phone, with what each sees, and that the relay sees which server woke which phone, and when |
-| 7 | Self-hosting | One command. One folder to back up. | A terminal with tabs for Docker and for systemd, which is `deploy/update.sh` with LiveKit (`--voice on`), each with its commands, a copy button, its own three steps and a link to its whole guide on GitHub; LiveKit for voice, the web app and backups |
-| 8 | Platforms | Got an invite? You're three steps away. | Windows, macOS (Apple silicon), Linux, the web (if a server hosts it), iPhone and iPad (soon), Android (planned) |
-| 9 | FAQ | | Can the server's owner read my messages, what can it see, do I need a server, is it free, is it audited, phone number, how many people, Android, skipping the relay |
-| 10 | Final call | Stop renting your group chat. | Download and Host a server |
-| 11 | Footer | | Links, the license, and that the page has no cookies, analytics or third-party requests |
+| 4 | Devices | Pick up on any device where you left off. | What follows someone between devices: the whole history with no other device on, read positions, the synced preferences and verifications, notifications that wait while another device is in use, calls ringing everywhere and moving, and the recovery key; Zuna and Signal side by side on a line down the middle, topic by topic: devices, sharing a screen, where it runs and channels; then "Encryption you never have to think about", that comfort comes first and no security fix may add a step, prompt or setting |
+| 5 | Streaming | Your screen, sharp and smooth. | Up to 240 fps, up to 4K and about 80 ms of latency, side by side and none made the headline, said to be each setting's most rather than one share; a bar moving at the visitor's own refresh rate with the measured Hz, a 1440p60 share costing about 5% of a core, one app's sound |
+| 6 | Security | Private by math, not by promise. | MLS in every chat, the 16-emoji check, the password staying on the device, a short "can see / never sees" from `SECURITY.md`, and the missing independent audit said up front |
+| 7 | Notifications | Your phone buzzes. Nobody else learns why. | Server → zuna-push → Apple → phone, with what each sees, and that the relay sees which server woke which phone, and when |
+| 8 | Self-hosting | One command. One folder to back up. | A terminal with tabs for Docker and for systemd, which is `deploy/update.sh` with LiveKit (`--voice on`), each with its commands, a copy button, its own three steps and a link to its whole guide on GitHub; LiveKit for voice, the web app and backups |
+| 9 | Platforms | Got an invite? You're three steps away. | Windows, macOS (Apple silicon), Linux, the web (if a server hosts it), iPhone and iPad (soon), Android (planned) |
+| 10 | FAQ | | Can the server's owner read my messages, what can it see, do I need a server, is it free, is it audited, phone number, how many people, Android, skipping the relay |
+| 11 | Final call | Stop renting your group chat. | Download and Host a server |
+| 12 | Footer | | Links, the license, and that the page has no cookies, analytics or third-party requests |
 
 Pages beside it: `/privacy`, the app's and the relay's privacy policy, and `/support`. App Store Connect needs both.
 
@@ -41,7 +42,7 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, and `/sup
 
 - Headings are plain sentences that say one thing. No "military-grade", "zero metadata", "unhackable", "seamless".
 - Every claim is one the code and the docs back. The page says what the server and the relay can see, and that Zuna hasn't had an independent audit.
-- Comparisons with other apps stay accurate: Discord's voice and video are end-to-end encrypted, its text isn't.
+- Comparisons with other apps stay accurate: Discord's voice and video are end-to-end encrypted, its text isn't. The comparison with Signal is Signal as of November 2026, from its blog, its support pages, reports of its betas and its issue tracker. The page doesn't date it, so it's checked again when Signal ships something, such as a desktop app that needs no phone, or channels.
 - What has only run in part says so. Screen sharing at 240 fps has been measured natively on Windows; AMD's and Intel's encoders haven't run, so the page says "encoded on your GPU" rather than naming them. The latency of about 80 ms is the maintainers' own measurement, not at 4K and 240 fps at once, and `docs/SCREEN_SHARE.md` doesn't record it yet.
 
 ## Build
