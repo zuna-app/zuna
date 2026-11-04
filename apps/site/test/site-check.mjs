@@ -110,7 +110,7 @@ async function visit(context, path, width) {
   await page.close();
 }
 
-/** The demo and the download links. */
+/** The demo, the ways to host and the download links. */
 async function interactions(browser) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const { outside, problems } = watch(page);
@@ -124,6 +124,22 @@ async function interactions(browser) {
   const size = await page.locator(".demo-meta div:last-child dd").textContent();
   check("the demo encrypts what's typed, padded to 256-byte blocks", size === "512 bytes", size ?? "");
   check("the demo's message shows what was typed", (await page.locator(".demo-bubble").textContent()) === "x".repeat(300));
+
+  const terminal = page.locator("#host .terminal");
+  await terminal.scrollIntoViewIfNeeded();
+  const place = async () => JSON.stringify([await page.locator("#host").boundingBox(), await terminal.boundingBox()]);
+  const placed = await place();
+  const shownPanels = () =>
+    page.locator("#host [role=tabpanel]").evaluateAll((panels) => panels.filter((panel) => getComputedStyle(panel).visibility === "visible").map((panel) => panel.textContent));
+  await page.getByRole("tab", { name: "Script" }).click();
+  const script = await shownPanels();
+  check("the script's tab shows only the script", script.length === 1 && script[0].includes("update.sh"), script.join(" | "));
+  const steps = await page.locator("#host .steps").evaluateAll((lists) => lists.filter((list) => getComputedStyle(list).visibility === "visible").map((list) => list.textContent));
+  check("and the steps follow it", steps.length === 1 && steps[0].includes("run the script"), steps.join(" | "));
+  check("switching how to host doesn't move the page", (await place()) === placed);
+  await page.keyboard.press("ArrowLeft");
+  const docker = await shownPanels();
+  check("the arrow keys go back to Docker", docker.length === 1 && docker[0].includes("docker compose up"), docker.join(" | "));
 
   const downloads = await page.locator("#download .platform a.button").evaluateAll((links) => links.map((a) => a.href));
   check("Windows, macOS and Linux each have a download", downloads.length === 3, String(downloads.length));
@@ -146,6 +162,8 @@ async function withoutScript(browser) {
   check("without script, every section shows", hidden === 0, `${hidden} hidden`);
   const answers = await page.locator(".faq-list details").count();
   check("without script, the questions still open", answers >= 8, String(answers));
+  const methods = await page.locator("#host [role=tabpanel]").evaluateAll((panels) => panels.filter((panel) => getComputedStyle(panel).visibility === "visible" && panel.offsetHeight > 0).length);
+  check("without script, both ways to host show", methods === 2, String(methods));
   await context.close();
 }
 

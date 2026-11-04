@@ -30,7 +30,7 @@ The page looks like the app: dark, monochrome, white as the one accent, Inter fo
 | 5 | Streaming | Your screen, sharp and smooth. | Up to 240 fps, up to 4K and about 80 ms of latency, side by side and none made the headline, said to be each setting's most rather than one share; a bar moving at the visitor's own refresh rate with the measured Hz, a 1440p60 share costing about 5% of a core, one app's sound |
 | 6 | Security | Private by math, not by promise. | MLS in every chat, the 16-emoji check, the password staying on the device, a short "can see / never sees" from `SECURITY.md`, and the missing independent audit said up front |
 | 7 | Notifications | Your phone buzzes. Nobody else learns why. | Server → zuna-push → Apple → phone, with what each sees, and that the relay sees which server woke which phone, and when |
-| 8 | Self-hosting | One command. One folder to back up. | A terminal with the Docker commands and a copy button, three steps, LiveKit for voice |
+| 8 | Self-hosting | One command. One folder to back up. | A terminal with tabs for Docker and for `deploy/update.sh` without Docker, each with its commands, a copy button and its own three steps; LiveKit for voice, the web app and backups |
 | 9 | Platforms | Got an invite? You're three steps away. | Windows, macOS (Apple silicon), Linux, the web (if a server hosts it), iPhone and iPad (soon), Android (planned) |
 | 10 | FAQ | | Can the server's owner read my messages, what can it see, do I need a server, is it free, is it audited, phone number, how many people, Android, skipping the relay |
 | 11 | Final call | Stop renting your group chat. | Download and Host a server |

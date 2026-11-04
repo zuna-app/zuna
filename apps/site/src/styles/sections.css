@@ -214,7 +214,7 @@
 /* Self-hosting */
 
 .host { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 56px; }
-.steps { display: grid; gap: 18px; margin: 36px 0 0; padding: 0; list-style: none; }
+.steps { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; }
 .steps li { display: flex; gap: 16px; }
 .steps li > span:last-child { display: flex; flex-direction: column; gap: 3px; color: var(--text-2); font-size: 15px; }
 .steps b { color: var(--text-1); font-size: 16px; font-weight: 600; }
@@ -228,6 +228,24 @@
   border-radius: 7px; background: transparent; color: var(--text-1); font: 12.5px/1 var(--font-mono); cursor: pointer; transition: background 0.15s;
 }
 .terminal-copy:hover { background: var(--hover-strong); }
+.terminal-tabs { display: flex; gap: 2px; margin-left: 6px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; }
+.terminal-tabs button {
+  height: 24px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2);
+  font: 12.5px/1 var(--font-mono); cursor: pointer; transition: color 0.15s, background 0.15s;
+}
+.terminal-tabs button:hover { color: var(--text-1); }
+.terminal-tabs [aria-selected="true"] { background: var(--bg-4); color: var(--text-1); }
+/* With script, each method's steps and commands share one place, so switching never moves the page.
+   Without it, both sets of commands show, each named, beside Docker's steps. */
+.steps-stack { display: grid; margin: 36px 0 0; }
+.steps-stack > * { grid-area: 1 / 1; }
+.terminal-panels { display: grid; grid-template-columns: minmax(0, 1fr); }
+.js .terminal-panels > * { grid-area: 1 / 1; }
+.js .steps-stack > :not(.is-active), .js .terminal-panels > :not(.is-active) { visibility: hidden; }
+html:not(.js) .steps-stack > :not(.is-active) { display: none; }
+.js .terminal-caption { display: none; }
+html:not(.js) .terminal-tabs { display: none; }
+html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
 .terminal-body { display: flex; flex-direction: column; margin: 0; padding: 18px 20px 22px; overflow-x: auto; font: 13.5px/1.9 var(--font-mono); }
 .terminal-body code { white-space: pre; }
 .terminal-prompt { color: var(--green); }
