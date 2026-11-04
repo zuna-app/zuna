@@ -3,9 +3,11 @@
 // does, and that the shared interface works in each browser, and saves
 // screenshots to look over.
 //
-//   npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]
+//   npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit] [moz-firefox]
 //
 // Needs Playwright's browsers: npx playwright-core install chromium firefox webkit
+// Playwright's Firefox doesn't start on macOS 27 ("Could not find profile folder"), so moz-firefox runs
+// the Firefox installed from Mozilla instead, through WebDriver BiDi.
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -17,7 +19,7 @@ import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..", "..");
-const engines = { chromium, firefox, webkit };
+const engines = { chromium, firefox, webkit, "moz-firefox": firefox };
 const args = process.argv.slice(2);
 const chosen = args.filter((arg) => arg in engines);
 const shots = args.find((arg) => !(arg in engines)) ?? mkdtempSync(join(tmpdir(), "zuna-web-"));
@@ -93,22 +95,31 @@ const lanAddress = Object.values(networkInterfaces()).flat().find((item) => item
 
 function launchOptions(name) {
   if (name === "chromium") return { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] };
-  if (name === "firefox") return { firefoxUserPrefs: { "media.navigator.streams.fake": true, "media.navigator.permission.disabled": true } };
+  const prefs = { firefoxUserPrefs: { "media.navigator.streams.fake": true, "media.navigator.permission.disabled": true } };
+  if (name === "firefox") return prefs;
+  if (name === "moz-firefox") return { ...prefs, channel: name };
   return {};
+}
+
+/** Firefox through WebDriver BiDi fills a field by setting its value, which React doesn't see, so there it types. */
+async function fill(field, text, options) {
+  if (engine !== "moz-firefox") return field.fill(text, options);
+  await field.fill("", options);
+  await field.pressSequentially(text);
 }
 
 async function signUp(page, link, serverName) {
   await page.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
-  await page.getByLabel("Invite link").fill(link);
+  await fill(page.getByLabel("Invite link"), link);
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByPlaceholder("How people will see you").fill("Alex Rivera", { timeout: 15_000 });
-  await page.getByLabel("Username").fill("alex");
-  await page.locator('input[type="password"]').fill("web-check-only-Pass-9182");
+  await fill(page.getByPlaceholder("How people will see you"), "Alex Rivera", { timeout: 15_000 });
+  await fill(page.getByLabel("Username"), "alex");
+  await fill(page.locator('input[type="password"]'), "web-check-only-Pass-9182");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.getByText("I've stored it somewhere safe").click();
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByPlaceholder("Our corner of the internet").fill(serverName);
+  await fill(page.getByPlaceholder("Our corner of the internet"), serverName);
   await page.getByRole("button", { name: "Finish" }).click();
   await page.locator(".conv-row").first().waitFor({ timeout: 20_000 });
 }
@@ -141,7 +152,7 @@ async function runIn(name) {
     // A browser's own profile, as people use: Safari keeps no files for a private window.
     const profile = () => engines[name].launchPersistentContext(mkdtempSync(join(tmpdir(), `zuna-web-${name}-`)), { ...launchOptions(name), viewport: { width: 1280, height: 800 } });
     context = await profile();
-    if (name !== "firefox") await context.grantPermissions(["microphone", "camera"], { origin: appUrl.slice(0, -1) }).catch(() => undefined);
+    if (!name.endsWith("firefox")) await context.grantPermissions(["microphone", "camera"], { origin: appUrl.slice(0, -1) }).catch(() => undefined);
     // A request to the server cut off as a tab reloads or hands over, such as a read
     // position on its way, is one WebKit reports as failing its access control checks.
     // That's only expected while this check is itself reloading, handing over or
@@ -493,9 +504,9 @@ print(Int(size.width), Int(size.height), try await asset.loadTracks(withMediaTyp
     watch(again, "fresh browser");
     await again.goto(appUrl);
     await again.getByRole("button", { name: "Sign in", exact: true }).click();
-    await again.getByLabel("Server address").fill(serverUrl);
-    await again.getByLabel("Username").fill("alex");
-    await again.locator('input[type="password"]').fill("web-check-only-Pass-9182");
+    await fill(again.getByLabel("Server address"), serverUrl);
+    await fill(again.getByLabel("Username"), "alex");
+    await fill(again.locator('input[type="password"]'), "web-check-only-Pass-9182");
     await again.getByRole("button", { name: "Sign in", exact: true }).click();
     await again.locator(".conv-row", { hasText: "Priya" }).waitFor({ timeout: 45_000 });
     await again.locator(".conv-row", { hasText: "Priya" }).click();
@@ -506,17 +517,17 @@ print(Int(size.width), Int(size.height), try await asset.loadTracks(withMediaTyp
     // Channels and voice, under this host's content security policy
     again.on("console", (message) => message.text().includes("[zuna]") && console.log(`  ${message.text()}`));
     await again.locator(".channel-empty button").click();
-    await again.getByPlaceholder("new-channel").fill("general");
+    await fill(again.getByPlaceholder("new-channel"), "general");
     await again.getByRole("button", { name: "Create channel" }).click();
     await again.locator(".chat-title", { hasText: "general" }).waitFor({ timeout: 15_000 });
-    await again.locator(".composer-input").fill("hello channel");
+    await fill(again.locator(".composer-input"), "hello channel");
     await again.keyboard.press("Enter");
     await again.locator(".msg.is-channel", { hasText: "hello channel" }).waitFor({ timeout: 15_000 });
     check("a text channel works", true);
     await again.locator(".channel-section-head", { hasText: "Text channels" }).hover();
     await again.getByRole("button", { name: /New channel in Text channels/ }).click();
     await again.getByRole("button", { name: /^Voice/ }).click();
-    await again.getByPlaceholder("Lounge").fill("Lounge");
+    await fill(again.getByPlaceholder("Lounge"), "Lounge");
     await again.getByRole("button", { name: "Create channel" }).click();
     await again.locator(".channel-row", { hasText: "Lounge" }).click();
     await again.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
@@ -585,7 +596,7 @@ print(Int(size.width), Int(size.height), try await asset.loadTracks(withMediaTyp
 }
 
 try {
-  for (const name of chosen.length ? chosen : Object.keys(engines)) await runIn(name);
+  for (const name of chosen.length ? chosen : ["chromium", "firefox", "webkit"]) await runIn(name);
 } finally {
   site.close();
   rmSync(bin, { recursive: true, force: true });

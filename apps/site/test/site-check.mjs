@@ -2,9 +2,11 @@
 // promises: no request leaves its origin, nothing breaks its content security policy, nothing scrolls sideways,
 // and it all still reads without script or with less motion. Saves a screenshot of each page at each width.
 //
-//   npm run build -w @zuna/site && node apps/site/test/site-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]
+//   npm run build -w @zuna/site && node apps/site/test/site-check.mjs [screenshot-dir] [chromium] [firefox] [webkit] [moz-firefox]
 //
 // Needs Playwright's browsers: npx playwright-core install chromium firefox webkit
+// Playwright's Firefox doesn't start on macOS 27 ("Could not find profile folder"), so moz-firefox runs
+// the Firefox installed from Mozilla instead, through WebDriver BiDi.
 import { createServer } from "node:http";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "dist");
 if (!existsSync(join(dist, "index.html"))) throw new Error("Build the site first: npm run build -w @zuna/site");
 
-const engines = { chromium, firefox, webkit };
+const engines = { chromium, firefox, webkit, "moz-firefox": firefox };
 const args = process.argv.slice(2);
 const chosen = args.filter((arg) => arg in engines);
 const shots = args.find((arg) => !(arg in engines)) ?? mkdtempSync(join(tmpdir(), "zuna-site-"));
@@ -47,7 +49,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 
 for (const name of chosen.length ? chosen : ["chromium"]) {
   engine = name;
-  const browser = await engines[name].launch();
+  const browser = await engines[name].launch(name === "moz-firefox" ? { channel: name } : {});
   try {
     for (const width of WIDTHS) {
       const context = await browser.newContext({ viewport: { width, height: 900 } });
@@ -118,16 +120,27 @@ async function interactions(browser) {
 
   const input = page.locator("#demo input");
   await input.scrollIntoViewIfNeeded();
-  const before = await page.locator(".demo-cipher").textContent();
-  await input.fill("x".repeat(300));
-  await page.waitForFunction((text) => document.querySelector(".demo-cipher")?.textContent !== text, before);
+  // Typed, as Firefox through WebDriver BiDi fills a field by setting its value, which React doesn't see.
+  await input.fill("");
+  await input.pressSequentially("x".repeat(300));
+  await page.waitForFunction(() => document.querySelector(".demo-meta div:last-child dd")?.textContent === "512 bytes", null, { timeout: 5000 }).catch(() => undefined);
   const size = await page.locator(".demo-meta div:last-child dd").textContent();
   check("the demo encrypts what's typed, padded to 256-byte blocks", size === "512 bytes", size ?? "");
   check("the demo's message shows what was typed", (await page.locator(".demo-bubble").textContent()) === "x".repeat(300));
 
   const terminal = page.locator("#host .terminal");
   await terminal.scrollIntoViewIfNeeded();
-  const place = async () => JSON.stringify([await page.locator("#host").boundingBox(), await terminal.boundingBox()]);
+  await terminal.evaluate(async (element) => {
+    const reveal = element.closest(".reveal");
+    while (!reveal.classList.contains("is-in")) await new Promise(requestAnimationFrame);
+    await Promise.all(reveal.getAnimations().map((animation) => animation.finished));
+  });
+  // Where they sit in the page, not in the window, as Firefox through WebDriver BiDi scrolls a tab it clicks.
+  const place = () =>
+    page.evaluate(() => JSON.stringify(["#host", "#host .terminal"].map((selector) => {
+      const box = document.querySelector(selector).getBoundingClientRect();
+      return [box.x + scrollX, box.y + scrollY, box.width, box.height].map(Math.round);
+    })));
   const placed = await place();
   const shownPanels = () =>
     page.locator("#host [role=tabpanel]").evaluateAll((panels) => panels.filter((panel) => getComputedStyle(panel).visibility === "visible").map((panel) => panel.textContent));
@@ -154,7 +167,7 @@ async function interactions(browser) {
 
 /** Every word is in the HTML, so the page reads with script off. */
 async function withoutScript(browser) {
-  const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width: 1440, height: 900 } });
+  const { context, close } = await contextWith(browser, { javaScriptEnabled: false, viewport: { width: 1440, height: 900 } }, { "javascript.enabled": false });
   const page = await context.newPage();
   await page.goto(origin + "/", { waitUntil: "load" });
   await page.waitForTimeout(1500);
@@ -166,12 +179,12 @@ async function withoutScript(browser) {
   check("without script, the questions still open", answers >= 8, String(answers));
   const methods = await page.locator("#host [role=tabpanel]").evaluateAll((panels) => panels.filter((panel) => getComputedStyle(panel).visibility === "visible" && panel.offsetHeight > 0).length);
   check("without script, both ways to host show", methods === 2, String(methods));
-  await context.close();
+  await close();
 }
 
 /** With less motion asked for, nothing waits to fade in. */
 async function lessMotion(browser) {
-  const context = await browser.newContext({ reducedMotion: "reduce", viewport: { width: 1440, height: 900 } });
+  const { context, close } = await contextWith(browser, { reducedMotion: "reduce", viewport: { width: 1440, height: 900 } }, { "ui.prefersReducedMotion": 1 });
   const page = await context.newPage();
   await page.goto(origin + "/", { waitUntil: "networkidle" });
   await page.waitForTimeout(300);
@@ -179,7 +192,20 @@ async function lessMotion(browser) {
   check("with less motion, every section shows without scrolling", hidden === 0, `${hidden} hidden`);
   const heading = await page.locator("#demo h2 [aria-hidden]").textContent();
   check("with less motion, the demo's heading doesn't scramble", heading === "Your server only ever sees noise.", heading ?? "");
-  await context.close();
+  await close();
+}
+
+/**
+ * A context with script off or less motion asked for. Firefox through WebDriver BiDi ignores both options,
+ * so there it's a browser of its own, with Firefox's preferences for them.
+ */
+async function contextWith(browser, options, prefs) {
+  if (engine !== "moz-firefox") {
+    const context = await browser.newContext(options);
+    return { context, close: () => context.close() };
+  }
+  const own = await firefox.launch({ channel: engine, firefoxUserPrefs: prefs });
+  return { context: await own.newContext(options), close: () => own.close() };
 }
 
 async function missing(browser) {
