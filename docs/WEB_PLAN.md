@@ -220,7 +220,7 @@ Each phase ends with its checks passing and is committed and pushed in small ste
 
 ## Risks and open questions
 
-- **Voice messages from Firefox.** iOS plays AAC in MP4 only (`apps/ios/Zuna/Chat/Voice.swift`), and the desktop records that (`lib/voice.ts`). Firefox 159's `MediaRecorder` can't record MP4, so it falls back to WebM with Opus, and VP8 for video messages, which iPhones can't play (`web-check.mjs`, 2026-11-04). Its WebCodecs has no AAC encoder either, but encodes Opus and H.264. The iPhone also plays Opus in MP4, so the fix is encoding with WebCodecs, then MP4 in a small muxer.
+- **Voice messages from Firefox.** iOS plays AAC in MP4 only (`apps/ios/Zuna/Chat/Voice.swift`), and the desktop records that (`lib/voice.ts`). Firefox 159's `MediaRecorder` can't record MP4, so it falls back to WebM with Opus, and VP8 for video messages, which iPhones can't play (`web-check.mjs`, 2026-11-04). Its WebCodecs has no AAC encoder either, but encodes Opus and H.264. The iPhone also plays Opus in MP4. Fixed on 2026-11-04: the Opus Firefox records is moved from WebM into MP4 as it is (`lib/webm.ts`, `lib/mp4.ts`), and video messages get H.264 from WebCodecs beside it. Firefox off macOS is unchecked.
 - **Background tabs.** Chrome's Memory Saver can discard a tab nobody has looked at in a while. The title then stops changing until the tab is opened again, when the core starts and catches up. W4 measures whether the open WebSocket and Web Lock keep the tab alive.
 - **Rolling back `zuna-web`.** A database written by a newer version may not open in an older one. The app should say so, not fail.
 - **Keyboard shortcuts.** `Ctrl+K` and `Cmd+K` can be taken from the browser, but each shortcut is checked in W2. Browser-reserved ones like `Cmd+W` aren't used by the desktop.
@@ -238,7 +238,7 @@ Built and checked on macOS 27.0.1, Apple silicon.
 
 Not checked:
 
-- **Firefox.** Playwright's Firefox doesn't start on macOS 27 ("Could not find profile folder", even with a clean environment). Mozilla's didn't then either, but Firefox 159 does: on 2026-11-04 `web-check.mjs moz-firefox` ran it through WebDriver BiDi, and everything passed apart from the voice message risk above.
+- **Firefox.** Playwright's Firefox doesn't start on macOS 27 ("Could not find profile folder", even with a clean environment). Mozilla's didn't then either, but Firefox 159 does: on 2026-11-04 `web-check.mjs moz-firefox` ran it through WebDriver BiDi, and everything passed once voice and video messages were made MP4 (see Risks).
 - **`server/Dockerfile.web`, the compose files and `deploy/zuna-web.service`.** There's no Docker or systemd on this Mac.
 - **The release and CI changes.** They only run on `v*` tags and pull requests.
 - **Background tabs.** Whether Chrome's Memory Saver discards an idle tab holding a Web Lock and a WebSocket hasn't been measured.

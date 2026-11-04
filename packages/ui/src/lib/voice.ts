@@ -2,6 +2,8 @@
 // Telegram, and playing one at a time.
 
 import { platform } from "@/platform";
+import { opusTrack, writeMp4 } from "./mp4";
+import { opusFromWebm } from "./webm";
 
 export interface VoiceRecording {
   blob: Blob;
@@ -17,7 +19,8 @@ export const WAVEFORM_BARS = 48;
 export const MAX_VOICE_SECONDS = 15 * 60;
 
 // AAC in MP4, which the iPhone app plays and records too. Chromium has no AAC encoder on
-// Linux, where plain MP4 gives Opus in MP4. Opus in WebM only if MP4 can't be recorded.
+// Linux, where plain MP4 gives Opus in MP4. Opus in WebM only if MP4 can't be recorded, as
+// in Firefox, and then moved into MP4 here, which the iPhone plays as it does Linux's.
 const TYPES = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus"];
 
 /** Spreads loudness samples (0 to 1) over the bars, as bytes, base64. */
@@ -94,9 +97,11 @@ export class VoiceRecorder {
   stop(): Promise<VoiceRecording> {
     const duration = this.elapsed;
     return new Promise((resolve) => {
-      this.recorder.onstop = () => {
+      this.recorder.onstop = async () => {
         const mime = (this.recorder.mimeType || "audio/mp4").split(";")[0]!;
-        resolve({ blob: new Blob(this.chunks, { type: mime }), mime, duration, waveform: encodeWaveform(this.levels) });
+        const blob = new Blob(this.chunks, { type: mime });
+        const mp4 = mime === "audio/webm" ? await inMp4(blob).catch(() => null) : null;
+        resolve({ ...(mp4 ? { blob: mp4, mime: "audio/mp4" } : { blob, mime }), duration, waveform: encodeWaveform(this.levels) });
       };
       this.finish();
     });
@@ -115,6 +120,13 @@ export class VoiceRecorder {
     for (const track of this.stream.getTracks()) track.stop();
     void this.audio.close();
   }
+}
+
+/** The Opus in a WebM recording, moved into MP4, or null if it can't be. */
+async function inMp4(webm: Blob): Promise<Blob | null> {
+  const opus = opusFromWebm(new Uint8Array(await webm.arrayBuffer()));
+  const track = opus && opusTrack(opus.head, opus.packets);
+  return track && writeMp4([track], "audio/mp4");
 }
 
 /** Only one voice or video message plays at a time. */

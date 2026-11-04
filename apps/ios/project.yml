@@ -270,6 +270,10 @@ targets:
         buildPhase: resources
       - path: ZunaKit/Tests/ZunaHostTests/Fixtures/chromium-round.mp4
         buildPhase: resources
+      - path: ZunaKit/Tests/ZunaHostTests/Fixtures/firefox-opus.m4a
+        buildPhase: resources
+      - path: ZunaKit/Tests/ZunaHostTests/Fixtures/firefox-round.mp4
+        buildPhase: resources
     dependencies:
       - target: Zuna
     settings:

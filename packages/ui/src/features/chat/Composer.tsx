@@ -379,10 +379,10 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     if (!active) return;
     roundRecorder.current = null;
     setRound(null);
-    const video = await active.stop();
+    const video = await active.stop().catch((error: Error) => toast(error.message, "error"));
     focusComposer();
     // A click on the camera and straight back isn't a message.
-    if (video.duration < 0.5) return;
+    if (!video || video.duration < 0.5) return;
     const extension = video.mime === "video/mp4" ? "mp4" : "webm";
     void session()
       .sendWithAttachments(

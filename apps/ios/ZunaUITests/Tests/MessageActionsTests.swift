@@ -139,6 +139,27 @@ final class MessageActionsTests: XCTestCase {
         XCTAssertTrue(opusCard.buttons["Play voice message"].waitForExistence(timeout: 15))
         // As Chromium wrote the durations, it would stop at 4.3 s.
         XCTAssertGreaterThan(Date().timeIntervalSince(started), 4.6)
+
+        // One from Firefox on the web, its Opus moved from WebM into MP4 by `lib/mp4.ts`, plays to its end too.
+        let webm = try Data(contentsOf: try XCTUnwrap(Bundle(for: Self.self).url(forResource: "firefox-opus", withExtension: "m4a")))
+        _ = try alice.call("sendWithAttachments", [
+            "user:\(bobId)",
+            [[
+                "blob": ["$blob": ["bytes": webm.base64EncodedString(), "type": "audio/mp4"]],
+                "name": "Voice message.m4a", "mime": "audio/mp4", "duration": 4.2, "voice": true,
+                "waveform": Data((0..<48).map { UInt8(($0 * 71) % 256) }).base64EncodedString(),
+            ]],
+            [:],
+        ])
+        try waitFor("bob's phone to show it", timeout: 20) { try self.voiceMessages(alice).count == before + 4 }
+        let fromFirefox = try XCTUnwrap(try voiceMessages(alice).last?["id"] as? String)
+        let firefoxCard = zuna.element(A11y.Chat.voice(fromFirefox))
+        XCTAssertTrue(firefoxCard.waitForExistence(timeout: 15))
+        let heard = Date()
+        firefoxCard.buttons["Play voice message"].tap()
+        XCTAssertTrue(firefoxCard.buttons["Pause"].waitForExistence(timeout: 10), failure.exists ? failure.label : "it didn't start")
+        XCTAssertTrue(firefoxCard.buttons["Play voice message"].waitForExistence(timeout: 15))
+        XCTAssertGreaterThan(Date().timeIntervalSince(heard), 3.8)
     }
 
     func testRecordsVideoMessagesAndPlaysThem() throws {
@@ -200,6 +221,25 @@ final class MessageActionsTests: XCTestCase {
         zuna.screenshot("121b-video-message-playing")
         // It plays to the end, and goes back to playing by itself without sound.
         try waitFor("it to finish", timeout: 15) { (card.value as? String) != "Playing" }
+
+        // One from Firefox on the web, H.264 from WebCodecs and Opus in MP4 by `lib/mp4.ts`, plays with its sound too.
+        let encoded = try Data(contentsOf: try XCTUnwrap(Bundle(for: Self.self).url(forResource: "firefox-round", withExtension: "mp4")))
+        _ = try alice.call("sendWithAttachments", [
+            "user:\(bobId)",
+            [[
+                "blob": ["$blob": ["bytes": encoded.base64EncodedString(), "type": "video/mp4"]],
+                "name": "Video message.mp4", "mime": "video/mp4", "width": 480, "height": 480, "duration": 2.2, "round": true,
+            ]],
+            [:],
+        ])
+        try waitFor("bob's phone to show it", timeout: 20) { try self.videoMessages(alice).count == before + 3 }
+        let fromFirefox = try XCTUnwrap(try videoMessages(alice).last?["id"] as? String)
+        let firefoxCard = zuna.element(A11y.Chat.round(fromFirefox))
+        XCTAssertTrue(firefoxCard.waitForExistence(timeout: 15))
+        firefoxCard.tap()
+        try waitFor(failure.exists ? failure.label : "it to play with its sound", timeout: 10) { (firefoxCard.value as? String) == "Playing" }
+        zuna.screenshot("121c-firefox-video-message-playing")
+        try waitFor("it to finish", timeout: 15) { (firefoxCard.value as? String) != "Playing" }
     }
 
     func testPicksMessagesToCopyForwardAndDelete() throws {

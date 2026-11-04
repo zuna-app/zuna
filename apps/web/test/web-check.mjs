@@ -128,6 +128,58 @@ async function signUp(page, link, serverName) {
 const unreadInList = (page) =>
   page.evaluate(() => [...document.querySelectorAll(".conv-badge:not(.is-muted)")].reduce((sum, badge) => sum + Number(badge.textContent.replace("+", "")), 0));
 
+/** What AVFoundation, which the iPhone plays voice and video messages with, makes of a file, decoding all of it. */
+function appleReads(file) {
+  const script = join(shots, "apple-reads.swift");
+  writeFileSync(
+    script,
+    `import AVFoundation
+let asset = AVURLAsset(url: URL(fileURLWithPath: CommandLine.arguments[1]))
+let videos = try await asset.loadTracks(withMediaType: .video)
+let audios = try await asset.loadTracks(withMediaType: .audio)
+var size = "none"
+if let video = videos.first { let natural = try await video.load(.naturalSize); size = "\\(Int(natural.width))x\\(Int(natural.height))" }
+var codec = "none"
+if let audio = audios.first, let format = try await audio.load(.formatDescriptions).first {
+  let type = CMFormatDescriptionGetMediaSubType(format)
+  codec = String(bytes: [24, 16, 8, 0].map { UInt8((type >> $0) & 0xff) }, encoding: .ascii)!.trimmingCharacters(in: .whitespaces)
+}
+let reader = try AVAssetReader(asset: asset)
+let sound = audios.first.map { AVAssetReaderTrackOutput(track: $0, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM]) }
+let picture = videos.first.map { AVAssetReaderTrackOutput(track: $0, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]) }
+for output in [sound, picture].compactMap({ $0 }) { reader.add(output) }
+reader.startReading()
+var heard = 0.0
+var frames = 0
+var reading = true
+while reading {
+  reading = false
+  if let sound, let buffer = sound.copyNextSampleBuffer() { heard += CMSampleBufferGetDuration(buffer).seconds; reading = true }
+  if let picture, picture.copyNextSampleBuffer() != nil { frames += 1; reading = true }
+}
+print("\\(size) \\(codec) \\(String(format: "%.2f", heard)) s \\(frames) frames\\(reader.status == .completed ? "" : ", failed")")
+`,
+  );
+  try {
+    const [size, sound, heard, , frames, , failed] = execFileSync("xcrun", ["swift", script, file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split(/[ ,]+/);
+    return { size, sound, heard: Number(heard), frames: Number(frames), failed: failed === "failed", text: `${size}, ${sound}, ${heard} s, ${frames} frames${failed ? ", failed" : ""}` };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A file the page made an address for, such as a decrypted attachment's. Its content security
+ * policy doesn't let it fetch one, so the files are kept as they're given addresses.
+ */
+const bytesAt = (page, url) =>
+  page.evaluate(async (address) => {
+    const bytes = new Uint8Array(await window.__files.get(address).arrayBuffer());
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  }, url);
+
 async function runIn(name) {
   engine = name;
   const prefix = (shot) => join(shots, `${name}-${shot}.png`);
@@ -287,11 +339,28 @@ async function runIn(name) {
     await page.screenshot({ path: prefix("03b-shared") });
     await page.locator(".side-head").getByLabel("Close").click();
 
-    // Voice messages: what each browser can record, and whether an iPhone could play it
+    // Voice messages: what each browser can record, and whether an iPhone could play what it sends
     const formats = await page.evaluate(() =>
       ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus"].filter((type) => window.MediaRecorder?.isTypeSupported(type)),
     );
     notes.push(`${name} records: ${formats.join(", ") || "nothing"}`);
+    // The player the app makes for a voice message, for the file it plays.
+    await page.evaluate(() => {
+      window.__files = new Map();
+      const address = URL.createObjectURL;
+      URL.createObjectURL = (file) => {
+        const url = address(file);
+        window.__files.set(url, file);
+        return url;
+      };
+      const Player = window.Audio;
+      window.Audio = class extends Player {
+        constructor(source) {
+          super(source);
+          window.__player = this;
+        }
+      };
+    });
     try {
       await page.getByLabel("Record a voice message").click();
       await page.locator(".recording-row").waitFor({ timeout: 10_000 });
@@ -300,56 +369,26 @@ async function runIn(name) {
       const voice = page.locator(".msg.is-own .voice").last();
       await voice.locator(".voice-play[aria-label='Play voice message']").waitFor({ timeout: 15_000 });
       check("a voice message is recorded and sent", true, await voice.locator(".voice-time").innerText());
+      if (process.platform === "darwin") {
+        await voice.locator(".voice-play").click();
+        const played = await page.waitForFunction(() => window.__player?.src, null, { timeout: 15_000 }).then((handle) => handle.jsonValue());
+        await page.evaluate(() => window.__player.pause());
+        const file = join(shots, `${name}-voice.m4a`);
+        writeFileSync(file, Buffer.from(await bytesAt(page, played), "base64"));
+        const read = appleReads(file);
+        // Playwright's WebKit starts its microphone late: 0.86 s of a 1.5 s recording on 2026-11-04.
+        check("an iPhone could play the voice messages this browser sends", !!read && /^(aac|opus)$/.test(read.sound) && read.heard > 0.5 && !read.failed, read?.text ?? "unreadable to AVFoundation");
+      }
     } catch (error) {
       check("a voice message is recorded and sent", false, error.message.split("\n")[0]);
     }
-    const recorded = await page
-      .evaluate(async () => {
-        const types = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus"];
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream, { mimeType: types.find((type) => MediaRecorder.isTypeSupported(type)) });
-        const chunks = [];
-        recorder.ondataavailable = (event) => chunks.push(event.data);
-        const done = new Promise((resolve) => (recorder.onstop = resolve));
-        recorder.start(250);
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        recorder.stop();
-        await done;
-        stream.getTracks().forEach((track) => track.stop());
-        const bytes = new Uint8Array(await new Blob(chunks).arrayBuffer());
-        let binary = "";
-        for (const byte of bytes) binary += String.fromCharCode(byte);
-        return { type: recorder.mimeType, data: btoa(binary) };
-      })
-      .catch((error) => ({ type: "", data: "", error: error.message }));
-    if (process.platform === "darwin" && recorded.data) {
-      const file = join(shots, `${name}-voice.m4a`);
-      writeFileSync(file, Buffer.from(recorded.data, "base64"));
-      let info = "";
-      try {
-        info = execFileSync("afinfo", [file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-      } catch {
-        // Apple's decoder can't read it.
-      }
-      check("an iPhone could play what this browser records (AAC in MP4)", /aac/i.test(info), `${recorded.type}${info ? `, ${info.match(/Data format:.*/)?.[0]}` : ", unreadable to Apple's decoder"}`);
-    } else if (recorded.error) {
-      notes.push(`${name} couldn't record: ${recorded.error}`);
-    }
 
-    // Video messages: recorded from the camera, sent, and shown as a circle; and whether an iPhone could play what this browser records.
+    // Video messages: recorded from the camera, sent, and shown as a circle; and whether an iPhone could play what this browser sends.
     const videoFormats = await page.evaluate(() =>
       ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1.42E01E,opus", "video/mp4", "video/webm;codecs=vp8,opus"].filter((type) => window.MediaRecorder?.isTypeSupported(type)),
     );
     notes.push(`${name} records video messages as: ${videoFormats[0] ?? "nothing"}`);
     try {
-      await page.evaluate(() => {
-        window.__recorded = [];
-        const start = MediaRecorder.prototype.start;
-        MediaRecorder.prototype.start = function (...args) {
-          this.addEventListener("dataavailable", (event) => window.__recorded.push(event.data));
-          return start.apply(this, args);
-        };
-      });
       await page.getByLabel("Record a video message").click();
       await page.locator(".round-preview video").waitFor({ timeout: 10_000 });
       await sleep(2000);
@@ -359,32 +398,11 @@ async function runIn(name) {
       const size = await round.locator("video").evaluate((video) => new Promise((resolve) => setTimeout(() => resolve(`${video.videoWidth}x${video.videoHeight}`), 1000)));
       check("a video message is recorded, sent and shown as a circle", size === "480x480", size);
       await page.screenshot({ path: prefix("03c-video-message") });
-      const roundFile = await page.evaluate(async () => {
-        const bytes = new Uint8Array(await new Blob(window.__recorded).arrayBuffer());
-        let binary = "";
-        for (const byte of bytes) binary += String.fromCharCode(byte);
-        return btoa(binary);
-      });
       if (process.platform === "darwin") {
         const file = join(shots, `${name}-round.mp4`);
-        writeFileSync(file, Buffer.from(roundFile, "base64"));
-        const script = join(shots, "read-round.swift");
-        writeFileSync(
-          script,
-          `import AVFoundation
-let asset = AVURLAsset(url: URL(fileURLWithPath: CommandLine.arguments[1]))
-let video = try await asset.loadTracks(withMediaType: .video)
-let size = try await video.first!.load(.naturalSize)
-print(Int(size.width), Int(size.height), try await asset.loadTracks(withMediaType: .audio).count)
-`,
-        );
-        let read = "";
-        try {
-          read = execFileSync("xcrun", ["swift", script, file], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-        } catch {
-          // AVFoundation can't read it.
-        }
-        check("an iPhone could play the video messages this browser records", read === "480 480 1", read || "unreadable to AVFoundation");
+        writeFileSync(file, Buffer.from(await bytesAt(page, await round.locator("video").evaluate((video) => video.currentSrc)), "base64"));
+        const read = appleReads(file);
+        check("an iPhone could play the video messages this browser sends", !!read && read.size === "480x480" && read.frames > 0 && read.sound !== "none" && read.heard > 0 && !read.failed, read?.text ?? "unreadable to AVFoundation");
       }
     } catch (error) {
       check("a video message is recorded, sent and shown as a circle", false, error.message.split("\n")[0]);
