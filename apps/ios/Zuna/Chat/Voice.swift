@@ -2,8 +2,9 @@ import AVFoundation
 import SwiftUI
 import ZunaModels
 
-/// Voice messages: AAC in MP4, as the desktop records them (lib/voice.ts), with
-/// a waveform of one byte per bar.
+/// Voice messages: AAC in MP4, as this app and the desktop on Windows and macOS record
+/// them, or Opus in MP4 from the desktop on Linux (lib/voice.ts), with a waveform of
+/// one byte per bar.
 enum Waveform {
     static let bars = 48
 
@@ -157,10 +158,11 @@ final class VoiceRecorder {
     }
 }
 
-/// Plays voice messages, one at a time.
+/// Plays voice messages, one at a time. Through AVPlayer, as AVAudioPlayer can't read
+/// Opus in MP4, which the Linux desktop records.
 @MainActor
 @Observable
-final class VoicePlayer: NSObject, AVAudioPlayerDelegate {
+final class VoicePlayer {
     static let shared = VoicePlayer()
 
     /// The voice message playing or paused, by file ID.
@@ -168,56 +170,79 @@ final class VoicePlayer: NSObject, AVAudioPlayerDelegate {
     private(set) var isPlaying = false
     private(set) var position: TimeInterval = 0
 
-    @ObservationIgnored private var player: AVAudioPlayer?
-    @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var player: AVPlayer?
+    @ObservationIgnored private var ticks: Any?
+    @ObservationIgnored private var ended: NSObjectProtocol?
 
     enum Failure: LocalizedError {
         case unavailable
         var errorDescription: String? { "Sound isn't available right now." }
     }
 
-    func play(_ url: URL, id: String, from time: TimeInterval) throws {
+    func play(_ url: URL, id: String, from time: TimeInterval) async throws {
         if current != id || player == nil {
             stop()
+            let playable = try await Self.playable(url)
+            // Another one was asked for meanwhile.
+            guard player == nil else { return }
             // Voice messages play even with the phone set to silent, as in other messengers.
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
             try AVAudioSession.sharedInstance().setActive(true)
-            let player = try AVAudioPlayer(contentsOf: url)
-            player.delegate = self
+            let item = AVPlayerItem(url: playable)
+            let player = AVPlayer(playerItem: item)
             self.player = player
             current = id
+            ended = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.stop() }
+            }
+            ticks = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 20), queue: .main) { [weak self] time in
+                MainActor.assumeIsolated {
+                    if self?.isPlaying == true { self?.position = time.seconds }
+                }
+            }
         }
-        player?.currentTime = time
-        // With nothing to play sound on it refuses, and would never say it finished.
-        guard player?.play() == true else {
-            stop()
-            throw Failure.unavailable
-        }
+        guard let player else { return }
         isPlaying = true
         position = time
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.position = self?.player?.currentTime ?? 0 }
+        // Playing waits for the seek.
+        player.seek(to: CMTime(seconds: time, preferredTimescale: 48_000), toleranceBefore: .zero, toleranceAfter: .zero) { _ in }
+        player.play()
+        // With nothing to play sound on, or a file it can't read, it never starts, and would never say it finished.
+        for _ in 0..<60 where self.player === player && isPlaying {
+            if player.timeControlStatus == .playing { return }
+            if player.currentItem?.status == .failed { break }
+            try? await Task.sleep(for: .milliseconds(50))
         }
+        guard self.player === player, isPlaying else { return }
+        stop()
+        throw Failure.unavailable
     }
 
     func pause() {
         player?.pause()
         isPlaying = false
-        timer?.invalidate()
     }
 
     func stop() {
-        player?.stop()
+        if let ticks { player?.removeTimeObserver(ticks) }
+        if let ended { NotificationCenter.default.removeObserver(ended) }
+        ticks = nil
+        ended = nil
+        player?.pause()
         player = nil
         current = nil
         isPlaying = false
         position = 0
-        timer?.invalidate()
     }
 
-    nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-        Task { @MainActor in self.stop() }
+    /// The file to play: a copy with its durations put right, for Opus as Chromium writes it (`VoiceFile`).
+    private static func playable(_ url: URL) async throws -> URL {
+        try await Task.detached {
+            guard let fixed = VoiceFile.fixingOpusDurations(try Data(contentsOf: url)) else { return url }
+            let copy = url.deletingLastPathComponent().appendingPathComponent("playable-\(url.lastPathComponent)")
+            try fixed.write(to: copy, options: [.atomic, .completeFileProtection])
+            return copy
+        }.value
     }
 }
 
@@ -301,7 +326,7 @@ struct VoiceCard: View {
                     file = try await images.openable(attachment, serverId: serverId)
                     loading = false
                 }
-                try player.play(file!, id: attachment.fileId, from: time)
+                try await player.play(file!, id: attachment.fileId, from: time)
             } catch {
                 loading = false
                 model.toast("Couldn't play it: \(OnboardingText.describe(error))", .error)

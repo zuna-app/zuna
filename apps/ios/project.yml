@@ -200,6 +200,8 @@ targets:
     sources:
       - path: ZunaUITests
       - path: Zuna/Shared/A11y.swift
+      - path: ZunaKit/Tests/ZunaHostTests/Fixtures/chromium-opus.m4a
+        buildPhase: resources
     dependencies:
       - target: Zuna
     settings:

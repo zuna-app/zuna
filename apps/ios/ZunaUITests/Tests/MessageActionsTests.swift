@@ -106,6 +106,28 @@ final class MessageActionsTests: XCTestCase {
         zuna.screenshot("120-voice-messages")
         // It plays to the end and stops by itself.
         XCTAssertTrue(card.buttons["Play voice message"].waitForExistence(timeout: 15))
+
+        // One from the Linux desktop, Opus in MP4 as Chromium writes it, plays to its end too.
+        let opus = try Data(contentsOf: try XCTUnwrap(Bundle(for: Self.self).url(forResource: "chromium-opus", withExtension: "m4a")))
+        _ = try alice.call("sendWithAttachments", [
+            "user:\(bobId)",
+            [[
+                "blob": ["$blob": ["bytes": opus.base64EncodedString(), "type": "audio/mp4"]],
+                "name": "Voice message.m4a", "mime": "audio/mp4", "duration": 4.98, "voice": true,
+                "waveform": Data((0..<48).map { UInt8(($0 * 53) % 256) }).base64EncodedString(),
+            ]],
+            [:],
+        ])
+        try waitFor("bob's phone to show it", timeout: 20) { try self.voiceMessages(alice).count == before + 3 }
+        let fromLinux = try XCTUnwrap(try voiceMessages(alice).last?["id"] as? String)
+        let opusCard = zuna.element(A11y.Chat.voice(fromLinux))
+        XCTAssertTrue(opusCard.waitForExistence(timeout: 15))
+        let started = Date()
+        opusCard.buttons["Play voice message"].tap()
+        XCTAssertTrue(opusCard.buttons["Pause"].waitForExistence(timeout: 10), failure.exists ? failure.label : "it didn't start")
+        XCTAssertTrue(opusCard.buttons["Play voice message"].waitForExistence(timeout: 15))
+        // As Chromium wrote the durations, it would stop at 4.3 s.
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 4.6)
     }
 
     func testPicksMessagesToCopyForwardAndDelete() throws {
