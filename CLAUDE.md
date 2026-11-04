@@ -159,6 +159,8 @@ Rules the core depends on:
 - Each server's admins pick one 7TV emote set. People can't add their own.
 - The web app is served by its own host, `zuna-web`, never by a chat server, and on an origin of its own (`docs/WEB_PLAN.md`).
 - Pinned messages live in the pins drawer, with no bar above the chat.
+- No GIF search. Tenor, Giphy or any service like them would learn each person's IP address and what they look for.
+- No scheduled messages. A message is sealed for the MLS epoch it's sent in, so the server can't hold one and send it later, and one that waits for the sender's device to be online isn't worth having.
 - Linux is built for Wayland. X11 is legacy: what works there along the way stays working, but nothing is built or chased just for it, such as hardware decoding under X11.
 - Security fixes may not add a step, prompt or setting for people using the app. The one exception is removing metadata from files: a switch in Privacy, on by default, that explains what turning it off shows and asks to be sure.
 
