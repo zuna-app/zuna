@@ -2,8 +2,15 @@ import { Maximize2, MonitorUp, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { prefersLessMotion, useOnScreen } from "../components/reveal";
 
-/** What a share's frame rate can be set to, from SCREEN_RATES in packages/ui/src/voice/settings.ts. */
-const RATES = [5, 10, 15, 24, 30, 45, 60, 75, 90, 120, 144, 165, 240];
+/** The most a share's frame rate can be set to, the last of SCREEN_RATES in packages/ui/src/voice/settings.ts. */
+const MOST_FPS = 240;
+
+/** Each the most its setting goes to, from SCREEN_RATES and SCREEN_HEIGHTS, and the maintainers' measured latency. */
+const SPECS = [
+  { name: "Frame rate", value: `Up to ${MOST_FPS} fps` },
+  { name: "Resolution", value: "Up to 4K" },
+  { name: "Latency", value: "About 80 ms" },
+];
 
 const FACTS = [
   { value: "≈5%", label: "of one core for a 1440p share at 60 fps" },
@@ -18,20 +25,18 @@ export function Streaming() {
         <div className="stream">
           <div className="stream-copy reveal">
             <p className="eyebrow">Screen sharing</p>
-            <p className="stream-number" aria-hidden="true">
-              240<span>fps</span>
-            </p>
-            <h2 className="heading">Share your screen at up to 240 fps.</h2>
+            <h2 className="heading">Your screen, sharp and smooth.</h2>
             <p className="lead">
-              Captured natively, encoded on your GPU and encrypted end to end, so a fast game looks as smooth to your friends as it does to you.
+              Captured natively, encoded on your GPU and encrypted end to end, so a fast game or a page of small text looks to your friends as it does to you.
             </p>
-            <ul className="rates" aria-label="Frame rates you can share at">
-              {RATES.map((rate) => (
-                <li key={rate} className={rate === 240 ? "is-top" : ""}>
-                  {rate}
-                </li>
+            <dl className="specs">
+              {SPECS.map((spec) => (
+                <div key={spec.name}>
+                  <dt>{spec.name}</dt>
+                  <dd>{spec.value}</dd>
+                </div>
               ))}
-            </ul>
+            </dl>
           </div>
           <RefreshMeter />
         </div>
@@ -44,8 +49,9 @@ export function Streaming() {
           ))}
         </ul>
         <p className="note reveal">
-          Up to 240 fps needs a screen that refreshes that fast. Screens are captured natively on Windows and Linux, and through the browser's own capture on
-          macOS and the web.
+          Each is the most that setting goes to, not one share doing all three at once: how much a share carries depends on the screen, the graphics card and the
+          connection. The latency is as measured from one screen to another. Screens are captured natively on Windows and Linux, and through the browser's own
+          capture on macOS and the web.
         </p>
       </div>
     </section>
@@ -103,7 +109,7 @@ function RefreshMeter() {
             "Measuring your screen…"
           ) : (
             <>
-              Your screen refreshes at <b>{hz} Hz</b>. {hz >= 200 ? "Zuna can share every frame of it." : "On a faster one, Zuna shares up to 240 fps."}
+              Your screen refreshes at <b>{hz} Hz</b>. {hz <= MOST_FPS ? "Zuna can share every frame." : `Zuna shares up to ${MOST_FPS} frames a second.`}
             </>
           )}
         </p>

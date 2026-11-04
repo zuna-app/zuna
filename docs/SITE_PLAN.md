@@ -27,7 +27,7 @@ The page looks like the app: dark, monochrome, white as the one accent, Inter fo
 | 2 | Facts | | MLS (RFC 9420), audited OpenMLS, AGPL-3.0, one command to host, no trackers on this page |
 | 3 | Demo | Your server only ever sees noise. | Type a message: the left shows what a friend sees, the right what the server stores, really encrypted with WebCrypto and padded to 256-byte blocks as Zuna pads, labelled as an illustration |
 | 4 | Features | All the chat. None of the snooping. | Bento: servers and channels, voice channels and calls, 7TV emotes, search on the device, link previews made by the sender; smaller features as chips |
-| 5 | Streaming | Share your screen at up to 240 fps. | The rates the app offers, 5 to 240, a bar moving at the visitor's own refresh rate with the measured Hz, a 1440p60 share costing about 5% of a core, one app's sound |
+| 5 | Streaming | Your screen, sharp and smooth. | Up to 240 fps, up to 4K and about 80 ms of latency, side by side and none made the headline, said to be each setting's most rather than one share; a bar moving at the visitor's own refresh rate with the measured Hz, a 1440p60 share costing about 5% of a core, one app's sound |
 | 6 | Security | Private by math, not by promise. | MLS in every chat, the 16-emoji check, the password staying on the device, a short "can see / never sees" from `SECURITY.md`, and the missing independent audit said up front |
 | 7 | Notifications | Your phone buzzes. Nobody else learns why. | Server → zuna-push → Apple → phone, with what each sees, and that the relay sees which server woke which phone, and when |
 | 8 | Self-hosting | One command. One folder to back up. | A terminal with the Docker commands and a copy button, three steps, LiveKit for voice |
@@ -43,7 +43,7 @@ Pages beside it: `/privacy`, the app's and the relay's privacy policy, and `/sup
 - Headings are plain sentences that say one thing. No "military-grade", "zero metadata", "unhackable", "seamless".
 - Every claim is one the code and the docs back. The page says what the server and the relay can see, and that Zuna hasn't had an independent audit.
 - Comparisons with other apps stay accurate: Discord's voice and video are end-to-end encrypted, its text isn't.
-- What has only run in part says so. Screen sharing at 240 fps has been measured natively on Windows; AMD's and Intel's encoders haven't run, so the page says "encoded on your GPU" rather than naming them.
+- What has only run in part says so. Screen sharing at 240 fps has been measured natively on Windows; AMD's and Intel's encoders haven't run, so the page says "encoded on your GPU" rather than naming them. The latency of about 80 ms is the maintainers' own measurement, not at 4K and 240 fps at once, and `docs/SCREEN_SHARE.md` doesn't record it yet.
 
 ## Build
 

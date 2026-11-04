@@ -146,14 +146,10 @@
 /* Streaming */
 
 .stream { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); align-items: center; gap: 56px; }
-.stream-number {
-  margin: 0 0 6px; font-size: clamp(110px, 16vw, 200px); font-weight: 720; letter-spacing: -0.06em; line-height: 0.85; font-variant-numeric: tabular-nums;
-  background: linear-gradient(180deg, var(--text-1) 20%, rgba(255, 255, 255, 0.12)); -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-.stream-number span { margin-left: 0.15em; color: var(--text-2); font: 500 0.18em/1 var(--font-mono); letter-spacing: 0; }
-.rates { display: flex; flex-wrap: wrap; gap: 5px; margin: 28px 0 0; padding: 0; list-style: none; }
-.rates li { padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; color: var(--text-2); font: 13px/1.3 var(--font-mono); }
-.rates .is-top { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 650; }
+.specs { margin: 32px 0 0; border-top: 1px solid var(--line); }
+.specs div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 13px 2px; border-bottom: 1px solid var(--line); }
+.specs dt { color: var(--text-2); font-size: 15px; }
+.specs dd { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
 .meter { padding: 14px; border: 1px solid var(--line-strong); border-radius: 22px; background: var(--bg-1); box-shadow: var(--shadow-l); }
 .meter-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 6px 12px; color: var(--text-2); font-size: 13.5px; }
 .meter-head span { display: inline-flex; align-items: center; gap: 8px; }
