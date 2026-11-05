@@ -328,6 +328,7 @@ enum A11y {
         static let removeMetadata = "settings.removeMetadata"
         static let currentPassword = "settings.currentPassword"
         static let newPassword = "settings.newPassword"
+        static let confirmPassword = "settings.confirmPassword"
         static let changePassword = "settings.changePassword"
         static let recoveryPassword = "settings.recoveryPassword"
         static let newRecoveryKey = "settings.newRecoveryKey"

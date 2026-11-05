@@ -20,7 +20,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { platform } from "@/platform";
-import { Avatar, Field, Logo, Modal, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
+import { Avatar, ConfirmPasswordField, Field, Logo, Modal, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
 import { formatFull, MIN_PASSWORD } from "@/lib/format";
@@ -412,6 +412,7 @@ function SecuritySection() {
   const server = useActiveServer();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [recoveryPassword, setRecoveryPassword] = useState("");
   const [recoveryKey, setRecoveryKey] = useState<string | null>(null);
   const { busy, run } = useAction();
@@ -437,16 +438,18 @@ function SecuritySection() {
       <h3>Change password</h3>
       <PasswordField label="Current password" value={current} autoComplete="current-password" onChange={(event) => setCurrent(event.target.value)} />
       <PasswordField label="New password" value={next} autoComplete="new-password" hint={next ? strength.label : `At least ${MIN_PASSWORD} characters.`} onChange={(event) => setNext(event.target.value)} />
+      <ConfirmPasswordField label="Confirm new password" password={next} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
       <div>
         <button
           className="btn"
-          disabled={!current || next.length < MIN_PASSWORD || strength.score < 2 || busy}
+          disabled={!current || next.length < MIN_PASSWORD || strength.score < 2 || confirm !== next || busy}
           onClick={() =>
             strength.accepts() &&
             run(async () => {
               await session().changePassword(current, next);
               setCurrent("");
               setNext("");
+              setConfirm("");
               toast("Password changed");
             })
           }

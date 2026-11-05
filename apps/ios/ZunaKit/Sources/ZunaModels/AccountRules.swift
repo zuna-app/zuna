@@ -11,6 +11,13 @@ public enum AccountRules {
         username.range(of: #"^[A-Za-z0-9_][A-Za-z0-9_.-]{1,31}$"#, options: .regularExpression) != nil
     }
 
+    /// What's wrong with a new password typed again, if anything. A typo would lock the
+    /// account, as nobody can reset a password, but while the second one is still being
+    /// typed, it's only wrong once it stops matching.
+    public static func confirmationError(_ password: String, confirmation: String) -> String? {
+        !confirmation.isEmpty && !password.hasPrefix(confirmation) ? "The passwords don't match." : nil
+    }
+
     /// A username made from a display name: accents dropped, everything else
     /// that isn't allowed turned into underscores.
     public static func suggestUsername(_ name: String) -> String {

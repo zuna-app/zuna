@@ -198,12 +198,6 @@ struct InviteStep: View {
             && !busy
     }
 
-    /// A typo would lock the account, as nobody can reset the password. While the
-    /// second one is still being typed, it's only wrong once it stops matching.
-    private var confirmError: String? {
-        !confirm.isEmpty && !password.hasPrefix(confirm) ? "The passwords don't match." : nil
-    }
-
     private var usernameError: String? {
         if let error, error.localizedCaseInsensitiveContains("username") { return error }
         if !username.isEmpty, !AccountRules.isValidUsername(username) { return "Usernames need at least 2 valid characters." }
@@ -259,12 +253,7 @@ struct InviteStep: View {
                         await rating.rate(password, related: [username, displayName])
                     }
             }
-            FormField(label: "Confirm password", error: confirmError) {
-                SecureField("", text: $confirm)
-                    .textContentType(.newPassword)
-                    .accessibilityLabel("Confirm password")
-                    .accessibilityIdentifier(A11y.Onboarding.confirmPassword)
-            }
+            ConfirmPasswordField(password: password, confirmation: $confirm)
             Label("Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it.", systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(Theme.text2)
@@ -535,12 +524,13 @@ struct RecoverStep: View {
     @Environment(AppModel.self) private var model
     @State private var key = ""
     @State private var password = ""
+    @State private var confirm = ""
     @State private var rating = PasswordRating()
     @State private var error: String?
     @State private var busy = false
 
     private var canSubmit: Bool {
-        !key.isEmpty && password.count >= AccountRules.minimumPasswordLength && rating.strongEnough && !busy
+        !key.isEmpty && password.count >= AccountRules.minimumPasswordLength && rating.strongEnough && confirm == password && !busy
     }
 
     var body: some View {
@@ -572,6 +562,7 @@ struct RecoverStep: View {
                         await rating.rate(password, related: [username])
                     }
             }
+            ConfirmPasswordField(label: "Confirm new password", password: password, confirmation: $confirm)
             if let error {
                 Text(error)
                     .font(.footnote)

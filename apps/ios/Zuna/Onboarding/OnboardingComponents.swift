@@ -88,6 +88,22 @@ struct FormField<Field: View>: View {
     }
 }
 
+/// A new password typed again, which says when it stops matching.
+struct ConfirmPasswordField: View {
+    var label = "Confirm password"
+    let password: String
+    @Binding var confirmation: String
+
+    var body: some View {
+        FormField(label: label, error: AccountRules.confirmationError(password, confirmation: confirmation)) {
+            SecureField("", text: $confirmation)
+                .textContentType(.newPassword)
+                .accessibilityLabel(label)
+                .accessibilityIdentifier(A11y.Onboarding.confirmPassword)
+        }
+    }
+}
+
 /// A password's strength, kept with the password it's for, so that nothing goes
 /// ahead on a rating of what was typed a moment ago.
 @MainActor

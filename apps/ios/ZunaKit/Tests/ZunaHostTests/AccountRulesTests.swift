@@ -59,4 +59,13 @@ final class AccountRulesTests: XCTestCase {
         XCTAssertFalse(AccountRules.isValidUsername("dana scully"))
         XCTAssertFalse(AccountRules.isValidUsername(String(repeating: "a", count: 33)))
     }
+
+    func testPointsOutAMistypedConfirmation() {
+        let password = "correct horse"
+        XCTAssertNil(AccountRules.confirmationError(password, confirmation: ""))
+        XCTAssertNil(AccountRules.confirmationError(password, confirmation: "correct h"))
+        XCTAssertNil(AccountRules.confirmationError(password, confirmation: password))
+        XCTAssertEqual(AccountRules.confirmationError(password, confirmation: "correct j"), "The passwords don't match.")
+        XCTAssertEqual(AccountRules.confirmationError(password, confirmation: "correct horses"), "The passwords don't match.")
+    }
 }

@@ -435,21 +435,25 @@ try {
   await page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
   await sleep(100);
   await shot("14b-screen-sharing");
-  // A new password's button goes by the latest rating, which trails typing by a moment,
-  // so it stays on while a strong password grows.
+  // A new password is typed twice. Its button comes on once, as the second one
+  // matches, and doesn't blink on the way, though the rating trails typing.
   await page.locator(".settings-nav-item", { hasText: "Security" }).click();
   await page.getByLabel("Current password").first().fill("ui-check-only-Pass-9182");
-  await page.getByLabel("New password").fill("a whole new ui-check password");
-  const change = page.getByRole("button", { name: "Change password", disabled: false });
-  await change.waitFor({ timeout: 5000 });
+  await page.getByLabel("New password").first().fill("a whole new ui-check password");
+  const confirmNew = page.getByLabel("Confirm new password");
+  const change = page.getByRole("button", { name: "Change password" });
+  await confirmNew.fill("a whole old");
+  const caught = await page.getByText("The passwords don't match.").waitFor({ timeout: 5000 }).then(() => true, () => false);
+  check("a typo in the second new password is caught", caught && (await change.isDisabled()));
+  await confirmNew.fill("");
   await change.evaluate((button) => {
-    window.switchedOff = 0;
-    new MutationObserver(() => button.disabled && window.switchedOff++).observe(button, { attributes: true, attributeFilter: ["disabled"] });
+    window.switched = [];
+    new MutationObserver(() => window.switched.push(button.disabled ? "off" : "on")).observe(button, { attributes: true, attributeFilter: ["disabled"] });
   });
-  await page.getByLabel("New password").pressSequentially(" and then some", { delay: 40 });
+  await confirmNew.pressSequentially("a whole new ui-check password", { delay: 20 });
   await sleep(200);
-  const switchedOff = await page.evaluate(() => window.switchedOff);
-  check("typing a strong password doesn't switch its button off and on", switchedOff === 0, `${switchedOff} times`);
+  const switched = await page.evaluate(() => window.switched.join(" "));
+  check("changing the password's button comes on once, as the passwords match", switched === "on", switched || "never");
   await page.keyboard.press("Escape");
   await sleep(150);
   check("focus returns after closing settings", await composerFocused());

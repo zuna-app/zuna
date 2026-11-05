@@ -86,6 +86,7 @@ final class SettingsTests: XCTestCase {
         openSettings(A11y.Settings.security)
         type(password, into: A11y.Settings.currentPassword)
         type(next, into: A11y.Settings.newPassword)
+        type(next, into: A11y.Settings.confirmPassword)
         let change = zuna.element(A11y.Settings.changePassword)
         try waitFor("the new password to be rated") { change.isEnabled }
         change.tap()

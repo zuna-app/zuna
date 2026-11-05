@@ -217,6 +217,7 @@ struct SecurityView: View {
     @State private var devices: [DeviceView] = []
     @State private var current = ""
     @State private var next = ""
+    @State private var confirm = ""
     @State private var rating = PasswordRating()
     @State private var recoveryPassword = ""
     @State private var recoveryKey: String?
@@ -281,13 +282,20 @@ struct SecurityView: View {
                         let me = model.servers[serverId]?.me
                         await rating.rate(next, related: [me?.username ?? "", me.flatMap { model.servers[serverId]?.users[$0.userId]?.displayName } ?? ""])
                     }
+                SecureField("Confirm new password", text: $confirm)
+                    .textContentType(.newPassword)
+                    .accessibilityIdentifier(A11y.Settings.confirmPassword)
                 Button("Change password") { changePassword() }
-                    .disabled(current.isEmpty || next.count < AccountRules.minimumPasswordLength || !rating.strongEnough || busy)
+                    .disabled(current.isEmpty || next.count < AccountRules.minimumPasswordLength || !rating.strongEnough || confirm != next || busy)
                     .accessibilityIdentifier(A11y.Settings.changePassword)
             } header: {
                 Text("Change password")
             } footer: {
-                Text(next.isEmpty ? "At least \(AccountRules.minimumPasswordLength) characters." : strength.label)
+                if let mismatch = AccountRules.confirmationError(next, confirmation: confirm) {
+                    Text(mismatch).foregroundStyle(Theme.red)
+                } else {
+                    Text(next.isEmpty ? "At least \(AccountRules.minimumPasswordLength) characters." : strength.label)
+                }
             }
             Section {
                 if let recoveryKey {
@@ -344,6 +352,7 @@ struct SecurityView: View {
             try await model.core.session(serverId).changePassword(current: current, next: next)
             self.current = ""
             self.next = ""
+            confirm = ""
             model.toast("Password changed")
         }
     }

@@ -4,7 +4,7 @@ import type { InvitePreview } from "@zuna/core";
 import { ArrowLeft, ArrowRight, ArrowUpRight, Check, Copy, Download, KeyRound, LinkIcon, Lock, Server, ShieldCheck, Users } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { platform } from "@/platform";
-import { Avatar, Field, Logo, PasswordField, Spinner } from "@/components/ui";
+import { Avatar, ConfirmPasswordField, Field, Logo, PasswordField, Spinner } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
 import { PROJECT_URL } from "@/lib/links";
 import { MIN_PASSWORD } from "@/lib/format";
@@ -361,15 +361,7 @@ function InviteStep({
         />
         <StrengthMeter strength={strength} />
       </div>
-      {/* A typo here would lock the account, as nobody can reset the password. While
-          the second one is still being typed, it's only wrong once it stops matching. */}
-      <PasswordField
-        label="Confirm password"
-        value={confirm}
-        autoComplete="new-password"
-        error={confirm && !password.startsWith(confirm) ? "The passwords don't match." : null}
-        onChange={(event) => setConfirm(event.target.value)}
-      />
+      <ConfirmPasswordField password={password} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
       <div className="notice">
         <Lock size={15} />
         <span>Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it.</span>
@@ -548,6 +540,7 @@ function RecoverStep({
 }) {
   const [key, setKey] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const strength = usePasswordStrength(password, [username]);
@@ -575,8 +568,9 @@ function RecoverStep({
         <PasswordField label="New password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
         <StrengthMeter strength={strength} />
       </div>
+      <ConfirmPasswordField label="Confirm new password" password={password} value={confirm} onChange={(event) => setConfirm(event.target.value)} />
       {error && <div className="field-error">{error}</div>}
-      <button className="btn btn-primary btn-large btn-block" disabled={!key || password.length < MIN_PASSWORD || strength.score < 2 || busy}>
+      <button className="btn btn-primary btn-large btn-block" disabled={!key || password.length < MIN_PASSWORD || strength.score < 2 || confirm !== password || busy}>
         {busy ? <Spinner /> : "Recover account"}
       </button>
     </form>

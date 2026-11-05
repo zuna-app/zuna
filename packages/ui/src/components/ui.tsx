@@ -118,6 +118,25 @@ export function PasswordField({ label, hint, error, ...input }: { label?: string
   );
 }
 
+/**
+ * A new password typed again, as a typo would lock the account: nobody can reset a
+ * password. While it's still being typed, it's only wrong once it stops matching.
+ */
+export function ConfirmPasswordField({
+  password,
+  label = "Confirm password",
+  ...input
+}: { password: string; value: string; label?: string } & InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <PasswordField
+      label={label}
+      autoComplete="new-password"
+      error={input.value && !password.startsWith(input.value) ? "The passwords don't match." : null}
+      {...input}
+    />
+  );
+}
+
 export function Switch({ on, onChange, label }: { on: boolean; onChange: (value: boolean) => void; label?: string }) {
   return (
     <button role="switch" aria-checked={on} aria-label={label} className={`switch${on ? " is-on" : ""}`} onClick={() => onChange(!on)}>
