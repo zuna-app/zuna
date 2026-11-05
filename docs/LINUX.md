@@ -47,6 +47,14 @@ sudo /opt/zuna/deploy/install.sh --domain chat.example.com --proxy auto --yes
 
 Running it again on a machine that has Zuna offers to update it or to go through the questions again.
 
+### The push relay alone
+
+For a machine with the relay and nothing else, `deploy/install-relay.sh` asks for its domain, the APNs key and the address to listen on, for a proxy on another machine, and runs this script with them:
+
+```bash
+sudo /opt/zuna/deploy/install-relay.sh
+```
+
 ### With the script alone
 
 Run the script once, saying what runs on this machine. For the chat server alone:

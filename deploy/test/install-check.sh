@@ -19,6 +19,8 @@
 #   certbot   Ubuntu, with nginx: adds a site, with a certificate from certbot
 #   apache    Fedora, with Apache, firewalld and SELinux: adds a site, with certbot
 #   ip        Fedora, by IP address: the server's own certificate, by its pin
+#   relay     Fedora: deploy/install-relay.sh, the push relay alone, driven by keys,
+#             then again, which offers to update it, and where a chat server is
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -26,7 +28,7 @@ OUT="$(mktemp -d)"
 DOMAIN=chat.zuna.test
 PEBBLE=v2.10.1
 ACME=(ZUNA_INSTALL_ACME_CA=https://localhost:14000/dir ZUNA_INSTALL_ACME_ROOT=/opt/pebble/certs/pebble.minica.pem)
-ALL=(caddy manual update prompts certbot apache ip)
+ALL=(caddy manual update prompts certbot apache ip relay)
 
 command -v limactl >/dev/null || { echo "This needs Lima: brew install lima" >&2; exit 1; }
 command -v expect >/dev/null || { echo "This needs expect." >&2; exit 1; }
@@ -35,7 +37,7 @@ machine() {
   case "$1" in
     caddy | manual | update | prompts) echo debian ;;
     certbot) echo ubuntu ;;
-    apache | ip) echo fedora ;;
+    apache | ip | relay) echo fedora ;;
   esac
 }
 template() {
@@ -262,6 +264,55 @@ scenario_ip() {
   install_with fedora "$log" --ip "$address" --yes || { echo "the installer failed"; return; }
   answered "https://$address:8443" "$log" || echo "the server didn't answer at its address, by its pin"
   grep -q "/invite/.*#pin=" "$log" || echo "the setup link has no pin"
+}
+
+scenario_relay() {
+  local log="$OUT/relay.log" address
+  # Where a chat server is, it's update.sh's to add the relay.
+  fresh fedora
+  in_vm fedora sh -c 'mkdir -p /etc/zuna && echo SERVER_DOMAIN=\"chat.example.com\" >/etc/zuna/update.conf'
+  relay_keys "$OUT/relay-server.log" "" ""
+  grep -q "runs a chat server" "$OUT/relay-server.log" || echo "it didn't turn down a machine with a chat server"
+  fresh fedora
+  # A key in the APNs key's format, which Apple would turn down, so the relay starts but can't push.
+  in_vm fedora sh -c 'openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out /root/AuthKey_ABC123DEFG.p8 2>/dev/null'
+  relay_keys "$log" "push.zuna.test" "/root/AuthKey_ABC123DEFG.p8"
+  grep -q "Its Key ID, from its name: ABC123DEFG" "$log" || echo "the Key ID wasn't taken from the file's name"
+  grep -q "zuna-push is running" "$log" || { echo "the relay didn't start"; return; }
+  address="$(in_vm fedora sh -c "ip -4 -o addr show scope global | awk '{ split(\$4, a, \"/\"); print a[1]; exit }'")"
+  in_vm fedora curl -fs -o /dev/null "http://$address:8090/healthz" || echo "the relay doesn't answer at $address:8090"
+  in_vm fedora grep -q '^ZUNA_PUSH_APNS_KEY_ID=ABC123DEFG$' /etc/zuna/push.env || echo "the relay wasn't given the Key ID"
+  in_vm fedora test ! -e /etc/systemd/system/zuna.service || echo "a chat server was installed too"
+  relay_keys "$OUT/relay-again.log" "" ""
+  grep -q "set up here already, at push.zuna.test" "$OUT/relay-again.log" || echo "running it again didn't offer to update"
+}
+# Runs install-relay.sh, answering with a domain and key, or with n to whatever it asks first.
+relay_keys() {
+  local log="$1" domain="$2" key="$3" script="$OUT/relay.exp"
+  cat >"$script" <<EOF
+set timeout 30
+log_file -noappend $log
+spawn limactl shell --workdir / zuna-install-fedora -- sudo /opt/zuna/deploy/install-relay.sh
+if {"$domain" eq ""} {
+  expect {
+    "Update it?" { send "n\r" }
+    eof {}
+  }
+  expect eof
+  exit
+}
+expect "domain:"
+send "$domain\r"
+expect ".p8 file:"
+send "$key\r"
+expect "listen on"
+send "\r"
+expect "Set it up?"
+send "\r"
+set timeout 600
+expect eof
+EOF
+  expect "$script" >/dev/null 2>&1 || true
 }
 
 # Each VM's scenarios run in turn, and the VMs side by side.

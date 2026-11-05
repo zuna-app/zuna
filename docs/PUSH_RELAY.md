@@ -20,7 +20,13 @@ Anyone holding a handle can ask for a push, so limits follow the phone: pushes a
 
 ## Running it
 
-**Without Docker,** on Linux with systemd, `deploy/update.sh` builds and runs the relay, alone or next to a chat server, for your own reverse proxy to put HTTPS in front. See [LINUX.md](LINUX.md):
+**Without Docker,** on Linux with systemd, `deploy/install-relay.sh` sets up the relay alone, for your own reverse proxy to put HTTPS in front. It asks for the relay's domain, the `.p8` file, whose Key ID it takes from its name when Apple's is kept, and the address to listen on, where the proxy reaches it, and installs nothing else:
+
+```bash
+sudo /opt/zuna/deploy/install-relay.sh
+```
+
+Update it later with `sudo zuna-update`. `deploy/update.sh` does the same with options, alone or next to a chat server. See [LINUX.md](LINUX.md):
 
 ```bash
 sudo /opt/zuna/deploy/update.sh --relay push.example.com --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
