@@ -32,24 +32,28 @@ var version = "dev"
 const defaultPushRelay = "https://relay.mgalazka.pl"
 
 type config struct {
-	dataDir        string
-	databaseURL    string
-	domain         string
-	listen         string
-	publicURL      string
-	tlsCert        string
-	tlsKey         string
-	trustProxy     bool
-	trustedProxies string
-	downloadURL    string
-	authBurst      int
-	userQuotaMB    int
-	pushRelays     string
-	liveKitURL     string
+	dataDir         string
+	databaseURL     string
+	domain          string
+	listen          string
+	publicURL       string
+	tlsCert         string
+	tlsKey          string
+	trustProxy      bool
+	trustedProxies  string
+	downloadURL     string
+	authBurst       int
+	userQuotaMB     int
+	pushRelays      string
+	liveKitURL      string
 	liveKitInternal string
-	liveKitKey     string
-	liveKitSecret  string
-	liveKitKeys    string
+	liveKitKey      string
+	liveKitSecret   string
+	liveKitKeys     string
+	// The address given instead of a domain, for which the server makes its own
+	// certificate, and that certificate's pin, which the server's links carry.
+	ip  net.IP
+	pin string
 }
 
 // splitList reads a comma-separated list of addresses. "off" is none.
@@ -78,7 +82,7 @@ func parseFlags() config {
 	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_TRUST_PROXY"))
 	flag.StringVar(&cfg.dataDir, "data", envOr("ZUNA_DATA", "./zuna-data"), "folder for the database and uploaded files (env ZUNA_DATA)")
 	flag.StringVar(&cfg.databaseURL, "database-url", os.Getenv("ZUNA_DATABASE_URL"), "PostgreSQL database to use instead of the one in the data folder, such as postgres://zuna:password@localhost/zuna (env ZUNA_DATABASE_URL)")
-	flag.StringVar(&cfg.domain, "domain", os.Getenv("ZUNA_DOMAIN"), "public domain; turns on automatic HTTPS on ports 80 and 443 (env ZUNA_DOMAIN)")
+	flag.StringVar(&cfg.domain, "domain", os.Getenv("ZUNA_DOMAIN"), "public domain, which turns on automatic HTTPS on ports 80 and 443, or this machine's IP address, for which the server makes its own certificate (env ZUNA_DOMAIN)")
 	flag.StringVar(&cfg.listen, "listen", os.Getenv("ZUNA_LISTEN"), "address to listen on, such as :8080 (env ZUNA_LISTEN)")
 	flag.StringVar(&cfg.publicURL, "public-url", os.Getenv("ZUNA_PUBLIC_URL"), "address members use to reach this server, needed behind a reverse proxy (env ZUNA_PUBLIC_URL)")
 	flag.StringVar(&cfg.tlsCert, "tls-cert", os.Getenv("ZUNA_TLS_CERT"), "TLS certificate file, if you manage certificates yourself (env ZUNA_TLS_CERT)")
@@ -101,11 +105,22 @@ func parseFlags() config {
 		fmt.Println("zuna-server", version)
 		os.Exit(0)
 	}
-	if cfg.listen == "" && cfg.domain == "" {
-		cfg.listen = ":8080"
+	cfg.ip = net.ParseIP(strings.Trim(cfg.domain, "[]"))
+	if cfg.listen == "" {
+		switch {
+		case cfg.ip != nil:
+			cfg.listen = ":443"
+		case cfg.domain == "":
+			cfg.listen = ":8080"
+		}
 	}
 	if cfg.publicURL == "" {
 		switch {
+		case cfg.ip != nil:
+			cfg.publicURL = "https://" + urlHost(cfg.ip)
+			if port := portSuffix(cfg.listen); port != ":443" {
+				cfg.publicURL += port
+			}
 		case cfg.domain != "":
 			cfg.publicURL = "https://" + cfg.domain
 		case cfg.tlsCert != "":
@@ -204,6 +219,16 @@ func run(cfg config) error {
 	errs := make(chan error, 2)
 	listenAddress := ""
 	switch {
+	case cfg.ip != nil:
+		certificate, pin, err := ownCertificate(filepath.Join(cfg.dataDir, certificateKeyFile), cfg.ip)
+		if err != nil {
+			return err
+		}
+		cfg.pin = pin
+		listenAddress = cfg.listen
+		httpServer.Addr = cfg.listen
+		httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+		go func() { errs <- httpServer.ListenAndServeTLS("", "") }()
 	case cfg.domain != "":
 		listenAddress = ":443"
 		manager := &autocert.Manager{
@@ -259,6 +284,16 @@ func printBanner(ctx context.Context, srv *api.Server, cfg config, listenAddress
 		fmt.Printf("  Phone notifications go through: %s\n", strings.Join(relays, ", "))
 		fmt.Printf("  They only see sealed pushes. To change this, set --push-relays or ZUNA_PUSH_RELAYS (\"off\" for none).\n")
 	}
+	// The apps learn the pin only from links, as browsers don't send what's after # to the server.
+	fragment := ""
+	if cfg.pin != "" {
+		fragment = "#pin=" + cfg.pin
+		fmt.Printf("\n  This server makes its own certificate, which the apps check against the pin\n")
+		fmt.Printf("  in its links, so share them whole. The web app can't check it, so it can't connect.\n")
+		fmt.Printf("  Keep %s from the data folder with your backups: a new one\n", certificateKeyFile)
+		fmt.Printf("  would need a new link for every app.\n")
+		fmt.Printf("  To sign in on another device, enter: %s%s\n", cfg.publicURL, fragment)
+	}
 	code, err := srv.EnsureSetupInvite(ctx)
 	if err != nil {
 		slog.Error("creating the setup link", "error", err)
@@ -267,7 +302,7 @@ func printBanner(ctx context.Context, srv *api.Server, cfg config, listenAddress
 	if code != "" {
 		fmt.Printf("\n  Finish setup: paste this one-time link into the Zuna app.\n")
 		fmt.Printf("  It creates your owner account.\n\n")
-		fmt.Printf("    %s/invite/%s\n\n", cfg.publicURL, code)
+		fmt.Printf("    %s/invite/%s%s\n\n", cfg.publicURL, code, fragment)
 	} else {
 		fmt.Println()
 	}
