@@ -195,6 +195,8 @@ const EARLIER_LOOKED_FOR_MS = 10 * 3600 * 1000;
 const EARLIER_LOOK_DELAY_MS = 3000;
 const SEARCH_REBUILD_BATCH = 200;
 const VAULT_BATCH = 200;
+/** What this device changed that its next manifest has to carry, over whatever another device wrote meanwhile. */
+const UNSAVED_TRUST = "unsaved_trust";
 /** The longest a timer waits, well short of where setTimeout overflows, after which it looks again. */
 const LONGEST_WAIT_MS = 24 * 3600 * 1000;
 /** The vault item that lists every pin and verification this account holds, and its preferences. */
@@ -1217,7 +1219,10 @@ export class ServerSession {
     // Only who changes needs their trust worked out again: a manifest lists everyone.
     const touched = new Set<string>();
     this.db.transaction(() => {
+      const unsaved = this.unsavedTrust();
       for (const [userId, encoded] of Object.entries(manifest.verified)) {
+        // A change made here that isn't in a manifest yet is newer than whatever another device wrote.
+        if (unsaved.verified.includes(userId)) continue;
         const key = fromBase64(encoded);
         const before = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId])?.identity_key;
         if (before && equalBytes(before, key)) continue;
@@ -1243,7 +1248,7 @@ export class ServerSession {
     for (const [userId, generation] of Object.entries(manifest.trust)) this.noteVerifiedPosition(userId, generation);
     this.manifest = manifest;
     this.setKv("manifest", manifest);
-    if (manifest.prefs) {
+    if (manifest.prefs && !this.unsavedTrust().prefs) {
       this.prefs = { ...this.prefs, ...parsePreferences(manifest.prefs) };
       this.setKv("prefs", this.prefs);
       this.emit({ type: "preferences", serverId: this.serverId });
@@ -1290,12 +1295,17 @@ export class ServerSession {
   private writeManifest(): Promise<void> {
     this.manifestWrite = this.manifestWrite
       .then(async () => {
+        // Built on the newest one any of this account's devices wrote, so nothing they changed is lost and its number comes after.
+        await this.syncVault().catch((error) => console.warn("[zuna] reading the vault before saving the manifest", error));
         const written = this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0");
+        const unsaved = this.unsavedTrust();
         const manifest = this.nextManifest();
         const data = utf8(JSON.stringify(manifest));
         if (data.length > MAX_MANIFEST_BYTES || !(await this.putItems([{ id: MANIFEST_ID, data }]))) return;
         this.manifest = manifest;
         this.setKv("manifest", manifest);
+        const now = this.unsavedTrust();
+        this.setKv(UNSAVED_TRUST, { verified: now.verified.filter((id) => !unsaved.verified.includes(id)), prefs: now.prefs && !unsaved.prefs });
         // A position that moved on while this was on its way is written next time.
         this.db.transaction(() => {
           for (const row of written) {
@@ -1307,6 +1317,18 @@ export class ServerSession {
       })
       .catch((error) => console.warn("[zuna] saving the manifest", error));
     return this.manifestWrite;
+  }
+
+  /** What this device changed about who it trusts, or its preferences, that no manifest it wrote has yet. */
+  private unsavedTrust(): { verified: string[]; prefs: boolean } {
+    return this.getKv<{ verified: string[]; prefs: boolean }>(UNSAVED_TRUST) ?? { verified: [], prefs: false };
+  }
+
+  private noteUnsavedTrust(change: { verified?: string; prefs?: boolean }): void {
+    const unsaved = this.unsavedTrust();
+    if (change.verified && !unsaved.verified.includes(change.verified)) unsaved.verified.push(change.verified);
+    if (change.prefs) unsaved.prefs = true;
+    this.setKv(UNSAVED_TRUST, unsaved);
   }
 
   /** A new device shown less than the vault core says the manifest had reached was shown an older copy, or none. */
@@ -4732,6 +4754,7 @@ export class ServerSession {
   async updatePreferences(changes: Partial<Preferences>): Promise<void> {
     this.prefs = { ...this.prefs, ...changes };
     this.setKv("prefs", this.prefs);
+    this.noteUnsavedTrust({ prefs: true });
     this.emit({ type: "preferences", serverId: this.serverId });
     this.emitConversations();
     this.watchMutes();
@@ -5753,6 +5776,7 @@ export class ServerSession {
       if (forked) this.updateIdentityState(userId, "forked = 0, known_generation = 0, known_hash = NULL, chain_uploaded = 0", []);
       if (repinned) this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [pin, userId]);
       this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, pin]);
+      this.noteUnsavedTrust({ verified: userId });
       this.setVerifiedPosition(userId, this.headGeneration(userId));
     });
     this.forkHeads.delete(userId);
@@ -5771,6 +5795,7 @@ export class ServerSession {
     if (!user) return;
     // An empty key says it was cleared, which the manifest carries to other devices.
     this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, new Uint8Array(0)]);
+    this.noteUnsavedTrust({ verified: userId });
     user.trust = this.trustOf(userId, user.identityKey);
     this.persistUser(user);
     this.emit({ type: "users", serverId: this.serverId });

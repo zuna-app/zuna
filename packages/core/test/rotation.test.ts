@@ -683,6 +683,23 @@ describe("someone holding old keys, with the server's help", () => {
     expect(securityEvents(phone).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
   });
 
+  it("doesn't lose what one device changed when another writes the manifest next", async () => {
+    const dave = await person("dave");
+    const phone = await secondDevice(dave, "dave-phone");
+    await sessionOf(dave).ensureUser(alice.userId, true);
+    await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
+    await waitFor(async () => {
+      await sessionOf(phone).syncVault();
+      return phone.session.safetyCheck(alice.userId)?.trust === "verified";
+    }, "the phone to know");
+    await dave.session.clearVerification(alice.userId);
+    // The phone writes its manifest before it has heard of that.
+    await sessionOf(phone).writeManifest();
+    await sessionOf(dave).syncVault();
+    expect(dave.session.safetyCheck(alice.userId)!.trust).toBe("unverified");
+    expect(phone.session.safetyCheck(alice.userId)!.trust).toBe("unverified");
+  });
+
   it("warns a device whose pin the account's manifest contradicts", async () => {
     const dave = await person("dave");
     const phone = await secondDevice(dave, "dave-phone");
