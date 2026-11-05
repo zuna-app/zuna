@@ -614,6 +614,25 @@ describe("presence and read state", () => {
     await waitFor(() => bob.events.some((event) => event.type === "typing" && event.userId === alice.userId), "the typing signal");
   });
 
+  it("shows nobody typing on a signal its device didn't sign, or one sent again later (Z3-12)", async () => {
+    const groupId = alice.session.getConversations().find((item) => item.key === `user:${bob.userId}`)!.groupId!;
+    const { frameSigned, sealEnvelope, sealSignal } = await import("../src/crypto");
+    const { toBase64 } = await import("../src/encoding");
+    const session = bob.session as any;
+    const epoch = session.mlsEpoch(groupId) as number;
+    const key = session.epochKey(groupId, epoch);
+    const own = (alice.session as any).account;
+    const signed = (at: number, by = own) =>
+      toBase64(frameSigned(by.deviceId, epoch, sealEnvelope(key, by.deviceSecret, "typing", groupId, alice.userId, epoch, { at }, { userId: alice.userId, deviceId: by.deviceId })));
+    bob.events.length = 0;
+    session.onLiveTyping({ group_id: groupId, user_id: alice.userId, data: toBase64(sealSignal(key, "typing", groupId, epoch, {})) });
+    session.onLiveTyping({ group_id: groupId, user_id: alice.userId, data: signed(Date.now() - 10 * 60_000) });
+    session.onLiveTyping({ group_id: groupId, user_id: alice.userId, data: signed(Date.now(), session.account) });
+    expect(bob.events.some((event) => event.type === "typing")).toBe(false);
+    session.onLiveTyping({ group_id: groupId, user_id: alice.userId, data: signed(Date.now()) });
+    expect(bob.events.some((event) => event.type === "typing" && event.userId === alice.userId)).toBe(true);
+  });
+
   it("syncs read positions, unread counts and receipts", async () => {
     const aliceKey = `user:${alice.userId}`;
     alice.session.sendMessage(`user:${bob.userId}`, { text: "unread one" });

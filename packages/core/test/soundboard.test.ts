@@ -5,7 +5,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api, decode } from "../src/api";
-import { sealSignal } from "../src/crypto";
+import { frameSigned, sealEnvelope, sealSignal } from "../src/crypto";
 import { fromUtf8, toBase64 } from "../src/encoding";
 import { openSoundDetails } from "../src/soundboard";
 import { prepareSound, readWav, SOUND_RATE, writeWav } from "../src/sounds";
@@ -149,18 +149,27 @@ describe("the soundboard", () => {
     const epoch = session.rememberCurrentEpochKey(channelId);
     const key = session.epochKey(channelId, epoch);
     const before = sounds(bob).length;
-    const signal = (user: string, at = Date.now()) => toBase64(sealSignal(key, "play", channelId, epoch, { sound: soundId, user, at, nonce: `${user}-${at}` }));
+    // As a device signs one, in whichever room and with whatever it says.
+    const signal = (by: TestApp, user: string, at = Date.now(), room = channelId) => {
+      const { deviceId, deviceSecret } = (by.session as any).account;
+      const play = { sound: soundId, user, at, nonce: `${user}-${at}` };
+      return toBase64(frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "play", room, by.userId, epoch, play, { userId: by.userId, deviceId })));
+    };
 
-    const fromAlice = signal(alice.userId);
+    const fromAlice = signal(alice, alice.userId);
     session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: fromAlice });
     session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: fromAlice });
     expect(sounds(bob).length).toBe(before + 1);
     // Carol's, as the server says alice played it.
-    session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: signal(carol.userId) });
+    session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: signal(carol, carol.userId) });
+    // One saying it's alice's, but signed by carol's device.
+    session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: signal(carol, alice.userId) });
+    // Not signed at all, as anyone in the room could make one.
+    session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: toBase64(sealSignal(key, "play", channelId, epoch, { sound: soundId, user: alice.userId, at: Date.now(), nonce: "unsigned" })) });
     // From long ago.
-    session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: signal(alice.userId, Date.now() - 60 * 60_000) });
+    session.onSoundFrame({ channel_id: channelId, user_id: alice.userId, data: signal(alice, alice.userId, Date.now() - 60 * 60_000) });
     // For another room.
-    session.onSoundFrame({ channel_id: "f".repeat(32), user_id: alice.userId, data: signal(alice.userId) });
+    session.onSoundFrame({ channel_id: "f".repeat(32), user_id: alice.userId, data: signal(alice, alice.userId) });
     expect(sounds(bob).length).toBe(before + 1);
   });
 

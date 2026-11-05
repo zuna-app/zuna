@@ -54,7 +54,6 @@ import {
   sealVaultItem,
   signGroupDetails,
   signProfileAtGeneration,
-  signalEpoch,
   verifyCertificate,
   verifyHpkeKey,
   type DeviceCertificate,
@@ -169,6 +168,8 @@ const SEND_NOW_WAIT_MS = 60_000;
 const UPLOAD_CONCURRENCY = 3;
 /** How far a sound someone played may be from now, by their clock, and how long it's remembered so it plays once. */
 const PLAY_FRESH_MS = 5 * 60_000;
+/** How far a typing signal's time may be from this device's, so an old one sent again shows nobody typing. */
+const TYPING_FRESH_MS = 30_000;
 const KEY_PACKAGE_TARGET = 40;
 const KEY_PACKAGE_LOW = 15;
 const LAST_RESORT_MAX_AGE_MS = 21 * 24 * 3600 * 1000;
@@ -4076,10 +4077,14 @@ export class ServerSession {
   }
 
   private onLiveTyping(data: { group_id: string; user_id: string; data: string }): void {
-    const sealed = decodeFrameData(data.data);
-    const key = this.epochKey(data.group_id, signalEpoch(sealed));
-    if (!key || !openSignal(key, "typing", data.group_id, sealed)) return;
     if (data.user_id === this.account.userId || this.isBlocked(data.user_id)) return;
+    const signed = readSigned(decodeFrameData(data.data));
+    const key = signed && this.epochKey(data.group_id, signed.epoch);
+    const device = signed && this.users.get(data.user_id)?.devices.get(signed.deviceId);
+    if (!signed || !key || !device) return;
+    const opened = openEnvelope<{ at?: unknown }>(key, device.signatureKey, "typing", data.group_id, data.user_id, signed.epoch, signed.envelope, { userId: data.user_id, deviceId: signed.deviceId });
+    const at = opened.ok ? opened.value?.at : undefined;
+    if (typeof at !== "number" || Math.abs(Date.now() - at) > TYPING_FRESH_MS) return;
     this.emit({ type: "typing", serverId: this.serverId, groupId: data.group_id, userId: data.user_id });
   }
 
@@ -5521,7 +5526,8 @@ export class ServerSession {
     this.lastTypingSent.set(groupId, now);
     const epoch = this.rememberCurrentEpochKey(groupId);
     const key = this.epochKey(groupId, epoch);
-    if (key) this.socket.sendTyping(groupId, sealSignal(key, "typing", groupId, epoch, {}));
+    // Signed, so that a server can't show someone typing who isn't, and timed, so it can't send it on again later.
+    if (key) this.socket.sendTyping(groupId, frameSigned(this.account.deviceId, epoch, sealEnvelope(key, this.account.deviceSecret, "typing", groupId, this.account.userId, epoch, { at: now }, this.signer)));
   }
 
   async markRead(groupId: string, seq: number): Promise<void> {
@@ -6630,7 +6636,8 @@ export class ServerSession {
     const epoch = this.rememberCurrentEpochKey(channelId);
     const key = this.epochKey(channelId, epoch);
     if (!key) throw new Error("This device can't play sounds here yet.");
-    const sealed = sealSignal(key, "play", channelId, epoch, { sound: soundId, user: this.account.userId, at: Date.now(), nonce: randomId() });
+    const play = { sound: soundId, user: this.account.userId, at: Date.now(), nonce: randomId() };
+    const sealed = frameSigned(this.account.deviceId, epoch, sealEnvelope(key, this.account.deviceSecret, "play", channelId, this.account.userId, epoch, play, this.signer));
     await (this.isCall(channelId) ? this.api.playCallSound(channelId, sealed) : this.api.playSound(channelId, sealed));
   }
 
@@ -6640,9 +6647,13 @@ export class ServerSession {
    */
   private onSoundFrame(data: { channel_id: string; user_id: string; data: string }): void {
     if (this.activeVoice?.channelId !== data.channel_id || data.user_id === this.account.userId || this.isBlocked(data.user_id)) return;
-    const sealed = decodeFrameData(data.data);
-    const key = this.epochKey(data.channel_id, signalEpoch(sealed));
-    const play = key ? parsePlay(openSignal(key, "play", data.channel_id, sealed)) : null;
+    // Signed by the device that played it, so that nobody else in the room can say who did.
+    const signed = readSigned(decodeFrameData(data.data));
+    const key = signed && this.epochKey(data.channel_id, signed.epoch);
+    const device = signed && this.users.get(data.user_id)?.devices.get(signed.deviceId);
+    if (!signed || !key || !device) return;
+    const opened = openEnvelope<{ nonce?: unknown }>(key, device.signatureKey, "play", data.channel_id, data.user_id, signed.epoch, signed.envelope, { userId: data.user_id, deviceId: signed.deviceId });
+    const play = opened.ok ? parsePlay(opened.value) : null;
     if (!play || play.user !== data.user_id || !this.sounds.get(play.sound)?.details) return;
     const now = Date.now();
     for (const [nonce, seen] of this.playsSeen) {
