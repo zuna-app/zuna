@@ -87,7 +87,8 @@ linux:
       arch: [x64]
     - target: tar.gz
       arch: [x64]
-  icon: resources/icon.png
+  # One for each size in hicolor, from scripts/make-icons.mjs.
+  icon: resources/icons
   # The default comes from the package name, @zuna/desktop, which isn't a valid file name.
   executableName: zuna
   # Names the .desktop file after desktopName in package.json, which Electron uses
