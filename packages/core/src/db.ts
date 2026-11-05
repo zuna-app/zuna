@@ -156,6 +156,20 @@ const MIGRATIONS: string[] = [
   // The epoch from which each device has been in each group's tree, as this device saw it,
   // so a message under an epoch it was there for can only be from someone who was too.
   `CREATE TABLE device_arrivals (group_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, epoch INTEGER NOT NULL, PRIMARY KEY (group_id, user_id, device_id));`,
+  // Everything sealed at rest names its table and row, and what decides whom to trust
+  // or what to believe is sealed too, so nothing outside the app can change or move it.
+  // Nothing is moved: the device fetches it all again, as a new one would.
+  `
+  DELETE FROM kv; DELETE FROM mls_kv; DELETE FROM epoch_keys; DELETE FROM users; DELETE FROM groups;
+  DELETE FROM search; DELETE FROM media; DELETE FROM messages; DELETE FROM outbox; DELETE FROM expired;
+  DELETE FROM pinned_identities; DELETE FROM verified; DELETE FROM identity_chain;
+  DROP TABLE joined_epochs; CREATE TABLE joined_epochs (group_id TEXT PRIMARY KEY, epoch BLOB NOT NULL);
+  DROP TABLE epoch_starts; CREATE TABLE epoch_starts (group_id TEXT NOT NULL, epoch INTEGER NOT NULL, seq BLOB NOT NULL, PRIMARY KEY (group_id, epoch));
+  DROP TABLE device_departures; CREATE TABLE device_departures (group_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, epoch BLOB NOT NULL, PRIMARY KEY (group_id, user_id, device_id));
+  DROP TABLE device_arrivals; CREATE TABLE device_arrivals (group_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, epoch BLOB NOT NULL, PRIMARY KEY (group_id, user_id, device_id));
+  DROP TABLE device_first_leaf; CREATE TABLE device_first_leaf (user_id TEXT NOT NULL, device_id TEXT NOT NULL, at BLOB NOT NULL, PRIMARY KEY (user_id, device_id));
+  DROP TABLE identity_state; CREATE TABLE identity_state (user_id TEXT PRIMARY KEY, sealed BLOB, chain_uploaded INTEGER NOT NULL DEFAULT 1, trust_uploaded INTEGER NOT NULL DEFAULT 1);
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

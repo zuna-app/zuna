@@ -322,7 +322,7 @@ describe("notices", () => {
     expect(texts).toHaveLength(fillers + 3);
   });
 
-  it("move out of the way of sent messages in a database from before the fix", () => {
+  it("are fetched again rather than kept from a database from before they were sealed to their rows", () => {
     const db = new DatabaseSync(":memory:");
     const local = {
       run: (sql: string, params: never[] = []) => void (params.length ? db.prepare(sql).run(...params) : db.exec(sql)),
@@ -350,8 +350,8 @@ describe("notices", () => {
     db.exec("DROP TABLE device_arrivals");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
-    const rows = db.prepare("SELECT id, seq FROM messages ORDER BY row_id").all() as { id: string; seq: number | null }[];
-    expect(Object.fromEntries(rows.map((row) => [row.id, row.seq]))).toEqual({ "sys-created": 0, m1: 1, "sys-added": 1, m2: 2, "still-sending": null });
+    // Every migration still runs, and nothing sealed the old way is left to fail to open.
+    expect(db.prepare("SELECT COUNT(*) AS n FROM messages").get()).toEqual({ n: 0 });
     db.close();
   });
 });
@@ -808,7 +808,7 @@ describe("notifications from a push", () => {
     const generic = { body: "New message", decrypted: false };
 
     const row = session.messageRow(message.groupId, message.id);
-    session.db.run("INSERT INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [message.groupId, row.sender_user, row.sender_device, row.epoch]);
+    session.db.run("INSERT INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [message.groupId, row.sender_user, row.sender_device, session.sealJson("departure", `${message.groupId}/${row.sender_user}/${row.sender_device}`, row.epoch)]);
     expect(await previewPush(extension(bob), bob.serverId, message.groupId, message.id)).toMatchObject(generic);
     session.db.run("DELETE FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [message.groupId, row.sender_user, row.sender_device]);
 

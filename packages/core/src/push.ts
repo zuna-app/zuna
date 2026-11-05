@@ -68,20 +68,21 @@ export async function previewPush(
   if (!server) throw new Error("This device isn't signed in to that server.");
   const account = decodeAccount(fromUtf8(wasm.aeadOpen(key, server.account, label("account"))));
   const db = await options.db.open(serverDbName(serverId));
-  const read = <T>(name: string, data: Uint8Array): T => JSON.parse(fromUtf8(wasm.aeadOpen(key, data, label(name))));
+  // As the session seals it: naming its table and row.
+  const read = <T>(name: string, row: string, data: Uint8Array): T => JSON.parse(fromUtf8(wasm.aeadOpen(key, data, label(`${name}|${row}`))));
   const user = (id: string | null) => {
     const row = id ? db.get<{ data: Uint8Array }>("SELECT data FROM users WHERE id = ?", [id]) : undefined;
-    return row ? read<StoredUser>("user", row.data) : null;
+    return row ? read<StoredUser>("user", id!, row.data) : null;
   };
   const nameOf = (stored: StoredUser | null) => stored?.profile.displayName || stored?.username || "Someone";
 
   const groupRow = db.get<{ data: Uint8Array }>("SELECT data FROM groups WHERE id = ?", [groupId]);
-  const group = groupRow ? read<StoredGroup>("group", groupRow.data) : null;
+  const group = groupRow ? read<StoredGroup>("group", groupId, groupRow.data) : null;
   const conversationKey = group ? (group.kind === "dm" ? `user:${group.peerId}` : `group:${group.id}`) : null;
   // A channel is called what its details say, believed only if a device of someone here signed them, as the session does.
   const channelName = (): string => {
     const row = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["channels"]);
-    const channel = row ? read<ApiChannel[]>("kv/channels", row.v).find((item) => item.id === groupId) : undefined;
+    const channel = row ? read<ApiChannel[]>("kv", "channels", row.v).find((item) => item.id === groupId) : undefined;
     const signed = channel ? openChannelDetails(account.core.communityKey, groupId, decode(channel.details)) : null;
     const device = signed && user(signed.signer.userId)?.devices.find((item) => item.id === signed.signer.deviceId);
     const name = device && signed.signedBy(fromBase64(device.signatureKey)) ? parseChannelDetails(signed.details)?.name : undefined;
@@ -113,13 +114,23 @@ export async function previewPush(
   // What the app wouldn't show as theirs isn't worded as theirs here either: a message
   // from a device in an epoch after it left, or after its epoch ended (couldBeSent in
   // session.ts), or from someone whose key changed in a way that doesn't follow.
-  const left = db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device]);
-  const next = db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1]);
-  const joined = db.get<{ epoch: number }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId]);
-  const arrived = db.get<{ epoch: number }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device]);
-  const absent = !!joined && message.epoch >= joined.epoch && (!arrived || message.epoch < arrived.epoch);
-  if ((left && message.epoch >= left.epoch) || (next && message.seq >= next.seq) || absent || sender.trust === "changed") return preview({});
-  const epochKey = wasm.aeadOpen(key, epochRow.key, label("epoch"));
+  // Sealed as the session seals them. One that doesn't open counts the most careful way.
+  const value = (name: string, row: string, data: Uint8Array | undefined, careful: number): number | null => {
+    if (!data) return null;
+    try {
+      return read<number>(name, row, data);
+    } catch {
+      return careful;
+    }
+  };
+  const whose = `${groupId}/${message.sender_user}/${message.sender_device}`;
+  const left = value("departure", whose, db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device])?.epoch, 0);
+  const next = value("epoch-start", `${groupId}:${message.epoch + 1}`, db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1])?.seq, 0);
+  const joined = value("joined", groupId, db.get<{ epoch: Uint8Array }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId])?.epoch, 0);
+  const arrived = value("arrival", whose, db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device])?.epoch, Number.MAX_SAFE_INTEGER);
+  const absent = joined !== null && message.epoch >= joined && (arrived === null || message.epoch < arrived);
+  if ((left !== null && message.epoch >= left) || (next !== null && message.seq >= next) || absent || sender.trust === "changed") return preview({});
+  const epochKey = wasm.aeadOpen(key, epochRow.key, label(`epoch|${groupId}:${message.epoch}`));
   const opened = openEnvelope<unknown>(
     epochKey,
     fromBase64(device.signatureKey),
@@ -135,7 +146,7 @@ export async function previewPush(
   if (!body) return preview({});
 
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
-  const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
+  const prefs = prefsRow ? read<Partial<Preferences>>("kv", "prefs", prefsRow.v) : {};
   if (prefs.blocked?.includes(message.sender_user)) return preview({ hidden: true });
   // A reply counts if this device holds the message replied to, as for the session's "@".
   const repliedTo = body.replyTo ? db.get<{ sender_user: string }>("SELECT sender_user FROM messages WHERE group_id = ? AND id = ?", [groupId, body.replyTo]) : undefined;
@@ -189,16 +200,17 @@ export async function previewCall(options: { db: DbProvider; deviceKey: Uint8Arr
   if (!server) throw new Error("This device isn't signed in to that server.");
   const account = decodeAccount(fromUtf8(wasm.aeadOpen(key, server.account, label("account"))));
   const db = await options.db.open(serverDbName(serverId));
-  const read = <T>(name: string, data: Uint8Array): T => JSON.parse(fromUtf8(wasm.aeadOpen(key, data, label(name))));
+  // As the session seals it: naming its table and row.
+  const read = <T>(name: string, row: string, data: Uint8Array): T => JSON.parse(fromUtf8(wasm.aeadOpen(key, data, label(`${name}|${row}`))));
   const user = (id: string | null) => {
     const row = id ? db.get<{ data: Uint8Array }>("SELECT data FROM users WHERE id = ?", [id]) : undefined;
-    return row ? read<StoredUser>("user", row.data) : null;
+    return row ? read<StoredUser>("user", id!, row.data) : null;
   };
   const nameOf = (stored: StoredUser | null) => stored?.profile.displayName || stored?.username || "Someone";
   const groupRow = db.get<{ data: Uint8Array }>("SELECT data FROM groups WHERE id = ?", [groupId]);
-  const group = groupRow ? read<StoredGroup & { removedAt?: number | null }>("group", groupRow.data) : null;
+  const group = groupRow ? read<StoredGroup & { removedAt?: number | null }>("group", groupId, groupRow.data) : null;
   const prefsRow = db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", ["prefs"]);
-  const prefs = prefsRow ? read<Partial<Preferences>>("kv/prefs", prefsRow.v) : {};
+  const prefs = prefsRow ? read<Partial<Preferences>>("kv", "prefs", prefsRow.v) : {};
   if (!group || group.kind === "channel" || group.removedAt || callerId === account.userId || prefs.blocked?.includes(callerId)) {
     return { serverId, conversationKey: null, title: server.name, body: "Incoming call", muted: false, hidden: true };
   }

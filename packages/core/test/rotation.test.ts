@@ -707,7 +707,7 @@ describe("someone holding old keys, with the server's help", () => {
     await sessionOf(dave).ensureUser(alice.userId, true);
     await waitFor(() => !!sessionOf(phone).pinnedIdentity(alice.userId), "the phone to know alice");
     // As if the phone had been shown a key of the server's for alice the first time it saw her.
-    sessionOf(phone).db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [wasm.signingKeygen().publicKey, alice.userId]);
+    sessionOf(phone).db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [sessionOf(phone).sealPin(alice.userId, wasm.signingKeygen().publicKey), alice.userId]);
     await dave.session.updatePreferences({ sendReadReceipts: false });
     await sessionOf(phone).syncVault();
     expect(securityEvents(phone).some((event) => (event as { message: string }).message.includes("different security key"))).toBe(true);
@@ -1074,8 +1074,12 @@ describe("verified contacts", () => {
     return { dave, erin, dm };
   }
 
-  const age = (app: TestApp, userId: string) =>
-    sessionOf(app).db.run("UPDATE device_first_leaf SET at = 1 WHERE user_id = ?", [userId]);
+  const age = (app: TestApp, userId: string) => {
+    const session = sessionOf(app);
+    for (const { device_id } of session.db.all("SELECT device_id FROM device_first_leaf WHERE user_id = ?", [userId]) as { device_id: string }[]) {
+      session.db.run("UPDATE device_first_leaf SET at = ? WHERE user_id = ? AND device_id = ?", [session.sealJson("first-leaf", `${userId}/${device_id}`, 1), userId, device_id]);
+    }
+  };
 
   it("stays verified after a rotation by a long-standing device, with nothing to see", async () => {
     const { dave, erin, dm } = await verifiedPair();
@@ -1132,7 +1136,7 @@ describe("verified contacts", () => {
     await dave.session.rotate();
     await waitFor(() => sessionOf(erin).headGeneration(dave.userId) === 1, "erin to follow");
     // Erin got another story first, and now the real one shows up.
-    sessionOf(erin).updateIdentityState(dave.userId, "forked = 1", []);
+    sessionOf(erin).updateIdentityState(dave.userId, { forked: 1 });
     sessionOf(erin).refreshTrust(dave.userId);
     expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("changed");
     await erin.session.markVerified(dave.userId, erin.session.safetyCheck(dave.userId)!.covers);
@@ -1164,7 +1168,7 @@ describe("verified contacts", () => {
     }
 
     const fork = (erin: TestApp, dave: TestApp) => {
-      sessionOf(erin).updateIdentityState(dave.userId, "forked = 1", []);
+      sessionOf(erin).updateIdentityState(dave.userId, { forked: 1 });
       sessionOf(erin).refreshTrust(dave.userId);
     };
 

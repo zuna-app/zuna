@@ -183,7 +183,7 @@ describe("planting a key through a history grant (Z-02)", () => {
     session.db.run("INSERT OR REPLACE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?,?,?,0,?)", [
       groupId,
       next,
-      session.sealLocal("epoch", attackerKey),
+      session.sealLocal("epoch", `${groupId}:${next}`, attackerKey),
       Date.now(),
     ]);
     alice.events.length = 0;
@@ -319,7 +319,9 @@ describe("messages that aren't what they should be (Z-03, Z-05, Z-12)", () => {
     const dave = await person("dave");
     const groupId = await dmWith(dave);
     const session = alice.session as any;
-    session.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id NOT LIKE 'sys-%'", [session.sealJson("message", { text: 12345 }), groupId]);
+    for (const { id } of session.db.all("SELECT id FROM messages WHERE group_id = ? AND id NOT LIKE 'sys-%'", [groupId]) as { id: string }[]) {
+      session.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [session.sealJson("message", `${groupId}/${id}`, { text: 12345 }), groupId, id]);
+    }
     const row = alice.session.getConversations().find((item) => item.groupId === groupId)!;
     expect(row.lastMessage!.status).toBe("invalid");
     expect(row.lastMessage!.text).toBe("");
@@ -833,7 +835,7 @@ describe("old keys and removed devices (Z-20)", () => {
     const session = alice.session as any;
     const device = (dave.session as any).account.deviceId;
     const epoch = session.mlsEpoch(groupId);
-    session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, dave.userId, device, epoch]);
+    session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, dave.userId, device, session.sealJson("departure", `${groupId}/${dave.userId}/${device}`, epoch)]);
     const message = (id: string, at: number) => ({ group_id: groupId, id, seq: 0, updated_seq: 0, sender_user: dave.userId, sender_device: device, epoch: at, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
     expect(session.couldBeSent(message("b".repeat(32), epoch))).toBe(false);
     expect(session.couldBeSent(message("c".repeat(32), epoch - 1))).toBe(true);
@@ -845,7 +847,7 @@ describe("old keys and removed devices (Z-20)", () => {
     const session = alice.session as any;
     const device = (dave.session as any).account.deviceId;
     const epoch = session.mlsEpoch(groupId);
-    session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, "f".repeat(32), device, epoch]);
+    session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, "f".repeat(32), device, session.sealJson("departure", `${groupId}/${"f".repeat(32)}/${device}`, epoch)]);
     const message = { group_id: groupId, id: "d".repeat(32), seq: 0, updated_seq: 0, sender_user: dave.userId, sender_device: device, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] };
     expect(session.couldBeSent(message)).toBe(true);
   });
@@ -855,7 +857,7 @@ describe("old keys and removed devices (Z-20)", () => {
     const groupId = await groupWith(alice, [dave]);
     const session = alice.session as any;
     const epoch = session.mlsEpoch(groupId);
-    session.db.run("INSERT OR REPLACE INTO epoch_starts(group_id, epoch, seq) VALUES(?, ?, ?)", [groupId, epoch + 1, 500]);
+    session.db.run("INSERT OR REPLACE INTO epoch_starts(group_id, epoch, seq) VALUES(?, ?, ?)", [groupId, epoch + 1, session.sealJson("epoch-start", `${groupId}:${epoch + 1}`, 500)]);
     const device = (dave.session as any).account.deviceId;
     const message = (seq: number) => ({ group_id: groupId, id: "d".repeat(32), seq, updated_seq: seq, sender_user: dave.userId, sender_device: device, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
     expect(session.couldBeSent(message(499))).toBe(true);
@@ -871,8 +873,8 @@ describe("old keys and removed devices (Z-20)", () => {
     expect((await alice.session.messageById(groupId, sent.id))!.timeDiffers).toBeUndefined();
     const session = alice.session as any;
     const row = session.messageRow(groupId, sent.id);
-    const stored = session.openJson("message", row.body);
-    session.db.run("UPDATE messages SET body = ? WHERE row_id = ?", [session.sealJson("message", { ...stored, sentAt: row.created_at - 3 * 24 * 3600 * 1000 }), row.row_id]);
+    const stored = session.openJson("message", `${groupId}/${sent.id}`, row.body);
+    session.db.run("UPDATE messages SET body = ? WHERE row_id = ?", [session.sealJson("message", `${groupId}/${sent.id}`, { ...stored, sentAt: row.created_at - 3 * 24 * 3600 * 1000 }), row.row_id]);
     expect((await alice.session.messageById(groupId, sent.id))!.timeDiffers).toBe(true);
   });
 });
@@ -1099,8 +1101,8 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     // Bob hasn't heard of Dave, and has to rejoin. The roster says an admin let him in.
     sessionOf(bob).setKnownMembers(groupId, [carol.userId, bob.userId]);
     await sessionOf(bob).joinExternal(groupId);
-    const rows = sessionOf(bob).db.all("SELECT id, body FROM messages WHERE group_id = ? AND id LIKE 'sys-%'", [groupId]) as { body: Uint8Array }[];
-    const notices = rows.map((row) => sessionOf(bob).openJson("message", row.body).system).filter((system: { type: string }) => system.type === "unexpected_join");
+    const rows = sessionOf(bob).db.all("SELECT id, body FROM messages WHERE group_id = ? AND id LIKE 'sys-%'", [groupId]) as { id: string; body: Uint8Array }[];
+    const notices = rows.map((row) => sessionOf(bob).openJson("message", `${groupId}/${row.id}`, row.body).system).filter((system: { type: string }) => system.type === "unexpected_join");
     expect(notices).toEqual([]);
     expect(sessionOf(bob).treeUsers(groupId)).toContain(dave.userId);
   });
@@ -1348,7 +1350,7 @@ describe("a server bringing back what an edit replaced", () => {
     // As if the edit had come from a device whose clock is an hour ahead.
     const row = sessionOf(owner).messageRow(groupId, sent.id);
     const ahead = { ...sessionOf(owner).storedBody(row), revision: revision + 3600_000 };
-    sessionOf(owner).db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [sessionOf(owner).sealJson("message", ahead), groupId, sent.id]);
+    sessionOf(owner).db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [sessionOf(owner).sealJson("message", `${groupId}/${sent.id}`, ahead), groupId, sent.id]);
     expect(sessionOf(owner).nextRevision(groupId, sent.id)).toBe(revision + 3600_001);
   });
 });
@@ -1543,6 +1545,30 @@ describe("a device key someone else's certificate names (Z3-07)", () => {
     await sessionOf(bob).pullChanges(groupId);
     const reactions = sessionOf(bob).storedBody(sessionOf(bob).messageRow(groupId, id))?.reactions ?? [];
     expect(reactions.flatMap((reaction: { userIds: string[] }) => reaction.userIds)).not.toContain(mal.userId);
+  });
+});
+
+describe("what this device keeps (Z3-12)", () => {
+  it("notices what's changed or moved outside the app, and trusts it less", async () => {
+    const dave = await person("dave");
+    const erin = await person("erin");
+    const session = sessionOf(dave);
+    await session.ensureUser(erin.userId, true);
+    await session.ensureUser(alice.userId, true);
+    expect(dave.session.safetyCheck(alice.userId)!.trust).not.toBe("changed");
+    // Erin's pin put in alice's row, as a tool that can't open either could do.
+    const erinPin = session.db.get("SELECT identity_key FROM pinned_identities WHERE user_id = ?", [erin.userId]).identity_key;
+    session.db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [erinPin, alice.userId]);
+    session.applyUser(await apiOf(dave).user(alice.userId));
+    expect(dave.session.safetyCheck(alice.userId)!.trust).toBe("changed");
+    expect(warned(dave, "outside Zuna")).toBe(true);
+    // A message's body, moved to another message, doesn't open there either.
+    const groupId = await groupWith(dave, [erin]);
+    const first = await sentAndSeen(dave, [erin], groupId, "the first");
+    const second = await sentAndSeen(dave, [erin], groupId, "the second");
+    const body = session.messageRow(groupId, first).body;
+    session.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [body, groupId, second]);
+    expect(() => session.storedBody(session.messageRow(groupId, second))).toThrow();
   });
 });
 

@@ -206,7 +206,8 @@ const LONGEST_WAIT_MS = 24 * 3600 * 1000;
 /** The vault item that lists every pin and verification this account holds, and its preferences. */
 /** Past this, a manifest wouldn't fit in a vault item, and pins and verifications travel only one by one. */
 const MAX_MANIFEST_BYTES = 200 << 10;
-const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
+/** What's sealed at rest names its table and row, so it can't be moved to another row or table. */
+const DB_LABEL = (name: string, row: string) => utf8(`zuna/local/${name}|${row}`);
 /** Keeps changes to this account's keys one at a time. Group IDs are hex, so it can't be one of those. */
 const ACCOUNT_LOCK = "account";
 const ROTATION_INTENT = "rotation_intent";
@@ -265,6 +266,15 @@ interface CachedDevice {
 }
 
 /** A rotation under way, kept so a crash can finish it with the same keys. */
+interface IdentityState {
+  forked: number;
+  known_generation: number;
+  known_hash: Uint8Array | null;
+  trust_generation: number;
+}
+
+type SealedIdentityState = Omit<IdentityState, "known_hash"> & { known_hash: string | null };
+
 interface RotationIntent {
   generation: number;
   /** As it's sent, so sending it again is the same request. */
@@ -612,7 +622,7 @@ export class ServerSession {
       account.devicePublic,
       account.deviceSecret,
       account.certificate,
-      state.map((row) => [row.k, this.openLocal("mls", row.v)]) as unknown as any[],
+      state.map((row) => [row.k, this.openLocal("mls", toBase64(row.k), row.v)]) as unknown as any[],
     );
     this.socket = new Socket(account.serverUrl, () => this.account.token, {
       onReady: () => void this.onConnected(),
@@ -805,29 +815,44 @@ export class ServerSession {
 
   // --- Sealing data at rest ---
 
-  private sealLocal(name: string, data: Uint8Array): Uint8Array {
-    return wasm.aeadSeal(this.dbKey, data, DB_LABEL(name));
+  private sealLocal(name: string, row: string, data: Uint8Array): Uint8Array {
+    return wasm.aeadSeal(this.dbKey, data, DB_LABEL(name, row));
   }
 
-  private openLocal(name: string, data: Uint8Array): Uint8Array {
-    return wasm.aeadOpen(this.dbKey, data, DB_LABEL(name));
+  private openLocal(name: string, row: string, data: Uint8Array): Uint8Array {
+    return wasm.aeadOpen(this.dbKey, data, DB_LABEL(name, row));
   }
 
-  private sealJson(name: string, value: unknown): Uint8Array {
-    return this.sealLocal(name, utf8(JSON.stringify(value)));
+  private sealJson(name: string, row: string, value: unknown): Uint8Array {
+    return this.sealLocal(name, row, utf8(JSON.stringify(value)));
   }
 
-  private openJson<T>(name: string, data: Uint8Array): T {
-    return JSON.parse(fromUtf8(this.openLocal(name, data)));
+  private openJson<T>(name: string, row: string, data: Uint8Array): T {
+    return JSON.parse(fromUtf8(this.openLocal(name, row, data)));
+  }
+
+  /**
+   * A value this device keeps about whom to trust or what to believe, sealed to its
+   * row, so that nothing outside Zuna can change it unnoticed. One that doesn't open
+   * gives a warning, and the most careful answer.
+   */
+  private openValue<T>(name: string, row: string, data: unknown, careful: T): T {
+    try {
+      if (!(data instanceof Uint8Array)) throw new Error("not sealed");
+      return this.openJson<T>(name, row, data);
+    } catch {
+      this.warnOnce("local-tampered", "Something outside Zuna changed what this device keeps about whom to trust. Compare emoji with the people who matter to you before trusting them.");
+      return careful;
+    }
   }
 
   private setKv(key: string, value: unknown): void {
-    this.db.run("INSERT OR REPLACE INTO kv(k, v) VALUES(?, ?)", [key, this.sealJson(`kv/${key}`, value)]);
+    this.db.run("INSERT OR REPLACE INTO kv(k, v) VALUES(?, ?)", [key, this.sealJson("kv", key, value)]);
   }
 
   private getKv<T>(key: string): T | null {
     const row = this.db.get<{ v: Uint8Array }>("SELECT v FROM kv WHERE k = ?", [key]);
-    return row ? this.openJson<T>(`kv/${key}`, row.v) : null;
+    return row ? this.openJson<T>("kv", key, row.v) : null;
   }
 
   private saveMls(): void {
@@ -835,7 +860,7 @@ export class ServerSession {
     if (changes.set.length === 0 && changes.deleted.length === 0) return;
     this.db.transaction(() => {
       for (const [key, value] of changes.set) {
-        this.db.run("INSERT OR REPLACE INTO mls_kv(k, v) VALUES(?, ?)", [key, this.sealLocal("mls", value)]);
+        this.db.run("INSERT OR REPLACE INTO mls_kv(k, v) VALUES(?, ?)", [key, this.sealLocal("mls", toBase64(key), value)]);
       }
       for (const key of changes.deleted) this.db.run("DELETE FROM mls_kv WHERE k = ?", [key]);
     });
@@ -843,8 +868,8 @@ export class ServerSession {
   }
 
   private loadCache(): void {
-    for (const row of this.db.all<{ data: Uint8Array }>("SELECT data FROM users")) {
-      const stored = this.openJson<any>("user", row.data);
+    for (const row of this.db.all<{ id: string; data: Uint8Array }>("SELECT id, data FROM users")) {
+      const stored = this.openJson<any>("user", row.id, row.data);
       this.users.set(stored.id, {
         ...stored,
         identityKey: fromBase64(stored.identityKey),
@@ -854,12 +879,12 @@ export class ServerSession {
         ),
       });
     }
-    for (const row of this.db.all<{ data: Uint8Array }>("SELECT data FROM groups")) {
-      const group = this.openJson<CachedGroup>("group", row.data);
+    for (const row of this.db.all<{ id: string; data: Uint8Array }>("SELECT id, data FROM groups")) {
+      const group = this.openJson<CachedGroup>("group", row.id, row.data);
       this.groups.set(group.id, group);
     }
     // This account's own key comes from its vault, never from what the server says.
-    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [this.account.userId, this.account.core.rootPublic]);
+    this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [this.account.userId, this.sealPin(this.account.userId, this.account.core.rootPublic)]);
     this.loadChains();
     this.rotationOpen = this.getKv<RotationIntent>(ROTATION_INTENT) !== null;
     this.prefs = { ...this.prefs, ...(this.getKv<Preferences>("prefs") ?? {}) };
@@ -883,14 +908,14 @@ export class ServerSession {
       hpkeKey: toBase64(user.hpkeKey),
       devices: [...user.devices.values()].map((device) => ({ ...device, signatureKey: toBase64(device.signatureKey) })),
     };
-    this.db.run("INSERT OR REPLACE INTO users(id, data) VALUES(?, ?)", [user.id, this.sealJson("user", stored)]);
+    this.db.run("INSERT OR REPLACE INTO users(id, data) VALUES(?, ?)", [user.id, this.sealJson("user", user.id, stored)]);
   }
 
   private persistGroup(group: CachedGroup): void {
     this.db.run(
       `INSERT INTO groups(id, kind, peer_id, data) VALUES(?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, peer_id = excluded.peer_id, data = excluded.data`,
-      [group.id, group.kind, group.peerId, this.sealJson("group", group)],
+      [group.id, group.kind, group.peerId, this.sealJson("group", group.id, group)],
     );
   }
 
@@ -921,14 +946,47 @@ export class ServerSession {
     this.emit({ type: "users", serverId: this.serverId });
   }
 
+  private sealPin(userId: string, key: Uint8Array): Uint8Array {
+    return this.sealJson("pin", userId, toBase64(key));
+  }
+
+  private sealVerified(userId: string, key: Uint8Array): Uint8Array {
+    return this.sealJson("verified", userId, toBase64(key));
+  }
+
+  /** A pin that doesn't open matches no key at all, so that person shows as changed. */
+  private openPinnedKey(userId: string, sealed: Uint8Array): Uint8Array {
+    return fromBase64(this.openValue("pin", userId, sealed, toBase64(new Uint8Array(32))));
+  }
+
+  /** A verification that doesn't open counts as none. */
+  private openVerified(userId: string, sealed: Uint8Array): Uint8Array {
+    return fromBase64(this.openValue("verified", userId, sealed, ""));
+  }
+
   private pinnedIdentity(userId: string): Uint8Array | null {
     const row = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM pinned_identities WHERE user_id = ?", [userId]);
-    return row?.identity_key ?? null;
+    return row ? this.openPinnedKey(userId, row.identity_key) : null;
+  }
+
+  /** Every pin this device holds. */
+  private allPins(): { user_id: string; identity_key: Uint8Array }[] {
+    return this.db
+      .all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM pinned_identities ORDER BY user_id")
+      .map((row) => ({ user_id: row.user_id, identity_key: this.openPinnedKey(row.user_id, row.identity_key) }));
+  }
+
+  /** Every verification this device holds, an empty key for one cleared. */
+  private allVerified(): { user_id: string; identity_key: Uint8Array }[] {
+    return this.db
+      .all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM verified ORDER BY user_id")
+      .map((row) => ({ user_id: row.user_id, identity_key: this.openVerified(row.user_id, row.identity_key) }));
   }
 
   /** The key this account verified for someone, if it has. Clearing it leaves an empty one. */
   private verifiedIdentity(userId: string): Uint8Array | null {
-    const key = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId])?.identity_key;
+    const row = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId]);
+    const key = row && this.openVerified(userId, row.identity_key);
     return key && key.length > 0 ? key : null;
   }
 
@@ -956,7 +1014,7 @@ export class ServerSession {
     // Someone this account has verified is pinned to that key, whatever the server says now.
     const pinned = isSelf ? this.account.core.rootPublic : (this.pinnedIdentity(api.id) ?? this.verifiedIdentity(api.id));
     if (!this.pinnedIdentity(api.id)) {
-      this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 0)", [api.id, pinned ?? identityKey]);
+      this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 0)", [api.id, this.sealPin(api.id, pinned ?? identityKey)]);
     }
     const previous = this.users.get(api.id);
     const changedNow = !!pinned && !equalBytes(pinned, identityKey) && previous?.trust !== "changed";
@@ -1228,15 +1286,16 @@ export class ServerSession {
         // A change made here that isn't in a manifest yet is newer than whatever another device wrote.
         if (unsaved.verified.includes(userId)) continue;
         const key = fromBase64(encoded);
-        const before = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId])?.identity_key;
+        const held = this.db.get<{ identity_key: Uint8Array }>("SELECT identity_key FROM verified WHERE user_id = ?", [userId]);
+        const before = held && this.openVerified(userId, held.identity_key);
         if (before && equalBytes(before, key)) continue;
-        this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, key]);
-        if (key.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, key]);
+        this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, this.sealVerified(userId, key)]);
+        if (key.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, this.sealPin(userId, key)]);
         touched.add(userId);
       }
       for (const [userId, encoded] of Object.entries(manifest.pins)) {
         if (this.pinnedIdentity(userId)) continue;
-        this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, fromBase64(encoded)]);
+        this.db.run("INSERT INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, this.sealPin(userId, fromBase64(encoded))]);
         touched.add(userId);
       }
     });
@@ -1268,8 +1327,7 @@ export class ServerSession {
     if (!manifest) return true;
     const pins = this.db.all<{ user_id: string }>("SELECT user_id FROM pinned_identities");
     if (pins.some((row) => !(row.user_id in manifest.pins))) return true;
-    const verified = this.db.all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM verified");
-    if (verified.some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key))) return true;
+    if (this.allVerified().some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key))) return true;
     return !!this.db.get("SELECT 1 FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0 LIMIT 1");
   }
 
@@ -1282,13 +1340,14 @@ export class ServerSession {
       if (head) chains[userId] = { gen: head.gen, hash: toBase64(head.hash) };
     }
     const trust: TrustManifest["trust"] = {};
-    for (const row of this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state WHERE trust_generation > 0")) {
-      trust[row.user_id] = row.trust_generation;
+    for (const { user_id } of this.db.all<{ user_id: string }>("SELECT user_id FROM identity_state")) {
+      const generation = this.identityState(user_id).trust_generation;
+      if (generation > 0) trust[user_id] = generation;
     }
     return {
       v: (this.manifest?.v ?? 0) + 1,
-      pins: entries(this.db.all("SELECT user_id, identity_key FROM pinned_identities ORDER BY user_id")),
-      verified: entries(this.db.all("SELECT user_id, identity_key FROM verified ORDER BY user_id")),
+      pins: entries(this.allPins()),
+      verified: entries(this.allVerified()),
       chains,
       trust,
       prefs: this.prefs,
@@ -1318,7 +1377,9 @@ export class ServerSession {
     // Many asks can be waiting by now, and the first may have said it all.
     const unsaved = this.unsavedTrust();
     if (!this.manifestBehind() && unsaved.verified.length === 0 && !unsaved.prefs) return true;
-    const written = this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0");
+    const written = this.db
+      .all<{ user_id: string }>("SELECT user_id FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0")
+      .map(({ user_id }) => ({ user_id, trust_generation: this.identityState(user_id).trust_generation }));
     const manifest = this.nextManifest();
     const data = utf8(JSON.stringify(manifest));
     if (data.length > MAX_MANIFEST_BYTES) return true;
@@ -1335,8 +1396,8 @@ export class ServerSession {
     // A position that moved on while this was on its way is written next time.
     this.db.transaction(() => {
       for (const row of written) {
-        if ((manifest.chains[row.user_id]?.gen ?? 0) === this.headGeneration(row.user_id)) {
-          this.db.run("UPDATE identity_state SET chain_uploaded = 1, trust_uploaded = 1 WHERE user_id = ? AND trust_generation = ?", [row.user_id, row.trust_generation]);
+        if ((manifest.chains[row.user_id]?.gen ?? 0) === this.headGeneration(row.user_id) && this.identityState(row.user_id).trust_generation === row.trust_generation) {
+          this.db.run("UPDATE identity_state SET chain_uploaded = 1, trust_uploaded = 1 WHERE user_id = ?", [row.user_id]);
         }
       }
     });
@@ -1375,7 +1436,7 @@ export class ServerSession {
       [KEY_NOT_UPLOADED, VAULT_BATCH],
     );
     if (rows.length === 0) return;
-    const items = rows.map((row) => ({ id: `ek:${row.group_id}:${row.epoch}`, data: this.openLocal("epoch", row.key) }));
+    const items = rows.map((row) => ({ id: `ek:${row.group_id}:${row.epoch}`, data: this.openLocal("epoch", `${row.group_id}:${row.epoch}`, row.key) }));
     if (!(await this.putItems(items))) return;
     this.db.transaction(() => {
       for (const row of rows) {
@@ -1450,12 +1511,27 @@ export class ServerSession {
     this.onAccountChanged?.(this.account);
   }
 
+  /** Chains as kept here, each link checked again against the one before, back to the key pinned for that person. */
   private loadChains(): void {
+    const broken = new Set<string>();
     for (const row of this.db.all<{ user_id: string; payload: Uint8Array; by_prev: Uint8Array; by_new: Uint8Array; by_device: Uint8Array }>(
       "SELECT user_id, payload, by_prev, by_new, by_device FROM identity_chain ORDER BY user_id, generation",
     )) {
-      const link = readHeldLink({ payload: row.payload, byPrev: row.by_prev, byNew: row.by_new, byDevice: row.by_device });
-      if (link) this.chains.set(row.user_id, [...this.chainOf(row.user_id), link]);
+      if (broken.has(row.user_id)) continue;
+      const root = this.pinnedIdentity(row.user_id);
+      const before = this.chainOf(row.user_id).at(-1);
+      const link =
+        root &&
+        verifyLink(
+          { payload: row.payload, byPrev: row.by_prev, byNew: row.by_new, byDevice: row.by_device },
+          { user: row.user_id, gen: (before?.gen ?? 0) + 1, prev: before?.hash ?? rootHash(row.user_id, root), prevIdentity: before?.identity ?? root },
+        );
+      if (link) {
+        this.chains.set(row.user_id, [...this.chainOf(row.user_id), link]);
+      } else {
+        broken.add(row.user_id);
+        this.warnOnce("local-tampered", "Something outside Zuna changed what this device keeps about whom to trust. Compare emoji with the people who matter to you before trusting them.");
+      }
     }
   }
 
@@ -1489,24 +1565,26 @@ export class ServerSession {
     return { cert, carried: chain.slice(parsed.generation).every((link) => carries(link, device)) };
   }
 
-  private identityState(userId: string): { forked: number; known_generation: number; known_hash: Uint8Array | null; trust_generation: number } {
-    return (
-      this.db.get("SELECT forked, known_generation, known_hash, trust_generation FROM identity_state WHERE user_id = ?", [userId]) ?? {
-        forked: 0,
-        known_generation: 0,
-        known_hash: null,
-        trust_generation: 0,
-      }
-    );
+  private identityState(userId: string): IdentityState {
+    const row = this.db.get<{ sealed: Uint8Array | null }>("SELECT sealed FROM identity_state WHERE user_id = ?", [userId]);
+    if (!row?.sealed) return { forked: 0, known_generation: 0, known_hash: null, trust_generation: 0 };
+    // What doesn't open says there were two versions of their keys, which gives the loud warning.
+    const stored = this.openValue<SealedIdentityState>("identity", userId, row.sealed, { forked: 1, known_generation: 0, known_hash: null, trust_generation: 0 });
+    return { ...stored, known_hash: stored.known_hash ? fromBase64(stored.known_hash) : null };
   }
 
-  private updateIdentityState(userId: string, sql: string, params: SqlValue[]): void {
+  /** Changes what's known about someone's chain, and marks what the manifest has to say again. */
+  private updateIdentityState(userId: string, change: Partial<IdentityState>, unsaved: { chain?: boolean; trust?: boolean } = {}): void {
+    const next = { ...this.identityState(userId), ...change };
+    const sealed = this.sealJson("identity", userId, { ...next, known_hash: next.known_hash ? toBase64(next.known_hash) : null });
     this.db.run("INSERT OR IGNORE INTO identity_state(user_id) VALUES(?)", [userId]);
-    this.db.run(`UPDATE identity_state SET ${sql} WHERE user_id = ?`, [...params, userId]);
+    this.db.run("UPDATE identity_state SET sealed = ? WHERE user_id = ?", [sealed, userId]);
+    if (unsaved.chain) this.db.run("UPDATE identity_state SET chain_uploaded = 0 WHERE user_id = ?", [userId]);
+    if (unsaved.trust) this.db.run("UPDATE identity_state SET trust_uploaded = 0 WHERE user_id = ?", [userId]);
   }
 
   private setVerifiedPosition(userId: string, generation: number): void {
-    this.updateIdentityState(userId, "trust_generation = ?, trust_uploaded = 0", [generation]);
+    this.updateIdentityState(userId, { trust_generation: generation }, { trust: true });
   }
 
   /** What a sibling device says it has reached on someone's chain. Two versions of it means trouble. */
@@ -1517,13 +1595,13 @@ export class ServerSession {
     if (held) {
       if (!equalBytes(held.hash, expected)) void this.noteFork(userId);
     } else if (position.gen > this.identityState(userId).known_generation) {
-      this.updateIdentityState(userId, "known_generation = ?, known_hash = ?", [position.gen, expected]);
+      this.updateIdentityState(userId, { known_generation: position.gen, known_hash: expected });
     }
   }
 
   private noteVerifiedPosition(userId: string, generation: number): void {
     if (generation <= this.identityState(userId).trust_generation) return;
-    this.updateIdentityState(userId, "trust_generation = ?", [generation]);
+    this.updateIdentityState(userId, { trust_generation: generation });
     this.refreshTrust(userId);
   }
 
@@ -1538,7 +1616,7 @@ export class ServerSession {
       link.byNew,
       link.byDevice,
     ]);
-    this.updateIdentityState(userId, "chain_uploaded = 0", []);
+    this.updateIdentityState(userId, {}, { chain: true });
     this.chains.set(userId, [...this.chainOf(userId), link]);
   }
 
@@ -1608,14 +1686,14 @@ export class ServerSession {
   }
 
   private hasContinuity(userId: string, deviceId: string): boolean {
-    const row = this.db.get<{ at: number }>("SELECT at FROM device_first_leaf WHERE user_id = ? AND device_id = ?", [userId, deviceId]);
-    return !!row && Date.now() - row.at >= CONTINUITY_MS;
+    const row = this.db.get<{ at: Uint8Array }>("SELECT at FROM device_first_leaf WHERE user_id = ? AND device_id = ?", [userId, deviceId]);
+    return !!row && Date.now() - this.openValue("first-leaf", `${userId}/${deviceId}`, row.at, Date.now()) >= CONTINUITY_MS;
   }
 
   /** Two versions of someone's chain. What's held stays, and the existing warning says what this means. */
   private async noteFork(userId: string): Promise<void> {
     if (this.identityState(userId).forked) return;
-    this.updateIdentityState(userId, "forked = 1", []);
+    this.updateIdentityState(userId, { forked: 1 });
     const root = this.pinnedIdentity(userId);
     if (root) {
       const shown = await this.readWholeChain(userId, root).catch(() => null);
@@ -2293,7 +2371,7 @@ export class ServerSession {
       this.epochKeys.set(this.epochCacheKey(groupId, epoch), key);
       this.db.run(
         `INSERT OR REPLACE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`,
-        [groupId, epoch, this.sealLocal("epoch", key), KEY_NOT_UPLOADED, Date.now()],
+        [groupId, epoch, this.sealLocal("epoch", `${groupId}:${epoch}`, key), KEY_NOT_UPLOADED, Date.now()],
       );
       return;
     }
@@ -2304,7 +2382,7 @@ export class ServerSession {
     }
     this.db.run(
       `INSERT OR IGNORE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`,
-      [groupId, epoch, this.sealLocal("epoch", key), source === "vault" ? KEY_UPLOADED : KEY_UNPROVEN, Date.now()],
+      [groupId, epoch, this.sealLocal("epoch", `${groupId}:${epoch}`, key), source === "vault" ? KEY_UPLOADED : KEY_UNPROVEN, Date.now()],
     );
   }
 
@@ -2314,11 +2392,13 @@ export class ServerSession {
   }
 
   private joinedEpoch(groupId: string): number | null {
-    return this.db.get<{ epoch: number }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId])?.epoch ?? null;
+    const row = this.db.get<{ epoch: Uint8Array }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId]);
+    // Joined at the very start, as far as anything that doesn't open says, so every message is checked.
+    return row ? this.openValue("joined", groupId, row.epoch, 0) : null;
   }
 
   private setJoinedEpoch(groupId: string, epoch: number): void {
-    this.db.run("INSERT OR REPLACE INTO joined_epochs(group_id, epoch) VALUES(?, ?)", [groupId, epoch]);
+    this.db.run("INSERT OR REPLACE INTO joined_epochs(group_id, epoch) VALUES(?, ?)", [groupId, this.sealJson("joined", groupId, epoch)]);
   }
 
   private epochKey(groupId: string, epoch: number): Uint8Array | null {
@@ -2327,7 +2407,7 @@ export class ServerSession {
     if (cached) return cached;
     const row = this.db.get<{ key: Uint8Array }>("SELECT key FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
     if (!row) return null;
-    const key = this.openLocal("epoch", row.key);
+    const key = this.openLocal("epoch", `${groupId}:${epoch}`, row.key);
     this.epochKeys.set(cacheKey, key);
     return key;
   }
@@ -2362,7 +2442,7 @@ export class ServerSession {
 
   private allEpochKeys(groupId: string): Record<number, string> {
     const rows = this.db.all<{ epoch: number; key: Uint8Array }>("SELECT epoch, key FROM epoch_keys WHERE group_id = ?", [groupId]);
-    return Object.fromEntries(rows.map((row) => [row.epoch, toBase64(this.openLocal("epoch", row.key))]));
+    return Object.fromEntries(rows.map((row) => [row.epoch, toBase64(this.openLocal("epoch", `${groupId}:${row.epoch}`, row.key))]));
   }
 
   // --- Key packages ---
@@ -2967,7 +3047,9 @@ export class ServerSession {
   private noteLeaves(groupId: string): void {
     const now = Date.now();
     for (const member of this.treeMembers(groupId)) {
-      if (member.genuine) this.db.run("INSERT OR IGNORE INTO device_first_leaf(user_id, device_id, at) VALUES(?, ?, ?)", [member.userId, member.deviceId, now]);
+      if (member.genuine) {
+        this.db.run("INSERT OR IGNORE INTO device_first_leaf(user_id, device_id, at) VALUES(?, ?, ?)", [member.userId, member.deviceId, this.sealJson("first-leaf", `${member.userId}/${member.deviceId}`, now)]);
+      }
     }
   }
 
@@ -3425,7 +3507,7 @@ export class ServerSession {
       if (this.hasMlsGroup(event.group_id) && this.mlsEpoch(event.group_id) > event.epoch) await this.repair(event.group_id);
       return;
     }
-    this.db.run("INSERT OR REPLACE INTO epoch_starts(group_id, epoch, seq) VALUES(?, ?, ?)", [event.group_id, event.epoch, event.seq]);
+    this.db.run("INSERT OR REPLACE INTO epoch_starts(group_id, epoch, seq) VALUES(?, ?, ?)", [event.group_id, event.epoch, this.sealJson("epoch-start", `${event.group_id}:${event.epoch}`, event.seq)]);
     await this.applyCommit(event);
   }
 
@@ -3465,18 +3547,20 @@ export class ServerSession {
     const epoch = this.mlsEpoch(groupId);
     for (const member of this.mls.members(utf8(groupId)) as { credential: Uint8Array }[]) {
       const cert = parseCertificate(member.credential);
-      if (cert) this.db.run("INSERT OR IGNORE INTO device_arrivals(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, epoch]);
+      if (cert) this.db.run("INSERT OR IGNORE INTO device_arrivals(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, this.sealJson("arrival", `${groupId}/${cert.userId}/${cert.deviceId}`, epoch)]);
     }
   }
 
   /** The epoch from which someone's device has been in a group's tree, as this device saw. */
   private arrivedAt(groupId: string, userId: string, deviceId: string): number | null {
-    return this.db.get<{ epoch: number }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId])?.epoch ?? null;
+    const row = this.db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId]);
+    return row ? this.openValue("arrival", `${groupId}/${userId}/${deviceId}`, row.epoch, Number.MAX_SAFE_INTEGER) : null;
   }
 
   /** The epoch someone's device left a group's tree, if it has. */
   private departedAt(groupId: string, userId: string, deviceId: string): number | null {
-    return this.db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId])?.epoch ?? null;
+    const row = this.db.get<{ epoch: Uint8Array }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId]);
+    return row ? this.openValue("departure", `${groupId}/${userId}/${deviceId}`, row.epoch, 0) : null;
   }
 
   /** The genuine devices in a group's tree, as `user/device`. */
@@ -3493,7 +3577,7 @@ export class ServerSession {
       const cert = parseCertificate(credential);
       // A real device still here means what went was something using its certificate.
       if (cert && !present.has(`${cert.userId}/${cert.deviceId}`)) {
-        this.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, epoch]);
+        this.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, this.sealJson("departure", `${groupId}/${cert.userId}/${cert.deviceId}`, epoch)]);
         // Coming back is a new arrival.
         this.db.run("DELETE FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, cert.userId, cert.deviceId]);
       }
@@ -3799,7 +3883,7 @@ export class ServerSession {
     );
     return messages.some((row) => {
       if (!row.body) return false;
-      const { system } = this.openJson<StoredBody>("message", row.body);
+      const { system } = this.openJson<StoredBody>("message", `${groupId}/${row.id}`, row.body);
       const announced = system?.type === "member_left" ? [system.actorId] : system?.type === "member_removed" ? (system.targetIds ?? []) : [];
       return [...users].every((user) => announced.includes(user));
     });
@@ -4200,7 +4284,7 @@ export class ServerSession {
       }
     }
     const stored = body
-      ? this.sealJson("message", { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
+      ? this.sealJson("message", `${message.group_id}/${message.id}`, { ...body, reactions: this.openReactions(message.group_id, message.id, message.reactions) })
       : (kept?.body ?? heldAfterLeaving);
     const pin = this.pinState(message, existing);
     // When it was first seen to go is when it goes: an edit can't make it last longer.
@@ -4319,8 +4403,8 @@ export class ServerSession {
       const arrived = this.arrivedAt(message.group_id, message.sender_user, message.sender_device);
       if (arrived === null || message.epoch < arrived) return false;
     }
-    const next =this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
-    return !next || message.seq < next.seq;
+    const next = this.db.get<{ seq: Uint8Array }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
+    return !next || message.seq < this.openValue("epoch-start", `${message.group_id}:${message.epoch + 1}`, next.seq, 0);
   }
 
   /**
@@ -4343,7 +4427,7 @@ export class ServerSession {
 
   private changedAfterLeaving(message: ApiMessage, existing: MessageRow | undefined, parsed: MessageBody): boolean {
     if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_user, message.sender_device) === null) return false;
-    const held = parseMessageBody(this.openJson<StoredBody>("message", existing.body));
+    const held = parseMessageBody(this.openJson<StoredBody>("message", `${existing.group_id}/${existing.id}`, existing.body));
     return !!held && JSON.stringify(held) !== JSON.stringify(parsed);
   }
 
@@ -4503,7 +4587,7 @@ export class ServerSession {
     // Having no sequence number means a message is still being sent.
     this.db.run(
       `INSERT INTO messages(group_id, id, seq, updated_seq, sender_user, created_at, status, body) VALUES(?,?,?,?,?,?,?,?)`,
-      [groupId, id, seq ?? this.latestSeq(groupId), seq ?? 0, actor, createdAt, "sent", this.sealJson("message", { system })],
+      [groupId, id, seq ?? this.latestSeq(groupId), seq ?? 0, actor, createdAt, "sent", this.sealJson("message", `${groupId}/${id}`, { system })],
     );
     this.emit({
       type: "message",
@@ -4569,7 +4653,7 @@ export class ServerSession {
 
   /** What a row holds, as far as it can be shown. Stored before these checks, it may be anything. */
   private storedBody(row: MessageRow): StoredBody | null {
-    return row.body ? readStoredBody(row, this.openJson<StoredBody>("message", row.body)) : {};
+    return row.body ? readStoredBody(row, this.openJson<StoredBody>("message", `${row.group_id}/${row.id}`, row.body)) : {};
   }
 
   private toMessageView(row: MessageRow): MessageView {
@@ -5161,7 +5245,7 @@ export class ServerSession {
     this.db.run(
       `INSERT OR IGNORE INTO messages(group_id, id, seq, updated_seq, sender_user, sender_device, epoch, created_at, status, body)
        VALUES(?,?,NULL,0,?,?,0,?,?,?)`,
-      [groupId, id, this.account.userId, this.account.deviceId, now, "sending", this.sealJson("message", body)],
+      [groupId, id, this.account.userId, this.account.deviceId, now, "sending", this.sealJson("message", `${groupId}/${id}`, body)],
     );
     const view = this.toMessageView(this.messageRow(groupId, id)!);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: true });
@@ -5224,7 +5308,7 @@ export class ServerSession {
     if (!preview || !body.text?.includes(preview.url)) return body;
     const withPreview: MessageBody = { ...body, preview };
     const groupId = this.groupForKey(groupKey)?.id ?? `pending:${groupKey}`;
-    this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", withPreview), groupId, id]);
+    this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", `${groupId}/${id}`, withPreview), groupId, id]);
     const row = this.messageRow(groupId, id);
     if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
     return withPreview;
@@ -5235,7 +5319,7 @@ export class ServerSession {
       entry.id,
       groupKey,
       entry.kind,
-      this.sealJson("outbox", entry),
+      this.sealJson("outbox", entry.id, entry),
       Date.now(),
     ]);
     void this.flushOutbox();
@@ -5264,7 +5348,7 @@ export class ServerSession {
         if (held.length > 0 && !this.stopped) this.flushRetry = setTimeout(() => void this.flushOutbox(), Math.min(...this.slowHeld.values()) - now);
         return;
       }
-      const entry = this.openJson<OutboxEntry>("outbox", row.payload);
+      const entry = this.openJson<OutboxEntry>("outbox", row.id, row.payload);
       try {
         await this.deliver(row.group_key, entry);
         this.db.run("DELETE FROM outbox WHERE id = ?", [row.id]);
@@ -5363,7 +5447,9 @@ export class ServerSession {
     const pending = `pending:${groupKey}`;
     const row = this.messageRow(pending, id);
     if (!row) return;
-    this.db.run("UPDATE messages SET group_id = ? WHERE group_id = ? AND id = ?", [groupId, pending, id]);
+    // Its body is sealed to where it was, so it's sealed again for where it goes.
+    const body = row.body && this.openLocal("message", `${pending}/${id}`, row.body);
+    this.db.run("UPDATE messages SET group_id = ?, body = ? WHERE group_id = ? AND id = ?", [groupId, body ? this.sealLocal("message", `${groupId}/${id}`, body) : null, pending, id]);
     this.emit({
       type: "message_moved",
       serverId: this.serverId,
@@ -5451,7 +5537,7 @@ export class ServerSession {
     };
     assertSendable(body);
     this.db.run("UPDATE messages SET body = ?, edited_at = ? WHERE group_id = ? AND id = ?", [
-      this.sealJson("message", { ...previous, ...body }),
+      this.sealJson("message", `${groupId}/${id}`, { ...previous, ...body }),
       Date.now(),
       groupId,
       id,
@@ -5704,7 +5790,7 @@ export class ServerSession {
         attachments.push({ ...placeholders[index]!, size: source.size, ...ref });
       }
       const finalBody: MessageBody = { ...body, attachments };
-      this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", finalBody), groupId, id]);
+      this.db.run("UPDATE messages SET body = ? WHERE group_id = ? AND id = ?", [this.sealJson("message", `${groupId}/${id}`, finalBody), groupId, id]);
       this.enqueue(groupKey, {
         kind: "message",
         id,
@@ -5863,9 +5949,9 @@ export class ServerSession {
         this.chains.delete(userId);
         for (const link of chain) this.acceptLink(userId, link);
       }
-      if (forked) this.updateIdentityState(userId, "forked = 0, known_generation = 0, known_hash = NULL, chain_uploaded = 0", []);
-      if (repinned) this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [pin, userId]);
-      this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, pin]);
+      if (forked) this.updateIdentityState(userId, { forked: 0, known_generation: 0, known_hash: null }, { chain: true });
+      if (repinned) this.db.run("UPDATE pinned_identities SET identity_key = ?, uploaded = 0 WHERE user_id = ?", [this.sealPin(userId, pin), userId]);
+      this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, this.sealVerified(userId, pin)]);
       this.noteUnsavedTrust({ verified: userId });
       this.setVerifiedPosition(userId, this.headGeneration(userId));
     });
@@ -5884,7 +5970,7 @@ export class ServerSession {
     const user = this.users.get(userId);
     if (!user) return;
     // An empty key says it was cleared, which the manifest carries to other devices.
-    this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, new Uint8Array(0)]);
+    this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, this.sealVerified(userId, new Uint8Array(0))]);
     this.noteUnsavedTrust({ verified: userId });
     user.trust = this.trustOf(userId, user.identityKey);
     this.persistUser(user);
