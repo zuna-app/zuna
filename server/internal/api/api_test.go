@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +34,8 @@ type harness struct {
 	// signedAt is the time the last request was signed at. The same request signed
 	// twice in one millisecond would be the same signature, which is refused.
 	signedAt time.Time
+	// signing guards both, for tests that send requests at once.
+	signing sync.Mutex
 }
 
 type client struct {
@@ -78,7 +81,9 @@ func (h *harness) deviceKey(token string) []byte {
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	h.signing.Lock()
 	h.keys[token] = private
+	h.signing.Unlock()
 	return public
 }
 
@@ -126,13 +131,19 @@ func (h *harness) do(method, path, token string, body, out any) (int, map[string
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if key, ok := h.keys[token]; ok && method != http.MethodGet {
+	if method != http.MethodGet {
+		h.signing.Lock()
+		key, ok := h.keys[token]
 		h.signedAt = h.signedAt.Add(time.Millisecond)
 		if now := time.Now(); now.After(h.signedAt) {
 			h.signedAt = now
 		}
-		for name, value := range proofHeaders(key, method, strings.SplitN(path, "?", 2)[0], sent, h.signedAt) {
-			req.Header.Set(name, value)
+		at := h.signedAt
+		h.signing.Unlock()
+		if ok {
+			for name, value := range proofHeaders(key, method, strings.SplitN(path, "?", 2)[0], sent, at) {
+				req.Header.Set(name, value)
+			}
 		}
 	}
 	resp, err := http.DefaultClient.Do(req)

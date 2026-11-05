@@ -61,7 +61,9 @@ func (h *harness) signUp(name, invite string) *keyed {
 	}, &out)
 	c := &client{h: h, token: out.Token, userID: out.UserID, device: store.NewID()}
 	h.mustDo("POST", "/api/devices", c.token, newDevice(c.device, publicOf(device)), nil)
+	h.signing.Lock()
 	h.keys[c.token] = device
+	h.signing.Unlock()
 	return &keyed{client: c, h: h, root: root, head: root, device: device}
 }
 
