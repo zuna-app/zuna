@@ -2824,11 +2824,13 @@ export class ServerSession {
       const standing = this.certificateStanding(cert.userId, pinned, member.credential);
       return { ...found, genuine: !!standing?.carried && equalBytes(standing.cert.signatureKey, member.signatureKey) };
     });
+    // A device ID is only someone's together with whose it is: another account can claim the same one.
     const seen = new Set<string>();
     for (const member of [...out].reverse()) {
       if (!member.genuine) continue;
-      if (seen.has(member.deviceId)) member.genuine = false;
-      seen.add(member.deviceId);
+      const device = `${member.userId}/${member.deviceId}`;
+      if (seen.has(device)) member.genuine = false;
+      seen.add(device);
     }
     return out;
   }
@@ -3338,19 +3340,26 @@ export class ServerSession {
     }
   }
 
-  /** The epoch a device left a group's tree, if it has. */
-  private departedAt(groupId: string, deviceId: string): number | null {
-    return this.db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND device_id = ?", [groupId, deviceId])?.epoch ?? null;
+  /** The epoch someone's device left a group's tree, if it has. */
+  private departedAt(groupId: string, userId: string, deviceId: string): number | null {
+    return this.db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId])?.epoch ?? null;
+  }
+
+  /** The genuine devices in a group's tree, as `user/device`. */
+  private presentDevices(groupId: string): Set<string> {
+    return new Set(this.treeMembers(groupId).filter((member) => member.genuine).map((member) => `${member.userId}/${member.deviceId}`));
   }
 
   private recordDepartures(groupId: string, epoch: number, removed: Uint8Array[]): void {
-    const present = new Set(this.treeMembers(groupId).filter((member) => member.genuine).map((member) => member.deviceId));
-    for (const deviceId of present) this.db.run("DELETE FROM device_departures WHERE group_id = ? AND device_id = ?", [groupId, deviceId]);
+    const present = this.presentDevices(groupId);
+    for (const member of this.treeMembers(groupId).filter((item) => item.genuine)) {
+      this.db.run("DELETE FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, member.userId, member.deviceId]);
+    }
     for (const credential of removed) {
       const cert = parseCertificate(credential);
       // A real device still here means what went was something using its certificate.
-      if (cert && !present.has(cert.deviceId)) {
-        this.db.run("INSERT OR REPLACE INTO device_departures(group_id, device_id, epoch) VALUES(?, ?, ?)", [groupId, cert.deviceId, epoch]);
+      if (cert && !present.has(`${cert.userId}/${cert.deviceId}`)) {
+        this.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, epoch]);
       }
     }
   }
@@ -3516,7 +3525,7 @@ export class ServerSession {
     const sender = parseCertificate(processed.senderCredential);
     const look = () => {
       const group = this.groups.get(groupId);
-      const present = new Set(this.treeMembers(groupId).filter((member) => member.genuine).map((member) => member.deviceId));
+      const present = this.presentDevices(groupId);
       const senderIsAdmin = !!group && !!sender && this.isGroupAdmin(group, sender.userId);
       const addedWithoutRight = !senderIsAdmin && processed.addedCredentials.length > 0;
       const removedWithoutRight =
@@ -3525,9 +3534,9 @@ export class ServerSession {
           const cert = parseCertificate(credential);
           if (!cert || !group) return false;
           // Rejoining replaces a device's own old leaf.
-          if (processed.isExternal && cert.deviceId === sender?.deviceId) return false;
+          if (processed.isExternal && cert.userId === sender?.userId && cert.deviceId === sender.deviceId) return false;
           // A real device still here means what went wasn't really it.
-          if (present.has(cert.deviceId)) return false;
+          if (present.has(`${cert.userId}/${cert.deviceId}`)) return false;
           const onRoster = group.members.some((member) => member.userId === cert.userId);
           const revoked = this.users.get(cert.userId)?.devices.get(cert.deviceId)?.revoked;
           return onRoster && !revoked;
@@ -4162,7 +4171,7 @@ export class ServerSession {
    * old messages are unaffected: they fit the order the group's commits came in.
    */
   private couldBeSent(message: ApiMessage): boolean {
-    const left = this.departedAt(message.group_id, message.sender_device);
+    const left = this.departedAt(message.group_id, message.sender_user, message.sender_device);
     if (left !== null && message.epoch >= left) return false;
     const next =this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
     return !next || message.seq < next.seq;
@@ -4187,7 +4196,7 @@ export class ServerSession {
   }
 
   private changedAfterLeaving(message: ApiMessage, existing: MessageRow | undefined, parsed: MessageBody): boolean {
-    if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_device) === null) return false;
+    if (!existing?.body || existing.seq === null || this.departedAt(message.group_id, message.sender_user, message.sender_device) === null) return false;
     const held = parseMessageBody(this.openJson<StoredBody>("message", existing.body));
     return !!held && JSON.stringify(held) !== JSON.stringify(parsed);
   }
@@ -4215,7 +4224,7 @@ export class ServerSession {
     const key = this.epochKey(message.group_id, signed.epoch);
     const device = this.users.get(message.pin_by)?.devices.get(signed.deviceId);
     if (!key || !device) return null;
-    const left = this.departedAt(message.group_id, signed.deviceId);
+    const left = this.departedAt(message.group_id, message.pin_by, signed.deviceId);
     if (left !== null && signed.epoch >= left) return null;
     const opened = openEnvelope<{ by?: unknown; pinned?: unknown; revision?: unknown }>(key, device.signatureKey, "pin", message.group_id, message.id, signed.epoch, signed.envelope);
     if (!opened.ok || opened.value?.by !== message.pin_by || typeof opened.value.pinned !== "boolean") return null;
@@ -4235,7 +4244,7 @@ export class ServerSession {
     const key = this.epochKey(message.group_id, signed.epoch);
     const device = this.users.get(message.deleted_by)?.devices.get(signed.deviceId);
     if (!key || !device) return false;
-    const left = this.departedAt(message.group_id, signed.deviceId);
+    const left = this.departedAt(message.group_id, message.deleted_by, signed.deviceId);
     if (left !== null && signed.epoch >= left) return false;
     const opened = openEnvelope<{ by?: unknown }>(key, device.signatureKey, "deletion", message.group_id, message.id, signed.epoch, signed.envelope);
     if (!opened.ok || opened.value?.by !== message.deleted_by) return false;

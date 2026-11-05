@@ -831,10 +831,21 @@ describe("old keys and removed devices (Z-20)", () => {
     const session = alice.session as any;
     const device = (dave.session as any).account.deviceId;
     const epoch = session.mlsEpoch(groupId);
-    session.db.run("INSERT OR REPLACE INTO device_departures(group_id, device_id, epoch) VALUES(?, ?, ?)", [groupId, device, epoch]);
+    session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, dave.userId, device, epoch]);
     const message = (id: string, at: number) => ({ group_id: groupId, id, seq: 0, updated_seq: 0, sender_user: dave.userId, sender_device: device, epoch: at, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
     expect(session.couldBeSent(message("b".repeat(32), epoch))).toBe(false);
     expect(session.couldBeSent(message("c".repeat(32), epoch - 1))).toBe(true);
+  });
+
+  it("doesn't take another account's device with the same ID leaving for this one's (Z3-06)", async () => {
+    const dave = await person("dave");
+    const groupId = await groupWith(alice, [dave]);
+    const session = alice.session as any;
+    const device = (dave.session as any).account.deviceId;
+    const epoch = session.mlsEpoch(groupId);
+    session.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, "f".repeat(32), device, epoch]);
+    const message = { group_id: groupId, id: "d".repeat(32), seq: 0, updated_seq: 0, sender_user: dave.userId, sender_device: device, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] };
+    expect(session.couldBeSent(message)).toBe(true);
   });
 
   it("refuses a message claiming an epoch that had already ended when it came", async () => {
@@ -1510,7 +1521,7 @@ describe("an edit from a device that has left", () => {
     const key = session.epochKey(groupId, epoch);
     const { deviceId, deviceSecret } = session.account;
     await owner.session.removeMember(groupId, leaver.userId);
-    await waitFor(() => sessionOf(member).departedAt(groupId, deviceId) !== null, "them to be seen leaving");
+    await waitFor(() => sessionOf(member).departedAt(groupId, leaver.userId, deviceId) !== null, "them to be seen leaving");
 
     // The key from before they left still opens, and the edit keeps the message's place.
     const envelope = sealEnvelope(key, deviceSecret, "message", groupId, sent.id, epoch, session.signedBody({ text: "what I never said" }));

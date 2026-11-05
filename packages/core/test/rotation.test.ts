@@ -687,6 +687,7 @@ describe("someone holding old keys, with the server's help", () => {
     const dave = await person("dave");
     const phone = await secondDevice(dave, "dave-phone");
     await sessionOf(dave).ensureUser(alice.userId, true);
+    await waitFor(() => !!sessionOf(phone).pinnedIdentity(alice.userId), "the phone to know alice");
     // As if the phone had been shown a key of the server's for alice the first time it saw her.
     sessionOf(phone).db.run("UPDATE pinned_identities SET identity_key = ? WHERE user_id = ?", [wasm.signingKeygen().publicKey, alice.userId]);
     await dave.session.updatePreferences({ sendReadReceipts: false });

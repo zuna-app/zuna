@@ -147,6 +147,12 @@ const MIGRATIONS: string[] = [
   `ALTER TABLE messages ADD COLUMN mention_seen INTEGER NOT NULL DEFAULT 0;`,
   // Someone's own last message in a channel, which its slow mode counts from.
   `CREATE INDEX messages_sender ON messages(group_id, sender_user, created_at);`,
+  // A device ID is only someone's together with whose it is, so departures name both.
+  // What was recorded before isn't moved.
+  `
+  DROP TABLE device_departures;
+  CREATE TABLE device_departures (group_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, epoch INTEGER NOT NULL, PRIMARY KEY (group_id, user_id, device_id));
+  `,
 ];
 
 export function migrate(db: LocalDb): void {

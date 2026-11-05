@@ -113,7 +113,7 @@ export async function previewPush(
   // What the app wouldn't show as theirs isn't worded as theirs here either: a message
   // from a device in an epoch after it left, or after its epoch ended (couldBeSent in
   // session.ts), or from someone whose key changed in a way that doesn't follow.
-  const left = db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND device_id = ?", [groupId, message.sender_device]);
+  const left = db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device]);
   const next = db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1]);
   if ((left && message.epoch >= left.epoch) || (next && message.seq >= next.seq) || sender.trust === "changed") return preview({});
   const epochKey = wasm.aeadOpen(key, epochRow.key, label("epoch"));

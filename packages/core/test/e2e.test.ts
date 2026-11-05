@@ -788,9 +788,9 @@ describe("notifications from a push", () => {
     const generic = { body: "New message", decrypted: false };
 
     const row = session.messageRow(message.groupId, message.id);
-    session.db.run("INSERT INTO device_departures(group_id, device_id, epoch) VALUES(?, ?, ?)", [message.groupId, row.sender_device, row.epoch]);
+    session.db.run("INSERT INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [message.groupId, row.sender_user, row.sender_device, row.epoch]);
     expect(await previewPush(extension(bob), bob.serverId, message.groupId, message.id)).toMatchObject(generic);
-    session.db.run("DELETE FROM device_departures WHERE group_id = ? AND device_id = ?", [message.groupId, row.sender_device]);
+    session.db.run("DELETE FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [message.groupId, row.sender_user, row.sender_device]);
 
     const sender = session.users.get(alice.userId);
     const trust = sender.trust;
