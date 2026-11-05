@@ -1508,6 +1508,23 @@ describe("a group's roster, which MLS holds (Z3-01, Z3-02)", () => {
   });
 });
 
+describe("a commit that was undone", () => {
+  it("lets the account's own copy replace a key from an epoch it began, and keeps the others (Z3-10)", async () => {
+    const dave = await person("dave");
+    const groupId = await groupWith(alice, [dave]);
+    const session = sessionOf(dave);
+    const epoch = session.mlsEpoch(groupId) as number;
+    const held = session.epochKey(groupId, epoch) as Uint8Array;
+    // As if this device had gone a step further, on a commit that was then undone.
+    session.saveEpochKey(groupId, epoch + 1, wasm.randomBytes(32), "mls");
+    await session.applyEvent({ kind: "commit_voided", group_id: groupId, epoch, seq: 0, created_at: Date.now(), sender_user: alice.userId, target_user: null });
+    const right = wasm.randomBytes(32);
+    session.saveEpochKey(groupId, epoch + 1, right, "vault");
+    expect(toBase64(session.epochKey(groupId, epoch + 1))).toBe(toBase64(right));
+    expect(toBase64(session.epochKey(groupId, epoch))).toBe(toBase64(held));
+  });
+});
+
 describe("an edit from a device that has left", () => {
   it("is marked unverified rather than shown, and stays so", async () => {
     const owner = await person("cora");

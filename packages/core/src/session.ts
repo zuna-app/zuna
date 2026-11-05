@@ -239,6 +239,12 @@ export const rotationTiming = {
 const KEY_NOT_UPLOADED = 0;
 const KEY_UPLOADED = 1;
 const KEY_UNPROVEN = 2;
+/**
+ * From an epoch a commit that was undone began. The group's later epoch of the same
+ * number is another, so this key isn't passed on, and the account's own copy of that
+ * later one replaces it. It still opens whatever it opened.
+ */
+const KEY_VOIDED = 3;
 
 interface CachedDevice {
   id: string;
@@ -2214,6 +2220,11 @@ export class ServerSession {
       );
       return;
     }
+    // A key from an undone epoch of the same number is no reason to turn the account's own copy away.
+    if (source === "vault" && this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? AND epoch = ? AND uploaded = ?", [groupId, epoch, KEY_VOIDED])) {
+      this.db.run("DELETE FROM epoch_keys WHERE group_id = ? AND epoch = ?", [groupId, epoch]);
+      this.epochKeys.delete(this.epochCacheKey(groupId, epoch));
+    }
     this.db.run(
       `INSERT OR IGNORE INTO epoch_keys(group_id, epoch, key, uploaded, created_at) VALUES(?, ?, ?, ?, ?)`,
       [groupId, epoch, this.sealLocal("epoch", key), source === "vault" ? KEY_UPLOADED : KEY_UNPROVEN, Date.now()],
@@ -2256,8 +2267,9 @@ export class ServerSession {
     const real = this.mls.exportSecret(groupBytes, CONTENT_LABEL, u64Bytes(epoch), 32);
     const stored = this.epochKey(groupId, epoch);
     if (!stored || !equalBytes(stored, real)) {
+      const voided = !!this.db.get("SELECT 1 FROM epoch_keys WHERE group_id = ? AND epoch = ? AND uploaded = ?", [groupId, epoch, KEY_VOIDED]);
       this.saveEpochKey(groupId, epoch, real, "mls");
-      if (stored) {
+      if (stored && !voided) {
         this.emit({
           type: "security",
           serverId: this.serverId,
@@ -3320,6 +3332,8 @@ export class ServerSession {
     }
     if (event.kind === "commit_voided") {
       this.db.run("DELETE FROM epoch_starts WHERE group_id = ? AND epoch > ?", [event.group_id, event.epoch]);
+      this.db.run("UPDATE epoch_keys SET uploaded = ? WHERE group_id = ? AND epoch > ?", [KEY_VOIDED, event.group_id, event.epoch]);
+      this.confirmedEpochs.delete(event.group_id);
       this.noteVoidedCommit(event);
       // A device that got past that epoch has gone somewhere nobody else will follow.
       if (this.hasMlsGroup(event.group_id) && this.mlsEpoch(event.group_id) > event.epoch) await this.repair(event.group_id);
