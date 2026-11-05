@@ -89,9 +89,6 @@ linux:
   icon: resources/icon.png
   # The default comes from the package name, @zuna/desktop, which isn't a valid file name.
   executableName: zuna
-  # The rpm and pacman packages would be named after the product, Zuna, which neither
-  # Fedora nor Arch name a package with. The .deb is lowercased anyway.
-  packageName: zuna
   # Names the .desktop file after desktopName in package.json, which Electron uses
   # as the window's app ID, so the desktop links the window to its icon.
   syncDesktopName: true
@@ -103,6 +100,10 @@ linux:
 # names packages as Fedora does, which openSUSE doesn't, so this names the libraries,
 # which both provide by the same name.
 rpm:
+  # The rpm and pacman packages would be named after the product, Zuna, which neither
+  # Fedora nor Arch name a package with. The .deb is lowercased anyway. Only each
+  # package's own options take a name, not linux's.
+  packageName: zuna
   depends:
     - libgtk-3.so.0()(64bit)
     - libnss3.so()(64bit)
@@ -116,6 +117,7 @@ rpm:
     - xdg-utils
 # electron-builder's own list is for an Electron from the system, with packages Arch has dropped.
 pacman:
+  packageName: zuna
   depends:
     - gtk3
     - nss
