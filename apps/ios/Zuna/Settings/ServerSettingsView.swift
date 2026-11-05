@@ -91,6 +91,7 @@ struct ServerSettingsView: View {
                     NavigationLink { EmoteSetView(serverId: serverId) } label: {
                         LabeledContent(server.emotes.setName.isEmpty ? "No emote set" : server.emotes.setName, value: "\(server.emotes.emotes.count) emotes")
                     }
+                    .accessibilityIdentifier(A11y.Settings.emotes)
                 }
                 Section("Storage") {
                     NavigationLink("Files and retention") { StorageView(serverId: serverId) }
@@ -208,6 +209,18 @@ struct EmoteSetView: View {
     var body: some View {
         let server = model.servers[serverId]
         List {
+            if let server, !server.emotes.setId.isEmpty {
+                Section {
+                    Button("Refresh", systemImage: "arrow.clockwise") {
+                        use(server.emotes.setId) { "Updated \($0.setName) (\($0.count) emotes)" }
+                    }
+                    .disabled(busy)
+                    .accessibilityIdentifier(A11y.Settings.refreshEmotes)
+                } footer: {
+                    Text("Your server checks 7TV for changes to the set every few hours.")
+                }
+                .listRowBackground(Theme.bg2)
+            }
             Section {
                 TextField("https://7tv.app/emote-sets/…", text: $link)
                     .keyboardType(.URL)
@@ -215,17 +228,9 @@ struct EmoteSetView: View {
                     .autocorrectionDisabled()
                     .accessibilityIdentifier(A11y.Settings.emoteLink)
                 Button("Use this set") {
-                    let value = link.trimmingCharacters(in: .whitespaces)
-                    busy = true
-                    Task {
-                        do {
-                            let result = try await model.core.session(serverId).setEmoteSet(value)
-                            link = ""
-                            model.toast("Now using \(result.setName) (\(result.count) emotes)")
-                        } catch {
-                            model.toast(OnboardingText.describe(error), .error)
-                        }
-                        busy = false
+                    use(link.trimmingCharacters(in: .whitespaces)) {
+                        link = ""
+                        return "Now using \($0.setName) (\($0.count) emotes)"
                     }
                 }
                 .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty || busy)
@@ -254,6 +259,20 @@ struct EmoteSetView: View {
         .background(Theme.bg0)
         .navigationTitle("Emotes")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Makes `set` the server's set, or fetches it again from 7TV if it already is.
+    private func use(_ set: String, done: @escaping (EmoteSetChange) -> String) {
+        busy = true
+        Task {
+            do {
+                let result = try await model.core.session(serverId).setEmoteSet(set)
+                model.toast(done(result))
+            } catch {
+                model.toast(OnboardingText.describe(error), .error)
+            }
+            busy = false
+        }
     }
 }
 

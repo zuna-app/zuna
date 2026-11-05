@@ -171,6 +171,22 @@ final class SettingsTests: XCTestCase {
         zuna.screenshot("93-members")
     }
 
+    func testFetchesTheEmoteSetFrom7TVAgain() throws {
+        try zuna.launch()
+        try zuna.signIn(as: "alice")
+        try zuna.waitForChats()
+        openSettings(A11y.Settings.server)
+        let emotes = zuna.element(A11y.Settings.emotes)
+        XCTAssertTrue(zuna.element(A11y.Settings.memberInvites).waitForExistence(timeout: 10))
+        for _ in 0..<5 where !emotes.exists { zuna.app.swipeUp() }
+        emotes.tap()
+        let refresh = zuna.element(A11y.Settings.refreshEmotes)
+        XCTAssertTrue(refresh.waitForExistence(timeout: 5))
+        zuna.screenshot("93d-emotes")
+        refresh.tap()
+        XCTAssertTrue(zuna.toast(startingWith: "Updated Zuna test emotes (3 emotes)").waitForExistence(timeout: 20))
+    }
+
     func testSetsWhatTheServerAllowsForSharingAScreen() throws {
         let alice = try Peer("alice")
         let carol = try Peer("carol")

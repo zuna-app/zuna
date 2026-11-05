@@ -463,6 +463,9 @@ try {
   await page.locator(".settings-nav-item", { hasText: "Emotes" }).click();
   await sleep(300);
   await shot("15-server-emotes");
+  await page.locator(".current-set").getByRole("button", { name: "Refresh" }).click();
+  const refreshed = await page.locator(".toast-info", { hasText: /^Updated .+ \(\d+ emotes\)$/ }).waitFor({ timeout: 30000 }).then(() => true, () => false);
+  check("Refresh fetches the server's emote set from 7TV again", refreshed, await page.locator(".toasts").innerText().catch(() => ""));
   await page.locator(".settings-nav-item", { hasText: "Members" }).click();
   await sleep(200);
   await shot("16-server-members");

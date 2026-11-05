@@ -166,13 +166,16 @@ function EmotesSection() {
   const toast = useApp((state) => state.toast);
   const [link, setLink] = useState("");
   const { busy, run } = useAction();
+  const refresh = useAction();
   if (!server) return null;
   const emotes = server.emotes.emotes;
+  const setId = server.emotes.set_id;
   return (
     <>
       <h1>Emotes</h1>
       <p className="settings-lead">
-        Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' addresses.
+        Everyone on this server shares one 7TV emote set. Your server downloads and caches the images, so 7TV never sees your members' addresses. It checks 7TV
+        for changes to the set every few hours.
       </p>
       <div className="current-set">
         <Smile size={18} />
@@ -180,6 +183,20 @@ function EmotesSection() {
           <b>{server.emotes.set_name || "No emote set"}</b>
           <span className="setting-hint">{emotes.length} emotes</span>
         </span>
+        {setId && (
+          <button
+            className="btn btn-small"
+            disabled={refresh.busy || busy}
+            onClick={() =>
+              refresh.run(async () => {
+                const result = await session().setEmoteSet(setId);
+                toast(`Updated ${result.set_name} (${result.count} emotes)`);
+              })
+            }
+          >
+            {refresh.busy ? <Spinner /> : "Refresh"}
+          </button>
+        )}
       </div>
       <Field
         label="Use a different set"
@@ -192,7 +209,7 @@ function EmotesSection() {
       <div>
         <button
           className="btn btn-primary"
-          disabled={!link.trim() || busy}
+          disabled={!link.trim() || busy || refresh.busy}
           onClick={() =>
             run(async () => {
               const result = await session().setEmoteSet(link.trim());
