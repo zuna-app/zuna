@@ -958,7 +958,8 @@ func TestReadsAreLimited(t *testing.T) {
 	owner := h.owner()
 	bob := h.register("bob", owner.newInvite())
 	limited := false
-	for range 2500 {
+	// Well past the burst, even as slowly as the race detector sends them.
+	for range 10_000 {
 		if status, _, _ := h.raw("GET", "/api/users/"+owner.userID, owner.token, nil, nil); status == http.StatusTooManyRequests {
 			limited = true
 			break
