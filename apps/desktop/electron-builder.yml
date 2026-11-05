@@ -12,6 +12,7 @@ files:
 # The key hook for push to talk comes built for each system, against an interface that
 # doesn't change between versions of Electron, so nothing has to be compiled.
 npmRebuild: false
+afterPack: ./scripts/after-pack.mjs
 # A native module can't load from inside the archive.
 asarUnpack:
   - "**/node_modules/uiohook-napi/**"
