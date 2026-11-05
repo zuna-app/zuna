@@ -316,9 +316,17 @@ final class ChannelsTests: XCTestCase {
         try waitFor("alice to get the second") { try self.messages(alice, in: made).contains { $0["text"] as? String == "Second, after the wait" } }
     }
 
+    /// One of the editor's rows, scrolled to: the voice section is below slow mode's,
+    /// and a form only draws the rows in sight.
+    private func scrolledTo(_ identifier: String) -> XCUIElement {
+        let element = zuna.element(identifier)
+        for _ in 0..<6 where !(element.exists && element.isHittable) { zuna.app.swipeUp(velocity: .slow) }
+        return element
+    }
+
     /// Picks an option from one of the editor's menus.
     private func choose(_ option: String, in picker: String) {
-        zuna.element(picker).tap()
+        scrolledTo(picker).tap()
         let button = zuna.app.buttons[option]
         XCTAssertTrue(button.waitForExistence(timeout: 5), "no \(option)")
         button.tap()
@@ -371,7 +379,7 @@ final class ChannelsTests: XCTestCase {
         row.press(forDuration: 1.0)
         XCTAssertTrue(edit.waitForExistence(timeout: 5))
         edit.tap()
-        zuna.element(A11y.Channels.delete).tap()
+        scrolledTo(A11y.Channels.delete).tap()
         let confirm = zuna.app.sheets.buttons["Delete channel"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
