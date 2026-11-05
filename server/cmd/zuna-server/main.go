@@ -227,7 +227,7 @@ func run(cfg config) error {
 		cfg.pin = pin
 		listenAddress = cfg.listen
 		httpServer.Addr = cfg.listen
-		httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+		httpServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: certificate}
 		go func() { errs <- httpServer.ListenAndServeTLS("", "") }()
 	case cfg.domain != "":
 		listenAddress = ":443"

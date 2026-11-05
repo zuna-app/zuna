@@ -23,19 +23,32 @@ import (
 // the file locks every app out until it gets a new link.
 const certificateKeyFile = "certificate.key"
 
-// ownCertificate is the certificate of a server reached by its IP address, which no
-// authority will vouch for, so the server makes it itself. The apps trust it because
-// its key matches the pin in the server's links: the SHA-256 of the key's
-// SubjectPublicKeyInfo, in base64url. The key is made once and kept, and the
-// certificate is made again from it at each start, so the pin never changes.
-func ownCertificate(keyPath string, ip net.IP) (tls.Certificate, string, error) {
+// ownCertificate gives the certificates of a server reached by its IP address, which
+// no authority will vouch for, so the server makes them itself. The apps trust them
+// because their key matches the pin in the server's links: the SHA-256 of the key's
+// SubjectPublicKeyInfo, in base64url. The key is made once and kept, so the pin never
+// changes. Each connection gets a certificate of its own, made from that key, since
+// Chromium remembers for a while which certificates it refused: one refused before
+// its pin was known, from a link without it, would be refused again.
+func ownCertificate(keyPath string, ip net.IP) (func(*tls.ClientHelloInfo) (*tls.Certificate, error), string, error) {
 	key, err := certificateKey(keyPath)
 	if err != nil {
-		return tls.Certificate{}, "", err
+		return nil, "", err
 	}
+	pin, err := keyPin(&key.PublicKey)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, err := makeCertificate(key, ip); err != nil {
+		return nil, "", err
+	}
+	return func(*tls.ClientHelloInfo) (*tls.Certificate, error) { return makeCertificate(key, ip) }, pin, nil
+}
+
+func makeCertificate(key *ecdsa.PrivateKey, ip net.IP) (*tls.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return tls.Certificate{}, "", err
+		return nil, err
 	}
 	now := time.Now()
 	template := &x509.Certificate{
@@ -51,13 +64,9 @@ func ownCertificate(keyPath string, ip net.IP) (tls.Certificate, string, error) 
 	}
 	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
 	if err != nil {
-		return tls.Certificate{}, "", fmt.Errorf("making the certificate: %w", err)
+		return nil, fmt.Errorf("making the certificate: %w", err)
 	}
-	pin, err := keyPin(&key.PublicKey)
-	if err != nil {
-		return tls.Certificate{}, "", err
-	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, pin, nil
+	return &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, nil
 }
 
 // keyPin is what the apps check a server's certificate against.

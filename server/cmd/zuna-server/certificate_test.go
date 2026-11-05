@@ -13,7 +13,11 @@ import (
 func TestOwnCertificateKeepsItsPin(t *testing.T) {
 	path := filepath.Join(t.TempDir(), certificateKeyFile)
 	ip := net.ParseIP("192.168.1.10")
-	first, pin, err := ownCertificate(path, ip)
+	certificate, pin, err := ownCertificate(path, ip)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := certificate(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,15 +45,20 @@ func TestOwnCertificateKeepsItsPin(t *testing.T) {
 		t.Fatalf("the certificate's key hashes to %q, but its links carry %q", own, pin)
 	}
 
-	second, again, err := ownCertificate(path, ip)
+	// A refusal Chromium remembers is for one certificate, so each connection gets another.
+	second, err := certificate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(second.Certificate[0]) == string(first.Certificate[0]) {
+		t.Fatal("two connections got the same certificate")
+	}
+	_, again, err := ownCertificate(path, ip)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if again != pin {
 		t.Fatal("the next start changed the pin, which would lock every app out")
-	}
-	if string(second.Certificate[0]) == string(first.Certificate[0]) {
-		t.Fatal("the certificate wasn't made again, so it would expire one day")
 	}
 }
 
