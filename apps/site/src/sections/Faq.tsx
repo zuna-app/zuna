@@ -39,7 +39,7 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
   },
   {
     q: "How many people can a server hold?",
-    a: "A few hundred active people, with its built-in database. A larger one can keep its data in PostgreSQL instead.",
+    a: "A few hundred active people with SQLite, the database built into the server. A larger one can keep its data in PostgreSQL instead, which the Docker setup does for you.",
   },
   {
     q: "Can I use it without the push relay?",

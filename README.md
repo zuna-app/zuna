@@ -71,7 +71,7 @@ ZUNA_DOMAIN=chat.example.com docker compose up -d
 docker compose logs zuna
 ```
 
-The log shows a one-time setup link. Open it in the Zuna app to create your owner account, then invite people from inside the app. HTTPS certificates are handled automatically, and everything is stored in a single folder that's easy to back up.
+The log shows a one-time setup link. Open it in the Zuna app to create your owner account, then invite people from inside the app. HTTPS certificates are handled automatically, and PostgreSQL runs next to the server, set up for you.
 
 **Without Docker,** one script builds the server from git, runs it with systemd behind your own reverse proxy, and updates it later with the same command:
 
