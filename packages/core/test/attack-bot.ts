@@ -36,11 +36,13 @@ const bodies: unknown[] = [
 ];
 
 const session = mallory.session as any;
+// Each says who it's from, as a modified client's would, or it wouldn't be shown at all.
+const by = { user: session.account.userId, device: session.account.deviceId };
 for (const [index, body] of bodies.entries()) {
   const id = String(index).padStart(32, "b");
   await session.withLock(groupId, () =>
     session.sealAndRetry(groupId, async (epoch: number, epochKey: Uint8Array) => {
-      const envelope = sealEnvelope(epochKey, session.account.deviceSecret, "message", groupId, id, epoch, body);
+      const envelope = sealEnvelope(epochKey, session.account.deviceSecret, "message", groupId, id, epoch, { ...(body as object), by });
       await session.api.sendMessage(groupId, { id, epoch, envelope });
     }),
   );

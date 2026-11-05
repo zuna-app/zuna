@@ -91,7 +91,7 @@ struct VerifyView: View {
         } else {
             HStack(spacing: 10) {
                 Button {
-                    model.toast("If they see 12 emoji, their app needs updating. Otherwise, don't share anything private with them until you know why the emoji differ.", .security)
+                    model.toast("Don't share anything private with them until you know why the emoji differ.", .security)
                     dismiss()
                 } label: {
                     Label("They don't match", systemImage: "exclamationmark.triangle").frame(maxWidth: .infinity, minHeight: 44)

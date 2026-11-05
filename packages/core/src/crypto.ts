@@ -371,11 +371,11 @@ export function sealEnvelope(
 
 /**
  * The authenticated data says what a message is, not who wrote it, so a body says
- * that itself, under the signature. A body from before this says nothing, which is fine.
+ * that itself, under the signature.
  */
 export function namesItsSender(body: unknown, user: string, device: string): boolean {
   const by = (body as { by?: { user?: unknown; device?: unknown } } | null)?.by;
-  return by === undefined || (by?.user === user && by?.device === device);
+  return by?.user === user && by?.device === device;
 }
 
 export type OpenResult<T> = { ok: true; value: T } | { ok: false; reason: "signature" | "decrypt" };
@@ -435,7 +435,7 @@ export function frameSigned(deviceId: string, epoch: number, envelope: Uint8Arra
   return concat(new Uint8Array([SIGNED_SIGNAL, device.length]), device, u32Bytes(epoch), envelope);
 }
 
-/** What `frameSigned` made, or null for what isn't one: anything from before, whose first byte is never this. */
+/** What `frameSigned` made, or null for what isn't one. */
 export function readSigned(framed: Uint8Array): { deviceId: string; epoch: number; envelope: Uint8Array } | null {
   if (framed[0] !== SIGNED_SIGNAL || framed.length < 2) return null;
   const end = 2 + framed[1]!;
@@ -501,13 +501,12 @@ const detailsSignatureInput = (groupId: string, version: number, signer: Signer,
 
 /**
  * A group's details, signed by the admin's device that set them, with a version
- * so an older copy can't be served again. The details are readable outside the
- * signed part too, for clients from before they were signed.
+ * so an older copy can't be served again.
  */
 export function signGroupDetails(groupId: string, details: object, version: number, signer: Signer, deviceSecret: Uint8Array): object {
   const text = JSON.stringify(details);
   const signature = wasm.sign(deviceSecret, detailsSignatureInput(groupId, version, signer, text));
-  return { ...details, signed: { details: text, version, user: signer.userId, device: signer.deviceId, signature: toBase64(signature) } };
+  return { signed: { details: text, version, user: signer.userId, device: signer.deviceId, signature: toBase64(signature) } };
 }
 
 export interface SignedGroupDetails {
@@ -536,13 +535,6 @@ export function readSignedGroupDetails(groupId: string, value: unknown): SignedG
   }
 }
 
-// --- Reactions ---
-
-/** The ID of a reaction from before they were signed. Anyone could work out what one was from it, so new ones have a random ID. */
-export function reactionId(userId: string, messageId: string, key: string): string {
-  return toHex(wasm.sha256(utf8(`zuna/reaction/v1|${userId}|${messageId}|${key}`)).subarray(0, 16));
-}
-
 // --- Emoji verification ---
 
 const SAFETY_EMOJI_COUNT = 16;
@@ -552,8 +544,7 @@ const safetyCache = new Map<string, { emoji: string; name: string }[]>();
  * The anti-MITM check. Both people see the same emoji only if each of their
  * apps holds the other's real identity key. Sixteen emoji from a set of 64 give
  * 96 bits, from Argon2id, which makes each attempt at keys whose emoji match
- * cost memory as well as time. Apps from before showed twelve, so the count
- * itself shows when one side needs updating.
+ * cost memory as well as time.
  */
 export function safetyEmoji(ownIdentity: Uint8Array, peerIdentity: Uint8Array): { emoji: string; name: string }[] {
   const cacheKey = `${toHex(ownIdentity)}|${toHex(peerIdentity)}`;

@@ -50,7 +50,6 @@ import {
   openVaultItem,
   parseCertificate,
   randomId,
-  reactionId,
   readSigned,
   readSignedGroupDetails,
   safetyEmoji,
@@ -2558,19 +2557,12 @@ export class ServerSession {
   /**
    * Takes on a group's details if an admin's device signed them and they aren't
    * older than what's held. Anyone with an epoch key could write some, and the
-   * server could serve old ones. Unsigned details, from before these were signed,
-   * count only until signed ones are seen, and an admin's app replaces them. They
-   * never say whether history is shared: anyone could have written that.
+   * server could serve old ones. What doesn't hold up, an admin's app replaces.
    */
   private acceptGroupDetails(group: CachedGroup, opened: unknown): void {
     if (opened === null) return;
     const signed = readSignedGroupDetails(group.id, opened);
     if (!signed) {
-      const legacy = parseGroupDetails(opened);
-      if (legacy && !group.metaVersion) {
-        delete legacy.historyVisible;
-        group.meta = legacy;
-      }
       this.resealIfAdmin(group);
       return;
     }
@@ -2654,9 +2646,7 @@ export class ServerSession {
       seq = opened.ok ? parseReadState(opened.value) : null;
     } else {
       // Unsigned, it can only be this account's own, sealed to its key so its other
-      // devices keep up. Apps from before positions were signed sealed others' with the
-      // group's key, which any member holds, saying nothing of whose they were, so the
-      // server could have put one under anyone's name.
+      // devices keep up.
       if (sealed[0] !== 1 || userId !== this.account.userId) return;
       const body = sealed.subarray(1);
       // A position sealed to this account stays as it was until it's next written, so
@@ -3866,17 +3856,11 @@ export class ServerSession {
   private openReaction(groupId: string, messageId: string, reaction: ApiReaction): ReturnType<typeof parseReaction> {
     const key = this.epochKey(groupId, reaction.epoch);
     if (!key) return null;
-    const data = decode(reaction.data);
-    const signed = readSigned(data);
-    if (signed) {
-      const device = this.users.get(reaction.user_id)?.devices.get(signed.deviceId);
-      if (!device || signed.epoch !== reaction.epoch) return null;
-      const opened = openEnvelope<{ id?: unknown }>(key, device.signatureKey, "reaction", groupId, messageId, reaction.epoch, signed.envelope);
-      return opened.ok && opened.value?.id === reaction.id ? parseReaction(opened.value) : null;
-    }
-    // From before reactions were signed, with only its ID to say whose it is.
-    const opened = parseReaction(openSignal<unknown>(key, "reaction", groupId, data));
-    return opened && reactionId(reaction.user_id, messageId, opened.key) === reaction.id ? opened : null;
+    const signed = readSigned(decode(reaction.data));
+    const device = signed && this.users.get(reaction.user_id)?.devices.get(signed.deviceId);
+    if (!signed || !device || signed.epoch !== reaction.epoch) return null;
+    const opened = openEnvelope<{ id?: unknown }>(key, device.signatureKey, "reaction", groupId, messageId, reaction.epoch, signed.envelope);
+    return opened.ok && opened.value?.id === reaction.id ? parseReaction(opened.value) : null;
   }
 
   private openReactions(groupId: string, messageId: string, raw: ApiReaction[]): ReactionView[] {
@@ -4105,8 +4089,6 @@ export class ServerSession {
    * Whether a message is pinned, when and by whom, as a member's device signed it,
    * under an epoch from before that device left. The server's word alone changes
    * nothing, and a pin or unpin only replaces one this device holds if it's later.
-   * A pin from before pins were signed stays while the server keeps it, but only on
-   * a device that already had it.
    */
   private pinState(message: ApiMessage, existing: MessageRow | undefined): { at: number | null; by: string | null; revision: number | null } {
     const none = { at: null, by: null, revision: null };
@@ -4116,8 +4098,7 @@ export class ServerSession {
     if (signed && signed.revision >= (held.revision ?? 0)) {
       return signed.pinned ? { at: signed.revision, by: signed.by, revision: signed.revision } : { ...none, revision: signed.revision };
     }
-    if (held.revision === null) return held.at !== null && message.pinned_at !== null ? held : none;
-    return held;
+    return held.revision === null ? none : held;
   }
 
   private openPin(message: ApiMessage): { by: string; pinned: boolean; revision: number } | null {

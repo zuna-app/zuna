@@ -582,23 +582,19 @@ func (s *Server) handleDeleteMessage(w http.ResponseWriter, r *http.Request, ses
 		writeError(w, http.StatusForbidden, "forbidden", "You can only delete your own messages.")
 		return
 	}
-	// Apps that sign deletions send what their device signed, which other members
-	// check before erasing their copies. Older apps send nothing.
+	// What the deleting device signed, which other members check before erasing their copies.
 	var body struct {
 		Epoch    *int64 `json:"epoch"`
 		Deletion []byte `json:"deletion"`
 	}
-	if r.ContentLength != 0 && !readJSONUpTo(w, r, maxProofBody, &body) {
+	if !readJSONUpTo(w, r, maxProofBody, &body) {
 		return
 	}
-	if (body.Deletion == nil) != (body.Epoch == nil) || len(body.Deletion) > maxProofBytes {
+	if len(body.Deletion) == 0 || body.Epoch == nil || len(body.Deletion) > maxProofBytes {
 		writeError(w, http.StatusBadRequest, "bad_request", "The deletion isn't valid.")
 		return
 	}
-	deletion := store.Deletion{By: sess.UserID, Proof: body.Deletion}
-	if body.Epoch != nil {
-		deletion.Epoch = *body.Epoch
-	}
+	deletion := store.Deletion{By: sess.UserID, Proof: body.Deletion, Epoch: *body.Epoch}
 	message, files, err := s.db.DeleteMessage(r.Context(), groupID, messageID, deletion)
 	if err != nil {
 		writeFailure(w, err)
@@ -663,23 +659,19 @@ func (s *Server) handlePin(pinned bool) memberHandler {
 		if s.visibleMessage(w, r, member) == nil {
 			return
 		}
-		// Apps that sign pins send what their device signed, which other members
-		// check before showing the pin. Older apps send nothing.
+		// What the pinning device signed, which other members check before showing the pin.
 		var body struct {
 			Epoch *int64 `json:"epoch"`
 			Pin   []byte `json:"pin"`
 		}
-		if r.ContentLength != 0 && !readJSONUpTo(w, r, maxProofBody, &body) {
+		if !readJSONUpTo(w, r, maxProofBody, &body) {
 			return
 		}
-		if (body.Pin == nil) != (body.Epoch == nil) || len(body.Pin) > maxProofBytes {
+		if len(body.Pin) == 0 || body.Epoch == nil || len(body.Pin) > maxProofBytes {
 			writeError(w, http.StatusBadRequest, "bad_request", "The pin isn't valid.")
 			return
 		}
-		pin := store.Pin{Proof: body.Pin}
-		if body.Epoch != nil {
-			pin.Epoch = *body.Epoch
-		}
+		pin := store.Pin{Proof: body.Pin, Epoch: *body.Epoch}
 		message, err := s.db.SetPinned(r.Context(), groupID, r.PathValue("mid"), sess.UserID, pinned, pin)
 		if err != nil {
 			writeFailure(w, err)

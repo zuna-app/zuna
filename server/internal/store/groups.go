@@ -317,8 +317,8 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		if kind != "group" && (len(c.AddUsers) > 0 || len(c.RemoveUsers) > 0) {
 			return ErrForbidden
 		}
-		// Older clients seal the details again with every commit, whoever makes
-		// it, so a member's copy is left out instead of refusing the commit.
+		// A device that has only just stopped being an admin may still send the
+		// details, so a member's copy is left out instead of refusing the commit.
 		if role != "admin" {
 			c.Meta = nil
 		}

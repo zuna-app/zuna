@@ -414,7 +414,7 @@ func TestMessageLifecycle(t *testing.T) {
 	}
 
 	var pinned store.Message
-	h.mustDo("PUT", path+"/"+id+"/pin", bob.token, nil, &pinned)
+	h.mustDo("PUT", path+"/"+id+"/pin", bob.token, map[string]any{"epoch": 1, "pin": []byte("signed")}, &pinned)
 	if pinned.PinnedAt == nil || pinned.PinnedBy != bob.userID {
 		t.Fatalf("pin: %+v", pinned)
 	}
@@ -427,7 +427,7 @@ func TestMessageLifecycle(t *testing.T) {
 	}
 
 	var deleted store.Message
-	h.mustDo("DELETE", path+"/"+id, owner.token, nil, &deleted)
+	h.mustDo("DELETE", path+"/"+id, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, &deleted)
 	if deleted.DeletedAt == nil || len(deleted.Envelope) != 0 || deleted.PinnedAt != nil {
 		t.Fatalf("delete must erase the ciphertext: %+v", deleted)
 	}

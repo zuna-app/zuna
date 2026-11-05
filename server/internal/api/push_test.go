@@ -283,7 +283,7 @@ func TestPushesWaitWhileSomeoneUsesAnotherDevice(t *testing.T) {
 	h.mustDo("PUT", "/api/groups/"+group.ID+"/read", laptop.token, map[string]any{"data": []byte("sealed-read")}, nil)
 	gone := store.NewID()
 	owner.send(group.ID, 1, gone)
-	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, nil, nil)
+	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
 	// Reading clears the notifications the phone showed earlier.
 	if push := relay.next(t); push.Type != "background" {
 		t.Fatalf("pushed %+v", push)
@@ -379,7 +379,7 @@ func TestSilentPushesClearChatsReadOrMessagesDeletedElsewhere(t *testing.T) {
 	gone := store.NewID()
 	owner.send(group.ID, 1, gone)
 	relay.next(t)
-	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, nil, nil)
+	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+gone, owner.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
 	deleted := relay.next(t)
 	if fields := openPush(t, key, deleted); deleted.Type != "background" || fields["t"] != "delete" || fields["m"] != gone {
 		t.Fatalf("delete push: %+v %v", deleted, fields)

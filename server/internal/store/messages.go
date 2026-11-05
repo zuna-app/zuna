@@ -370,7 +370,6 @@ func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID,
 }
 
 // Pin is what a device signed to pin or unpin a message, under the epoch it names.
-// Apps from before pins were signed send none.
 type Pin struct {
 	Epoch int64
 	Proof []byte

@@ -461,7 +461,7 @@ func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	carol.commit(dm.ID, 0, nil)
 	id := store.NewID()
 	h.mustDo("POST", "/api/groups/"+dm.ID+"/messages", carol.token, map[string]any{"id": id, "epoch": 1, "envelope": []byte("x"), "file_ids": []string{avatar}}, nil)
-	h.mustDo("DELETE", "/api/groups/"+dm.ID+"/messages/"+id, carol.token, nil, nil)
+	h.mustDo("DELETE", "/api/groups/"+dm.ID+"/messages/"+id, carol.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
 	if status := bob.readFile(avatar); status != http.StatusOK {
 		t.Fatalf("an avatar went with a message: %d", status)
 	}
@@ -475,7 +475,7 @@ func TestFilesOnlyGoWhenNothingUsesThem(t *testing.T) {
 	if status != http.StatusCreated {
 		t.Fatalf("forwarding a file from your own chat: %d", status)
 	}
-	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+forwarded, bob.token, nil, nil)
+	h.mustDo("DELETE", "/api/groups/"+group.ID+"/messages/"+forwarded, bob.token, map[string]any{"epoch": 1, "deletion": []byte("signed")}, nil)
 	if status := owner.readFile(photo); status != http.StatusOK {
 		t.Fatalf("the original lost its file: %d", status)
 	}
@@ -939,11 +939,9 @@ func TestADeletionCarriesWhatItsDeviceSigned(t *testing.T) {
 	if string(deleted.Deletion) != "signed" || deleted.DeletedBy != owner.userID || deleted.DeletedAt == nil {
 		t.Fatalf("the deletion came back as %+v", deleted)
 	}
-	// An older app sends nothing, and still deletes.
 	second := owner.send(group, 0, store.NewID())
-	var unproven store.Message
-	if status, _ := h.do("DELETE", base+second.ID, owner.token, nil, &unproven); status != http.StatusOK || unproven.Deletion != nil || unproven.DeletedBy != owner.userID {
-		t.Fatalf("deleting without a proof gave %d %+v", status, unproven)
+	if status, _ := h.do("DELETE", base+second.ID, owner.token, nil, nil); status != http.StatusBadRequest {
+		t.Fatalf("deleting without a proof gave %d", status)
 	}
 }
 

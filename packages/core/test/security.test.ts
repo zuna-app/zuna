@@ -16,7 +16,6 @@ import {
   frameSigned,
   parseCertificate,
   randomId,
-  reactionId,
   sealEnvelope,
   sealSignal,
   sealVaultItem,
@@ -273,13 +272,15 @@ describe("messages that aren't what they should be (Z-03, Z-05, Z-12)", () => {
     return alice.session.getConversations().find((item) => item.key === key)!.groupId!;
   }
 
-  /** Sends whatever JSON someone likes, as a modified client would. */
+  /** Sends whatever JSON someone likes, as a modified client would, saying who it's from if it can. */
   async function sendRaw(sender: TestApp, groupId: string, body: unknown): Promise<string> {
     const session = sender.session as any;
     const id = "a".repeat(24) + String(Date.now() % 1e8).padStart(8, "0");
+    const by = { user: session.account.userId, device: session.account.deviceId };
+    const named = body !== null && typeof body === "object" ? { ...body, by } : body;
     return session.withLock(groupId, () =>
       session.sealAndRetry(groupId, async (epoch: number, key: Uint8Array) => {
-        const envelope = sealEnvelope(key, session.account.deviceSecret, "message", groupId, id, epoch, body);
+        const envelope = sealEnvelope(key, session.account.deviceSecret, "message", groupId, id, epoch, named);
         await session.api.sendMessage(groupId, { id, epoch, envelope });
       }),
     ).then(() => id);
@@ -303,7 +304,8 @@ describe("messages that aren't what they should be (Z-03, Z-05, Z-12)", () => {
     const id = await sendRaw(dave, groupId, body);
     await waitFor(() => (alice.session as any).messageRow(groupId, id) !== undefined, "it to arrive");
     const view = await alice.session.messageById(groupId, id);
-    expect(view!.status).toBe("invalid");
+    // One that isn't an object can't say who it's from, so it can't be told from someone else's.
+    expect(view!.status).toBe(body !== null && typeof body === "object" ? "invalid" : "unverified");
     expect(view!.text).toBe("");
     // None of what the app does with a conversation's newest message trips on it.
     const row = alice.session.getConversations().find((item) => item.groupId === groupId)!;
@@ -538,7 +540,7 @@ describe("garbage and groups (Z-07, Z-08)", () => {
     const signed = signGroupDetails(groupId, { name: "Not an admin's" }, 9, signer, daveSession.account.deviceSecret);
     session.acceptGroupDetails(group, signed);
     expect(group.meta.name).toBe("The real name");
-    // Unsigned, once signed ones have been seen.
+    // Unsigned.
     session.acceptGroupDetails(group, { name: "Unsigned" });
     expect(group.meta.name).toBe("The real name");
     // An old signed copy, from an admin.
@@ -1735,16 +1737,6 @@ describe("what a server can learn from reactions and read positions, or change i
 
   const onWire = (row: ReturnType<typeof storedReactions>[number]) => ({ ...row, data: toBase64(new Uint8Array(row.data)) });
 
-  it("can't tell which reaction it was from its ID", async () => {
-    const { ann, rob, groupId, messageId } = await threeAndAMessage();
-    await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
-    expect(storedReactions(messageId)[0]!.id).not.toBe(reactionId(rob.userId, messageId, THUMBS_UP));
-    await waitFor(async () => {
-      const view = await ann.session.messageById(groupId, messageId);
-      return view?.reactions[0]?.key === THUMBS_UP && view.reactions[0].userIds[0] === rob.userId;
-    }, "them to see it");
-  });
-
   it("can't pass a reaction off as someone else's, or move it to another message", async () => {
     const { ann, rob, zed, groupId, messageId } = await threeAndAMessage();
     await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
@@ -1778,17 +1770,6 @@ describe("what a server can learn from reactions and read positions, or change i
     expect(storedReactions(messageId)).toEqual([]);
   });
 
-  it("removes one from before reactions were signed", async () => {
-    const { rob, groupId, messageId } = await threeAndAMessage();
-    const session = sessionOf(rob);
-    const epoch = session.mlsEpoch(groupId);
-    const id = reactionId(rob.userId, messageId, THUMBS_UP);
-    await apiOf(rob).addReaction(groupId, messageId, id, epoch, sealSignal(session.epochKey(groupId, epoch), "reaction", groupId, epoch, { key: THUMBS_UP }));
-    await waitFor(async () => (await rob.session.messageById(groupId, messageId))?.reactions[0]?.key === THUMBS_UP, "it to show");
-    await rob.session.toggleReaction(groupId, messageId, THUMBS_UP);
-    expect(storedReactions(messageId)).toEqual([]);
-  });
-
   it("can't pass one person's read position off as another's", async () => {
     const { ann, rob, zed, groupId, messageId } = await threeAndAMessage();
     await waitFor(() => (sessionOf(rob).messageRow(groupId, messageId)?.seq ?? 0) > 0, "its place");
@@ -1810,11 +1791,11 @@ describe("what a server can learn from reactions and read positions, or change i
     const epoch = sessionOf(rob).mlsEpoch(groupId);
     const framed = (first: number, sealed: Uint8Array) => new Uint8Array([first, ...sealed]);
 
-    // As an app from before positions were signed wrote one, under the group's key, which
-    // any member can make, for whoever the server then says: someone else, or ann herself.
-    const legacy = framed(0, sealSignal(sessionOf(rob).epochKey(groupId, epoch), "read", groupId, epoch, { seq: seq + 100 }));
-    sessionOf(ann).applyReadState(group, zed.userId, legacy);
-    sessionOf(ann).applyReadState(group, ann.userId, legacy);
+    // One under the group's key, which any member can make, for whoever the server
+    // then says: someone else, or ann herself.
+    const forged = framed(0, sealSignal(sessionOf(rob).epochKey(groupId, epoch), "read", groupId, epoch, { seq: seq + 100 }));
+    sessionOf(ann).applyReadState(group, zed.userId, forged);
+    sessionOf(ann).applyReadState(group, ann.userId, forged);
     expect(group.readBy[zed.userId] ?? 0).toBe(0);
     expect(group.ownRead).toBeLessThan(seq + 100);
 
