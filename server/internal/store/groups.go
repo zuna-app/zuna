@@ -64,6 +64,9 @@ type Commit struct {
 	Meta          []byte
 	MetaEpoch     *int64
 	HistoryGrants []HistoryGrant
+	// A group's admins from now on, as the roster in the commit names them, or nil
+	// to leave them be. The server can't read the roster, so only an admin may say.
+	Admins *[]string
 	// What this person may have in commits, as CreateFile's quota is for files.
 	Quota int64
 }
@@ -317,6 +320,9 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		if kind != "group" && (len(c.AddUsers) > 0 || len(c.RemoveUsers) > 0) {
 			return ErrForbidden
 		}
+		if c.Admins != nil && (role != "admin" || kind != "group") {
+			return ErrForbidden
+		}
 		// A device that has only just stopped being an admin may still send the
 		// details, so a member's copy is left out instead of refusing the commit.
 		if role != "admin" {
@@ -364,6 +370,16 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		for _, user := range c.RemoveUsers {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ? AND user_id = ?`, c.GroupID, user); err != nil {
 				return err
+			}
+		}
+		if c.Admins != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE group_members SET role = 'member' WHERE group_id = ?`, c.GroupID); err != nil {
+				return err
+			}
+			for _, user := range *c.Admins {
+				if _, err := tx.ExecContext(ctx, `UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?`, c.GroupID, user); err != nil {
+					return err
+				}
 			}
 		}
 		newEpoch := c.ExpectedEpoch + 1
@@ -662,17 +678,6 @@ func (d *DB) PromoteIfNoAdmin(ctx context.Context, groupID string) (bool, error)
 		return nil
 	})
 	return promoted, err
-}
-
-func (d *DB) SetGroupMemberRole(ctx context.Context, groupID, userID, role string) error {
-	res, err := d.sql.ExecContext(ctx, `UPDATE group_members SET role = ? WHERE group_id = ? AND user_id = ?`, role, groupID, userID)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
 }
 
 func (d *DB) SetGroupMeta(ctx context.Context, groupID string, meta []byte, epoch int64, historyVisible *bool) error {

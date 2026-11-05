@@ -75,11 +75,14 @@ export class MlsClient {
   keyPackageSignatureKey(keyPackage: Uint8Array): Uint8Array {
     return this.call("keyPackageSignatureKey", keyPackage);
   }
-  createGroup(groupId: Uint8Array): number {
-    return this.call("createGroup", groupId);
+  createGroup(groupId: Uint8Array, roster?: Uint8Array | null): number {
+    return this.call("createGroup", groupId, roster ?? null);
   }
-  commitChanges(groupId: Uint8Array, keyPackages: unknown[], removeLeaves: Uint32Array): unknown {
-    return this.call("commitChanges", groupId, keyPackages, removeLeaves);
+  commitChanges(groupId: Uint8Array, keyPackages: unknown[], removeLeaves: Uint32Array, roster?: Uint8Array | null): unknown {
+    return this.call("commitChanges", groupId, keyPackages, removeLeaves, roster ?? null);
+  }
+  roster(groupId: Uint8Array): Uint8Array | undefined {
+    return this.call("roster", groupId) ?? undefined;
   }
   mergePending(groupId: Uint8Array): number {
     return this.call("mergePending", groupId);

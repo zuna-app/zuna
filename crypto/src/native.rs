@@ -290,8 +290,8 @@ impl MlsClient {
         native(self.client().key_package_signature_key(&key_package))
     }
 
-    pub fn create_group(&self, group_id: Vec<u8>) -> NativeResult<u64> {
-        native(self.client().create_group(&group_id))
+    pub fn create_group(&self, group_id: Vec<u8>, roster: Option<Vec<u8>>) -> NativeResult<u64> {
+        native(self.client().create_group(&group_id, roster.as_deref()))
     }
 
     pub fn commit_changes(
@@ -299,10 +299,11 @@ impl MlsClient {
         group_id: Vec<u8>,
         key_packages: Vec<Vec<u8>>,
         remove_leaves: Vec<u32>,
+        roster: Option<Vec<u8>>,
     ) -> NativeResult<PendingCommit> {
         let pending = native(
             self.client()
-                .commit_changes(&group_id, &key_packages, &remove_leaves),
+                .commit_changes(&group_id, &key_packages, &remove_leaves, roster.as_deref()),
         )?;
         Ok(PendingCommit {
             commit: pending.commit,
@@ -360,6 +361,10 @@ impl MlsClient {
 
     pub fn epoch(&self, group_id: Vec<u8>) -> NativeResult<u64> {
         native(self.client().epoch(&group_id))
+    }
+
+    pub fn roster(&self, group_id: Vec<u8>) -> NativeResult<Option<Vec<u8>>> {
+        native(self.client().roster(&group_id))
     }
 
     pub fn own_leaf_index(&self, group_id: Vec<u8>) -> NativeResult<u32> {

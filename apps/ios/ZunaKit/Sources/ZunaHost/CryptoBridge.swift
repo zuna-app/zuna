@@ -182,11 +182,11 @@ final class CryptoBridge {
         case "keyPackageSignatureKey":
             return b(try client.keyPackageSignatureKey(keyPackage: groupId()))
         case "createGroup":
-            return number(try client.createGroup(groupId: groupId()))
+            return number(try client.createGroup(groupId: groupId(), roster: optionalData(arg(1))))
         case "commitChanges":
             let packages = (arg(1)?.arrayElements ?? []).map { data($0) }
             let pending = try client.commitChanges(
-                groupId: groupId(), keyPackages: packages, removeLeaves: JSBytes.readUInt32s(arg(2))
+                groupId: groupId(), keyPackages: packages, removeLeaves: JSBytes.readUInt32s(arg(2)), roster: optionalData(arg(3))
             )
             return object([
                 ("commit", b(pending.commit)),
@@ -220,6 +220,8 @@ final class CryptoBridge {
             return b(try client.exportGroupInfo(groupId: groupId()))
         case "epoch":
             return number(try client.epoch(groupId: groupId()))
+        case "roster":
+            return optionalBytes(try client.roster(groupId: groupId()))
         case "ownLeafIndex":
             return JSValue(double: Double(try client.ownLeafIndex(groupId: groupId())), in: context)
         case "members":
@@ -249,6 +251,12 @@ final class CryptoBridge {
 
 private func data(_ value: JSValue?) -> Data {
     JSBytes.read(value) ?? Data()
+}
+
+/// Bytes, or nil for null and undefined.
+private func optionalData(_ value: JSValue?) -> Data? {
+    guard let value, !value.isNull, !value.isUndefined else { return nil }
+    return JSBytes.read(value)
 }
 
 private func message(of error: Error) -> String {

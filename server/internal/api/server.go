@@ -427,7 +427,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/groups/{id}/group-info", s.member(s.handleGroupInfo))
 	mux.HandleFunc("PUT /api/groups/{id}/meta", s.member(s.handleGroupMeta))
 	mux.HandleFunc("POST /api/groups/{id}/leave", s.member(s.provenMember(s.handleLeave)))
-	mux.HandleFunc("PUT /api/groups/{id}/members/{user}/role", s.member(s.provenMember(s.handleGroupRole)))
 	mux.HandleFunc("PUT /api/groups/{id}/read", s.member(s.handleRead))
 	mux.HandleFunc("GET /api/groups/{id}/changes", s.member(s.handleChanges))
 	mux.HandleFunc("GET /api/welcomes", s.withDevice(s.handleWelcomes))

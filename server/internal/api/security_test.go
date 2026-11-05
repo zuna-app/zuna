@@ -375,7 +375,7 @@ func TestADirectMessageIsntAnyonesToDelete(t *testing.T) {
 	if string(dm.Meta) != "x" || dm.HistoryVisible {
 		t.Fatalf("the DM's details are %q, sharing history %v", dm.Meta, dm.HistoryVisible)
 	}
-	if status, _ := h.do("PUT", path+"/members/"+owner.userID+"/role", bob.token, map[string]any{"role": "member"}, nil); status != http.StatusBadRequest {
+	if status, _ := bob.commit(group.ID, 1, map[string]any{"admins": []string{bob.userID}}); status != http.StatusForbidden {
 		t.Fatalf("changing a role in a DM gave %d", status)
 	}
 	if status, _ := h.do("GET", path, owner.token, nil, nil); status != http.StatusOK {
@@ -1230,5 +1230,36 @@ func TestParallelUploadsCantPassTheQuota(t *testing.T) {
 	wg.Wait()
 	if accepted.Load() != 4 {
 		t.Fatalf("%d uploads of 1 MiB accepted under a 4 MiB quota", accepted.Load())
+	}
+}
+
+// A group's admins follow the roster its admins' commits carry. The server can't read
+// that roster, so it takes the list only from someone who's an admin already.
+func TestAGroupsAdminsFollowWhatAnAdminCommits(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	var created struct {
+		Group *store.Group `json:"group"`
+	}
+	h.mustDo("POST", "/api/groups", owner.token, map[string]any{"kind": "group"}, &created)
+	group := created.Group.ID
+	if status, body := owner.commit(group, 0, map[string]any{"add_users": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("adding bob gave %d %v", status, body)
+	}
+	if status, _ := bob.commit(group, 1, map[string]any{"admins": []string{bob.userID}}); status != http.StatusForbidden {
+		t.Fatalf("a member naming the admins gave %d", status)
+	}
+	if status, body := owner.commit(group, 1, map[string]any{"admins": []string{bob.userID}}); status != http.StatusOK {
+		t.Fatalf("an admin naming the admins gave %d %v", status, body)
+	}
+	var after store.Group
+	h.mustDo("GET", "/api/groups/"+group, bob.token, nil, &after)
+	roles := map[string]string{}
+	for _, member := range after.Members {
+		roles[member.UserID] = member.Role
+	}
+	if roles[owner.userID] != "member" || roles[bob.userID] != "admin" {
+		t.Fatalf("roles are %v", roles)
 	}
 }

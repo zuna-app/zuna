@@ -238,6 +238,8 @@ export interface CommitRequest {
   meta?: Uint8Array;
   meta_epoch?: number;
   history_grants?: { user_id: string; data: Uint8Array }[];
+  /** A group's admins, as the roster this commit carries names them. */
+  admins?: string[];
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -413,8 +415,6 @@ export class Api {
   setGroupMeta = (groupId: string, meta: Uint8Array, epoch: number, historyVisible?: boolean) =>
     this.request("PUT", at`/api/groups/${groupId}/meta`, { meta, epoch, history_visible: historyVisible });
   leaveGroup = (groupId: string) => this.request("POST", at`/api/groups/${groupId}/leave`, {});
-  setGroupRole = (groupId: string, userId: string, role: "admin" | "member") =>
-    this.request("PUT", at`/api/groups/${groupId}/members/${userId}/role`, { role });
   setRead = (groupId: string, data: Uint8Array) => this.request("PUT", at`/api/groups/${groupId}/read`, { data });
   changes = (groupId: string, after: number, limit = 200) =>
     this.request<ApiChanges>("GET", at`/api/groups/${groupId}/changes?after=${after}&limit=${limit}`);

@@ -248,9 +248,10 @@ impl MlsClient {
         to_js(self.inner.key_package_signature_key(key_package))
     }
 
+    /// Starts a group; `roster` is null for one without a roster.
     #[wasm_bindgen(js_name = createGroup)]
-    pub fn create_group(&self, group_id: &[u8]) -> JsResult<u32> {
-        to_js(self.inner.create_group(group_id)).map(|epoch| epoch as u32)
+    pub fn create_group(&self, group_id: &[u8], roster: Option<Vec<u8>>) -> JsResult<u32> {
+        to_js(self.inner.create_group(group_id, roster.as_deref())).map(|epoch| epoch as u32)
     }
 
     /// Returns `{ commit, welcome, groupInfo }`; `welcome` and `groupInfo` may be null.
@@ -260,11 +261,12 @@ impl MlsClient {
         group_id: &[u8],
         key_packages: Array,
         remove_leaves: Vec<u32>,
+        roster: Option<Vec<u8>>,
     ) -> JsResult<Object> {
         let key_packages = from_byte_array(&key_packages);
         to_js(
             self.inner
-                .commit_changes(group_id, &key_packages, &remove_leaves),
+                .commit_changes(group_id, &key_packages, &remove_leaves, roster.as_deref()),
         )
         .map(pending_to_js)
     }
@@ -338,6 +340,12 @@ impl MlsClient {
 
     pub fn epoch(&self, group_id: &[u8]) -> JsResult<u32> {
         to_js(self.inner.epoch(group_id)).map(|epoch| epoch as u32)
+    }
+
+    /// The roster in a group's context now, or undefined if it has none.
+    #[wasm_bindgen]
+    pub fn roster(&self, group_id: &[u8]) -> JsResult<Option<Vec<u8>>> {
+        to_js(self.inner.roster(group_id))
     }
 
     #[wasm_bindgen(js_name = ownLeafIndex)]

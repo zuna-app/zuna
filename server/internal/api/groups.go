@@ -116,6 +116,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		Meta          []byte               `json:"meta"`
 		MetaEpoch     *int64               `json:"meta_epoch"`
 		HistoryGrants []store.HistoryGrant `json:"history_grants"`
+		Admins        *[]string            `json:"admins"`
 	}
 	if !readJSONUpTo(w, r, maxCommitBody, &body) {
 		return
@@ -152,6 +153,7 @@ func (s *Server) handleCommit(w http.ResponseWriter, r *http.Request, sess *stor
 		Meta:          body.Meta,
 		MetaEpoch:     body.MetaEpoch,
 		HistoryGrants: body.HistoryGrants,
+		Admins:        body.Admins,
 		Quota:         s.quotaBytes(),
 	})
 	if err != nil {
@@ -330,37 +332,6 @@ func (s *Server) removeFromRoster(r *http.Request, groupID, actor, target string
 	s.hub.ToUsers([]string{target}, Event{Type: "group_removed", Data: map[string]string{"group_id": groupID}})
 	s.endVoiceOf(r.Context(), groupID, []string{target})
 	return nil
-}
-
-func (s *Server) handleGroupRole(w http.ResponseWriter, r *http.Request, _ *store.Session, member *store.GroupMember) {
-	groupID := r.PathValue("id")
-	if member.Role != "admin" {
-		writeError(w, http.StatusForbidden, "forbidden", "Only an admin of this group can change roles.")
-		return
-	}
-	var body struct {
-		Role string `json:"role"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	if body.Role != "admin" && body.Role != "member" {
-		writeError(w, http.StatusBadRequest, "bad_request", "Unknown role.")
-		return
-	}
-	if group, err := s.db.Group(r.Context(), groupID); err != nil {
-		writeFailure(w, err)
-		return
-	} else if group.Kind != "group" {
-		writeError(w, http.StatusBadRequest, "bad_request", "Only a group has roles to change.")
-		return
-	}
-	if err := s.db.SetGroupMemberRole(r.Context(), groupID, r.PathValue("user"), body.Role); err != nil {
-		writeFailure(w, err)
-		return
-	}
-	s.broadcastGroup(r, groupID)
-	writeOK(w)
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request, sess *store.Session, _ *store.GroupMember) {

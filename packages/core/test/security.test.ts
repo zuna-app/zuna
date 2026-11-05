@@ -1075,19 +1075,20 @@ describe("a server adding an account of its own to a conversation (Z-38)", () =>
     expect(sessionOf(carol).treeMembers(groupId).map((member: { userId: string }) => member.userId)).not.toContain(ghost.userId);
   });
 
-  it("warns about someone new in a tree it joins", async () => {
+  it("goes by the roster for who was let in, in a tree it joins", async () => {
     const carol = await person("carol");
     const bob = await person("bob");
     const dave = await person("dave");
     const groupId = await groupWith(carol, [bob]);
     await carol.session.addMembers(groupId, [dave.userId]);
     await waitFor(() => sessionOf(dave).hasMlsGroup(groupId), "dave to join");
-    // Bob hasn't heard of Dave, and has to rejoin.
+    // Bob hasn't heard of Dave, and has to rejoin. The roster says an admin let him in.
     sessionOf(bob).setKnownMembers(groupId, [carol.userId, bob.userId]);
     await sessionOf(bob).joinExternal(groupId);
     const rows = sessionOf(bob).db.all("SELECT id, body FROM messages WHERE group_id = ? AND id LIKE 'sys-%'", [groupId]) as { body: Uint8Array }[];
     const notices = rows.map((row) => sessionOf(bob).openJson("message", row.body).system).filter((system: { type: string }) => system.type === "unexpected_join");
-    expect(notices.map((system: { actorId?: string }) => system.actorId)).toEqual([dave.userId]);
+    expect(notices).toEqual([]);
+    expect(sessionOf(bob).treeUsers(groupId)).toContain(dave.userId);
   });
 });
 
@@ -1332,44 +1333,44 @@ describe("a server bringing back what an edit replaced", () => {
   });
 });
 
+/** What a malicious server writes to delete a message, with whatever proof it has. */
+function serverDeletes(groupId: string, messageId: string, by: string, deletion: Uint8Array | null): void {
+  withServerDatabase((db) => {
+    const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
+    db.prepare("UPDATE messages SET envelope = NULL, deleted_at = ?, updated_seq = ?, deleted_by = ?, deletion = ? WHERE group_id = ? AND id = ?").run(
+      Date.now(),
+      seq,
+      by,
+      deletion,
+      groupId,
+      messageId,
+    );
+  });
+}
+
+/** A deletion `app`'s device signs, of whichever message it likes. */
+function signedDeletion(app: TestApp, groupId: string, messageId: string): Uint8Array {
+  const session = sessionOf(app);
+  const epoch = session.mlsEpoch(groupId) as number;
+  const { deviceId, deviceSecret } = session.account;
+  return frameSigned(deviceId, epoch, sealEnvelope(session.epochKey(groupId, epoch), deviceSecret, "deletion", groupId, messageId, epoch, { by: app.userId }));
+}
+
+async function threeInAGroup() {
+  const admin = await person("yara");
+  const member = await person("zack");
+  const other = await person("abel");
+  const groupId = await groupWith(admin, [member, other]);
+  return { admin, member, other, groupId };
+}
+
+async function sentAndSeen(from: TestApp, to: TestApp[], groupId: string, text: string): Promise<string> {
+  const sent = from.session.sendMessage(`group:${groupId}`, { text });
+  for (const app of to) await waitFor(() => app.texts(`group:${groupId}`).includes(text), "delivery");
+  return sent.id;
+}
+
 describe("a server saying a message was deleted", () => {
-  /** What a malicious server writes to delete a message, with whatever proof it has. */
-  function serverDeletes(groupId: string, messageId: string, by: string, deletion: Uint8Array | null): void {
-    withServerDatabase((db) => {
-      const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
-      db.prepare("UPDATE messages SET envelope = NULL, deleted_at = ?, updated_seq = ?, deleted_by = ?, deletion = ? WHERE group_id = ? AND id = ?").run(
-        Date.now(),
-        seq,
-        by,
-        deletion,
-        groupId,
-        messageId,
-      );
-    });
-  }
-
-  /** A deletion `app`'s device signs, of whichever message it likes. */
-  function signedDeletion(app: TestApp, groupId: string, messageId: string): Uint8Array {
-    const session = sessionOf(app);
-    const epoch = session.mlsEpoch(groupId) as number;
-    const { deviceId, deviceSecret } = session.account;
-    return frameSigned(deviceId, epoch, sealEnvelope(session.epochKey(groupId, epoch), deviceSecret, "deletion", groupId, messageId, epoch, { by: app.userId }));
-  }
-
-  async function threeInAGroup() {
-    const admin = await person("yara");
-    const member = await person("zack");
-    const other = await person("abel");
-    const groupId = await groupWith(admin, [member, other]);
-    return { admin, member, other, groupId };
-  }
-
-  async function sentAndSeen(from: TestApp, to: TestApp[], groupId: string, text: string): Promise<string> {
-    const sent = from.session.sendMessage(`group:${groupId}`, { text });
-    for (const app of to) await waitFor(() => app.texts(`group:${groupId}`).includes(text), "delivery");
-    return sent.id;
-  }
-
   it("only hides a copy when nobody who could delete it signed that, and keeps it for 30 days", async () => {
     const { admin, member, groupId } = await threeInAGroup();
     const id = await sentAndSeen(admin, [member], groupId, "evidence of something");
@@ -1411,6 +1412,88 @@ describe("a server saying a message was deleted", () => {
     await waitFor(() => sessionOf(other).messageRow(groupId, moderated)?.deleted_at !== null, "the deletion");
     expect(sessionOf(other).messageRow(groupId, moderated).body).toBeNull();
     expect(sessionOf(admin).messageRow(groupId, moderated).body).toBeNull();
+  });
+});
+
+describe("a group's roster, which MLS holds (Z3-01, Z3-02)", () => {
+  const isAdmin = (app: TestApp, groupId: string, userId: string): boolean => sessionOf(app).isGroupAdmin(sessionOf(app).groups.get(groupId), userId);
+
+  it("removes an account the server lets into a group by itself, before anyone sends to it", async () => {
+    const carol = await person("carol");
+    const bob = await person("bob");
+    const ghost = await person("ghost");
+    const groupId = await groupWith(carol, [bob]);
+    // The server lists an account of its own, which comes in with an external commit.
+    withServerDatabase((db) => db.prepare("INSERT INTO group_members(group_id, user_id, role, joined_at) VALUES(?, ?, 'member', ?)").run(groupId, ghost.userId, Date.now()));
+    const own = sessionOf(ghost);
+    own.applyGroup(await apiOf(ghost).group(groupId));
+    await own.withLock(groupId, () => own.joinExternal(groupId));
+    const joinedAt = own.mlsEpoch(groupId) as number;
+    // From here it would only keep coming back, which is the server's to stop.
+    ghost.client.stop();
+
+    for (const app of [carol, bob]) await waitFor(() => warned(app, "without an admin adding them"), "the warning");
+    await waitFor(() => !sessionOf(carol).treeUsers(groupId).includes(ghost.userId), "it to be removed");
+    const sent = carol.session.sendMessage(`group:${groupId}`, { text: "after it was gone" });
+    await waitFor(() => bob.texts(`group:${groupId}`).includes("after it was gone"), "bob to read it");
+    expect(sessionOf(carol).messageRow(groupId, sent.id).epoch).toBeGreaterThan(joinedAt);
+    // Whatever the server says, it's not the group's admin to anyone.
+    withServerDatabase((db) => db.prepare("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?").run(groupId, ghost.userId));
+    await sessionOf(bob).syncGroup(groupId);
+    expect(isAdmin(bob, groupId, ghost.userId)).toBe(false);
+  });
+
+  it("takes a change to who runs a group only from an admin, and the group carries on", async () => {
+    const { admin, member, other, groupId } = await threeInAGroup();
+    const session = sessionOf(member);
+    const { roster } = session.rosterOf(session.groups.get(groupId));
+    await session.withLock(groupId, () =>
+      session.commitWithRetry(groupId, async () => ({ kind: "update", roster: { admins: [...roster.admins, member.userId], members: roster.members } })),
+    );
+    for (const app of [admin, other]) await waitFor(() => warned(app, "without being allowed"), "the others to refuse it");
+    expect(isAdmin(admin, groupId, member.userId)).toBe(false);
+    expect(isAdmin(other, groupId, member.userId)).toBe(false);
+    await sentAndSeen(admin, [other, member], groupId, "still going");
+  });
+
+  it("doesn't take a deletion from someone only the server made an admin", async () => {
+    const { admin, member, other, groupId } = await threeInAGroup();
+    const id = await sentAndSeen(admin, [member, other], groupId, "keep this");
+    withServerDatabase((db) => db.prepare("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?").run(groupId, member.userId));
+    serverDeletes(groupId, id, member.userId, signedDeletion(member, groupId, id));
+    await sessionOf(other).syncGroup(groupId);
+    expect(sessionOf(other).messageRow(groupId, id).body).not.toBeNull();
+  });
+
+  it("makes someone an admin for everyone, the server too", async () => {
+    const { admin, member, other, groupId } = await threeInAGroup();
+    await admin.session.setGroupRole(groupId, member.userId, "admin");
+    await waitFor(() => isAdmin(other, groupId, member.userId), "everyone to see it");
+    const shown = other.session.getConversations().find((item: { groupId: string | null }) => item.groupId === groupId)!.members.find((item: { userId: string }) => item.userId === member.userId);
+    expect(shown?.role).toBe("admin");
+    const role = withServerDatabase((db) => db.prepare("SELECT role FROM group_members WHERE group_id = ? AND user_id = ?").get(groupId, member.userId)) as { role: string };
+    expect(role.role).toBe("admin");
+    // And they can do what an admin does.
+    const id = await sentAndSeen(other, [member], groupId, "against the rules");
+    await member.session.deleteMessage(groupId, id);
+    await waitFor(() => sessionOf(other).messageRow(groupId, id)?.deleted_at !== null, "the deletion");
+    expect(sessionOf(other).messageRow(groupId, id).body).toBeNull();
+  });
+
+  it("carries a group on when its last admin leaves", async () => {
+    const { admin, member, other, groupId } = await threeInAGroup();
+    await admin.session.leaveGroup(groupId);
+    // The server makes the longest-standing member its admin, as it always has, and their device says so in the roster.
+    const promoted = withServerDatabase((db) => db.prepare("SELECT user_id FROM group_members WHERE group_id = ? AND role = 'admin'").get(groupId)) as { user_id: string };
+    const next = [member, other].find((app) => app.userId === promoted.user_id)!;
+    const rest = [member, other].find((app) => app !== next)!;
+    await waitFor(() => isAdmin(rest, groupId, next.userId), "the others to take it on", 30_000);
+    expect(isAdmin(rest, groupId, admin.userId)).toBe(false);
+    expect(sessionOf(rest).rosterOf(sessionOf(rest).groups.get(groupId)).roster.members).not.toContain(admin.userId);
+    const dave = await person("dave");
+    await next.session.addMembers(groupId, [dave.userId]);
+    await waitFor(() => sessionOf(dave).hasMlsGroup(groupId), "dave to join");
+    await sentAndSeen(rest, [dave], groupId, "welcome dave");
   });
 });
 

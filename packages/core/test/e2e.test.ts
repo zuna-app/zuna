@@ -494,22 +494,6 @@ describe("rejoining", () => {
     await waitFor(() => alice.texts(`user:${heidiId}`).includes("back again"), "delivery after rejoining");
     again.client.stop();
   });
-
-  it("warns when someone nobody added joins a conversation", async () => {
-    const groupId = await alice.session.createGroup("Watched", [bob.userId], false);
-    await waitFor(() => bob.session.getConversations().some((item) => item.groupId === groupId), "bob to join");
-    // Simulates a server that put an extra person on the roster so they could
-    // join by themselves: their commit must be visible to everyone.
-    const ivan = await new TestApp("ivan").open();
-    await ivan.register(invite, "ivan");
-    const session = bob.session as any;
-    const event = { group_id: groupId, created_at: Date.now(), seq: 987654 };
-    const certificate = (ivan.session as any).account.certificate;
-    session.describeCommit(event, { senderCredential: certificate, isExternal: true, addedCredentials: [], removedCredentials: [] }, new Set([alice.userId, bob.userId]));
-    const { messages } = await bob.session.loadMessages(groupId);
-    expect(messages.some((item) => item.system?.type === "unexpected_join" && item.system.actorId === ivan.userId)).toBe(true);
-    ivan.client.stop();
-  });
 });
 
 describe("open sign-ups", () => {

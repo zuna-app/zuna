@@ -127,7 +127,7 @@ func TestAChannelsRosterOnlyChangesByJoiningOrABan(t *testing.T) {
 	if status, _ := h.do("DELETE", "/api/groups/"+channel.ID, owner.token, nil, nil); status != http.StatusBadRequest {
 		t.Fatalf("deleting a channel as a group got %d", status)
 	}
-	if status, _ := h.do("PUT", "/api/groups/"+channel.ID+"/members/"+member.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil); status != http.StatusBadRequest {
+	if status, _ := owner.commit(channel.ID, 0, map[string]any{"admins": []string{member.userID}}); status != http.StatusForbidden {
 		t.Fatalf("making someone a channel's admin got %d", status)
 	}
 

@@ -18,6 +18,33 @@ const CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_CHACHA20POLY13
 /// in order and content is encrypted under exported keys, so none are needed.
 const MAX_PAST_EPOCHS: usize = 0;
 
+/// A private-use group context extension (RFC 9420 section 17.3) holding a group's
+/// roster: who its admins are and who has been let in. What it says, and who may
+/// change it, is the core's to decide. MLS makes every member hold the same one,
+/// epoch by epoch, and only a commit can change it, so the server can't.
+const ROSTER_EXTENSION: u16 = 0xf5a0;
+
+/// What every leaf says it supports. A group requires the roster's extension, so a
+/// leaf that didn't list it couldn't be added.
+fn capabilities(last_resort: bool) -> Capabilities {
+    let mut extensions = vec![ExtensionType::Unknown(ROSTER_EXTENSION)];
+    if last_resort {
+        extensions.push(ExtensionType::LastResort);
+    }
+    Capabilities::builder().extensions(extensions).build()
+}
+
+/// A group's context extensions, with its roster if it has one.
+fn context_extensions(roster: Option<&[u8]>) -> Result<Extensions<GroupContext>> {
+    let mut extensions = vec![Extension::RequiredCapabilities(
+        RequiredCapabilitiesExtension::new(&[ExtensionType::Unknown(ROSTER_EXTENSION)], &[], &[]),
+    )];
+    if let Some(roster) = roster {
+        extensions.push(Extension::Unknown(ROSTER_EXTENSION, UnknownExtension(roster.to_vec())));
+    }
+    Extensions::from_vec(extensions).map_err(err("roster extension"))
+}
+
 fn err<E: std::fmt::Debug>(context: &'static str) -> impl FnOnce(E) -> String {
     move |e| format!("{context}: {e:?}")
 }
@@ -124,14 +151,16 @@ impl MlsClient {
         *self.provider.storage().values.write().unwrap() = self.checkpoint.clone();
     }
 
-    fn create_config() -> MlsGroupCreateConfig {
-        MlsGroupCreateConfig::builder()
+    fn create_config(roster: Option<&[u8]>) -> Result<MlsGroupCreateConfig> {
+        Ok(MlsGroupCreateConfig::builder()
             .ciphersuite(CIPHERSUITE)
             .use_ratchet_tree_extension(true)
             // Member commits are encrypted; external commits are always public.
             .wire_format_policy(MIXED_CIPHERTEXT_WIRE_FORMAT_POLICY)
             .max_past_epochs(MAX_PAST_EPOCHS)
-            .build()
+            .capabilities(capabilities(false))
+            .with_group_context_extensions(context_extensions(roster)?)
+            .build())
     }
 
     fn join_config() -> MlsGroupJoinConfig {
@@ -157,15 +186,10 @@ impl MlsClient {
     }
 
     pub fn generate_key_package(&self, last_resort: bool) -> Result<Vec<u8>> {
-        let mut builder = KeyPackage::builder();
+        // A leaf has to say it supports what its package carries, and what groups require, or nobody can add it.
+        let mut builder = KeyPackage::builder().leaf_node_capabilities(capabilities(last_resort));
         if last_resort {
-            // A leaf has to say it supports what its package carries, or nobody can add it.
-            let capabilities = Capabilities::builder()
-                .extensions(vec![ExtensionType::LastResort])
-                .build();
-            builder = builder
-                .leaf_node_capabilities(capabilities)
-                .mark_as_last_resort();
+            builder = builder.mark_as_last_resort();
         }
         let bundle = builder
             .build(
@@ -181,11 +205,12 @@ impl MlsClient {
             .map_err(err("key package encode"))
     }
 
-    pub fn create_group(&self, group_id: &[u8]) -> Result<u64> {
+    /// Starts a group, with a roster if it's to have one.
+    pub fn create_group(&self, group_id: &[u8], roster: Option<&[u8]>) -> Result<u64> {
         let group = MlsGroup::new_with_group_id(
             &self.provider,
             &self.signer,
-            &Self::create_config(),
+            &Self::create_config(roster)?,
             GroupId::from_slice(group_id),
             self.credential.clone(),
         )
@@ -219,12 +244,14 @@ impl MlsClient {
         Ok(parsed[0].leaf_node().signature_key().as_slice().to_vec())
     }
 
-    /// Builds one commit that adds and removes members, then keeps it pending.
+    /// Builds one commit that adds and removes members, and replaces the roster if
+    /// one is given, then keeps it pending.
     pub fn commit_changes(
         &self,
         group_id: &[u8],
         key_packages: &[Vec<u8>],
         remove_leaves: &[u32],
+        roster: Option<&[u8]>,
     ) -> Result<PendingCommit> {
         let mut group = self.load(group_id)?;
         let adds = self.parse_key_packages(key_packages)?;
@@ -239,10 +266,13 @@ impl MlsClient {
         } else {
             LeafNodeParameters::default()
         };
-        let bundle = group
-            .commit_builder()
-            .propose_adds(adds)
-            .propose_removals(removes)
+        let mut builder = group.commit_builder().propose_adds(adds).propose_removals(removes);
+        if roster.is_some() {
+            builder = builder
+                .propose_group_context_extensions(context_extensions(roster)?)
+                .map_err(err("commit roster"))?;
+        }
+        let bundle = builder
             .force_self_update(true)
             .leaf_node_parameters(leaf_parameters)
             .load_psks(self.provider.storage())
@@ -379,11 +409,17 @@ impl MlsClient {
                 .delete(self.provider.storage())
                 .map_err(err("delete group"))?;
         }
+        // The leaf an external commit makes only has the capabilities it's given.
+        let leaf = LeafNodeParameters::builder()
+            .with_credential_with_key(self.credential.clone())
+            .with_capabilities(capabilities(false))
+            .build();
         let (group, bundle) = MlsGroup::external_commit_builder()
             .with_config(Self::join_config())
             .skip_lifetime_validation()
             .build_group(&self.provider, info, self.credential.clone())
             .map_err(err("external build"))?
+            .leaf_node_parameters(leaf)
             .load_psks(self.provider.storage())
             .map_err(err("external psks"))?
             .build(
@@ -410,6 +446,15 @@ impl MlsClient {
 
     pub fn epoch(&self, group_id: &[u8]) -> Result<u64> {
         Ok(self.load(group_id)?.epoch().as_u64())
+    }
+
+    /// The roster in a group's context now, if it has one.
+    pub fn roster(&self, group_id: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .load(group_id)?
+            .extensions()
+            .unknown(ROSTER_EXTENSION)
+            .map(|roster| roster.0.clone()))
     }
 
     pub fn own_leaf_index(&self, group_id: &[u8]) -> Result<u32> {
@@ -514,9 +559,9 @@ mod tests {
     fn pair() -> (MlsClient, MlsClient) {
         let alice = client("alice");
         let bob = client("bob");
-        alice.create_group(GROUP).unwrap();
+        alice.create_group(GROUP, None).unwrap();
         let kp = bob.generate_key_package(false).unwrap();
-        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         let (id, _) = bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         assert_eq!(id, GROUP);
@@ -537,15 +582,15 @@ mod tests {
     fn a_welcome_delivered_as_another_groups_leaves_whats_held_alone() {
         let alice = client("alice");
         let bob = client("bob");
-        alice.create_group(GROUP).unwrap();
+        alice.create_group(GROUP, None).unwrap();
         // A last-resort key package outlives the join, so the Welcome could be used again.
         let kp = bob.generate_key_package(true).unwrap();
-        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         let welcome = pending.welcome.unwrap();
         bob.join_from_welcome(&welcome, GROUP).unwrap();
 
-        let next = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        let next = alice.commit_changes(GROUP, &[], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         bob.process_commit(GROUP, &next.commit).unwrap();
         let epoch = bob.epoch(GROUP).unwrap();
@@ -563,7 +608,7 @@ mod tests {
         let carol = client("carol");
         let kp = carol.generate_key_package(false).unwrap();
 
-        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         let processed = bob.process_commit(GROUP, &pending.commit).unwrap();
         carol.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
@@ -580,9 +625,9 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn rejected_commit_can_be_cleared_and_the_group_keeps_working() {
         let (alice, bob) = pair();
-        let lost = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        let lost = alice.commit_changes(GROUP, &[], &[], None).unwrap();
         assert!(alice.has_pending(GROUP).unwrap());
-        let winner = bob.commit_changes(GROUP, &[], &[]).unwrap();
+        let winner = bob.commit_changes(GROUP, &[], &[], None).unwrap();
         bob.merge_pending(GROUP).unwrap();
 
         // The server accepted Bob's commit, so Alice drops hers and applies his.
@@ -596,7 +641,7 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn pending_exporter_matches_the_epoch_after_merging() {
         let (alice, bob) = pair();
-        let pending = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[], &[], None).unwrap();
         let early = alice
             .export_pending_secret(GROUP, "zuna/test", b"", 32)
             .unwrap();
@@ -617,7 +662,7 @@ mod tests {
             .find(|m| m.credential == b"bob")
             .unwrap()
             .leaf_index;
-        let pending = alice.commit_changes(GROUP, &[], &[bob_leaf]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[], &[bob_leaf], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         let processed = bob.process_commit(GROUP, &pending.commit).unwrap();
         assert!(processed.self_removed);
@@ -647,7 +692,7 @@ mod tests {
     #[cfg_attr(not(target_arch = "wasm32"), test)]
     fn group_info_from_a_commit_supports_external_joins() {
         let (alice, _bob) = pair();
-        let pending = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         let info = pending.group_info.expect("ratchet tree extension is on");
         let late = client("late");
@@ -680,9 +725,9 @@ mod tests {
         let (public, secret) = signing_keygen().unwrap();
         let mut alice = MlsClient::new(public, secret, b"alice-old".to_vec(), vec![]);
         let bob = client("bob");
-        alice.create_group(GROUP).unwrap();
+        alice.create_group(GROUP, None).unwrap();
         let kp = bob.generate_key_package(false).unwrap();
-        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         let leaf = |client: &MlsClient, name: &[u8]| {
@@ -700,7 +745,7 @@ mod tests {
         assert_eq!(alice.key_package_credential(&package).unwrap(), b"alice-new");
         // The leaf has it after the next commit, for everyone including someone
         // who joins afterwards, and the group's keys stay in step.
-        let update = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        let update = alice.commit_changes(GROUP, &[], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         bob.process_commit(GROUP, &update.commit).unwrap();
         assert!(leaf(&alice, b"alice-new"));
@@ -710,7 +755,7 @@ mod tests {
 
         let carol = client("carol");
         let kp = carol.generate_key_package(false).unwrap();
-        let added = bob.commit_changes(GROUP, &[kp], &[]).unwrap();
+        let added = bob.commit_changes(GROUP, &[kp], &[], None).unwrap();
         bob.merge_pending(GROUP).unwrap();
         alice.process_commit(GROUP, &added.commit).unwrap();
         carol.join_from_welcome(&added.welcome.unwrap(), GROUP).unwrap();
@@ -739,7 +784,7 @@ mod tests {
 
         assert!(bob.has_group(GROUP).unwrap());
         assert_eq!(exported(&bob), before);
-        let next = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        let next = alice.commit_changes(GROUP, &[], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         bob.process_commit(GROUP, &next.commit).unwrap();
         assert_eq!(exported(&alice), exported(&bob));
@@ -751,9 +796,9 @@ mod tests {
         let (public, secret) = signing_keygen().unwrap();
         let mut bob = MlsClient::new(public, secret, b"bob".to_vec(), vec![]);
         let alice = client("alice");
-        alice.create_group(GROUP).unwrap();
+        alice.create_group(GROUP, None).unwrap();
         let kp = bob.generate_key_package(false).unwrap();
-        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         bob.take_changes();
@@ -776,7 +821,7 @@ mod tests {
         let (public, secret) = signing_keygen().unwrap();
         let mut bob = MlsClient::new(public.clone(), secret.clone(), b"bob".to_vec(), vec![]);
         let alice = client("alice");
-        alice.create_group(GROUP).unwrap();
+        alice.create_group(GROUP, None).unwrap();
         let kp = bob.generate_key_package(false).unwrap();
 
         let mut persisted: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
@@ -790,11 +835,11 @@ mod tests {
         };
         apply(bob.take_changes());
 
-        let pending = alice.commit_changes(GROUP, &[kp], &[]).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
         apply(bob.take_changes());
-        let next = alice.commit_changes(GROUP, &[], &[]).unwrap();
+        let next = alice.commit_changes(GROUP, &[], &[], None).unwrap();
         alice.merge_pending(GROUP).unwrap();
         bob.process_commit(GROUP, &next.commit).unwrap();
         apply(bob.take_changes());
@@ -807,5 +852,46 @@ mod tests {
             persisted.into_iter().collect(),
         );
         assert_eq!(exported(&restored), exported(&alice));
+    }
+
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn the_roster_reaches_everyone_and_only_a_commit_changes_it() {
+        let alice = client("alice");
+        let bob = client("bob");
+        alice.create_group(GROUP, Some(b"first")).unwrap();
+        assert_eq!(alice.roster(GROUP).unwrap().as_deref(), Some(&b"first"[..]));
+
+        // Someone added by Welcome gets it, as does whoever joins by an external commit.
+        let kp = bob.generate_key_package(true).unwrap();
+        let pending = alice.commit_changes(GROUP, &[kp], &[], None).unwrap();
+        alice.merge_pending(GROUP).unwrap();
+        bob.join_from_welcome(&pending.welcome.unwrap(), GROUP).unwrap();
+        assert_eq!(bob.roster(GROUP).unwrap().as_deref(), Some(&b"first"[..]));
+
+        let changed = bob.commit_changes(GROUP, &[], &[], Some(b"second")).unwrap();
+        bob.merge_pending(GROUP).unwrap();
+        alice.process_commit(GROUP, &changed.commit).unwrap();
+        assert_eq!(alice.roster(GROUP).unwrap().as_deref(), Some(&b"second"[..]));
+        assert_eq!(exported(&alice), exported(&bob));
+
+        let carol = client("carol");
+        let info = alice.export_group_info(GROUP).unwrap();
+        let (commit, _) = carol.join_external(GROUP, &info).unwrap();
+        alice.process_commit(GROUP, &commit).unwrap();
+        bob.process_commit(GROUP, &commit).unwrap();
+        assert_eq!(carol.roster(GROUP).unwrap().as_deref(), Some(&b"second"[..]));
+        assert_eq!(exported(&alice), exported(&carol));
+
+        // A group started without one has none, and can still take everyone in.
+        let plain = b"another-group-id";
+        let dave = client("dave");
+        alice.create_group(plain, None).unwrap();
+        assert_eq!(alice.roster(plain).unwrap(), None);
+        let kp = dave.generate_key_package(false).unwrap();
+        let pending = alice.commit_changes(plain, &[kp], &[], None).unwrap();
+        alice.merge_pending(plain).unwrap();
+        dave.join_from_welcome(&pending.welcome.unwrap(), plain).unwrap();
+        assert_eq!(dave.roster(plain).unwrap(), None);
     }
 }

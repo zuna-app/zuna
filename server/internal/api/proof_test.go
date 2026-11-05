@@ -68,8 +68,7 @@ func TestWhatCantBeUndoneNeedsTheDevicesProof(t *testing.T) {
 	}
 }
 
-// Nor can it get the same another way: make another member a group's admin, whose
-// own devices could then delete there, take the person out of their groups, hand
+// Nor can it get the same another way: take the person out of their groups, hand
 // out invites to the server, or write over what the account keeps in its vault,
 // the core every sign-in opens, or what carries a new account key to its devices.
 func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
@@ -94,7 +93,6 @@ func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
 		method, path string
 		body         []byte
 	}
-	role := request{"PUT", "/api/groups/" + group + "/members/" + bob.userID + "/role", []byte(`{"role":"admin"}`)}
 	invite := request{"POST", "/api/invites", []byte(`{}`)}
 	rewrite := request{"PUT", "/api/vault", vault}
 	leave := request{"POST", "/api/groups/" + group + "/leave", []byte(`{}`)}
@@ -102,7 +100,7 @@ func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
 	bundles := request{"POST", "/api/account/bundles", []byte(`{"generation":0,"bundles":[]}`)}
 	device := "/api/devices/" + store.NewID()
 	unsigned := []request{
-		role, invite, rewrite, leave, core, bundles,
+		invite, rewrite, leave, core, bundles,
 		{"DELETE", "/api/invites/" + h.invite, nil},
 		{"POST", "/api/vault/reseal", vault},
 		{"POST", "/api/account/rotate", []byte(`{}`)},
@@ -115,7 +113,7 @@ func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
 		}
 	}
 	// Signed, as the app sends them, they go through.
-	for _, req := range []request{role, invite, rewrite, leave, core, bundles} {
+	for _, req := range []request{invite, rewrite, leave, core, bundles} {
 		if status, body, _ := h.raw(req.method, req.path, token, req.body, proofHeaders(private, req.method, req.path, req.body, time.Now())); status/100 != 2 {
 			t.Errorf("%s %s signed gave %d %s", req.method, req.path, status, body)
 		}

@@ -91,6 +91,7 @@ import { notificationDelay, notificationText, previewText } from "./notify";
 import { SEARCH_INDEX_VERSION, indexTokens, mediaTag, queryTokens } from "./search";
 import { Socket, decodeFrameData, type SocketFrame } from "./socket";
 import { openSoundDetails, sealSoundDetails } from "./soundboard";
+import { readRoster, rosterHash, rosterJump, rosterStep, sealRoster, type Roster, type RosterContext, type SignedRoster } from "./roster";
 import { prepareSound, readWav } from "./sounds";
 import { VOICE_LABEL, voiceIdentity } from "./voice";
 import {
@@ -294,6 +295,15 @@ interface CachedGroup {
   doubtful?: boolean;
   /** In a channel: who's waiting for a member to hand them its older keys. */
   historyWanted?: string[];
+  /**
+   * A group's roster as MLS last gave this device (see roster.ts), kept when the MLS
+   * state isn't, so whatever comes next is held to it. Only groups have one.
+   */
+  roster?: string;
+  /** The version before it, which a group whose newest change was undone goes back to. */
+  rosterBefore?: string;
+  /** Who the server lists as admins. It only decides what the server does, and who takes over a group left without one. */
+  serverAdmins?: string[];
 }
 
 /** A channel as the server listed it, and what its sealed details turned out to say. */
@@ -493,6 +503,7 @@ export class ServerSession {
   private cleanEpochs = new Map<string, number>();
   /** Who holds each group's keys now, for showing its members. */
   private treeUsersCache = new Map<string, Set<string>>();
+  private rosters = new Map<string, { text: string; signed: SignedRoster | null }>();
   /** Leaves already warned about, so one ghost makes one warning. */
   private warnedLeaves = new Set<string>();
   /** Messages that later ones say were sent, and that haven't arrived, by group and ID. */
@@ -1360,11 +1371,10 @@ export class ServerSession {
   }
 
   private async grantAuthentic(groupId: string, grant: ReturnType<typeof openHistoryGrant>): Promise<boolean> {
-    const group = await this.api.group(groupId);
-    this.applyGroup(group);
+    const group = this.applyGroup(await this.api.group(groupId));
     // Everyone in a channel may read all of it, so any of them can hand on its keys.
-    const signer = group.members.find((member) => member.user_id === grant.signer.userId);
-    if (group.kind === "channel" ? !signer : signer?.role !== "admin") return false;
+    const signer = group.members.some((member) => member.userId === grant.signer.userId);
+    if (group.kind === "channel" ? !signer : !this.isGroupAdmin(group, grant.signer.userId)) return false;
     const device = (await this.ensureUser(grant.signer.userId, true))?.devices.get(grant.signer.deviceId);
     return !!device && grant.signedBy(device.signatureKey);
   }
@@ -2448,6 +2458,9 @@ export class ServerSession {
       metaVersion: previous?.metaVersion ?? 0,
       createdAt: api.created_at,
       members: listed.map((member) => ({ userId: member.user_id, role: member.role, joinedAt: member.joined_at })),
+      roster: previous?.roster,
+      rosterBefore: previous?.rosterBefore,
+      serverAdmins: listed.filter((member) => member.role === "admin").map((member) => member.user_id),
       readStates: Object.fromEntries(listed.map((member) => [member.user_id, member.read_state])),
       readBy: previous?.readBy ?? {},
       ownRead: previous?.ownRead ?? 0,
@@ -2458,6 +2471,7 @@ export class ServerSession {
       doubtful,
       historyWanted: listed.filter((member) => member.history_wanted).map((member) => member.user_id),
     };
+    this.showRosterRoles(group);
     this.groups.set(api.id, group);
     this.refreshGroupSecrets(group);
     this.persistGroup(group);
@@ -2465,8 +2479,94 @@ export class ServerSession {
     return group;
   }
 
+  /** A group's admins are whoever its roster names, which MLS holds. A channel's are the server's. */
   private isGroupAdmin(group: CachedGroup, userId: string): boolean {
+    if (group.kind === "group") return !!this.rosterOf(group)?.roster.admins.includes(userId);
     return group.members.find((member) => member.userId === userId)?.role === "admin";
+  }
+
+  private rosterOf(group: CachedGroup): SignedRoster | null {
+    if (!group.roster) return null;
+    const cached = this.rosters.get(group.id);
+    if (cached?.text === group.roster) return cached.signed;
+    const signed = readRoster(group.id, fromBase64(group.roster));
+    this.rosters.set(group.id, { text: group.roster, signed });
+    return signed;
+  }
+
+  /**
+   * Whether someone was let into a group: its roster names them. Being on the server's
+   * list isn't enough, since the server can put anyone there. Before this device holds
+   * a roster nobody is turned away, but it doesn't send anything either (ensureTreeClean).
+   */
+  private admitted(group: CachedGroup, userId: string): boolean {
+    if (group.kind !== "group") return true;
+    const roster = this.rosterOf(group);
+    return !roster || roster.roster.members.includes(userId);
+  }
+
+  /** In a group, the roles shown are the roster's. */
+  private showRosterRoles(group: CachedGroup): void {
+    const roster = group.kind === "group" ? this.rosterOf(group) : null;
+    if (!roster) return;
+    group.members = group.members.map((member) => ({ ...member, role: roster.roster.admins.includes(member.userId) ? "admin" : "member" }));
+  }
+
+  private rosterIn(groupId: string): Uint8Array | undefined {
+    return this.mls.roster(utf8(groupId)) ?? undefined;
+  }
+
+  private setRoster(groupId: string, bytes: Uint8Array): void {
+    const group = this.groups.get(groupId);
+    if (!group || (group.roster && equalBytes(fromBase64(group.roster), bytes))) return;
+    group.rosterBefore = group.roster;
+    group.roster = toBase64(bytes);
+    this.showRosterRoles(group);
+    this.persistGroup(group);
+  }
+
+  private rosterContext(group: CachedGroup, prev: SignedRoster, next: SignedRoster): RosterContext {
+    const listed = new Set(group.members.map((member) => member.userId));
+    return { adminPresent: prev.roster.admins.some((id) => listed.has(id)), signerServerAdmin: !!group.serverAdmins?.includes(next.roster.by.userId) };
+  }
+
+  /** Who signed a roster, if this device doesn't know their device yet. */
+  private unknownRosterSigner(groupId: string, bytes: Uint8Array | undefined): string | null {
+    const by = bytes && readRoster(groupId, bytes)?.roster.by;
+    return by && !this.users.get(by.userId)?.devices.has(by.deviceId) ? by.userId : null;
+  }
+
+  /**
+   * Why a group's roster can't become `bytes`, what MLS now holds, or null if it can.
+   * It runs between applying a change and keeping it, so it only uses what's already
+   * known. `committer` made the change; without one, it came with a group joined again.
+   */
+  private rosterRefusal(groupId: string, bytes: Uint8Array | undefined, committer: DeviceCertificate | null): string | null {
+    const group = this.groups.get(groupId);
+    if (!group || group.kind !== "group") return null;
+    const held = this.rosterOf(group);
+    if (!bytes) return held ? "it took the group's roster away" : "the group has no roster";
+    if (held && equalBytes(bytes, held.bytes)) return null;
+    const next = readRoster(groupId, bytes);
+    if (!next) return "its roster isn't one";
+    const { userId, deviceId } = next.roster.by;
+    const device = this.users.get(userId)?.devices.get(deviceId);
+    if (!device || device.revoked || !next.signedBy(device.signatureKey)) return "its roster isn't signed by a device of whoever it names";
+    if (committer && (committer.userId !== userId || committer.deviceId !== deviceId)) return "its roster was signed by someone other than whoever made the change";
+    if (!held) return null;
+    // A change this device took on may have been undone since, as one nobody else could apply.
+    if (!committer && group.rosterBefore && equalBytes(bytes, fromBase64(group.rosterBefore))) return null;
+    const context = this.rosterContext(group, held, next);
+    return committer ? rosterStep(held, next, context) : rosterJump(held, next, context);
+  }
+
+  /** The next version of a group's roster, signed by this device. */
+  private nextRoster(groupId: string, change: Pick<Roster, "admins" | "members">): Uint8Array {
+    const group = this.groups.get(groupId);
+    const held = group && this.rosterOf(group);
+    if (!held) throw new Error("Who's in this group can't be checked yet. Please try again.");
+    const by = { userId: this.account.userId, deviceId: this.account.deviceId };
+    return sealRoster({ group: groupId, version: held.roster.version + 1, admins: change.admins, members: change.members, prev: rosterHash(held.bytes), by }, this.account.deviceSecret);
   }
 
   /** Decrypts whatever group metadata and read positions the keys held allow. */
@@ -2700,9 +2800,29 @@ export class ServerSession {
 
   /** Whoever else is in a group just joined by Welcome is checked before trusting it. */
   private async afterJoining(groupId: string): Promise<void> {
+    if (!(await this.adoptJoinedRoster(groupId))) return;
     await this.checkTree(groupId);
     this.setKnownMembers(groupId, this.treeUsers(groupId));
     this.scheduleReconcile(groupId);
+  }
+
+  /**
+   * Takes on the roster a group joined by Welcome came with. Whoever added this device
+   * vouches for it, but it can't go back on a version this device already held. If it
+   * doesn't hold up, the group is left again.
+   */
+  private async adoptJoinedRoster(groupId: string): Promise<boolean> {
+    const bytes = this.rosterIn(groupId);
+    const signer = this.unknownRosterSigner(groupId, bytes);
+    if (signer) await this.ensureUser(signer, true);
+    const refusal = this.rosterRefusal(groupId, bytes, null);
+    if (refusal) {
+      this.warnOnce(`roster/${groupId}/${this.mlsEpoch(groupId)}`, `An invitation to one of your conversations couldn't be trusted: ${refusal}. It wasn't used.`);
+      this.forgetMlsState(groupId);
+      return false;
+    }
+    if (bytes) this.setRoster(groupId, bytes);
+    return true;
   }
 
   /** Joins from a welcome and removes it. Returns whether this device joined. */
@@ -2792,7 +2912,23 @@ export class ServerSession {
     this.cleanEpochs.delete(groupId);
     await this.learnTreeUsers(groupId);
     this.noteLeaves(groupId);
-    const bad = this.treeMembers(groupId).filter((member) => !member.genuine && !member.unchecked && member.leaf !== this.mls.ownLeafIndex(utf8(groupId)));
+    const own = this.mls.ownLeafIndex(utf8(groupId));
+    const bad = this.treeMembers(groupId).filter((member) => !member.genuine && !member.unchecked && member.leaf !== own);
+    const group = this.groups.get(groupId);
+    const unadmitted = group ? this.treeMembers(groupId).filter((member) => member.genuine && member.leaf !== own && !this.admitted(group, member.userId)) : [];
+    for (const member of unadmitted) {
+      const warned = `${groupId}/${member.leaf}/${this.mlsEpoch(groupId)}`;
+      if (this.warnedLeaves.has(warned)) continue;
+      this.warnedLeaves.add(warned);
+      const owner = this.users.get(member.userId)?.profile.displayName ?? "Someone";
+      this.emit({
+        type: "security",
+        serverId: this.serverId,
+        userId: member.userId,
+        message: `${owner} came into one of your conversations without an admin adding them. They're being removed.`,
+      });
+      this.addSystemRow(groupId, Date.now(), member.userId, { type: "unexpected_join", actorId: member.userId });
+    }
     for (const member of bad) {
       const warned = `${groupId}/${member.leaf}/${this.mlsEpoch(groupId)}`;
       if (this.warnedLeaves.has(warned)) continue;
@@ -2812,7 +2948,7 @@ export class ServerSession {
         this.addSystemRow(groupId, Date.now(), member.userId, { type: "unexpected_join", actorId: member.userId });
       }
     }
-    if (bad.length > 0) this.scheduleReconcile(groupId);
+    if (bad.length > 0 || unadmitted.length > 0) this.scheduleReconcile(groupId);
     return bad;
   }
 
@@ -2832,11 +2968,26 @@ export class ServerSession {
    */
   private async joinExternal(groupId: string): Promise<boolean> {
     const groupBytes = utf8(groupId);
+    let learned = false;
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       const latest = await this.api.groupInfo(groupId);
       if (!latest.group_info) return false;
       this.saveMls();
       const result = this.mls.joinExternal(groupBytes, decode(latest.group_info)) as { commit: Uint8Array; epoch: number };
+      // The group's roster has to follow from the one this device last held, before anyone hears of the join.
+      const roster = this.rosterIn(groupId);
+      const refusal = this.rosterRefusal(groupId, roster, null);
+      if (refusal) {
+        this.mls.rollback();
+        const signer = this.unknownRosterSigner(groupId, roster);
+        if (signer && !learned) {
+          learned = true;
+          await this.ensureUser(signer, true);
+          continue;
+        }
+        this.warnOnce(`roster/${groupId}/${result.epoch}`, `One of your conversations couldn't be rejoined: ${refusal}.`);
+        throw new Error(`This conversation's state couldn't be trusted: ${refusal}.`);
+      }
       const groupInfo = this.mls.exportGroupInfo(groupBytes);
       try {
         await this.api.commit(groupId, {
@@ -2851,6 +3002,7 @@ export class ServerSession {
         throw error;
       }
       this.saveMls();
+      if (roster) this.setRoster(groupId, roster);
       this.setJoinedEpoch(groupId, result.epoch);
       this.rememberCurrentEpochKey(groupId);
       await this.checkTree(groupId);
@@ -2871,7 +3023,10 @@ export class ServerSession {
     const inTree = this.treeUsers(groupId);
     // Anyone on the server can come into a channel.
     if (known.size > 0 && this.groups.get(groupId)?.kind !== "channel") {
+      const group = this.groups.get(groupId);
       for (const userId of inTree) {
+        // In a group, the roster says who was let in, and checkTree warns about anyone else.
+        if (group?.kind === "group") continue;
         if (!known.has(userId) && userId !== this.account.userId) this.addSystemRow(groupId, Date.now(), userId, { type: "unexpected_join", actorId: userId });
       }
     }
@@ -2904,6 +3059,10 @@ export class ServerSession {
    */
   private async ensureTreeClean(groupId: string): Promise<void> {
     if (!this.hasMlsGroup(groupId)) return;
+    const cached = this.groups.get(groupId);
+    if (cached?.kind === "group" && !this.rosterOf(cached)) {
+      throw new ApiError(0, "unchecked_member", "Couldn't check who's in this conversation. Please try again.");
+    }
     for (let attempt = 0; attempt < MAX_COMMIT_ATTEMPTS; attempt++) {
       if (this.cleanEpochs.get(groupId) === this.mlsEpoch(groupId)) return;
       await this.checkTree(groupId);
@@ -2936,8 +3095,13 @@ export class ServerSession {
     const targets = cached?.kind === "dm" ? this.dmPeople(cached) : [...new Set([selfId, ...extraUsers])];
 
     const groupBytes = utf8(group.id);
+    // A group starts with its creator as its admin, and whoever they asked for let in.
+    const roster =
+      cached?.kind === "group"
+        ? sealRoster({ group: group.id, version: 1, admins: [selfId], members: targets, prev: "", by: { userId: selfId, deviceId: this.account.deviceId } }, this.account.deviceSecret)
+        : null;
     this.mls.deleteGroup(groupBytes);
-    this.mls.createGroup(groupBytes);
+    this.mls.createGroup(groupBytes, roster);
     this.saveMls();
 
     // Every device comes into a channel by itself, if its app shows channels at all.
@@ -2979,6 +3143,7 @@ export class ServerSession {
     }
     this.mls.mergePending(groupBytes);
     this.saveMls();
+    if (roster) this.setRoster(group.id, roster);
     this.setJoinedEpoch(group.id, newEpoch);
     this.saveEpochKey(group.id, newEpoch, key, "mls");
     this.treeUsersCache.delete(group.id);
@@ -3010,6 +3175,8 @@ export class ServerSession {
       removeUsers?: string[];
       meta?: GroupMeta;
       grants?: { user_id: string; data: Uint8Array }[];
+      /** A new version of a group's roster, signed as this device. */
+      roster?: Pick<Roster, "admins" | "members">;
       kind: string;
     }>,
   ): Promise<void> {
@@ -3019,10 +3186,12 @@ export class ServerSession {
       const plan = await build();
       const epoch = this.mlsEpoch(groupId);
       const packages = plan.keyPackages ?? [];
+      const roster = plan.roster ? this.nextRoster(groupId, plan.roster) : null;
       const pending = this.mls.commitChanges(
         groupBytes,
         packages.map((item) => item.data) as unknown as any[],
         Uint32Array.from(plan.removeLeaves ?? []),
+        roster,
       ) as { commit: Uint8Array; welcome: Uint8Array | null; groupInfo: Uint8Array | null };
       this.saveMls();
       const newEpoch = epoch + 1;
@@ -3043,6 +3212,8 @@ export class ServerSession {
           meta: shouldSealMeta ? this.sealGroupDetails(groupId, key, newEpoch, meta, Math.max(group.metaVersion ?? 0, 1)) : undefined,
           meta_epoch: shouldSealMeta ? newEpoch : undefined,
           history_grants: plan.grants,
+          // The server's own list of admins follows the roster, when it lets this person change it.
+          admins: plan.roster && group?.serverAdmins?.includes(this.account.userId) ? plan.roster.admins : undefined,
         });
       } catch (error) {
         this.mls.clearPending(groupBytes);
@@ -3052,6 +3223,7 @@ export class ServerSession {
       }
       this.mls.mergePending(groupBytes);
       this.saveMls();
+      if (roster) this.setRoster(groupId, roster);
       this.saveEpochKey(groupId, newEpoch, key, "mls");
       this.treeUsersCache.delete(groupId);
       this.confirmedEpochs.set(groupId, newEpoch);
@@ -3270,10 +3442,12 @@ export class ServerSession {
     if (event.epoch <= local) return;
 
     if (event.sender_device === this.account.deviceId) {
-      // Our own commit, and we restarted before merging it.
+      // Our own commit, and we restarted before merging it. Its roster is this device's own.
       if (this.mls.hasPending(groupBytes)) {
         this.mls.mergePending(groupBytes);
         this.saveMls();
+        const roster = this.rosterIn(groupId);
+        if (roster) this.setRoster(groupId, roster);
         this.rememberCurrentEpochKey(groupId);
         return;
       }
@@ -3298,15 +3472,35 @@ export class ServerSession {
       selfRemoved: boolean;
     };
     const usersBefore = new Set(this.treeUsers(groupId));
+    this.saveMls();
+    let refusal: string | null = null;
     try {
-      processed = this.mls.processCommit(groupBytes, decode(event.data)) as typeof processed;
-      this.saveMls();
+      for (let attempt = 0; ; attempt++) {
+        processed = this.mls.processCommit(groupBytes, decode(event.data)) as typeof processed;
+        // A change to the roster is checked before it's kept: only an admin may make most of them.
+        refusal = processed.selfRemoved ? null : this.rosterRefusal(groupId, this.rosterIn(groupId), parseCertificate(processed.senderCredential));
+        if (!refusal) break;
+        this.mls.rollback();
+        if (attempt > 0) break;
+        // What's known about who's in the group may be behind. Only what the server says now counts.
+        this.applyGroup(await this.api.group(groupId));
+      }
+      if (!refusal) this.saveMls();
     } catch (error) {
       console.warn("[zuna] a commit couldn't be applied; rejoining", error);
       this.saveMls();
       await this.repair(groupId);
       return;
     }
+    if (refusal) {
+      const sender = parseCertificate(processed.senderCredential);
+      const name = (sender && this.users.get(sender.userId)?.profile.displayName) ?? "Someone";
+      this.warnOnce(`roster/${groupId}/${event.epoch}`, `${name} tried to change who's in one of your conversations, or who runs it, without being allowed to. It wasn't accepted.`, sender?.userId ?? "");
+      await this.voidBrokenCommit(groupId, new Error(refusal));
+      return;
+    }
+    const rosterNow = this.rosterIn(groupId);
+    if (rosterNow && !processed.selfRemoved) this.setRoster(groupId, rosterNow);
     this.treeUsersCache.delete(groupId);
     if (processed.selfRemoved) {
       await this.afterBeingRemoved(groupId);
@@ -3445,7 +3639,10 @@ export class ServerSession {
       // Someone's extra device joining needs no notice, but a person arriving
       // with no device in the group does, so a rejoin can never go unnoticed.
       if (!usersBefore.has(senderCert.userId)) {
-        if (known.size > 0 && !known.has(senderCert.userId)) {
+        const group = this.groups.get(groupId);
+        if (group?.kind === "group" && !this.admitted(group, senderCert.userId)) {
+          // checkTree has already warned about them, and they're being removed.
+        } else if (known.size > 0 && !known.has(senderCert.userId) && group?.kind !== "group") {
           // Nobody in the chat added this person. Shown as a warning, never hidden.
           this.addSystemRow(groupId, event.created_at, senderCert.userId, {
             type: "unexpected_join",
@@ -3562,7 +3759,7 @@ export class ServerSession {
       if (member.leaf === own) continue;
       // Not caught out, only not checked yet. ensureTreeClean waits for that.
       if (member.unchecked && roster.has(member.userId)) continue;
-      if (!member.genuine || !roster.has(member.userId)) {
+      if (!member.genuine || !roster.has(member.userId) || !this.admitted(group, member.userId)) {
         stale.push(member.leaf);
         continue;
       }
@@ -3595,6 +3792,7 @@ export class ServerSession {
   private async reconcile(groupId: string): Promise<void> {
     if (this.stopped || this.groups.get(groupId)?.removedAt || !this.hasMlsGroup(groupId)) return;
     await this.learnTreeUsers(groupId);
+    await this.takeOverIfNoAdmin(groupId);
     if ((await this.staleLeaves(groupId)).length === 0) return;
     // What's known about the roster may be behind, so ask before removing anyone.
     this.applyGroup(await this.api.group(groupId));
@@ -3604,6 +3802,33 @@ export class ServerSession {
       removeLeaves: await this.staleLeaves(groupId),
     }));
     this.announceConfirmedRemovals(groupId);
+  }
+
+  /** Whether this person should put themselves in the roster as admin: none of its admins is in the group, and the server made them its admin. */
+  private shouldTakeOver(groupId: string): boolean {
+    const group = this.groups.get(groupId);
+    const self = this.account.userId;
+    const held = group?.kind === "group" ? this.rosterOf(group) : null;
+    if (!group || !held || held.roster.admins.includes(self) || !held.roster.members.includes(self) || !group.serverAdmins?.includes(self)) return false;
+    const listed = new Set(group.members.map((member) => member.userId));
+    return !held.roster.admins.some((id) => listed.has(id));
+  }
+
+  /**
+   * With none of a group's admins left in it, the server makes its longest-standing
+   * member its admin, as it always has. That person's device then says so in the
+   * roster, where the others accept it only in exactly that case.
+   */
+  private async takeOverIfNoAdmin(groupId: string): Promise<void> {
+    if (!this.shouldTakeOver(groupId)) return;
+    const nobodyNeeded = new Error("no longer needed");
+    await this.commitWithRetry(groupId, async () => {
+      const held = this.rosterOf(this.groups.get(groupId)!);
+      if (!held || !this.shouldTakeOver(groupId)) throw nobodyNeeded;
+      return { kind: "update", roster: { admins: [this.account.userId], members: held.roster.members } };
+    }).catch((error) => {
+      if (error !== nobodyNeeded) throw error;
+    });
   }
 
   // --- Realtime frames ---
@@ -5584,7 +5809,10 @@ export class ServerSession {
       await this.commitWithRetry(groupId, async () => {
         const group = await this.api.group(groupId);
         const cached = this.applyGroup(group);
-        const missing = userIds.filter((id) => !group.members.some((member) => member.user_id === id));
+        const held = this.rosterOf(cached);
+        if (!held || !held.roster.admins.includes(this.account.userId)) throw new Error("Only an admin of this group can add people.");
+        // Someone the server lists but the roster doesn't was never let in, so they're added like anyone else.
+        const missing = userIds.filter((id) => !group.members.some((member) => member.user_id === id) || !held.roster.members.includes(id));
         const packages: { deviceId: string; data: Uint8Array }[] = [];
         for (const userId of missing) packages.push(...(await this.claimKeyPackages(userId)));
         if (packages.length === 0) throw new Error("Those people have no devices available to add.");
@@ -5603,7 +5831,8 @@ export class ServerSession {
             grants.push({ user_id: userId, data: sealHistoryGrant(user.hpkeKey, groupId, userId, signer, this.account.deviceSecret, keys) });
           }
         }
-        return { kind: "members", keyPackages: packages, addUsers: missing, grants };
+        const roster = { admins: held.roster.admins, members: [...held.roster.members, ...missing.filter((id) => !held.roster.members.includes(id))] };
+        return { kind: "members", keyPackages: packages, addUsers: missing, grants, roster };
       });
       const known = this.knownMembers(groupId);
       for (const id of userIds) known.add(id);
@@ -5619,13 +5848,17 @@ export class ServerSession {
 
   async removeMember(groupId: string, userId: string): Promise<void> {
     await this.withLock(groupId, async () => {
-      await this.commitWithRetry(groupId, async () => ({
-        kind: "members",
-        removeLeaves: this.treeMembers(groupId)
-          .filter((member) => member.userId === userId)
-          .map((member) => member.leaf),
-        removeUsers: [userId],
-      }));
+      await this.commitWithRetry(groupId, async () => {
+        const held = this.rosterOf(this.groups.get(groupId)!);
+        return {
+          kind: "members",
+          removeLeaves: this.treeMembers(groupId)
+            .filter((member) => member.userId === userId)
+            .map((member) => member.leaf),
+          removeUsers: [userId],
+          roster: held ? { admins: held.roster.admins.filter((id) => id !== userId), members: held.roster.members.filter((id) => id !== userId) } : undefined,
+        };
+      });
       const known = this.knownMembers(groupId);
       known.delete(userId);
       this.setKnownMembers(groupId, known);
@@ -5639,6 +5872,17 @@ export class ServerSession {
   }
 
   async leaveGroup(groupId: string): Promise<void> {
+    const group = this.groups.get(groupId);
+    const self = this.account.userId;
+    // Off the roster first, so that nobody can bring this person back without an admin.
+    if (group?.kind === "group" && !group.removedAt && this.hasMlsGroup(groupId) && this.rosterOf(group)?.roster.members.includes(self)) {
+      await this.withLock(groupId, () =>
+        this.commitWithRetry(groupId, async () => {
+          const held = this.rosterOf(this.groups.get(groupId)!)!;
+          return { kind: "update", roster: { admins: held.roster.admins.filter((id) => id !== self), members: held.roster.members.filter((id) => id !== self) } };
+        }),
+      ).catch((error) => console.warn("[zuna] leaving a group's roster", error));
+    }
     await this.api.leaveGroup(groupId);
     this.removeGroupLocally(groupId);
   }
@@ -5675,8 +5919,18 @@ export class ServerSession {
     this.emitConversations();
   }
 
+  /** Makes someone a group's admin, or not, in its roster, which the server's list then follows. */
   async setGroupRole(groupId: string, userId: string, role: GroupRole): Promise<void> {
-    await this.api.setGroupRole(groupId, userId, role);
+    await this.withLock(groupId, () =>
+      this.commitWithRetry(groupId, async () => {
+        const held = this.rosterOf(this.groups.get(groupId)!);
+        if (!held?.roster.admins.includes(this.account.userId)) throw new Error("Only an admin of this group can change who its admins are.");
+        if (!held.roster.members.includes(userId)) throw new Error("They aren't in this group.");
+        const admins = role === "admin" ? [...new Set([...held.roster.admins, userId])] : held.roster.admins.filter((id) => id !== userId);
+        return { kind: "update", roster: { admins, members: held.roster.members } };
+      }),
+    );
+    this.emitConversations();
   }
 
   // --- Channels ---
