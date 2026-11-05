@@ -2,6 +2,8 @@
 # HTTPS. Zuna listens on plain HTTP, only on this machine.
 #
 #   ZUNA_PUBLIC_URL=https://chat.example.com docker compose -f docker-compose.proxy.yml up -d
+#
+# Voice channels' media needs 7881/tcp and 7882/udp reachable as well.
 
 services:
   zuna:
@@ -24,8 +26,63 @@ services:
       ZUNA_TRUST_PROXY: "true"
       # The push relays that may wake members' phones (docs/SELF_HOSTING.md#phone-notifications).
       ZUNA_PUSH_RELAYS: ${ZUNA_PUSH_RELAYS:-}
+      # Voice channels, through LiveKit below, with the key the two share, which Zuna
+      # makes the first time it starts.
+      ZUNA_LIVEKIT_INTERNAL_URL: http://livekit:7880
+      ZUNA_LIVEKIT_KEYS: /livekit/keys.yaml
     volumes:
       - zuna-data:/data
+      - zuna-livekit:/livekit
+
+  # Voice channels: LiveKit, the media server. It only ever carries encrypted media.
+  # Apps reach it through Zuna's own address, so there's no second name or certificate
+  # to look after, and media goes straight to the two ports below.
+  livekit:
+    # Update this, the one in docker-compose.yml, LIVEKIT_TAG in scripts/lib.mjs and LIVEKIT_VERSION
+    # in deploy/update.sh together.
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    # It reads the key file Zuna makes on its first start, so it runs as the same account.
+    depends_on:
+      - zuna
+    user: "65532:65532"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "7881:7881/tcp"
+      - "7882:7882/udp"
+    environment:
+      LIVEKIT_CONFIG: |
+        port: 7880
+        rtc:
+          tcp_port: 7881
+          udp_port: 7882
+          use_external_ip: true
+        key_file: /livekit/keys.yaml
+        # LiveKit's codecs, with H.264's Baseline profile as well, which Chromium on macOS encodes
+        # on the GPU. The same as LIVEKIT_CONFIG in scripts/lib.mjs and in docker-compose.yml.
+        room:
+          enabled_codecs:
+            - mime: audio/opus
+            - mime: audio/red
+            - mime: audio/pcmu
+            - mime: audio/pcma
+            - mime: video/vp8
+            - mime: video/h264
+            - mime: video/h264
+              fmtp_line: level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f
+            - mime: video/vp9
+            - mime: video/av1
+            - mime: video/h265
+            - mime: video/rtx
+    volumes:
+      - zuna-livekit:/livekit:ro
 
 volumes:
   zuna-data:
+  zuna-livekit:

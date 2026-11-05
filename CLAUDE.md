@@ -112,7 +112,7 @@ Rules the core depends on:
 | A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
 | A database schema | Add to the end of `migrations` in `server/internal/store/store.go` and of `postgresMigrations` in `postgres.go`, or of `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | The desktop's content security policy (`apps/desktop/src/main/index.ts`) | `contentSecurityPolicy` in `server/internal/webhost/webhost.go` |
-| LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.voice.yml`, and `deploy/update.sh` |
+| LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `deploy/update.sh` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
 | What setting up the test server creates (`createWorld` in `packages/core/test/dev-bots.ts`) | `WORLD_VERSION` and `catchUp` there, or test servers set up earlier never get it |
 | Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |

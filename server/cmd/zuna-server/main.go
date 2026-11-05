@@ -49,6 +49,7 @@ type config struct {
 	liveKitInternal string
 	liveKitKey     string
 	liveKitSecret  string
+	liveKitKeys    string
 }
 
 // splitList reads a comma-separated list of addresses. "off" is none.
@@ -93,6 +94,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.liveKitInternal, "livekit-internal-url", os.Getenv("ZUNA_LIVEKIT_INTERNAL_URL"), "how this server reaches LiveKit, if not by that address (env ZUNA_LIVEKIT_INTERNAL_URL)")
 	flag.StringVar(&cfg.liveKitKey, "livekit-key", os.Getenv("ZUNA_LIVEKIT_KEY"), "LiveKit API key (env ZUNA_LIVEKIT_KEY)")
 	flag.StringVar(&cfg.liveKitSecret, "livekit-secret", os.Getenv("ZUNA_LIVEKIT_SECRET"), "LiveKit API secret (env ZUNA_LIVEKIT_SECRET)")
+	flag.StringVar(&cfg.liveKitKeys, "livekit-keys", os.Getenv("ZUNA_LIVEKIT_KEYS"), "LiveKit's key file, to take the key and secret from instead, which is made with new ones if it isn't there (env ZUNA_LIVEKIT_KEYS)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -135,6 +137,16 @@ func main() {
 func run(cfg config) error {
 	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("creating data folder: %w", err)
+	}
+	if cfg.liveKitKeys != "" {
+		if cfg.liveKitKey != "" || cfg.liveKitSecret != "" {
+			return errors.New("LiveKit's key and secret come from --livekit-keys, or from --livekit-key and --livekit-secret, not both")
+		}
+		key, secret, err := liveKitKeys(cfg.liveKitKeys)
+		if err != nil {
+			return err
+		}
+		cfg.liveKitKey, cfg.liveKitSecret = key, secret
 	}
 	var db *store.DB
 	var err error

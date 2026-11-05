@@ -71,7 +71,7 @@ ZUNA_DOMAIN=chat.example.com docker compose up -d
 docker compose logs zuna
 ```
 
-The log shows a one-time setup link. Open it in the Zuna app to create your owner account, then invite people from inside the app. HTTPS certificates are handled automatically, and everything is stored in a single folder that's easy to back up.
+The log shows a one-time setup link. Open it in the Zuna app to create your owner account, then invite people from inside the app. HTTPS certificates are handled automatically, LiveKit runs next to the server for voice channels and calls, and everything is stored in a single folder that's easy to back up. Calls' media has ports of its own, so open 7881/tcp and 7882/udp as well as 80 and 443.
 
 **Without Docker,** one script builds the server from git, runs it with systemd behind your own reverse proxy, and updates it later with the same command:
 

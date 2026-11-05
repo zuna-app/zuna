@@ -97,12 +97,13 @@ export function pullLatest() {
   }
 }
 
-/** The LiveKit server voice channels use. Update this, `deploy/docker-compose.voice.yml` and `LIVEKIT_VERSION` in `deploy/update.sh` together. */
+/** The LiveKit server voice channels use. Update this, the image in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `LIVEKIT_VERSION` in `deploy/update.sh` together. */
 export const LIVEKIT_TAG = "v1.13.11";
 
 /**
  * What LiveKit is configured with beyond its defaults, as its --config-body. Change it with the
- * same in `deploy/docker-compose.voice.yml` and `deploy/update.sh`, which can't read this.
+ * same in `deploy/docker-compose.yml`, `deploy/docker-compose.proxy.yml` and `deploy/update.sh`,
+ * which can't read this.
  *
  * LiveKit's codecs, with H.264's Baseline profile as well as Constrained Baseline. Chromium on
  * macOS only encodes Baseline on the GPU, through VideoToolbox, and offers it first, so a share

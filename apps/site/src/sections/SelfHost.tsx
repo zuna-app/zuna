@@ -16,10 +16,14 @@ const METHODS = [
       "ZUNA_DOMAIN=chat.example.com docker compose up -d",
       "docker compose logs zuna",
     ],
-    output: ["# The log shows a one-time setup link.", "# Open it in Zuna to create your owner account."],
+    output: [
+      "# The log shows a one-time setup link.",
+      "# Open it in Zuna to create your owner account.",
+      "# Calls' media has its own ports: open 7881/tcp and 7882/udp.",
+    ],
     steps: [
       { title: "Point a domain at a Linux machine", text: "A small VPS or a box at home, on amd64 or arm64." },
-      { title: "Clone it and start it", text: "One docker compose command. HTTPS certificates are handled for you, and everything lives in one folder." },
+      { title: "Clone it and start it", text: "One docker compose command runs Zuna, and LiveKit for voice. HTTPS certificates are handled for you." },
       { title: "Open the setup link in Zuna", text: "The log prints it once. Make the owner account, then invite people from the app." },
     ],
   },

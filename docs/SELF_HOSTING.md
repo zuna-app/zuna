@@ -37,6 +37,8 @@ Then get your setup link:
 docker compose logs zuna
 ```
 
+LiveKit, for [voice channels](#voice-channels) and calls, runs in a container next to it. Calls' media goes straight to it, so open 7881/tcp and 7882/udp as well as 80 and 443.
+
 ## Option 2: From source on Linux with systemd
 
 ```bash
@@ -172,29 +174,22 @@ To let people use Zuna in a browser, run the web app's own program, `zuna-web`, 
 
 ## Voice channels
 
-Voice channels need [LiveKit](https://livekit.io), a media server that runs beside Zuna. It only ever carries encrypted media. Without it, everything else works, and voice channels can be made but not joined.
+Voice channels and calls need [LiveKit](https://livekit.io), a media server that runs beside Zuna. It only ever carries encrypted media. Without it, everything else works, and voice channels can be made but not joined.
 
 It doesn't need much, since it only passes media along. A small VPS is fine for a friend group, though it uses bandwidth: each person in a call receives everyone else's audio, at about 64 kbit/s each, and a shared screen can be 20 Mbit/s for each person watching. Server settings, Screen sharing, is where to say who can share, how many at once, and how large and how fast, and each voice channel can say otherwise. [SCREEN_SHARE.md](SCREEN_SHARE.md#what-a-server-says-and-what-a-device-chooses) has what each of those can really hold.
 
-**With Docker,** add the voice file to whichever you use:
-
-```bash
-export ZUNA_LIVEKIT_SECRET=$(openssl rand -hex 32)
-```
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.voice.yml up -d
-```
+**With Docker,** it's part of the setup, with either compose file. Zuna makes the key the two share the first time it starts, in the `zuna-livekit` volume. Open 7881/tcp and 7882/udp in your firewall for calls' media.
 
 **With `deploy/update.sh`,** add `--voice on`, and it installs LiveKit and sets up both sides. [LINUX.md](LINUX.md#voice-channels) has the details.
 
-**Otherwise,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `deploy/docker-compose.voice.yml` as well, which lets screens shared from a Mac be encoded on its GPU:
+**Otherwise,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` as well, which lets screens shared from a Mac be encoded on its GPU:
 
 | Setting | Environment | |
 |---|---|---|
 | `--livekit-internal-url` | `ZUNA_LIVEKIT_INTERNAL_URL` | How Zuna reaches it, such as `http://127.0.0.1:7880` |
 | `--livekit-key` | `ZUNA_LIVEKIT_KEY` | Its API key |
 | `--livekit-secret` | `ZUNA_LIVEKIT_SECRET` | Its API secret |
+| `--livekit-keys` | `ZUNA_LIVEKIT_KEYS` | Instead of those two, LiveKit's key file, of lines like `key: secret`, which Zuna makes with a new secret if it isn't there, readable only by the account Zuna runs as |
 | `--livekit-url` | `ZUNA_LIVEKIT_URL` | Only if apps should reach it at an address of its own, such as `wss://voice.example.com`, with its own certificate |
 
 Apps reach it through Zuna's own address, at `/livekit/`, so there's no second name or certificate to look after. A reverse proxy in front of Zuna has to allow WebSockets there, as it already does for `/api/ws`.

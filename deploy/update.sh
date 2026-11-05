@@ -399,8 +399,8 @@ build_web() {
 }
 # LiveKit's own release, which has to match the checksum here, so it's only ever
 # what this checkout says. Update the version with LIVEKIT_TAG in scripts/lib.mjs
-# and the image in deploy/docker-compose.voice.yml, and the checksums from the
-# release's checksums.txt.
+# and the images in deploy/docker-compose.yml and docker-compose.proxy.yml, and
+# the checksums from the release's checksums.txt.
 LIVEKIT_VERSION=1.13.11
 fetch_livekit() {
   local sha file
