@@ -15,7 +15,7 @@ import (
 )
 
 // A session token alone, as one copied from a proxy's log would be, can't remove a
-// device or act as an admin, once its device has signed a request.
+// device or act as an admin.
 func TestWhatCantBeUndoneNeedsTheDevicesProof(t *testing.T) {
 	h := newHarness(t)
 	owner := h.owner()
@@ -34,16 +34,8 @@ func TestWhatCantBeUndoneNeedsTheDevicesProof(t *testing.T) {
 	}
 	settings := []byte(`{"retention_days":36500}`)
 
-	// Before a device has signed anything, it's taken to be an app from before this.
-	if status, _, _ := h.raw("PATCH", "/api/admin/settings", token, settings, nil); status != http.StatusOK {
-		t.Fatalf("an older app's change gave %d", status)
-	}
-	// An app signs once as it starts, and from then on it has to.
-	if status, body, _ := h.raw("POST", "/api/devices/proof", token, nil, signed("POST", "/api/devices/proof", nil, time.Now())); status != http.StatusOK {
-		t.Fatalf("signing once gave %d %s", status, body)
-	}
 	if status, _, _ := h.raw("PATCH", "/api/admin/settings", token, settings, nil); status != http.StatusUnauthorized {
-		t.Fatalf("an unsigned change after signing gave %d", status)
+		t.Fatalf("an unsigned change gave %d", status)
 	}
 	headers := signed("PATCH", "/api/admin/settings", settings, time.Now())
 	if status, body, _ := h.raw("PATCH", "/api/admin/settings", token, settings, headers); status != http.StatusOK {
@@ -124,8 +116,7 @@ func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
 	}
 }
 
-// signingDevice signs in as the owner on a device of its own, which signs a request
-// as an app does when it starts, so that from then on it has to.
+// signingDevice signs in as the owner on a device of its own, and gives its key.
 func signingDevice(h *harness) (string, ed25519.PrivateKey) {
 	h.t.Helper()
 	public, private, err := ed25519.GenerateKey(nil)
@@ -137,9 +128,6 @@ func signingDevice(h *harness) (string, ed25519.PrivateKey) {
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &login)
 	h.mustDo("POST", "/api/devices", login.Token, map[string]any{"id": store.NewID(), "certificate": []byte("cert"), "signature_key": []byte(public)}, nil)
-	if status, body, _ := h.raw("POST", "/api/devices/proof", login.Token, nil, proofHeaders(private, "POST", "/api/devices/proof", nil, time.Now())); status != http.StatusOK {
-		h.t.Fatalf("signing once gave %d %s", status, body)
-	}
 	return login.Token, private
 }
 

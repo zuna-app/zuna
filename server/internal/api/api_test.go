@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +28,11 @@ type harness struct {
 	db     *store.DB
 	dir    string
 	invite string
+	// keys is what each session's device signs its requests with, as the app does.
+	keys map[string]ed25519.PrivateKey
+	// signedAt is the time the last request was signed at. The same request signed
+	// twice in one millisecond would be the same signature, which is refused.
+	signedAt time.Time
 }
 
 type client struct {
@@ -61,7 +67,19 @@ func newHarness(t *testing.T, configure ...func(*api.Config)) *harness {
 	if code == "" {
 		t.Fatal("a fresh server should have a setup invite")
 	}
-	return &harness{t: t, url: ts.URL, srv: srv, db: db, dir: dir, invite: code}
+	return &harness{t: t, url: ts.URL, srv: srv, db: db, dir: dir, invite: code, keys: map[string]ed25519.PrivateKey{}}
+}
+
+// deviceKey makes a key for the device a session registers, which the harness
+// then signs that session's requests with.
+func (h *harness) deviceKey(token string) []byte {
+	h.t.Helper()
+	public, private, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	h.keys[token] = private
+	return public
 }
 
 func bytesOf(n int, b byte) []byte { return bytes.Repeat([]byte{b}, n) }
@@ -78,12 +96,26 @@ func (h *harness) do(method, path, token string, body, out any) (int, map[string
 		}
 		reader = bytes.NewReader(data)
 	}
+	var sent []byte
+	if reader != nil {
+		sent, _ = io.ReadAll(reader)
+		reader = bytes.NewReader(sent)
+	}
 	req, err := http.NewRequest(method, h.url+path, reader)
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if key, ok := h.keys[token]; ok && method != http.MethodGet {
+		h.signedAt = h.signedAt.Add(time.Millisecond)
+		if now := time.Now(); now.After(h.signedAt) {
+			h.signedAt = now
+		}
+		for name, value := range proofHeaders(key, method, strings.SplitN(path, "?", 2)[0], sent, h.signedAt) {
+			req.Header.Set(name, value)
+		}
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -135,7 +167,7 @@ func (h *harness) register(name, invite string) *client {
 	}, &out)
 	c := &client{h: h, token: out.Token, userID: out.UserID, device: store.NewID()}
 	h.mustDo("POST", "/api/devices", c.token, map[string]any{
-		"id": c.device, "certificate": []byte("cert"), "signature_key": bytesOf(32, 9),
+		"id": c.device, "certificate": []byte("cert"), "signature_key": h.deviceKey(c.token),
 	}, nil)
 	return c
 }

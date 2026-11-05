@@ -20,8 +20,6 @@ export interface ServerInfo {
   community_key?: string;
   /** Whether this server keeps generations of account keys. Absent on one that doesn't. */
   account_protocol?: number;
-  /** Whether this server takes requests signed by a device's key. Absent on one that doesn't. */
-  request_proofs?: number;
   /** Whether this server removes disappearing messages when they're due. Absent on one that doesn't. */
   disappearing?: number;
   /** Whether this server has channels. Absent on one that doesn't. */

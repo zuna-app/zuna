@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"sync"
@@ -19,8 +18,7 @@ import (
 
 // What can't be undone, or acts for the whole server, needs more than a session
 // token, which can end up somewhere on its own, such as a proxy's log: the
-// device the session is for signs the request with its key. Apps from before
-// this don't sign, so a device only has to once it has.
+// device the session is for signs the request with its key.
 const (
 	// How far a request's time may be from the server's.
 	proofWindow = 5 * time.Minute
@@ -88,7 +86,7 @@ func (s *Server) provenMember(next memberHandler) memberHandler {
 
 // checkProof writes the refusal itself, and says whether to go on.
 func (s *Server) checkProof(w http.ResponseWriter, r *http.Request, sess *store.Session) bool {
-	key, signs, err := s.db.DeviceProof(r.Context(), sess.DeviceID)
+	key, err := s.db.DeviceKey(r.Context(), sess.DeviceID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusUnauthorized, "unauthorized", "Please sign in again.")
 		return false
@@ -99,11 +97,8 @@ func (s *Server) checkProof(w http.ResponseWriter, r *http.Request, sess *store.
 	}
 	encoded := r.Header.Get("X-Zuna-Proof")
 	if encoded == "" {
-		if signs {
-			writeError(w, http.StatusUnauthorized, "proof_required", "This needs to come from the app on your device. Please try again.")
-			return false
-		}
-		return true
+		writeError(w, http.StatusUnauthorized, "proof_required", "This needs to come from the app on your device. Please try again.")
+		return false
 	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxProvenBody))
 	if err != nil {
@@ -128,16 +123,5 @@ func (s *Server) checkProof(w http.ResponseWriter, r *http.Request, sess *store.
 		writeError(w, http.StatusUnauthorized, "proof_invalid", "This request was already made.")
 		return false
 	}
-	if !signs {
-		if err := s.db.MarkSignsRequests(r.Context(), sess.DeviceID); err != nil {
-			slog.Warn("marking a device as signing", "error", err)
-		}
-	}
 	return true
-}
-
-// handleDeviceProof lets a device sign one request as soon as it starts, so that
-// a session token of its alone can't do what needs proof from then on.
-func (s *Server) handleDeviceProof(w http.ResponseWriter, _ *http.Request, _ *store.Session) {
-	writeOK(w)
 }

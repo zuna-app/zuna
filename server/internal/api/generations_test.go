@@ -63,6 +63,7 @@ func (h *harness) signUp(name, invite string) *keyed {
 	h.mustDo("POST", "/api/devices", c.token, map[string]any{
 		"id": c.device, "certificate": []byte("cert"), "signature_key": publicOf(device),
 	}, nil)
+	h.keys[c.token] = device
 	return &keyed{client: c, h: h, root: root, head: root, device: device}
 }
 

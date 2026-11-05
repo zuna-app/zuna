@@ -398,7 +398,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/me", s.withDevice(s.handleUpdateMe))
 	mux.HandleFunc("POST /api/devices", s.authed(s.handleAddDevice))
 	mux.HandleFunc("DELETE /api/devices/{id}", s.withDevice(s.proven(s.handleRevokeDevice)))
-	mux.HandleFunc("POST /api/devices/proof", s.withDevice(s.proven(s.handleDeviceProof)))
 	mux.HandleFunc("PUT /api/push", s.withDevice(s.handleSetPush))
 	mux.HandleFunc("DELETE /api/push", s.withDevice(s.handleDeletePush))
 	mux.HandleFunc("GET /api/key-packages/status", s.withDevice(s.handleKeyPackageStatus))

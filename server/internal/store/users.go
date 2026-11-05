@@ -538,23 +538,14 @@ func (d *DB) DeleteSignInAttemptsBefore(ctx context.Context, before int64) error
 
 // --- Devices ---
 
-// DeviceProof says the key a device signs with, and whether it has signed a
-// request with it yet.
-func (d *DB) DeviceProof(ctx context.Context, deviceID string) ([]byte, bool, error) {
+// DeviceKey is the key a device signs its requests with.
+func (d *DB) DeviceKey(ctx context.Context, deviceID string) ([]byte, error) {
 	var key []byte
-	var signs int
-	err := d.sql.QueryRowContext(ctx, `SELECT signature_key, signs_requests FROM devices WHERE id = ? AND revoked_at IS NULL`, deviceID).Scan(&key, &signs)
+	err := d.sql.QueryRowContext(ctx, `SELECT signature_key FROM devices WHERE id = ? AND revoked_at IS NULL`, deviceID).Scan(&key)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, ErrNotFound
+		return nil, ErrNotFound
 	}
-	return key, signs != 0, err
-}
-
-// MarkSignsRequests records that a device signs its requests, so that from now
-// on the ones that need it must be.
-func (d *DB) MarkSignsRequests(ctx context.Context, deviceID string) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE devices SET signs_requests = 1 WHERE id = ?`, deviceID)
-	return err
+	return key, err
 }
 
 // AddDevice registers a device and binds the current session to it. A device

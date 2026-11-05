@@ -225,7 +225,7 @@ func (c *client) anotherDevice() *client {
 	c.h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": user.Username, "auth_key": bytesOf(32, user.Username[0])}, &login)
 	other := &client{h: c.h, token: login.Token, userID: c.userID, device: store.NewID()}
 	c.h.mustDo("POST", "/api/devices", other.token, map[string]any{
-		"id": other.device, "certificate": []byte("cert"), "signature_key": bytesOf(32, 9),
+		"id": other.device, "certificate": []byte("cert"), "signature_key": c.h.deviceKey(other.token),
 	}, nil)
 	return other
 }

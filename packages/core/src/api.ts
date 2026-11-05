@@ -484,8 +484,6 @@ export class Api {
     this.request<ApiMessage>("POST", at`/api/groups/${groupId}/messages`, body);
   editMessage = (groupId: string, id: string, epoch: number, envelope: Uint8Array) =>
     this.request<ApiMessage>("PUT", at`/api/groups/${groupId}/messages/${id}`, { epoch, envelope });
-  /** Signs one request as this device starts, so that from then on its session token alone can't do what needs proof. */
-  proveDevice = () => this.request<{ ok: boolean }>("POST", "/api/devices/proof");
   deleteMessage = (groupId: string, id: string, epoch: number, deletion: Uint8Array) =>
     this.request<ApiMessage>("DELETE", at`/api/groups/${groupId}/messages/${id}`, { epoch, deletion });
   addReaction = (groupId: string, messageId: string, id: string, epoch: number, data: Uint8Array) =>

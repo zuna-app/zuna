@@ -572,6 +572,7 @@ export class ServerSession {
   ) {
     this.api = new Api(account.serverUrl);
     this.api.token = account.token;
+    this.api.prove = (input) => wasm.sign(this.account.deviceSecret, input);
     this.searchKey = wasm.hkdfSha256(dbKey, new Uint8Array(0), utf8("zuna/local/search"), 32);
     this.mediaTags = new Map(MEDIA_KINDS.map((kind) => [kind, mediaTag(this.searchKey, kind)]));
     this.mentionTag = mediaTag(this.searchKey, "mention");
@@ -726,12 +727,6 @@ export class ServerSession {
     this.info = await this.api.info();
     this.emit({ type: "settings", serverId: this.serverId, info: this.info });
     this.noticeProtocol();
-    if ((this.info.request_proofs ?? 0) >= 1 && !this.api.prove) {
-      const { deviceSecret } = this.account;
-      this.api.prove = (input) => wasm.sign(deviceSecret, input);
-      // Once this device has signed a request, its session token alone can't remove devices, delete or act as an admin.
-      await this.api.proveDevice().catch((error) => console.warn("[zuna] signing as this device", error));
-    }
     // Which keys are current comes first of all, since the vault opens with them.
     // Not being able to tell is no reason to stop the messages from coming.
     await this.syncAccount().catch((error) => {

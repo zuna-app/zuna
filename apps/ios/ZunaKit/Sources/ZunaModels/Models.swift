@@ -55,7 +55,6 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var userCount: Int
     public var communityKey: String?
     public var accountProtocol: Int?
-    public var requestProofs: Int?
     /// Whether this server removes disappearing messages when they're due.
     public var disappearing: Int?
     /// Whether this server has channels.
@@ -79,7 +78,6 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case emoteSetName = "emote_set_name"
         case userCount = "user_count"
         case accountProtocol = "account_protocol"
-        case requestProofs = "request_proofs"
         case disappearing
         case communityKey = "community_key"
         case screenShare = "screen_share"

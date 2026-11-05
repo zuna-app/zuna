@@ -1584,7 +1584,6 @@ describe("a server pinning or unpinning a message", () => {
 
   it("needs the device's proof, not only its session token", async () => {
     const { owner, groupId, ids } = await inAGroup();
-    await waitFor(() => !!apiOf(owner).prove, "the app to sign");
     const response = await fetch(`${server.url}/api/groups/${groupId}/messages/${ids[0]}/pin`, { method: "PUT", headers: { Authorization: `Bearer ${apiOf(owner).token}` } });
     expect(response.status).toBe(401);
     expect((await response.json()).error).toBe("proof_required");
@@ -1644,13 +1643,12 @@ describe("a server holding back a message", () => {
 });
 
 describe("a session token on its own", () => {
-  it("can't remove a device once the app has signed a request, and the app still can", async () => {
+  it("can't remove a device, and the app still can", async () => {
     const owner = await person("fran");
     const phone = await new TestApp("fran-phone").open();
     open.push(phone);
     await phone.login(server.url, owner.session.getSelf().username);
     const phoneId = phone.session.getSelf().deviceId;
-    await waitFor(() => !!apiOf(owner).prove, "the app to sign");
     const response = await fetch(`${server.url}/api/devices/${phoneId}`, { method: "DELETE", headers: { Authorization: `Bearer ${apiOf(owner).token}` } });
     expect(response.status).toBe(401);
     expect((await response.json()).error).toBe("proof_required");
