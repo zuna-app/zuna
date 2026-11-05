@@ -461,16 +461,19 @@ export function openHistoryGrant(hpkeSecret: Uint8Array, groupId: string, recipi
 
 // --- Group details ---
 
-const detailsSignatureInput = (groupId: string, version: number, signer: Signer, details: string) =>
-  concat(label(`zuna/group-details-sig/v1|${groupId}|${version}|${signer.userId}|${signer.deviceId}|`), wasm.sha256(utf8(details)));
+/** What signed details are of: a group, a channel or a sound. Each has a label of its own, so one can't be taken for another. */
+export type DetailsKind = "group" | "channel" | "sound";
+
+const detailsSignatureInput = (kind: DetailsKind, id: string, version: number, signer: Signer, details: string) =>
+  concat(label(`zuna/${kind}-details-sig/v1|${id}|${version}|${signer.userId}|${signer.deviceId}|`), wasm.sha256(utf8(details)));
 
 /**
- * A group's details, signed by the admin's device that set them, with a version
- * so an older copy can't be served again.
+ * A group's details, or a channel's or sound's, signed by the device that set them,
+ * with a version so an older copy can't be served again.
  */
-export function signGroupDetails(groupId: string, details: object, version: number, signer: Signer, deviceSecret: Uint8Array): object {
+export function signGroupDetails(groupId: string, details: object, version: number, signer: Signer, deviceSecret: Uint8Array, kind: DetailsKind = "group"): object {
   const text = JSON.stringify(details);
-  const signature = wasm.sign(deviceSecret, detailsSignatureInput(groupId, version, signer, text));
+  const signature = wasm.sign(deviceSecret, detailsSignatureInput(kind, groupId, version, signer, text));
   return { signed: { details: text, version, user: signer.userId, device: signer.deviceId, signature: toBase64(signature) } };
 }
 
@@ -482,7 +485,7 @@ export interface SignedGroupDetails {
 }
 
 /** The signed part of a group's details, or null if there's none or it's malformed. */
-export function readSignedGroupDetails(groupId: string, value: unknown): SignedGroupDetails | null {
+export function readSignedGroupDetails(groupId: string, value: unknown, kind: DetailsKind = "group"): SignedGroupDetails | null {
   const signed = (value as { signed?: Record<string, unknown> } | null)?.signed;
   if (!signed || typeof signed !== "object") return null;
   const { details, version, user, device, signature } = signed;
@@ -493,7 +496,7 @@ export function readSignedGroupDetails(groupId: string, value: unknown): SignedG
       details: JSON.parse(details),
       version,
       signer,
-      signedBy: (devicePublic) => wasm.verify(devicePublic, detailsSignatureInput(groupId, version, signer, details), fromBase64(signature)),
+      signedBy: (devicePublic) => wasm.verify(devicePublic, detailsSignatureInput(kind, groupId, version, signer, details), fromBase64(signature)),
     };
   } catch {
     return null;
