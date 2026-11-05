@@ -111,6 +111,9 @@ case "${reply:-y}" in [Yy]*) ;; *) echo "Nothing was changed."; exit 0 ;; esac
 "$SRC/deploy/update.sh" --relay "$DOMAIN" --apns-key "$KEY" --apns-key-id "$KEY_ID" --listen "$LISTEN" --relay-port "$PORT"
 
 echo
+echo "Your proxy has to reach http://$LISTEN:$PORT. If a firewall is on here, let it through to"
+echo "port $PORT/tcp, and nothing else."
+echo
 if ! is_private "$LISTEN"; then
   echo "Warning: the relay speaks plain HTTP on $LISTEN, an address the internet reaches. Let only the"
   echo "proxy reach port $PORT, and keep what's between them private. If the proxy calls from a public"

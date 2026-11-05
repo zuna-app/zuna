@@ -58,7 +58,7 @@ It asks how people will reach the server, by a domain or by the machine's IP add
 - **Or you set the proxy up yourself,** on this machine or another, and the installer shows what to add and waits. The proxy has to pass WebSockets on, at `/api/ws` and `/livekit/`.
 - **Without a domain,** the server serves HTTPS itself, on port 9660, as in [Without a domain](#without-a-domain), with no proxy.
 
-At the end it checks that the server answers at its address, WebSockets and voice included, says what's wrong if it doesn't, and shows the setup link, with a QR code. To update later:
+At the end it checks that the server answers at its address, WebSockets and voice included, says what's wrong if it doesn't, and shows the setup link, with a QR code, and which ports to open, and to forward if the machine is behind a router. To update later:
 
 ```bash
 sudo zuna-update

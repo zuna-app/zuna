@@ -19,6 +19,8 @@
 #   certbot   Ubuntu, with nginx: adds a site, with a certificate from certbot
 #   apache    Fedora, with Apache, firewalld and SELinux: adds a site, with certbot
 #   ip        Fedora, by IP address: the server's own certificate, by its pin
+#   nat       Fedora, by an address that's a router's: checked here, and the end
+#             says to forward the ports
 #   relay     Fedora: deploy/install-relay.sh, the push relay alone, driven by keys,
 #             then again, which offers to update it, and where a chat server is
 set -euo pipefail
@@ -28,7 +30,7 @@ OUT="$(mktemp -d)"
 DOMAIN=chat.zuna.test
 PEBBLE=v2.10.1
 ACME=(ZUNA_INSTALL_ACME_CA=https://localhost:14000/dir ZUNA_INSTALL_ACME_ROOT=/opt/pebble/certs/pebble.minica.pem)
-ALL=(caddy manual update prompts certbot apache ip relay)
+ALL=(caddy manual update prompts certbot apache ip nat relay)
 
 command -v limactl >/dev/null || { echo "This needs Lima: brew install lima" >&2; exit 1; }
 command -v expect >/dev/null || { echo "This needs expect." >&2; exit 1; }
@@ -37,7 +39,7 @@ machine() {
   case "$1" in
     caddy | manual | update | prompts) echo debian ;;
     certbot) echo ubuntu ;;
-    apache | ip | relay) echo fedora ;;
+    apache | ip | nat | relay) echo fedora ;;
   esac
 }
 template() {
@@ -271,6 +273,14 @@ scenario_ip() {
   install_with fedora "$log" --ip "$address" --yes || { echo "the installer failed"; return; }
   answered "https://$address:9660" "$log" || echo "the server didn't answer at its address, by its pin"
   grep -q "/invite/.*#pin=" "$log" || echo "the setup link has no pin"
+}
+
+scenario_nat() {
+  local log="$OUT/nat.log"
+  fresh fedora
+  install_with fedora "$log" --ip 203.0.113.7 --yes || { echo "the installer failed"; return; }
+  answered "https://203.0.113.7:9660" "$log" || echo "the server didn't answer, through this machine, by its pin"
+  grep -q "On the router, forward each of these ports to" "$log" || echo "the end didn't say to forward the ports"
 }
 
 scenario_relay() {

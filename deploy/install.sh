@@ -489,7 +489,8 @@ look_up_domain() {
     good "$DOMAIN points here, at $POINTS_HERE"
   else
     warn "$DOMAIN points at ${addresses//$'\n'/, }, which isn't on this machine."
-    dim "That's as it should be behind a router or NAT that passes ports on to it."
+    dim "That's as it should be behind a router, which has to pass ports on to this machine."
+    dim "The end of the setup lists which."
   fi
   DOMAIN_ADDRESSES="$addresses"
   ask_public_ip
@@ -573,7 +574,8 @@ ask_ip() {
   fi
   PUBLIC_IP="$IP"
   if ! is_own_address "$IP"; then
-    dim "The router has to pass port $PORT on to this machine, as the same port."
+    dim "The router has to pass port $PORT on to this machine, as the same port, and the ports"
+    dim "for calls too, which the end of the setup lists."
   fi
 }
 
@@ -797,6 +799,7 @@ check_certificate() {
 
 ask_firewall() {
   FIREWALL_KIND=""
+  FIREWALL_FOUND=""
   OPEN=()
   if [ -n "$IP" ]; then
     OPEN+=("$PORT/tcp")
@@ -811,6 +814,7 @@ ask_firewall() {
   elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
     FIREWALL_KIND=firewalld
   fi
+  FIREWALL_FOUND="$FIREWALL_KIND"
   [ "$FIREWALL" = 1 ] || { FIREWALL_KIND=""; return 0; }
   [ -n "$FIREWALL_KIND" ] || return 0
   heading "Firewall"
@@ -1446,7 +1450,52 @@ done_screen() {
     say "The web app can't reach a server without a domain."
     echo
   fi
+  what_is_left
   printf '  %-10s %s\n' "Get apps" "https://zuna.chat" "Update" "sudo zuna-update" "Logs" "journalctl -u zuna" "Back up" "/var/lib/zuna"
+  echo
+}
+
+# Where a proxy set up by hand points, and which ports have to be open, and
+# forwarded behind a router, for what was chosen.
+what_is_left() {
+  local rows=() row public="${IP:-$PUBLIC_IP}" here
+  if [ -n "$DOMAIN" ] && [ "$PROXY" = manual ]; then
+    if [ "$PROXY_WHERE" = elsewhere ]; then say "${B}Your proxy, on $PROXY_ADDRESS${R}"; else say "${B}Your proxy${R}"; fi
+    say "  https://$DOMAIN  ->  http://$(upstream), passing WebSockets on"
+    echo
+  fi
+  if [ -n "$IP" ]; then
+    rows+=("$PORT/tcp|the server, with its own certificate, from everyone")
+  elif [ "$PROXY_WHERE" = elsewhere ]; then
+    rows+=("$SERVER_PORT/tcp|from your proxy at $PROXY_ADDRESS alone")
+  elif [ "$PROXY" = auto ] && [ "$CLOUDFLARE_FOUND" = 1 ]; then
+    [ "$CLOUDFLARE_MODE" = flexible ] || rows+=("443/tcp|HTTPS, from Cloudflare")
+    rows+=("80/tcp|from Cloudflare")
+  elif [ "$PROXY" = auto ]; then
+    rows+=("443/tcp|HTTPS, through $(proxy_name), from everyone")
+    rows+=("80/tcp|for certificates, and to send http:// on to https://")
+  fi
+  rows+=("$VOICE_TCP_PORT/tcp|calls' media, from everyone, straight here and not through a proxy")
+  rows+=("$VOICE_UDP_PORT/udp|calls' media, the same, and better for calls than TCP")
+  say "${B}Ports to open${R}"
+  for row in "${rows[@]}"; do printf '    %-9s %s\n' "${row%%|*}" "${row#*|}"; done
+  if [ -n "$DOMAIN" ] && [ "$PROXY" = manual ] && [ "$PROXY_WHERE" = here ]; then
+    say "  and what your proxy needs, usually 80/tcp and 443/tcp."
+  fi
+  if [ -n "$FIREWALL_KIND" ]; then
+    dim "  $FIREWALL_KIND has them open. Open them in your provider's firewall too, if it has one."
+  elif [ -n "$FIREWALL_FOUND" ]; then
+    warn "$FIREWALL_FOUND is on here, and these aren't open in it."
+  else
+    dim "  Nothing here blocks them. Open them in your provider's firewall, if it has one."
+  fi
+  # A public address that isn't this machine's is a router's, which has to pass them on.
+  if [ -n "$public" ] && ! is_own_address "$public"; then
+    here="$(ip route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([^ ]*\).*/\1/p')"
+    here="${here:-$(own_addresses | awk '{ print $1; exit }')}"
+    warn "People reach this machine at $public, which is a router's."
+    say "  On the router, forward each of these ports to $here, as the same port."
+  fi
   echo
 }
 
