@@ -53,6 +53,7 @@ The server keeps a list of who's in each conversation, for what it does itself. 
 - The member list shows a difference if there is one: someone who holds the keys but isn't listed, or who's listed with no device in the group.
 - Only an admin's device can set a group's name and picture, which it signs, and an older copy can't be served again.
 - A member can't remove someone from a group's keys: everyone is told, and the person removed rejoins straight away.
+- A message under an epoch your device was in the group for only counts as sent by a device that was in the group's tree by then, and not after it left. One that isn't is marked unverified, so a member can't pass someone outside the group a key to write in it.
 
 ## What the server can't make your app do
 

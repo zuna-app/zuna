@@ -856,7 +856,8 @@ describe("old keys and removed devices (Z-20)", () => {
     const session = alice.session as any;
     const epoch = session.mlsEpoch(groupId);
     session.db.run("INSERT OR REPLACE INTO epoch_starts(group_id, epoch, seq) VALUES(?, ?, ?)", [groupId, epoch + 1, 500]);
-    const message = (seq: number) => ({ group_id: groupId, id: "d".repeat(32), seq, updated_seq: seq, sender_user: dave.userId, sender_device: "x", epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
+    const device = (dave.session as any).account.deviceId;
+    const message = (seq: number) => ({ group_id: groupId, id: "d".repeat(32), seq, updated_seq: seq, sender_user: dave.userId, sender_device: device, epoch, created_at: Date.now(), edited_at: null, deleted_at: null, pinned_at: null, reactions: [] });
     expect(session.couldBeSent(message(499))).toBe(true);
     expect(session.couldBeSent(message(501))).toBe(false);
   });

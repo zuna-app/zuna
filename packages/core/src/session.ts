@@ -2288,6 +2288,7 @@ export class ServerSession {
     const groupBytes = utf8(groupId);
     const epoch = this.mls.epoch(groupBytes);
     if (this.confirmedEpochs.get(groupId) === epoch) return epoch;
+    this.noteArrivals(groupId);
     const real = this.mls.exportSecret(groupBytes, CONTENT_LABEL, u64Bytes(epoch), 32);
     const stored = this.epochKey(groupId, epoch);
     if (!stored || !equalBytes(stored, real)) {
@@ -2746,6 +2747,7 @@ export class ServerSession {
       this.db.run("DELETE FROM joined_epochs WHERE group_id = ?", [groupId]);
       this.db.run("DELETE FROM epoch_starts WHERE group_id = ?", [groupId]);
       this.db.run("DELETE FROM device_departures WHERE group_id = ?", [groupId]);
+      this.db.run("DELETE FROM device_arrivals WHERE group_id = ?", [groupId]);
     });
     this.forgetMlsState(groupId);
     this.emitConversations();
@@ -3159,6 +3161,7 @@ export class ServerSession {
     this.saveMls();
     if (roster) this.setRoster(group.id, roster);
     this.setJoinedEpoch(group.id, newEpoch);
+    this.noteArrivals(group.id);
     this.saveEpochKey(group.id, newEpoch, key, "mls");
     this.treeUsersCache.delete(group.id);
     this.setKnownMembers(group.id, targets);
@@ -3238,6 +3241,7 @@ export class ServerSession {
       this.mls.mergePending(groupBytes);
       this.saveMls();
       if (roster) this.setRoster(groupId, roster);
+      this.noteArrivals(groupId);
       this.saveEpochKey(groupId, newEpoch, key, "mls");
       this.treeUsersCache.delete(groupId);
       this.confirmedEpochs.set(groupId, newEpoch);
@@ -3398,6 +3402,25 @@ export class ServerSession {
     }
   }
 
+  /**
+   * Notes the epoch from which each device in a group's tree has been there, as of
+   * the epoch this device is at. Anyone's certificate counts: being here only lets
+   * their signed messages through, which still have to check out.
+   */
+  private noteArrivals(groupId: string): void {
+    if (!this.hasMlsGroup(groupId)) return;
+    const epoch = this.mlsEpoch(groupId);
+    for (const member of this.mls.members(utf8(groupId)) as { credential: Uint8Array }[]) {
+      const cert = parseCertificate(member.credential);
+      if (cert) this.db.run("INSERT OR IGNORE INTO device_arrivals(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, epoch]);
+    }
+  }
+
+  /** The epoch from which someone's device has been in a group's tree, as this device saw. */
+  private arrivedAt(groupId: string, userId: string, deviceId: string): number | null {
+    return this.db.get<{ epoch: number }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId])?.epoch ?? null;
+  }
+
   /** The epoch someone's device left a group's tree, if it has. */
   private departedAt(groupId: string, userId: string, deviceId: string): number | null {
     return this.db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, userId, deviceId])?.epoch ?? null;
@@ -3418,6 +3441,8 @@ export class ServerSession {
       // A real device still here means what went was something using its certificate.
       if (cert && !present.has(`${cert.userId}/${cert.deviceId}`)) {
         this.db.run("INSERT OR REPLACE INTO device_departures(group_id, user_id, device_id, epoch) VALUES(?, ?, ?, ?)", [groupId, cert.userId, cert.deviceId, epoch]);
+        // Coming back is a new arrival.
+        this.db.run("DELETE FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, cert.userId, cert.deviceId]);
       }
     }
   }
@@ -4225,12 +4250,18 @@ export class ServerSession {
    * Only the server enforces that content is sent under the current epoch, so a
    * malicious server working with someone removed could slip in new-looking
    * messages under an old key. This catches a message from a device in an epoch
-   * after it left, and one that came after a later epoch had already begun. Genuinely
+   * after it left, or before it came, and one that came after a later epoch had already begun. Genuinely
    * old messages are unaffected: they fit the order the group's commits came in.
    */
   private couldBeSent(message: ApiMessage): boolean {
     const left = this.departedAt(message.group_id, message.sender_user, message.sender_device);
     if (left !== null && message.epoch >= left) return false;
+    // Under an epoch this device was there for, only a device that was in the tree then can have sent it.
+    const joined = this.joinedEpoch(message.group_id);
+    if (joined !== null && message.epoch >= joined) {
+      const arrived = this.arrivedAt(message.group_id, message.sender_user, message.sender_device);
+      if (arrived === null || message.epoch < arrived) return false;
+    }
     const next =this.db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [message.group_id, message.epoch + 1]);
     return !next || message.seq < next.seq;
   }

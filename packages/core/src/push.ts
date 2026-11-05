@@ -115,7 +115,10 @@ export async function previewPush(
   // session.ts), or from someone whose key changed in a way that doesn't follow.
   const left = db.get<{ epoch: number }>("SELECT epoch FROM device_departures WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device]);
   const next = db.get<{ seq: number }>("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, message.epoch + 1]);
-  if ((left && message.epoch >= left.epoch) || (next && message.seq >= next.seq) || sender.trust === "changed") return preview({});
+  const joined = db.get<{ epoch: number }>("SELECT epoch FROM joined_epochs WHERE group_id = ?", [groupId]);
+  const arrived = db.get<{ epoch: number }>("SELECT epoch FROM device_arrivals WHERE group_id = ? AND user_id = ? AND device_id = ?", [groupId, message.sender_user, message.sender_device]);
+  const absent = !!joined && message.epoch >= joined.epoch && (!arrived || message.epoch < arrived.epoch);
+  if ((left && message.epoch >= left.epoch) || (next && message.seq >= next.seq) || absent || sender.trust === "changed") return preview({});
   const epochKey = wasm.aeadOpen(key, epochRow.key, label("epoch"));
   const opened = openEnvelope<unknown>(
     epochKey,

@@ -153,6 +153,9 @@ const MIGRATIONS: string[] = [
   DROP TABLE device_departures;
   CREATE TABLE device_departures (group_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, epoch INTEGER NOT NULL, PRIMARY KEY (group_id, user_id, device_id));
   `,
+  // The epoch from which each device has been in each group's tree, as this device saw it,
+  // so a message under an epoch it was there for can only be from someone who was too.
+  `CREATE TABLE device_arrivals (group_id TEXT NOT NULL, user_id TEXT NOT NULL, device_id TEXT NOT NULL, epoch INTEGER NOT NULL, PRIMARY KEY (group_id, user_id, device_id));`,
 ];
 
 export function migrate(db: LocalDb): void {

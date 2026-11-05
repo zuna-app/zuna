@@ -347,6 +347,7 @@ describe("notices", () => {
     db.exec("DROP INDEX messages_expiry; ALTER TABLE messages DROP COLUMN expires_at; DROP TABLE expired");
     db.exec("ALTER TABLE messages DROP COLUMN mention_seen");
     db.exec("DROP INDEX messages_sender");
+    db.exec("DROP TABLE device_arrivals");
     db.exec("PRAGMA user_version = 1");
     migrate(local);
     const rows = db.prepare("SELECT id, seq FROM messages ORDER BY row_id").all() as { id: string; seq: number | null }[];
