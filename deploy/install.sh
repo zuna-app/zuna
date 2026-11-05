@@ -674,14 +674,20 @@ ask_proxy() {
   choose 0 "${options[@]}"
   LISTEN="${values[CHOICE]}"
 }
-# The SELinux switch that would let nginx or Apache connect to Zuna, if it's off.
-# Port 8080 counts as a web cache's, which the narrower one allows.
-selinux_switch() {
-  [ "$PROXY_KIND" = nginx ] || [ "$PROXY_KIND" = apache ] || return 0
-  command -v getenforce >/dev/null && [ "$(getenforce 2>/dev/null)" = Enforcing ] || return 0
-  local switch=httpd_can_network_connect
-  [ "$SERVER_PORT" = 8080 ] && switch=httpd_can_network_relay
-  getsebool "$switch" 2>/dev/null | grep -q -- '--> on' || echo "$switch"
+# Whether SELinux stops nginx or Apache connecting to Zuna, as it does until Zuna's
+# port counts as a web port and httpd_can_network_relay lets them reach web ports.
+# That's narrower than httpd_can_network_connect, which lets them reach any port.
+selinux_in_the_way() {
+  [ "$PROXY_KIND" = nginx ] || [ "$PROXY_KIND" = apache ] || return 1
+  command -v getenforce >/dev/null && [ "$(getenforce 2>/dev/null)" = Enforcing ]
+}
+# Lets them: Zuna's port as a web port, unless it's one already, and the switch on.
+selinux_allow() {
+  command -v semanage >/dev/null || pkg_install policycoreutils-python-utils
+  if ! semanage port -l | awk '$1 == "http_port_t" || $1 == "http_cache_port_t"' | grep -qw "$SERVER_PORT"; then
+    semanage port -a -t http_port_t -p tcp "$SERVER_PORT" 2>/dev/null || semanage port -m -t http_port_t -p tcp "$SERVER_PORT"
+  fi
+  setsebool -P httpd_can_network_relay 1
 }
 proxy_ports() {
   local on80 on443
@@ -829,7 +835,7 @@ open_list() {
 }
 
 pick_ports() {
-  SERVER_PORT="$(free_port 8080)"
+  SERVER_PORT="$(free_port 9660)"
   VOICE_PORT="$(free_port 7880)"
   VOICE_TCP_PORT="$(free_port 7881)"
   [ "$VOICE_TCP_PORT" = "$VOICE_PORT" ] && VOICE_TCP_PORT="$(free_port $((VOICE_PORT + 1)))"
@@ -838,8 +844,8 @@ pick_ports() {
 }
 
 summary() {
-  SELINUX_SWITCH=""
-  [ -n "$DOMAIN" ] && [ "$PROXY_WHERE" = here ] && SELINUX_SWITCH="$(selinux_switch)"
+  SELINUX_FIX=0
+  [ -n "$DOMAIN" ] && [ "$PROXY_WHERE" = here ] && selinux_in_the_way && SELINUX_FIX=1
   heading "Ready to set up"
   local rows=()
   if [ -n "$IP" ]; then
@@ -871,7 +877,7 @@ summary() {
   else
     rows+=("Firewall|unchanged $DOT open $(open_list) wherever yours is")
   fi
-  [ "$PROXY" = auto ] && [ -n "$SELINUX_SWITCH" ] && rows+=("SELinux|lets $(proxy_name) reach Zuna, with $SELINUX_SWITCH")
+  [ "$PROXY" = auto ] && [ "$SELINUX_FIX" = 1 ] && rows+=("SELinux|lets $(proxy_name) reach Zuna: port $SERVER_PORT as a web port, with httpd_can_network_relay")
   [ "$PROXY_KIND" = caddy ] && [ "$CERT_SOURCE" = files ] && rows+=("Key|$KEY, made readable to Caddy's group")
   [ "$SWAP_FILE" = 1 ] && rows+=("Memory|adds a 2 GB swap file, /swapfile, for building")
   [ "$FIX_CHECKOUT" = 1 ] && rows+=("Checkout|$SRC becomes root's, as updates run from it as root")
@@ -1269,10 +1275,11 @@ show_manual() {
     "arrives until they reload, and nobody can join a call." \
     "It also has to allow uploads of 2 MB, and add X-Forwarded-For, so that limits" \
     "count each person rather than the proxy."
-  if [ -n "$SELINUX_SWITCH" ]; then
+  if [ "$SELINUX_FIX" = 1 ]; then
     say "SELinux stops $(proxy_name) connecting to Zuna until you let it:"
     echo
-    say "    sudo setsebool -P $SELINUX_SWITCH 1"
+    say "    sudo semanage port -a -t http_port_t -p tcp $SERVER_PORT"
+    say "    sudo setsebool -P httpd_can_network_relay 1"
     echo
   fi
 }
@@ -1541,7 +1548,7 @@ if [ -n "$DOMAIN" ] && [ "$PROXY" = auto ]; then
     step "Getting a certificate from Let's Encrypt" get_certificate
   fi
   let_caddy_read
-  [ -n "$SELINUX_SWITCH" ] && step "Letting $(proxy_name) reach Zuna" setsebool -P "$SELINUX_SWITCH" 1
+  [ "$SELINUX_FIX" = 1 ] && step "Letting $(proxy_name) reach Zuna" selinux_allow
   step "Setting up $(proxy_name)" write_site all
 fi
 if ! command -v qrencode >/dev/null && pkg_available qrencode; then

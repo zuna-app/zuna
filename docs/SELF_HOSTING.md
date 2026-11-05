@@ -51,7 +51,7 @@ sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
 sudo /opt/zuna/deploy/install.sh
 ```
 
-It asks how people will reach the server, by a domain or by the machine's IP address, then about the reverse proxy and the firewall, and changes nothing until you've seen a summary and said yes. Then it builds the server from git, with LiveKit for [voice channels](#voice-channels), and runs both as hardened systemd services, with their data in `/var/lib/zuna`. The server never binds ports 80 and 443 itself: it listens on 8080, behind a proxy.
+It asks how people will reach the server, by a domain or by the machine's IP address, then about the reverse proxy and the firewall, and changes nothing until you've seen a summary and said yes. Then it builds the server from git, with LiveKit for [voice channels](#voice-channels), and runs both as hardened systemd services, with their data in `/var/lib/zuna`. The server never binds ports 80 and 443 itself: it listens on 9660, behind a proxy.
 
 - **With nothing on ports 80 and 443,** it can install Caddy, which gets and renews the certificate.
 - **With Caddy, nginx or Apache already there,** it can add a site for Zuna, checking the proxy's settings before reloading it and taking the site out again if they don't check out. nginx and Apache use a certificate already there that covers the domain, one from Let's Encrypt through certbot, or your own files.
@@ -93,8 +93,8 @@ Paste it into the Zuna app, create your account, save your recovery key, and nam
 
 If Caddy, nginx or Traefik already handles HTTPS, run Zuna on plain HTTP behind it.
 
-- **From source on Linux,** that's how it always runs: on port 8080. The installer can set up Caddy, nginx or Apache for it. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
-- **With Docker,** use the proxy's compose file. It listens on `127.0.0.1:8080`, for a proxy on the same machine:
+- **From source on Linux,** that's how it always runs: on port 9660. The installer can set up Caddy, nginx or Apache for it. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
+- **With Docker,** use the proxy's compose file. It listens on `127.0.0.1:9660`, for a proxy on the same machine:
 
 ```bash
 ZUNA_PUBLIC_URL=https://chat.example.com docker compose -f docker-compose.proxy.yml up -d
@@ -105,7 +105,7 @@ The proxy must forward WebSockets and allow large uploads.
 **Caddy**
 ```
 chat.example.com {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:9660
 }
 ```
 
@@ -119,7 +119,7 @@ server {
     client_max_body_size 2m;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:9660;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -174,7 +174,7 @@ Everything can be set by flag or environment variable.
 | `--domain` | `ZUNA_DOMAIN` | | Turns on automatic HTTPS on ports 80 and 443. With an IP address, HTTPS with the server's [own certificate](#without-a-domain) on 443 |
 | `--data` | `ZUNA_DATA` | `./zuna-data` | Where everything is stored |
 | `--database-url` | `ZUNA_DATABASE_URL` | | A [PostgreSQL](#postgresql) database to keep accounts and messages in, instead of `zuna.db` in the data folder |
-| `--listen` | `ZUNA_LISTEN` | `:8080` | Address to listen on, unless `--domain` names a domain. With an IP address, `:443` by default |
+| `--listen` | `ZUNA_LISTEN` | `:9660` | Address to listen on, unless `--domain` names a domain. With an IP address, `:443` by default |
 | `--public-url` | `ZUNA_PUBLIC_URL` | From the domain | Address people use to reach this server |
 | `--tls-cert`, `--tls-key` | `ZUNA_TLS_CERT`, `ZUNA_TLS_KEY` | | Use your own certificate files |
 | `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy on this machine or a private network |

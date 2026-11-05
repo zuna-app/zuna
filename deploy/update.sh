@@ -11,7 +11,7 @@
 # the first time, say what runs here:
 #
 #   sudo deploy/update.sh --server chat.example.com
-#   sudo deploy/update.sh --server 203.0.113.7 --server-port 9660 --voice on
+#   sudo deploy/update.sh --server 203.0.113.7 --voice on
 #   sudo deploy/update.sh --server chat.example.com --relay push.example.com \
 #     --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
 #   sudo deploy/update.sh --server chat.example.com --web web.chat.example.com
@@ -54,7 +54,7 @@
 #   --trusted-proxies L  the proxies to believe about who's calling, as addresses
 #                        or CIDR ranges, comma-separated (default: this machine
 #                        and private networks)
-#   --server-port PORT   the server's port (default 8080)
+#   --server-port PORT   the server's port (default 9660)
 #   --relay-port PORT    the relay's port (default 8090)
 #   --web-port PORT      the web app's port (default 8081)
 #   --voice-port PORT    LiveKit's own port, which only the server reaches
@@ -99,7 +99,7 @@ LISTEN=127.0.0.1
 TRUSTED_PROXIES=""
 SIGNED_TAGS=0
 ALLOW_USER_CHECKOUT=0
-SERVER_PORT=8080
+SERVER_PORT=9660
 RELAY_PORT=8090
 WEB_PORT=8081
 VOICE=off
@@ -662,7 +662,7 @@ fi
 step "Restarting"
 systemctl daemon-reload
 
-# Whether a service answers at an address, such as http://127.0.0.1:8080/healthz, or
+# Whether a service answers at an address, such as http://127.0.0.1:9660/healthz, or
 # with HTTPS, whatever its certificate. LiveKit can take a few seconds to find this
 # machine's public address.
 healthy() {

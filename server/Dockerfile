@@ -16,5 +16,5 @@ COPY --from=build --chown=65532:65532 /out/data /data
 COPY --from=build --chown=65532:65532 /out/livekit /livekit
 ENV ZUNA_DATA=/data
 VOLUME /data
-EXPOSE 80 443 8080
+EXPOSE 80 443 9660
 ENTRYPOINT ["/zuna-server"]

@@ -259,7 +259,7 @@ scenario_apache() {
   local log="$OUT/apache.log"
   fresh fedora
   # Without mod_ssl, whose settings name a certificate Fedora makes only when Apache starts.
-  in_vm fedora sh -c 'dnf remove -y -q mod_ssl caddy nginx >/dev/null 2>&1; rm -f /etc/pki/tls/certs/localhost.crt /etc/pki/tls/private/localhost.key; dnf install -y -q httpd firewalld >/dev/null 2>&1; systemctl enable --now --quiet firewalld; systemctl enable --quiet httpd; systemctl restart httpd; setsebool httpd_can_network_relay 0'
+  in_vm fedora sh -c 'dnf remove -y -q mod_ssl caddy nginx >/dev/null 2>&1; rm -f /etc/pki/tls/certs/localhost.crt /etc/pki/tls/private/localhost.key; dnf install -y -q httpd firewalld >/dev/null 2>&1; systemctl enable --now --quiet firewalld; systemctl enable --quiet httpd; systemctl restart httpd; setsebool httpd_can_network_relay 0; command -v semanage >/dev/null && semanage port -d -t http_port_t -p tcp 9660 2>/dev/null; true'
   install_with fedora "$log" --domain "$DOMAIN" --proxy auto --yes || { echo "the installer failed"; return; }
   grep -q "Letting Apache reach Zuna" "$log" || echo "SELinux wasn't told to let Apache connect"
   answered "https://$DOMAIN" "$log" || echo "the server didn't answer through Apache"

@@ -35,7 +35,7 @@ sudo /opt/zuna/deploy/install.sh
 1. **How people reach the server:** a domain, which it looks up to see whether it points here or is behind Cloudflare ([Behind Cloudflare](SELF_HOSTING.md#behind-cloudflare)), or this machine's IP address. It never asks a service on the internet for the machine's address: it offers the machine's own and lets you type another, such as a router's. Calls' media goes to that address, which LiveKit is told with `--voice-ip` rather than asking a STUN server.
 2. **The reverse proxy,** for a domain. With nothing on ports 80 and 443 it offers to install Caddy, from the distribution's packages. With Caddy, nginx or Apache already there it offers to add a site to it, or to leave it to you, and when it's yours it shows what to add, saves it in `/etc/zuna/proxy`, and waits. With anything else on those ports, it's yours.
 3. **The certificate,** when it sets up nginx or Apache: one already there that covers the domain, from certbot's or what nginx uses, one from Let's Encrypt through certbot, which renews it and reloads the proxy, or files of your own, which it checks against the domain and each other and doesn't renew. Caddy gets its own.
-4. **The firewall:** with ufw or firewalld on, it offers to open what's needed, and with SELinux on, it lets nginx or Apache connect to the server.
+4. **The firewall:** with ufw or firewalld on, it offers to open what's needed. With SELinux on, it lets nginx or Apache connect to the server, by counting the server's port as a web port and turning on `httpd_can_network_relay`, which lets them reach web ports, rather than `httpd_can_network_connect`, which would let them reach any.
 
 Then it runs `deploy/update.sh` with the answers, writes the proxy's site, checks the proxy's settings before reloading it and takes the site out again if they don't check out, and finally checks that the server answers at its address, WebSockets and `/livekit/` included. If something's wrong, it says what, such as a certificate for another name or a proxy that can't reach the server, and lets you check again. Then it shows the setup link, with a QR code, where a proxy you set up has to point, and which ports to open, each with what it's for, and to forward when the public address is a router's. Its log, setup link and all, is `/var/log/zuna-install.log`, which only root reads.
 
@@ -89,7 +89,7 @@ LiveKit is the media server for calls, and only ever carries encrypted media. Ap
 
 The domains are where people reach Zuna through your proxy. The server puts its domain in invite links. On this machine:
 
-- the server listens on port 8080;
+- the server listens on port 9660;
 - the relay listens on port 8090;
 - the web app listens on port 8081;
 - all of them listen only on this machine, unless you say otherwise with `--listen`;
@@ -117,7 +117,7 @@ With `10.0.0.5` standing for this machine's address:
 **Caddy**
 ```
 chat.example.com {
-    reverse_proxy 10.0.0.5:8080
+    reverse_proxy 10.0.0.5:9660
 }
 
 push.example.com {
@@ -139,7 +139,7 @@ server {
     client_max_body_size 2m;
 
     location / {
-        proxy_pass http://10.0.0.5:8080;
+        proxy_pass http://10.0.0.5:9660;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -177,10 +177,10 @@ server {
 **By default the services listen only on this machine,** which is right for a proxy on the same machine. For a proxy on another machine, listen on this machine's private address with `--listen 10.0.0.5`, or on every address with `--listen 0.0.0.0`, and keep these in mind:
 
 - **They speak plain HTTP,** and sign-in tokens pass over it. Keep the two machines on a private network, or put TLS between them, for example with WireGuard.
-- **Let only the proxy reach ports 8080, 8090 and 8081.** With ufw, and `10.0.0.2` standing for the proxy's address:
+- **Let only the proxy reach ports 9660, 8090 and 8081.** With ufw, and `10.0.0.2` standing for the proxy's address:
 
   ```bash
-  sudo ufw allow from 10.0.0.2 to any port 8080,8090,8081 proto tcp
+  sudo ufw allow from 10.0.0.2 to any port 9660,8090,8081 proto tcp
   ```
 
 - **Only a trusted proxy can name a caller's address.** That's this machine and private networks by default. A connection from anywhere else is taken at face value, so a public proxy needs `--trusted-proxies 203.0.113.7`, or its callers all count as one address for rate limits. A list replaces the default, so it's also how to narrow it down to exactly your proxy.
@@ -204,7 +204,7 @@ LiveKit tells apps where to send media. With `--voice-ip 203.0.113.7`, which the
 With an IP address in place of the domain, the server serves HTTPS itself, with a certificate of its own that its links pin, as [Without a domain](SELF_HOSTING.md#without-a-domain) explains. It needs no proxy, listens on every address on `--server-port`, which has to be 1024 or above, and LiveKit gives apps that address for calls' media:
 
 ```bash
-sudo /opt/zuna/deploy/update.sh --server 203.0.113.7 --server-port 9660 --voice on
+sudo /opt/zuna/deploy/update.sh --server 203.0.113.7 --voice on
 ```
 
 Open the port to everyone, with 7881/tcp and 7882/udp, and back up `/var/lib/zuna/certificate.key`.
@@ -240,7 +240,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Turn voice channels off | `--voice off`. Channels stay, but nobody can join a call |
 | Give LiveKit other ports | `--voice-port 9880`, which only the server uses, and `--voice-tcp-port 9881`, `--voice-udp-port 9882` for media |
 | Tell LiveKit the address calls' media reaches | `--voice-ip 203.0.113.7`, or `--voice-ip ""` to have it ask a STUN server |
-| Go by the machine's IP address, without a domain | `--server 203.0.113.7 --server-port 9660` |
+| Go by the machine's IP address, without a domain | `--server 203.0.113.7` |
 | Listen somewhere else | `--listen 10.0.0.5` for a proxy on another machine, or `--listen 127.0.0.1` for one on this machine |
 | Say exactly which proxies to trust | `--trusted-proxies 203.0.113.7,10.0.0.0/24` |
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
@@ -292,6 +292,15 @@ journalctl -u zuna-livekit -f
 ```
 
 - **The app can't connect:** check that the proxy forwards WebSockets, and that `https://chat.example.com/healthz` answers through it.
+- **nginx or Apache answers 502 or 503 under SELinux,** as on Fedora: SELinux stops them connecting to the server. Let them, as the installer does:
+
+  ```bash
+  sudo semanage port -a -t http_port_t -p tcp 9660
+  ```
+
+  ```bash
+  sudo setsebool -P httpd_can_network_relay 1
+  ```
 - **The build runs out of memory:** add swap, or build on a bigger machine. The web app's encryption core needs the most.
 - **Voice channels can't be joined:** check that `/etc/zuna/zuna.env` has the `ZUNA_LIVEKIT_` settings, which `--voice on` adds, and that `zuna-livekit` is running.
 - **People join a call but hear nothing:** media can't reach the machine. Check that 7881/tcp and 7882/udp are open to everyone, and forwarded if it's behind a router. LiveKit's log says which public address it found when it started.
