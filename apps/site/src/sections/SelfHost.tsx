@@ -28,22 +28,22 @@ const METHODS = [
     ],
   },
   {
-    // deploy/update.sh, as docs/LINUX.md describes it.
+    // deploy/install.sh, as docs/LINUX.md describes it.
     id: "systemd",
     name: "systemd",
     caption: "# Without Docker, with systemd",
     guide: doc("docs/LINUX.md"),
-    commands: ["sudo git clone https://github.com/SocketByte/zuna-chat.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/update.sh --server chat.example.com \\\n    --voice on"],
+    commands: ["sudo git clone https://github.com/SocketByte/zuna-chat.git \\\n    /opt/zuna", "sudo /opt/zuna/deploy/install.sh"],
     output: [
-      "# Runs Zuna on port 8080, and LiveKit for calls, with systemd.",
-      "# Point your HTTPS proxy at 8080, then open the setup link.",
-      "# Calls' media skips the proxy: open 7881/tcp and 7882/udp.",
-      "# Run it again to update. A build that won't start is undone.",
+      "# Asks how people reach it, then about the proxy and firewall.",
+      "# Runs Zuna and LiveKit for calls with systemd, behind Caddy,",
+      "# your nginx or Apache, or a proxy you set up, and checks it.",
+      "# Later: sudo zuna-update. A build that won't start is undone.",
     ],
     steps: [
-      { title: "Point a domain at a Linux machine", text: "One with systemd, such as Debian, Ubuntu or Fedora." },
-      { title: "Clone it and run the script", text: "It builds the server from git, installs LiveKit for voice, and runs both as systemd services." },
-      { title: "Open the setup link in Zuna", text: "The script prints it. Once your reverse proxy adds HTTPS, make the owner account and invite people." },
+      { title: "Point a domain at a Linux machine", text: "One with systemd, such as Debian, Ubuntu or Fedora. Or go by its IP address." },
+      { title: "Clone it and run the installer", text: "It asks a few questions, builds the server from git with LiveKit for voice, and sets up the proxy, or shows you what to add." },
+      { title: "Open the setup link in Zuna", text: "Once the server answers at its address, the installer shows it, with a QR code. Make the owner account and invite people." },
     ],
   },
 ] as const;

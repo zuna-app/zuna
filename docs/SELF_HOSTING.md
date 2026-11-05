@@ -14,7 +14,7 @@ There are three ways to run it:
 | | What it does | HTTPS |
 |---|---|---|
 | [Docker](#option-1-docker) | Builds and runs the server in a container | Automatic, or your own proxy |
-| [From source on Linux](#option-2-from-source-on-linux-with-systemd) | Builds the server from git and runs it as a systemd service, without Docker. One command installs and updates it | Your own proxy |
+| [The installer, on Linux](#option-2-the-installer-on-linux-with-systemd) | Asks a few questions, builds the server from git and runs it as a systemd service, without Docker, then checks that it answers. One command updates it | Caddy, set up for you, or your own proxy |
 | [The binary](#option-3-run-the-binary-yourself) | A single file you run yourself | Automatic, or your own proxy |
 
 ## Option 1: Docker
@@ -39,17 +39,32 @@ docker compose logs zuna
 
 LiveKit, for [voice channels](#voice-channels) and calls, runs in a container next to it. Calls' media goes straight to it, so open 7881/tcp and 7882/udp as well as 80 and 443.
 
-## Option 2: From source on Linux with systemd
+## Option 2: The installer, on Linux with systemd
+
+On Debian, Ubuntu, Fedora or another Linux with systemd, on amd64 or arm64. A small machine may need git first, with `sudo apt install git` or `sudo dnf install git`.
 
 ```bash
 sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
 ```
 
 ```bash
-sudo /opt/zuna/deploy/update.sh --server chat.example.com
+sudo /opt/zuna/deploy/install.sh
 ```
 
-This builds the server from the repository, creates a `zuna` system user and starts a hardened systemd service on port 8080, for your own reverse proxy to put HTTPS in front, on this machine or another. It installs Go if needed, and prints your setup link at the end. Running the same script again updates everything, and goes back to the previous build if a new one doesn't start. Data goes in `/var/lib/zuna`. The details are in [LINUX.md](LINUX.md), including proxy settings and running the push relay on the same machine.
+It asks how people will reach the server, by a domain or by the machine's IP address, then about the reverse proxy and the firewall, and changes nothing until you've seen a summary and said yes. Then it builds the server from git, with LiveKit for [voice channels](#voice-channels), and runs both as hardened systemd services, with their data in `/var/lib/zuna`. The server never binds ports 80 and 443 itself: it listens on 8080, behind a proxy.
+
+- **With nothing on ports 80 and 443,** it can install Caddy, which gets and renews the certificate.
+- **With Caddy, nginx or Apache already there,** it can add a site for Zuna, checking the proxy's settings before reloading it and taking the site out again if they don't check out. nginx and Apache use a certificate already there that covers the domain, one from Let's Encrypt through certbot, or your own files.
+- **Or you set the proxy up yourself,** on this machine or another, and the installer shows what to add and waits. The proxy has to pass WebSockets on, at `/api/ws` and `/livekit/`.
+- **Without a domain,** the server serves HTTPS itself, on port 8443, as in [Without a domain](#without-a-domain), with no proxy.
+
+At the end it checks that the server answers at its address, WebSockets and voice included, says what's wrong if it doesn't, and shows the setup link, with a QR code. To update later:
+
+```bash
+sudo zuna-update
+```
+
+It goes back to the previous build if a new one doesn't start. The details are in [LINUX.md](LINUX.md), including running the push relay or the web app on the same machine. For a server behind Cloudflare, see [Behind Cloudflare](#behind-cloudflare).
 
 ## Option 3: Run the binary yourself
 
@@ -78,7 +93,7 @@ Paste it into the Zuna app, create your account, save your recovery key, and nam
 
 If Caddy, nginx or Traefik already handles HTTPS, run Zuna on plain HTTP behind it.
 
-- **From source on Linux,** that's how it always runs: on port 8080. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
+- **From source on Linux,** that's how it always runs: on port 8080. The installer can set up Caddy, nginx or Apache for it. See [Your reverse proxy](LINUX.md#your-reverse-proxy), which covers a proxy on another machine.
 - **With Docker,** use the proxy's compose file. It listens on `127.0.0.1:8080`, for a proxy on the same machine:
 
 ```bash
@@ -118,6 +133,15 @@ server {
 Files upload in 1 MiB chunks, so the body size limit doesn't need to match your largest file.
 
 Set `ZUNA_TRUST_PROXY=true` behind a proxy, so that rate limiting sees members' real addresses. It believes `X-Forwarded-For` only from this machine and private networks, reading it from the right so that only what your proxy added counts. For a proxy elsewhere, list it in `ZUNA_TRUSTED_PROXIES`, which replaces those networks. Otherwise all its callers count as one address.
+
+## Behind Cloudflare
+
+Zuna works behind Cloudflare's proxy, WebSockets and uploads included. The installer notices Cloudflare in front of the domain and asks which SSL/TLS mode it's set to.
+
+- **Use Full (strict).** Flexible sends everything between Cloudflare and your server unencrypted, sign-ins and session tokens included, for anyone on the way to read or change, though messages stay encrypted end to end. Full doesn't check your server's certificate. A Cloudflare origin certificate, made under SSL/TLS → Origin Server in Cloudflare's dashboard, is the simplest one for your proxy to use, as Let's Encrypt can't always get through Cloudflare.
+- **Trust Cloudflare's addresses,** from [cloudflare.com/ips](https://www.cloudflare.com/ips/), in `ZUNA_TRUSTED_PROXIES`, as well as your own proxy's. Otherwise everyone counts as one of a few Cloudflare addresses for rate limits. The installer does this.
+- **Calls don't go through Cloudflare.** Their media goes straight to your server on 7881/tcp and 7882/udp, so members in a call can see its real address.
+- **Turn off Bot Fight Mode and Under Attack Mode** for the server's domain. The apps can't solve a challenge.
 
 ## Without a domain
 
@@ -202,7 +226,7 @@ It doesn't need much, since it only passes media along. A small VPS is fine for 
 
 **With Docker,** it's part of the setup, with either compose file. Zuna makes the key the two share the first time it starts, in the `zuna-livekit` volume. Open 7881/tcp and 7882/udp in your firewall for calls' media.
 
-**With `deploy/update.sh`,** add `--voice on`, and it installs LiveKit and sets up both sides. [LINUX.md](LINUX.md#voice-channels) has the details.
+**With the installer,** it's part of the setup. Running `deploy/update.sh` yourself, add `--voice on`, and it installs LiveKit and sets up both sides. [LINUX.md](LINUX.md#voice-channels) has the details.
 
 **Otherwise,** run [LiveKit's own server](https://docs.livekit.io/home/self-hosting/deployment/) on the same machine, with an API key and a secret of at least 32 characters, and tell Zuna how to reach it. Give it the `room:` section of `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` as well, which lets screens shared from a Mac be encoded on its GPU:
 
@@ -280,10 +304,10 @@ git pull
 docker compose up -d --build
 ```
 
-**From source on Linux:**
+**With the installer, or `deploy/update.sh`:**
 
 ```bash
-sudo /opt/zuna/deploy/update.sh
+sudo zuna-update
 ```
 
 It pulls, builds, installs and restarts, and goes back to the previous build if the new one doesn't start. Your data and settings stay in place.

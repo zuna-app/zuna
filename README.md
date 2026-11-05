@@ -73,17 +73,17 @@ docker compose logs zuna
 
 The log shows a one-time setup link. Open it in the Zuna app to create your owner account, then invite people from inside the app. HTTPS certificates are handled automatically, LiveKit runs next to the server for voice channels and calls, and everything is stored in a single folder that's easy to back up. Calls' media has ports of its own, so open 7881/tcp and 7882/udp as well as 80 and 443.
 
-**Without Docker,** one script builds the server from git, runs it with systemd behind your own reverse proxy, and updates it later with the same command:
+**Without Docker,** an installer asks how people will reach the server, by a domain or the machine's IP address, builds it from git, runs it with systemd, and sets up Caddy in front of it or adds a site to the proxy you have, before checking that it answers:
 
 ```bash
 sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
 ```
 
 ```bash
-sudo /opt/zuna/deploy/update.sh --server chat.example.com
+sudo /opt/zuna/deploy/install.sh
 ```
 
-The [self-hosting guide](docs/SELF_HOSTING.md) covers all of it, with the single binary, reverse proxies, backups and phone notifications. [LINUX.md](docs/LINUX.md) has the details of the script.
+Update it later with `sudo zuna-update`. The [self-hosting guide](docs/SELF_HOSTING.md) covers all of it, with the single binary, reverse proxies, backups and phone notifications. [LINUX.md](docs/LINUX.md) has the details of the scripts.
 
 ## Join a server
 

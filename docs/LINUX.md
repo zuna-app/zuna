@@ -7,13 +7,13 @@
 - **Installs** the binaries, users, folders, settings and services.
 - **Restarts** each service and checks that it answers. If a new build doesn't start, it puts the previous one back.
 
-It doesn't set up a reverse proxy or a firewall: those are yours.
+It doesn't set up a reverse proxy or a firewall: those are yours. For the chat server alone, `deploy/install.sh` can do those too, as below.
 
 ## What you need
 
-- **A Linux machine with systemd,** such as Debian, Ubuntu or Fedora. The script installs git and curl with apt or dnf if they're missing.
-- **About 1 GB of memory for building,** or 2 GB with the web app, which also needs about 2 GB of disk for its tools. On a smaller machine, add a swap file first.
-- **A reverse proxy** with a domain for each part, such as `chat.example.com` for the server, `push.example.com` for the relay and `web.chat.example.com` for the web app. The web app's has to be its own, never the server's.
+- **A Linux machine with systemd,** such as Debian, Ubuntu or Fedora. The script installs curl with apt or dnf if it's missing, but cloning needs git first: `sudo apt install git` or `sudo dnf install git`.
+- **About 1 GB of memory for building,** or 2 GB with the web app, which also needs about 2 GB of disk for its tools. On a smaller machine, add a swap file first, which the installer offers to do.
+- **A reverse proxy** with a domain for each part, such as `chat.example.com` for the server, `push.example.com` for the relay and `web.chat.example.com` for the web app. The web app's has to be its own, never the server's. A chat server without a domain, reached at the machine's IP address, needs no proxy.
 - **For the relay,** an APNs key from the Apple Developer account that publishes the app. See [What it needs](PUSH_RELAY.md#what-it-needs).
 
 ## Installing
@@ -24,7 +24,32 @@ Get the code. If the repository is private, clone it with a deploy key or an acc
 sudo git clone https://github.com/SocketByte/zuna-chat.git /opt/zuna
 ```
 
-Then run the script once, saying what runs on this machine. For the chat server alone:
+### With the installer
+
+For the chat server and LiveKit, the installer asks the questions, and changes nothing until you've seen what it will do and said yes:
+
+```bash
+sudo /opt/zuna/deploy/install.sh
+```
+
+1. **How people reach the server:** a domain, which it looks up to see whether it points here or is behind Cloudflare ([Behind Cloudflare](SELF_HOSTING.md#behind-cloudflare)), or this machine's IP address. It never asks a service on the internet for the machine's address: it offers the machine's own and lets you type another, such as a router's. Calls' media goes to that address, which LiveKit is told with `--voice-ip` rather than asking a STUN server.
+2. **The reverse proxy,** for a domain. With nothing on ports 80 and 443 it offers to install Caddy, from the distribution's packages. With Caddy, nginx or Apache already there it offers to add a site to it, or to leave it to you, and when it's yours it shows what to add, saves it in `/etc/zuna/proxy`, and waits. With anything else on those ports, it's yours.
+3. **The certificate,** when it sets up nginx or Apache: one already there that covers the domain, from certbot's or what nginx uses, one from Let's Encrypt through certbot, which renews it and reloads the proxy, or files of your own, which it checks against the domain and each other and doesn't renew. Caddy gets its own.
+4. **The firewall:** with ufw or firewalld on, it offers to open what's needed, and with SELinux on, it lets nginx or Apache connect to the server.
+
+Then it runs `deploy/update.sh` with the answers, writes the proxy's site, checks the proxy's settings before reloading it and takes the site out again if they don't check out, and finally checks that the server answers at its address, WebSockets and `/livekit/` included. If something's wrong, it says what, such as a certificate for another name or a proxy that can't reach the server, and lets you check again. Then it shows the setup link, with a QR code. Its log, setup link and all, is `/var/log/zuna-install.log`, which only root reads.
+
+To set up without questions, as from cloud-init, give the answers as options, which `--help` lists:
+
+```bash
+sudo /opt/zuna/deploy/install.sh --domain chat.example.com --proxy auto --yes
+```
+
+Running it again on a machine that has Zuna offers to update it or to go through the questions again.
+
+### With the script alone
+
+Run the script once, saying what runs on this machine. For the chat server alone:
 
 ```bash
 sudo /opt/zuna/deploy/update.sh --server chat.example.com
@@ -164,7 +189,7 @@ sudo ufw allow 7881/tcp
 sudo ufw allow 7882/udp
 ```
 
-LiveKit tells apps where to send media. With `--voice-ip 203.0.113.7`, or a server without a domain, that's the address given. Otherwise LiveKit finds the machine's public address when it starts, by asking a public STUN server, which apps on the machine's own network may not reach. Behind a router, forward both ports to the machine. With the proxy on another machine, people's media still comes to this one, so it has to be reachable from the internet on those two ports.
+LiveKit tells apps where to send media. With `--voice-ip 203.0.113.7`, which the installer always gives, or a server without a domain, that's the address given. Otherwise LiveKit finds the machine's public address when it starts, by asking a public STUN server, which apps on the machine's own network may not reach. Behind a router, forward both ports to the machine. With the proxy on another machine, people's media still comes to this one, so it has to be reachable from the internet on those two ports.
 
 ## Without a domain
 
@@ -234,6 +259,8 @@ An update restarts LiveKit only when it brings a new LiveKit or new settings for
 | APNs key | `/etc/zuna/apns.p8`, readable only by the relay |
 | What the script set up | `/etc/zuna/update.conf` |
 | The update command | `/usr/local/sbin/zuna-update` |
+| What the installer did | `/var/log/zuna-install.log`, with the setup link in it, so only root reads it |
+| The proxy's site, from the installer | `/etc/caddy/Caddyfile.d/zuna.caddyfile`, with an `import` line added to the Caddyfile where it had none, `/etc/nginx/sites-available/zuna.conf` or `conf.d/zuna.conf`, `/etc/apache2/sites-available/zuna.conf` or `/etc/httpd/conf.d/zuna.conf`, and for a proxy you set up, what to add in `/etc/zuna/proxy` |
 | The previous build | `/usr/local/bin/zuna-server.previous`, `zuna-push.previous`, `zuna-web.previous` and `livekit-server.previous` |
 
 **Back up** `/var/lib/zuna`, as described in [Backups](SELF_HOSTING.md#backups), and `/var/lib/zuna-push/handle.key`. If the handle key is lost, every phone's registration breaks until its app registers again, which it does when it next opens.

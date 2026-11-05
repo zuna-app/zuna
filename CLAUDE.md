@@ -68,6 +68,8 @@ Checks in real Electron, after `npm run build -w @zuna/desktop`:
 
 The landing page has a check of its own, in the same browsers: `npm run build -w @zuna/site && node apps/site/test/site-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. It serves the build as a static host does, and fails on any request to another origin, a content security policy violation, sideways scrolling, or a section that stays hidden without script or with less motion. Run it after changing `apps/site`. The site is hosted on the maintainers' own server, not on GitHub, and "Hosting" in `docs/SITE_PLAN.md` says how it's published.
 
+The server's installer has a check too, on a machine with Lima and expect: `deploy/test/install-check.sh [scenario ...]` runs `deploy/install.sh`, and `deploy/update.sh` through it, in Debian, Ubuntu and Fedora VMs, with Caddy, nginx and certbot, Apache under SELinux and firewalld, a server without a domain, and its menus driven by keys. Certificates come from Pebble, Let's Encrypt's test server, inside each VM. Run it after changing either script.
+
 iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for the quick loop, `npm run test:ios` for the core on the iOS host against desktop peers, `npm run test:ios:ui` for the UI, `npm run test:ios:voice` for a call with the desktop app (after building it), `npm run test:ios:notify` for which of someone's devices is notified when (after building it), and `swift test` in `apps/ios/ZunaKit`. Without a Mac, Swift can't be compiled, so say so in the commit message. `docs/IOS_TESTING.md` covers the rest.
 
 ## Architecture
@@ -114,6 +116,7 @@ Rules the core depends on:
 | The desktop's content security policy (`apps/desktop/src/main/index.ts`) | `contentSecurityPolicy` in `server/internal/webhost/webhost.go` |
 | LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `deploy/update.sh` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
+| The proxy sites `deploy/install.sh` writes, or what a proxy needs | The Caddy and nginx examples in `docs/SELF_HOSTING.md` and `docs/LINUX.md` |
 | What setting up the test server creates (`createWorld` in `packages/core/test/dev-bots.ts`) | `WORLD_VERSION` and `catchUp` there, or test servers set up earlier never get it |
 | Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |
 | Anything the landing page claims, such as a feature, a platform, a limit or a number | `apps/site`, in the same commit. It says only what's been checked |
