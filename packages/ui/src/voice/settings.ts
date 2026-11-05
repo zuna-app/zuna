@@ -133,16 +133,7 @@ export function screenLimitsText(rules: ScreenRules | undefined, role: Role | un
 
 export function loadVoiceSettings(): VoiceSettings {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-    // Before a server could suggest these, they were saved whether anyone had chosen them or not.
-    if (!("screenHeight" in saved)) {
-      delete saved.screenFps;
-      delete saved.screenBitrate;
-    }
-    // Sound used to start off, which was saved whether anyone had chosen it or not, and an app once chosen stayed.
-    delete saved.screenSound;
-    delete saved.screenSoundApp;
-    return { ...VOICE_DEFAULTS, ...saved };
+    return { ...VOICE_DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
   } catch {
     return { ...VOICE_DEFAULTS };
   }

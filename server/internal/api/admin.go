@@ -155,7 +155,7 @@ func (s *Server) handleIcon(w http.ResponseWriter, r *http.Request) {
 	start := make([]byte, 12)
 	n, _ := io.ReadFull(file, start)
 	kind := iconType(start[:n])
-	// An icon uploaded before these were checked may be anything.
+	// Whatever is in the file, it's only ever served as one of these.
 	if kind == "" {
 		http.NotFound(w, r)
 		return

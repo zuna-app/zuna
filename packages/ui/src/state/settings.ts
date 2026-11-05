@@ -34,8 +34,7 @@ const ACCENTS: AppSettings["accent"][] = ["neutral", "blue", "green", "red", "am
 
 export function loadSettings(): AppSettings {
   try {
-    const { awayAfterMinutes: _gone, ...saved } = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-    const stored = { ...DEFAULTS, ...saved };
+    const stored = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
     return ACCENTS.includes(stored.accent) ? stored : { ...stored, accent: DEFAULTS.accent };
   } catch {
     return DEFAULTS;

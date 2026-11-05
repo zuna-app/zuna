@@ -21,8 +21,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     private static var shared: UserDefaults { UserDefaults(suiteName: SharedStorage.appGroup) ?? .standard }
 
     static func load() -> AppSettings {
-        // Saved by a version from before the share extension, in the app's own defaults.
-        guard let data = shared.data(forKey: key) ?? UserDefaults.standard.data(forKey: key),
+        guard let data = shared.data(forKey: key),
               let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else { return AppSettings() }
         return settings
     }
@@ -43,7 +42,7 @@ struct AppSettings: Codable, Equatable, Sendable {
 
     /// The server that was open last, to open it again at launch, and first in the share extension.
     static var lastServer: String? {
-        get { shared.string(forKey: lastServerKey) ?? UserDefaults.standard.string(forKey: lastServerKey) }
+        get { shared.string(forKey: lastServerKey) }
         set { shared.set(newValue, forKey: lastServerKey) }
     }
 
