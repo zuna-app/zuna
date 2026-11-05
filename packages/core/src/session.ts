@@ -198,6 +198,8 @@ const SEARCH_REBUILD_BATCH = 200;
 const VAULT_BATCH = 200;
 /** What this device changed that its next manifest has to carry, over whatever another device wrote meanwhile. */
 const UNSAVED_TRUST = "unsaved_trust";
+/** How often a device tries again to write the manifest after another's got in first. */
+const MANIFEST_ATTEMPTS = 5;
 /** The longest a timer waits, well short of where setTimeout overflows, after which it looks again. */
 const LONGEST_WAIT_MS = 24 * 3600 * 1000;
 /** The vault item that lists every pin and verification this account holds, and its preferences. */
@@ -1169,9 +1171,9 @@ export class ServerSession {
   }
 
   /** Puts items in the vault, unless this isn't the time. Returns whether it did. */
-  private async putItems(items: { id: string; data: Uint8Array }[]): Promise<boolean> {
+  private async putItems(items: { id: string; data: Uint8Array; version?: number }[]): Promise<boolean> {
     const { accountKey, core } = this.account;
-    const sealed = items.map(({ id, data }) => ({ id, data: sealVaultItem(accountKey, id, data, core.generation) }));
+    const sealed = items.map(({ id, data, version }) => ({ id, data: sealVaultItem(accountKey, id, data, core.generation), version }));
     if (this.removalsUncovered || this.rotationOpen) return false;
     try {
       await this.api.putVaultItems(core.generation, sealed);
@@ -1296,28 +1298,48 @@ export class ServerSession {
   private writeManifest(): Promise<void> {
     this.manifestWrite = this.manifestWrite
       .then(async () => {
-        // Built on the newest one any of this account's devices wrote, so nothing they changed is lost and its number comes after.
-        await this.syncVault().catch((error) => console.warn("[zuna] reading the vault before saving the manifest", error));
-        const written = this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0");
-        const unsaved = this.unsavedTrust();
-        const manifest = this.nextManifest();
-        const data = utf8(JSON.stringify(manifest));
-        if (data.length > MAX_MANIFEST_BYTES || !(await this.putItems([{ id: MANIFEST_ID, data }]))) return;
-        this.manifest = manifest;
-        this.setKv("manifest", manifest);
-        const now = this.unsavedTrust();
-        this.setKv(UNSAVED_TRUST, { verified: now.verified.filter((id) => !unsaved.verified.includes(id)), prefs: now.prefs && !unsaved.prefs });
-        // A position that moved on while this was on its way is written next time.
-        this.db.transaction(() => {
-          for (const row of written) {
-            if ((manifest.chains[row.user_id]?.gen ?? 0) === this.headGeneration(row.user_id)) {
-              this.db.run("UPDATE identity_state SET chain_uploaded = 1, trust_uploaded = 1 WHERE user_id = ? AND trust_generation = ?", [row.user_id, row.trust_generation]);
-            }
-          }
-        });
+        for (let attempt = 0; attempt < MANIFEST_ATTEMPTS; attempt++) {
+          if (await this.writeManifestOnce()) return;
+        }
+        console.warn("[zuna] the manifest kept being written by another device first");
       })
       .catch((error) => console.warn("[zuna] saving the manifest", error));
     return this.manifestWrite;
+  }
+
+  /**
+   * Writes the next manifest on top of the newest one any of this account's devices
+   * wrote, so nothing they changed is lost. Its number has to be above the stored
+   * one's, so if another device's got in first, this says so and it's tried again.
+   */
+  private async writeManifestOnce(): Promise<boolean> {
+    await this.syncVault().catch((error) => console.warn("[zuna] reading the vault before saving the manifest", error));
+    // Many asks can be waiting by now, and the first may have said it all.
+    const unsaved = this.unsavedTrust();
+    if (!this.manifestBehind() && unsaved.verified.length === 0 && !unsaved.prefs) return true;
+    const written = this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0");
+    const manifest = this.nextManifest();
+    const data = utf8(JSON.stringify(manifest));
+    if (data.length > MAX_MANIFEST_BYTES) return true;
+    try {
+      if (!(await this.putItems([{ id: MANIFEST_ID, data, version: manifest.v }]))) return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.code === "stale_version") return false;
+      throw error;
+    }
+    this.manifest = manifest;
+    this.setKv("manifest", manifest);
+    const now = this.unsavedTrust();
+    this.setKv(UNSAVED_TRUST, { verified: now.verified.filter((id) => !unsaved.verified.includes(id)), prefs: now.prefs && !unsaved.prefs });
+    // A position that moved on while this was on its way is written next time.
+    this.db.transaction(() => {
+      for (const row of written) {
+        if ((manifest.chains[row.user_id]?.gen ?? 0) === this.headGeneration(row.user_id)) {
+          this.db.run("UPDATE identity_state SET chain_uploaded = 1, trust_uploaded = 1 WHERE user_id = ? AND trust_generation = ?", [row.user_id, row.trust_generation]);
+        }
+      }
+    });
+    return true;
   }
 
   /** What this device changed about who it trusts, or its preferences, that no manifest it wrote has yet. */
@@ -1776,7 +1798,7 @@ export class ServerSession {
       } catch (error) {
         if (error instanceof ApiError && error.retryable) throw error;
         this.closeIntent();
-        if (error instanceof ApiError && (error.code === "stale_generation" || error.code === "devices_changed")) continue;
+        if (error instanceof ApiError && (error.code === "stale_generation" || error.code === "devices_changed" || error.code === "stale_version")) continue;
         throw error;
       }
     }
@@ -1893,9 +1915,9 @@ export class ServerSession {
   }
 
   /** What the vault holds that isn't epoch keys, sealed under the new key in one go: the manifest, which decides who this account trusts, and the names of its devices. */
-  private trustItems(accountKey: Uint8Array, generation: number, manifest: TrustManifest): { id: string; data: Uint8Array }[] {
+  private trustItems(accountKey: Uint8Array, generation: number, manifest: TrustManifest): { id: string; data: Uint8Array; version?: number }[] {
     const seal = (id: string, data: Uint8Array) => ({ id, data: sealVaultItem(accountKey, id, data, generation) });
-    const items = [seal(MANIFEST_ID, utf8(JSON.stringify(manifest)))];
+    const items: { id: string; data: Uint8Array; version?: number }[] = [{ ...seal(MANIFEST_ID, utf8(JSON.stringify(manifest))), version: manifest.v }];
     for (const [id, name] of this.deviceNames) items.push(seal(`device:${id}`, utf8(name)));
     return items;
   }
@@ -1906,8 +1928,38 @@ export class ServerSession {
   }
 
   private async sendIntent(intent: RotationIntent): Promise<void> {
-    await this.api.rotate(intent.request);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.api.rotate(intent.request);
+        break;
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.code !== "stale_version" || attempt >= MANIFEST_ATTEMPTS) throw error;
+        // Another device saved the manifest meanwhile. This one goes on top of it, with the same keys.
+        await this.syncVault();
+        intent = this.withNextManifest(intent);
+        this.setKv(ROTATION_INTENT, intent);
+      }
+    }
     await this.installIntent(intent);
+  }
+
+  /** A rotation that carries the manifest after the newest one, and that number in its core. */
+  private withNextManifest(intent: RotationIntent): RotationIntent {
+    const { userId } = this.account;
+    const accountKey = fromBase64(intent.accountKey);
+    const manifest = this.nextManifest();
+    const core = { ...coreFromJson(intent.core), manifest: manifest.v };
+    const sealed = sealVaultItem(accountKey, MANIFEST_ID, utf8(JSON.stringify(manifest)), intent.generation);
+    const items = ((intent.request.items as { id: string }[] | undefined) ?? []).filter((entry) => entry.id !== MANIFEST_ID);
+    return {
+      ...intent,
+      core: coreToJson(core),
+      request: {
+        ...intent.request,
+        vault_core: toBase64(sealVaultCore(accountKey, core, userId)),
+        items: [...items, { id: MANIFEST_ID, data: toBase64(sealed), version: manifest.v }],
+      },
+    };
   }
 
   private async installIntent(intent: RotationIntent): Promise<void> {
@@ -1953,7 +2005,7 @@ export class ServerSession {
       await this.sendIntent(intent);
       return null;
     } catch (error) {
-      if (error instanceof ApiError && (error.code === "stale_generation" || error.code === "devices_changed")) return overtaken();
+      if (error instanceof ApiError && (error.code === "stale_generation" || error.code === "devices_changed" || error.code === "stale_version")) return overtaken();
       if (error instanceof ApiError && !error.retryable && error.status !== 401) {
         this.closeIntent();
         return null;

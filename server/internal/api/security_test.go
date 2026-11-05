@@ -1263,3 +1263,26 @@ func TestAGroupsAdminsFollowWhatAnAdminCommits(t *testing.T) {
 		t.Fatalf("roles are %v", roles)
 	}
 }
+
+// The manifest's number has to go up with each write, so a device that hadn't seen
+// another's write is turned away instead of undoing it.
+func TestAVaultItemsNumberHasToGoUp(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	put := func(version int64) int {
+		status, _ := h.do("PUT", "/api/vault", owner.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": "manifest", "data": []byte("sealed"), "version": version}}}, nil)
+		return status
+	}
+	if status := put(2); status != http.StatusOK {
+		t.Fatalf("the first write gave %d", status)
+	}
+	if status := put(2); status != http.StatusConflict {
+		t.Fatalf("the same number again gave %d", status)
+	}
+	if status := put(1); status != http.StatusConflict {
+		t.Fatalf("a lower number gave %d", status)
+	}
+	if status := put(3); status != http.StatusOK {
+		t.Fatalf("a higher number gave %d", status)
+	}
+}

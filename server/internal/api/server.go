@@ -728,6 +728,8 @@ func writeFailure(w http.ResponseWriter, err error) {
 			"message": "Slow mode is on in this channel, so your next message has to wait.",
 			"wait_ms": slow.Wait,
 		})
+	case errors.Is(err, store.ErrStaleVersion):
+		writeError(w, http.StatusConflict, "stale_version", "Another of your devices saved this first. Look again and retry.")
 	case errors.Is(err, store.ErrDevicesChanged):
 		writeError(w, http.StatusConflict, "devices_changed", "This account's devices changed. Look again and retry.")
 	case errors.Is(err, store.ErrNotFound):

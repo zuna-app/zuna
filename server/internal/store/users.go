@@ -642,6 +642,8 @@ type VaultItem struct {
 	Seq        int64  `json:"seq"`
 	Generation int64  `json:"generation"`
 	Data       []byte `json:"data"`
+	// Version, if not 0, has to be above the stored item's.
+	Version int64 `json:"version,omitempty"`
 }
 
 func countVaultItems(ctx context.Context, tx *sql.Tx, userID string, items []VaultItem, quota int64) error {
@@ -658,10 +660,20 @@ func putItems(ctx context.Context, tx *sql.Tx, userID string, items []VaultItem)
 		return err
 	}
 	for _, item := range items {
+		if item.Version > 0 {
+			var held int64
+			err := tx.QueryRowContext(ctx, `SELECT version FROM vault_items WHERE user_id = ? AND id = ?`, userID, item.ID).Scan(&held)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if item.Version <= held {
+				return ErrStaleVersion
+			}
+		}
 		seq++
-		if _, err := tx.ExecContext(ctx, `INSERT INTO vault_items(user_id, id, seq, generation, data) VALUES(?,?,?,?,?)
-			ON CONFLICT(user_id, id) DO UPDATE SET seq = excluded.seq, generation = excluded.generation, data = excluded.data`,
-			userID, item.ID, seq, item.Generation, item.Data); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO vault_items(user_id, id, seq, generation, data, version) VALUES(?,?,?,?,?,?)
+			ON CONFLICT(user_id, id) DO UPDATE SET seq = excluded.seq, generation = excluded.generation, data = excluded.data, version = excluded.version`,
+			userID, item.ID, seq, item.Generation, item.Data, item.Version); err != nil {
 			return err
 		}
 	}

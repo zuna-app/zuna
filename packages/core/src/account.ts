@@ -233,7 +233,7 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     hpke_key: core.hpkePublic,
     hpke_key_sig: signHpkeKey(core.identitySecret, core.hpkePublic),
     vault_core: sealVaultCore(accountKey, core),
-    items: [{ id: MANIFEST_ID, data: sealVaultItem(accountKey, MANIFEST_ID, manifest, 0) }],
+    items: [{ id: MANIFEST_ID, data: sealVaultItem(accountKey, MANIFEST_ID, manifest, 0), version: 1 }],
     profile: sealProfile(communityKey, core.identitySecret, input.username, input.profile),
   });
   api.token = created.token;
