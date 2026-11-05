@@ -102,7 +102,8 @@ try {
   await page.getByLabel("Invite link").fill(link);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Smoke Tester", { timeout: 15_000 });
-  await page.locator('input[type="password"]').fill("smoke-test-only-Pass-9182");
+  await page.locator('input[type="password"]').first().fill("smoke-test-only-Pass-9182");
+  await page.getByLabel("Confirm password").fill("smoke-test-only-Pass-9182");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.screenshot({ path: join(shots, "2-recovery.png") });

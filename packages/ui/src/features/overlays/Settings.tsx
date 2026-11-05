@@ -440,8 +440,9 @@ function SecuritySection() {
       <div>
         <button
           className="btn"
-          disabled={!current || next.length < MIN_PASSWORD || !strength.current || strength.score < 2 || busy}
+          disabled={!current || next.length < MIN_PASSWORD || strength.score < 2 || busy}
           onClick={() =>
+            strength.accepts() &&
             run(async () => {
               await session().changePassword(current, next);
               setCurrent("");

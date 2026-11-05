@@ -114,7 +114,8 @@ async function signUp(page, link, serverName) {
   await page.getByRole("button", { name: "Continue" }).click();
   await fill(page.getByPlaceholder("How people will see you"), "Alex Rivera", { timeout: 15_000 });
   await fill(page.getByLabel("Username"), "alex");
-  await fill(page.locator('input[type="password"]'), "web-check-only-Pass-9182");
+  await fill(page.locator('input[type="password"]').first(), "web-check-only-Pass-9182");
+  await fill(page.getByLabel("Confirm password"), "web-check-only-Pass-9182");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.getByText("I've stored it somewhere safe").click();

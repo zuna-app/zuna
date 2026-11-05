@@ -272,6 +272,7 @@ final class AppUnderTest {
 
         type("Fox Mulder", into: A11y.Onboarding.displayName)
         type(password, into: A11y.Onboarding.password)
+        type(password, into: A11y.Onboarding.confirmPassword)
         // The password is rated a moment after it's typed.
         let create = element(A11y.Onboarding.create)
         try waitFor("the password to be rated") { create.isEnabled }

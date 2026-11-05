@@ -20,6 +20,7 @@ enum A11y {
         static let displayName = "onboarding.displayName"
         static let username = "onboarding.username"
         static let password = "onboarding.password"
+        static let confirmPassword = "onboarding.confirmPassword"
         static let strength = "onboarding.strength"
         static let create = "onboarding.create"
         static let recoveryKey = "onboarding.recoveryKey"

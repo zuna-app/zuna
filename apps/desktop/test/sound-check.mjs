@@ -149,7 +149,8 @@ async function signUp({ page }, link, displayName, first) {
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill(displayName, { timeout: 15_000 });
   if (first === false) await page.getByPlaceholder(/username/i).fill(displayName.toLowerCase()).catch(() => undefined);
-  await page.locator('input[type="password"]').fill(`sound-check-Pass-${displayName}-9182`);
+  await page.locator('input[type="password"]').first().fill(`sound-check-Pass-${displayName}-9182`);
+  await page.getByLabel("Confirm password").fill(`sound-check-Pass-${displayName}-9182`);
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.getByText("I've stored it somewhere safe").click();

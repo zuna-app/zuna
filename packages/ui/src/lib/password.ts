@@ -12,10 +12,12 @@ const load = (): Promise<Estimate> => (loading ??= import("@zuna/core/password")
 
 /**
  * Rates `password`, using `related` (the username, the display name) as what anyone
- * guessing would try first. `current` is false while the rating is still for what
- * was typed a moment ago, or the estimator is loading, so nothing goes ahead on it.
+ * guessing would try first. `score` and `label` can trail what was typed by a moment,
+ * and a form's button goes by them, so it doesn't flicker off with each key. Before
+ * anything goes ahead, `accepts()` rates exactly what's typed, and says whether
+ * it's strong enough.
  */
-export function usePasswordStrength(password: string, related: string[] = []): PasswordStrength & { current: boolean } {
+export function usePasswordStrength(password: string, related: string[] = []): PasswordStrength & { accepts: () => boolean } {
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   useEffect(() => {
     let live = true;
@@ -31,5 +33,6 @@ export function usePasswordStrength(password: string, related: string[] = []): P
     () => (estimate ? estimate(deferred, relatedKey ? relatedKey.split("\u0000") : []) : { score: 0, label: "" }),
     [estimate, deferred, relatedKey],
   );
-  return { ...strength, current: estimate !== null && deferred === password };
+  const accepts = () => estimate !== null && (deferred === password ? strength : estimate(password, related)).score >= 2;
+  return { ...strength, accepts };
 }

@@ -95,18 +95,26 @@ struct FormField<Field: View>: View {
 final class PasswordRating {
     private(set) var strength = PasswordMeter.Strength.none
     private var rated = ""
+    @ObservationIgnored private var related: [String] = []
 
     /// `related` is what anyone guessing would try first: the username and display name.
     func rate(_ password: String, related: [String]) async {
+        self.related = related
         let strength = await PasswordMeter.shared.strength(password, related: related)
         guard !Task.isCancelled else { return }
         self.strength = strength
         rated = password
     }
 
-    /// Whether `password` has been rated, and is strong enough.
-    func accepts(_ password: String) -> Bool {
-        !password.isEmpty && rated == password && strength.score >= 2
+    /// Whether the latest rating is strong enough. It can trail what was typed by a
+    /// moment, and a button goes by it, so that it doesn't flicker off with each key.
+    var strongEnough: Bool { strength.score >= 2 }
+
+    /// Whether `password` is strong enough, rated first if the latest rating is for
+    /// something else.
+    func accepts(_ password: String) async -> Bool {
+        if rated != password { await rate(password, related: related) }
+        return !password.isEmpty && rated == password && strength.score >= 2
     }
 }
 

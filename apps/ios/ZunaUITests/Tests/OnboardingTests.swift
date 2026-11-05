@@ -39,6 +39,13 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(create.isEnabled)
         zuna.element(A11y.Onboarding.password).typeText(" and now much longer")
         try waitFor("a strong rating") { strength.value as? String == "Strong" }
+        XCTAssertFalse(create.isEnabled)
+        // Typed again, to catch a typo.
+        zuna.type("short and now much lomger", into: A11y.Onboarding.confirmPassword)
+        XCTAssertTrue(zuna.app.staticTexts["The passwords don't match."].exists)
+        XCTAssertFalse(create.isEnabled)
+        zuna.type("short and now much longer", into: A11y.Onboarding.confirmPassword, clearing: true)
+        XCTAssertFalse(zuna.app.staticTexts["The passwords don't match."].exists)
         XCTAssertTrue(create.isEnabled)
         zuna.screenshot("41-join")
         create.tap()

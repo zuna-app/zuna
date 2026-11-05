@@ -94,10 +94,18 @@ try {
   await shot("01-invite-link");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Alex Rivera", { timeout: 15_000 });
-  await page.locator('input[type="password"]').fill("ui-check-only-Pass-9182");
+  // The password is typed twice, and a typo in the second one is pointed out.
+  const create = page.getByRole("button", { name: "Create account" });
+  await page.locator('input[type="password"]').first().fill("ui-check-only-Pass-9182");
+  await page.getByLabel("Confirm password").fill("ui-check-only-Pass-9128");
+  const mismatch = await page.getByText("The passwords don't match.").waitFor({ timeout: 5000 }).then(() => true, () => false);
+  check("a typo in the second password is caught", mismatch && (await create.isDisabled()));
+  await page.getByLabel("Confirm password").fill("ui-check-only-Pass-9182");
+  await page.getByRole("button", { name: "Create account", disabled: false }).waitFor({ timeout: 5000 });
+  check("the passwords matching takes the error away", (await page.getByText("The passwords don't match.").count()) === 0);
   await sleep(200);
   await shot("02-signup");
-  await page.getByRole("button", { name: "Create account" }).click();
+  await create.click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await sleep(200);
   await shot("03-recovery");
@@ -427,6 +435,21 @@ try {
   await page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
   await sleep(100);
   await shot("14b-screen-sharing");
+  // A new password's button goes by the latest rating, which trails typing by a moment,
+  // so it stays on while a strong password grows.
+  await page.locator(".settings-nav-item", { hasText: "Security" }).click();
+  await page.getByLabel("Current password").first().fill("ui-check-only-Pass-9182");
+  await page.getByLabel("New password").fill("a whole new ui-check password");
+  const change = page.getByRole("button", { name: "Change password", disabled: false });
+  await change.waitFor({ timeout: 5000 });
+  await change.evaluate((button) => {
+    window.switchedOff = 0;
+    new MutationObserver(() => button.disabled && window.switchedOff++).observe(button, { attributes: true, attributeFilter: ["disabled"] });
+  });
+  await page.getByLabel("New password").pressSequentially(" and then some", { delay: 40 });
+  await sleep(200);
+  const switchedOff = await page.evaluate(() => window.switchedOff);
+  check("typing a strong password doesn't switch its button off and on", switchedOff === 0, `${switchedOff} times`);
   await page.keyboard.press("Escape");
   await sleep(150);
   check("focus returns after closing settings", await composerFocused());
@@ -915,7 +938,8 @@ print(Int(size.width), Int(size.height), audio.count, codec == kCMVideoCodecType
   await page.getByLabel("Invite link").fill(secondLink);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Alex Rivera", { timeout: 15_000 });
-  await page.locator('input[type="password"]').fill("ui-check-only-Pass-9182");
+  await page.locator('input[type="password"]').first().fill("ui-check-only-Pass-9182");
+  await page.getByLabel("Confirm password").fill("ui-check-only-Pass-9182");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.getByText("I've stored it somewhere safe").click();

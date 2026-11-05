@@ -151,7 +151,8 @@ try {
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Bob", { timeout: 15_000 });
   await page.getByLabel("Username").fill("bob");
-  await page.locator('input[type="password"]').fill(PASSWORD);
+  await page.locator('input[type="password"]').first().fill(PASSWORD);
+  await page.getByLabel("Confirm password").fill(PASSWORD);
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.getByText("I've stored it somewhere safe").click();

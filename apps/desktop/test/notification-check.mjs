@@ -91,7 +91,8 @@ try {
   await page.getByLabel("Invite link").fill(link);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Alex Rivera", { timeout: 15_000 });
-  await page.locator('input[type="password"]').fill("notification-check-only-Pass-9182");
+  await page.locator('input[type="password"]').first().fill("notification-check-only-Pass-9182");
+  await page.getByLabel("Confirm password").fill("notification-check-only-Pass-9182");
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.getByText("I've stored it somewhere safe").click();

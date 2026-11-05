@@ -284,17 +284,18 @@ function InviteStep({
   const [username, setUsername] = useState("");
   const [usernameEdited, setUsernameEdited] = useState(false);
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const server = preview.server;
 
   const validUsername = /^[A-Za-z0-9_][A-Za-z0-9_.-]{1,31}$/.test(username);
   const strength = usePasswordStrength(password, [username, displayName]);
-  const canSubmit = displayName.trim() && validUsername && password.length >= MIN_PASSWORD && strength.current && strength.score >= 2 && !busy;
+  const canSubmit = displayName.trim() && validUsername && password.length >= MIN_PASSWORD && strength.score >= 2 && confirm === password && !busy;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || !strength.accepts()) return;
     setBusy(true);
     setError(null);
     try {
@@ -360,6 +361,15 @@ function InviteStep({
         />
         <StrengthMeter strength={strength} />
       </div>
+      {/* A typo here would lock the account, as nobody can reset the password. While
+          the second one is still being typed, it's only wrong once it stops matching. */}
+      <PasswordField
+        label="Confirm password"
+        value={confirm}
+        autoComplete="new-password"
+        error={confirm && !password.startsWith(confirm) ? "The passwords don't match." : null}
+        onChange={(event) => setConfirm(event.target.value)}
+      />
       <div className="notice">
         <Lock size={15} />
         <span>Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it.</span>
@@ -544,6 +554,7 @@ function RecoverStep({
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!strength.accepts()) return;
     setBusy(true);
     setError(null);
     try {
@@ -565,7 +576,7 @@ function RecoverStep({
         <StrengthMeter strength={strength} />
       </div>
       {error && <div className="field-error">{error}</div>}
-      <button className="btn btn-primary btn-large btn-block" disabled={!key || password.length < MIN_PASSWORD || !strength.current || strength.score < 2 || busy}>
+      <button className="btn btn-primary btn-large btn-block" disabled={!key || password.length < MIN_PASSWORD || strength.score < 2 || busy}>
         {busy ? <Spinner /> : "Recover account"}
       </button>
     </form>

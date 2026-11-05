@@ -184,6 +184,7 @@ struct InviteStep: View {
     @State private var username = ""
     @State private var usernameEdited = false
     @State private var password = ""
+    @State private var confirm = ""
     @State private var rating = PasswordRating()
     @State private var error: String?
     @State private var busy = false
@@ -192,8 +193,15 @@ struct InviteStep: View {
         !displayName.trimmingCharacters(in: .whitespaces).isEmpty
             && AccountRules.isValidUsername(username)
             && password.count >= AccountRules.minimumPasswordLength
-            && rating.accepts(password)
+            && rating.strongEnough
+            && confirm == password
             && !busy
+    }
+
+    /// A typo would lock the account, as nobody can reset the password. While the
+    /// second one is still being typed, it's only wrong once it stops matching.
+    private var confirmError: String? {
+        !confirm.isEmpty && !password.hasPrefix(confirm) ? "The passwords don't match." : nil
     }
 
     private var usernameError: String? {
@@ -251,6 +259,12 @@ struct InviteStep: View {
                         await rating.rate(password, related: [username, displayName])
                     }
             }
+            FormField(label: "Confirm password", error: confirmError) {
+                SecureField("", text: $confirm)
+                    .textContentType(.newPassword)
+                    .accessibilityLabel("Confirm password")
+                    .accessibilityIdentifier(A11y.Onboarding.confirmPassword)
+            }
             Label("Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it.", systemImage: "lock.fill")
                 .font(.footnote)
                 .foregroundStyle(Theme.text2)
@@ -274,9 +288,13 @@ struct InviteStep: View {
         guard canSubmit else { return }
         busy = true
         error = nil
-        model.accountFlowActive = true
         let profile = Profile(displayName: displayName.trimmingCharacters(in: .whitespaces))
         Task {
+            guard await rating.accepts(password) else {
+                busy = false
+                return
+            }
+            model.accountFlowActive = true
             do {
                 let result = try await model.core.register(preview, username: username, password: password, profile: profile)
                 onCreated(result.serverId, result.recoveryKey)
@@ -522,7 +540,7 @@ struct RecoverStep: View {
     @State private var busy = false
 
     private var canSubmit: Bool {
-        !key.isEmpty && password.count >= AccountRules.minimumPasswordLength && rating.accepts(password) && !busy
+        !key.isEmpty && password.count >= AccountRules.minimumPasswordLength && rating.strongEnough && !busy
     }
 
     var body: some View {
@@ -572,8 +590,12 @@ struct RecoverStep: View {
         guard canSubmit else { return }
         busy = true
         error = nil
-        model.accountFlowActive = true
         Task {
+            guard await rating.accepts(password) else {
+                busy = false
+                return
+            }
+            model.accountFlowActive = true
             do {
                 onRecovered(try await model.core.recover(url: url, username: username, recoveryKey: key, newPassword: password))
             } catch {

@@ -282,7 +282,7 @@ struct SecurityView: View {
                         await rating.rate(next, related: [me?.username ?? "", me.flatMap { model.servers[serverId]?.users[$0.userId]?.displayName } ?? ""])
                     }
                 Button("Change password") { changePassword() }
-                    .disabled(current.isEmpty || next.count < AccountRules.minimumPasswordLength || !rating.accepts(next) || busy)
+                    .disabled(current.isEmpty || next.count < AccountRules.minimumPasswordLength || !rating.strongEnough || busy)
                     .accessibilityIdentifier(A11y.Settings.changePassword)
             } header: {
                 Text("Change password")
@@ -340,6 +340,7 @@ struct SecurityView: View {
     private func changePassword() {
         let current = current, next = next
         run {
+            guard await rating.accepts(next) else { return }
             try await model.core.session(serverId).changePassword(current: current, next: next)
             self.current = ""
             self.next = ""
