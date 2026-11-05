@@ -214,6 +214,19 @@ const OLDER_HPKE_KEPT = 16;
 const CONTINUITY_MS = 7 * 24 * 3600 * 1000;
 
 /** How long things wait before a rotation. Tests shorten these. */
+/**
+ * How long a call's or voice channel's media key may last. Its frames are encrypted
+ * with AES-GCM under nonces only an RTP timestamp and a 16-bit counter tell apart,
+ * and video's timestamp comes round again after about 13 hours, so a key gets a
+ * new epoch well before that while someone is in the room with it.
+ */
+export const voiceTiming = {
+  maxEpochAgeMs: 6 * 3600_000,
+  checkEveryMs: 10 * 60_000,
+  /** Everyone in the room notices together, so each waits a while to let one go first. */
+  jitterMs: 60_000,
+};
+
 export const rotationTiming = {
   /** Removals close together share one rotation. */
   gatherMs: 2000,
@@ -551,6 +564,7 @@ export class ServerSession {
    * last for, and whether it still has to say it's starting the call, which rings everyone else.
    */
   private activeVoice: { channelId: string; update: VoiceUpdate; epoch: number; ring: boolean } | null = null;
+  private voiceKeyTimer: ReturnType<typeof setTimeout> | undefined;
   private joiningChannels: Promise<void> | null = null;
   private grantTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Called when the server told us this session is over (banned, revoked). */
@@ -632,6 +646,7 @@ export class ServerSession {
     clearTimeout(this.signedOutRetry);
     clearTimeout(this.rotationTimer);
     clearTimeout(this.sealingTimer);
+    clearTimeout(this.voiceKeyTimer);
     this.rotationTimer = undefined;
     this.sealingTimer = undefined;
     for (const timer of this.reconcileTimers.values()) clearTimeout(timer);
@@ -6240,13 +6255,44 @@ export class ServerSession {
   setVoiceState(channelId: string | null, update: VoiceUpdate | null, ring = false): void {
     if (!channelId || !update) {
       this.activeVoice = null;
+      clearTimeout(this.voiceKeyTimer);
+      this.voiceKeyTimer = undefined;
       this.socket.sendVoice(null, null);
       return;
     }
+    if (this.activeVoice?.channelId !== channelId) this.watchVoiceKey(voiceTiming.checkEveryMs);
     const epoch = this.hasMlsGroup(channelId) ? this.mlsEpoch(channelId) : 0;
     const same = this.activeVoice?.channelId === channelId;
     this.activeVoice = { channelId, update, epoch: same ? this.activeVoice!.epoch : epoch, ring: (same && this.activeVoice!.ring) || (ring && this.isCall(channelId)) };
     this.sayVoice();
+  }
+
+  /** Gives the room a new key once its epoch has lasted too long, while this device is in it. */
+  private watchVoiceKey(delay: number): void {
+    clearTimeout(this.voiceKeyTimer);
+    this.voiceKeyTimer = setTimeout(() => void this.renewOldVoiceKey().catch((error) => console.warn("[zuna] renewing a call's key", error)), delay);
+  }
+
+  private voiceKeyAge(channelId: string): number {
+    if (!this.hasMlsGroup(channelId)) return 0;
+    const row = this.db.get<{ created_at: number }>("SELECT created_at FROM epoch_keys WHERE group_id = ? AND epoch = ?", [channelId, this.mlsEpoch(channelId)]);
+    return row ? Date.now() - row.created_at : 0;
+  }
+
+  private async renewOldVoiceKey(): Promise<void> {
+    const channelId = this.activeVoice?.channelId;
+    if (!channelId || this.stopped) return;
+    if (this.voiceKeyAge(channelId) >= voiceTiming.maxEpochAgeMs) {
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * voiceTiming.jitterMs));
+      await this.withLock(channelId, async () => {
+        await this.pullChanges(channelId);
+        // Someone else in the room may have got there first.
+        if (this.activeVoice?.channelId === channelId && this.voiceKeyAge(channelId) >= voiceTiming.maxEpochAgeMs) {
+          await this.commitWithRetry(channelId, async () => ({ kind: "update" }));
+        }
+      });
+    }
+    if (this.activeVoice?.channelId === channelId) this.watchVoiceKey(voiceTiming.checkEveryMs);
   }
 
   /** Tells the server what this device is doing, and asks it to ring only until it's been heard asking. */

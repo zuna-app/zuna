@@ -6,6 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { equalBytes } from "../src/encoding";
 import { previewCall } from "../src/push";
+import { voiceTiming } from "../src/session";
 import type { CallView, CoreEvent } from "../src/types";
 import { loadCrypto, TestApp, TestServer, waitFor } from "./helpers";
 
@@ -115,6 +116,23 @@ describe("calls in a direct message", () => {
     await bob.session.mute(`user:${alice.userId}`);
     expect(await previewCall(extension, bob.serverId, dm, alice.userId)).toMatchObject({ muted: true });
     await bob.session.unmute(`user:${alice.userId}`);
+  });
+
+  it("move to a new key once theirs has lasted too long, while someone's in them (Z3-05)", async () => {
+    const saved = { ...voiceTiming };
+    Object.assign(voiceTiming, { maxEpochAgeMs: 300, checkEveryMs: 100, jitterMs: 50 });
+    try {
+      const before = await alice.session.voiceKey(dm);
+      // Coming into the call is when a device starts watching its key.
+      alice.session.setVoiceState(null, null);
+      alice.session.setVoiceState(dm, QUIET);
+      await waitFor(async () => (await bob.session.voiceKey(dm)).epoch > before.epoch, "a new key for the call");
+      const [a, b] = await Promise.all([alice.session.voiceKey(dm), bob.session.voiceKey(dm)]);
+      expect(equalBytes(a.key, b.key)).toBe(true);
+      expect(equalBytes(a.key, before.key)).toBe(false);
+    } finally {
+      Object.assign(voiceTiming, saved);
+    }
   });
 
   it("end when the last one leaves", async () => {

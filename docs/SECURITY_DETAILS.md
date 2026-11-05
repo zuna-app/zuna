@@ -78,7 +78,7 @@ A newcomer gets a channel's history from a member's device, which signs what it 
 
 ## Voice channels
 
-Media is encrypted in the app with a key from the channel's MLS group, frame by frame, before LiveKit sees it. LiveKit and the Zuna server can't hear or see it. The key exists only for the group's current epoch and is never stored or handed on, unlike the keys to messages: a stolen vault, or someone who joins later, can't open a recording of a call.
+Media is encrypted in the app with a key from the channel's MLS group, frame by frame, before LiveKit sees it. LiveKit and the Zuna server can't hear or see it. The key exists only for the group's current epoch and is never stored or handed on, unlike the keys to messages: a stolen vault, or someone who joins later, can't open a recording of a call. A device in a room whose epoch has lasted six hours makes a new one, since the nonces frames are encrypted under start repeating after about thirteen hours of video.
 
 - **What they do see.** The Zuna server sees who's in which voice channel, whether they say they're muted, deafened or sharing, and when. LiveKit sees who's in a room, by user and device ID with no names, and from when to when, who's sending what, how big it is, and how loud each person's audio is, since that's what lets it say who's speaking. Frames are encrypted, not hidden: their size and timing can say something about what's being said.
 - **Who can hear.** Whoever is in the group. Someone removed goes on being able to open what's sent under the old key for about 1.5 seconds, while everyone moves to the new one. Someone in the room without the key can't open anything: the server can put someone in a room, but not in the group.
