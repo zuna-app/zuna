@@ -11,7 +11,7 @@
 # the first time, say what runs here:
 #
 #   sudo deploy/update.sh --server chat.example.com
-#   sudo deploy/update.sh --server 203.0.113.7 --server-port 8443 --voice on
+#   sudo deploy/update.sh --server 203.0.113.7 --server-port 9660 --voice on
 #   sudo deploy/update.sh --server chat.example.com --relay push.example.com \
 #     --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
 #   sudo deploy/update.sh --server chat.example.com --web web.chat.example.com

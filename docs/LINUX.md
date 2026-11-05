@@ -204,7 +204,7 @@ LiveKit tells apps where to send media. With `--voice-ip 203.0.113.7`, which the
 With an IP address in place of the domain, the server serves HTTPS itself, with a certificate of its own that its links pin, as [Without a domain](SELF_HOSTING.md#without-a-domain) explains. It needs no proxy, listens on every address on `--server-port`, which has to be 1024 or above, and LiveKit gives apps that address for calls' media:
 
 ```bash
-sudo /opt/zuna/deploy/update.sh --server 203.0.113.7 --server-port 8443 --voice on
+sudo /opt/zuna/deploy/update.sh --server 203.0.113.7 --server-port 9660 --voice on
 ```
 
 Open the port to everyone, with 7881/tcp and 7882/udp, and back up `/var/lib/zuna/certificate.key`.
@@ -240,7 +240,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Turn voice channels off | `--voice off`. Channels stay, but nobody can join a call |
 | Give LiveKit other ports | `--voice-port 9880`, which only the server uses, and `--voice-tcp-port 9881`, `--voice-udp-port 9882` for media |
 | Tell LiveKit the address calls' media reaches | `--voice-ip 203.0.113.7`, or `--voice-ip ""` to have it ask a STUN server |
-| Go by the machine's IP address, without a domain | `--server 203.0.113.7 --server-port 8443` |
+| Go by the machine's IP address, without a domain | `--server 203.0.113.7 --server-port 9660` |
 | Listen somewhere else | `--listen 10.0.0.5` for a proxy on another machine, or `--listen 127.0.0.1` for one on this machine |
 | Say exactly which proxies to trust | `--trusted-proxies 203.0.113.7,10.0.0.0/24` |
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |

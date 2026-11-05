@@ -56,7 +56,7 @@ It asks how people will reach the server, by a domain or by the machine's IP add
 - **With nothing on ports 80 and 443,** it can install Caddy, which gets and renews the certificate.
 - **With Caddy, nginx or Apache already there,** it can add a site for Zuna, checking the proxy's settings before reloading it and taking the site out again if they don't check out. nginx and Apache use a certificate already there that covers the domain, one from Let's Encrypt through certbot, or your own files.
 - **Or you set the proxy up yourself,** on this machine or another, and the installer shows what to add and waits. The proxy has to pass WebSockets on, at `/api/ws` and `/livekit/`.
-- **Without a domain,** the server serves HTTPS itself, on port 8443, as in [Without a domain](#without-a-domain), with no proxy.
+- **Without a domain,** the server serves HTTPS itself, on port 9660, as in [Without a domain](#without-a-domain), with no proxy.
 
 At the end it checks that the server answers at its address, WebSockets and voice included, says what's wrong if it doesn't, and shows the setup link, with a QR code. To update later:
 

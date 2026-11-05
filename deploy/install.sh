@@ -19,7 +19,7 @@
 # Options:
 #   --domain DOMAIN      people reach the server at DOMAIN, through a reverse proxy
 #   --ip ADDRESS         or at this IP address, with no domain or proxy
-#   --port PORT          with --ip, the port they reach it on (default 8443)
+#   --port PORT          with --ip, the port they reach it on (default 9660)
 #   --proxy auto|manual  set up the reverse proxy for you, with Caddy if there's
 #                        none yet, or leave it to you and check it afterwards
 #   --cert FILE          the certificate the proxy uses, rather than one from
@@ -563,7 +563,7 @@ ask_ip() {
       IP="$ANSWER"
     fi
   fi
-  [ -n "$PORT" ] || PORT="$(free_port 8443)"
+  [ -n "$PORT" ] || PORT="$(free_port 9660)"
   if [ "$YES" = 1 ]; then
     check_port "$PORT" || exit 1
   else

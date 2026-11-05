@@ -262,7 +262,7 @@ scenario_ip() {
   fresh fedora
   address="$(in_vm fedora sh -c "ip -4 -o addr show scope global | awk '{ split(\$4, a, \"/\"); print a[1]; exit }'")"
   install_with fedora "$log" --ip "$address" --yes || { echo "the installer failed"; return; }
-  answered "https://$address:8443" "$log" || echo "the server didn't answer at its address, by its pin"
+  answered "https://$address:9660" "$log" || echo "the server didn't answer at its address, by its pin"
   grep -q "/invite/.*#pin=" "$log" || echo "the setup link has no pin"
 }
 
