@@ -395,7 +395,7 @@ func TestVoiceIsUnavailableWithoutAMediaServer(t *testing.T) {
 	}
 	var info api.ServerInfo
 	h.mustDo("GET", "/api/info", owner.token, nil, &info)
-	if info.Voice != 0 || info.Channels != 1 {
+	if info.Voice != 0 {
 		t.Fatalf("the server says %+v", info)
 	}
 }

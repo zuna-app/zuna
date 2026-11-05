@@ -20,17 +20,11 @@ export interface ServerInfo {
   community_key?: string;
   /** Whether this server keeps generations of account keys. Absent on one that doesn't. */
   account_protocol?: number;
-  /** Whether this server removes disappearing messages when they're due. Absent on one that doesn't. */
-  disappearing?: number;
-  /** Whether this server has channels. Absent on one that doesn't. */
-  channels?: number;
   /** Whether this server has a media server, without which voice channels can't be joined. */
   voice?: number;
   /** Whether direct messages and groups can have calls there. Absent on one that can't. */
   calls?: number;
-  /** Whether this server has a soundboard, for its voice channels and calls. Absent on one that doesn't. */
-  sounds?: number;
-  /** What its admins say about sharing a screen. Absent on one from before it had a say, and for anyone not signed in. */
+  /** What its admins say about sharing a screen. Absent for anyone not signed in. */
   screen_share?: ScreenRules;
 }
 

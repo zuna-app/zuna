@@ -498,9 +498,9 @@ private struct CallControls: View {
         .sheet(isPresented: $soundboard) { SoundboardSheet() }
     }
 
-    /// The server's soundboard plays in its voice channels and calls, where it has one.
+    /// The server's soundboard plays in its voice channels and calls.
     private var hasSoundboard: Bool {
-        (voice.serverId.flatMap { model.servers[$0]?.info?.sounds } ?? 0) > 0
+        voice.serverId != nil
     }
 
     private func buttons(size: CGFloat, spacing: CGFloat) -> some View {

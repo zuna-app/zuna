@@ -51,7 +51,7 @@ export async function voiceSenderKey(roomKey: Uint8Array, identity: string): Pro
 /** Which of a sender's key slots an epoch's key goes in. A few epochs go by before one is reused. */
 export const voiceKeyIndex = (epoch: number): number => epoch % VOICE_KEY_RING;
 
-/** What a server's rules come to before its admins have said anything, and on one from before they could. */
+/** What a server's rules come to before its admins have said anything. */
 export const DEFAULT_SCREEN_RULES: ScreenRules = {
   who: "everyone",
   sound: true,

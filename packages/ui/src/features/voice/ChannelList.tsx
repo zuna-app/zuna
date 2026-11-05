@@ -166,7 +166,7 @@ export function ChannelSections({ query }: { query: string }) {
   const shown = needle ? ordered.filter((channel) => channel.name.toLowerCase().includes(needle)) : ordered;
   const sections = useMemo(() => sectionsOf(shown), [shown]);
 
-  if (!server?.info?.channels) return null;
+  if (!server) return null;
   if (channels.length === 0 && !isAdmin) return null;
 
   const toggleSection = (name: string) => {

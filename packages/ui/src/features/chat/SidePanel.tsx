@@ -129,17 +129,13 @@ function PreferenceRows({ conversation }: { conversation: ConversationView }) {
 
 /**
  * How long messages sent here last. In a direct message either person can change
- * it, and in a group its admins. Shown once the chat has started, on a server that
- * removes them when they're due.
+ * it, and in a group its admins. Shown once the chat has started.
  */
 function DisappearingRow({ conversation, canChange }: { conversation: ConversationView; canChange: boolean }) {
-  const server = useActiveServer();
   const session = useApp((state) => state.session);
   const { run } = useAction();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  const supported = !!server?.info?.disappearing;
-  if (!conversation.groupId || !conversation.ready || (!supported && conversation.disappearAfter === 0)) return null;
-  const editable = canChange && supported;
+  if (!conversation.groupId || !conversation.ready) return null;
   const label = (
     <>
       <Timer size={17} />
@@ -156,7 +152,7 @@ function DisappearingRow({ conversation, canChange }: { conversation: Conversati
   );
   return (
     <div className="side-section">
-      {editable ? (
+      {canChange ? (
         <button
           className="side-row is-button"
           onClick={(event) => {

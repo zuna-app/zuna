@@ -144,11 +144,9 @@ function SoundboardPanel({ anchor, roomSounds, onClose }: { anchor: DOMRect; roo
   );
 }
 
-/** The soundboard's button among a call's controls, on a server that has one. */
+/** The soundboard's button among a call's controls. */
 export function SoundboardButton({ roomSounds }: { /** Whether the soundboard plays in this room. */ roomSounds: boolean }) {
-  const server = useActiveServer();
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
-  if (!server?.info?.sounds) return null;
   return (
     <>
       <Tooltip text="Soundboard" side="top">

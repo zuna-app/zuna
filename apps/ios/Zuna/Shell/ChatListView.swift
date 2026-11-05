@@ -442,7 +442,7 @@ struct ChatListView: View {
         Menu {
             Button("Invite people", systemImage: "link") { sheet = .invite }
             Button("New group", systemImage: "person.2") { sheet = .newGroup }
-            if sidebar, model.activeServer.map({ $0.isAdmin && ($0.info?.channels ?? 0) > 0 }) ?? false {
+            if sidebar, model.activeServer?.isAdmin ?? false {
                 Button("New channel", systemImage: "number") { sheet = .channel(.new(.text, category: "")) }
             }
             if sidebar, !model.hasServerList {

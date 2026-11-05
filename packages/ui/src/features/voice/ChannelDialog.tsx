@@ -171,15 +171,13 @@ export function ChannelDialog({ channelId, channelType, onClose }: { channelId?:
               ))}
             </select>
           </div>
-          {server?.info?.sounds && (
-            <div className="field channel-switch">
-              <span className="grow">
-                <span className="field-label">Soundboard</span>
-                <span className="setting-hint">Anyone in the channel can play the server's sounds to everyone there.</span>
-              </span>
-              <Switch on={sounds} onChange={setSounds} label="Soundboard in this channel" />
-            </div>
-          )}
+          <div className="field channel-switch">
+            <span className="grow">
+              <span className="field-label">Soundboard</span>
+              <span className="setting-hint">Anyone in the channel can play the server's sounds to everyone there.</span>
+            </span>
+            <Switch on={sounds} onChange={setSounds} label="Soundboard in this channel" />
+          </div>
         </>
       )}
       <p className="channel-note">

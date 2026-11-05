@@ -220,11 +220,6 @@ func TestANewChannelHasTheSoundboardUnlessSaidOtherwise(t *testing.T) {
 	if out.Channel.Sounds {
 		t.Fatal("a voice channel made without the soundboard has it")
 	}
-	var info map[string]any
-	h.mustDo("GET", "/api/info", owner.token, nil, &info)
-	if info["sounds"] != float64(1) {
-		t.Fatalf("the server doesn't say it has a soundboard: %+v", info)
-	}
 }
 
 func TestASoundInACallGoesToTheOthersInIt(t *testing.T) {

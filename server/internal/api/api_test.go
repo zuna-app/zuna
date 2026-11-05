@@ -353,11 +353,6 @@ func TestDisappearingMessagesAreDueWhenTheirSenderAsked(t *testing.T) {
 	owner.commit(group.ID, 0, nil)
 	path := "/api/groups/" + group.ID + "/messages"
 
-	var info api.ServerInfo
-	h.mustDo("GET", "/api/info", owner.token, nil, &info)
-	if info.Disappearing != 1 {
-		t.Fatal("the server should say it removes disappearing messages")
-	}
 	for _, seconds := range []int64{-1, 366*24*60*60 + 1} {
 		if status, _ := h.do("POST", path, owner.token, map[string]any{"id": store.NewID(), "epoch": 1, "envelope": []byte("x"), "expires_in": seconds}, nil); status != http.StatusBadRequest {
 			t.Fatalf("expires_in %d gave %d", seconds, status)

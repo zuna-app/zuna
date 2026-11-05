@@ -35,7 +35,7 @@ private struct ChannelsScreen: View {
                     ContentUnavailableView(
                         "No channels",
                         systemImage: "number",
-                        description: Text((server.info?.channels ?? 0) > 0 ? "Nobody has made a channel on \(server.entry.name) yet." : "\(server.entry.name) doesn't have channels.")
+                        description: Text("Nobody has made a channel on \(server.entry.name) yet.")
                     )
                     .foregroundStyle(Theme.text2)
                     .accessibilityIdentifier(A11y.Channels.empty)
@@ -50,7 +50,7 @@ private struct ChannelsScreen: View {
         .toolbar {
             ServerToolbarItem()
             ToolbarItem(placement: .principal) { title }
-            if let server = model.activeServer, server.isAdmin, (server.info?.channels ?? 0) > 0 {
+            if let server = model.activeServer, server.isAdmin {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         editing = .new(.text, category: "")

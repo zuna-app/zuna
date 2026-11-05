@@ -33,17 +33,11 @@ type ServerInfo struct {
 	UserCount          int    `json:"user_count"`
 	// AccountProtocol says this server keeps generations of account keys.
 	AccountProtocol int `json:"account_protocol"`
-	// Disappearing says this server removes disappearing messages when they're due,
-	// and keeps how long a direct message's messages last.
-	Disappearing int `json:"disappearing,omitempty"`
-	// Channels says this server has channels. Voice says it has a media server for
-	// those that are voice channels, and without one they can't be joined.
-	Channels int `json:"channels,omitempty"`
-	Voice    int `json:"voice,omitempty"`
+	// Voice says this server has a media server for its voice channels, and without
+	// one they can't be joined.
+	Voice int `json:"voice,omitempty"`
 	// Calls says direct messages and groups can have calls, on the same media server.
 	Calls int `json:"calls,omitempty"`
-	// Sounds says this server has a soundboard, for its voice channels and calls.
-	Sounds int `json:"sounds,omitempty"`
 	// ScreenShare is for members: someone without an account has no need of it.
 	ScreenShare *ScreenRules `json:"screen_share,omitempty"`
 	// CommunityKey is only present in open sign-up mode, where admins accepted
@@ -71,7 +65,7 @@ func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
 
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
-	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol, Disappearing: 1, Channels: 1, Sounds: 1}
+	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol}
 	if s.liveKitConfigured() {
 		info.Voice = 1
 		info.Calls = 1

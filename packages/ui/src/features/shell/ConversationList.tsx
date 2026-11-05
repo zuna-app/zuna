@@ -275,7 +275,7 @@ export function ConversationList() {
     },
   ];
 
-  const showsChannels = !!server.info?.channels && (server.channels.length > 0 || isAdmin);
+  const showsChannels = server.channels.length > 0 || isAdmin;
   const filters: { id: Filter; label: string }[] = [
     { id: "all", label: "All" },
     ...(showsChannels ? [{ id: "channels" as const, label: "Channels" }] : []),

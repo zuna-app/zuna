@@ -128,11 +128,11 @@ export interface ApiChannel {
   type: "text" | "voice";
   position: number;
   user_limit: number;
-  screen_limit?: number;
-  /** Whether the soundboard plays there. Absent on a server from before it had one. */
-  sounds?: boolean;
-  /** Slow mode: how long each person waits between messages, in seconds, or 0. Absent on a server from before it. */
-  slow_mode?: number;
+  screen_limit: number;
+  /** Whether the soundboard plays there. */
+  sounds: boolean;
+  /** Slow mode: how long each person waits between messages, in seconds, or 0. */
+  slow_mode: number;
   details: string;
   created_by: string;
   created_at: number;
@@ -453,7 +453,7 @@ export class Api {
   voiceToken = (id: string) =>
     this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/channels/${id}/voice`, {});
   startScreen = (id: string, how: { browser: boolean; sound: boolean }) =>
-    this.request<{ url?: string; token?: string; identity?: string; sound?: boolean }>("POST", at`/api/channels/${id}/voice/screen`, how);
+    this.request<{ url?: string; token?: string; identity?: string; sound: boolean }>("POST", at`/api/channels/${id}/voice/screen`, how);
   stopScreen = (id: string) => this.request("DELETE", at`/api/channels/${id}/voice/screen`);
   stopScreenOf = (id: string, userId: string) => this.request("DELETE", at`/api/channels/${id}/voice/users/${userId}/screen`);
   voiceDisconnect = (id: string, userId: string) => this.request("POST", at`/api/channels/${id}/voice/users/${userId}/disconnect`, {});
@@ -465,7 +465,7 @@ export class Api {
   callToken = (groupId: string) =>
     this.request<{ url: string; token: string; identity: string; server_muted: boolean }>("POST", at`/api/groups/${groupId}/call`, {});
   startCallScreen = (groupId: string, how: { browser: boolean; sound: boolean }) =>
-    this.request<{ url?: string; token?: string; identity?: string; sound?: boolean }>("POST", at`/api/groups/${groupId}/call/screen`, how);
+    this.request<{ url?: string; token?: string; identity?: string; sound: boolean }>("POST", at`/api/groups/${groupId}/call/screen`, how);
   stopCallScreen = (groupId: string) => this.request("DELETE", at`/api/groups/${groupId}/call/screen`);
   ringCall = (groupId: string, users: string[]) => this.request("POST", at`/api/groups/${groupId}/call/ring`, { users });
   declineCall = (groupId: string) => this.request("POST", at`/api/groups/${groupId}/call/decline`, {});

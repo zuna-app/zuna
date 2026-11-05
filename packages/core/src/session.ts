@@ -3738,8 +3738,8 @@ export class ServerSession {
         break;
       case "activity": {
         const elsewhere = (data.active_devices as string[]).some((id) => id !== this.account.deviceId);
-        // How long ago the person used their other devices, of those used lately. Servers from before don't say.
-        const recent = Object.entries((data.recent_devices ?? {}) as Record<string, number>).filter(([id]) => id !== this.account.deviceId);
+        // How long ago the person used their other devices, of those used lately.
+        const recent = Object.entries(data.recent_devices as Record<string, number>).filter(([id]) => id !== this.account.deviceId);
         this.usedElsewhereAt = Math.max(0, ...recent.map(([, ago]) => Date.now() - ago));
         if (elsewhere !== this.activeElsewhere) {
           this.activeElsewhere = elsewhere;
@@ -4213,8 +4213,6 @@ export class ServerSession {
     if (!Number.isSafeInteger(seconds) || seconds < 0 || seconds > MAX_EXPIRES_IN) throw new Error("Messages can't be set to last that long.");
     const group = this.groups.get(groupId);
     if (!group || group.removedAt) throw new Error("This chat can't be changed right now.");
-    if (!this.info?.disappearing) this.info = await this.api.info().catch(() => this.info);
-    if (!this.info?.disappearing) throw new Error("This server doesn't support disappearing messages yet. Ask its admin to update it.");
     if (this.disappearAfter(group) === seconds) return;
     await this.updateGroupMeta(groupId, { disappearAfter: seconds });
   }
@@ -5842,7 +5840,7 @@ export class ServerSession {
 
   /** The server's channels and who's in them, then joining any this device isn't in yet. */
   private async syncChannels(): Promise<void> {
-    if (!this.channelsOn || !this.info?.channels) return;
+    if (!this.channelsOn) return;
     const { channels, voice } = await this.api.channels();
     this.applyChannels(channels);
     // Calls are listed by themselves.
@@ -5936,8 +5934,8 @@ export class ServerSession {
           bitrate: details?.bitrate ?? 0,
           position: api.position,
           userLimit: api.user_limit,
-          screenLimit: api.screen_limit ?? 0,
-          sounds: api.sounds ?? false,
+          screenLimit: api.screen_limit,
+          sounds: api.sounds,
           slowMode: slowModeOf(api),
           unreadable: !details,
           conversation: group && !group.removedAt ? this.conversationOf(group, now) : null,
@@ -5959,8 +5957,7 @@ export class ServerSession {
       user_limit: input.userLimit ?? 0,
       screen_limit: input.screenLimit ?? 0,
       sounds: input.sounds,
-      // Only when it's on, which a server from before slow mode would refuse anyway.
-      slow_mode: input.slowMode || undefined,
+      slow_mode: input.slowMode ?? 0,
       proof: channelProof(communityKey, id, this.account.userId),
     });
     if (created.group.id !== id || created.group.kind !== "channel" || created.channel.id !== id) {
@@ -6098,8 +6095,7 @@ export class ServerSession {
    */
   async voiceScreenAccess(channelId: string, how: { browser: boolean; sound: boolean }): Promise<ScreenAccess> {
     const access = this.isCall(channelId) ? await this.api.startCallScreen(channelId, how) : await this.api.startScreen(channelId, how);
-    // A server from before it had a say lets anyone in the channel share, with sound.
-    const sound = access.sound ?? how.sound;
+    const { sound } = access;
     if (how.browser) return { sound, native: null };
     if (!access.url || !access.token || access.identity !== `${voiceIdentity(this.account.userId, this.account.deviceId)}.screen`) throw new Error("The server's answer about this voice channel doesn't hold together.");
     return { sound, native: { url: access.url, token: access.token, identity: access.identity } };
@@ -6276,7 +6272,7 @@ export class ServerSession {
   }
 
   private async syncSounds(): Promise<void> {
-    if ((!this.channelsOn && !this.callsOn) || !this.info?.sounds) return;
+    if (!this.channelsOn && !this.callsOn) return;
     this.applySounds(await this.api.sounds());
   }
 

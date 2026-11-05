@@ -55,21 +55,15 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var userCount: Int
     public var communityKey: String?
     public var accountProtocol: Int?
-    /// Whether this server removes disappearing messages when they're due.
-    public var disappearing: Int?
-    /// Whether this server has channels.
-    public var channels: Int?
     /// Whether this server has a media server, without which voice channels can't be joined.
     public var voice: Int?
     /// Whether direct messages and groups can have calls there.
     public var calls: Int?
-    /// Whether this server has a soundboard, for its voice channels and calls.
-    public var sounds: Int?
     /// What its admins say about sharing a screen.
     public var screenShare: ScreenRules?
 
     enum CodingKeys: String, CodingKey {
-        case name, version, claimed, registration, channels, voice, calls, sounds
+        case name, version, claimed, registration, voice, calls
         case hasIcon = "has_icon"
         case maxUploadMb = "max_upload_mb"
         case allowMemberInvites = "allow_member_invites"
@@ -78,7 +72,6 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case emoteSetName = "emote_set_name"
         case userCount = "user_count"
         case accountProtocol = "account_protocol"
-        case disappearing
         case communityKey = "community_key"
         case screenShare = "screen_share"
     }
@@ -114,7 +107,7 @@ public struct ScreenRules: Codable, Sendable, Hashable {
         self.defaultKbps = defaultKbps
     }
 
-    /// What a server's rules come to before its admins have said anything, and on one from before they could. Mirrors `DEFAULT_SCREEN_RULES`.
+    /// What a server's rules come to before its admins have said anything. Mirrors `DEFAULT_SCREEN_RULES`.
     public static let defaults = ScreenRules(who: "everyone", sound: true, adminsExempt: false, maxPerChannel: 0, maxPerServer: 0, maxHeight: 0, maxFps: 0, maxKbps: 0, maxSoundKbps: 0, defaultHeight: 0, defaultFps: 60, defaultKbps: 20_000)
 
     enum CodingKeys: String, CodingKey {

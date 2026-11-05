@@ -80,7 +80,7 @@ final class AppModel {
 
         /// The server has channels to show: some, or none yet for an admin to make.
         var showsChannels: Bool {
-            (info?.channels ?? 0) > 0 && (!channels.isEmpty || isAdmin)
+            !channels.isEmpty || isAdmin
         }
 
         /// An owner or admin of the server, who makes and changes its channels.

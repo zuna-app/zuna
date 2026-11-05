@@ -519,14 +519,13 @@ struct ConversationDetails: View {
 
     /// How long messages sent here last, as the desktop's side panel shows it: in a
     /// direct message either person may change it, in a group its admins. Shown once
-    /// the chat has started, on a server that removes them when they're due.
+    /// the chat has started.
     @ViewBuilder
     private func disappearing(_ server: AppModel.ServerState, _ conversation: ConversationView, canChange: Bool) -> some View {
-        let supported = (server.info?.disappearing ?? 0) >= 1
-        if let groupId = conversation.groupId, conversation.ready, supported || conversation.disappearAfter > 0 {
+        if let groupId = conversation.groupId, conversation.ready {
             let current = conversation.disappearAfter
             Section {
-                if canChange && supported {
+                if canChange {
                     Picker(selection: Binding(get: { current }, set: { seconds in
                         run { try await model.core.session(server.entry.id).setDisappearing(groupId, seconds: seconds) }
                     })) {

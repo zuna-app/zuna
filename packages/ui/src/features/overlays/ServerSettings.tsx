@@ -302,11 +302,9 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
           { id: "invites", label: "Invites", icon: LinkIcon },
           { id: "members", label: "Members", icon: Users },
           { id: "emotes", label: "Emotes", icon: Smile },
-          // A server from before the soundboard has none to fill.
-          ...(server?.info?.sounds ? [{ id: "soundboard", label: "Soundboard", icon: AudioLines }] : []),
+          { id: "soundboard", label: "Soundboard", icon: AudioLines },
           { id: "storage", label: "Storage", icon: HardDrive },
-          // A server from before it had a say has nothing to change.
-          ...(server?.info?.screen_share ? [{ id: "screen", label: "Screen sharing", icon: MonitorUp }] : []),
+          { id: "screen", label: "Screen sharing", icon: MonitorUp },
         ]
       : []),
     { id: "leave", label: "Sign out", icon: LogOut, danger: true },

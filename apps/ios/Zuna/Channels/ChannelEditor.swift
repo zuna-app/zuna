@@ -209,10 +209,8 @@ struct ChannelEditor: View {
                 }
             }
             .accessibilityIdentifier(A11y.Channels.editorScreenLimit)
-            if (server?.info?.sounds ?? 0) > 0 {
-                Toggle("Soundboard", isOn: $sounds)
-                    .accessibilityIdentifier(A11y.Channels.editorSounds)
-            }
+            Toggle("Soundboard", isOn: $sounds)
+                .accessibilityIdentifier(A11y.Channels.editorSounds)
         } header: {
             Text("Voice")
         } footer: {
