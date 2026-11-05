@@ -4,7 +4,7 @@
 // (packages/ui/src/core/serve.ts).
 
 import "./polyfills";
-import { ZunaClient, previewCall, previewPush, type CoreEvent } from "@zuna/core";
+import { ZunaClient, previewCall, previewPush } from "@zuna/core";
 import { allowLocalLinks } from "@zuna/core/links";
 import { serveCore } from "@zuna/core/rpc";
 import { nativeDbProvider } from "./db";
