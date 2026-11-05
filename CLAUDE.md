@@ -12,6 +12,7 @@ Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds
 - **Run the checks yourself before pushing.** CI only runs on `v*` tags and pull requests, so nothing checks a push to `main`.
 - **The remote is `SocketByte/zuna-chat`.** `SocketByte/zuna` is a different repository: never push there.
 - **No Dependabot,** or anything else that opens branches. It was removed on purpose. Update dependencies by hand.
+- **No backward compatibility until the first release.** Nobody runs an older version, so only the newest apps, server and push relay have to work together, and a change may leave older ones unable to talk to the new ones. Don't keep old routes, fields, formats, flags, fallbacks or moves of saved data for them, and remove any you come across. Schema migrations still go at the end of their lists, so test servers and devices keep their data.
 
 Commit subjects are plain imperative sentences that say what changes, with no prefix and no full stop: "Keep the chat on the newest message as the message box empties". The body says why.
 
