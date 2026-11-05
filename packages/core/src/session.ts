@@ -58,6 +58,7 @@ import {
   verifyCertificate,
   verifyHpkeKey,
   type DeviceCertificate,
+  type Signer,
   type VaultCore,
 } from "./crypto";
 import {
@@ -2463,6 +2464,11 @@ export class ServerSession {
   }
 
   /** A group's admins are whoever its roster names, which MLS holds. A channel's are the server's. */
+  /** This device, as what it signs names it. */
+  private get signer(): Signer {
+    return { userId: this.account.userId, deviceId: this.account.deviceId };
+  }
+
   private isGroupAdmin(group: CachedGroup, userId: string): boolean {
     if (group.kind === "group") return !!this.rosterOf(group)?.roster.admins.includes(userId);
     return group.members.find((member) => member.userId === userId)?.role === "admin";
@@ -2651,7 +2657,7 @@ export class ServerSession {
       const device = this.users.get(userId)?.devices.get(signed.deviceId);
       const key = this.epochKey(group.id, signed.epoch);
       if (!device || !key) return;
-      const opened = openEnvelope<unknown>(key, device.signatureKey, "read", group.id, userId, signed.epoch, signed.envelope);
+      const opened = openEnvelope<unknown>(key, device.signatureKey, "read", group.id, userId, signed.epoch, signed.envelope, { userId, deviceId: signed.deviceId });
       seq = opened.ok ? parseReadState(opened.value) : null;
     } else {
       // Unsigned, it can only be this account's own, sealed to its key so its other
@@ -4004,7 +4010,7 @@ export class ServerSession {
     const signed = readSigned(decode(reaction.data));
     const device = signed && this.users.get(reaction.user_id)?.devices.get(signed.deviceId);
     if (!signed || !device || signed.epoch !== reaction.epoch) return null;
-    const opened = openEnvelope<{ id?: unknown }>(key, device.signatureKey, "reaction", groupId, messageId, reaction.epoch, signed.envelope);
+    const opened = openEnvelope<{ id?: unknown }>(key, device.signatureKey, "reaction", groupId, messageId, reaction.epoch, signed.envelope, { userId: reaction.user_id, deviceId: signed.deviceId });
     return opened.ok && opened.value?.id === reaction.id ? parseReaction(opened.value) : null;
   }
 
@@ -4059,7 +4065,7 @@ export class ServerSession {
         status = "undecryptable";
         raw = envelope;
       } else {
-        const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, envelope);
+        const opened = openEnvelope<unknown>(key, device.signatureKey, "message", message.group_id, message.id, message.epoch, envelope, { userId: message.sender_user, deviceId: message.sender_device });
         if (opened.ok && !namesItsSender(opened.value, message.sender_user, message.sender_device)) {
           status = "unverified";
           raw = envelope;
@@ -4255,7 +4261,7 @@ export class ServerSession {
     if (!key || !device) return null;
     const left = this.departedAt(message.group_id, message.pin_by, signed.deviceId);
     if (left !== null && signed.epoch >= left) return null;
-    const opened = openEnvelope<{ by?: unknown; pinned?: unknown; revision?: unknown }>(key, device.signatureKey, "pin", message.group_id, message.id, signed.epoch, signed.envelope);
+    const opened = openEnvelope<{ by?: unknown; pinned?: unknown; revision?: unknown }>(key, device.signatureKey, "pin", message.group_id, message.id, signed.epoch, signed.envelope, { userId: message.pin_by, deviceId: signed.deviceId });
     if (!opened.ok || opened.value?.by !== message.pin_by || typeof opened.value.pinned !== "boolean") return null;
     const { revision } = opened.value;
     return typeof revision === "number" && Number.isSafeInteger(revision) && revision > 0 ? { by: message.pin_by, pinned: opened.value.pinned, revision } : null;
@@ -4275,7 +4281,7 @@ export class ServerSession {
     if (!key || !device) return false;
     const left = this.departedAt(message.group_id, message.deleted_by, signed.deviceId);
     if (left !== null && signed.epoch >= left) return false;
-    const opened = openEnvelope<{ by?: unknown }>(key, device.signatureKey, "deletion", message.group_id, message.id, signed.epoch, signed.envelope);
+    const opened = openEnvelope<{ by?: unknown }>(key, device.signatureKey, "deletion", message.group_id, message.id, signed.epoch, signed.envelope, { userId: message.deleted_by, deviceId: signed.deviceId });
     if (!opened.ok || opened.value?.by !== message.deleted_by) return false;
     if (message.deleted_by === message.sender_user) return true;
     const group = this.groups.get(message.group_id);
@@ -5191,7 +5197,7 @@ export class ServerSession {
           const held = row ? this.storedBody(row) : null;
           // An edit says how long the message lasts as it first did, so it disappears all the same.
           const body: MessageBody = { ...entry.body, revision: this.nextRevision(entry.groupId, entry.id), after: held?.after, expiresIn: held?.expiresIn };
-          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body));
+          const envelope = sealEnvelope(key, this.account.deviceSecret, "message", entry.groupId, entry.id, epoch, this.signedBody(body), this.signer);
           this.ingest(await this.api.editMessage(entry.groupId, entry.id, epoch, envelope), false);
         }),
       );
@@ -5208,7 +5214,7 @@ export class ServerSession {
         const after = this.getKv<EarlierMessage>(`sent/${groupId}`) ?? undefined;
         // It lasts as long as the chat says when it goes, whenever it was written.
         const expiresIn = this.disappearAfter(this.groups.get(groupId)) || undefined;
-        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after, expiresIn }));
+        const envelope = sealEnvelope(key, this.account.deviceSecret, "message", groupId, entry.id, epoch, this.signedBody({ ...body, after, expiresIn }), this.signer);
         const saved = await this.api.sendMessage(groupId, {
           id: entry.id,
           epoch,
@@ -5359,7 +5365,7 @@ export class ServerSession {
     const { userId, deviceId, deviceSecret } = this.account;
     await this.withLock(groupId, () =>
       this.sealAndRetry(groupId, async (epoch, epochKey) => {
-        const deletion = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "deletion", groupId, id, epoch, { by: userId }));
+        const deletion = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "deletion", groupId, id, epoch, { by: userId }, this.signer));
         this.ingest(await this.api.deleteMessage(groupId, id, epoch, deletion), false);
       }),
     );
@@ -5372,7 +5378,7 @@ export class ServerSession {
       this.sealAndRetry(groupId, async (epoch, epochKey) => {
         // After the pin this device holds, whatever its clock says, as with edits.
         const revision = Math.max((this.messageRow(groupId, id)?.pin_revision ?? 0) + 1, Date.now());
-        const pin = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }));
+        const pin = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "pin", groupId, id, epoch, { by: userId, pinned, revision }, this.signer));
         this.ingest(await this.api.pin(groupId, id, pinned, epoch, pin), false);
       }),
     );
@@ -5395,7 +5401,7 @@ export class ServerSession {
       }
       const id = randomId();
       await this.sealAndRetry(groupId, async (epoch, epochKey) => {
-        const data = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }));
+        const data = frameSigned(deviceId, epoch, sealEnvelope(epochKey, deviceSecret, "reaction", groupId, messageId, epoch, { id, key, emote }, this.signer));
         this.ingest(await this.api.addReaction(groupId, messageId, id, epoch, data), false);
       });
     });
@@ -5435,7 +5441,7 @@ export class ServerSession {
     if (this.prefs.sendReadReceipts && group.kind !== "channel") {
       const key = this.epochKey(group.id, epoch);
       if (!key) return;
-      framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }));
+      framed = frameSigned(deviceId, epoch, sealEnvelope(key, deviceSecret, "read", group.id, userId, epoch, { seq }, this.signer));
     } else {
       // The position is sealed to our own account key, so our other devices stay
       // in sync while nobody else can read it.

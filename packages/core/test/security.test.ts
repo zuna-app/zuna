@@ -15,6 +15,7 @@ import {
   derivePasswordKeys,
   frameSigned,
   parseCertificate,
+  readSigned,
   randomId,
   sealEnvelope,
   sealSignal,
@@ -280,7 +281,7 @@ describe("messages that aren't what they should be (Z-03, Z-05, Z-12)", () => {
     const named = body !== null && typeof body === "object" ? { ...body, by } : body;
     return session.withLock(groupId, () =>
       session.sealAndRetry(groupId, async (epoch: number, key: Uint8Array) => {
-        const envelope = sealEnvelope(key, session.account.deviceSecret, "message", groupId, id, epoch, named);
+        const envelope = sealEnvelope(key, session.account.deviceSecret, "message", groupId, id, epoch, named, { userId: by.user, deviceId: by.device });
         await session.api.sendMessage(groupId, { id, epoch, envelope });
       }),
     ).then(() => id);
@@ -1155,7 +1156,7 @@ describe("a server rewriting who said what (Z-40)", () => {
     await waitFor(() => sessionOf(eve).messageRow(groupId, sent.id)?.status === "sent", "eve to read it");
     const row = sessionOf(eve).messageRow(groupId, sent.id);
     const malSession = sessionOf(mal);
-    const envelope = sealEnvelope(malSession.epochKey(groupId, row.epoch), malSession.account.deviceSecret, "message", groupId, sent.id, row.epoch, { text: "I resign" });
+    const envelope = sealEnvelope(malSession.epochKey(groupId, row.epoch), malSession.account.deviceSecret, "message", groupId, sent.id, row.epoch, { text: "I resign" }, malSession.signer);
     sessionOf(eve).ingest(
       {
         group_id: groupId, id: sent.id, seq: row.seq, updated_seq: row.updated_seq + 1,
@@ -1177,10 +1178,16 @@ describe("a server rewriting who said what (Z-40)", () => {
     const malSession = sessionOf(mal);
     const id = randomId();
     const epoch = malSession.mlsEpoch(groupId);
-    const envelope = sealEnvelope(malSession.epochKey(groupId, epoch), malSession.account.deviceSecret, "message", groupId, id, epoch, {
-      text: "passed on from another device",
-      by: { user: ann.userId, device: sessionOf(ann).account.deviceId },
-    });
+    const envelope = sealEnvelope(
+      malSession.epochKey(groupId, epoch),
+      malSession.account.deviceSecret,
+      "message",
+      groupId,
+      id,
+      epoch,
+      { text: "passed on from another device", by: { user: ann.userId, device: sessionOf(ann).account.deviceId } },
+      malSession.signer,
+    );
     sessionOf(eve).ingest(
       {
         group_id: groupId, id, seq: 999, updated_seq: 999, sender_user: mal.userId, sender_device: malSession.account.deviceId, epoch,
@@ -1364,7 +1371,7 @@ function signedDeletion(app: TestApp, groupId: string, messageId: string): Uint8
   const session = sessionOf(app);
   const epoch = session.mlsEpoch(groupId) as number;
   const { deviceId, deviceSecret } = session.account;
-  return frameSigned(deviceId, epoch, sealEnvelope(session.epochKey(groupId, epoch), deviceSecret, "deletion", groupId, messageId, epoch, { by: app.userId }));
+  return frameSigned(deviceId, epoch, sealEnvelope(session.epochKey(groupId, epoch), deviceSecret, "deletion", groupId, messageId, epoch, { by: app.userId }, { userId: app.userId, deviceId }));
 }
 
 async function threeInAGroup() {
@@ -1508,6 +1515,35 @@ describe("a group's roster, which MLS holds (Z3-01, Z3-02)", () => {
   });
 });
 
+describe("a device key someone else's certificate names (Z3-07)", () => {
+  it("doesn't let a reaction pass as another account's", async () => {
+    const ann = await person("ann");
+    const bob = await person("bob");
+    const mal = await person("mal");
+    const groupId = await groupWith(ann, [bob]);
+    const id = await sentAndSeen(ann, [bob], groupId, "react to this");
+    await ann.session.toggleReaction(groupId, id, "👍");
+    await waitFor(() => !!sessionOf(bob).storedBody(sessionOf(bob).messageRow(groupId, id))?.reactions?.length, "bob to see it");
+    // An account of the server's certifies ann's device key as one of its own devices.
+    const annKey = sessionOf(ann).account.devicePublic as Uint8Array;
+    const device = randomId();
+    const certificate = createCertificate(sessionOf(mal).account.core.identitySecret, { userId: mal.userId, deviceId: device, signatureKey: annKey, generation: 0 });
+    withServerDatabase((db) => {
+      db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at) VALUES(?, ?, ?, ?, ?, ?)").run(device, mal.userId, certificate, annKey, Date.now(), Date.now());
+      const row = db.prepare("SELECT data FROM reactions WHERE group_id = ? AND message_id = ?").get(groupId, id) as { data: Uint8Array };
+      const signed = readSigned(new Uint8Array(row.data))!;
+      const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
+      db.prepare("UPDATE reactions SET user_id = ?, data = ? WHERE group_id = ? AND message_id = ?").run(mal.userId, frameSigned(device, signed.epoch, signed.envelope), groupId, id);
+      db.prepare("UPDATE messages SET updated_seq = ? WHERE group_id = ? AND id = ?").run(seq, groupId, id);
+    });
+    await sessionOf(bob).ensureUser(mal.userId, true);
+    expect(sessionOf(bob).users.get(mal.userId).devices.has(device)).toBe(true);
+    await sessionOf(bob).pullChanges(groupId);
+    const reactions = sessionOf(bob).storedBody(sessionOf(bob).messageRow(groupId, id))?.reactions ?? [];
+    expect(reactions.flatMap((reaction: { userIds: string[] }) => reaction.userIds)).not.toContain(mal.userId);
+  });
+});
+
 describe("a commit that was undone", () => {
   it("lets the account's own copy replace a key from an epoch it began, and keeps the others (Z3-10)", async () => {
     const dave = await person("dave");
@@ -1541,7 +1577,7 @@ describe("an edit from a device that has left", () => {
     await waitFor(() => sessionOf(member).departedAt(groupId, leaver.userId, deviceId) !== null, "them to be seen leaving");
 
     // The key from before they left still opens, and the edit keeps the message's place.
-    const envelope = sealEnvelope(key, deviceSecret, "message", groupId, sent.id, epoch, session.signedBody({ text: "what I never said" }));
+    const envelope = sealEnvelope(key, deviceSecret, "message", groupId, sent.id, epoch, session.signedBody({ text: "what I never said" }), session.signer);
     withServerDatabase((db) => {
       const { seq } = db.prepare("UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq").get(groupId) as { seq: number };
       db.prepare("UPDATE messages SET envelope = ?, edited_at = ?, updated_seq = ? WHERE group_id = ? AND id = ?").run(envelope, Date.now(), seq, groupId, sent.id);

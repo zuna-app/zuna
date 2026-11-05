@@ -305,8 +305,13 @@ export type ContentKind = "message" | "reaction" | "meta" | "read" | "typing" | 
 const contentAad = (kind: ContentKind, groupId: string, itemId: string, epoch: number) =>
   concat(label(`zuna/${kind}/v1|${groupId}|${itemId}|`), u64Bytes(epoch));
 
-const signatureInput = (aad: Uint8Array, ciphertext: Uint8Array) =>
-  concat(label("zuna/envelope-sig/v1"), wasm.sha256(aad), wasm.sha256(ciphertext));
+/**
+ * What a device signs: what the content is, and whose device it's from. Nothing
+ * proves a device's key isn't also named in another account's certificate, so the
+ * signature itself says whose it is.
+ */
+const signatureInput = (aad: Uint8Array, ciphertext: Uint8Array, signer: Signer) =>
+  concat(label(`zuna/envelope-sig/v2|${signer.userId}|${signer.deviceId}|`), wasm.sha256(aad), wasm.sha256(ciphertext));
 
 /**
  * Encrypts content under an epoch key and signs it with the sender's device key.
@@ -321,10 +326,11 @@ export function sealEnvelope(
   itemId: string,
   epoch: number,
   value: unknown,
+  signer: Signer,
 ): Uint8Array {
   const aad = contentAad(kind, groupId, itemId, epoch);
   const ciphertext = wasm.aeadSeal(epochKey, pad(utf8(JSON.stringify(value))), aad);
-  return concat(wasm.sign(deviceSecret, signatureInput(aad, ciphertext)), ciphertext);
+  return concat(wasm.sign(deviceSecret, signatureInput(aad, ciphertext, signer)), ciphertext);
 }
 
 /**
@@ -346,12 +352,13 @@ export function openEnvelope<T>(
   itemId: string,
   epoch: number,
   sealed: Uint8Array,
+  signer: Signer,
 ): OpenResult<T> {
   if (sealed.length < 64) return { ok: false, reason: "decrypt" };
   const signature = sealed.subarray(0, 64);
   const ciphertext = sealed.subarray(64);
   const aad = contentAad(kind, groupId, itemId, epoch);
-  if (!wasm.verify(devicePublic, signatureInput(aad, ciphertext), signature)) {
+  if (!wasm.verify(devicePublic, signatureInput(aad, ciphertext, signer), signature)) {
     return { ok: false, reason: "signature" };
   }
   try {

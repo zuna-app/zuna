@@ -10,7 +10,7 @@ Each device is its own member of each group. Keys change at every membership cha
 
 ## Message content
 
-Each MLS epoch exports a content key (RFC 9420 section 8.5). Messages are encrypted under it with XChaCha20-Poly1305, padded to 256-byte blocks, and signed with the sender's device key (Ed25519). The signature matters because all members share the content key: without it, any member could impersonate another. What's signed says who wrote it as well as what it says, so a server can't put one person's words under another's name, even with a member's help. Reactions and read positions are signed the same way, and say which message or person they're about.
+Each MLS epoch exports a content key (RFC 9420 section 8.5). Messages are encrypted under it with XChaCha20-Poly1305, padded to 256-byte blocks, and signed with the sender's device key (Ed25519). The signature matters because all members share the content key: without it, any member could impersonate another. What's signed says who wrote it as well as what it says, so a server can't put one person's words under another's name, even with a member's help. Reactions, read positions, pins and deletions are signed the same way, and say which message or person they're about. Every signature also names the account and device it's from, so a device key that someone else's certificate names too can't pass one person's reaction off as another's.
 
 Using exported keys rather than MLS's per-message ratchet is a deliberate trade-off, and it's what makes history on new devices possible:
 

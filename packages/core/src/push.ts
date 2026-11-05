@@ -125,6 +125,7 @@ export async function previewPush(
     message.id,
     message.epoch,
     decode(message.envelope),
+    { userId: message.sender_user, deviceId: message.sender_device },
   );
   if (!opened.ok || !namesItsSender(opened.value, message.sender_user, message.sender_device)) return preview({});
   const body = parseMessageBody(opened.value);

@@ -169,8 +169,8 @@ describe("direct messages", () => {
     const { signingKeygen } = await import("@zuna/crypto");
     const forger = signingKeygen();
     const id = randomId();
-    const envelope = sealEnvelope(session.epochKey(groupId, epoch), forger.secretKey, "message", groupId, id, epoch, { text: "forged by the server" });
     const aliceDevice = (alice.session as any).account.deviceId;
+    const envelope = sealEnvelope(session.epochKey(groupId, epoch), forger.secretKey, "message", groupId, id, epoch, { text: "forged by the server" }, { userId: alice.userId, deviceId: aliceDevice });
     session.ingest(
       {
         group_id: groupId,
