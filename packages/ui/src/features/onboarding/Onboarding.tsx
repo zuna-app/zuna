@@ -493,7 +493,15 @@ function SignInStep({
       <StepHeader title="Sign in" onBack={onBack}>
         Your history will load on this device after you sign in.
       </StepHeader>
-      <Field label="Server address" placeholder="chat.example.com" value={url} autoFocus spellCheck={false} onChange={(event) => setUrl(event.target.value)} />
+      <Field
+        label="Server address"
+        placeholder="chat.example.com"
+        hint="Or paste any link to the server."
+        value={url}
+        autoFocus
+        spellCheck={false}
+        onChange={(event) => setUrl(event.target.value)}
+      />
       <Field label="Username" value={username} spellCheck={false} onChange={(event) => setUsername(event.target.value)} />
       <PasswordField label="Password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       {error && <div className="field-error">{error}</div>}

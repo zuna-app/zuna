@@ -4,7 +4,7 @@ A Zuna server is one program and one data folder. There's no separate database, 
 
 **You'll need:**
 - A machine that stays on. The smallest VPS plans are a reasonable starting point for a friend group, and storage grows with the files people send.
-- A domain name pointing at it, such as `chat.example.com`.
+- A domain name pointing at it, such as `chat.example.com`, or an address that doesn't change, for [a server without a domain](#without-a-domain).
 - Ports 80 and 443 open, unless you use your own reverse proxy.
 
 Each install is one community with its own members. To host two separate communities, run two installs.
@@ -119,16 +119,37 @@ Files upload in 1 MiB chunks, so the body size limit doesn't need to match your 
 
 Set `ZUNA_TRUST_PROXY=true` behind a proxy, so that rate limiting sees members' real addresses. It believes `X-Forwarded-For` only from this machine and private networks, reading it from the right so that only what your proxy added counts. For a proxy elsewhere, list it in `ZUNA_TRUSTED_PROXIES`, which replaces those networks. Otherwise all its callers count as one address.
 
+## Without a domain
+
+A server can go by the machine's IP address instead, such as a box on your home network. Give the address where the domain would go:
+
+```bash
+ZUNA_DOMAIN=192.168.1.10 docker compose up -d
+```
+
+Or, with the binary:
+
+```bash
+./zuna-server --domain 192.168.1.10 --data /path/to/data
+```
+
+No certificate authority vouches for an address, so the server makes its own certificate, and listens only on port 443, or where `--listen` says. Its links carry a fingerprint of its key, called a pin, after the `#`, as they carry the community key. The apps trust that key for that address and nothing else, so nobody in between can pose as your server, though nobody signed its certificate. So:
+
+- **Share links whole,** with everything after the `#`. To sign in on another device, enter the address the server prints at the start, which ends in `#pin=`, or paste any of its links. Members find that address in **Settings → Security**, under their devices.
+- **Keep `certificate.key`** from the data folder with your backups. A new key means new links, and everyone signing out of the server and in again.
+- **Keep the address the same.** It's how the apps find the server.
+- **Only the desktop app can reach it for now.** The iPhone and iPad app can't yet, and the web app never will, as a browser can't check a certificate by its key.
+
 ## Configuration
 
 Everything can be set by flag or environment variable.
 
 | Flag | Environment | Default | Purpose |
 |---|---|---|---|
-| `--domain` | `ZUNA_DOMAIN` | | Turns on automatic HTTPS on ports 80 and 443 |
+| `--domain` | `ZUNA_DOMAIN` | | Turns on automatic HTTPS on ports 80 and 443. With an IP address, HTTPS with the server's [own certificate](#without-a-domain) on 443 |
 | `--data` | `ZUNA_DATA` | `./zuna-data` | Where everything is stored |
 | `--database-url` | `ZUNA_DATABASE_URL` | | A [PostgreSQL](#postgresql) database to keep accounts and messages in, instead of `zuna.db` in the data folder |
-| `--listen` | `ZUNA_LISTEN` | `:8080` | Address to listen on when not using `--domain` |
+| `--listen` | `ZUNA_LISTEN` | `:8080` | Address to listen on, unless `--domain` names a domain. With an IP address, `:443` by default |
 | `--public-url` | `ZUNA_PUBLIC_URL` | From the domain | Address people use to reach this server |
 | `--tls-cert`, `--tls-key` | `ZUNA_TLS_CERT`, `ZUNA_TLS_KEY` | | Use your own certificate files |
 | `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy on this machine or a private network |
@@ -222,6 +243,7 @@ zuna.db      the database (encrypted messages, accounts)
 files/       encrypted uploads
 emotes/      cached 7TV images (safe to lose; re-downloaded when needed)
 certs/       HTTPS certificates, with automatic HTTPS (safe to lose; re-issued when needed)
+certificate.key  the key of the server's own certificate, without a domain (keep it: a new one needs new links)
 icon         your server's picture
 ```
 

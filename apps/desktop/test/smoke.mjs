@@ -1,5 +1,6 @@
 // Smoke test of the production build in real Electron: sandbox, custom protocol,
-// content security policy, OS keychain, encrypted storage, and a real server.
+// content security policy, OS keychain, encrypted storage, and a real server, reached
+// by its IP address with a certificate it makes itself, which the app trusts by its pin.
 //
 //   npm run build -w @zuna/desktop && node apps/desktop/test/smoke.mjs [screenshot-dir]
 //
@@ -30,15 +31,14 @@ execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./
 const data = mkdtempSync(join(tmpdir(), "zuna-smoke-data-"));
 const userData = mkdtempSync(join(tmpdir(), "zuna-smoke-user-"));
 const port = 21000 + Math.floor(Math.random() * 20000);
-const url = `http://127.0.0.1:${port}`;
-const server = spawn(binary, ["--listen", `127.0.0.1:${port}`, "--data", data, "--public-url", url], { stdio: ["ignore", "pipe", "pipe"] });
+const server = spawn(binary, ["--domain", "127.0.0.1", "--listen", `127.0.0.1:${port}`, "--data", data, "--push-relays", "off"], { stdio: ["ignore", "pipe", "pipe"] });
 let output = "";
 server.stdout.on("data", (chunk) => (output += chunk));
 server.stderr.on("data", (chunk) => (output += chunk));
 
 async function setupLink() {
   for (let i = 0; i < 200; i++) {
-    const match = output.match(/http:\/\/\S+\/invite\/\S+/);
+    const match = output.match(/https:\/\/\S+\/invite\/\S+#pin=\S+/);
     if (match) return match[0];
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
@@ -90,6 +90,15 @@ try {
   await page.getByRole("button", { name: "Join with an invite" }).waitFor({ timeout: 30_000 });
   await page.screenshot({ path: join(shots, "1-welcome.png") });
   await page.getByRole("button", { name: "Join with an invite" }).click();
+  // Without its pin, or with another, the server's own certificate is refused. Chromium
+  // remembers what it decided, which mustn't keep the right pin out afterwards.
+  const pin = link.replace(/^.*#pin=/, "");
+  for (const wrong of [link.replace(/#.*$/, ""), link.replace(pin, "A".repeat(43))]) {
+    await page.getByLabel("Invite link").fill(wrong);
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.locator(".field-error").waitFor({ timeout: 15_000 });
+  }
+  console.log("a certificate without its pin, or with another, is refused: yes");
   await page.getByLabel("Invite link").fill(link);
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Smoke Tester", { timeout: 15_000 });
@@ -112,6 +121,14 @@ try {
   await page.waitForTimeout(400);
   await page.screenshot({ path: join(shots, "3-chat.png") });
   console.log("sent and rendered a message");
+
+  // Another device needs the pin too, so the address to sign in with carries it.
+  await page.getByLabel("Settings", { exact: true }).click();
+  await page.getByRole("button", { name: "Security" }).click();
+  await page.getByText(`${link.replace(/\/invite\/.*$/, "")}#pin=${pin}`).waitFor({ timeout: 10_000 });
+  await page.screenshot({ path: join(shots, "3b-address.png") });
+  await page.keyboard.press("Escape");
+  console.log("the address to sign in with carries the pin: yes");
 
   await page.evaluate(async () => {
     await window.zunaDesktop.notify({ title: "Zuna smoke test", body: "Notifications work", route: { serverId: "", key: "" } });

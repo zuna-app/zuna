@@ -77,7 +77,7 @@ function SignedOut({ server }: { server: NonNullable<ReturnType<typeof useActive
         </p>
         <div className="row" style={{ gap: 8, justifyContent: "center" }}>
           {reason !== "banned" && (
-            <button className="btn btn-primary" onClick={() => setOverlay({ type: "add-server", signInUrl: server.entry.url })}>
+            <button className="btn btn-primary" onClick={() => setOverlay({ type: "add-server", signInUrl: server.entry.address })}>
               Sign in again
             </button>
           )}

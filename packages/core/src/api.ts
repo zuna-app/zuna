@@ -244,6 +244,36 @@ export interface CommitRequest {
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * A server that makes its own certificate, reached by its IP address, is trusted
+ * by the pin its links carry after the #, which browsers never send to it: the
+ * SHA-256 of its key's SubjectPublicKeyInfo, in base64url.
+ */
+const PIN = /^[A-Za-z0-9_-]{43}$/;
+
+/** The pin in a link's part after the #, if it has one. */
+export function pinIn(fragment: string): string | null {
+  const pin = new URLSearchParams(fragment.replace(/^#/, "")).get("pin");
+  if (pin === null) return null;
+  if (!PIN.test(pin)) throw new Error("That link isn't complete. Copy it again, with everything after the #.");
+  return pin;
+}
+
+/**
+ * A pin is only for a server reached over HTTPS by its IP address, the only kind that
+ * makes its own certificate. A name never gets one, so no link can have the app
+ * trust another key for a name, such as the one updates come from.
+ */
+export function checkPinnable(url: string): void {
+  const { protocol, hostname } = new URL(url);
+  if (protocol !== "https:" || !(hostname.startsWith("[") || /^\d+\.\d+\.\d+\.\d+$/.test(hostname))) {
+    throw new Error("Only a server reached over HTTPS by its IP address makes its own certificate, so only its links have a pin.");
+  }
+}
+
+/** What to enter to reach a server: its address, with the pin of one that makes its own certificate. */
+export const serverAddress = (url: string, pin: string | null | undefined): string => (pin ? `${url}#pin=${pin}` : url);
+
 export function normalizeServerUrl(input: string): string {
   let url = input.trim().replace(/\/+$/, "");
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;

@@ -61,7 +61,7 @@ function OverviewSection() {
       </div>
       <div className="settings-divider" />
       <SettingRow title="Address" hint="People and apps reach your server here.">
-        <span className="mono selectable" style={{ fontSize: 12.5 }}>{server.entry.url}</span>
+        <span className="mono selectable" style={{ fontSize: 12.5, overflowWrap: "anywhere" }}>{server.entry.address}</span>
       </SettingRow>
       <SettingRow title="Version">
         <span className="mono" style={{ fontSize: 12.5 }}>{server.info?.version}</span>

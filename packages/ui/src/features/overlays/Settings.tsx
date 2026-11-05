@@ -394,6 +394,12 @@ function DevicesCard() {
           </div>
         ))}
       </div>
+      {server && (
+        // A server that makes its own certificate needs its pin too, which only its links carry.
+        <span className="field-hint">
+          To add one, sign in there to <span className="mono selectable" style={{ overflowWrap: "anywhere" }}>{server.entry.address}</span>
+        </span>
+      )}
     </div>
   );
 }

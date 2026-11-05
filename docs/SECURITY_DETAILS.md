@@ -65,6 +65,16 @@ Display names and avatars are encrypted under a **community key**, carried in th
 
 If an admin turns on open sign-ups, there's no invite link to carry that key, so the app gives it to the server, and the settings screen says so. This exposes profiles, not messages.
 
+## Servers without a domain
+
+Given an IP address in place of a domain, the server makes its own certificate: a P-256 key made once and kept in its data folder as `certificate.key`, and a certificate from that key for each connection, as Chromium remembers its verdict on each certificate for a while. Its links carry the SHA-256 of the key's SubjectPublicKeyInfo, in base64url, in their fragment (`#pin=`), which browsers don't send to servers. The app keeps it with the account, sealed as the rest of it is, and before anything reaches the server, has its host trust that key for that address: the desktop's main process through Chromium's certificate check, which then accepts no other certificate for the address. The key decides, not the certificate's dates or names.
+
+- **Only an address over HTTPS can have a pin,** never a name. The core and the desktop's main process both check, so no link can have the app trust another key for a name, such as where updates come from.
+- **A link can't change the pin of a server the device is on.** Anybody can send a link, and its key would be trusted as soon as it was pasted, before anyone decided to join. A new key needs signing out of the server and in again with its new address.
+- **The first link decides.** Like the community key, the pin is only as good as the way the link came. A wrong one, with someone between the device and the server, lets them pose as the server, which E2EE already assumes a server may do.
+- **A browser can't check a certificate by its key,** so the web app refuses such a server rather than trust whatever certificate the browser would.
+- **The iPhone and iPad app can't reach such a server yet.**
+
 ## Channels
 
 Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What they're called and everything said in them is end-to-end encrypted in the same way as a group's, and the server can't read any of it. The server does see each channel's rules: how many fit, how many may share a screen, whether the soundboard plays there, and its slow mode, which it holds everyone but admins to.

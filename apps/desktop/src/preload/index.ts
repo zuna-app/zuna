@@ -15,6 +15,7 @@ ipcRenderer.on("zuna:native-sound-port", (event) => window.postMessage("zuna:nat
 contextBridge.exposeInMainWorld("zunaDesktop", {
   hour12: process.argv.includes("--zuna-clock=12"),
   deviceKey: () => ipcRenderer.invoke("zuna:device-key"),
+  pinServer: (url: string, pin: string) => ipcRenderer.invoke("zuna:pin-server", url, pin),
   platform: () => ipcRenderer.invoke("zuna:platform"),
   microphone: () => ipcRenderer.invoke("zuna:microphone"),
   camera: () => ipcRenderer.invoke("zuna:camera"),

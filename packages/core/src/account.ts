@@ -1,7 +1,7 @@
 // Creating accounts and bringing an account's keys onto a device.
 
 import * as wasm from "@zuna/crypto";
-import { Api, ApiError, decode, normalizeServerUrl, type LoginResponse } from "./api";
+import { Api, ApiError, checkPinnable, decode, normalizeServerUrl, pinIn, type LoginResponse } from "./api";
 import {
   DEFAULT_KDF,
   MANIFEST_ID,
@@ -56,6 +56,8 @@ export interface AccountState {
   sealSecret: Uint8Array;
   /** The last seal key, which a rotation already on its way may have used. */
   sealOlder?: Uint8Array;
+  /** The pin of a server that makes its own certificate, which the app trusts and nothing else. */
+  pin?: string;
 }
 
 /** A device signed in, and whatever has to happen next, in one go, for it to count. */
@@ -70,10 +72,47 @@ export interface ParsedInvite {
   url: string;
   code: string;
   communityKey: string | null;
+  pin: string | null;
 }
 
 /** Understands https invite links, zuna:// deep links and bare server addresses with a code. */
 export function parseInviteLink(input: string): ParsedInvite | null {
+  const text = linkIn(input);
+  if (!text) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(text);
+  } catch {
+    return null;
+  }
+  const match = parsed.pathname.match(/^(.*)\/invite\/([^/]+)\/?$/);
+  if (!match) return null;
+  let url: string;
+  try {
+    url = normalizeServerUrl(`${parsed.protocol}//${parsed.host}${match[1]}`);
+  } catch {
+    return null;
+  }
+  const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ""));
+  const pin = pinIn(parsed.hash);
+  if (pin) checkPinnable(url);
+  return { url, code: decodeURIComponent(match[2]!), communityKey: fragment.get("k"), pin };
+}
+
+/** A server's address, from what someone entered: the address itself, maybe with a pin, or any of its invite links. */
+export function parseServerAddress(input: string): { url: string; pin: string | null } {
+  const invite = parseInviteLink(input);
+  if (invite) return { url: invite.url, pin: invite.pin };
+  const text = linkIn(input);
+  if (!text) throw new Error("That doesn't look like a server's address.");
+  const url = normalizeServerUrl(text);
+  const pin = pinIn(new URL(text).hash);
+  if (pin) checkPinnable(url);
+  return { url, pin };
+}
+
+/** What a zuna:// deep link carries, or what was entered, with https:// if it has no scheme. */
+function linkIn(input: string): string | null {
   let text = input.trim();
   if (text.startsWith("zuna://")) {
     try {
@@ -86,33 +125,28 @@ export function parseInviteLink(input: string): ParsedInvite | null {
     }
   }
   if (!/^https?:\/\//i.test(text)) text = `https://${text}`;
-  try {
-    const parsed = new URL(text);
-    const match = parsed.pathname.match(/^(.*)\/invite\/([^/]+)\/?$/);
-    if (!match) return null;
-    const url = normalizeServerUrl(`${parsed.protocol}//${parsed.host}${match[1]}`);
-    const fragment = new URLSearchParams(parsed.hash.replace(/^#/, ""));
-    return { url, code: decodeURIComponent(match[2]!), communityKey: fragment.get("k") };
-  } catch {
-    return null;
-  }
+  return text;
 }
 
-export async function previewInvite(link: string): Promise<InvitePreview> {
+/** What a link leads to. `pin` has the host trust a server's own certificate before anything reaches it. */
+export async function previewInvite(link: string, pin: (url: string, pin: string) => Promise<void>): Promise<InvitePreview> {
   const parsed = parseInviteLink(link);
-  if (!parsed) return previewOpenServer(link);
+  if (!parsed) return previewOpenServer(link, pin);
+  if (parsed.pin) await pin(parsed.url, parsed.pin);
   const details = await new Api(parsed.url).inviteInfo(parsed.code);
   return { ...parsed, setup: details.setup, server: details.server };
 }
 
 /** A plain server address works too, if that server has open sign-ups. */
-async function previewOpenServer(address: string): Promise<InvitePreview> {
+async function previewOpenServer(address: string, trust: (url: string, pin: string) => Promise<void>): Promise<InvitePreview> {
   let url: string;
+  let pin: string | null;
   try {
-    url = normalizeServerUrl(address);
+    ({ url, pin } = parseServerAddress(address));
   } catch {
     throw new Error("That doesn't look like a Zuna invite link.");
   }
+  if (pin) await trust(url, pin);
   let server;
   try {
     server = await new Api(url).info();
@@ -122,11 +156,11 @@ async function previewOpenServer(address: string): Promise<InvitePreview> {
   if (server.registration !== "open") {
     throw new Error(`${server.name} only accepts invite links. Ask a member for one.`);
   }
-  return { url, code: "", communityKey: server.community_key ?? null, setup: false, server };
+  return { url, code: "", communityKey: server.community_key ?? null, pin, setup: false, server };
 }
 
-export const inviteLink = (serverUrl: string, code: string, communityKey: Uint8Array): string =>
-  `${serverUrl}/invite/${encodeURIComponent(code)}#k=${toBase64Url(communityKey)}`;
+export const inviteLink = (serverUrl: string, code: string, communityKey: Uint8Array, pin: string | undefined): string =>
+  `${serverUrl}/invite/${encodeURIComponent(code)}#k=${toBase64Url(communityKey)}${pin ? `&pin=${pin}` : ""}`;
 
 /** Makes this device, and shows it came from someone who could open a slot. */
 async function createDevice(api: Api, core: VaultCore, userId: string, slotSign: Uint8Array) {

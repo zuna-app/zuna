@@ -80,6 +80,10 @@ Display names, avatars, channel names and the soundboard's sounds are encrypted 
 
 If an admin turns on open sign-ups, there's no invite link to carry the key, so the app gives it to the server, and Settings says so. The server can then read profiles and channel names, and put accounts of its own in channels, which anyone who signs up can join anyway. Direct messages and groups are unaffected. Old invite links carry the key too: whoever has one can read those with a copy of the server's data, and can sign up while the invite still works.
 
+### A server without a domain
+
+A server can go by its IP address instead of a domain. No certificate authority vouches for an address, so the server makes its own certificate, and its links carry a fingerprint of its key after the `#`, where the community key goes. The desktop app trusts that key for that address and nothing else, so nobody in between can pose as the server. A link can't change the key for a server you're on, and only an address can have one, never a name. A browser can't check a certificate this way, so the web app can't reach such a server.
+
 ### Channels
 
 Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What's said in them is encrypted as in any group. A newcomer gets a channel's history from a member's device, and a member with bad intentions could give them a wrong key for old messages, which then wouldn't open. Nothing sent from then on is at risk.
@@ -144,6 +148,7 @@ These need the server against you: its operator, someone who broke into it, or s
 - **New keys only help once a stolen secret is changed.** Until you change a stolen password or recovery key, whoever has it can open your new keys too. What they already read, they keep.
 - **A member can hold up a group for a while.** The server can't check a change to a group's keys, so a member can send one nobody can apply. The apps undo it on their own, and make whoever sent it wait longer each time, but the same undoing lets a member make others wait. An admin can remove someone doing either, and a plain member can't undo an admin's change.
 - **A server's limits on a shared screen's size, frame rate and bitrate are kept by the apps.** The picture is encrypted, so nobody can check it, and a modified app could send more. Who may share, with sound, and how many at once are enforced, though a modified app could reuse an earlier share's permission for the few minutes it lasts.
+- **A server without a domain is only as trusted as the first link to it.** The app trusts the key that link names. Someone who sends you a link to that address with a key of their own, and can get between you and it, could pose as the server, seeing what the server sees, though nothing it can't read. Once you're on the server, a link can't change its key.
 - **iOS learns who you write to on an iPhone or iPad.** As in Messages and Telegram, the app tells iOS which chats you send to and which messages its notifications are about, with names and pictures, so the share sheet can suggest them. What you write stays out, but a notification's text goes in as the notification shows it. Setting notifications to show nothing stops both.
 - **Deleting is best effort.** "Delete for everyone" removes the message from the server and from members' apps, but a modified app or a screenshot can keep it. So it is with disappearing messages, and with a notification already shown, except on Windows, where the app takes back its own notifications and keeps message text out of the system's history.
 

@@ -127,6 +127,8 @@ public struct InvitePreview: Codable, Sendable, Hashable {
     public var url: String
     public var code: String
     public var communityKey: String?
+    /// The pin of a server that makes its own certificate, from the link.
+    public var pin: String?
     public var setup: Bool
     public var server: ServerInfo
 }
@@ -695,6 +697,8 @@ public struct MediaCounts: Codable, Sendable, Equatable {
 public struct ServerEntry: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var url: String
+    /// What to enter to sign in on another device: the url, with the pin of a server that makes its own certificate.
+    public var address: String
     public var name: String
     public var hasIcon: Bool
     public var username: String

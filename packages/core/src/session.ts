@@ -6788,11 +6788,11 @@ export class ServerSession {
 
   async createInvite(maxUses: number, expiresInSeconds: number): Promise<string> {
     const { code } = await this.api.createInvite(maxUses, expiresInSeconds);
-    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey);
+    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey, this.account.pin);
   }
 
   linkForInvite(code: string): string {
-    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey);
+    return inviteLink(this.account.serverUrl, code, this.account.core.communityKey, this.account.pin);
   }
 
   revokeInvite(code: string): Promise<unknown> {

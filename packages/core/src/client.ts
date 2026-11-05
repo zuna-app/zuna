@@ -3,12 +3,13 @@
 import * as wasm from "@zuna/crypto";
 import {
   login,
+  parseServerAddress,
   previewInvite,
   recover,
   register,
   type AccountState,
 } from "./account";
-import { normalizeServerUrl, Api, ApiError } from "./api";
+import { serverAddress, Api, ApiError } from "./api";
 import { coreFromJson, coreToJson, randomId } from "./crypto";
 import type { RotationPlan } from "./generations";
 import { equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
@@ -57,6 +58,8 @@ export function decodeAccount(json: string): AccountState {
   };
 }
 
+const withPin = (account: AccountState, pin: string | null): AccountState => (pin ? { ...account, pin } : account);
+
 export interface ZunaClientOptions {
   db: DbProvider;
   /** Protected by the operating system's keychain in the desktop app. */
@@ -71,6 +74,13 @@ export interface ZunaClientOptions {
   channels?: boolean;
   /** The app has calls in direct messages and groups. One that doesn't hears nothing of them. */
   calls?: boolean;
+  /**
+   * Trusts the certificate of a server that makes its own by the pin from its
+   * links, and no other certificate for that server, until the app closes. It's
+   * done before anything reaches the server. A host that can't check a
+   * certificate itself, as a browser can't, leaves it out, and can't reach one.
+   */
+  pinServer?: (url: string, pin: string) => Promise<void>;
 }
 
 const PREVIEWS_KEPT = 50;
@@ -157,7 +167,9 @@ export class ZunaClient {
         continue;
       }
       const json = fromUtf8(wasm.aeadOpen(this.serverKey(row.id), row.account, label("account")));
-      const session = await this.createSession(row.id, decodeAccount(json));
+      const account = decodeAccount(json);
+      if (account.pin) await this.pin(account.serverUrl, account.pin);
+      const session = await this.createSession(row.id, account);
       session.start();
     }
   }
@@ -257,28 +269,55 @@ export class ZunaClient {
 
   // --- Joining ---
 
-  previewInvite(link: string): Promise<InvitePreview> {
-    return previewInvite(link);
+  /**
+   * Has the host trust a server's own certificate, by its pin. A link can't change
+   * the pin of a server this device is on: anybody could send one, and its key
+   * would be trusted for that server as soon as it was pasted.
+   */
+  private async pin(url: string, pin: string): Promise<void> {
+    if (!this.options.pinServer) {
+      throw new Error("This server makes its own certificate, which a browser can't check. Use the Zuna app on a computer or phone to reach it.");
+    }
+    const known = this.listServers().find((server) => server.url === url);
+    if (known && known.address !== serverAddress(url, pin)) {
+      throw new Error(`This link names another certificate than the one this device trusts for ${known.name}. Ask for a new link, or sign out of the server first.`);
+    }
+    await this.options.pinServer(url, pin);
   }
 
-  async serverInfo(url: string): Promise<ServerInfo> {
-    return new Api(normalizeServerUrl(url)).info();
+  /** A server's address from what someone entered, which can be reached once this returns. */
+  private async reach(address: string): Promise<{ url: string; pin: string | null }> {
+    const reached = parseServerAddress(address);
+    if (reached.pin) await this.pin(reached.url, reached.pin);
+    return reached;
+  }
+
+  previewInvite(link: string): Promise<InvitePreview> {
+    return previewInvite(link, (url, pin) => this.pin(url, pin));
+  }
+
+  async serverInfo(address: string): Promise<ServerInfo> {
+    return new Api((await this.reach(address)).url).info();
   }
 
   async register(invite: InvitePreview, username: string, password: string, profile: Profile): Promise<{ serverId: string; recoveryKey: string }> {
+    if (invite.pin) await this.pin(invite.url, invite.pin);
     const result = await register({ invite, serverUrl: invite.url, username, password, profile });
-    const serverId = await this.addAccount(result.account, true);
+    const serverId = await this.addAccount(withPin(result.account, invite.pin), true);
     return { serverId, recoveryKey: result.recoveryKey };
   }
 
-  async login(url: string, username: string, password: string): Promise<string> {
+  /** `address` is the server's, with its pin if it makes its own certificate, or any link to it. */
+  async login(address: string, username: string, password: string): Promise<string> {
+    const { url, pin } = await this.reach(address);
     const { account, plan } = await login(url, username, password);
-    return this.addAccount(account, true, plan);
+    return this.addAccount(withPin(account, pin), true, plan);
   }
 
-  async recover(url: string, username: string, recoveryKey: string, newPassword: string): Promise<string> {
+  async recover(address: string, username: string, recoveryKey: string, newPassword: string): Promise<string> {
+    const { url, pin } = await this.reach(address);
     const { account, plan } = await recover(url, username, recoveryKey, newPassword);
-    return this.addAccount(account, true, plan);
+    return this.addAccount(withPin(account, pin), true, plan);
   }
 
   // --- Servers ---
@@ -292,6 +331,7 @@ export class ZunaClient {
       return {
         id: row.id,
         url: account.serverUrl,
+        address: serverAddress(account.serverUrl, account.pin),
         name: row.name,
         hasIcon: row.has_icon !== 0,
         username: account.username,

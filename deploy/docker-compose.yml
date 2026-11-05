@@ -4,6 +4,9 @@
 # Your domain must point at this machine, with ports 80 and 443 reachable, and
 # 7881/tcp and 7882/udp for voice channels' media.
 # Certificates are obtained and renewed automatically.
+#
+# Without a domain, set ZUNA_DOMAIN to this machine's IP address. The server then
+# makes its own certificate, which its links pin (docs/SELF_HOSTING.md#without-a-domain).
 
 services:
   zuna:
@@ -24,7 +27,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      ZUNA_DOMAIN: ${ZUNA_DOMAIN:?Set ZUNA_DOMAIN to your domain name}
+      ZUNA_DOMAIN: ${ZUNA_DOMAIN:?Set ZUNA_DOMAIN to your domain name, or this machine's IP address}
       # The push relays that may wake members' phones (docs/SELF_HOSTING.md#phone-notifications).
       ZUNA_PUSH_RELAYS: ${ZUNA_PUSH_RELAYS:-}
       # Voice channels, through LiveKit below, with the key the two share, which Zuna

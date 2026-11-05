@@ -27,6 +27,8 @@ export interface DesktopBridge {
   /** Whether the system shows times with AM and PM. */
   hour12: boolean;
   deviceKey(): Promise<DeviceInfo>;
+  /** Trusts the certificate a server reached by its IP address makes itself, by the pin from its links. */
+  pinServer(url: string, pin: string): Promise<void>;
   platform(): Promise<string>;
   /** Whether the operating system lets Zuna record, asking the person the first time. */
   microphone(): Promise<boolean>;
@@ -94,7 +96,7 @@ export function desktopPlatform(): Platform {
     hour12: desktop.hour12,
     titleBar: true,
     os: () => desktop.platform(),
-    bootCore: async (onEvent) => connectWorker(startWorker(), await desktop.deviceKey(), onEvent),
+    bootCore: async (onEvent) => connectWorker(startWorker(), await desktop.deviceKey(), onEvent, (url, pin) => desktop.pinServer(url, pin)),
     openExternal: (url) => void desktop.openExternal(url),
     setUnreadCount(count) {
       unread = count;

@@ -1,14 +1,18 @@
 // Test harness: a real Go server plus real clients, in-memory local databases.
 
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, get as httpGet } from "node:http";
+import { get as httpsGet } from "node:https";
 import type { AddressInfo } from "node:net";
+import type { TLSSocket } from "node:tls";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32, deflateSync } from "node:zlib";
+import { Agent, buildConnector, setGlobalDispatcher } from "undici";
 import { initCryptoSync, randomBytes } from "@zuna/crypto";
 import { ZunaClient } from "../src/client";
 import type { DbProvider, LocalDb, SqlValue } from "../src/db";
@@ -138,6 +142,17 @@ function buildServer(): string {
   return out;
 }
 
+/** Answers at all, whatever its certificate, which is for the apps to check. */
+function healthy(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const get = url.startsWith("https:") ? httpsGet : httpGet;
+    get(`${url}/healthz`, { rejectUnauthorized: false }, (response) => {
+      response.resume();
+      resolve(response.statusCode === 200);
+    }).on("error", () => resolve(false));
+  });
+}
+
 export class TestServer {
   url = "";
   setupLink = "";
@@ -147,15 +162,17 @@ export class TestServer {
   /**
    * `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use.
    * `sqlite` keeps its database in SQLite even with ZUNA_TEST_POSTGRES, for tests that open it as a stolen backup or a malicious server would.
+   * `ownCertificate` has it reached by its IP address, with a certificate it makes itself, which its links pin.
    */
-  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean } = {}) {}
+  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean } = {}) {}
 
   async start(): Promise<void> {
     const binary = buildServer();
     this.dir = mkdtempSync(join(tmpdir(), "zuna-test-"));
     const port = 20000 + Math.floor(Math.random() * 20000);
-    this.url = `http://127.0.0.1:${port}`;
+    this.url = `${this.options.ownCertificate ? "https" : "http"}://127.0.0.1:${port}`;
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
+    if (this.options.ownCertificate) args.push("--domain", "127.0.0.1");
     // Never the project's real relay, which is the default.
     args.push("--push-relays", this.options.pushRelays?.join(",") || "off");
     // With ZUNA_TEST_POSTGRES, in a schema of its own in that PostgreSQL database, which the server makes.
@@ -173,11 +190,10 @@ export class TestServer {
     this.process.stderr!.on("data", (chunk) => (output += chunk));
     const deadline = Date.now() + 15_000;
     while (Date.now() < deadline) {
-      const match = output.match(/http:\/\/\S+\/invite\/\S+/);
+      const match = output.match(/https?:\/\/\S+\/invite\/\S+/);
       if (match) {
         this.setupLink = match[0];
-        const ready = await fetch(`${this.url}/healthz`).then((r) => r.ok).catch(() => false);
-        if (ready) return;
+        if (await healthy(this.url)) return;
       }
       await sleep(50);
     }
@@ -197,6 +213,38 @@ export class TestServer {
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The pin of each server that makes its own certificate, by host and port. The last one given counts. */
+const pins = new Map<string, string>();
+
+/**
+ * What the apps' hosts do with a server's pin, for Node's fetch and WebSocket: a
+ * server with one is trusted by its key matching the pin, and by nothing else.
+ */
+function pinInNode(url: string, pin: string): void {
+  const { hostname, port } = new URL(url);
+  if (pins.size === 0) {
+    const usual = buildConnector({});
+    // A resumed session shows no certificate to check, so each connection starts afresh.
+    const own = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });
+    setGlobalDispatcher(
+      new Agent({
+        connect(options, callback) {
+          const wanted = pins.get(`${options.hostname}:${options.port || 443}`);
+          if (!wanted || options.protocol !== "https:") return usual(options, callback);
+          own(options, (error, socket) => {
+            if (error || !socket) return callback(error ?? new Error("No connection."), null);
+            const key = (socket as TLSSocket).getPeerX509Certificate()?.publicKey.export({ type: "spki", format: "der" });
+            if (key && createHash("sha256").update(key).digest("base64url") === wanted) return callback(null, socket);
+            socket.destroy();
+            callback(new Error("The server's certificate doesn't match its pin."), null);
+          });
+        },
+      }),
+    );
+  }
+  pins.set(`${hostname}:${port || 443}`, pin);
+}
+
 /** One app install, with its own device key and local databases. */
 export class TestApp {
   readonly db: MemoryDbProvider;
@@ -210,6 +258,10 @@ export class TestApp {
   channels = true;
   /** Whether this app has calls in direct messages and groups. */
   calls = true;
+  /** Whether this app can trust a server's own certificate by its pin, as a browser can't. */
+  pinning = true;
+  /** Each server it was asked to trust, and by which pin. */
+  readonly pinned: [url: string, pin: string][] = [];
 
   /** Given a folder, the app keeps its data there and can be reopened by a later process. */
   constructor(
@@ -229,6 +281,12 @@ export class TestApp {
       web: this.web,
       channels: this.channels,
       calls: this.calls,
+      pinServer: this.pinning
+        ? async (url, pin) => {
+            this.pinned.push([url, pin]);
+            pinInNode(url, pin);
+          }
+        : undefined,
     });
     await this.client.open();
     const first = this.client.listServers()[0];

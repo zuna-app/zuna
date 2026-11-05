@@ -1,12 +1,13 @@
 // The desktop shell. It stays deliberately small: the window, OS integration and
 // the device key. All chat logic and cryptography run in the sandboxed renderer.
 
-import { randomBytes } from "node:crypto";
+import { X509Certificate, createHash, randomBytes } from "node:crypto";
 import { keyWatchSupport, startKeyWatch } from "./global-key";
 import { PORTAL_SCREEN, PORTAL_WINDOW, portalSources, startNativeScreen, type NativeScreenOptions } from "./native-screen";
 import { listSoundApps, nativeSoundAvailable, onX11, startNativeSound, windowSoundApp, type NativeSound } from "./native-sound";
 import { notificationState, startNotifications, type Notifications } from "./notifications";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { isIP } from "node:net";
 import { join, normalize, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -71,6 +72,12 @@ let nextDisplay: { id: string; audio: boolean } | null = null;
 let nativeScreen: ReturnType<typeof startNativeScreen> | null = null;
 let nativeSound: NativeSound | null = null;
 let stopKeyWatch: (() => void) | null = null;
+/**
+ * Servers reached by their IP address, which make their own certificate: the pins
+ * from their links, by address. Such a server is trusted by its key matching one,
+ * and by nothing else. Every other certificate is Chromium's to judge.
+ */
+const pinnedServers = new Map<string, Set<string>>();
 
 // A secure, standard scheme gives the renderer a real origin, which storage
 // (OPFS) requires and which file:// doesn't provide.
@@ -250,6 +257,31 @@ function serveWeb(): void {
     } catch {
       return new Response("Not available", { status: 502 });
     }
+  });
+}
+
+/** The SHA-256 of a certificate's SubjectPublicKeyInfo, in base64url, as a server's links carry it. */
+function keyPin(certificate: Electron.Certificate): string {
+  try {
+    const key = new X509Certificate(certificate.data).publicKey.export({ type: "spki", format: "der" });
+    return createHash("sha256").update(key).digest("base64url");
+  } catch {
+    return "";
+  }
+}
+
+/** An address as a host name, with an IPv6 one out of its brackets. */
+const bareHost = (host: string) => host.replace(/^\[(.*)\]$/, "$1");
+
+/**
+ * Checks the certificates of servers with a pin. The network service remembers what
+ * this decides for each certificate, so such a server makes one for each connection,
+ * and one refused before its pin was known isn't refused again.
+ */
+function checkPinnedServers(): void {
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    const pins = pinnedServers.get(bareHost(request.hostname));
+    callback(!pins ? -3 : pins.has(keyPin(request.certificate)) ? 0 : -2);
   });
 }
 
@@ -463,6 +495,16 @@ function registerIpc(): void {
     deviceKeyHandedOut = true;
     const { key, protected: isProtected } = loadDeviceKey();
     return { key: new Uint8Array(key), protected: isProtected, deviceName: `${deviceLabel()}`, localLinks: isDev };
+  });
+  // Only an address can have a pin, as only a server reached by its IP address makes its own
+  // certificate (`checkPinnable` in the core), so no page can have a name's certificate replaced.
+  handle("zuna:pin-server", (_event, url: unknown, pin: unknown) => {
+    const target = typeof url === "string" ? URL.parse(url) : null;
+    const host = target ? bareHost(target.hostname) : "";
+    if (target?.protocol !== "https:" || !isIP(host) || typeof pin !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(pin)) {
+      throw new Error("That isn't a server's pin.");
+    }
+    pinnedServers.set(host, (pinnedServers.get(host) ?? new Set()).add(pin));
   });
   handle("zuna:platform", () => process.platform);
   // macOS asks the person once before an app may record. Chromium's fake microphone, in tests, needs no asking.
@@ -716,6 +758,7 @@ if (!app.requestSingleInstanceLock()) {
     );
     serveRenderer();
     serveWeb();
+    checkPinnedServers();
     registerIpc();
     const initial = findDeepLink(process.argv);
     if (initial) pendingDeepLink = initial;

@@ -54,6 +54,8 @@ export interface InvitePreview {
   url: string;
   code: string;
   communityKey: string | null;
+  /** The pin of a server that makes its own certificate, from the link. */
+  pin: string | null;
   setup: boolean;
   server: ServerInfo;
 }
@@ -503,6 +505,8 @@ export type MediaCounts = Record<MediaKind, number>;
 export interface ServerEntry {
   id: string;
   url: string;
+  /** What to enter to sign in on another device: the url, with the pin of a server that makes its own certificate. */
+  address: string;
   name: string;
   hasIcon: boolean;
   username: string;
