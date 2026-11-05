@@ -181,7 +181,11 @@ export class TestServer {
       database.searchParams.set("search_path", `zuna_test_${crypto.randomUUID().replaceAll("-", "")}`);
       args.push("--database-url", database.toString());
     }
-    if (this.options.liveKit) args.push("--livekit-url", this.options.liveKit, "--livekit-key", "key", "--livekit-secret", "a-long-enough-secret-for-signing-tokens");
+    if (this.options.liveKit) {
+      // With its own certificate, apps reach LiveKit through the server's address, which its pin covers.
+      const reached = this.options.ownCertificate ? ["--livekit-internal-url", this.options.liveKit.replace(/^ws/, "http")] : ["--livekit-url", this.options.liveKit];
+      args.push(...reached, "--livekit-key", "key", "--livekit-secret", "a-long-enough-secret-for-signing-tokens");
+    }
     this.process = spawn(binary, args, {
       stdio: ["ignore", "pipe", "pipe"],
     });

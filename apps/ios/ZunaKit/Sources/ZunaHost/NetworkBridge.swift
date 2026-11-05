@@ -18,7 +18,8 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         let delegateQueue = OperationQueue()
         delegateQueue.underlyingQueue = queue
         delegateQueue.maxConcurrentOperationCount = 1
-        return URLSession(configuration: configuration, delegate: nil, delegateQueue: delegateQueue)
+        // A server that makes its own certificate is trusted by its pin, and nothing else.
+        return URLSession(configuration: configuration, delegate: PinnedServers.shared, delegateQueue: delegateQueue)
     }()
     private var requests: [Int: URLSessionDataTask] = [:]
     private var sockets: [Int: NWConnection] = [:]
@@ -72,6 +73,11 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
             closeSocket(id: Int(id), code: UInt16(code))
         }
         object.setObject(wsClose, forKeyedSubscript: "wsClose" as NSString)
+
+        let pinServer: @convention(block) (String, String) -> Bool = { url, pin in
+            PinnedServers.shared.add(url: url, pin: pin)
+        }
+        object.setObject(pinServer, forKeyedSubscript: "pinServer" as NSString)
     }
 
     // MARK: HTTP
@@ -130,7 +136,9 @@ final class NetworkBridge: NSObject, @unchecked Sendable {
         options.maximumMessageSize = 16 << 20
         let tcp = NWProtocolTCP.Options()
         tcp.connectionTimeout = 15
-        let parameters = target.scheme == "wss" ? NWParameters(tls: .init(), tcp: tcp) : NWParameters(tls: nil, tcp: tcp)
+        let parameters = target.scheme == "wss"
+            ? NWParameters(tls: PinnedServers.shared.tls(host: target.host ?? "", queue: queue), tcp: tcp)
+            : NWParameters(tls: nil, tcp: tcp)
         parameters.defaultProtocolStack.applicationProtocols.insert(options, at: 0)
         let connection = NWConnection(to: .url(target), using: parameters)
         sockets[id] = connection

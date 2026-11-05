@@ -444,7 +444,7 @@ struct SignInStep: View {
     var body: some View {
         StepScreen {
             StepHeader("Sign in", message: Text("Your history will load on this device after you sign in."), systemImage: "person.crop.circle")
-            FormField(label: "Server address") {
+            FormField(label: "Server address", hint: "Or paste any link to the server.") {
                 TextField("chat.example.com", text: $url)
                     .textContentType(.URL)
                     .keyboardType(.URL)

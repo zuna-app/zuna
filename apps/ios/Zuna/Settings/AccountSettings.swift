@@ -236,7 +236,7 @@ struct SecurityView: View {
             } footer: {
                 Text("Compare it with friends to prove nobody is in between.")
             }
-            Section("Your devices on this server") {
+            Section {
                 ForEach(devices) { device in
                     HStack(spacing: 12) {
                         Image(systemName: device.name.lowercased().contains("iphone") || device.name.lowercased().contains("ipad") ? "iphone" : "laptopcomputer")
@@ -260,6 +260,14 @@ struct SecurityView: View {
                     }
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(A11y.Settings.device(device.id))
+                }
+            } header: {
+                Text("Your devices on this server")
+            } footer: {
+                // A server that makes its own certificate needs its pin too, which only its links carry.
+                if let address = model.servers[serverId]?.entry.address {
+                    Text("To add one, sign in there to \(Text(address).font(.system(.footnote, design: .monospaced)))")
+                        .textSelection(.enabled)
                 }
             }
             Section {

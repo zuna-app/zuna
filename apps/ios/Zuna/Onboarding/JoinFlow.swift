@@ -55,6 +55,13 @@ struct JoinFlow: View {
         }
         .interactiveDismissDisabled(path.contains { $0.isAfterSignUp } || model.accountFlowActive)
         .onAppear {
+            // Signing in again starts at signing in, to the server's address, pin and all, as on the desktop.
+            if embedded, let address = model.signInAgain {
+                model.signInAgain = nil
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) { path = [.signIn(url: address)] }
+            }
             // Opened by a link, the first run goes straight to the screen that reads it.
             if model.pendingLink != nil, !embedded, path.isEmpty {
                 var transaction = Transaction()

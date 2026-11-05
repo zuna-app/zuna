@@ -149,6 +149,8 @@ final class AppModel {
     var accountFlowActive = false
     /// The join screens over the app, for another server.
     var joining = false
+    /// The address signing in again starts from, for a server that ended this device's session.
+    var signInAgain: String?
     /// An invite link opened from outside the app, for the join screens to pick up.
     var pendingLink: String?
     /// The screens opened from the conversation list: chats and their details.

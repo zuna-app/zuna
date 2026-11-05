@@ -12,6 +12,10 @@
 // the system's picker for a screen. The desktop's are Chromium's fake devices,
 // with speech from `say` for its gate to let through, and its shared screen is
 // drawn on a canvas, since macOS's own picker can't be driven.
+//
+// With ZUNA_VOICE_OWN_CERTIFICATE=1, the server goes by its address with a
+// certificate of its own, which both apps trust by the pin in its links, and
+// they reach LiveKit through it, as a server without a domain has them.
 
 import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -67,7 +71,7 @@ const phoneLog = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--st
 phoneLog.stdout.pipe(createWriteStream(join(shots, "phone.log")));
 
 loadCrypto();
-const server = new TestServer({ liveKit: `ws://127.0.0.1:${liveKitPort}` });
+const server = new TestServer({ liveKit: `ws://127.0.0.1:${liveKitPort}`, ownCertificate: process.env.ZUNA_VOICE_OWN_CERTIFICATE === "1" });
 await server.start();
 
 let desktop: { app: ElectronApplication; page: Page } | null = null;

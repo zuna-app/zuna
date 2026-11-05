@@ -19,8 +19,11 @@ struct SignedOutView: View {
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)
             if reason != "banned" {
-                Button("Sign in again") { model.joining = true }
-                    .buttonStyle(.borderedProminent)
+                Button("Sign in again") {
+                    model.signInAgain = server.entry.address
+                    model.joining = true
+                }
+                .buttonStyle(.borderedProminent)
             }
             Button("Remove from this device", role: .destructive) {
                 Task { await model.signOut(server.entry.id) }

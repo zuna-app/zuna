@@ -44,7 +44,7 @@ struct ServerSettingsView: View {
                     }
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || name == server.entry.name)
                     .accessibilityIdentifier(A11y.Settings.save)
-                    LabeledContent("Address") { Text(server.entry.url).font(.system(.footnote, design: .monospaced)).textSelection(.enabled) }
+                    LabeledContent("Address") { Text(server.entry.address).font(.system(.footnote, design: .monospaced)).textSelection(.enabled) }
                     LabeledContent("Version") { Text(server.info?.version ?? "").font(.system(.footnote, design: .monospaced)) }
                 } header: {
                     Text("Server")

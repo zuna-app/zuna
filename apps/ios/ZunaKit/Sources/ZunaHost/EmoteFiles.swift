@@ -25,10 +25,10 @@ public final class EmoteFiles: Sendable {
         configuration.httpShouldSetCookies = false
         configuration.urlCache = nil
         self.directory = directory
-        session = URLSession(configuration: configuration)
+        session = URLSession(configuration: configuration, delegate: PinnedServers.shared, delegateQueue: nil)
         let saving = configuration.copy() as! URLSessionConfiguration
         saving.allowsConstrainedNetworkAccess = false
-        ahead = URLSession(configuration: saving)
+        ahead = URLSession(configuration: saving, delegate: PinnedServers.shared, delegateQueue: nil)
     }
 
     var aheadConfiguration: URLSessionConfiguration { ahead.configuration }

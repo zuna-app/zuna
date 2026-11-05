@@ -155,6 +155,10 @@ final class VoiceRoom {
     /// then goes unused. Either way the connection never comes up and times out, and another try connects.
     /// Reported as livekit/client-sdk-swift#1196: this can go once that's fixed.
     private func connectRoom(url: String, token: String) async throws {
+        // Before LiveKit's socket first connects, so it checks a server's own certificate by its pin.
+        // Outside `assert`, which a release build doesn't evaluate.
+        let pinsChecked = LiveKitPins.installed
+        assert(pinsChecked, "LiveKit's socket can't check pins: see LiveKitPins.swift")
         for attempt in 1...3 {
             do {
                 try await room.connect(url: url, token: token, connectOptions: ConnectOptions(autoSubscribe: true))

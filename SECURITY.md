@@ -82,7 +82,7 @@ If an admin turns on open sign-ups, there's no invite link to carry the key, so 
 
 ### A server without a domain
 
-A server can go by its IP address instead of a domain. No certificate authority vouches for an address, so the server makes its own certificate, and its links carry a fingerprint of its key after the `#`, where the community key goes. The desktop app trusts that key for that address and nothing else, so nobody in between can pose as the server. A link can't change the key for a server you're on, and only an address can have one, never a name. A browser can't check a certificate this way, so the web app can't reach such a server.
+A server can go by its IP address instead of a domain. No certificate authority vouches for an address, so the server makes its own certificate, and its links carry a fingerprint of its key after the `#`, where the community key goes. The desktop and iPhone apps trust that key for that address and nothing else, so nobody in between can pose as the server. A link can't change the key for a server you're on, and only an address can have one, never a name. A browser can't check a certificate this way, so the web app can't reach such a server.
 
 ### Channels
 

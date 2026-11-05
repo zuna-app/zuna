@@ -2,6 +2,7 @@
 import AVFoundation
 import SwiftUI
 import UIKit
+import ZunaHost
 import ZunaModels
 
 /// Decrypted avatars and server icons, kept in memory while the app runs.
@@ -91,7 +92,7 @@ final class ImageStore {
     func serverIcon(url serverUrl: String, size: CGFloat) async -> UIImage? {
         await load("icon:\(serverUrl)", size: size) {
             guard let url = URL(string: "\(serverUrl)/api/icon") else { return nil }
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await PinnedServers.shared.session.data(from: url)
             return (response as? HTTPURLResponse)?.statusCode == 200 ? data : nil
         }
     }

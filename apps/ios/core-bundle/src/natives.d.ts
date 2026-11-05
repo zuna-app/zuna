@@ -20,6 +20,8 @@ declare const __zunaHost: {
   wsOpen(id: number, url: string): void;
   wsSend(id: number, text: string): void;
   wsClose(id: number, code: number): void;
+  /** Trusts a server's own certificate by its pin, and no other for that address. False if it can't have one. */
+  pinServer(url: string, pin: string): boolean;
   fileSize(path: string): number;
   fileRead(path: string, start: number, end: number): Uint8Array;
   /** Writes the parts to a new file in the protected cache and returns its path. */

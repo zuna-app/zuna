@@ -138,7 +138,7 @@ No certificate authority vouches for an address, so the server makes its own cer
 - **Share links whole,** with everything after the `#`. To sign in on another device, enter the address the server prints at the start, which ends in `#pin=`, or paste any of its links. Members find that address in **Settings → Security**, under their devices.
 - **Keep `certificate.key`** from the data folder with your backups. A new key means new links, and everyone signing out of the server and in again.
 - **Keep the address the same.** It's how the apps find the server.
-- **Only the desktop app can reach it for now.** The iPhone and iPad app can't yet, and the web app never will, as a browser can't check a certificate by its key.
+- **The web app can't reach it,** as a browser can't check a certificate by its key. The desktop app and the iPhone and iPad app can.
 
 ## Configuration
 

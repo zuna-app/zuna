@@ -113,6 +113,9 @@ g.__zunaBoot = (deviceKey: Uint8Array, deviceName: string, done: (error: string 
     onEvent: emit,
     channels: true,
     calls: true,
+    pinServer: async (url, pin) => {
+      if (!__zunaHost.pinServer(url, pin)) throw new Error("That isn't a server's pin.");
+    },
   });
   // Only test builds' previews may reach this device, for their test pages.
   allowLocalLinks(!!__zunaHost.testHooks);
