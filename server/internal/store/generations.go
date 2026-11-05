@@ -73,13 +73,9 @@ type Rotation struct {
 	Carried      map[string][]byte
 	Removed      []string
 	IdentityHead []byte
-	HpkeKey      []byte
-	HpkeKeySig   []byte
 	VaultCore    []byte
 	ProfileSig   []byte
 	Slots        []Slot
-	DropWrappers []string
-	Bridge       []byte
 	Bundles      []Bundle
 	Items        []VaultItem
 	Password     *PasswordChange
@@ -93,7 +89,6 @@ type AccountState struct {
 	Bundle         *Bundle  `json:"bundle"`
 	OlderItems     int64    `json:"older_items"`
 	MissingBundles []string `json:"missing_bundles"`
-	ProtocolSince  int64    `json:"protocol_since"`
 }
 
 func (d *DB) insertSlots(ctx context.Context, tx *sql.Tx, userID string, slots []Slot) error {
@@ -121,39 +116,6 @@ func (d *DB) SlotOf(ctx context.Context, userID, kind string) (*Slot, error) {
 		return nil, err
 	}
 	return &slot, nil
-}
-
-// HasSlots says whether an account has any slot yet.
-func (d *DB) HasSlots(ctx context.Context, userID string) (bool, error) {
-	var n int
-	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM account_slots WHERE user_id = ?`, userID).Scan(&n)
-	return n > 0, err
-}
-
-// AddFirstSlot records a slot on an account that has never rotated, with the core
-// that names it. A slot once made changes only through a rotation.
-func (d *DB) AddFirstSlot(ctx context.Context, userID string, slot Slot, core []byte) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
-		var generation int64
-		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, userID).Scan(&generation); err != nil {
-			return err
-		}
-		if generation != 0 {
-			return &GenerationConflictError{Current: generation}
-		}
-		var existing int
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM account_slots WHERE user_id = ? AND kind = ?`, userID, slot.Kind).Scan(&existing); err != nil {
-			return err
-		}
-		if existing > 0 {
-			return ErrConflict
-		}
-		if err := d.insertSlots(ctx, tx, userID, []Slot{slot}); err != nil {
-			return err
-		}
-		_, err := tx.ExecContext(ctx, `UPDATE users SET vault_core = ? WHERE id = ?`, core, userID)
-		return err
-	})
 }
 
 // Head is an account's generation, its current identity key and its newest link,
@@ -253,23 +215,14 @@ func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
 			rotation.UserID, rotation.Link.Generation, rotation.Link.Payload, rotation.Link.ByPrev, rotation.Link.ByNew, rotation.Link.ByDevice, now); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE users SET key_generation = ?, identity_head = ?, hpke_key = ?, hpke_key_sig = ?,
-			vault_core = ?, profile_sig = ?, bridge = ?, updated_at = ? WHERE id = ?`,
-			rotation.Link.Generation, rotation.IdentityHead, rotation.HpkeKey, rotation.HpkeKeySig,
-			rotation.VaultCore, rotation.ProfileSig, rotation.Bridge, now, rotation.UserID); err != nil {
+		// The HPKE key of a generation is in its link, so the one an account began
+		// with stays as it is.
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET key_generation = ?, identity_head = ?, vault_core = ?, profile_sig = ?, updated_at = ? WHERE id = ?`,
+			rotation.Link.Generation, rotation.IdentityHead, rotation.VaultCore, rotation.ProfileSig, now, rotation.UserID); err != nil {
 			return err
 		}
 		if err := d.insertSlots(ctx, tx, rotation.UserID, rotation.Slots); err != nil {
 			return err
-		}
-		for _, kind := range rotation.DropWrappers {
-			column := "wrapped_key_password"
-			if kind == "recovery" {
-				column = "wrapped_key_recovery"
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE users SET `+column+` = X'' WHERE id = ?`, rotation.UserID); err != nil {
-				return err
-			}
 		}
 		if p := rotation.Password; p != nil {
 			if _, err := tx.ExecContext(ctx, `UPDATE users SET kdf_salt = ?, kdf_memory = ?, kdf_iterations = ?, kdf_parallelism = ?, auth_hash = ?, auth_salt = ? WHERE id = ?`,
@@ -343,11 +296,6 @@ func (d *DB) Account(ctx context.Context, userID, deviceID string) (*AccountStat
 			return nil, err
 		}
 	}
-	since, err := d.Setting(ctx, "account_protocol_since", "0")
-	if err != nil {
-		return nil, err
-	}
-	fmt.Sscan(since, &state.ProtocolSince)
 	return &state, nil
 }
 
@@ -404,8 +352,8 @@ func (d *DB) CloseGeneration(ctx context.Context, userID string, generation int6
 }
 
 // SetDeviceSealKey is a device saying what to seal account keys to from now on.
-func (d *DB) SetDeviceSealKey(ctx context.Context, userID, deviceID string, key, signature []byte, generation *int64, proof []byte) error {
-	return d.touchDevice(ctx, userID, deviceID, `UPDATE devices SET seal_key = ?, seal_sig = ?, seal_generation = ?, seal_proof = ? WHERE id = ?`, key, signature, generation, proof, deviceID)
+func (d *DB) SetDeviceSealKey(ctx context.Context, userID, deviceID string, key []byte, generation int64, proof []byte) error {
+	return d.touchDevice(ctx, userID, deviceID, `UPDATE devices SET seal_key = ?, seal_generation = ?, seal_proof = ? WHERE id = ?`, key, generation, proof, deviceID)
 }
 
 // SetDeviceCertificate is a device publishing the certificate it has now.
@@ -423,8 +371,8 @@ func (d *DB) touchDevice(ctx context.Context, userID, deviceID, query string, ar
 	})
 }
 
-// VaultItemsOfAnyGeneration is the vault as a device that follows generations sees it.
-func (d *DB) VaultItemsOfAnyGeneration(ctx context.Context, userID string, since int64, limit int) ([]VaultItem, error) {
+// VaultItems is the vault after a place in it, at whichever generation each item is.
+func (d *DB) VaultItems(ctx context.Context, userID string, since int64, limit int) ([]VaultItem, error) {
 	return d.vaultItems(ctx, `SELECT id, seq, generation, data FROM vault_items WHERE user_id = ? AND seq > ?
 		ORDER BY seq ASC LIMIT ?`, userID, since, limit)
 }

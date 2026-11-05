@@ -84,6 +84,24 @@ func (h *harness) deviceKey(token string) []byte {
 
 func bytesOf(n int, b byte) []byte { return bytes.Repeat([]byte{b}, n) }
 
+// newSlots are an account's slots for its password and recovery key, as an app
+// sends them at sign-up. The server can't open any of it.
+func newSlots() []map[string]any {
+	slot := func(kind string) map[string]any {
+		return map[string]any{"kind": kind, "seal_key": bytesOf(32, 1), "sign_key": bytesOf(32, 2), "sealed_secret": []byte("secret-" + kind), "sealed_key": []byte("key-" + kind)}
+	}
+	return []map[string]any{slot("password"), slot("recovery")}
+}
+
+// newDevice is what an app sends to register a device that signs with key, at the
+// first generation of its account's keys.
+func newDevice(id string, key []byte) map[string]any {
+	return map[string]any{
+		"id": id, "certificate": []byte("cert"), "signature_key": key, "generation": 0,
+		"seal_key": bytesOf(32, 6), "seal_generation": 0, "seal_proof": bytesOf(64, 7), "enroll_proof": bytesOf(64, 8),
+	}
+}
+
 func (h *harness) do(method, path, token string, body, out any) (int, map[string]any) {
 	h.t.Helper()
 	var reader io.Reader
@@ -157,8 +175,7 @@ func (h *harness) register(name, invite string) *client {
 		"kdf":                  map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
 		"auth_key":             bytesOf(32, name[0]),
 		"recovery_auth_key":    bytesOf(32, name[0]+1),
-		"wrapped_key_password": []byte("wrapped-pw"),
-		"wrapped_key_recovery": []byte("wrapped-rec"),
+		"slots":                newSlots(),
 		"identity_key":         bytesOf(32, 1),
 		"hpke_key":             bytesOf(32, 2),
 		"hpke_key_sig":         bytesOf(64, 3),
@@ -166,9 +183,7 @@ func (h *harness) register(name, invite string) *client {
 		"profile":              []byte("encrypted-profile"),
 	}, &out)
 	c := &client{h: h, token: out.Token, userID: out.UserID, device: store.NewID()}
-	h.mustDo("POST", "/api/devices", c.token, map[string]any{
-		"id": c.device, "certificate": []byte("cert"), "signature_key": h.deviceKey(c.token),
-	}, nil)
+	h.mustDo("POST", "/api/devices", c.token, newDevice(c.device, h.deviceKey(c.token)), nil)
 	return c
 }
 
@@ -237,7 +252,7 @@ func TestInviteRequiredByDefault(t *testing.T) {
 		"username": "nobody",
 		"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 65536, "iterations": 3, "parallelism": 1},
 		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2),
-		"wrapped_key_password": []byte("w"), "wrapped_key_recovery": []byte("w"),
+		"slots":        newSlots(),
 		"identity_key": bytesOf(32, 1), "hpke_key": bytesOf(32, 2), "vault_core": []byte("v"),
 	}, nil)
 	if status != http.StatusForbidden || resp["error"] != "invite_required" {
@@ -266,32 +281,19 @@ func TestLoginAndRecovery(t *testing.T) {
 	if status != http.StatusUnauthorized {
 		t.Fatalf("wrong password gave %d", status)
 	}
+	// Each secret gets its own slot, and the generation the account is at.
 	var login struct {
-		Token      string `json:"token"`
-		WrappedKey []byte `json:"wrapped_key"`
+		Token      string      `json:"token"`
+		Slot       *store.Slot `json:"slot"`
+		Generation int64       `json:"generation"`
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "OWNER", "auth_key": bytesOf(32, 'o')}, &login)
-	if string(login.WrappedKey) != "wrapped-pw" {
-		t.Fatalf("wrapped key = %q", login.WrappedKey)
+	if login.Slot == nil || string(login.Slot.SealedKey) != "key-password" || login.Generation != 0 {
+		t.Fatalf("signing in gave %+v", login)
 	}
-
-	var recovered struct {
-		WrappedKey []byte `json:"wrapped_key"`
-		Token      string `json:"token"`
-	}
-	h.mustDo("POST", "/api/auth/recover", "", map[string]any{"username": "owner", "recovery_auth_key": bytesOf(32, 'o'+1)}, &recovered)
-	if string(recovered.WrappedKey) != "wrapped-rec" {
-		t.Fatalf("recovery wrapped key = %q", recovered.WrappedKey)
-	}
-	h.mustDo("POST", "/api/auth/password", recovered.Token, map[string]any{
-		"recovery_auth_key":    bytesOf(32, 'o'+1),
-		"kdf":                  map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1},
-		"auth_key":             bytesOf(32, 0xab),
-		"wrapped_key_password": []byte("new-wrapped"),
-	}, nil)
-	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xab)}, &login)
-	if string(login.WrappedKey) != "new-wrapped" {
-		t.Fatalf("after reset wrapped key = %q", login.WrappedKey)
+	h.mustDo("POST", "/api/auth/recover", "", map[string]any{"username": "owner", "recovery_auth_key": bytesOf(32, 'o'+1)}, &login)
+	if login.Slot == nil || string(login.Slot.SealedKey) != "key-recovery" {
+		t.Fatalf("recovering gave %+v", login)
 	}
 }
 
@@ -301,7 +303,7 @@ func TestKDFDowngradeRejectedAtRegistration(t *testing.T) {
 		"invite_code": h.invite, "username": "weak",
 		"kdf":      map[string]any{"salt": bytesOf(16, 7), "memory": 8, "iterations": 1, "parallelism": 1},
 		"auth_key": bytesOf(32, 1), "recovery_auth_key": bytesOf(32, 2),
-		"wrapped_key_password": []byte("w"), "wrapped_key_recovery": []byte("w"),
+		"slots":        newSlots(),
 		"identity_key": bytesOf(32, 1), "hpke_key": bytesOf(32, 2), "vault_core": []byte("v"),
 	}, nil)
 	if status != http.StatusBadRequest {

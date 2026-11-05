@@ -31,8 +31,6 @@ type ServerInfo struct {
 	EmoteSetID         string `json:"emote_set_id"`
 	EmoteSetName       string `json:"emote_set_name"`
 	UserCount          int    `json:"user_count"`
-	// AccountProtocol says this server keeps generations of account keys.
-	AccountProtocol int `json:"account_protocol"`
 	// Voice says this server has a media server for its voice channels, and without
 	// one they can't be joined.
 	Voice int `json:"voice,omitempty"`
@@ -58,14 +56,12 @@ func (s *Server) publicServerInfo(r *http.Request) (*ServerInfo, error) {
 		Claimed:      info.Claimed,
 		Registration: info.Registration,
 		CommunityKey: info.CommunityKey,
-
-		AccountProtocol: info.AccountProtocol,
 	}, nil
 }
 
 func (s *Server) serverInfo(r *http.Request) (*ServerInfo, error) {
 	ctx := r.Context()
-	info := &ServerInfo{Version: s.cfg.Version, AccountProtocol: accountProtocol}
+	info := &ServerInfo{Version: s.cfg.Version}
 	if s.liveKitConfigured() {
 		info.Voice = 1
 		info.Calls = 1

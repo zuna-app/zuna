@@ -55,7 +55,6 @@ const signInContext = ({ serverUrl, username }: SignInTarget) => `${serverUrl}|$
 export interface PasswordKeys {
   /** Sent to the server to sign in. Bound to it, so another server can't reuse it. */
   authKey: Uint8Array;
-  wrapKey: Uint8Array;
   /** Opens this secret's slot. */
   slotKey: Uint8Array;
 }
@@ -73,30 +72,21 @@ export function derivePasswordKeys(password: string, kdf: KdfParams, target: Sig
   const master = wasm.argon2id(utf8(password.normalize("NFKC")), kdf.salt, kdf.memory, kdf.iterations, kdf.parallelism, 32);
   return {
     authKey: wasm.hkdfSha256(master, NO_SALT, label(`zuna/auth/v2|${signInContext(target)}`), 32),
-    wrapKey: wasm.hkdfSha256(master, NO_SALT, label("zuna/wrap/v1"), 32),
     slotKey: wasm.hkdfSha256(master, NO_SALT, label(`zuna/slot/v1|password|${signInContext(target)}`), 32),
   };
 }
 
 export interface RecoveryKeys {
   authKey: Uint8Array;
-  wrapKey: Uint8Array;
   slotKey: Uint8Array;
 }
 
 export function deriveRecoveryKeys(recoveryKey: Uint8Array, target: SignInTarget): RecoveryKeys {
   return {
     authKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label(`zuna/recovery-auth/v2|${signInContext(target)}`), 32),
-    wrapKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label("zuna/recovery-wrap/v1"), 32),
     slotKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label(`zuna/slot/v1|recovery|${signInContext(target)}`), 32),
   };
 }
-
-export const wrapAccountKey = (wrapKey: Uint8Array, accountKey: Uint8Array, kind: "password" | "recovery") =>
-  wasm.aeadSeal(wrapKey, accountKey, label(`zuna/account-key/${kind}`));
-
-export const unwrapAccountKey = (wrapKey: Uint8Array, wrapped: Uint8Array, kind: "password" | "recovery") =>
-  wasm.aeadOpen(wrapKey, wrapped, label(`zuna/account-key/${kind}`));
 
 /**
  * The secrets every device of an account shares, stored on the server encrypted.
@@ -110,15 +100,14 @@ export interface VaultCore {
   hpkeSecret: Uint8Array;
   communityKey: Uint8Array;
   generation: number;
-  /** The identity key the account began with, which clients from before generations still go by. */
+  /** The identity key the account began with, where its chain starts. */
   rootPublic: Uint8Array;
+  /** Shows that a core is really the account's when someone signs in (`holdsRoot`). */
   rootSecret: Uint8Array;
   /** Account keys of generations that may still have items in the vault. */
   olderKeys: Record<number, Uint8Array>;
   /** A contact who hasn't heard yet may still seal a grant to one of these. */
   olderHpkeSecrets: Uint8Array[];
-  /** The account key the old kind of wrapper opens, while one of them is left. */
-  firstKey: Uint8Array | null;
   /** Nothing from before this generation is believed any more. */
   closedBelow: number;
   /** What to seal the account key to for a password and recovery key. */
@@ -142,41 +131,36 @@ export function coreToJson(core: VaultCore) {
     rootSecret: toBase64(core.rootSecret),
     olderKeys: Object.fromEntries(Object.entries(core.olderKeys).map(([generation, key]) => [generation, toBase64(key)])),
     olderHpkeSecrets: core.olderHpkeSecrets.map(toBase64),
-    firstKey: core.firstKey && toBase64(core.firstKey),
     closedBelow: core.closedBelow,
     slots: { password: slotToJson(core.slots.password), recovery: slotToJson(core.slots.recovery) },
     manifest: core.manifest ?? 0,
   };
 }
 
-/** Reads a core, including one from before generations, which has only the first five fields. */
 export function coreFromJson(json: any): VaultCore {
-  const identityPublic = fromBase64(json.identityPublic);
-  const identitySecret = fromBase64(json.identitySecret);
   const slots: VaultCore["slots"] = {};
   const password = slotFromJson(json.slots?.password);
   const recovery = slotFromJson(json.slots?.recovery);
   if (password) slots.password = password;
   if (recovery) slots.recovery = recovery;
   return {
-    identityPublic,
-    identitySecret,
+    identityPublic: fromBase64(json.identityPublic),
+    identitySecret: fromBase64(json.identitySecret),
     hpkePublic: fromBase64(json.hpkePublic),
     hpkeSecret: fromBase64(json.hpkeSecret),
     communityKey: fromBase64(json.communityKey),
-    generation: json.generation ?? 0,
-    rootPublic: json.rootPublic ? fromBase64(json.rootPublic) : identityPublic,
-    rootSecret: json.rootSecret ? fromBase64(json.rootSecret) : identitySecret,
-    olderKeys: Object.fromEntries(Object.entries<string>(json.olderKeys ?? {}).map(([generation, key]) => [generation, fromBase64(key)])),
-    olderHpkeSecrets: (json.olderHpkeSecrets ?? []).map(fromBase64),
-    firstKey: json.firstKey ? fromBase64(json.firstKey) : null,
-    closedBelow: json.closedBelow ?? 0,
+    generation: json.generation,
+    rootPublic: fromBase64(json.rootPublic),
+    rootSecret: fromBase64(json.rootSecret),
+    olderKeys: Object.fromEntries(Object.entries<string>(json.olderKeys).map(([generation, key]) => [generation, fromBase64(key)])),
+    olderHpkeSecrets: json.olderHpkeSecrets.map(fromBase64),
+    closedBelow: json.closedBelow,
     slots,
     manifest: Number.isSafeInteger(json.manifest) ? json.manifest : 0,
   };
 }
 
-/** A generation's label says which account it's for. The first keeps the one from before there were any. */
+/** A generation's label says which account it's for. The first one's doesn't need to, since no link names its key. */
 const coreLabel = (generation: number, userId: string) => label(generation > 0 ? `zuna/vault-core/v2|${userId}|${generation}` : "zuna/vault-core/v1");
 
 export function sealVaultCore(accountKey: Uint8Array, core: VaultCore, userId = ""): Uint8Array {
@@ -215,31 +199,23 @@ export interface DeviceCertificate {
 
 /**
  * A device certificate is the MLS credential of each device. It is signed by the
- * user's identity key and names the key that device signs with. Certificates are
- * public, so holding one proves nothing: a leaf only belongs to a device if it
- * really uses the signing key its certificate names.
- *
- * `rootSecret` signs for clients from before generations, which know no other
- * identity key. `headSecret`, the identity key of the generation the certificate
- * names, signs for those that follow them. A certificate without it is what a
- * client from before generations made.
+ * user's identity key of the generation it names, and names the key that device
+ * signs with. Certificates are public, so holding one proves nothing: a leaf only
+ * belongs to a device if it really uses the signing key its certificate names.
  */
-export function createCertificate(rootSecret: Uint8Array, cert: DeviceCertificate, headSecret?: Uint8Array): Uint8Array {
-  const fields = { v: 1, user: cert.userId, device: cert.deviceId, key: toBase64(cert.signatureKey) };
-  const payload = utf8(JSON.stringify(headSecret ? { ...fields, gen: cert.generation ?? 0 } : fields));
-  const signature = wasm.sign(rootSecret, concat(label("zuna/device-cert/v1"), payload));
-  if (!headSecret) return utf8(JSON.stringify({ p: toBase64(payload), s: toBase64(signature) }));
-  const head = wasm.sign(headSecret, concat(label("zuna/device-cert/v2"), payload));
-  return utf8(JSON.stringify({ p: toBase64(payload), s: toBase64(signature), h: toBase64(head) }));
+export function createCertificate(identitySecret: Uint8Array, cert: DeviceCertificate): Uint8Array {
+  const payload = utf8(JSON.stringify({ v: 1, user: cert.userId, device: cert.deviceId, key: toBase64(cert.signatureKey), gen: cert.generation ?? 0 }));
+  const signature = wasm.sign(identitySecret, concat(label("zuna/device-cert/v2"), payload));
+  return utf8(JSON.stringify({ p: toBase64(payload), h: toBase64(signature) }));
 }
 
-export function parseCertificate(bytes: Uint8Array): (DeviceCertificate & { generation: number; payload: Uint8Array; signature: Uint8Array; headSignature: Uint8Array | null }) | null {
+export function parseCertificate(bytes: Uint8Array): (DeviceCertificate & { generation: number; payload: Uint8Array; signature: Uint8Array }) | null {
   try {
     const outer = JSON.parse(fromUtf8(bytes));
     const payload = fromBase64(outer.p);
     const inner = JSON.parse(fromUtf8(payload));
-    if (inner.v !== 1 || typeof inner.user !== "string" || typeof inner.device !== "string" || typeof inner.key !== "string") return null;
-    const generation = inner.gen ?? 0;
+    if (inner.v !== 1 || typeof inner.user !== "string" || typeof inner.device !== "string" || typeof inner.key !== "string" || typeof outer.h !== "string") return null;
+    const generation = inner.gen;
     if (!Number.isSafeInteger(generation) || generation < 0) return null;
     return {
       userId: inner.user,
@@ -247,27 +223,18 @@ export function parseCertificate(bytes: Uint8Array): (DeviceCertificate & { gene
       signatureKey: fromBase64(inner.key),
       generation,
       payload,
-      signature: fromBase64(outer.s),
-      headSignature: typeof outer.h === "string" ? fromBase64(outer.h) : null,
+      signature: fromBase64(outer.h),
     };
   } catch {
     return null;
   }
 }
 
-/** Checks a certificate against the identity key pinned for its user. */
+/** Checks a certificate against the identity key of the generation it names. */
 export function verifyCertificate(identityPublic: Uint8Array, bytes: Uint8Array): DeviceCertificate | null {
   const cert = parseCertificate(bytes);
   if (!cert) return null;
-  const valid = wasm.verify(identityPublic, concat(label("zuna/device-cert/v1"), cert.payload), cert.signature);
-  return valid ? cert : null;
-}
-
-/** Checks a certificate against the identity key of the generation it names. */
-export function verifyCertificateAtGeneration(identityPublic: Uint8Array, bytes: Uint8Array): DeviceCertificate | null {
-  const cert = parseCertificate(bytes);
-  if (!cert?.headSignature) return null;
-  return wasm.verify(identityPublic, concat(label("zuna/device-cert/v2"), cert.payload), cert.headSignature) ? cert : null;
+  return wasm.verify(identityPublic, concat(label("zuna/device-cert/v2"), cert.payload), cert.signature) ? cert : null;
 }
 
 // --- Encrypted profiles ---
@@ -293,7 +260,10 @@ export function openProfile<T>(communityKey: Uint8Array, identityPublic: Uint8Ar
 
 const profileHeadInput = (userId: string, generation: number, ciphertext: Uint8Array) => concat(label(`zuna/profile-sig/v2|${userId}|${generation}|`), ciphertext);
 
-/** A sealed profile keeps its signature by the first identity key. This one is by the current key. */
+/**
+ * The signature inside a sealed profile only counts before an account's first
+ * rotation, which can't seal it again. From then on, this one by the current key does.
+ */
 export const signProfileAtGeneration = (identitySecret: Uint8Array, userId: string, generation: number, sealed: Uint8Array) =>
   wasm.sign(identitySecret, profileHeadInput(userId, generation, sealed.subarray(64)));
 

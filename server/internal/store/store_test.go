@@ -262,7 +262,7 @@ func TestSessionsDontLastForever(t *testing.T) {
 	db := openTestDB(t)
 	user, err := db.CreateUser(ctx, NewUser{
 		Username: "bob", KDF: KDFParams{Salt: []byte("s")}, AuthHash: []byte("h"), AuthSalt: []byte("s"),
-		RecoveryHash: []byte("h"), RecoverySalt: []byte("s"), WrappedKeyPassword: []byte("w"), WrappedKeyRecovery: []byte("w"),
+		RecoveryHash: []byte("h"), RecoverySalt: []byte("s"),
 		IdentityKey: []byte("i"), HpkeKey: []byte("k"), HpkeKeySig: []byte("g"), VaultCore: []byte("v"),
 	}, "")
 	if err != nil {
@@ -295,7 +295,7 @@ func TestSessionsDontLastForever(t *testing.T) {
 
 	// With one, until it's gone unused for a very long time.
 	session("device")
-	if err := db.AddDevice(ctx, []byte("device"), Device{ID: "d", UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, nil); err != nil {
+	if err := db.AddDevice(ctx, []byte("device"), Device{ID: "d", UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, 0); err != nil {
 		t.Fatal(err)
 	}
 	age("device", 2*sessionIdleLife, 2*lastUsedResolution)
@@ -338,6 +338,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 	// Back to how it was before file_refs, with a message using two files and a group picture.
 	if _, err := db.sql.ExecContext(ctx, `
 		DROP TABLE file_refs;
+		ALTER TABLE users ADD COLUMN wrapped_key_password BLOB NOT NULL DEFAULT X'';
+		ALTER TABLE users ADD COLUMN wrapped_key_recovery BLOB NOT NULL DEFAULT X'';
 		ALTER TABLE messages ADD COLUMN file_ids TEXT NOT NULL DEFAULT '';
 		DROP INDEX files_owner;
 		DROP INDEX users_avatar;
@@ -353,12 +355,8 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		ALTER TABLE users DROP COLUMN key_generation;
 		ALTER TABLE users DROP COLUMN identity_head;
 		ALTER TABLE users DROP COLUMN profile_sig;
-		ALTER TABLE users DROP COLUMN bridge;
 		ALTER TABLE devices DROP COLUMN seal_key;
-		ALTER TABLE devices DROP COLUMN seal_sig;
 		ALTER TABLE devices DROP COLUMN enroll_proof;
-		ALTER TABLE users DROP COLUMN auth_bound;
-		ALTER TABLE users DROP COLUMN recovery_bound;
 		DROP INDEX group_events_replaced_info;
 		ALTER TABLE group_events DROP COLUMN replaced_info;
 		ALTER TABLE users DROP COLUMN stored_bytes;
@@ -368,7 +366,6 @@ func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
 		DROP TABLE sign_in_attempts;
 		ALTER TABLE messages DROP COLUMN deleted_by;
 		ALTER TABLE messages DROP COLUMN deletion;
-		ALTER TABLE devices DROP COLUMN signs_requests;
 		ALTER TABLE messages DROP COLUMN pin;
 		ALTER TABLE messages DROP COLUMN pin_by;
 		DROP INDEX messages_expires;
@@ -417,7 +414,7 @@ func testUser(t *testing.T, db *DB, name string) string {
 	t.Helper()
 	user, err := db.CreateUser(context.Background(), NewUser{
 		Username: name, KDF: KDFParams{Salt: []byte("s")}, AuthHash: []byte("h"), AuthSalt: []byte("s"),
-		RecoveryHash: []byte("h"), RecoverySalt: []byte("s"), WrappedKeyPassword: []byte("w"), WrappedKeyRecovery: []byte("w"),
+		RecoveryHash: []byte("h"), RecoverySalt: []byte("s"),
 		IdentityKey: []byte("i"), HpkeKey: []byte("k"), HpkeKeySig: []byte("g"), VaultCore: []byte("v"),
 	}, "")
 	if err != nil {
@@ -431,7 +428,7 @@ func TestDevicesAreLimited(t *testing.T) {
 	db := openTestDB(t)
 	user := testUser(t, db, "bob")
 	add := func(id string) error {
-		return db.AddDevice(ctx, []byte("token"), Device{ID: id, UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, nil)
+		return db.AddDevice(ctx, []byte("token"), Device{ID: id, UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, 0)
 	}
 	for i := range maxActiveDevices {
 		if err := add(fmt.Sprintf("d%d", i)); err != nil {

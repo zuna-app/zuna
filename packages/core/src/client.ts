@@ -35,8 +35,8 @@ function encodeAccount(account: AccountState): string {
     deviceSecret: toBase64(account.deviceSecret),
     certificate: toBase64(account.certificate),
     accountKey: toBase64(account.accountKey),
-    sealPublic: account.sealPublic && toBase64(account.sealPublic),
-    sealSecret: account.sealSecret && toBase64(account.sealSecret),
+    sealPublic: toBase64(account.sealPublic),
+    sealSecret: toBase64(account.sealSecret),
     sealOlder: account.sealOlder && toBase64(account.sealOlder),
     core: coreToJson(account.core),
   });
@@ -50,8 +50,8 @@ export function decodeAccount(json: string): AccountState {
     deviceSecret: fromBase64(raw.deviceSecret),
     certificate: fromBase64(raw.certificate),
     accountKey: fromBase64(raw.accountKey),
-    sealPublic: raw.sealPublic ? fromBase64(raw.sealPublic) : undefined,
-    sealSecret: raw.sealSecret ? fromBase64(raw.sealSecret) : undefined,
+    sealPublic: fromBase64(raw.sealPublic),
+    sealSecret: fromBase64(raw.sealSecret),
     sealOlder: raw.sealOlder ? fromBase64(raw.sealOlder) : undefined,
     core: coreFromJson(raw.core),
   };

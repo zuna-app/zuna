@@ -386,8 +386,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/login", s.limited(s.handleLogin))
 	mux.HandleFunc("POST /api/auth/recover", s.limited(s.handleRecover))
 	// A session without a device can only finish a recovery, register its device or sign out.
-	mux.HandleFunc("POST /api/auth/password", s.authed(s.handleChangePassword))
-	mux.HandleFunc("POST /api/auth/recovery-key", s.withDevice(s.handleChangeRecoveryKey))
 	mux.HandleFunc("POST /api/auth/logout", s.authed(s.handleLogout))
 
 	// Users and devices
@@ -405,23 +403,19 @@ func (s *Server) Handler() http.Handler {
 	// Encrypted per-user key vault
 	mux.HandleFunc("GET /api/vault", s.withDevice(s.handleVaultGet))
 	mux.HandleFunc("PUT /api/vault", s.withDevice(s.proven(s.handleVaultPut)))
+	mux.HandleFunc("GET /api/vault/older", s.withDevice(s.handleVaultOlder))
+	mux.HandleFunc("POST /api/vault/reseal", s.withDevice(s.proven(s.handleVaultReseal)))
 	mux.HandleFunc("GET /api/history-grants", s.withDevice(s.handleHistoryGrants))
 	mux.HandleFunc("DELETE /api/history-grants/{id}", s.withDevice(s.handleDeleteHistoryGrant))
 
 	// Generations of an account's keys.
-	mux.HandleFunc("GET /api/v2/account", s.withDevice(s.handleAccount))
-	mux.HandleFunc("POST /api/v2/account/rotate", s.withDevice(s.handleRotate))
-	mux.HandleFunc("POST /api/v2/account/bundles", s.withDevice(s.handleBundles))
-	mux.HandleFunc("POST /api/v2/account/slots", s.withDevice(s.handleFirstSlot))
-	mux.HandleFunc("POST /api/v2/account/core", s.withDevice(s.handleCloseGeneration))
-	mux.HandleFunc("PUT /api/v2/devices/{id}/seal-key", s.withDevice(s.handleSealKey))
-	mux.HandleFunc("PUT /api/v2/devices/{id}/certificate", s.withDevice(s.handleCertificate))
+	mux.HandleFunc("GET /api/account", s.withDevice(s.handleAccount))
+	mux.HandleFunc("POST /api/account/rotate", s.withDevice(s.handleRotate))
+	mux.HandleFunc("POST /api/account/bundles", s.withDevice(s.handleBundles))
+	mux.HandleFunc("POST /api/account/core", s.withDevice(s.handleCloseGeneration))
+	mux.HandleFunc("PUT /api/devices/{id}/seal-key", s.withDevice(s.handleSealKey))
+	mux.HandleFunc("PUT /api/devices/{id}/certificate", s.withDevice(s.handleCertificate))
 	mux.HandleFunc("GET /api/users/{id}/identity-links", s.withDevice(s.handleIdentityLinks))
-	mux.HandleFunc("GET /api/v2/vault", s.withDevice(s.handleVaultGetAnyGeneration))
-	mux.HandleFunc("PUT /api/v2/vault", s.withDevice(s.proven(s.handleVaultPutAtGeneration)))
-	mux.HandleFunc("GET /api/v2/vault/older", s.withDevice(s.handleVaultOlder))
-	mux.HandleFunc("POST /api/v2/vault/reseal", s.withDevice(s.proven(s.handleVaultReseal)))
-	mux.HandleFunc("GET /api/v2/history-grants", s.withDevice(s.handleHistoryGrantsAtAnyGeneration))
 
 	// Groups
 	mux.HandleFunc("GET /api/groups", s.withDevice(s.handleGroups))

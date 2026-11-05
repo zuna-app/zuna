@@ -54,7 +54,6 @@ public struct ServerInfo: Codable, Sendable, Hashable {
     public var emoteSetName: String
     public var userCount: Int
     public var communityKey: String?
-    public var accountProtocol: Int?
     /// Whether this server has a media server, without which voice channels can't be joined.
     public var voice: Int?
     /// Whether direct messages and groups can have calls there.
@@ -71,7 +70,6 @@ public struct ServerInfo: Codable, Sendable, Hashable {
         case emoteSetId = "emote_set_id"
         case emoteSetName = "emote_set_name"
         case userCount = "user_count"
-        case accountProtocol = "account_protocol"
         case communityKey = "community_key"
         case screenShare = "screen_share"
     }

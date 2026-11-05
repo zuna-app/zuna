@@ -400,29 +400,7 @@ func TestASessionWithoutADeviceCanOnlyFinishSigningIn(t *testing.T) {
 		t.Fatalf("server settings gave %d", status)
 	}
 
-	// A password change ends it, and the session that asked goes on.
-	newKDF := map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1}
-	h.mustDo("POST", "/api/auth/password", owner.token, map[string]any{
-		"current_auth_key": bytesOf(32, 'o'), "kdf": newKDF, "auth_key": bytesOf(32, 0xcd), "wrapped_key_password": []byte("w"),
-	}, nil)
-	if status, _ := h.do("POST", "/api/auth/logout", hidden.Token, map[string]any{}, nil); status != http.StatusUnauthorized {
-		t.Fatalf("the hidden session still answers: %d", status)
-	}
-	if status, _ := h.do("GET", "/api/vault", owner.token, nil, nil); status != http.StatusOK {
-		t.Fatalf("the device's session stopped working: %d", status)
-	}
-
-	// So does changing the recovery key.
-	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xcd)}, &hidden)
-	h.mustDo("POST", "/api/auth/recovery-key", owner.token, map[string]any{
-		"current_auth_key": bytesOf(32, 0xcd), "recovery_auth_key": bytesOf(32, 0xef), "wrapped_key_recovery": []byte("w"),
-	}, nil)
-	if status, _ := h.do("POST", "/api/auth/logout", hidden.Token, map[string]any{}, nil); status != http.StatusUnauthorized {
-		t.Fatalf("the hidden session outlived a new recovery key: %d", status)
-	}
-
 	// A socket isn't a way around it.
-	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xcd)}, &hidden)
 	if code := h.socketCloseCode(hidden.Token); code != 4401 {
 		t.Fatalf("a socket for a session without a device closed with %d", code)
 	}
@@ -721,7 +699,7 @@ func TestMessagesAndTheVaultCount(t *testing.T) {
 	}
 	// With no room for messages, there's still room for the keys to the old ones.
 	put := func(id string) int {
-		status, _ := h.do("PUT", "/api/v2/vault", owner.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": id, "data": bytesOf(200<<10, 1)}}}, nil)
+		status, _ := h.do("PUT", "/api/vault", owner.token, map[string]any{"generation": 0, "items": []map[string]any{{"id": id, "data": bytesOf(200<<10, 1)}}}, nil)
 		return status
 	}
 	if status := put("first"); status != http.StatusOK {
@@ -825,23 +803,6 @@ func TestSomeoneElsesGuessesDontKeepAPersonOut(t *testing.T) {
 	}
 	if !limited {
 		t.Fatal("wrong passwords from many addresses never slowed down")
-	}
-}
-
-// A session token is no faster a way to guess the password: checking the current
-// one, to change it or the recovery key, counts as a sign-in does.
-func TestChangingThePasswordIsNoFasterAWayToGuessIt(t *testing.T) {
-	for _, path := range []string{"/api/auth/password", "/api/auth/recovery-key"} {
-		h := newHarness(t, func(cfg *api.Config) { cfg.AuthBurst = 100_000 })
-		owner := h.owner()
-		limited := false
-		for range 30 {
-			status, _ := h.do("POST", path, owner.token, map[string]any{"current_auth_key": bytesOf(32, 0xff)}, nil)
-			limited = limited || status == http.StatusTooManyRequests
-		}
-		if !limited {
-			t.Fatalf("wrong passwords through %s never slowed down", path)
-		}
 	}
 }
 

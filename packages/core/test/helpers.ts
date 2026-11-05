@@ -243,15 +243,6 @@ export class TestApp {
     return result.recoveryKey;
   }
 
-  /** Signs up as an app from before slots would have, leaving the account as it would be today. */
-  async registerAsBefore(link: string, username: string, password = "correct horse battery"): Promise<string> {
-    const preview = await this.client.previewInvite(link);
-    const result = await this.client.register({ ...preview, server: { ...preview.server, account_protocol: undefined } }, username, password, { displayName: username });
-    this.serverId = result.serverId;
-    await this.online();
-    return result.recoveryKey;
-  }
-
   async login(url: string, username: string, password = "correct horse battery"): Promise<void> {
     this.serverId = await this.client.login(url, username, password);
     await this.online();

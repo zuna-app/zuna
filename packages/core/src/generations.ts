@@ -5,9 +5,6 @@
 import * as wasm from "@zuna/crypto";
 import { concat, equalBytes, fromBase64, fromUtf8, toBase64, utf8 } from "./encoding";
 
-/** What a client and a server say they understand, to speak about generations at all. */
-export const ACCOUNT_PROTOCOL = 2;
-
 const label = (text: string) => utf8(text);
 const NO_SALT = new Uint8Array(0);
 const NOTHING = new Uint8Array(0);
@@ -38,9 +35,9 @@ export interface SlotSecrets {
   sign: Uint8Array;
   /**
    * The key the account began with. Anyone can seal a key to a slot, so this is what
-   * says whose account that key opens. Only a slot from before this has none.
+   * says whose account that key opens.
    */
-  root: Uint8Array | null;
+  root: Uint8Array;
 }
 
 /** Makes a slot. Its secrets are only ever kept encrypted under the key the secret derives. */
@@ -62,7 +59,8 @@ export function createSlot(kind: SlotKind, slotKey: Uint8Array, root: Uint8Array
 
 export function openSlot(kind: SlotKind, slotKey: Uint8Array, sealedSecret: Uint8Array): SlotSecrets {
   const json = JSON.parse(fromUtf8(wasm.aeadOpen(slotKey, sealedSecret, label(`zuna/account-slot/v1/secret|${kind}`))));
-  return { seal: fromBase64(json.seal), sign: fromBase64(json.sign), root: json.root ? fromBase64(json.root) : null };
+  if (typeof json.root !== "string") throw new Error("That slot doesn't say whose account it's for.");
+  return { seal: fromBase64(json.seal), sign: fromBase64(json.sign), root: fromBase64(json.root) };
 }
 
 const slotInfo = (kind: SlotKind, who: string, generation: number) => label(`zuna/account-slot/v1/key|${kind}|${who.toLowerCase()}|${generation}`);
@@ -82,16 +80,8 @@ export const slotsHash = (slots: Partial<Record<SlotKind, SlotPublic>>): Uint8Ar
 
 // --- Devices ---
 
-const sealKeyInput = (user: string, device: string, seal: Uint8Array) => concat(label(`zuna/device-seal/v1|${user}|${device}|`), seal);
-
-export const signSealKey = (deviceSecret: Uint8Array, user: string, device: string, seal: Uint8Array) =>
-  wasm.sign(deviceSecret, sealKeyInput(user, device, seal));
-
-export const verifySealKey = (devicePublic: Uint8Array, user: string, device: string, seal: Uint8Array, signature: Uint8Array) =>
-  wasm.verify(devicePublic, sealKeyInput(user, device, seal), signature);
-
-// What a device has signed since seal keys said which generation they're from, so
-// that a server can't offer an older one again. The one above stays for older apps.
+// What a device signs about the key to seal its account's keys to: which generation
+// it's from, so that a server can't offer an older one again.
 const sealProofInput = (user: string, device: string, generation: number, seal: Uint8Array) => concat(label(`zuna/device-seal/v2|${user}|${device}|${generation}|`), seal);
 
 export const signSealProof = (deviceSecret: Uint8Array, user: string, device: string, generation: number, seal: Uint8Array) =>
@@ -120,19 +110,6 @@ export const sealBundle = (seal: Uint8Array, user: string, device: string, gener
 
 export const openBundle = (seal: Uint8Array, user: string, device: string, generation: number, linkHash: Uint8Array, sealed: Uint8Array) =>
   wasm.hpkeOpen(seal, bundleInfo(user, device, generation), linkHash, sealed);
-
-const bridgeLabel = (user: string, generation: number) => label(`zuna/account-bridge/v1|${user}|${generation}`);
-
-/**
- * Carries a new account key forward for a wrapper that can't be converted without
- * its secret. Anyone holding the first account key and the server's data can open
- * this, which is why it only exists while an account lacks a slot.
- */
-export const sealBridge = (firstKey: Uint8Array, user: string, generation: number, accountKey: Uint8Array) =>
-  wasm.aeadSeal(firstKey, accountKey, bridgeLabel(user, generation));
-
-export const openBridge = (firstKey: Uint8Array, user: string, generation: number, sealed: Uint8Array) =>
-  wasm.aeadOpen(firstKey, sealed, bridgeLabel(user, generation));
 
 /** XChaCha20-Poly1305 doesn't commit to its key, so a link says which key it means. */
 export const keyCommitment = (accountKey: Uint8Array, user: string, generation: number) =>

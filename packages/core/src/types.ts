@@ -18,8 +18,6 @@ export interface ServerInfo {
   emote_set_name: string;
   user_count: number;
   community_key?: string;
-  /** Whether this server keeps generations of account keys. Absent on one that doesn't. */
-  account_protocol?: number;
   /** Whether this server has a media server, without which voice channels can't be joined. */
   voice?: number;
   /** Whether direct messages and groups can have calls there. Absent on one that can't. */

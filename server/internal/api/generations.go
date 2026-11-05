@@ -14,34 +14,10 @@ import (
 // Generations of an account's keys. The server orders them and can't read them.
 // docs/ACCOUNT_KEY_ROTATION.md has the design.
 
-// accountProtocol is what a client says it understands, to get answers about slots
-// and generations, and what a server says it offers. Below it, a client gets what
-// it always got.
-const accountProtocol = 2
-
 const identityLinkLabel = "zuna/identity-link/v1"
 
 // How many links someone's chain is read in at a time.
 const maxLinksRead = 200
-
-func writeUpdateRequired(w http.ResponseWriter) {
-	writeError(w, http.StatusUpgradeRequired, "update_required", "This account needs a newer version of Zuna. Please update the app.")
-}
-
-// needsRotation refuses changes to a password or recovery key that come from a
-// client that can't rotate: it would leave the old secret's slot working.
-func (s *Server) needsRotation(w http.ResponseWriter, r *http.Request, creds *store.Credentials) bool {
-	hasSlots, err := s.db.HasSlots(r.Context(), creds.UserID)
-	if err != nil {
-		writeFailure(w, err)
-		return true
-	}
-	if creds.KeyGeneration > 0 || hasSlots {
-		writeUpdateRequired(w)
-		return true
-	}
-	return false
-}
 
 func validSlot(slot store.Slot) bool {
 	return (slot.Kind == "password" || slot.Kind == "recovery") && len(slot.SealKey) == 32 && len(slot.SignKey) == 32 &&
@@ -117,12 +93,9 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 	var body struct {
 		ExpectedGeneration int64              `json:"expected_generation"`
 		Link               store.IdentityLink `json:"link"`
-		HpkeKeySig         []byte             `json:"hpke_key_sig"`
 		VaultCore          []byte             `json:"vault_core"`
 		ProfileSig         []byte             `json:"profile_sig"`
 		Slots              []store.Slot       `json:"slots"`
-		DropWrappers       []string           `json:"drop_wrappers"`
-		Bridge             []byte             `json:"bridge"`
 		Bundles            []store.Bundle     `json:"bundles"`
 		Items              []store.VaultItem  `json:"items"`
 		Password           *struct {
@@ -143,15 +116,11 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "That's too many changes to this account's keys. Please wait a moment.")
 		return
 	}
-	valid := len(body.VaultCore) > 0 && len(body.VaultCore) <= maxDetailBytes && len(body.HpkeKeySig) == ed25519.SignatureSize &&
-		len(body.ProfileSig) <= ed25519.SignatureSize && len(body.Bridge) <= maxDetailBytes && validVaultItems(body.Items)
+	valid := len(body.VaultCore) > 0 && len(body.VaultCore) <= maxDetailBytes && len(body.ProfileSig) <= ed25519.SignatureSize && validVaultItems(body.Items)
 	for _, slot := range body.Slots {
 		// A slot that isn't new keeps what it had, and only gets the new key.
 		slotValid := slot.Kind == "password" || slot.Kind == "recovery"
 		valid = valid && slotValid && len(slot.SealedKey) > 0 && len(slot.SealedKey) <= maxDetailBytes
-	}
-	for _, kind := range body.DropWrappers {
-		valid = valid && (kind == "password" || kind == "recovery")
 	}
 	var payload linkPayload
 	if !valid || json.Unmarshal(body.Link.Payload, &payload) != nil {
@@ -191,12 +160,8 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		Carried:      map[string][]byte{},
 		Removed:      payload.Removed,
 		IdentityHead: payload.Identity,
-		HpkeKey:      payload.Hpke,
-		HpkeKeySig:   body.HpkeKeySig,
 		VaultCore:    body.VaultCore,
 		ProfileSig:   body.ProfileSig,
-		DropWrappers: body.DropWrappers,
-		Bridge:       body.Bridge,
 		Bundles:      body.Bundles,
 		Items:        body.Items,
 	}
@@ -289,26 +254,6 @@ func (s *Server) handleBundles(w http.ResponseWriter, r *http.Request, sess *sto
 	writeOK(w)
 }
 
-func (s *Server) handleFirstSlot(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-	var body struct {
-		Slot      store.Slot `json:"slot"`
-		VaultCore []byte     `json:"vault_core"`
-	}
-	if !readJSON(w, r, &body) {
-		return
-	}
-	if !validSlot(body.Slot) || len(body.VaultCore) == 0 || len(body.VaultCore) > maxDetailBytes {
-		writeError(w, http.StatusBadRequest, "bad_request", "That slot isn't valid.")
-		return
-	}
-	if err := s.db.AddFirstSlot(r.Context(), sess.UserID, body.Slot, body.VaultCore); err != nil {
-		writeFailure(w, err)
-		return
-	}
-	s.hub.ToUsersExcept([]string{sess.UserID}, sess.DeviceID, Event{Type: "account", Data: map[string]int64{"generation": 0}})
-	writeOK(w)
-}
-
 func (s *Server) handleCloseGeneration(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
 		Generation int64  `json:"generation"`
@@ -344,18 +289,17 @@ func (s *Server) handleSealKey(w http.ResponseWriter, r *http.Request, sess *sto
 	}
 	var body struct {
 		SealKey        []byte `json:"seal_key"`
-		SealSig        []byte `json:"seal_sig"`
 		SealGeneration *int64 `json:"seal_generation"`
 		SealProof      []byte `json:"seal_proof"`
 	}
 	if !readJSON(w, r, &body) {
 		return
 	}
-	if len(body.SealKey) != 32 || len(body.SealSig) != ed25519.SignatureSize || len(body.SealProof) > ed25519.SignatureSize {
+	if len(body.SealKey) != 32 || body.SealGeneration == nil || len(body.SealProof) != ed25519.SignatureSize {
 		writeError(w, http.StatusBadRequest, "bad_request", "That key isn't valid.")
 		return
 	}
-	if err := s.db.SetDeviceSealKey(r.Context(), sess.UserID, sess.DeviceID, body.SealKey, body.SealSig, body.SealGeneration, body.SealProof); err != nil {
+	if err := s.db.SetDeviceSealKey(r.Context(), sess.UserID, sess.DeviceID, body.SealKey, *body.SealGeneration, body.SealProof); err != nil {
 		writeFailure(w, err)
 		return
 	}
@@ -395,8 +339,8 @@ func (s *Server) handleIdentityLinks(w http.ResponseWriter, r *http.Request, _ *
 	writeJSON(w, http.StatusOK, map[string]any{"links": links})
 }
 
-func (s *Server) handleVaultGetAnyGeneration(w http.ResponseWriter, r *http.Request, sess *store.Session) {
-	items, err := s.db.VaultItemsOfAnyGeneration(r.Context(), sess.UserID, queryInt(r, "since", 0), clampLimit(queryInt(r, "limit", 500), 1000))
+func (s *Server) handleVaultGet(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	items, err := s.db.VaultItems(r.Context(), sess.UserID, queryInt(r, "since", 0), clampLimit(queryInt(r, "limit", 500), 1000))
 	if err != nil {
 		writeFailure(w, err)
 		return
@@ -404,7 +348,7 @@ func (s *Server) handleVaultGetAnyGeneration(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
-func (s *Server) handleVaultPutAtGeneration(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+func (s *Server) handleVaultPut(w http.ResponseWriter, r *http.Request, sess *store.Session) {
 	var body struct {
 		Generation int64             `json:"generation"`
 		Items      []store.VaultItem `json:"items"`

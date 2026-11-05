@@ -520,6 +520,20 @@ CREATE TABLE channel_sends (
 	sent_at INTEGER NOT NULL,
 	PRIMARY KEY (channel_id, user_id)
 );
+`, `
+-- What only apps from before slots, generations, bound sign-in keys and signed
+-- requests needed: the wrappers of an account's first key and the bridge that
+-- carried later keys to them, whether a sign-in key or a device had moved on yet,
+-- a seal key's signature that didn't say its generation, and when this server
+-- began keeping generations.
+ALTER TABLE users DROP COLUMN wrapped_key_password;
+ALTER TABLE users DROP COLUMN wrapped_key_recovery;
+ALTER TABLE users DROP COLUMN bridge;
+ALTER TABLE users DROP COLUMN auth_bound;
+ALTER TABLE users DROP COLUMN recovery_bound;
+ALTER TABLE devices DROP COLUMN seal_sig;
+ALTER TABLE devices DROP COLUMN signs_requests;
+DELETE FROM settings WHERE key = 'account_protocol_since';
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

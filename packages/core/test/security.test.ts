@@ -227,12 +227,12 @@ describe("planting a key through a history grant (Z-02)", () => {
 
     const from = async (sender: TestApp) => {
       const sealed = await plant(sender, dave, groupId, { 20: fake });
-      const realGrants = session.api.historyGrantsAtAnyGeneration;
+      const realGrants = session.api.historyGrants;
       const realDelete = session.api.deleteHistoryGrant;
-      session.api.historyGrantsAtAnyGeneration = async () => [{ id: 1, group_id: groupId, data: toBase64(sealed) }];
+      session.api.historyGrants = async () => [{ id: 1, group_id: groupId, data: toBase64(sealed) }];
       session.api.deleteHistoryGrant = async () => undefined;
       await session.processHistoryGrants();
-      session.api.historyGrantsAtAnyGeneration = realGrants;
+      session.api.historyGrants = realGrants;
       session.api.deleteHistoryGrant = realDelete;
     };
 
@@ -585,8 +585,6 @@ describe("signing in on a malicious server (Z-10)", () => {
     await expect(real.login(username, onEvil.authKey)).rejects.toMatchObject({ code: "invalid_credentials" });
     const onReal = derivePasswordKeys("correct horse battery", kdf, { serverUrl: server.url, username });
     await expect(real.login(username, onReal.authKey)).resolves.toBeTruthy();
-    // The wrapping key is the same either way, so nothing about the account changes.
-    expect(toBase64(onEvil.wrapKey)).toBe(toBase64(onReal.wrapKey));
     const recovery = new Uint8Array(25).fill(5);
     expect(toBase64(deriveRecoveryKeys(recovery, { serverUrl: "https://a.example", username }).authKey)).not.toBe(toBase64(deriveRecoveryKeys(recovery, { serverUrl: "https://b.example", username }).authKey));
   });
@@ -1111,8 +1109,8 @@ describe("a leaf naming someone nobody can check yet (Z-43)", () => {
     const before = securityEvents(carol).length;
     const keys = wasm.signingKeygen();
     const device = randomId();
-    const payload = utf8(JSON.stringify({ v: 1, user: bob.userId, device, key: toBase64(keys.publicKey) }));
-    const forged = utf8(JSON.stringify({ p: toBase64(payload), s: toBase64(new Uint8Array(64)) }));
+    const payload = utf8(JSON.stringify({ v: 1, user: bob.userId, device, key: toBase64(keys.publicKey), gen: 0 }));
+    const forged = utf8(JSON.stringify({ p: toBase64(payload), h: toBase64(new Uint8Array(64)) }));
     const ghost = new wasm.MlsClient(keys.publicKey, keys.secretKey, forged, [] as unknown as any[]);
     const info = await malApi.groupInfo(groupId);
     const joined = ghost.joinExternal(utf8(groupId), decode(info.group_info!)) as { commit: Uint8Array };

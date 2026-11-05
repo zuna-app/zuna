@@ -2,7 +2,6 @@
 
 import * as wasm from "@zuna/crypto";
 import { concat, fromBase64, toBase64, utf8 } from "./encoding";
-import { ACCOUNT_PROTOCOL } from "./generations";
 import type { Emote, Invite, ServerInfo } from "./types";
 
 /**
@@ -36,8 +35,7 @@ export interface ApiUser {
   username: string;
   role: "owner" | "admin" | "member";
   identity_key: string;
-  /** Absent on a server from before generations of keys. */
-  key_generation?: number;
+  key_generation: number;
   hpke_key: string;
   hpke_key_sig: string;
   profile: string | null;
@@ -59,7 +57,6 @@ export interface ApiDevice {
   last_seen_at: number;
   revoked_at?: number | null;
   seal_key?: string | null;
-  seal_sig?: string | null;
   enroll_proof?: string | null;
   seal_generation?: number | null;
   seal_proof?: string | null;
@@ -88,13 +85,12 @@ export interface ApiAccount {
   bundle: { device_id: string; generation: number; data: string } | null;
   older_items: number;
   missing_bundles: string[];
-  protocol_since: number;
 }
 
 export interface ApiVaultItem {
   id: string;
   seq: number;
-  generation?: number;
+  generation: number;
   data: string;
 }
 
@@ -344,11 +340,9 @@ export class Api {
   register = (body: Record<string, unknown>) =>
     this.request<{ user_id: string; token: string; role: "owner" | "admin" | "member" }>("POST", "/api/auth/register", body);
   login = (username: string, authKey: Uint8Array) =>
-    this.request<LoginResponse>("POST", "/api/auth/login", { username, auth_key: authKey, client: ACCOUNT_PROTOCOL });
+    this.request<LoginResponse>("POST", "/api/auth/login", { username, auth_key: authKey });
   recover = (username: string, recoveryAuthKey: Uint8Array) =>
-    this.request<LoginResponse>("POST", "/api/auth/recover", { username, recovery_auth_key: recoveryAuthKey, client: ACCOUNT_PROTOCOL });
-  changePassword = (body: Record<string, unknown>) => this.request("POST", "/api/auth/password", body);
-  changeRecoveryKey = (body: Record<string, unknown>) => this.request("POST", "/api/auth/recovery-key", body);
+    this.request<LoginResponse>("POST", "/api/auth/recover", { username, recovery_auth_key: recoveryAuthKey });
   logout = () => this.request("POST", "/api/auth/logout", {});
   setPush = (body: { relay: string; handle: string; call_handle?: string; key: Uint8Array; registration: string; muted: string[]; muted_until: Record<string, number>; filters: boolean }) =>
     this.request("PUT", "/api/push", body);
@@ -360,7 +354,7 @@ export class Api {
   user = (id: string) => this.request<ApiUser>("GET", at`/api/users/${id}`);
   updateMe = (body: { profile?: Uint8Array; profile_sig?: Uint8Array; avatar_file?: string | null; hide_last_seen?: boolean }) =>
     this.request("PATCH", "/api/me", body);
-  addDevice = (id: string, certificate: Uint8Array, signatureKey: Uint8Array, extra?: { generation: number; seal_key: Uint8Array; seal_sig: Uint8Array; enroll_proof?: Uint8Array; seal_generation: number; seal_proof: Uint8Array }) =>
+  addDevice = (id: string, certificate: Uint8Array, signatureKey: Uint8Array, extra: { generation: number; seal_key: Uint8Array; enroll_proof: Uint8Array; seal_generation: number; seal_proof: Uint8Array }) =>
     this.request("POST", "/api/devices", { id, certificate, signature_key: signatureKey, ...extra });
   revokeDevice = (id: string) => this.request("DELETE", at`/api/devices/${id}`);
 
@@ -378,36 +372,29 @@ export class Api {
   // Vault
   vaultItems = async (since: number) =>
     (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/vault?since=${since}`)).items;
-  putVaultItems = (items: { id: string; data: Uint8Array }[]) => this.request<{ seq: number }>("PUT", "/api/vault", { items });
+  putVaultItems = (generation: number, items: { id: string; data: Uint8Array }[]) =>
+    this.request<{ seq: number }>("PUT", "/api/vault", { generation, items });
+  olderVaultItems = async (limit: number) =>
+    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/vault/older?limit=${limit}`)).items;
+  resealVault = (generation: number, items: { id: string; data: Uint8Array }[], remove: string[]) =>
+    this.request("POST", "/api/vault/reseal", { generation, items, delete: remove });
   historyGrants = async () =>
     (await this.request<{ grants: { id: number; group_id: string; data: string }[] }>("GET", "/api/history-grants")).grants;
   deleteHistoryGrant = (id: number) => this.request("DELETE", at`/api/history-grants/${id}`);
 
   // Generations of an account's keys
-  account = () => this.request<ApiAccount>("GET", "/api/v2/account");
-  rotate = (body: unknown) => this.request("POST", "/api/v2/account/rotate", body);
+  account = () => this.request<ApiAccount>("GET", "/api/account");
+  rotate = (body: unknown) => this.request("POST", "/api/account/rotate", body);
   putBundles = (generation: number, bundles: { device_id: string; data: Uint8Array }[]) =>
-    this.request("POST", "/api/v2/account/bundles", { generation, bundles });
-  addFirstSlot = (slot: Record<string, unknown>, vaultCore: Uint8Array) =>
-    this.request("POST", "/api/v2/account/slots", { slot, vault_core: vaultCore });
+    this.request("POST", "/api/account/bundles", { generation, bundles });
   closeGeneration = (generation: number, vaultCore: Uint8Array) =>
-    this.request("POST", "/api/v2/account/core", { generation, vault_core: vaultCore });
-  setSealKey = (deviceId: string, sealKey: Uint8Array, sealSig: Uint8Array, generation: number, proof: Uint8Array) =>
-    this.request("PUT", at`/api/v2/devices/${deviceId}/seal-key`, { seal_key: sealKey, seal_sig: sealSig, seal_generation: generation, seal_proof: proof });
+    this.request("POST", "/api/account/core", { generation, vault_core: vaultCore });
+  setSealKey = (deviceId: string, sealKey: Uint8Array, generation: number, proof: Uint8Array) =>
+    this.request("PUT", at`/api/devices/${deviceId}/seal-key`, { seal_key: sealKey, seal_generation: generation, seal_proof: proof });
   setCertificate = (deviceId: string, certificate: Uint8Array) =>
-    this.request("PUT", at`/api/v2/devices/${deviceId}/certificate`, { certificate });
+    this.request("PUT", at`/api/devices/${deviceId}/certificate`, { certificate });
   identityLinks = async (userId: string, after: number) =>
     (await this.request<{ links: ApiLink[] }>("GET", at`/api/users/${userId}/identity-links?after=${after}`)).links;
-  vaultItemsAtAnyGeneration = async (since: number) =>
-    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/v2/vault?since=${since}`)).items;
-  putVaultItemsAt = (generation: number, items: { id: string; data: Uint8Array }[]) =>
-    this.request<{ seq: number }>("PUT", "/api/v2/vault", { generation, items });
-  olderVaultItems = async (limit: number) =>
-    (await this.request<{ items: ApiVaultItem[] }>("GET", at`/api/v2/vault/older?limit=${limit}`)).items;
-  resealVault = (generation: number, items: { id: string; data: Uint8Array }[], remove: string[]) =>
-    this.request("POST", "/api/v2/vault/reseal", { generation, items, delete: remove });
-  historyGrantsAtAnyGeneration = async () =>
-    (await this.request<{ grants: { id: number; group_id: string; data: string }[] }>("GET", "/api/v2/history-grants")).grants;
 
   // Groups
   groups = async () => (await this.request<{ groups: ApiGroup[] }>("GET", "/api/groups")).groups;
@@ -541,14 +528,10 @@ export interface LoginResponse {
   username: string;
   role: "owner" | "admin" | "member";
   token: string;
-  wrapped_key: string;
   vault_core: string;
-  // What a server that keeps generations of keys adds.
-  protocol?: number;
-  generation?: number;
-  slot?: ApiSlot | null;
-  bridge?: string | null;
-  head_link?: ApiLink | null;
+  generation: number;
+  slot: ApiSlot | null;
+  head_link: ApiLink | null;
 }
 
 export const decode = (value: string | null | undefined): Uint8Array =>

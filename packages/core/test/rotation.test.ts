@@ -9,7 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Api, ApiError, decode } from "../src/api";
 import { createCertificate, openVaultItem, parseCertificate, randomId, sealVaultCore, sealVaultItem, derivePasswordKeys, type VaultCore } from "../src/crypto";
 import { fromBase64, toBase64, utf8 } from "../src/encoding";
-import { EMPTY_LINK_HASH, hash, keyCommitment, openSlot, parseLinkPayload, sealBundle, sealToSlot, signSealKey } from "../src/generations";
+import { EMPTY_LINK_HASH, hash, keyCommitment, openSlot, parseLinkPayload, sealBundle, sealToSlot, signSealProof } from "../src/generations";
 import { TestApp, TestServer, loadCrypto, sleep, waitFor } from "./helpers";
 
 let server: TestServer;
@@ -26,16 +26,6 @@ async function person(name: string): Promise<TestApp> {
   await waitFor(() => app.session.getUsers().some((user) => user.id === alice.userId), "them to see everyone");
   open.push(app);
   return app;
-}
-
-/** An account from before slots: an existing person, on an updated app. */
-async function olderPerson(name: string): Promise<{ app: TestApp; username: string; recoveryKey: string }> {
-  const app = await new TestApp(name).open();
-  const username = `${name}${++counter}`;
-  const recoveryKey = await app.registerAsBefore(invite, username);
-  await waitFor(() => alice.session.getUsers().some((user) => user.id === app.userId), "everyone to see them");
-  open.push(app);
-  return { app, username, recoveryKey };
 }
 
 async function secondDevice(of: TestApp, name: string, password = "correct horse battery"): Promise<TestApp> {
@@ -95,12 +85,10 @@ afterAll(async () => {
 });
 
 describe("slots and seal keys", () => {
-  it("makes new accounts with slots and no wrappers that can't be sealed to", async () => {
+  it("makes new accounts with a slot for each secret", async () => {
     const dave = await person("dave");
     const db = serverDatabase();
     try {
-      const user = db.prepare("SELECT length(wrapped_key_password) AS password, length(wrapped_key_recovery) AS recovery FROM users WHERE id = ?").get(dave.userId) as { password: number; recovery: number };
-      expect(user).toEqual({ password: 0, recovery: 0 });
       const kinds = db.prepare("SELECT kind FROM account_slots WHERE user_id = ? ORDER BY kind").all(dave.userId) as { kind: string }[];
       expect(kinds.map((row) => row.kind)).toEqual(["password", "recovery"]);
     } finally {
@@ -116,27 +104,6 @@ describe("slots and seal keys", () => {
     const stranger = await new TestApp("stranger").open();
     open.push(stranger);
     await expect(stranger.login(server.url, username, "not the password at all")).rejects.toMatchObject({ code: "invalid_credentials" });
-  });
-
-  it("turns an older account's wrapper into a slot when the password is typed, and older apps can still sign in", async () => {
-    const { app, username } = await olderPerson("erin");
-    const laptop = await new TestApp("erin-laptop").open();
-    open.push(laptop);
-    await laptop.login(server.url, username);
-    const db = serverDatabase();
-    try {
-      const kinds = db.prepare("SELECT kind FROM account_slots WHERE user_id = ?").all(app.userId) as { kind: string }[];
-      expect(kinds.map((row) => row.kind)).toEqual(["password"]);
-    } finally {
-      db.close();
-    }
-    expect(generationOf(laptop)).toBe(0);
-    // What an older app sends: no client version, and it gets the old wrapper.
-    const params = await new Api(server.url).prelogin(username);
-    const keys = derivePasswordKeys("correct horse battery", { salt: fromBase64(params.salt), memory: params.memory, iterations: params.iterations, parallelism: params.parallelism }, { serverUrl: server.url, username });
-    const reply = await fetch(`${server.url}/api/auth/login`, { method: "POST", body: JSON.stringify({ username, auth_key: toBase64(keys.authKey) }) });
-    expect(reply.status).toBe(200);
-    expect(decode(((await reply.json()) as { wrapped_key: string }).wrapped_key).length).toBeGreaterThan(0);
   });
 
   it("gives every device a seal key signed by itself, which the server can't swap for its own", async () => {
@@ -180,11 +147,6 @@ describe("slots and seal keys", () => {
     expect(toBase64(accountKeyOf(phone))).toBe(toBase64(accountKeyOf(dave)));
   });
 
-  it("refuses the password and recovery routes of an older app once an account has slots", async () => {
-    const dave = await person("dave");
-    await expect(apiOf(dave).changePassword({ current_auth_key: new Uint8Array(32), kdf: {}, auth_key: new Uint8Array(32), wrapped_key_password: new Uint8Array(8) })).rejects.toMatchObject({ status: 426 });
-    await expect(apiOf(dave).changeRecoveryKey({ current_auth_key: new Uint8Array(32), recovery_auth_key: new Uint8Array(32), wrapped_key_recovery: new Uint8Array(8) })).rejects.toMatchObject({ status: 426 });
-  });
 });
 
 describe("rotating (Z-04)", () => {
@@ -504,16 +466,6 @@ describe("after a rotation", () => {
     await waitFor(() => erin.texts(`user:${dave.userId}`).includes("hello from generation six"), "delivery");
   });
 
-  it("leaves someone's leaf alone if it's from an app that never heard of any of this", async () => {
-    const { app } = await olderPerson("lee");
-    const session = sessionOf(alice);
-    await session.ensureUser(app.userId, true);
-    const secret = sessionOf(app).account.core.rootSecret;
-    const old = createCertificate(secret, { userId: app.userId, deviceId: "8".repeat(32), signatureKey: new Uint8Array(32).fill(1) });
-    const standing = session.certificateStanding(app.userId, session.pinnedIdentity(app.userId), old);
-    expect(standing.carried).toBe(true);
-    expect(standing.headSignature).toBe(false);
-  });
 });
 
 describe("a crash partway through a rotation", () => {
@@ -621,7 +573,7 @@ describe("a crash partway through a rotation", () => {
     const realFetch = globalThis.fetch;
     let failing = true;
     globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      if (failing && String(url).endsWith("/api/v2/account/rotate")) throw new TypeError("gone");
+      if (failing && String(url).endsWith("/api/account/rotate")) throw new TypeError("gone");
       return realFetch(url, init);
     }) as typeof fetch;
     const again = await new TestApp("dave-again").open();
@@ -775,16 +727,15 @@ describe("someone holding old keys, with the server's help", () => {
     const fake = wasm.signingKeygen();
     const seal = wasm.hpkeKeygen();
     const fakeId = "f".repeat(32);
-    const certificate = createCertificate(self.account.core.rootSecret, { userId: dave.userId, deviceId: fakeId, signatureKey: fake.publicKey, generation: 0 }, self.account.core.rootSecret);
+    const certificate = createCertificate(self.account.core.rootSecret, { userId: dave.userId, deviceId: fakeId, signatureKey: fake.publicKey, generation: 0 });
     const db = serverDatabase();
-    const { signSealKey } = await import("../src/generations");
-    db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_sig) VALUES(?, ?, ?, ?, 1, 1, ?, ?)").run(
+    db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_generation, seal_proof) VALUES(?, ?, ?, ?, 1, 1, ?, 0, ?)").run(
       fakeId,
       dave.userId,
       certificate,
       fake.publicKey as Uint8Array,
       seal.publicKey as Uint8Array,
-      signSealKey(fake.secretKey, dave.userId, fakeId, seal.publicKey),
+      signSealProof(fake.secretKey, dave.userId, fakeId, 0, seal.publicKey),
     );
     db.close();
 
@@ -1009,171 +960,15 @@ describe("someone holding old keys, with the server's help", () => {
   });
 });
 
-describe("what an account from before slots gets", () => {
-  it("carries the key forward with a bridge, so nothing is lost, and says what that means", async () => {
-    const { app, username, recoveryKey } = await olderPerson("frank");
-    const oldKey = accountKeyOf(app).slice();
-    const groupId = await groupWith(app, [alice]);
-    alice.session.sendMessage(`group:${groupId}`, { text: "keep it" });
-    await waitFor(() => app.texts(`group:${groupId}`).includes("keep it"), "delivery");
-    await app.session.rotate();
-    expect(generationOf(app)).toBe(1);
-
-    // Recovery still works, through the bridge, with everything there.
-    const again = await new TestApp("frank-again").open();
-    open.push(again);
-    again.serverId = await again.client.recover(server.url, username, recoveryKey, "a brand new password");
-    await again.online();
-    await waitFor(async () => (await again.session.loadMessages(groupId)).messages.some((item) => item.text === "keep it"), "the history");
-    expect(generationOf(again)).toBe(2);
-    expect(sessionOf(again).account.core.slots.recovery).toBeTruthy();
-    expect(sessionOf(again).account.core.slots.password).toBeTruthy();
-
-    // That rotation had both secrets in hand, so nothing is bridged any more.
-    const db = serverDatabase();
-    const user = db.prepare("SELECT bridge, length(wrapped_key_password) AS password, length(wrapped_key_recovery) AS recovery FROM users WHERE id = ?").get(app.userId) as { bridge: Uint8Array | null; password: number; recovery: number };
-    db.close();
-    expect(user.bridge).toBeNull();
-    expect([user.password, user.recovery]).toEqual([0, 0]);
-    expect(sessionOf(again).account.core.firstKey).toBeNull();
-    expect(toBase64(accountKeyOf(again))).not.toBe(toBase64(oldKey));
-  });
-
-  it("keeps a bridge while a wrapper of the old kind is left, which the first key opens", async () => {
-    const { app, username } = await olderPerson("gina");
-    const first = accountKeyOf(app).slice();
-    await app.session.rotate();
-    const { openBridge } = await import("../src/generations");
-    const db = serverDatabase();
-    const user = db.prepare("SELECT bridge FROM users WHERE id = ?").get(app.userId) as { bridge: Uint8Array };
-    db.close();
-    // Honest about the limit: the holder of the first key and the server's data opens it.
-    expect(toBase64(openBridge(first, app.userId, 1, user.bridge))).toBe(toBase64(accountKeyOf(app)));
-
-    const laptop = await new TestApp("gina-laptop").open();
-    open.push(laptop);
-    await laptop.login(server.url, username);
-    // Signing in had the password, so that wrapper became a slot, which took a rotation.
-    await atGeneration(laptop, 2);
-    expect(sessionOf(laptop).account.core.slots.password).toBeTruthy();
-    expect(sessionOf(laptop).account.core.slots.recovery).toBeUndefined();
-    await atGeneration(app, 2);
-    expect(toBase64(accountKeyOf(app))).toBe(toBase64(accountKeyOf(laptop)));
-  });
-
-  it("carries a device that signed in from an older app at the first rotation", async () => {
-    const { app } = await olderPerson("hana");
-    const session = sessionOf(app);
-    const device = wasm.signingKeygen();
-    const deviceId = "c".repeat(32);
-    const certificate = createCertificate(session.account.core.rootSecret, { userId: app.userId, deviceId, signatureKey: device.publicKey });
-    const db = serverDatabase();
-    db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at) VALUES(?, ?, ?, ?, 1, 1)").run(deviceId, app.userId, certificate, device.publicKey as Uint8Array);
-    db.close();
-    await app.session.rotate();
-    const head = session.headOf(app.userId);
-    expect(head.devices.map((item: { id: string }) => item.id)).toContain(deviceId);
-    const stored = serverDatabase();
-    const bundles = stored.prepare("SELECT data FROM account_bundles WHERE device_id = ?").all(deviceId);
-    stored.close();
-    expect(bundles).toEqual([]);
-  });
-
-  it("doesn't rotate for removals from before the server kept generations", async () => {
-    const { app } = await olderPerson("ivan");
-    const db = serverDatabase();
-    const session = sessionOf(app);
-    const device = wasm.signingKeygen();
-    const deviceId = "9".repeat(32);
-    const certificate = createCertificate(session.account.core.rootSecret, { userId: app.userId, deviceId, signatureKey: device.publicKey });
-    db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at) VALUES(?, ?, ?, ?, 1, 1, 1)").run(deviceId, app.userId, certificate, device.publicKey as Uint8Array);
-    db.close();
-    await sessionOf(app).ensureUser(app.userId, true);
-    await sleep(400);
-    expect(generationOf(app)).toBe(0);
-  });
-});
-
-describe("older apps", () => {
-  /**
-   * What an older app's requests look like, on an account that has rotated. They're
-   * signed as the device signs, since one that has signed once always has to.
-   */
-  async function olderApi(app: TestApp): Promise<Api> {
-    const api = new Api(server.url);
-    api.token = apiOf(app).token;
-    api.prove = apiOf(app).prove;
-    return api;
-  }
-
-  it("tells an older app to update when it signs in to an account that has rotated", async () => {
-    const { app, username } = await olderPerson("jo");
-    const params = await new Api(server.url).prelogin(username);
-    const keys = derivePasswordKeys("correct horse battery", { salt: fromBase64(params.salt), memory: params.memory, iterations: params.iterations, parallelism: params.parallelism }, { serverUrl: server.url, username });
-    const before = await fetch(`${server.url}/api/auth/login`, { method: "POST", body: JSON.stringify({ username, auth_key: toBase64(keys.authKey) }) });
-    expect(before.status).toBe(200);
-    await app.session.rotate();
-    const after = await fetch(`${server.url}/api/auth/login`, { method: "POST", body: JSON.stringify({ username, auth_key: toBase64(keys.authKey) }) });
-    expect(after.status).toBe(426);
-    expect(((await after.json()) as { message: string }).message).toMatch(/update/i);
-  });
-
-  it("doesn't let an older device store epoch keys under the old key, or see what it can't open", async () => {
-    const dave = await person("dave");
-    const api = await olderApi(dave);
-    const oldKey = accountKeyOf(dave).slice();
-    await dave.session.rotate();
-    const before = serverVault(dave.userId).length;
-    const id = "ek:ffffffffffffffffffffffffffffffff:1";
-    await expect(api.putVaultItems([{ id, data: sealVaultItem(oldKey, id, new Uint8Array(32)) }])).resolves.toBeTruthy();
-    expect(serverVault(dave.userId).length).toBe(before);
-    const seen = await api.vaultItems(0);
-    expect(seen.every((item) => (item.generation ?? 0) === 0)).toBe(true);
-  });
-
-  it("doesn't give an older device grants to delete", async () => {
-    const dave = await person("dave");
-    await dave.session.rotate();
-    const groupId = await groupWith(alice, [], true);
-    alice.session.sendMessage(`group:${groupId}`, { text: "for the grant" });
-    await sleep(100);
-    const api = await olderApi(dave);
-    const realGrants = sessionOf(dave).processHistoryGrants;
-    sessionOf(dave).processHistoryGrants = async () => undefined;
-    await alice.session.addMembers(groupId, [dave.userId]);
-    expect(await api.historyGrants()).toEqual([]);
-    expect((await api.historyGrantsAtAnyGeneration()).length).toBe(1);
-    sessionOf(dave).processHistoryGrants = realGrants;
-    await sessionOf(dave).processHistoryGrants();
-    await waitFor(async () => (await dave.session.loadMessages(groupId)).messages.some((item) => item.text === "for the grant"), "the history");
-  });
-
-  it("leaves a contact on an older app seeing the first key, with no warning and no removal", async () => {
-    const dave = await person("dave");
-    const groupId = await groupWith(alice, [dave]);
-    await dave.session.rotate();
-    // An older app sees \`identity_key\`, unchanged, and checks each certificate's \`s\`.
-    const seen = await apiOf(alice).user(dave.userId);
-    expect(toBase64(decode(seen.identity_key))).toBe(toBase64(sessionOf(dave).account.core.rootPublic));
-    const { verifyCertificate, verifyHpkeKey } = await import("../src/crypto");
-    for (const device of seen.devices) {
-      expect(verifyCertificate(decode(seen.identity_key), decode(device.certificate))).not.toBeNull();
-    }
-    expect(verifyHpkeKey(decode(seen.identity_key), decode(seen.hpke_key), decode(seen.hpke_key_sig))).toBe(true);
-    dave.session.sendMessage(`group:${groupId}`, { text: "after rotating" });
-    await waitFor(() => alice.texts(`group:${groupId}`).includes("after rotating"), "delivery");
-    const roster = sessionOf(dave).treeMembers(groupId) as { deviceId: string; genuine: boolean }[];
-    expect(roster.every((member) => member.genuine)).toBe(true);
-  });
-
-  it("delivers the key to a device that updates after the rotation", async () => {
+describe("a device that couldn't be sealed to", () => {
+  it("gets the key later, from a device that can", async () => {
     const dave = await person("dave");
     const phone = await secondDevice(dave, "dave-phone");
     const phoneId = phone.session.getSelf().deviceId;
     phone.client.stop();
-    // As an older app would be: no seal key on record.
+    // No seal key on record, so the rotation has nothing to seal to for it.
     const db = serverDatabase();
-    db.prepare("UPDATE devices SET seal_key = NULL, seal_sig = NULL WHERE id = ?").run(phoneId);
+    db.prepare("UPDATE devices SET seal_key = NULL WHERE id = ?").run(phoneId);
     db.close();
     await dave.session.rotate();
     const stored = serverDatabase();
@@ -1190,7 +985,7 @@ describe("older apps", () => {
 describe("two details of rotation (Z-61)", () => {
   const sealFields = (id: string) => {
     const db = serverDatabase();
-    const row = db.prepare("SELECT seal_key, seal_sig, seal_generation, seal_proof FROM devices WHERE id = ?").get(id) as Record<string, any>;
+    const row = db.prepare("SELECT seal_key, seal_generation, seal_proof FROM devices WHERE id = ?").get(id) as Record<string, any>;
     db.close();
     return row;
   };
@@ -1210,7 +1005,7 @@ describe("two details of rotation (Z-61)", () => {
 
     // A server offers the old one again, with everything that went with it.
     const db = serverDatabase();
-    db.prepare("UPDATE devices SET seal_key = ?, seal_sig = ?, seal_generation = ?, seal_proof = ? WHERE id = ?").run(old.seal_key, old.seal_sig, old.seal_generation, old.seal_proof, phoneId);
+    db.prepare("UPDATE devices SET seal_key = ?, seal_generation = ?, seal_proof = ? WHERE id = ?").run(old.seal_key, old.seal_generation, old.seal_proof, phoneId);
     db.prepare("UPDATE users SET updated_at = updated_at + 1 WHERE id = ?").run(dave.userId);
     db.close();
     const me = await apiOf(dave).user(dave.userId);
@@ -1219,18 +1014,8 @@ describe("two details of rotation (Z-61)", () => {
     expect(sessionOf(dave).sealKeyOf(device, key)).toBeNull();
     expect(securityEvents(dave).some((event) => event.message.includes("old key"))).toBe(true);
 
-    // And it can't pass for one from before they said, either.
+    // Nor without saying which generation it's from.
     expect(sessionOf(dave).sealKeyOf({ ...device, seal_generation: null, seal_proof: null }, key)).toBeNull();
-  });
-
-  it("still takes a key from before they said which generation it's from", async () => {
-    const dave = await person("dave");
-    const phone = await secondDevice(dave, "dave-phone");
-    const phoneId = phone.session.getSelf().deviceId;
-    const device = (await apiOf(dave).user(dave.userId)).devices.find((item) => item.id === phoneId)!;
-    sessionOf(dave).setKv("seal_seen", {});
-    const older = { ...device, seal_generation: null, seal_proof: null };
-    expect(sessionOf(dave).sealKeyOf(older, decode(device.signature_key))).toEqual(decode(device.seal_key));
   });
 
   it("slows down when told over and over that devices were removed", async () => {
@@ -1243,47 +1028,6 @@ describe("two details of rotation (Z-61)", () => {
     session.rotationTimer = undefined;
     expect(generationOf(dave)).toBe(generation);
     expect(securityEvents(dave).some((event) => event.message.includes("slowed down"))).toBe(true);
-  });
-});
-
-describe("a server from before generations", () => {
-  it("is treated as it always was by an up-to-date client", async () => {
-    const dave = await new TestApp("dave").open();
-    open.push(dave);
-    await dave.registerAsBefore(invite, `dave${++counter}`);
-    const session = sessionOf(dave);
-    // The server says nothing about generations, and none of those routes exist.
-    session.info = { ...session.info };
-    delete session.info.account_protocol;
-    session.account = { ...session.account, protocol: undefined };
-    expect(session.modern).toBe(false);
-    const id = "prefs";
-    let put = "";
-    const real = session.api.putVaultItems;
-    session.api.putVaultItems = async (items: { id: string }[]) => {
-      put = items[0]!.id;
-      return { seq: 1 };
-    };
-    await session.putVault(id, new Uint8Array(1));
-    session.api.putVaultItems = real;
-    expect(put).toBe(id);
-    expect(session.removalsUncovered).toBe(false);
-  });
-
-  it("gets noticed if a server stops offering them", async () => {
-    const dave = await person("dave");
-    const session = sessionOf(dave);
-    const realInfo = session.api.info;
-    session.api.info = async () => {
-      const info = await realInfo();
-      delete info.account_protocol;
-      return info;
-    };
-    session.info = await session.api.info();
-    session.noticeProtocol();
-    session.api.info = realInfo;
-    expect(securityEvents(dave).some((event) => event.message.includes("older version"))).toBe(true);
-    session.info = await realInfo();
   });
 });
 
@@ -1349,25 +1093,8 @@ describe("verified contacts", () => {
     expect(before).toBe(emoji(erin, dave));
     await dave.session.rotate();
     await waitFor(() => sessionOf(erin).headGeneration(dave.userId) === 1, "erin to follow");
-    await waitFor(() => (sessionOf(erin).users.get(dave.userId).devices.values().next().value as { legacy?: boolean }).legacy === false, "the new certificate");
     await waitFor(() => emoji(dave, erin) === emoji(erin, dave), "them to agree");
     expect(emoji(dave, erin)).not.toBe(before);
-  });
-
-  it("gives the same emoji to someone on an older app, by going by the first keys", async () => {
-    const dave = await person("dave");
-    const erin = await person("erin");
-    await sessionOf(dave).ensureUser(erin.userId, true);
-    await sessionOf(erin).ensureUser(dave.userId, true);
-    const { safetyEmoji } = await import("../src/crypto");
-    const oldApp = safetyEmoji(sessionOf(erin).account.core.rootPublic, sessionOf(erin).users.get(dave.userId).identityKey).map((item) => item.emoji).join("");
-    await dave.session.rotate();
-    await waitFor(() => sessionOf(erin).headGeneration(dave.userId) === 1, "erin to follow");
-    // Erin's other device hasn't updated: its certificate has no newer signature.
-    const self = sessionOf(dave).users.get(erin.userId) ?? (await sessionOf(dave).ensureUser(erin.userId, true));
-    for (const device of self.devices.values()) device.legacy = true;
-    const shown = dave.session.safetyCheck(erin.userId)!.emoji.map((item) => item.emoji).join("");
-    expect(shown).toBe(oldApp);
   });
 
   it("follows whichever chain the emoji matched, when someone chooses after a fork", async () => {
@@ -1540,17 +1267,6 @@ describe("verified contacts", () => {
       expect(erin.session.safetyCheck(dave.userId)!.trust).toBe("verified");
     });
 
-    it("goes by the first keys for someone on an older app, and leaves the chain alone", async () => {
-      const { dave, erin, root } = await rotatedPair();
-      for (const device of sessionOf(erin).users.get(dave.userId).devices.values()) device.legacy = true;
-      fork(erin, dave);
-      const compared = covers(erin, dave);
-      expect(compared).toBe(`roots:${root}`);
-      lieAboutChain(erin, []);
-      await press(erin, dave, compared);
-      expect(sessionOf(erin).headGeneration(dave.userId)).toBe(1);
-      expect(pinned(erin, dave.userId)).toBe(root);
-    });
   });
 
   it("shares how far a verification reached with this account's new devices", async () => {
@@ -1588,7 +1304,6 @@ describe("signing in, against a server that chose the keys", () => {
       rootSecret: identity.secretKey,
       olderKeys: {},
       olderHpkeSecrets: [],
-      firstKey: null,
       closedBelow: 0,
       slots: {},
       ...fields,
@@ -1604,21 +1319,6 @@ describe("signing in, against a server that chose the keys", () => {
     db.prepare("UPDATE users SET vault_core = ? WHERE id = ?").run(sealVaultCore(chosen, core), app.userId);
     db.close();
   }
-
-  it("refuses a server that says it's from before generations, rather than skip the checks", async () => {
-    const dave = await person("dave");
-    const request = (Api.prototype as any).request;
-    (Api.prototype as any).request = async function (this: Api, method: string, path: string, ...rest: unknown[]) {
-      const reply = await request.call(this, method, path, ...rest);
-      if (path === "/api/auth/login") delete reply.protocol;
-      return reply;
-    };
-    try {
-      await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("too old");
-    } finally {
-      (Api.prototype as any).request = request;
-    }
-  });
 
   it("refuses an account key that opens a core of the server's own", async () => {
     const dave = await person("dave");
@@ -1650,8 +1350,8 @@ describe("signing in, against a server that chose the keys", () => {
     await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("doesn't fit together");
   });
 
-  /** Puts back the slot as it was sealed before it said whose account it's for, as a server that kept a copy could. */
-  async function slotFromBefore(app: TestApp): Promise<{ slotKey: Uint8Array }> {
+  /** Seals the password's slot again with what `contents` makes of it, as someone who knows the password could, working with the server. */
+  async function rewriteSlot(app: TestApp, contents: (secrets: { seal: Uint8Array; sign: Uint8Array }) => object): Promise<void> {
     const username = usernameOf(app);
     const params = await new Api(server.url).prelogin(username);
     const { slotKey } = derivePasswordKeys(
@@ -1662,29 +1362,23 @@ describe("signing in, against a server that chose the keys", () => {
     const db = serverDatabase();
     const { sealed_secret: sealed } = db.prepare("SELECT sealed_secret FROM account_slots WHERE user_id = ? AND kind = 'password'").get(app.userId) as { sealed_secret: Uint8Array };
     const secrets = openSlot("password", slotKey, sealed);
-    const older = wasm.aeadSeal(slotKey, utf8(JSON.stringify({ seal: toBase64(secrets.seal), sign: toBase64(secrets.sign) })), utf8("zuna/account-slot/v1/secret|password"));
-    db.prepare("UPDATE account_slots SET sealed_secret = ? WHERE user_id = ? AND kind = 'password'").run(older, app.userId);
+    const rewritten = wasm.aeadSeal(slotKey, utf8(JSON.stringify(contents(secrets))), utf8("zuna/account-slot/v1/secret|password"));
+    db.prepare("UPDATE account_slots SET sealed_secret = ? WHERE user_id = ? AND kind = 'password'").run(rewritten, app.userId);
     db.close();
-    return { slotKey };
   }
 
-  it("makes a slot say whose account it's for, the next time its secret is entered", async () => {
+  it("refuses a slot that doesn't say whose account it's for", async () => {
     const dave = await person("dave");
-    const root = toBase64(sessionOf(dave).account.core.rootPublic);
-    const { slotKey } = await slotFromBefore(dave);
-    const phone = await secondDevice(dave, "dave-phone");
-    await atGeneration(phone, 1);
-    const db = serverDatabase();
-    const { sealed_secret: sealed } = db.prepare("SELECT sealed_secret FROM account_slots WHERE user_id = ? AND kind = 'password'").get(dave.userId) as { sealed_secret: Uint8Array };
-    db.close();
-    expect(toBase64(openSlot("password", slotKey, sealed).root!)).toBe(root);
+    await rewriteSlot(dave, (secrets) => ({ seal: toBase64(secrets.seal), sign: toBase64(secrets.sign) }));
+    await expect((await newDevice("dave-new")).login(server.url, usernameOf(dave))).rejects.toThrow("whose account");
   });
 
   it("gives up nothing on a device that already knows the account, whatever the slot says", async () => {
     const dave = await person("dave");
     const serverId = dave.serverId;
-    await slotFromBefore(dave);
-    sealToPasswordSlot(dave, fakeCore(0));
+    const core = fakeCore(0);
+    await rewriteSlot(dave, (secrets) => ({ seal: toBase64(secrets.seal), sign: toBase64(secrets.sign), root: toBase64(core.rootPublic) }));
+    sealToPasswordSlot(dave, core);
     await expect(dave.client.login(server.url, usernameOf(dave), "correct horse battery")).rejects.toThrow("doesn't match what this device knows");
     expect(dave.client.listServers().map((item) => item.id)).toEqual([serverId]);
     expect(dave.client.session(serverId).getSelf().userId).toBe(dave.userId);
@@ -1785,15 +1479,6 @@ describe("a leaf's certificate", () => {
     session.saveMls();
   });
 
-  it("names the first-generation certificate of an app that updated, without any rotation", async () => {
-    const { app } = await olderPerson("kim");
-    const session = sessionOf(app);
-    await waitFor(() => !!parseCertificate(session.account.certificate)?.headSignature, "a new certificate");
-    expect(parseCertificate(session.account.certificate)!.generation).toBe(0);
-    const row = await apiOf(app).user(app.userId);
-    const own = row.devices.find((device) => device.id === app.session.getSelf().deviceId)!;
-    expect(toBase64(decode(own.certificate))).toBe(toBase64(session.account.certificate));
-  });
 });
 
 describe("a server listing devices of its own for someone's account (Z-39)", () => {
@@ -1806,8 +1491,8 @@ describe("a server listing devices of its own for someone's account (Z-39)", () 
     const db = serverDatabase();
     try {
       const { certificate } = db.prepare("SELECT certificate FROM devices WHERE user_id = ? LIMIT 1").get(userId) as { certificate: Uint8Array };
-      db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_sig) VALUES(?,?,?,?,?,?,?,?)").run(
-        id, userId, certificate, attacker.publicKey, now, now, seal.publicKey, signSealKey(attacker.secretKey, userId, id, seal.publicKey),
+      db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, seal_key, seal_generation, seal_proof) VALUES(?,?,?,?,?,?,?,0,?)").run(
+        id, userId, certificate, attacker.publicKey, now, now, seal.publicKey, signSealProof(attacker.secretKey, userId, id, 0, seal.publicKey),
       );
       db.prepare("INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at) VALUES(?,?,?,?,?,?,?)").run(
         randomId(), userId, certificate, attacker.publicKey, now, now, now,
@@ -1828,24 +1513,22 @@ describe("a server listing devices of its own for someone's account (Z-39)", () 
     }
   };
 
-  for (const kind of ["older", "new"] as const) {
-    it(`seals nothing to it on an account of the ${kind} kind`, async () => {
-      const app = kind === "older" ? (await olderPerson("gina")).app : await person("gina");
-      await waitFor(() => sessionOf(app).protocolSince !== null, "the account to be followed");
-      const before = securityEvents(app).length;
-      const fake = plantDevice(app.userId);
-      await sessionOf(app).syncUsers();
-      await atGeneration(app, 1);
-      expect(bundleFor(fake.id)).toBeUndefined();
-      expect(securityEvents(app).slice(before).some((event) => event.message.includes("never signed in"))).toBe(true);
-      // Whichever keys the server has now, it can't open the account with them.
-      const link = parseLinkPayload(new Uint8Array((await apiOf(app).identityLinks(app.userId, 0)).map((wire) => decode(wire.payload))[0]!));
-      expect(link!.devices.map((device) => device.id)).not.toContain(fake.id);
-    });
-  }
+  it("seals nothing to it", async () => {
+    const app = await person("gina");
+    await waitFor(() => sessionOf(app).accountKnown, "the account to be followed");
+    const before = securityEvents(app).length;
+    const fake = plantDevice(app.userId);
+    await sessionOf(app).syncUsers();
+    await atGeneration(app, 1);
+    expect(bundleFor(fake.id)).toBeUndefined();
+    expect(securityEvents(app).slice(before).some((event) => event.message.includes("never signed in"))).toBe(true);
+    // Whichever keys the server has now, it can't open the account with them.
+    const link = parseLinkPayload(new Uint8Array((await apiOf(app).identityLinks(app.userId, 0)).map((wire) => decode(wire.payload))[0]!));
+    expect(link!.devices.map((device) => device.id)).not.toContain(fake.id);
+  });
 
-  it("doesn't deliver a later bundle to one on an account lacking a slot", async () => {
-    const { app } = await olderPerson("hana");
+  it("doesn't deliver a later bundle to one", async () => {
+    const app = await person("hana");
     await app.session.rotate();
     await sleep(200);
     const fake = plantDevice(app.userId);
@@ -1855,7 +1538,7 @@ describe("a server listing devices of its own for someone's account (Z-39)", () 
   });
 
   it("doesn't accept a real device's entry with another key in it", async () => {
-    const { app } = await olderPerson("ivy");
+    const app = await person("ivy");
     const laptop = await new TestApp("ivy-laptop").open();
     open.push(laptop);
     await laptop.login(server.url, app.session.getSelf().username);

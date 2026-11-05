@@ -28,7 +28,7 @@ func TestWhatCantBeUndoneNeedsTheDevicesProof(t *testing.T) {
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &login)
 	token := login.Token
-	h.mustDo("POST", "/api/devices", token, map[string]any{"id": store.NewID(), "certificate": []byte("cert"), "signature_key": []byte(public)}, nil)
+	h.mustDo("POST", "/api/devices", token, newDevice(store.NewID(), public), nil)
 	signed := func(method, path string, body []byte, at time.Time) map[string]string {
 		return proofHeaders(private, method, path, body, at)
 	}
@@ -100,8 +100,7 @@ func TestTokenAloneCantGetTheSameAnotherWay(t *testing.T) {
 	unsigned := []request{
 		role, invite, rewrite, leave,
 		{"DELETE", "/api/invites/" + h.invite, nil},
-		{"PUT", "/api/v2/vault", vault},
-		{"POST", "/api/v2/vault/reseal", vault},
+		{"POST", "/api/vault/reseal", vault},
 	}
 	for _, req := range unsigned {
 		if status, _, _ := h.raw(req.method, req.path, token, req.body, nil); status != http.StatusUnauthorized {
@@ -127,7 +126,7 @@ func signingDevice(h *harness) (string, ed25519.PrivateKey) {
 		Token string `json:"token"`
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 'o')}, &login)
-	h.mustDo("POST", "/api/devices", login.Token, map[string]any{"id": store.NewID(), "certificate": []byte("cert"), "signature_key": []byte(public)}, nil)
+	h.mustDo("POST", "/api/devices", login.Token, newDevice(store.NewID(), public), nil)
 	return login.Token, private
 }
 
