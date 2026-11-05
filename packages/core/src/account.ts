@@ -13,7 +13,6 @@ import {
   sealVaultCore,
   signHpkeKey,
   unwrapAccountKey,
-  upgradeProof,
   wrapAccountKey,
   type KdfParams,
   type PasswordKeys,
@@ -247,7 +246,6 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
   const created = await api.register({
     invite_code: input.invite?.code ?? "",
     username: input.username,
-    keys_bound: true,
     kdf: { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism },
     auth_key: password.authKey,
     recovery_auth_key: recovery.authKey,
@@ -274,54 +272,6 @@ export async function register(input: RegisterInput): Promise<RegisterResult> {
     },
     recoveryKey: toRecoveryText(recoveryKey),
   };
-}
-
-/**
- * Does something that proves who you are with a sign-in key. An account from
- * before those keys were bound to a server won't know the new one yet, so if it's
- * refused, the account moves to it (without ever sending the old one) and it's
- * tried again.
- */
-async function withCurrentKey<T>(
-  api: Api,
-  target: SignInTarget,
-  kind: "password" | "recovery",
-  keys: { authKey: Uint8Array; legacyAuthKey: Uint8Array },
-  action: () => Promise<T>,
-): Promise<T> {
-  try {
-    return await action();
-  } catch (error) {
-    if (!(error instanceof ApiError) || error.code !== "invalid_credentials") throw error;
-    await upgradeSignInKey(api, target, kind, keys, error);
-    return action();
-  }
-}
-
-/** Moves an account from before sign-in keys were bound to a server, if that's why one was refused. */
-export async function upgradeSignInKey(
-  api: Api,
-  target: SignInTarget,
-  kind: "password" | "recovery",
-  keys: { authKey: Uint8Array; legacyAuthKey: Uint8Array },
-  refusal: unknown,
-): Promise<void> {
-  const { salt, challenge } = await api.upgradeChallenge(target.username, kind);
-  const decoded = decode(challenge);
-  try {
-    await api.upgradeKey({
-      username: target.username,
-      kind,
-      origin: target.serverUrl,
-      challenge: decoded,
-      proof: upgradeProof(kind, keys.legacyAuthKey, decode(salt), decoded, target),
-      auth_key: keys.authKey,
-    });
-  } catch (upgradeError) {
-    // The key really was wrong, and that's the message to show.
-    if (upgradeError instanceof ApiError && upgradeError.code === "invalid_credentials") throw refusal;
-    throw upgradeError;
-  }
 }
 
 interface OpenedAccount {
@@ -403,7 +353,7 @@ export function login(serverUrlInput: string, username: string, passwordText: st
       },
       target,
     );
-    const session = await withCurrentKey(api, target, "password", password, () => api.login(username, password.authKey));
+    const session = await api.login(username, password.authKey);
     api.token = session.token;
     const { accountKey, core, slotSign, newSlot, protocol } = openAccount(target, "password", password, session);
     const device = await createDevice(api, core, session.user_id, slotSign, protocol);
@@ -451,7 +401,7 @@ export function recover(
     const target = { serverUrl, username };
     const recovery = deriveRecoveryKeys(recoveryKey, target);
     const api = new Api(serverUrl);
-    const session = await withCurrentKey(api, target, "recovery", recovery, () => api.recover(username, recovery.authKey));
+    const session = await api.recover(username, recovery.authKey);
     api.token = session.token;
     const { accountKey, core, slotSign, newSlot, protocol } = openAccount(target, "recovery", recovery, session);
 
@@ -489,8 +439,8 @@ export function recover(
   });
 }
 
-/** What a rotation has to do to change the password, along with what proves the current one. */
-export async function planPasswordChange(api: Api, username: string, current: string, next: string, core: VaultCore): Promise<{ plan: RotationPlan; keys: PasswordKeys }> {
+/** What a rotation has to do to change the password, which proves the current one. */
+export async function planPasswordChange(api: Api, username: string, current: string, next: string, core: VaultCore): Promise<RotationPlan> {
   const target = { serverUrl: api.baseUrl, username };
   const params = await api.prelogin(username);
   const keys = derivePasswordKeys(
@@ -505,17 +455,14 @@ export async function planPasswordChange(api: Api, username: string, current: st
   );
   const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
   const nextKeys = derivePasswordKeys(next, kdf, target);
-  return {
-    plan: { slots: [createSlot("password", nextKeys.slotKey, core.rootPublic).slot], password: { current_auth_key: keys.authKey, kdf: { ...kdf }, auth_key: nextKeys.authKey } },
-    keys,
-  };
+  return { slots: [createSlot("password", nextKeys.slotKey, core.rootPublic).slot], password: { current_auth_key: keys.authKey, kdf: { ...kdf }, auth_key: nextKeys.authKey } };
 }
 
 /**
  * What a rotation has to do to replace the recovery key, which is shown once. The
  * password is in hand too, so if it has no slot yet, this is when it gets one.
  */
-export async function planRecoveryChange(api: Api, username: string, current: string, core: VaultCore): Promise<{ plan: RotationPlan; keys: PasswordKeys; recoveryKey: string }> {
+export async function planRecoveryChange(api: Api, username: string, current: string, core: VaultCore): Promise<{ plan: RotationPlan; recoveryKey: string }> {
   const target = { serverUrl: api.baseUrl, username };
   const params = await api.prelogin(username);
   const keys = derivePasswordKeys(
@@ -534,7 +481,6 @@ export async function planRecoveryChange(api: Api, username: string, current: st
   if (!core.slots.password) slots.push(createSlot("password", keys.slotKey, core.rootPublic).slot);
   return {
     plan: { slots, recovery: { current_auth_key: keys.authKey, recovery_auth_key: recovery.authKey }, once: true },
-    keys,
     recoveryKey: toRecoveryText(recoveryKey),
   };
 }
@@ -556,14 +502,12 @@ export async function changePassword(api: Api, username: string, accountKey: Uin
   const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
   const nextKeys = derivePasswordKeys(next, kdf, target);
   try {
-    await withCurrentKey(api, target, "password", currentKeys, () =>
-      api.changePassword({
-        current_auth_key: currentKeys.authKey,
-        kdf: { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism },
-        auth_key: nextKeys.authKey,
-        wrapped_key_password: wrapAccountKey(nextKeys.wrapKey, accountKey, "password"),
-      }),
-    );
+    await api.changePassword({
+      current_auth_key: currentKeys.authKey,
+      kdf: { salt: toBase64(kdf.salt), memory: kdf.memory, iterations: kdf.iterations, parallelism: kdf.parallelism },
+      auth_key: nextKeys.authKey,
+      wrapped_key_password: wrapAccountKey(nextKeys.wrapKey, accountKey, "password"),
+    });
   } catch (error) {
     if (error instanceof ApiError && error.code === "invalid_credentials") {
       throw new Error("Your current password isn't correct.");
@@ -588,12 +532,10 @@ export async function regenerateRecoveryKey(api: Api, username: string, accountK
   );
   const recoveryKey = wasm.randomBytes(RECOVERY_KEY_BYTES);
   const recovery = deriveRecoveryKeys(recoveryKey, target);
-  await withCurrentKey(api, target, "password", currentKeys, () =>
-    api.changeRecoveryKey({
-      current_auth_key: currentKeys.authKey,
-      recovery_auth_key: recovery.authKey,
-      wrapped_key_recovery: wrapAccountKey(recovery.wrapKey, accountKey, "recovery"),
-    }),
-  );
+  await api.changeRecoveryKey({
+    current_auth_key: currentKeys.authKey,
+    recovery_auth_key: recovery.authKey,
+    wrapped_key_recovery: wrapAccountKey(recovery.wrapKey, accountKey, "recovery"),
+  });
   return toRecoveryText(recoveryKey);
 }

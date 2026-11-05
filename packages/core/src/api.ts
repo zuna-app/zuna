@@ -347,10 +347,6 @@ export class Api {
     this.request<LoginResponse>("POST", "/api/auth/login", { username, auth_key: authKey, client: ACCOUNT_PROTOCOL });
   recover = (username: string, recoveryAuthKey: Uint8Array) =>
     this.request<LoginResponse>("POST", "/api/auth/recover", { username, recovery_auth_key: recoveryAuthKey, client: ACCOUNT_PROTOCOL });
-  upgradeChallenge = (username: string, kind: "password" | "recovery") =>
-    this.request<{ salt: string; challenge: string }>("POST", "/api/auth/upgrade-challenge", { username, kind });
-  upgradeKey = (body: { username: string; kind: string; origin: string; challenge: Uint8Array; proof: Uint8Array; auth_key: Uint8Array }) =>
-    this.request("POST", "/api/auth/upgrade", body);
   changePassword = (body: Record<string, unknown>) => this.request("POST", "/api/auth/password", body);
   changeRecoveryKey = (body: Record<string, unknown>) => this.request("POST", "/api/auth/recovery-key", body);
   logout = () => this.request("POST", "/api/auth/logout", {});

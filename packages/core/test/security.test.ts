@@ -583,7 +583,6 @@ describe("signing in on a malicious server (Z-10)", () => {
     const onEvil = derivePasswordKeys("correct horse battery", kdf, { serverUrl: "https://evil.example", username });
     const real = new Api(server.url);
     await expect(real.login(username, onEvil.authKey)).rejects.toMatchObject({ code: "invalid_credentials" });
-    await expect(real.login(username, onEvil.legacyAuthKey)).rejects.toMatchObject({ code: "invalid_credentials" });
     const onReal = derivePasswordKeys("correct horse battery", kdf, { serverUrl: server.url, username });
     await expect(real.login(username, onReal.authKey)).resolves.toBeTruthy();
     // The wrapping key is the same either way, so nothing about the account changes.
@@ -592,43 +591,6 @@ describe("signing in on a malicious server (Z-10)", () => {
     expect(toBase64(deriveRecoveryKeys(recovery, { serverUrl: "https://a.example", username }).authKey)).not.toBe(toBase64(deriveRecoveryKeys(recovery, { serverUrl: "https://b.example", username }).authKey));
   });
 
-  it("moves an account from before that at its next sign-in, and never sends the old key", async () => {
-    const dave = await new TestApp("dave").open();
-    open.push(dave);
-    await dave.registerAsBefore(invite, `dave${++counter}`);
-    const username = dave.session.getSelf().username;
-    const api = apiOf(dave);
-    // The account as an older app would have left it.
-    const params = await api.prelogin(username);
-    const kdf = { salt: fromBase64(params.salt), memory: params.memory, iterations: params.iterations, parallelism: params.parallelism };
-    const keys = derivePasswordKeys("correct horse battery", kdf, { serverUrl: server.url, username });
-    const wrapped = await new Api(server.url).login(username, keys.authKey);
-    await api.changePassword({
-      current_auth_key: keys.authKey,
-      kdf: { salt: params.salt, memory: params.memory, iterations: params.iterations, parallelism: params.parallelism },
-      auth_key: keys.legacyAuthKey,
-      wrapped_key_password: decode(wrapped.wrapped_key),
-    });
-    await expect(new Api(server.url).login(username, keys.authKey)).rejects.toMatchObject({ code: "invalid_credentials" });
-
-    const sent: string[] = [];
-    const original = globalThis.fetch;
-    globalThis.fetch = (async (url: string, init?: RequestInit) => {
-      if (typeof init?.body === "string") sent.push(init.body);
-      return original(url, init);
-    }) as typeof fetch;
-    const laptop = await new TestApp("dave-laptop").open();
-    try {
-      await laptop.login(server.url, username);
-    } finally {
-      globalThis.fetch = original;
-    }
-    open.push(laptop);
-    expect(sent.some((body) => body.includes(toBase64(keys.legacyAuthKey)))).toBe(false);
-    // Moved: the new key works, the old one doesn't.
-    await expect(new Api(server.url).login(username, keys.authKey)).resolves.toBeTruthy();
-    await expect(new Api(server.url).login(username, keys.legacyAuthKey)).rejects.toMatchObject({ code: "invalid_credentials" });
-  });
 });
 
 describe("a verified contact on a new device (Z-11)", () => {
@@ -1217,26 +1179,6 @@ describe("a server rewriting who said what (Z-40)", () => {
       true,
     );
     expect(sessionOf(eve).messageRow(groupId, id).status).toBe("unverified");
-  });
-});
-
-describe("a copy of the database replacing someone's sign-in key (Z-41)", () => {
-  it("can't, for an account whose keys are bound to this server", async () => {
-    const owner = await person("omar");
-    const username = owner.session.getSelf().username;
-    const stored = withServerDatabase((db) => db.prepare("SELECT auth_hash FROM users WHERE id = ?").get(owner.userId)) as { auth_hash: Uint8Array };
-    const post = (path: string, body: unknown) => fetch(`${server.url}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const { challenge } = (await (await post("/api/auth/upgrade-challenge", { username, kind: "password" })).json()) as { challenge: string };
-    const info = `zuna/auth-upgrade/v1|password|${server.url}|${username.toLowerCase()}|${challenge}`;
-    const proof = wasm.hkdfSha256(new Uint8Array(stored.auth_hash), new Uint8Array(0), utf8(info), 32);
-    const attackerKey = wasm.randomBytes(32);
-    const reply = await post("/api/auth/upgrade", { username, kind: "password", origin: server.url, challenge, proof: toBase64(proof), auth_key: toBase64(attackerKey) });
-    expect(reply.status).toBe(401);
-    expect((await post("/api/auth/login", { username, auth_key: toBase64(attackerKey), client: 2 })).status).toBe(401);
-    const phone = await new TestApp("omar-phone").open();
-    open.push(phone);
-    await phone.login(server.url, username);
-    expect(phone.session.getSelf().userId).toBe(owner.userId);
   });
 });
 

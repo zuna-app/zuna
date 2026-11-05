@@ -239,9 +239,6 @@ func printBanner(ctx context.Context, srv *api.Server, cfg config, listenAddress
 		fmt.Printf("  Phone notifications go through: %s\n", strings.Join(relays, ", "))
 		fmt.Printf("  They only see sealed pushes. To change this, set --push-relays or ZUNA_PUSH_RELAYS (\"off\" for none).\n")
 	}
-	if unbound, err := srv.UnboundAccounts(ctx); err == nil && unbound > 0 {
-		fmt.Printf("  %d accounts have an older kind of sign-in key, until they next sign in. Keep this server's backups safe: see docs/SELF_HOSTING.md.\n", unbound)
-	}
 	code, err := srv.EnsureSetupInvite(ctx)
 	if err != nil {
 		slog.Error("creating the setup link", "error", err)

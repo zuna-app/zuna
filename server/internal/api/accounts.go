@@ -2,13 +2,10 @@
 
 import (
 	"context"
-	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
-	"encoding/binary"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -46,9 +43,6 @@ const (
 	// this. Past them, it's one a minute, so at most about 1,600 a day.
 	accountFreeAttempts = 200
 	accountLongestWait  = time.Minute
-
-	// How long a proof of an older sign-in key may take to come back.
-	upgradeChallengeLife = 5 * time.Minute
 )
 
 // What a device and an account may keep here. Generous: real use stays far below.
@@ -89,15 +83,6 @@ func (s *Server) serverSecret(r *http.Request) ([]byte, error) {
 		}
 	}
 	return []byte(secret), nil
-}
-
-func keyedHash(secret []byte, parts ...string) []byte {
-	mac := hmac.New(sha256.New, secret)
-	for _, part := range parts {
-		mac.Write([]byte(part))
-		mac.Write([]byte{0})
-	}
-	return mac.Sum(nil)
 }
 
 // fakeKDF gives unknown usernames stable, realistic-looking parameters, so that
@@ -164,7 +149,6 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		VaultCore          []byte          `json:"vault_core"`
 		Profile            []byte          `json:"profile"`
 		Slots              []store.Slot    `json:"slots"`
-		KeysBound          bool            `json:"keys_bound"`
 	}
 	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
 		return
@@ -214,7 +198,6 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		VaultCore:          body.VaultCore,
 		Profile:            body.Profile,
 		Slots:              body.Slots,
-		KeysBound:          body.KeysBound,
 	}, body.InviteCode)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "invalid_invite", "This invite link has expired or was already used.")
@@ -371,14 +354,6 @@ func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, creds *sto
 		writeUpdateRequired(w)
 		return
 	}
-	// An updated app only ever signs in with a key bound to this server, so from
-	// here on there's no older key to move on from.
-	if bound := creds.AuthBound; client >= accountProtocol && ((kind == "password" && !bound) || (kind == "recovery" && !creds.RecoveryBound)) {
-		if err := s.db.MarkSignInKeyBound(r.Context(), creds.UserID, kind); err != nil {
-			writeFailure(w, err)
-			return
-		}
-	}
 	token, err := s.newSession(r, creds.UserID)
 	if err != nil {
 		writeFailure(w, err)
@@ -412,141 +387,6 @@ func (s *Server) finishSignIn(w http.ResponseWriter, r *http.Request, creds *sto
 		}
 	}
 	writeJSON(w, http.StatusOK, reply)
-}
-
-// Sign-in keys are bound to this server's address, so one a person's app gives
-// to another server is no use here. Accounts made before that have a hash of an
-// older key that isn't bound to anything, which an updated app never sends:
-// it proves it knows the key instead, in a way only good for this server, and
-// replaces it.
-
-func challengeFor(secret []byte, username string, at int64) []byte {
-	stamp := binary.BigEndian.AppendUint64(nil, uint64(at))
-	return append(stamp, keyedHash(secret, "upgrade-challenge", strings.ToLower(username), string(stamp))[:24]...)
-}
-
-func (s *Server) handleUpgradeChallenge(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Username string `json:"username"`
-		Kind     string `json:"kind"`
-	}
-	if !readJSONUpTo(w, r, maxSignInBody, &body) {
-		return
-	}
-	secret, err := s.serverSecret(r)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	// Someone who doesn't exist gets an answer that looks the same.
-	salt := keyedHash(secret, "upgrade-salt", body.Kind, strings.ToLower(body.Username))[:16]
-	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		writeFailure(w, err)
-		return
-	}
-	if err == nil {
-		if body.Kind == "recovery" {
-			salt = creds.RecoverySalt
-		} else {
-			salt = creds.AuthSalt
-		}
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"salt": salt, "challenge": challengeFor(secret, body.Username, store.Now())})
-}
-
-func (s *Server) handleUpgradeKey(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Username  string `json:"username"`
-		Kind      string `json:"kind"`
-		Origin    string `json:"origin"`
-		Challenge []byte `json:"challenge"`
-		Proof     []byte `json:"proof"`
-		AuthKey   []byte `json:"auth_key"`
-	}
-	if !readJSONUpTo(w, r, maxSignInBody, &body) {
-		return
-	}
-	if len(body.AuthKey) != 32 || (body.Kind != "password" && body.Kind != "recovery") {
-		writeError(w, http.StatusBadRequest, "bad_request", "The sign-in key isn't valid.")
-		return
-	}
-	refuse := func() {
-		writeError(w, http.StatusUnauthorized, "invalid_credentials", "That username and password don't match.")
-	}
-	if !s.trySignIn(w, r, body.Username) {
-		return
-	}
-	// A proof made for another address is no good, even if it's passed on here.
-	if strings.TrimRight(body.Origin, "/") != strings.TrimRight(s.cfg.PublicURL, "/") {
-		refuse()
-		return
-	}
-	secret, err := s.serverSecret(r)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	if len(body.Challenge) != 32 {
-		refuse()
-		return
-	}
-	at := int64(binary.BigEndian.Uint64(body.Challenge[:8]))
-	age := store.Now() - at
-	if age < 0 || age > upgradeChallengeLife.Milliseconds() || !hmac.Equal(body.Challenge, challengeFor(secret, body.Username, at)) {
-		refuse()
-		return
-	}
-	creds, err := s.db.CredentialsByUsername(r.Context(), body.Username)
-	if errors.Is(err, store.ErrNotFound) {
-		refuse()
-		return
-	}
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	stored, bound := creds.AuthHash, creds.AuthBound
-	if body.Kind == "recovery" {
-		stored, bound = creds.RecoveryHash, creds.RecoveryBound
-	}
-	// The proof is made from the stored hash, which a copy of this database also
-	// has, so it can only ever count for a key that has yet to move.
-	if bound {
-		refuse()
-		return
-	}
-	info := "zuna/auth-upgrade/v1|" + body.Kind + "|" + body.Origin + "|" + strings.ToLower(body.Username) + "|" + base64.StdEncoding.EncodeToString(body.Challenge)
-	expected, err := hkdf.Key(sha256.New, stored, nil, info, 32)
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	if subtle.ConstantTimeCompare(body.Proof, expected) != 1 {
-		refuse()
-		return
-	}
-	salt := newSalt()
-	if body.Kind == "recovery" {
-		err = s.db.ReplaceRecoveryAuthKey(r.Context(), creds.UserID, saltedHash(salt, body.AuthKey), salt)
-	} else {
-		err = s.db.ReplaceAuthKey(r.Context(), creds.UserID, saltedHash(salt, body.AuthKey), salt)
-	}
-	if err != nil {
-		writeFailure(w, err)
-		return
-	}
-	// Whoever knew the older key may have left a session behind, as with a new password.
-	if err := s.db.DeleteDevicelessSessions(r.Context(), creds.UserID, []byte{}); err != nil {
-		writeFailure(w, err)
-		return
-	}
-	writeOK(w)
-}
-
-// UnboundAccounts is how many accounts here still have a sign-in key of the older kind.
-func (s *Server) UnboundAccounts(ctx context.Context) (int, error) {
-	return s.db.UnboundAccounts(ctx)
 }
 
 func (s *Server) credentialsOf(r *http.Request, sess *store.Session) (*store.Credentials, error) {

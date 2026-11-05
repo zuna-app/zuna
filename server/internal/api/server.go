@@ -385,8 +385,6 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/register", s.limited(s.handleRegister))
 	mux.HandleFunc("POST /api/auth/login", s.limited(s.handleLogin))
 	mux.HandleFunc("POST /api/auth/recover", s.limited(s.handleRecover))
-	mux.HandleFunc("POST /api/auth/upgrade-challenge", s.limited(s.handleUpgradeChallenge))
-	mux.HandleFunc("POST /api/auth/upgrade", s.limited(s.handleUpgradeKey))
 	// A session without a device can only finish a recovery, register its device or sign out.
 	mux.HandleFunc("POST /api/auth/password", s.authed(s.handleChangePassword))
 	mux.HandleFunc("POST /api/auth/recovery-key", s.withDevice(s.handleChangeRecoveryKey))

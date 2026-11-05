@@ -55,8 +55,6 @@ const signInContext = ({ serverUrl, username }: SignInTarget) => `${serverUrl}|$
 export interface PasswordKeys {
   /** Sent to the server to sign in. Bound to it, so another server can't reuse it. */
   authKey: Uint8Array;
-  /** Accounts from before that have a hash of this, which is never sent. */
-  legacyAuthKey: Uint8Array;
   wrapKey: Uint8Array;
   /** Opens this secret's slot. */
   slotKey: Uint8Array;
@@ -75,7 +73,6 @@ export function derivePasswordKeys(password: string, kdf: KdfParams, target: Sig
   const master = wasm.argon2id(utf8(password.normalize("NFKC")), kdf.salt, kdf.memory, kdf.iterations, kdf.parallelism, 32);
   return {
     authKey: wasm.hkdfSha256(master, NO_SALT, label(`zuna/auth/v2|${signInContext(target)}`), 32),
-    legacyAuthKey: wasm.hkdfSha256(master, NO_SALT, label("zuna/auth/v1"), 32),
     wrapKey: wasm.hkdfSha256(master, NO_SALT, label("zuna/wrap/v1"), 32),
     slotKey: wasm.hkdfSha256(master, NO_SALT, label(`zuna/slot/v1|password|${signInContext(target)}`), 32),
   };
@@ -83,7 +80,6 @@ export function derivePasswordKeys(password: string, kdf: KdfParams, target: Sig
 
 export interface RecoveryKeys {
   authKey: Uint8Array;
-  legacyAuthKey: Uint8Array;
   wrapKey: Uint8Array;
   slotKey: Uint8Array;
 }
@@ -91,20 +87,9 @@ export interface RecoveryKeys {
 export function deriveRecoveryKeys(recoveryKey: Uint8Array, target: SignInTarget): RecoveryKeys {
   return {
     authKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label(`zuna/recovery-auth/v2|${signInContext(target)}`), 32),
-    legacyAuthKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label("zuna/recovery-auth/v1"), 32),
     wrapKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label("zuna/recovery-wrap/v1"), 32),
     slotKey: wasm.hkdfSha256(recoveryKey, NO_SALT, label(`zuna/slot/v1|recovery|${signInContext(target)}`), 32),
   };
-}
-
-/**
- * Proves knowing an older sign-in key without sending it, in a way that's only
- * good for this server and this challenge, so an account can move to a new key.
- */
-export function upgradeProof(kind: "password" | "recovery", legacyKey: Uint8Array, salt: Uint8Array, challenge: Uint8Array, target: SignInTarget): Uint8Array {
-  const stored = wasm.sha256(concat(salt, legacyKey));
-  const info = `zuna/auth-upgrade/v1|${kind}|${target.serverUrl}|${target.username.toLowerCase()}|${toBase64(challenge)}`;
-  return wasm.hkdfSha256(stored, NO_SALT, utf8(info), 32);
 }
 
 export const wrapAccountKey = (wrapKey: Uint8Array, accountKey: Uint8Array, kind: "password" | "recovery") =>

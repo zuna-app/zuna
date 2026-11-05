@@ -31,7 +31,6 @@ import {
   planPasswordChange,
   planRecoveryChange,
   regenerateRecoveryKey,
-  upgradeSignInKey,
   type AccountState,
 } from "./account";
 import {
@@ -5538,28 +5537,15 @@ export class ServerSession {
   async changePassword(current: string, next: string): Promise<void> {
     const { username, accountKey, core } = this.account;
     if (!this.modern) return changePassword(this.api, username, accountKey, current, next);
-    const { plan, keys } = await planPasswordChange(this.api, username, current, next, core);
-    await this.rotateProving(plan, keys);
+    await this.rotate(await planPasswordChange(this.api, username, current, next, core));
   }
 
   async regenerateRecoveryKey(current: string): Promise<string> {
     const { username, accountKey, core } = this.account;
     if (!this.modern) return regenerateRecoveryKey(this.api, username, accountKey, current);
-    const { plan, keys, recoveryKey } = await planRecoveryChange(this.api, username, current, core);
-    await this.rotateProving(plan, keys);
+    const { plan, recoveryKey } = await planRecoveryChange(this.api, username, current, core);
+    await this.rotate(plan);
     return recoveryKey;
-  }
-
-  /** Rotates, and if the current password was refused, sees whether it only needs moving to a newer sign-in key. */
-  private async rotateProving(plan: RotationPlan, keys: { authKey: Uint8Array; legacyAuthKey: Uint8Array }): Promise<void> {
-    try {
-      await this.rotate(plan);
-    } catch (error) {
-      if (!(error instanceof ApiError) || error.code !== "invalid_credentials") throw error;
-      const target = { serverUrl: this.api.baseUrl, username: this.account.username };
-      await upgradeSignInKey(this.api, target, "password", keys, error);
-      await this.rotate(plan);
-    }
   }
 
   async signOut(): Promise<void> {

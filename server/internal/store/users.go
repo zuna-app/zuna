@@ -78,8 +78,6 @@ type NewUser struct {
 	VaultCore          []byte
 	Profile            []byte
 	Slots              []Slot
-	// KeysBound says the sign-in keys are the kind bound to this server.
-	KeysBound bool
 }
 
 // Credentials is the authentication material for one user.
@@ -98,8 +96,6 @@ type Credentials struct {
 	Banned             bool
 	KeyGeneration      int64
 	Bridge             []byte
-	AuthBound          bool
-	RecoveryBound      bool
 }
 
 // CreateUser consumes the invite (if any) and creates the user atomically.
@@ -133,13 +129,13 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 		_, err := tx.ExecContext(ctx, `INSERT INTO users(
 			id, username, username_key, role, kdf_salt, kdf_memory, kdf_iterations, kdf_parallelism,
 			auth_hash, auth_salt, recovery_hash, recovery_salt, wrapped_key_password, wrapped_key_recovery,
-			identity_key, hpke_key, hpke_key_sig, vault_core, profile, created_at, updated_at, auth_bound, recovery_bound
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?, X''),COALESCE(?, X''),?,?,?,?,?,?,?,?,?)`,
+			identity_key, hpke_key, hpke_key_sig, vault_core, profile, created_at, updated_at
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,COALESCE(?, X''),COALESCE(?, X''),?,?,?,?,?,?,?)`,
 			id, u.Username, strings.ToLower(u.Username), role,
 			u.KDF.Salt, u.KDF.Memory, u.KDF.Iterations, u.KDF.Parallelism,
 			u.AuthHash, u.AuthSalt, u.RecoveryHash, u.RecoverySalt,
 			u.WrappedKeyPassword, u.WrappedKeyRecovery,
-			u.IdentityKey, u.HpkeKey, u.HpkeKeySig, u.VaultCore, u.Profile, now, now, u.KeysBound, u.KeysBound)
+			u.IdentityKey, u.HpkeKey, u.HpkeKeySig, u.VaultCore, u.Profile, now, now)
 		if isUniqueViolation(err) {
 			return ErrConflict
 		}
@@ -155,12 +151,11 @@ func (d *DB) CredentialsByUsername(ctx context.Context, username string) (*Crede
 	var c Credentials
 	var banned sql.NullInt64
 	err := d.sql.QueryRowContext(ctx, `SELECT id, username, role, kdf_salt, kdf_memory, kdf_iterations, kdf_parallelism,
-		auth_hash, auth_salt, recovery_hash, recovery_salt, wrapped_key_password, wrapped_key_recovery, vault_core, banned_at, key_generation, bridge,
-		auth_bound, recovery_bound
+		auth_hash, auth_salt, recovery_hash, recovery_salt, wrapped_key_password, wrapped_key_recovery, vault_core, banned_at, key_generation, bridge
 		FROM users WHERE username_key = ?`, strings.ToLower(username)).Scan(
 		&c.UserID, &c.Username, &c.Role, &c.KDF.Salt, &c.KDF.Memory, &c.KDF.Iterations, &c.KDF.Parallelism,
 		&c.AuthHash, &c.AuthSalt, &c.RecoveryHash, &c.RecoverySalt, &c.WrappedKeyPassword, &c.WrappedKeyRecovery,
-		&c.VaultCore, &banned, &c.KeyGeneration, &c.Bridge, &c.AuthBound, &c.RecoveryBound)
+		&c.VaultCore, &banned, &c.KeyGeneration, &c.Bridge)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -172,47 +167,16 @@ func (d *DB) CredentialsByUsername(ctx context.Context, username string) (*Crede
 // password change or a recovery.
 func (d *DB) UpdatePassword(ctx context.Context, userID string, kdf KDFParams, authHash, authSalt, wrapped []byte) error {
 	_, err := d.sql.ExecContext(ctx, `UPDATE users SET kdf_salt = ?, kdf_memory = ?, kdf_iterations = ?, kdf_parallelism = ?,
-		auth_hash = ?, auth_salt = ?, wrapped_key_password = ?, auth_bound = 0, updated_at = ? WHERE id = ?`,
+		auth_hash = ?, auth_salt = ?, wrapped_key_password = ?, updated_at = ? WHERE id = ?`,
 		kdf.Salt, kdf.Memory, kdf.Iterations, kdf.Parallelism, authHash, authSalt, wrapped, Now(), userID)
 	return err
 }
 
 // UpdateRecovery replaces the material for the account's recovery key.
 func (d *DB) UpdateRecovery(ctx context.Context, userID string, recoveryHash, recoverySalt, wrapped []byte) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE users SET recovery_hash = ?, recovery_salt = ?, wrapped_key_recovery = ?, recovery_bound = 0, updated_at = ? WHERE id = ?`,
+	_, err := d.sql.ExecContext(ctx, `UPDATE users SET recovery_hash = ?, recovery_salt = ?, wrapped_key_recovery = ?, updated_at = ? WHERE id = ?`,
 		recoveryHash, recoverySalt, wrapped, Now(), userID)
 	return err
-}
-
-// ReplaceAuthKey swaps the sign-in key's hash for one bound to this server,
-// leaving what it unlocks alone.
-func (d *DB) ReplaceAuthKey(ctx context.Context, userID string, hash, salt []byte) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE users SET auth_hash = ?, auth_salt = ?, auth_bound = 1 WHERE id = ?`, hash, salt, userID)
-	return err
-}
-
-// ReplaceRecoveryAuthKey does the same for the recovery key's sign-in key.
-func (d *DB) ReplaceRecoveryAuthKey(ctx context.Context, userID string, hash, salt []byte) error {
-	_, err := d.sql.ExecContext(ctx, `UPDATE users SET recovery_hash = ?, recovery_salt = ?, recovery_bound = 1 WHERE id = ?`, hash, salt, userID)
-	return err
-}
-
-// MarkSignInKeyBound records that someone signed in with a key only an updated
-// app sends, so it can't be moved by a proof of an older one any more.
-func (d *DB) MarkSignInKeyBound(ctx context.Context, userID, kind string) error {
-	column := "auth_bound"
-	if kind == "recovery" {
-		column = "recovery_bound"
-	}
-	_, err := d.sql.ExecContext(ctx, `UPDATE users SET `+column+` = 1 WHERE id = ?`, userID)
-	return err
-}
-
-// UnboundAccounts is how many accounts have a sign-in key of the older kind.
-func (d *DB) UnboundAccounts(ctx context.Context) (int, error) {
-	var n int
-	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE auth_bound = 0 OR recovery_bound = 0`).Scan(&n)
-	return n, err
 }
 
 const publicUserColumns = `id, username, role, identity_key, key_generation, identity_head, hpke_key, hpke_key_sig, profile, profile_sig,
