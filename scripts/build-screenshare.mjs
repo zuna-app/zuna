@@ -78,9 +78,11 @@ for (const name of isWindows ? ["zuna-screenshare.exe", "zuna_encoder.dll"] : ["
   copyFileSync(join(release, name), join(gathered, name));
 }
 // Only what the encoder needs: FFmpeg's libraries that it links to, and those they link to.
+// On Linux each only by the name it's loaded by, libavcodec.so.62, as copying the links
+// beside it, libavcodec.so and libavcodec.so.62.28.103, copies the whole library each time.
 const libraries = isWindows ? join(ffmpeg, "bin") : join(ffmpeg, "lib");
 for (const name of readdirSync(libraries)) {
-  if (isWindows ? /^(avcodec|avutil|swresample)-.*\.dll$/.test(name) : /\.so(\.\d+)*$/.test(name)) copyFileSync(join(libraries, name), join(gathered, name));
+  if (isWindows ? /^(avcodec|avutil|swresample)-.*\.dll$/.test(name) : /^lib(avcodec|avfilter|avformat|avutil|swresample|swscale)\.so\.\d+$/.test(name)) copyFileSync(join(libraries, name), join(gathered, name));
 }
 if (existsSync(join(ffmpeg, "LICENSE.txt"))) copyFileSync(join(ffmpeg, "LICENSE.txt"), join(gathered, "FFMPEG-LICENSE.txt"));
 swapIn(gathered);
