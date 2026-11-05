@@ -1,6 +1,6 @@
 # Self-hosting Zuna
 
-A Zuna server is one program and one data folder, with its database there too, or in [PostgreSQL](#postgresql), which Docker runs next to it. There's no cache or queue to run. The desktop apps and the iPhone and iPad app all connect to the same server.
+A Zuna server is one program and one data folder. There's no separate database, cache or queue to run, though a large server can keep its data in [PostgreSQL](#postgresql) instead. The desktop apps and the iPhone and iPad app all connect to the same server.
 
 **You'll need:**
 - A machine that stays on. The smallest VPS plans are a reasonable starting point for a friend group, and storage grows with the files people send.
@@ -13,7 +13,7 @@ There are three ways to run it:
 
 | | What it does | HTTPS |
 |---|---|---|
-| [Docker](#option-1-docker) | Builds and runs the server in a container, with PostgreSQL in another | Automatic, or your own proxy |
+| [Docker](#option-1-docker) | Builds and runs the server in a container | Automatic, or your own proxy |
 | [From source on Linux](#option-2-from-source-on-linux-with-systemd) | Builds the server from git and runs it as a systemd service, without Docker. One command installs and updates it | Your own proxy |
 | [The binary](#option-3-run-the-binary-yourself) | A single file you run yourself | Automatic, or your own proxy |
 
@@ -142,9 +142,7 @@ Everything else is in the app under **Server settings**: name and picture, invit
 
 ## PostgreSQL
 
-**With Docker,** accounts, conversations and their encrypted messages are in PostgreSQL 18, which runs in a container of its own, set up for you. That container has no network: the server reaches it through a socket in a volume the two share, so there's no password to choose or keep. Its major version stays 18, since a newer one can't open its files without moving them over with `pg_dump`.
-
-**Otherwise** they're in `zuna.db`, a SQLite database in the data folder, which is enough for a few hundred active people. For a larger server, or to keep them with your other databases, Zuna can use a PostgreSQL 15 or later of your own instead. Uploaded files stay in the data folder either way.
+Accounts, conversations and their encrypted messages are in `zuna.db`, a SQLite database in the data folder, which is enough for a few hundred active people. For a larger server, or to keep them with your other databases, Zuna can use PostgreSQL 15 or later instead, though not in the Docker setup, which keeps to `zuna.db`. Uploaded files stay in the data folder either way.
 
 Give it a database of its own, owned by the account it signs in as:
 
@@ -238,33 +236,13 @@ The database uses write-ahead logging, so a plain file copy of a running server 
 sqlite3 /var/lib/zuna/zuna.db ".backup '/backups/zuna.db'"
 ```
 
-With [PostgreSQL](#postgresql), there's no `zuna.db`: back up the database with `pg_dump`, and the data folder's `files/` and `icon` as well. With Docker, in the `deploy` folder:
-
-```bash
-docker compose exec -T postgres pg_dump -U zuna --format=custom zuna > zuna.dump
-```
-
-To put it back, stop the server, restore it, and start the server again:
-
-```bash
-docker compose stop zuna
-```
-
-```bash
-docker compose exec -T postgres pg_restore -U zuna -d zuna --clean --if-exists < zuna.dump
-```
-
-```bash
-docker compose start zuna
-```
-
-With a PostgreSQL of your own:
+With [PostgreSQL](#postgresql), back up the database with `pg_dump`, and the data folder's `files/` and `icon` as well:
 
 ```bash
 pg_dump --format=custom --file=/backups/zuna.dump postgres://zuna:password@localhost/zuna
 ```
 
-With Docker, the files are in the `zuna-data` volume, and the database in `zuna-postgres`. From source on Linux, it's in `/var/lib/zuna`, and a push relay's `/var/lib/zuna-push/handle.key` is worth keeping too.
+With Docker, the data is in the `zuna-data` volume. From source on Linux, it's in `/var/lib/zuna`, and a push relay's `/var/lib/zuna-push/handle.key` is worth keeping too.
 
 A backup doesn't let you read anyone's messages, since they're encrypted, but keep it as safe as the server itself: as [SECURITY.md](../SECURITY.md) explains, what's in it lets someone try to guess weak passwords offline. Restoring an old backup does roll back the state of conversations; clients repair themselves by rejoining, but messages sent after the backup was taken are lost.
 

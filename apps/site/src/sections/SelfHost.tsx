@@ -19,7 +19,7 @@ const METHODS = [
     output: ["# The log shows a one-time setup link.", "# Open it in Zuna to create your owner account."],
     steps: [
       { title: "Point a domain at a Linux machine", text: "A small VPS or a box at home, on amd64 or arm64." },
-      { title: "Clone it and start it", text: "One docker compose command. HTTPS certificates are handled for you, and PostgreSQL runs next to it." },
+      { title: "Clone it and start it", text: "One docker compose command. HTTPS certificates are handled for you, and everything lives in one folder." },
       { title: "Open the setup link in Zuna", text: "The log prints it once. Make the owner account, then invite people from the app." },
     ],
   },
@@ -47,7 +47,7 @@ const METHODS = [
 const EXTRAS = [
   { label: "Voice channels and calls", href: doc("docs/SELF_HOSTING.md#voice-channels"), text: "LiveKit carries them, and only ever sees encrypted media." },
   { label: "The web app", href: doc("docs/WEB.md"), text: "Host zuna-web for friends who'd rather use a browser." },
-  { label: "Backups", href: doc("docs/SELF_HOSTING.md#backups"), text: "Uploaded files in one data folder, and the database copied with pg_dump, or SQLite's backup command." },
+  { label: "Backups", href: doc("docs/SELF_HOSTING.md#backups"), text: "Everything is in one data folder, copied with SQLite's backup command." },
 ];
 
 export function SelfHost() {
@@ -81,7 +81,7 @@ export function SelfHost() {
       <div className="wrap host">
         <div className="host-copy reveal">
           <p className="eyebrow">Self-hosting</p>
-          <h2 className="heading">One command. Nothing else to set up.</h2>
+          <h2 className="heading">One command. One folder to back up.</h2>
           <p className="lead">There's no Zuna cloud: nothing central to breach, sell or shut down. Your server is yours, and it's up in a couple of minutes.</p>
           <div className="steps-stack">
             {METHODS.map((option, index) => (

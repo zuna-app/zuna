@@ -24,45 +24,8 @@ services:
       ZUNA_TRUST_PROXY: "true"
       # The push relays that may wake members' phones (docs/SELF_HOSTING.md#phone-notifications).
       ZUNA_PUSH_RELAYS: ${ZUNA_PUSH_RELAYS:-}
-      ZUNA_DATABASE_URL: postgres://zuna@/zuna?host=/run/postgresql
-    depends_on:
-      postgres:
-        condition: service_healthy
     volumes:
       - zuna-data:/data
-      - zuna-postgres-socket:/run/postgresql
-
-  # Accounts, conversations and their encrypted messages. It has no network at all:
-  # Zuna reaches it through a socket in the volume they share, so it needs no password.
-  postgres:
-    # Its major version stays 18: a newer one can't open these files without moving
-    # them over with pg_dump (docs/SELF_HOSTING.md#postgresql).
-    image: postgres:18.6-alpine
-    restart: unless-stopped
-    network_mode: none
-    user: postgres
-    read_only: true
-    tmpfs:
-      - /tmp
-    cap_drop:
-      - ALL
-    security_opt:
-      - no-new-privileges:true
-    command: postgres -c listen_addresses=
-    environment:
-      POSTGRES_USER: zuna
-      POSTGRES_DB: zuna
-      POSTGRES_HOST_AUTH_METHOD: trust
-    healthcheck:
-      test: pg_isready -U zuna -d zuna
-      interval: 2s
-      timeout: 5s
-      retries: 30
-    volumes:
-      - zuna-postgres:/var/lib/postgresql
-      - zuna-postgres-socket:/var/run/postgresql
 
 volumes:
   zuna-data:
-  zuna-postgres:
-  zuna-postgres-socket:
