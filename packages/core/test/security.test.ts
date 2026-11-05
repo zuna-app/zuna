@@ -20,6 +20,7 @@ import {
   sealEnvelope,
   sealSignal,
   sealVaultItem,
+  subkey,
   verifyCertificate,
 } from "../src/crypto";
 import { fromBase64, toBase64, u64Bytes, utf8 } from "../src/encoding";
@@ -1544,6 +1545,16 @@ describe("a device key someone else's certificate names (Z3-07)", () => {
   });
 });
 
+describe("long-term keys (Z3-11)", () => {
+  it("keep each kind of data under a key derived for it alone", () => {
+    const key = wasm.randomBytes(32);
+    const item = sealVaultItem(key, "manifest", utf8("{}"));
+    expect(() => wasm.aeadOpen(key, item, utf8("zuna/vault-item/manifest"))).toThrow();
+    const kinds = ["vault-core", "vault-item", "read", "profile", "channel", "sound"] as const;
+    expect(new Set(kinds.map((kind) => toBase64(subkey(key, kind)))).size).toBe(kinds.length);
+  });
+});
+
 describe("a commit that was undone", () => {
   it("lets the account's own copy replace a key from an epoch it began, and keeps the others (Z3-10)", async () => {
     const dave = await person("dave");
@@ -1887,7 +1898,7 @@ describe("what a server can learn from reactions and read positions, or change i
     expect(group.ownRead).toBeLessThan(seq + 100);
 
     // Ann's own, sealed to her account so that her other devices keep up, is hers alone.
-    const own = framed(1, sealSignal(sessionOf(ann).account.accountKey, "read", groupId, epoch, { seq: seq + 50 }));
+    const own = framed(1, sealSignal(subkey(sessionOf(ann).account.accountKey, "read"), "read", groupId, epoch, { seq: seq + 50 }));
     sessionOf(ann).applyReadState(group, zed.userId, own);
     expect(group.readBy[zed.userId] ?? 0).toBe(0);
     sessionOf(ann).applyReadState(group, ann.userId, own);

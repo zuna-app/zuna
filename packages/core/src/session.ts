@@ -59,6 +59,7 @@ import {
   verifyHpkeKey,
   type DeviceCertificate,
   type Signer,
+  subkey,
   type VaultCore,
 } from "./crypto";
 import {
@@ -2689,7 +2690,7 @@ export class ServerSession {
       // A position sealed to this account stays as it was until it's next written, so
       // it may be under an older key. The worst a stolen one can do is mark things read.
       for (const key of [this.account.accountKey, ...Object.values(this.account.core.olderKeys)]) {
-        if (seq === null) seq = parseReadState(openSignal<unknown>(key, "read", group.id, body));
+        if (seq === null) seq = parseReadState(openSignal<unknown>(subkey(key, "read"), "read", group.id, body));
       }
     }
     if (seq === null) return;
@@ -5468,7 +5469,7 @@ export class ServerSession {
     } else {
       // The position is sealed to our own account key, so our other devices stay
       // in sync while nobody else can read it.
-      const sealed = sealSignal(accountKey, "read", group.id, epoch, { seq });
+      const sealed = sealSignal(subkey(accountKey, "read"), "read", group.id, epoch, { seq });
       framed = new Uint8Array(sealed.length + 1);
       framed[0] = 1;
       framed.set(sealed, 1);

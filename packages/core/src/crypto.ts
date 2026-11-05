@@ -44,6 +44,11 @@ const NO_SALT = new Uint8Array(0);
 
 export const randomId = (): string => toHex(wasm.randomBytes(16));
 
+/** What a long-term key protects. Each gets a key of its own, so no two kinds of data are ever under one key. */
+export type KeyPurpose = "vault-core" | "vault-item" | "read" | "profile" | "channel" | "sound";
+
+export const subkey = (key: Uint8Array, purpose: KeyPurpose): Uint8Array => wasm.hkdfSha256(key, NO_SALT, label(`zuna/subkey/v1|${purpose}`), 32);
+
 /** Who a sign-in key is for. It's only any use on that server, for that account. */
 export interface SignInTarget {
   serverUrl: string;
@@ -164,20 +169,20 @@ export function coreFromJson(json: any): VaultCore {
 const coreLabel = (generation: number, userId: string) => label(generation > 0 ? `zuna/vault-core/v2|${userId}|${generation}` : "zuna/vault-core/v1");
 
 export function sealVaultCore(accountKey: Uint8Array, core: VaultCore, userId = ""): Uint8Array {
-  return wasm.aeadSeal(accountKey, utf8(JSON.stringify(coreToJson(core))), coreLabel(core.generation, userId));
+  return wasm.aeadSeal(subkey(accountKey, "vault-core"), utf8(JSON.stringify(coreToJson(core))), coreLabel(core.generation, userId));
 }
 
 export function openVaultCore(accountKey: Uint8Array, sealed: Uint8Array, generation = 0, userId = ""): VaultCore {
-  return coreFromJson(JSON.parse(fromUtf8(wasm.aeadOpen(accountKey, sealed, coreLabel(generation, userId)))));
+  return coreFromJson(JSON.parse(fromUtf8(wasm.aeadOpen(subkey(accountKey, "vault-core"), sealed, coreLabel(generation, userId)))));
 }
 
 const vaultItemLabel = (id: string, generation: number) => label(generation > 0 ? `zuna/vault-item/v2|${generation}|${id}` : `zuna/vault-item/${id}`);
 
 export const sealVaultItem = (accountKey: Uint8Array, id: string, data: Uint8Array, generation = 0) =>
-  wasm.aeadSeal(accountKey, data, vaultItemLabel(id, generation));
+  wasm.aeadSeal(subkey(accountKey, "vault-item"), data, vaultItemLabel(id, generation));
 
 export const openVaultItem = (accountKey: Uint8Array, id: string, sealed: Uint8Array, generation = 0) =>
-  wasm.aeadOpen(accountKey, sealed, vaultItemLabel(id, generation));
+  wasm.aeadOpen(subkey(accountKey, "vault-item"), sealed, vaultItemLabel(id, generation));
 
 /** The vault item listing everything an account trusts (see TrustManifest in session.ts). */
 export const MANIFEST_ID = "manifest";
@@ -244,7 +249,7 @@ export function verifyCertificate(identityPublic: Uint8Array, bytes: Uint8Array)
 
 /** Profiles are readable by server members only, and signed by their owner. */
 export function sealProfile(communityKey: Uint8Array, identitySecret: Uint8Array, username: string, profile: object): Uint8Array {
-  const ciphertext = wasm.aeadSeal(communityKey, utf8(JSON.stringify(profile)), label(`zuna/profile/v1/${username.toLowerCase()}`));
+  const ciphertext = wasm.aeadSeal(subkey(communityKey, "profile"), utf8(JSON.stringify(profile)), label(`zuna/profile/v1/${username.toLowerCase()}`));
   const signature = wasm.sign(identitySecret, concat(label("zuna/profile-sig/v1"), ciphertext));
   return concat(signature, ciphertext);
 }
@@ -255,7 +260,7 @@ export function openProfile<T>(communityKey: Uint8Array, identityPublic: Uint8Ar
   const ciphertext = sealed.subarray(64);
   if (!wasm.verify(identityPublic, concat(label("zuna/profile-sig/v1"), ciphertext), signature)) return null;
   try {
-    return JSON.parse(fromUtf8(wasm.aeadOpen(communityKey, ciphertext, label(`zuna/profile/v1/${username.toLowerCase()}`))));
+    return JSON.parse(fromUtf8(wasm.aeadOpen(subkey(communityKey, "profile"), ciphertext, label(`zuna/profile/v1/${username.toLowerCase()}`))));
   } catch {
     return null;
   }
@@ -275,7 +280,7 @@ export function openProfileAtGeneration<T>(communityKey: Uint8Array, identityPub
   const ciphertext = sealed.subarray(64);
   if (!wasm.verify(identityPublic, profileHeadInput(userId, generation, ciphertext), signature)) return null;
   try {
-    return JSON.parse(fromUtf8(wasm.aeadOpen(communityKey, ciphertext, label(`zuna/profile/v1/${username.toLowerCase()}`))));
+    return JSON.parse(fromUtf8(wasm.aeadOpen(subkey(communityKey, "profile"), ciphertext, label(`zuna/profile/v1/${username.toLowerCase()}`))));
   } catch {
     return null;
   }

@@ -19,7 +19,7 @@ Using exported keys rather than MLS's per-message ratchet is a deliberate trade-
 
 ## Keys on new devices
 
-Your **account key** is random. It encrypts your identity keys and a vault of content keys, all stored on the server as ciphertext. It's unlocked by either:
+Your **account key** is random. It encrypts your identity keys and a vault of content keys, all stored on the server as ciphertext, each kind under a key derived from it for that alone. It's unlocked by either:
 
 - your **password**, stretched on your device with Argon2id (64 MiB, 3 iterations), or
 - your **recovery key**, 200 random bits shown once at sign-up.
@@ -60,7 +60,7 @@ The server can say you're out of a conversation or signed out, but your messages
 
 ## Profiles and the community key
 
-Display names and avatars are encrypted under a **community key**, carried in the fragment of invite links (`#k=...`). Browsers don't send fragments to servers. Profiles are also signed by their owners.
+Display names and avatars are encrypted under a **community key**, carried in the fragment of invite links (`#k=...`), with a key derived from it for profiles alone, as channels and sounds have theirs. Browsers don't send fragments to servers. Profiles are also signed by their owners.
 
 If an admin turns on open sign-ups, there's no invite link to carry that key, so the app gives it to the server, and the settings screen says so. This exposes profiles, not messages.
 

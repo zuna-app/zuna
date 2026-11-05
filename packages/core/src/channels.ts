@@ -3,7 +3,7 @@
 // server doesn't. Once joined, a channel is an MLS group like any other.
 
 import * as wasm from "@zuna/crypto";
-import { readSignedGroupDetails, sealSignal, openSignal, signGroupDetails, type SignedGroupDetails, type Signer } from "./crypto";
+import { readSignedGroupDetails, sealSignal, openSignal, signGroupDetails, subkey, type SignedGroupDetails, type Signer } from "./crypto";
 import { utf8 } from "./encoding";
 import type { ChannelDetails } from "./validate";
 
@@ -13,12 +13,12 @@ import type { ChannelDetails } from "./validate";
  * part of what's sealed, so one channel's details can't be passed off as another's.
  */
 export function sealChannelDetails(communityKey: Uint8Array, channelId: string, details: ChannelDetails, version: number, signer: Signer, deviceSecret: Uint8Array): Uint8Array {
-  return sealSignal(communityKey, "channel", channelId, version, signGroupDetails(channelId, details, version, signer, deviceSecret, "channel"));
+  return sealSignal(subkey(communityKey, "channel"), "channel", channelId, version, signGroupDetails(channelId, details, version, signer, deviceSecret, "channel"));
 }
 
 /** What a channel's details say and who signed them, or null if they don't open or aren't signed. */
 export function openChannelDetails(communityKey: Uint8Array, channelId: string, sealed: Uint8Array): SignedGroupDetails | null {
-  const opened = openSignal<unknown>(communityKey, "channel", channelId, sealed);
+  const opened = openSignal<unknown>(subkey(communityKey, "channel"), "channel", channelId, sealed);
   return opened === null ? null : readSignedGroupDetails(channelId, opened, "channel");
 }
 
