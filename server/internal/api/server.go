@@ -410,11 +410,11 @@ func (s *Server) Handler() http.Handler {
 
 	// Generations of an account's keys.
 	mux.HandleFunc("GET /api/account", s.withDevice(s.handleAccount))
-	mux.HandleFunc("POST /api/account/rotate", s.withDevice(s.handleRotate))
-	mux.HandleFunc("POST /api/account/bundles", s.withDevice(s.handleBundles))
-	mux.HandleFunc("POST /api/account/core", s.withDevice(s.handleCloseGeneration))
-	mux.HandleFunc("PUT /api/devices/{id}/seal-key", s.withDevice(s.handleSealKey))
-	mux.HandleFunc("PUT /api/devices/{id}/certificate", s.withDevice(s.handleCertificate))
+	mux.HandleFunc("POST /api/account/rotate", s.withDevice(s.proven(s.handleRotate)))
+	mux.HandleFunc("POST /api/account/bundles", s.withDevice(s.proven(s.handleBundles)))
+	mux.HandleFunc("POST /api/account/core", s.withDevice(s.proven(s.handleCloseGeneration)))
+	mux.HandleFunc("PUT /api/devices/{id}/seal-key", s.withDevice(s.proven(s.handleSealKey)))
+	mux.HandleFunc("PUT /api/devices/{id}/certificate", s.withDevice(s.proven(s.handleCertificate)))
 	mux.HandleFunc("GET /api/users/{id}/identity-links", s.withDevice(s.handleIdentityLinks))
 
 	// Groups
