@@ -39,7 +39,7 @@ const QUESTIONS: { q: string; a: ReactNode }[] = [
   },
   {
     q: "How many people can a server hold?",
-    a: "A few hundred active people, with its built-in database. Postgres, for larger servers, is on the roadmap.",
+    a: "A few hundred active people, with its built-in database. A larger one can keep its data in PostgreSQL instead.",
   },
   {
     q: "Can I use it without the push relay?",

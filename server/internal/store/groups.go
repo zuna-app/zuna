@@ -98,7 +98,8 @@ func (d *DB) GetOrCreateDM(ctx context.Context, creator, peer string) (*Group, b
 	key := DMKey(creator, peer)
 	var id string
 	created := false
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
+		created = false
 		err := tx.QueryRowContext(ctx, `SELECT id FROM groups WHERE dm_key = ?`, key).Scan(&id)
 		if err == nil {
 			return nil
@@ -154,7 +155,7 @@ func uniqueStrings(values ...string) []string {
 func (d *DB) CreateGroup(ctx context.Context, creator string, historyVisible bool) (*Group, error) {
 	id := NewID()
 	now := Now()
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var created int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM groups WHERE created_by = ? AND kind = 'group'`, creator).Scan(&created); err != nil {
 			return err
@@ -276,7 +277,7 @@ func (d *DB) Membership(ctx context.Context, groupID, userID string) (*GroupMemb
 	return &m, err
 }
 
-func nextSeq(ctx context.Context, tx *sql.Tx, groupID string) (int64, error) {
+func nextSeq(ctx context.Context, tx handle, groupID string) (int64, error) {
 	var seq int64
 	err := tx.QueryRowContext(ctx, `UPDATE groups SET seq = seq + 1 WHERE id = ? RETURNING seq`, groupID).Scan(&seq)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -290,7 +291,8 @@ func nextSeq(ctx context.Context, tx *sql.Tx, groupID string) (int64, error) {
 // its delivery service. It returns the stored event.
 func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 	var event GroupEvent
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
+		c := c // Each attempt starts from the commit as it was sent.
 		var epoch int64
 		var kind string
 		var replaced []byte
@@ -433,7 +435,7 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 
 // countCommit holds a commit to a size that goes with the group it's for, and counts
 // everything it makes the server keep for its sender.
-func countCommit(ctx context.Context, tx *sql.Tx, c Commit) error {
+func countCommit(ctx context.Context, tx handle, c Commit) error {
 	devices, err := commitDevices(ctx, tx, c.GroupID, c.AddUsers)
 	if err != nil {
 		return err
@@ -458,7 +460,7 @@ func countCommit(ctx context.Context, tx *sql.Tx, c Commit) error {
 // checkCommitExtras holds a commit's welcomes and history grants to what the
 // commit is doing: welcomes go to the devices of people joining (and, when a
 // group starts, of its members), and only admins hand history to people joining.
-func checkCommitExtras(ctx context.Context, tx *sql.Tx, c Commit, role string) error {
+func checkCommitExtras(ctx context.Context, tx handle, c Commit, role string) error {
 	joining := map[string]bool{}
 	for _, user := range c.AddUsers {
 		joining[user] = true
@@ -515,7 +517,7 @@ const UndoableCommits = 32
 func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice string, byAdmin bool, from, to int64, groupInfo []byte) (*GroupEvent, []string, error) {
 	var event GroupEvent
 	var senders []string
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		current, err := currentEpoch(ctx, tx, groupID)
 		if err != nil {
 			return err
@@ -579,7 +581,7 @@ func (d *DB) VoidCommits(ctx context.Context, groupID, sender, senderDevice stri
 
 // commitSenders is who sent a group's commits past an epoch, latest first, and
 // whether any of them is an admin of it now.
-func commitSenders(ctx context.Context, tx *sql.Tx, groupID string, after int64) ([]string, bool, error) {
+func commitSenders(ctx context.Context, tx handle, groupID string, after int64) ([]string, bool, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT e.sender_user, COALESCE(m.role, '') FROM group_events e
 		LEFT JOIN group_members m ON m.group_id = e.group_id AND m.user_id = e.sender_user
 		WHERE e.group_id = ? AND e.kind = 'commit' AND e.epoch > ? ORDER BY e.epoch DESC`, groupID, after)
@@ -619,7 +621,7 @@ func (d *DB) GroupInfo(ctx context.Context, groupID string) ([]byte, int64, erro
 // member's client can commit the removal of their MLS leaves.
 func (d *DB) RemoveMember(ctx context.Context, groupID, actor, target string) (*GroupEvent, error) {
 	var event GroupEvent
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		res, err := tx.ExecContext(ctx, `DELETE FROM group_members WHERE group_id = ? AND user_id = ?`, groupID, target)
 		if err != nil {
 			return err
@@ -652,7 +654,8 @@ func (d *DB) RemoveMember(ctx context.Context, groupID, actor, target string) (*
 // PromoteIfNoAdmin makes the longest-standing member an admin if none remain.
 func (d *DB) PromoteIfNoAdmin(ctx context.Context, groupID string) (bool, error) {
 	var promoted bool
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
+		promoted = false
 		// A channel's admins are the server's, however many of them are in it.
 		var kind string
 		if err := tx.QueryRowContext(ctx, `SELECT kind FROM groups WHERE id = ?`, groupID).Scan(&kind); err != nil {
@@ -699,7 +702,7 @@ func (d *DB) SetReadState(ctx context.Context, groupID, userID string, state []b
 // other group uses.
 func (d *DB) DeleteGroup(ctx context.Context, groupID string) ([]string, error) {
 	var fileIDs []string
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var err error
 		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT file_id FROM file_refs WHERE group_id = ?`, groupID)
 		if err != nil {

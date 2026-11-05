@@ -69,7 +69,7 @@ function ghostClient(certificate: Uint8Array) {
 
 beforeAll(async () => {
   loadCrypto();
-  server = new TestServer();
+  server = new TestServer({ sqlite: true });
   await server.start();
   alice = await new TestApp("alice").open();
   await alice.register(server.setupLink, "alice");

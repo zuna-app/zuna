@@ -99,7 +99,7 @@ type Credentials struct {
 func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (string, error) {
 	id := NewID()
 	now := Now()
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		role := "member"
 		if inviteCode != "" {
 			var grants string
@@ -264,7 +264,8 @@ func (d *DB) UserCount(ctx context.Context) (int, error) {
 func (d *DB) UpdateProfile(ctx context.Context, userID string, profile, profileSig []byte, avatarFile *string) (string, error) {
 	var old sql.NullString
 	var orphaned []string
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
+		orphaned = nil
 		if err := tx.QueryRowContext(ctx, `SELECT avatar_file FROM users WHERE id = ?`, userID).Scan(&old); err != nil {
 			return err
 		}
@@ -333,7 +334,7 @@ func (d *DB) SetRole(ctx context.Context, userID, role string) error {
 
 // BanUser marks the user banned and ends all of their sessions.
 func (d *DB) BanUser(ctx context.Context, userID string) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		now := Now()
 		res, err := tx.ExecContext(ctx, `UPDATE users SET banned_at = ?, updated_at = ? WHERE id = ?`, now, now, userID)
 		if err != nil {
@@ -490,7 +491,7 @@ func (d *DB) DeviceKey(ctx context.Context, deviceID string) ([]byte, error) {
 // signing in says which generation of keys it got, since a rotation may have got
 // in first.
 func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, generation int64) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		now := Now()
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, dev.UserID).Scan(&current); err != nil {
@@ -501,7 +502,7 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, genera
 		}
 		// Everyone who talks to this person has to deal with each of these.
 		var active, ever int
-		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(revoked_at IS NULL), 0), COUNT(*) FROM devices WHERE user_id = ?`, dev.UserID).Scan(&active, &ever); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END), 0), COUNT(*) FROM devices WHERE user_id = ?`, dev.UserID).Scan(&active, &ever); err != nil {
 			return err
 		}
 		if active >= maxActiveDevices || ever >= maxDevicesEver {
@@ -525,12 +526,12 @@ func (d *DB) AddDevice(ctx context.Context, tokenHash []byte, dev Device, genera
 
 // RevokeDevice removes a device of the user and ends its sessions.
 func (d *DB) RevokeDevice(ctx context.Context, userID, deviceID string) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		return revokeDevice(ctx, tx, userID, deviceID, Now())
 	})
 }
 
-func revokeDevice(ctx context.Context, tx *sql.Tx, userID, deviceID string, now int64) error {
+func revokeDevice(ctx context.Context, tx handle, userID, deviceID string, now int64) error {
 	res, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
 		now, deviceID, userID)
 	if err != nil {
@@ -551,7 +552,7 @@ func revokeDevice(ctx context.Context, tx *sql.Tx, userID, deviceID string, now 
 // --- Key packages ---
 
 func (d *DB) AddKeyPackages(ctx context.Context, deviceID string, packages [][]byte, lastResort []byte) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		now := Now()
 		for _, data := range packages {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO key_packages(device_id, data, last_resort, created_at) VALUES(?,?,0,?)`,
@@ -593,8 +594,9 @@ type ClaimedKeyPackage struct {
 // ClaimKeyPackages returns one key package per active device of the user.
 // One-time packages are consumed; the last-resort package is reused.
 func (d *DB) ClaimKeyPackages(ctx context.Context, userID string) ([]ClaimedKeyPackage, error) {
-	claimed := []ClaimedKeyPackage{}
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	var claimed []ClaimedKeyPackage
+	err := d.tx(ctx, func(tx handle) error {
+		claimed = []ClaimedKeyPackage{}
 		rows, err := tx.QueryContext(ctx, `SELECT id FROM devices WHERE user_id = ? AND revoked_at IS NULL`, userID)
 		if err != nil {
 			return err
@@ -646,7 +648,7 @@ type VaultItem struct {
 	Version int64 `json:"version,omitempty"`
 }
 
-func countVaultItems(ctx context.Context, tx *sql.Tx, userID string, items []VaultItem, quota int64) error {
+func countVaultItems(ctx context.Context, tx handle, userID string, items []VaultItem, quota int64) error {
 	var size int64
 	for _, item := range items {
 		size += int64(len(item.Data))
@@ -654,7 +656,7 @@ func countVaultItems(ctx context.Context, tx *sql.Tx, userID string, items []Vau
 	return countBytes(ctx, tx, storedBytes, userID, size, quota)
 }
 
-func putItems(ctx context.Context, tx *sql.Tx, userID string, items []VaultItem) error {
+func putItems(ctx context.Context, tx handle, userID string, items []VaultItem) error {
 	var seq int64
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM vault_items WHERE user_id = ?`, userID).Scan(&seq); err != nil {
 		return err

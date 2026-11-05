@@ -1,6 +1,6 @@
 # Self-hosting Zuna
 
-A Zuna server is one program and one data folder. There's no separate database, cache or queue to run. The desktop apps and the iPhone and iPad app all connect to the same server.
+A Zuna server is one program and one data folder. There's no separate database, cache or queue to run, though a large server can keep its data in [PostgreSQL](#postgresql) instead. The desktop apps and the iPhone and iPad app all connect to the same server.
 
 **You'll need:**
 - A machine that stays on. The smallest VPS plans are a reasonable starting point for a friend group, and storage grows with the files people send.
@@ -125,6 +125,7 @@ Everything can be set by flag or environment variable.
 |---|---|---|---|
 | `--domain` | `ZUNA_DOMAIN` | | Turns on automatic HTTPS on ports 80 and 443 |
 | `--data` | `ZUNA_DATA` | `./zuna-data` | Where everything is stored |
+| `--database-url` | `ZUNA_DATABASE_URL` | | A [PostgreSQL](#postgresql) database to keep accounts and messages in, instead of `zuna.db` in the data folder |
 | `--listen` | `ZUNA_LISTEN` | `:8080` | Address to listen on when not using `--domain` |
 | `--public-url` | `ZUNA_PUBLIC_URL` | From the domain | Address people use to reach this server |
 | `--tls-cert`, `--tls-key` | `ZUNA_TLS_CERT`, `ZUNA_TLS_KEY` | | Use your own certificate files |
@@ -138,6 +139,33 @@ Everything can be set by flag or environment variable.
 The app only connects over HTTPS, except to `localhost`.
 
 Everything else is in the app under **Server settings**: name and picture, invites, members, the 7TV emote set, the upload limit and message retention.
+
+## PostgreSQL
+
+Accounts, conversations and their encrypted messages are in `zuna.db`, a SQLite database in the data folder, which is enough for a few hundred active people. For a larger server, or to keep them with your other databases, Zuna can use PostgreSQL 15 or later instead. Uploaded files stay in the data folder either way.
+
+Give it a database of its own, owned by the account it signs in as:
+
+```bash
+sudo -u postgres createuser --pwprompt zuna
+```
+
+```bash
+sudo -u postgres createdb --owner zuna zuna
+```
+
+Then give the server its address in `ZUNA_DATABASE_URL`, and it makes the tables when it starts:
+
+```
+ZUNA_DATABASE_URL=postgres://zuna:password@localhost/zuna
+```
+
+- **From source on Linux,** run the script with `--database-url postgres://…`. It keeps the address only in `/etc/zuna/zuna.env`, which only root reads.
+- **With Docker,** set `ZUNA_DATABASE_URL` when you start it, as you set `ZUNA_DOMAIN`. Inside the container, `localhost` is the container itself, so use an address it can reach.
+- **On another machine,** add `?sslmode=verify-full`, so that the connection is encrypted and the database's certificate checked, with `&sslrootcert=/path/to/ca.crt` if your own authority signed it. Without `sslmode`, it's encrypted only if the database offers it, and nothing is checked.
+- **In a database other programs use,** give Zuna a schema of its own with `?search_path=zuna`, which it makes if it may.
+
+A server started on PostgreSQL starts out empty: there's no way yet to move what's in an existing `zuna.db` across.
 
 ## The web app
 
@@ -207,6 +235,12 @@ The database uses write-ahead logging, so a plain file copy of a running server 
 
 ```bash
 sqlite3 /var/lib/zuna/zuna.db ".backup '/backups/zuna.db'"
+```
+
+With [PostgreSQL](#postgresql), back up the database with `pg_dump`, and the data folder's `files/` and `icon` as well:
+
+```bash
+pg_dump --format=custom --file=/backups/zuna.dump postgres://zuna:password@localhost/zuna
 ```
 
 With Docker, the data is in the `zuna-data` volume. From source on Linux, it's in `/var/lib/zuna`, and a push relay's `/var/lib/zuna-push/handle.key` is worth keeping too.

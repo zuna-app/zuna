@@ -70,7 +70,7 @@ func (d *DB) Channel(ctx context.Context, id string) (*Channel, error) {
 // first member. Everyone else joins by themselves.
 func (d *DB) CreateChannel(ctx context.Context, id, creator, channelType string, details []byte, userLimit, screenLimit int, sounds bool, slowMode int, proof []byte) (*Channel, error) {
 	now := Now()
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var count, last int64
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(position), -1) FROM channels`).Scan(&count, &last); err != nil {
 			return err
@@ -113,7 +113,7 @@ func (d *DB) UpdateChannel(ctx context.Context, id string, details []byte, userL
 // takeSlowModeTurn refuses a message in a channel whose slow mode still holds its sender
 // back, and otherwise notes when they sent it. The channel's admins aren't held back,
 // and a group that isn't a channel has nothing to check.
-func takeSlowModeTurn(ctx context.Context, tx *sql.Tx, groupID, userID string, now int64) error {
+func takeSlowModeTurn(ctx context.Context, tx handle, groupID, userID string, now int64) error {
 	var slowMode int64
 	var role string
 	err := tx.QueryRowContext(ctx, `SELECT c.slow_mode, COALESCE(m.role, '') FROM channels c
@@ -142,7 +142,7 @@ func takeSlowModeTurn(ctx context.Context, tx *sql.Tx, groupID, userID string, n
 // OrderChannels puts the listed channels in that order. Those left out, such as
 // one made a moment ago, stay after them.
 func (d *DB) OrderChannels(ctx context.Context, ids []string) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE channels SET position = position + ?`, len(ids)); err != nil {
 			return err
 		}
@@ -159,7 +159,7 @@ func (d *DB) OrderChannels(ctx context.Context, ids []string) error {
 // community key, which other members check. All of a channel's history is theirs to
 // read, if a member hands them its keys.
 func (d *DB) JoinChannel(ctx context.Context, id, userID, role string, proof []byte, wantHistory bool) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		var exists int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM channels WHERE id = ?`, id).Scan(&exists); err != nil {
 			return err
@@ -177,7 +177,7 @@ func (d *DB) JoinChannel(ctx context.Context, id, userID, role string, proof []b
 		_, err := tx.ExecContext(ctx, `INSERT INTO group_members(group_id, user_id, role, joined_at, proof, history_wanted)
 			VALUES(?, ?, ?, ?, ?, ?)
 			ON CONFLICT(group_id, user_id) DO UPDATE SET role = excluded.role, proof = excluded.proof,
-				history_wanted = MAX(history_wanted, excluded.history_wanted)`,
+				history_wanted = CASE WHEN excluded.history_wanted > group_members.history_wanted THEN excluded.history_wanted ELSE group_members.history_wanted END`,
 			id, userID, role, Now(), proof, wantHistory)
 		return err
 	})

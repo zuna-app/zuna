@@ -1,5 +1,6 @@
-// Package store holds all of the server's persistent state. It is the only
-// package containing SQL, so another database can be added by replacing it.
+// Package store holds all of the server's persistent state, in SQLite or in
+// PostgreSQL. It is the only package containing SQL. Each statement is written
+// once for both, with SQLite's placeholders, which PostgreSQL gets as its own.
 //
 // Everything sensitive arrives here already encrypted by clients. The columns
 // named data, envelope, meta, profile and vault_core are opaque ciphertext.
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "modernc.org/sqlite" // Pure Go driver, so the server needs no C toolchain.
 )
 
@@ -46,10 +48,44 @@ func (e *SlowModeError) Error() string {
 }
 
 type DB struct {
-	sql *sql.DB
+	conn     *sql.DB
+	sql      handle
+	postgres bool
 }
 
-// Open opens (creating and migrating if needed) the database at path.
+// handle runs statements on the whole database or in one transaction, turning
+// them into PostgreSQL's dialect where that's the database.
+type handle struct {
+	q interface {
+		ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+		QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+		QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	}
+	postgres bool
+}
+
+func (h handle) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if h.postgres {
+		query, args = rebind(query), postgresArgs(args)
+	}
+	return h.q.ExecContext(ctx, query, args...)
+}
+
+func (h handle) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if h.postgres {
+		query, args = rebind(query), postgresArgs(args)
+	}
+	return h.q.QueryContext(ctx, query, args...)
+}
+
+func (h handle) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if h.postgres {
+		query, args = rebind(query), postgresArgs(args)
+	}
+	return h.q.QueryRowContext(ctx, query, args...)
+}
+
+// Open opens (creating and migrating if needed) the SQLite database at path.
 func Open(path string) (*DB, error) {
 	query := url.Values{}
 	for _, pragma := range []string{
@@ -66,7 +102,11 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 	conn.SetMaxOpenConns(8)
-	db := &DB{sql: conn}
+	return open(conn, false)
+}
+
+func open(conn *sql.DB, postgres bool) (*DB, error) {
+	db := &DB{conn: conn, sql: handle{conn, postgres}, postgres: postgres}
 	if err := db.migrate(context.Background()); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
@@ -74,27 +114,50 @@ func Open(path string) (*DB, error) {
 	return db, nil
 }
 
-func (d *DB) Close() error { return d.sql.Close() }
+func (d *DB) Close() error { return d.conn.Close() }
 
-func (d *DB) tx(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := d.sql.BeginTx(ctx, nil)
+// tx runs fn in a transaction. SQLite runs one at a time. PostgreSQL runs them
+// side by side, each as though it were alone, and starts one again from the
+// beginning when it couldn't be, so fn must only leave behind what it sets.
+func (d *DB) tx(ctx context.Context, fn func(handle) error) error {
+	if !d.postgres {
+		return d.attempt(ctx, nil, fn)
+	}
+	for attempt := 1; ; attempt++ {
+		err := d.attempt(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable}, fn)
+		if !mustRetry(err) || attempt == maxAttempts {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(retryDelay(attempt)):
+		}
+	}
+}
+
+func (d *DB) attempt(ctx context.Context, options *sql.TxOptions, fn func(handle) error) error {
+	tx, err := d.conn.BeginTx(ctx, options)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := fn(tx); err != nil {
+	if err := fn(handle{tx, d.postgres}); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func (d *DB) migrate(ctx context.Context) error {
+	if d.postgres {
+		return d.migratePostgres(ctx)
+	}
 	var version int
 	if err := d.sql.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
 	for i := version; i < len(migrations); i++ {
-		err := d.tx(ctx, func(tx *sql.Tx) error {
+		err := d.tx(ctx, func(tx handle) error {
 			if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
 				return err
 			}
@@ -108,6 +171,8 @@ func (d *DB) migrate(ctx context.Context) error {
 	return nil
 }
 
+// migrations are SQLite's, in step with postgresMigrations: each change to the
+// schema goes at the end of both.
 var migrations = []string{`
 CREATE TABLE settings (
 	key TEXT PRIMARY KEY,
@@ -573,6 +638,10 @@ func nullableInt(v sql.NullInt64) *int64 {
 }
 
 func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
+	}
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 

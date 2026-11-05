@@ -1,6 +1,6 @@
 [Unit]
 Description=Zuna chat server
-After=network-online.target
+After=network-online.target postgresql.service
 Wants=network-online.target
 
 [Service]

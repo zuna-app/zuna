@@ -144,8 +144,11 @@ export class TestServer {
   private process: ChildProcess | null = null;
   private dir = "";
 
-  /** `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use. */
-  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string } = {}) {}
+  /**
+   * `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use.
+   * `sqlite` keeps its database in SQLite even with ZUNA_TEST_POSTGRES, for tests that open it as a stolen backup or a malicious server would.
+   */
+  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean } = {}) {}
 
   async start(): Promise<void> {
     const binary = buildServer();
@@ -155,6 +158,12 @@ export class TestServer {
     const args = ["--listen", `127.0.0.1:${port}`, "--data", this.dir, "--public-url", this.url, "--auth-burst", "1000"];
     // Never the project's real relay, which is the default.
     args.push("--push-relays", this.options.pushRelays?.join(",") || "off");
+    // With ZUNA_TEST_POSTGRES, in a schema of its own in that PostgreSQL database, which the server makes.
+    if (process.env.ZUNA_TEST_POSTGRES && !this.options.sqlite) {
+      const database = new URL(process.env.ZUNA_TEST_POSTGRES);
+      database.searchParams.set("search_path", `zuna_test_${crypto.randomUUID().replaceAll("-", "")}`);
+      args.push("--database-url", database.toString());
+    }
     if (this.options.liveKit) args.push("--livekit-url", this.options.liveKit, "--livekit-key", "key", "--livekit-secret", "a-long-enough-secret-for-signing-tokens");
     this.process = spawn(binary, args, {
       stdio: ["ignore", "pipe", "pipe"],

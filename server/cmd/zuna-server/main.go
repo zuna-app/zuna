@@ -33,6 +33,7 @@ const defaultPushRelay = "https://relay.mgalazka.pl"
 
 type config struct {
 	dataDir        string
+	databaseURL    string
 	domain         string
 	listen         string
 	publicURL      string
@@ -75,6 +76,7 @@ func parseFlags() config {
 	var cfg config
 	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_TRUST_PROXY"))
 	flag.StringVar(&cfg.dataDir, "data", envOr("ZUNA_DATA", "./zuna-data"), "folder for the database and uploaded files (env ZUNA_DATA)")
+	flag.StringVar(&cfg.databaseURL, "database-url", os.Getenv("ZUNA_DATABASE_URL"), "PostgreSQL database to use instead of the one in the data folder, such as postgres://zuna:password@localhost/zuna (env ZUNA_DATABASE_URL)")
 	flag.StringVar(&cfg.domain, "domain", os.Getenv("ZUNA_DOMAIN"), "public domain; turns on automatic HTTPS on ports 80 and 443 (env ZUNA_DOMAIN)")
 	flag.StringVar(&cfg.listen, "listen", os.Getenv("ZUNA_LISTEN"), "address to listen on, such as :8080 (env ZUNA_LISTEN)")
 	flag.StringVar(&cfg.publicURL, "public-url", os.Getenv("ZUNA_PUBLIC_URL"), "address members use to reach this server, needed behind a reverse proxy (env ZUNA_PUBLIC_URL)")
@@ -134,7 +136,13 @@ func run(cfg config) error {
 	if err := os.MkdirAll(cfg.dataDir, 0o750); err != nil {
 		return fmt.Errorf("creating data folder: %w", err)
 	}
-	db, err := store.Open(filepath.Join(cfg.dataDir, "zuna.db"))
+	var db *store.DB
+	var err error
+	if cfg.databaseURL != "" {
+		db, err = store.OpenPostgres(cfg.databaseURL)
+	} else {
+		db, err = store.Open(filepath.Join(cfg.dataDir, "zuna.db"))
+	}
 	if err != nil {
 		return fmt.Errorf("opening database: %w", err)
 	}

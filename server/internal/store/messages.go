@@ -97,7 +97,7 @@ func (d *DB) attachReactions(ctx context.Context, groupID string, messages []*Me
 	return rows.Err()
 }
 
-func currentEpoch(ctx context.Context, tx *sql.Tx, groupID string) (int64, error) {
+func currentEpoch(ctx context.Context, tx handle, groupID string) (int64, error) {
 	var epoch int64
 	err := tx.QueryRowContext(ctx, `SELECT epoch FROM groups WHERE id = ?`, groupID).Scan(&epoch)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -111,7 +111,8 @@ func currentEpoch(ctx context.Context, tx *sql.Tx, groupID string) (int64, error
 // under the group's current epoch, so a removed member's key is never reused.
 // A message with expiresIn (ms) above zero disappears that long after it arrives.
 func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quota int64, expiresIn int64) (message *Message, created bool, err error) {
-	err = d.tx(ctx, func(tx *sql.Tx) error {
+	err = d.tx(ctx, func(tx handle) error {
+		created = false
 		var existing string
 		err := tx.QueryRowContext(ctx, `SELECT sender_user FROM messages WHERE group_id = ? AND id = ?`, m.GroupID, m.ID).Scan(&existing)
 		if err == nil {
@@ -159,7 +160,7 @@ func (d *DB) CreateMessage(ctx context.Context, m Message, fileIDs []string, quo
 			if !allowed {
 				return ErrForbidden
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO file_refs(file_id, group_id, message_id) VALUES(?,?,?)`, fileID, m.GroupID, m.ID); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO file_refs(file_id, group_id, message_id) VALUES(?,?,?) ON CONFLICT DO NOTHING`, fileID, m.GroupID, m.ID); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(ctx, `UPDATE files SET attached_at = ? WHERE id = ? AND owner_id = ?`, now, fileID, m.SenderUser); err != nil {
@@ -192,7 +193,7 @@ func (d *DB) Message(ctx context.Context, groupID, id string) (*Message, error) 
 
 // EditMessage replaces a message's ciphertext. Only the sender may edit.
 func (d *DB) EditMessage(ctx context.Context, groupID, id, userID, deviceID string, epoch int64, envelope []byte, quota int64) (*Message, error) {
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var sender string
 		var deleted sql.NullInt64
 		err := tx.QueryRowContext(ctx, `SELECT sender_user, deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&sender, &deleted)
@@ -241,7 +242,8 @@ type Deletion struct {
 
 func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Deletion) (*Message, []string, error) {
 	var fileIDs []string
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
+		fileIDs = nil
 		var deleted sql.NullInt64
 		err := tx.QueryRowContext(ctx, `SELECT deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&deleted)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -292,7 +294,7 @@ func (d *DB) DeleteMessage(ctx context.Context, groupID, id string, deletion Del
 }
 
 // touch moves a message to a new updated_seq after a change to its state.
-func touch(ctx context.Context, tx *sql.Tx, groupID, id string) error {
+func touch(ctx context.Context, tx handle, groupID, id string) error {
 	seq, err := nextSeq(ctx, tx, groupID)
 	if err != nil {
 		return err
@@ -301,7 +303,7 @@ func touch(ctx context.Context, tx *sql.Tx, groupID, id string) error {
 	return err
 }
 
-func messageExists(ctx context.Context, tx *sql.Tx, groupID, id string) error {
+func messageExists(ctx context.Context, tx handle, groupID, id string) error {
 	var deleted sql.NullInt64
 	err := tx.QueryRowContext(ctx, `SELECT deleted_at FROM messages WHERE group_id = ? AND id = ?`, groupID, id).Scan(&deleted)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && deleted.Valid) {
@@ -313,12 +315,12 @@ func messageExists(ctx context.Context, tx *sql.Tx, groupID, id string) error {
 // AddReaction stores a reaction. Like a message, it has to be under the current
 // epoch, and adding the same ID twice is a retry that changes nothing.
 func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r Reaction, quota int64) (*Message, error) {
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
 		}
 		var same, mine, all int
-		err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(id = ?), 0), COALESCE(SUM(user_id = ?), 0), COUNT(*) FROM reactions
+		err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN id = ? THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN user_id = ? THEN 1 ELSE 0 END), 0), COUNT(*) FROM reactions
 			WHERE group_id = ? AND message_id = ?`, r.ID, r.UserID, groupID, messageID).Scan(&same, &mine, &all)
 		if err != nil {
 			return err
@@ -352,7 +354,7 @@ func (d *DB) AddReaction(ctx context.Context, groupID, messageID string, r React
 }
 
 func (d *DB) RemoveReaction(ctx context.Context, groupID, messageID, reactionID, userID string) (*Message, error) {
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		res, err := tx.ExecContext(ctx, `DELETE FROM reactions WHERE group_id = ? AND message_id = ? AND id = ? AND user_id = ?`,
 			groupID, messageID, reactionID, userID)
 		if err != nil {
@@ -376,7 +378,7 @@ type Pin struct {
 }
 
 func (d *DB) SetPinned(ctx context.Context, groupID, messageID, userID string, pinned bool, pin Pin) (*Message, error) {
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		if err := messageExists(ctx, tx, groupID, messageID); err != nil {
 			return err
 		}
@@ -489,7 +491,7 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 			SELECT updated_seq AS s FROM messages WHERE group_id = ?1 AND updated_seq > ?2 AND seq > ?3
 			UNION ALL
 			SELECT seq AS s FROM group_events WHERE group_id = ?1 AND seq > ?2 AND seq >= ?3
-		) ORDER BY s ASC LIMIT ?4`, groupID, after, visibleFrom, limit+1)
+		) AS changes ORDER BY s ASC LIMIT ?4`, groupID, after, visibleFrom, limit+1)
 	if err != nil {
 		return nil, err
 	}
@@ -550,7 +552,7 @@ func (d *DB) ChangesAfter(ctx context.Context, groupID string, after, visibleFro
 // the files no message uses any more.
 func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]string, error) {
 	var fileIDs []string
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var err error
 		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT r.file_id FROM file_refs r
 			JOIN messages m ON m.group_id = r.group_id AND m.id = r.message_id
@@ -571,7 +573,7 @@ func (d *DB) DeleteMessagesOlderThan(ctx context.Context, cutoff int64) ([]strin
 // pinned or not. It returns the files no message uses any more.
 func (d *DB) DeleteExpiredMessages(ctx context.Context, now int64) ([]string, error) {
 	var fileIDs []string
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var err error
 		fileIDs, err = collectStrings(ctx, tx, `SELECT DISTINCT r.file_id FROM file_refs r
 			JOIN messages m ON m.group_id = r.group_id AND m.id = r.message_id
@@ -588,7 +590,7 @@ func (d *DB) DeleteExpiredMessages(ctx context.Context, now int64) ([]string, er
 	return fileIDs, err
 }
 
-func collectStrings(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]string, error) {
+func collectStrings(ctx context.Context, tx handle, query string, args ...any) ([]string, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -608,13 +610,13 @@ func collectStrings(ctx context.Context, tx *sql.Tx, query string, args ...any) 
 // unreferenced keeps the files nothing uses any more. A forwarded message shares
 // its original's files, so they stay until the last copy is gone, and someone's
 // picture or a group's stays whatever messages come and go.
-func unreferenced(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, error) {
+func unreferenced(ctx context.Context, tx handle, fileIDs []string) ([]string, error) {
 	var orphaned []string
 	for _, id := range fileIDs {
 		if slices.Contains(orphaned, id) {
 			continue
 		}
-		var used int
+		var used bool
 		err := tx.QueryRowContext(ctx, `SELECT
 			EXISTS(SELECT 1 FROM file_refs WHERE file_id = ?1) OR
 			EXISTS(SELECT 1 FROM users WHERE avatar_file = ?1) OR
@@ -622,7 +624,7 @@ func unreferenced(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, 
 		if err != nil {
 			return nil, err
 		}
-		if used == 0 {
+		if !used {
 			orphaned = append(orphaned, id)
 		}
 	}
@@ -632,14 +634,14 @@ func unreferenced(ctx context.Context, tx *sql.Tx, fileIDs []string) ([]string, 
 // mayShareFile reports whether a message from this user may use a file: their
 // own finished upload, or one already in a message they can see, in a conversation
 // they belong to, which is how a forwarded message shares its original's files.
-func mayShareFile(ctx context.Context, tx *sql.Tx, fileID, userID string) (bool, error) {
-	var allowed int
+func mayShareFile(ctx context.Context, tx handle, fileID, userID string) (bool, error) {
+	var allowed bool
 	err := tx.QueryRowContext(ctx, `SELECT
 		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND owner_id = ?2 AND completed_at IS NOT NULL) OR
 		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
 			JOIN messages msg ON msg.group_id = r.group_id AND msg.id = r.message_id
 			WHERE r.file_id = ?1 AND m.user_id = ?2 AND msg.seq > m.visible_from_seq)`, fileID, userID).Scan(&allowed)
-	return allowed != 0, err
+	return allowed, err
 }
 
 // --- Files ---
@@ -658,10 +660,10 @@ type File struct {
 // where zero is no limit. Both happen in one transaction, so uploads started
 // together can't each get past it.
 func (d *DB) CreateFile(ctx context.Context, f File, quota int64) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		if quota > 0 {
 			var used int64
-			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(MAX(total_size, received)), 0) FROM files WHERE owner_id = ?`, f.OwnerID).Scan(&used); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT CAST(COALESCE(SUM(CASE WHEN total_size > received THEN total_size ELSE received END), 0) AS BIGINT) FROM files WHERE owner_id = ?`, f.OwnerID).Scan(&used); err != nil {
 				return err
 			}
 			if used+f.TotalSize > quota {
@@ -689,14 +691,14 @@ func (d *DB) File(ctx context.Context, id string) (*File, error) {
 // MayReadFile reports whether a user may read a file: their own, someone's
 // picture, or one in a message they can see, in a conversation they belong to.
 func (d *DB) MayReadFile(ctx context.Context, fileID, userID string) (bool, error) {
-	var allowed int
+	var allowed bool
 	err := d.sql.QueryRowContext(ctx, `SELECT
 		EXISTS(SELECT 1 FROM files WHERE id = ?1 AND (owner_id = ?2 OR standalone = 1)) OR
 		EXISTS(SELECT 1 FROM users WHERE avatar_file = ?1) OR
 		EXISTS(SELECT 1 FROM file_refs r JOIN group_members m ON m.group_id = r.group_id
 			JOIN messages msg ON msg.group_id = r.group_id AND msg.id = r.message_id
 			WHERE r.file_id = ?1 AND m.user_id = ?2 AND msg.seq > m.visible_from_seq)`, fileID, userID).Scan(&allowed)
-	return allowed != 0, err
+	return allowed, err
 }
 
 // AddReceived records a part of an upload arriving, which may replace an
@@ -777,7 +779,7 @@ type Emote struct {
 // ReplaceEmoteSet makes emotes the current set. Emotes previously known stay
 // in the table so old messages using them keep rendering.
 func (d *DB) ReplaceEmoteSet(ctx context.Context, emotes []Emote) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE emotes SET in_set = 0`); err != nil {
 			return err
 		}
@@ -796,7 +798,7 @@ func (d *DB) ReplaceEmoteSet(ctx context.Context, emotes []Emote) error {
 }
 
 func (d *DB) EmoteSet(ctx context.Context) ([]Emote, error) {
-	rows, err := d.sql.QueryContext(ctx, `SELECT id, name, animated, zero_width, width, height, owner FROM emotes WHERE in_set = 1 ORDER BY name COLLATE NOCASE`)
+	rows, err := d.sql.QueryContext(ctx, `SELECT id, name, animated, zero_width, width, height, owner FROM emotes WHERE in_set = 1 ORDER BY LOWER(name)`)
 	if err != nil {
 		return nil, err
 	}

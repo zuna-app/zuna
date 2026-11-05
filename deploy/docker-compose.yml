@@ -26,6 +26,8 @@ services:
       ZUNA_DOMAIN: ${ZUNA_DOMAIN:?Set ZUNA_DOMAIN to your domain name}
       # The push relays that may wake members' phones (docs/SELF_HOSTING.md#phone-notifications).
       ZUNA_PUSH_RELAYS: ${ZUNA_PUSH_RELAYS:-}
+      # PostgreSQL to keep the data in, instead of SQLite in the volume (docs/SELF_HOSTING.md#postgresql).
+      ZUNA_DATABASE_URL: ${ZUNA_DATABASE_URL:-}
     volumes:
       - zuna-data:/data
 

@@ -36,6 +36,10 @@
 #   --push-relays URLS   the relays the server sends notifications through,
 #                        comma-separated, or "off" (default: the relay on this
 #                        machine, or else the project's)
+#   --database-url URL   keep the server's data in PostgreSQL, at an address such
+#                        as postgres://zuna:password@localhost/zuna, which is kept
+#                        only in /etc/zuna/zuna.env, or "" for SQLite again
+#                        (default: SQLite, in /var/lib/zuna)
 #   --listen ADDRESS     where the proxy reaches them (default 127.0.0.1, for a
 #                        proxy on this machine; this machine's private address,
 #                        or 0.0.0.0 for every address, for a proxy on another)
@@ -106,6 +110,8 @@ WEB_CHANGED=0
 VOICE_CHANGED=0
 RELAYS_GIVEN=0
 WEB_SERVER_GIVEN=0
+DATABASE_URL=""
+DATABASE_URL_GIVEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --server) SERVER_DOMAIN="${2:?--server needs a domain}"; SERVER_CHANGED=1; shift 2 ;;
@@ -117,6 +123,7 @@ while [ $# -gt 0 ]; do
     --apns-key) APNS_KEY_FILE="${2:?--apns-key needs a file}"; RELAY_CHANGED=1; shift 2 ;;
     --apns-key-id) APNS_KEY_ID="${2:?--apns-key-id needs an ID}"; RELAY_CHANGED=1; shift 2 ;;
     --push-relays) PUSH_RELAYS="${2:?--push-relays needs a list}"; RELAYS_GIVEN=1; SERVER_CHANGED=1; shift 2 ;;
+    --database-url) DATABASE_URL="${2?--database-url needs an address}"; DATABASE_URL_GIVEN=1; SERVER_CHANGED=1; shift 2 ;;
     --listen) LISTEN="${2:?--listen needs an address}"; SERVER_CHANGED=1; RELAY_CHANGED=1; WEB_CHANGED=1; shift 2 ;;
     --trusted-proxies) TRUSTED_PROXIES="${2:?--trusted-proxies needs a list}"; SERVER_CHANGED=1; RELAY_CHANGED=1; WEB_CHANGED=1; shift 2 ;;
     --server-port) SERVER_PORT="${2:?--server-port needs a port}"; SERVER_CHANGED=1; shift 2 ;;
@@ -524,6 +531,11 @@ if [ -n "$SERVER_DOMAIN" ]; then
   install -m 0644 "$SRC/deploy/zuna.service" /etc/systemd/system/zuna.service
   # Written the first time and when options change; edits made by hand stay otherwise.
   if [ ! -f /etc/zuna/zuna.env ] || [ "$SERVER_CHANGED" = 1 ]; then
+    # The database's address can hold a password, so it's only ever in this file,
+    # and goes on to the new one. Without it, the server would start out empty.
+    if [ "$DATABASE_URL_GIVEN" = 0 ] && [ -f /etc/zuna/zuna.env ]; then
+      DATABASE_URL="$(sed -n 's/^ZUNA_DATABASE_URL=//p' /etc/zuna/zuna.env | tail -n 1)"
+    fi
     # Only root reads it, since it can hold LiveKit's secret. systemd reads it before
     # it starts the server.
     install -m 0600 /dev/null /etc/zuna/zuna.env
@@ -537,6 +549,8 @@ ZUNA_TRUST_PROXY=true
 ZUNA_TRUSTED_PROXIES=$TRUSTED_PROXIES
 # Empty is the project's relay, and "off" is none.
 ZUNA_PUSH_RELAYS=$PUSH_RELAYS
+# PostgreSQL, or empty for SQLite in ZUNA_DATA.
+ZUNA_DATABASE_URL=$DATABASE_URL
 EOF
     if [ "$VOICE" = on ]; then
       cat >>/etc/zuna/zuna.env <<EOF

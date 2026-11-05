@@ -71,7 +71,7 @@ function serverVault(userId: string): { id: string; generation: number; data: Ui
 
 beforeAll(async () => {
   loadCrypto();
-  server = new TestServer();
+  server = new TestServer({ sqlite: true });
   await server.start();
   alice = await new TestApp("alice").open();
   await alice.register(server.setupLink, "alice");

@@ -58,7 +58,7 @@ func (d *DB) Sound(ctx context.Context, id string) (*Sound, error) {
 // CreateSound adds a sound at the end of the soundboard, unless it's full.
 func (d *DB) CreateSound(ctx context.Context, sound Sound) (*Sound, error) {
 	sound.CreatedAt = Now()
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var count int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM sounds`).Scan(&count); err != nil {
 			return err

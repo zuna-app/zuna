@@ -12,7 +12,7 @@ flowchart LR
     Core --> DB
   end
   Server["Zuna server<br/>Go, one binary"]
-  Store[("SQLite and files<br/>ciphertext only")]
+  Store[("SQLite or PostgreSQL,<br/>and files, ciphertext only")]
   SevenTV["7TV"]
   Core <-->|"HTTPS and WebSocket"| Server
   Server --> Store
@@ -26,7 +26,7 @@ flowchart LR
 | Interface | `packages/ui/` | React, Motion | The desktop's screens, shared with the web app. Each host gives it a `Platform` for what's outside the page |
 | Desktop app | `apps/desktop/` | Electron | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for voice channels |
 | Web app | `apps/web/`, `server/cmd/zuna-web` | The same interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
-| Server | `server/` | Go, pure-Go SQLite | A single static binary for every platform, with no dependencies to install |
+| Server | `server/` | Go, pure-Go SQLite, or PostgreSQL for a large server | A single static binary for every platform, with no dependencies to install |
 
 The core runs in a Worker so that cryptography and database work can never block scrolling or animation. The whole client core runs headless in Node, and the end-to-end tests use it to drive a real server.
 

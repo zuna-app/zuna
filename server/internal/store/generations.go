@@ -91,7 +91,7 @@ type AccountState struct {
 	MissingBundles []string `json:"missing_bundles"`
 }
 
-func (d *DB) insertSlots(ctx context.Context, tx *sql.Tx, userID string, slots []Slot) error {
+func (d *DB) insertSlots(ctx context.Context, tx handle, userID string, slots []Slot) error {
 	for _, slot := range slots {
 		_, err := tx.ExecContext(ctx, `INSERT INTO account_slots(user_id, kind, seal_key, sign_key, sealed_secret, sealed_key) VALUES(?,?,?,?,?,?)
 			ON CONFLICT(user_id, kind) DO UPDATE SET seal_key = excluded.seal_key, sign_key = excluded.sign_key,
@@ -163,7 +163,7 @@ func (d *DB) IdentityLinks(ctx context.Context, userID string, after int64, limi
 // repeat of a rotation that already went through succeeds without doing anything,
 // so a client that never heard the answer can simply send it again.
 func (d *DB) ApplyRotation(ctx context.Context, rotation Rotation) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, rotation.UserID).Scan(&current); err != nil {
 			return err
@@ -302,7 +302,7 @@ func (d *DB) Account(ctx context.Context, userID, deviceID string) (*AccountStat
 // PutBundles delivers the account key to devices that couldn't be sealed to when
 // the generation was made, such as one that has since updated.
 func (d *DB) PutBundles(ctx context.Context, userID string, generation int64, bundles []Bundle) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, userID).Scan(&current); err != nil {
 			return err
@@ -331,7 +331,7 @@ func (d *DB) PutBundles(ctx context.Context, userID string, generation int64, bu
 
 // CloseGeneration replaces the core once nothing older is left in the vault.
 func (d *DB) CloseGeneration(ctx context.Context, userID string, generation int64, core []byte) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, userID).Scan(&current); err != nil {
 			return err
@@ -362,7 +362,7 @@ func (d *DB) SetDeviceCertificate(ctx context.Context, userID, deviceID string, 
 }
 
 func (d *DB) touchDevice(ctx context.Context, userID, deviceID, query string, args ...any) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
 			return err
 		}
@@ -404,7 +404,7 @@ func (d *DB) vaultItems(ctx context.Context, query string, args ...any) ([]Vault
 // the current one: a device behind it would be sealing to a key it should stop using.
 func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int64, items []VaultItem, quota int64) (int64, error) {
 	var seq int64
-	err := d.tx(ctx, func(tx *sql.Tx) error {
+	err := d.tx(ctx, func(tx handle) error {
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, userID).Scan(&current); err != nil {
 			return err
@@ -430,7 +430,7 @@ func (d *DB) PutVaultItemsAt(ctx context.Context, userID string, generation int6
 // place in the feed alone: devices already hold what's in them. It can't lower an
 // item's generation, and what shouldn't carry over is deleted.
 func (d *DB) ResealVaultItems(ctx context.Context, userID string, generation int64, items []VaultItem, remove []string) error {
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		var current int64
 		if err := tx.QueryRowContext(ctx, `SELECT key_generation FROM users WHERE id = ?`, userID).Scan(&current); err != nil {
 			return err

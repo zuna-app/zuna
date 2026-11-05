@@ -188,6 +188,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Add or replace the APNs key | `--apns-key AuthKey_….p8 --apns-key-id …` |
 | Let the server use a relay on another machine | `--push-relays https://push.example.com` |
 | Turn phone notifications off | `--push-relays off` |
+| Keep the server's data in [PostgreSQL](SELF_HOSTING.md#postgresql) | `--database-url postgres://zuna:password@localhost/zuna`, kept only in `/etc/zuna/zuna.env`. A server moved to it starts out empty |
 | Add the web app to a machine that runs the server | `--web web.chat.example.com` |
 | Start the web app's sign-in form with another server | `--web-server https://chat.example.com` |
 | Let the web app connect only to some servers | `--web-servers https://chat.example.com`, or `--web-servers any` to allow any again |

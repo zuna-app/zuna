@@ -46,7 +46,6 @@ The iPhone app's approach carries over:
 
 - **Automatic updates** with `electron-updater`, which needs a signed release pipeline first.
 - **Code signing** for Windows and macOS, so installers don't show warnings. This needs certificates held by whoever publishes releases. `release.yml` already accepts them.
-- **Postgres** for servers larger than a few hundred active people. All SQL lives in `server/internal/store`, so this is a contained change.
 - **Admin-controlled permissions**, such as who may pin messages or create groups.
 - **Sealed sender**, to hide from the server who sent a message.
 - **Encrypted backups** you can export and import yourself.

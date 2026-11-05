@@ -1,8 +1,7 @@
-﻿package store
+package store
 
 import (
 	"context"
-	"database/sql"
 	"time"
 )
 
@@ -31,7 +30,7 @@ const (
 
 // countBytes adds to one of someone's running totals, unless that would take them
 // past limit, where zero is no limit.
-func countBytes(ctx context.Context, tx *sql.Tx, column, userID string, n, limit int64) error {
+func countBytes(ctx context.Context, tx handle, column, userID string, n, limit int64) error {
 	if limit <= 0 {
 		_, err := tx.ExecContext(ctx, `UPDATE users SET `+column+` = `+column+` + ? WHERE id = ?`, n, userID)
 		return err
@@ -81,7 +80,7 @@ func (d *DB) RecountStorage(ctx context.Context) error {
 		FROM group_events WHERE kind = 'commit' GROUP BY sender_user`); err != nil {
 		return err
 	}
-	return d.tx(ctx, func(tx *sql.Tx) error {
+	return d.tx(ctx, func(tx handle) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE users SET stored_bytes = 0, commit_bytes = 0`); err != nil {
 			return err
 		}
@@ -109,7 +108,7 @@ func (d *DB) PruneCommits(ctx context.Context) error {
 
 // commitDevices is how many devices a commit's size can reasonably go by: those of
 // the people in the group, and of whoever it's adding.
-func commitDevices(ctx context.Context, tx *sql.Tx, groupID string, adding []string) (int64, error) {
+func commitDevices(ctx context.Context, tx handle, groupID string, adding []string) (int64, error) {
 	args := []any{groupID}
 	query := `SELECT COUNT(*) FROM devices WHERE revoked_at IS NULL AND user_id IN (SELECT user_id FROM group_members WHERE group_id = ?`
 	if len(adding) > 0 {

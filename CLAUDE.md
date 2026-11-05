@@ -48,6 +48,8 @@ npm run test -w @zuna/e2e -- test/golden.test.ts   # macOS only, see Gotchas
 
 Core tests drive real clients against a real Go server, which they build themselves. The whole suite takes over a minute. `scripts/lib.mjs` adds `%LOCALAPPDATA%\Programs\go\bin` and `~/.cargo/bin` to `PATH` for the npm scripts, so a direct `go` or `cargo` may need them too. Native `cargo test` needs a C toolchain on Windows, which is why `npm run test:crypto` runs as WebAssembly.
 
+The server's tests and the core's run in SQLite. With `ZUNA_TEST_POSTGRES` set to a PostgreSQL database's address, such as `postgres://zuna@localhost/zuna_test?sslmode=disable`, they run in PostgreSQL instead, each test or test server in a schema of its own there. Run them that way after changing any SQL. The Go tests drop their schemas, and the core's leave theirs, so give them a database to throw away.
+
 Checks in real Electron, after `npm run build -w @zuna/desktop`:
 
 | Script in `apps/desktop/test` | Run it after changing |
@@ -93,7 +95,7 @@ Rules the core depends on:
 - A channel is a group of kind `channel`, which an app takes part in only if it set `channels` on `ZunaClient`. Its roster only counts people whose proof of the community key checks out.
 - A voice channel's media key comes straight from the MLS exporter for the current epoch, and is never stored or handed on (`voiceKey`).
 
-**The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, `limited` and `publicLimited`. All SQL is in `internal/store`. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
+**The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, `limited` and `publicLimited`. All SQL is in `internal/store`, which keeps everything in SQLite, or in PostgreSQL with `--database-url` (`postgres.go`). Each statement is written once for both, with SQLite's placeholders, which `handle` turns into PostgreSQL's. There, transactions run serializable, side by side, and one that collides with another starts again, so a function passed to `tx` must set everything it leaves behind, as it may run more than once. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
 
 **Voice runs in the interface, not the core.** `packages/ui/src/voice` holds the LiveKit room, the microphone's audio worklet and the store, and `apps/ios/Zuna/Voice` the iPhone's, through LiveKit's Swift SDK. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
 
@@ -108,7 +110,7 @@ Rules the core depends on:
 | A public `ServerSession` method the UI uses | `ZunaModels/CoreAPI.swift` |
 | Desktop markup (`lib/markup.tsx`) | `ZunaModels/Markup.swift`, and the golden file: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
 | A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
-| A database schema | Add to the end of `migrations` in `server/internal/store/store.go` or `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
+| A database schema | Add to the end of `migrations` in `server/internal/store/store.go` and of `postgresMigrations` in `postgres.go`, or of `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
 | The desktop's content security policy (`apps/desktop/src/main/index.ts`) | `contentSecurityPolicy` in `server/internal/webhost/webhost.go` |
 | LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.voice.yml`, and `deploy/update.sh` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
@@ -173,5 +175,6 @@ Rules the core depends on:
 - **When `crypto/Cargo.lock` moves to a new wasm-bindgen,** update the hashes pinned in `.github/workflows/ci.yml`.
 - **Build test servers with `-trimpath -ldflags "-s -w"`.** Windows Defender quarantines Go binaries with debug symbols as a trojan, which is a false positive. Don't change Defender's settings.
 - **Playwright can't drive a packaged build,** because its Electron fuses refuse the inspector flag. The checks above run the unpackaged `out/` build.
+- **SQL in `server/internal/store` has to work in SQLite and PostgreSQL.** SQLite's `INSERT OR IGNORE`, two-argument `MAX` and `MIN`, sums of comparisons, `COLLATE NOCASE` and `PRAGMA` don't, and a comparison scans as a boolean in PostgreSQL. Text columns there are `COLLATE "C"`, so that they sort as SQLite's do, and flags stay numbers: `handle` passes Go's booleans as 1 and 0.
 - **Link previews refuse this machine and private networks** unless `allowLocalLinks` is on, which only tests and development builds do.
 - **`dist/` is gitignored and holds a private security report.** Never force-add it.

@@ -8,18 +8,34 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
+
+	"zuna/server/internal/store/storetest"
 )
 
 func openTestDB(t *testing.T) *DB {
 	t.Helper()
-	db, err := Open(filepath.Join(t.TempDir(), "zuna.db"))
+	var db *DB
+	var err error
+	if storetest.Postgres() != "" {
+		db, err = OpenPostgres(storetest.Schema(t))
+	} else {
+		db, err = Open(filepath.Join(t.TempDir(), "zuna.db"))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+func onlySQLite(t *testing.T) {
+	t.Helper()
+	if storetest.Postgres() != "" {
+		t.Skip("about a SQLite database from before")
+	}
 }
 
 func TestRetentionKeepsPinnedMessagesAndTheirFiles(t *testing.T) {
@@ -110,6 +126,21 @@ func TestDisappearingMessagesGoWhenDueEvenPinned(t *testing.T) {
 
 func TestDeliveredItemIDsAreNeverReused(t *testing.T) {
 	ctx := context.Background()
+	db := openTestDB(t)
+	user := testUser(t, db, "user")
+	if _, err := db.sql.ExecContext(ctx, `INSERT INTO devices(id, user_id, certificate, signature_key, created_at, last_seen_at) VALUES('device', ?, 'c', 'k', 1, 1)`, user); err != nil {
+		t.Fatal(err)
+	}
+	group, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkIDsNeverReused(t, db, user, group)
+}
+
+func TestDeliveredItemIDsAreNeverReusedAfterTheMigration(t *testing.T) {
+	onlySQLite(t)
+	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "zuna.db")
 
 	// Start from a database that predates the fix, with one row waiting.
@@ -147,16 +178,17 @@ func TestDeliveredItemIDsAreNeverReused(t *testing.T) {
 	if len(waiting) != 1 || waiting[0].ID != 7 {
 		t.Fatalf("the waiting welcome should survive the migration, got %+v", waiting)
 	}
+	checkIDsNeverReused(t, db, "user", "group")
+}
 
-	for _, table := range []struct{ name, owner, ownerID string }{{"welcomes", "device_id", "device"}, {"history_grants", "user_id", "user"}} {
-		insert := func() int64 {
+func checkIDsNeverReused(t *testing.T, db *DB, user, group string) {
+	t.Helper()
+	ctx := context.Background()
+	for _, table := range []struct{ name, owner, ownerID string }{{"welcomes", "device_id", "device"}, {"history_grants", "user_id", user}} {
+		insert := func() (id int64) {
 			t.Helper()
-			result, err := db.sql.ExecContext(ctx, `INSERT INTO `+table.name+`(`+table.owner+`, group_id, data, created_at) VALUES(?, 'group', x'01', 1)`, table.ownerID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			id, err := result.LastInsertId()
-			if err != nil {
+			if err := db.sql.QueryRowContext(ctx, `INSERT INTO `+table.name+`(`+table.owner+`, group_id, data, created_at) VALUES(?, ?, 'x', 1) RETURNING id`,
+				table.ownerID, group).Scan(&id); err != nil {
 				t.Fatal(err)
 			}
 			return id
@@ -329,6 +361,7 @@ func TestSessionsDontLastForever(t *testing.T) {
 }
 
 func TestAnUpdatedDatabaseKeepsTrackOfWhichMessagesUseWhichFiles(t *testing.T) {
+	onlySQLite(t)
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "zuna.db")
 	db, err := Open(path)
@@ -545,7 +578,7 @@ func TestOnlyOldCommitsFarBehindArePruned(t *testing.T) {
 		t.Fatal(err)
 	}
 	var left []string
-	err = db.tx(ctx, func(tx *sql.Tx) (err error) {
+	err = db.tx(ctx, func(tx handle) (err error) {
 		left, err = collectStrings(ctx, tx, `SELECT CAST(epoch AS TEXT) FROM group_events WHERE group_id = ? ORDER BY seq`, group)
 		return err
 	})
@@ -562,4 +595,132 @@ func (d *DB) CreateGroupForTest(ctx context.Context) (string, error) {
 	id := NewID()
 	_, err := d.sql.ExecContext(ctx, `INSERT INTO groups(id, kind, created_by, created_at) VALUES(?, 'group', 'u', ?)`, id, Now())
 	return id, err
+}
+
+// PostgreSQL runs transactions side by side, and starts again any that ran into
+// one another, so that each still sees the database as though it were alone.
+func TestMessagesSentAtOnceEachGetTheirOwnPlace(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	group, err := db.CreateGroupForTest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const senders, each = 16, 8
+	var wg sync.WaitGroup
+	errs := make(chan error, senders*each)
+	for sender := range senders {
+		wg.Go(func() {
+			for i := range each {
+				_, created, err := db.CreateMessage(ctx, Message{
+					GroupID: group, ID: fmt.Sprintf("m%d-%d", sender, i), SenderUser: "u", SenderDevice: "d", Envelope: []byte("x"),
+				}, nil, 0, 0)
+				if err == nil && !created {
+					err = errors.New("a new message counted as a retry")
+				}
+				errs <- err
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := db.sql.QueryContext(ctx, `SELECT seq FROM messages WHERE group_id = ? ORDER BY seq`, group)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	want := int64(1)
+	for rows.Next() {
+		var seq int64
+		if err := rows.Scan(&seq); err != nil {
+			t.Fatal(err)
+		}
+		if seq != want {
+			t.Fatalf("message at %d, want %d", seq, want)
+		}
+		want++
+	}
+	if want != senders*each+1 {
+		t.Fatalf("%d messages stored, want %d", want-1, senders*each)
+	}
+}
+
+func TestAOneTimeKeyPackageIsHandedOutOnce(t *testing.T) {
+	ctx := context.Background()
+	db := openTestDB(t)
+	user := testUser(t, db, "bob")
+	if err := db.AddDevice(ctx, []byte("token"), Device{ID: "d", UserID: user, Certificate: []byte("c"), SignatureKey: []byte("k")}, 0); err != nil {
+		t.Fatal(err)
+	}
+	var packages [][]byte
+	for i := range 8 {
+		packages = append(packages, []byte(fmt.Sprintf("one-time %d", i)))
+	}
+	if err := db.AddKeyPackages(ctx, "d", packages, []byte("last resort")); err != nil {
+		t.Fatal(err)
+	}
+	const claims = 24
+	var wg sync.WaitGroup
+	got := make(chan string, claims)
+	errs := make(chan error, claims)
+	for range claims {
+		wg.Go(func() {
+			claimed, err := db.ClaimKeyPackages(ctx, user)
+			if err == nil && len(claimed) != 1 {
+				err = fmt.Errorf("%d packages for one device", len(claimed))
+			}
+			if err != nil {
+				errs <- err
+				return
+			}
+			got <- string(claimed[0].Data)
+		})
+	}
+	wg.Wait()
+	close(got)
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	handedOut := map[string]int{}
+	for data := range got {
+		handedOut[data]++
+	}
+	for _, data := range packages {
+		if handedOut[string(data)] != 1 {
+			t.Fatalf("%q handed out %d times", data, handedOut[string(data)])
+		}
+	}
+	if handedOut["last resort"] != claims-len(packages) {
+		t.Fatalf("the last resort handed out %d times, want %d", handedOut["last resort"], claims-len(packages))
+	}
+}
+
+func TestPlaceholdersBecomePostgresOnes(t *testing.T) {
+	for query, want := range map[string]string{
+		`SELECT a FROM t WHERE b = ? AND c = ?`:          `SELECT a FROM t WHERE b = $1 AND c = $2`,
+		`WHERE a = ?1 AND (?2 = '' OR b = ?2) LIMIT ?3`:  `WHERE a = $1 AND ($2 = '' OR b = $2) LIMIT $3`,
+		`VALUES(?, ?3, ?)`:                               `VALUES($1, $3, $4)`,
+		`WHERE a = '?' AND b = 'it''s ?' AND c = ?`:      `WHERE a = '?' AND b = 'it''s ?' AND c = $1`,
+		"-- isn't it ?\nSELECT ?":                        "-- isn't it ?\nSELECT $1",
+		`SELECT "C" FROM t WHERE x IN (?,?,?) AND y = ?`: `SELECT "C" FROM t WHERE x IN ($1,$2,$3) AND y = $4`,
+	} {
+		if got := rebind(query); got != want {
+			t.Errorf("rebind(%q) = %q, want %q", query, got, want)
+		}
+	}
+	yes, no := true, false
+	args := []any{"a", true, &yes, &no, (*bool)(nil), 3}
+	got := postgresArgs(args)
+	if want := []any{"a", int64(1), int64(1), int64(0), nil, 3}; !slices.Equal(got, want) {
+		t.Errorf("postgresArgs = %v, want %v", got, want)
+	}
+	if args[1] != true {
+		t.Error("postgresArgs changed what it was given")
+	}
 }

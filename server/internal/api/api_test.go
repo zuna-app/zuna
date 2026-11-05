@@ -20,6 +20,7 @@ import (
 
 	"zuna/server/internal/api"
 	"zuna/server/internal/store"
+	"zuna/server/internal/store/storetest"
 )
 
 type harness struct {
@@ -48,7 +49,13 @@ type client struct {
 func newHarness(t *testing.T, configure ...func(*api.Config)) *harness {
 	t.Helper()
 	dir := t.TempDir()
-	db, err := store.Open(filepath.Join(dir, "zuna.db"))
+	var db *store.DB
+	var err error
+	if storetest.Postgres() != "" {
+		db, err = store.OpenPostgres(storetest.Schema(t))
+	} else {
+		db, err = store.Open(filepath.Join(dir, "zuna.db"))
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
