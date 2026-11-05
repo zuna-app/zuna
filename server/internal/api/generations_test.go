@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"testing"
 
+	"zuna/server/internal/api"
 	"zuna/server/internal/store"
 )
 
@@ -259,6 +260,28 @@ func TestPasswordChangesWithTheRotationOrNotAtAll(t *testing.T) {
 		t.Fatalf("the old password gave %d", status)
 	}
 	h.mustDo("POST", "/api/auth/login", "", map[string]any{"username": "owner", "auth_key": bytesOf(32, 0xab)}, nil)
+}
+
+// A session token is no faster a way to guess the password: checking the current
+// one, to change it or the recovery key, counts as a sign-in does.
+func TestChangingThePasswordIsNoFasterAWayToGuessIt(t *testing.T) {
+	for _, change := range []string{"password", "recovery"} {
+		h := newHarness(t, func(cfg *api.Config) { cfg.AuthBurst = 100_000 })
+		owner := h.signUp("owner", h.invite)
+		body, _ := owner.rotation(map[string][]byte{owner.client.device: publicOf(owner.device)}, []string{})
+		kdf := map[string]any{"salt": bytesOf(16, 8), "memory": 65536, "iterations": 3, "parallelism": 1}
+		body[change] = map[string]any{"current_auth_key": bytesOf(32, 0xff), "kdf": kdf, "auth_key": bytesOf(32, 0xab), "recovery_auth_key": bytesOf(32, 0xac)}
+		limited := 0
+		for attempt := 1; attempt <= 20 && limited == 0; attempt++ {
+			if status, _ := h.do("POST", "/api/account/rotate", owner.token, body, nil); status == http.StatusTooManyRequests {
+				limited = attempt
+			}
+		}
+		// Well before the limit on rotations themselves.
+		if limited == 0 {
+			t.Fatalf("wrong passwords changing the %s never slowed down", change)
+		}
+	}
 }
 
 func TestSealingAgainKeepsItsPlaceAndCantGoBack(t *testing.T) {

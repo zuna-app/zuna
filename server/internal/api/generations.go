@@ -198,6 +198,12 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		}
 		rotation.Slots = append(rotation.Slots, slot)
 	}
+	// Checking the current password or recovery key counts as a sign-in does, or a
+	// session token would be a faster way to guess it.
+	proving := body.Password != nil || body.Recovery != nil
+	if proving && !s.trySignIn(w, r, sess.Username) {
+		return
+	}
 	if p := body.Password; p != nil {
 		proved := subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, p.CurrentAuthKey), creds.AuthHash) == 1 ||
 			subtle.ConstantTimeCompare(saltedHash(creds.RecoverySalt, p.RecoveryAuthKey), creds.RecoveryHash) == 1
@@ -223,6 +229,9 @@ func (s *Server) handleRotate(w http.ResponseWriter, r *http.Request, sess *stor
 		}
 		salt := newSalt()
 		rotation.Recovery = &store.RecoveryChange{Hash: saltedHash(salt, c.RecoveryAuthKey), Salt: salt}
+	}
+	if proving {
+		s.signInSucceeded(r, sess.Username)
 	}
 
 	if err := s.db.ApplyRotation(r.Context(), rotation); err != nil {
