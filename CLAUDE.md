@@ -69,7 +69,7 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 ## Architecture
 
-The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, and the threat model and known limits in `SECURITY.md`. Read both before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
+The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model and known limits in `SECURITY.md`, and how each protection works in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
 
 **One client core, four hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop and the web (`packages/ui/src/core/serve.ts`, started by each app's `worker.ts`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
@@ -112,7 +112,7 @@ Rules the core depends on:
 | LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.voice.yml`, and `deploy/update.sh` |
 | Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
 | What setting up the test server creates (`createWorld` in `packages/core/test/dev-bots.ts`) | `WORLD_VERSION` and `catchUp` there, or test servers set up earlier never get it |
-| Anything `SECURITY.md` or the docs claim | Those docs |
+| Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |
 | Anything the landing page claims, such as a feature, a platform, a limit or a number | `apps/site`, in the same commit. It says only what's been checked |
 | The site's content security policy or headers (`apps/site/policy.mjs`) | The Caddy example under "Hosting" in `docs/SITE_PLAN.md`, and what the server sends |
 

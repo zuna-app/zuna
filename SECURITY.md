@@ -1,6 +1,6 @@
 # Security model
 
-Zuna's goal is that a server you don't fully trust still can't read your messages. This page says exactly what that means, including what it doesn't protect against.
+Zuna's goal is that a server you don't fully trust still can't read your messages. This page says what that means, and what it doesn't protect against. How each part works is in [docs/SECURITY_DETAILS.md](docs/SECURITY_DETAILS.md).
 
 **Zuna hasn't had an independent audit.** OpenMLS, the library at its core, has been audited, but Zuna's own code, including how it uses that library, hasn't been reviewed by anyone independent. Keep this in mind for high-risk uses.
 
@@ -8,165 +8,117 @@ Zuna's goal is that a server you don't fully trust still can't read your message
 
 Please report security issues privately through GitHub's "Report a vulnerability" feature on the repository's Security tab, rather than in a public issue.
 
+## In short
+
+- **The server can't read what you write.** Messages, files, reactions, group names, calls and voice are encrypted on your device so that only the people in a conversation can open them, and profiles and channel names so that only the people invited to the server can.
+- **It does see who talks to whom, and when.** Zuna hides content, not metadata. The table below lists what the server sees.
+- **Your password opens your history.** It never leaves your device, but anyone who learns it can read everything you can.
+- **The emoji check proves who you're talking to.** Until you compare emoji with someone, a malicious server could have given you a fake key for them from the start.
+- **The installed apps are safer than the web app,** whose code comes from its host on every visit.
+
 ## What the server can and can't see
 
 | | Server can see | Server can't see |
 |---|---|---|
 | **Accounts** | Username, role, sign-up date, which devices exist | Password, display name, avatar, bio |
 | **Conversations** | Who is in each conversation | Group names, pictures and descriptions |
-| **Messages** | Who sent one, when, to which conversation, and its rough size (padded to 256-byte blocks) | Text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, shared locations, whether and from whom it was forwarded |
+| **Messages** | Who sent one, when, to which conversation, and roughly how big it is | Text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, shared locations, whether and from whom it was forwarded |
 | **Reactions** | Who reacted to which message | Which reaction it was (with the exception under "Limits") |
-| **Files** | Size and uploader, and which messages share a file, so it knows a forwarded file is the same one | Name, type, content |
+| **Files** | Size and uploader, and which messages share a file, as a forwarded one does | Name, type, content |
 | **Pins and deletes** | Which message was pinned or deleted | The message's content |
-| **Disappearing messages** | When each message is due to go, and so how long a chat's messages last | The setting itself, which is in the chat's encrypted details |
+| **Disappearing messages** | When each message is due to go, and so how long a chat's messages last | The setting itself |
 | **Read state** | That someone's read position changed | The position itself |
-| **Typing** | That someone sent a typing signal | Nothing further; it's encrypted but has no other content |
-| **Channels** | That each exists, who made it, whether it's for text or voice, its place in the list, and its rules: how many fit, how many may share a screen, whether the soundboard plays there, and its slow mode, which the server holds everyone but admins to | Its name, topic, heading and audio quality, sealed with the community key, and everything said in it |
-| **Soundboard** | How many sounds there are, who added each and how big its file is, and that someone in a voice channel or call played one, and when | What each is called and sounds like, and which was played |
-| **Presence** | Online status, last seen, and which of your devices you're using and when you last used each, which decides when the others are notified | Hidden from other members if you choose, but not from the server |
-| **Phone notifications** | Which devices get pushes, through which relay; until Apple lets the iPhone app filter notifications, which chats a phone muted and until when, among them direct messages with people the person blocked, which look like any other muted chat; that a chat was read, which stops a push waiting for it | What a push is about: it carries the message's IDs, sealed for the device |
-| **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it, which is encrypted with a key from the conversation's group |
+| **Typing** | That someone sent a typing signal | Nothing further |
+| **Channels** | That each exists, who made it, whether it's for text or voice, its place in the list, and its rules, such as how many fit and its slow mode | Its name, topic, heading and audio quality, and everything said in it |
+| **Soundboard** | How many sounds there are, who added each and how big its file is, and when someone played one | What each is called and sounds like, and which was played |
+| **Presence** | Online status, last seen, and which of your devices you're using and when you last used each | Hidden from other members if you choose, but not from the server |
+| **Phone notifications** | Which devices get pushes, through which relay, which chats a phone muted and until when, and that a chat was read | What a push is about |
+| **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it |
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |
 
-Zuna's messages hide content, not metadata. A server operator can see who talks to whom and when.
+## What you can do
+
+- **Use a long password you don't use anywhere else.** A malicious server can test guesses at it offline.
+- **Keep your recovery key safe.** It's shown once, when you sign up, and opens your account as your password does.
+- **Compare emoji** with the people who matter to you.
+- **If you think your password or recovery key was stolen,** change them, and remove any device you don't recognize in Settings.
+- **Paste invite links into the app** rather than opening them in a browser.
+- **Install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases).**
 
 ## How it works
 
-### Group encryption: MLS
+### Encryption
 
-Every conversation, including DMs, is an [MLS](https://www.rfc-editor.org/rfc/rfc9420.html) group, using the ciphersuite `MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519`. The implementation is [OpenMLS](https://github.com/openmls/openmls), compiled to WebAssembly.
+Every conversation, direct messages too, is encrypted with [MLS](https://www.rfc-editor.org/rfc/rfc9420.html), an open standard for group encryption, through the audited [OpenMLS](https://github.com/openmls/openmls). Each of your devices holds its own keys, and they change whenever someone joins or leaves, and at least weekly in active chats. Every message, reaction and read position is also signed by the device that sent it, so a server can't put one person's words under another's name, even with a member's help.
 
-Each device is its own member of each group. Keys change at every membership change and at least weekly on active conversations. The server's only role in MLS is enforcing one order of commits per group.
+Zuna keeps one key for each stretch of a conversation, rather than a new one for every message. That's what lets a device you add later read your past messages, and lets a group's admin share its history with people who join. The cost is that whoever gets your password or recovery key can read all of it.
 
-### Message content
+### Your password and recovery key
 
-Each MLS epoch exports a content key (RFC 9420 section 8.5). Messages are encrypted under it with XChaCha20-Poly1305 and signed with the sender's device key (Ed25519). The signature matters because all members share the content key: without it, any member could impersonate another. What's signed says who wrote it as well as what it says, so a server can't put one person's words under another's name, even with a member's help. Reactions and read positions are signed the same way, and say which message or person they're about.
+Your account's keys are stored on the server, encrypted with a key that only your password or your recovery key can open. Your password never leaves your device, and what your device uses to sign in is tied to that server and your username, so it's no use anywhere else, even if you use the same password on other servers.
 
-Using exported keys rather than MLS's per-message ratchet is a deliberate trade-off, and it's what makes history on new devices possible:
+When a device is removed or signs out, your password or recovery key changes, or someone signs in with your recovery key, your app replaces your account's keys in the background, and your contacts' apps follow the change. **No independent cryptographer has reviewed how this works yet.**
 
-- **Gained:** a device you add later can read your past messages, and new group members can receive history if an admin allows it.
-- **Given up:** forward secrecy within an epoch and, for stored history, against theft of your account key. See "Limits" below.
+### Knowing who you're talking to
 
-### Keys on new devices
+Each account has one identity key, and every one of its devices has to be signed by it. Your app checks every device in a conversation before it encrypts anything, so the server can't slip in a device as you or as anyone else: it's removed, and everyone is warned. Your app remembers the first key it sees for each person, and your devices share what they've seen and verified. A key only changes through a signed handover from the old one, and anything else gives a loud warning.
 
-Your **account key** is random. It encrypts your identity keys and a vault of content keys, all stored on the server as ciphertext. It's unlocked by either:
+The server can create accounts of its own, as it can sign anyone up, and put one in a group, where it shows as having joined. It can never put anyone in a direct message.
 
-- your **password**, stretched on your device with Argon2id (64 MiB, 3 iterations), or
-- your **recovery key**, 200 random bits shown once at sign-up.
+**The emoji check** covers what the rest can't: a first conversation, where a malicious server could hand out a fake key from the start. You and the other person compare 16 emoji. If they match, your apps hold each other's real keys, and nobody can be in the chat as either of you. If someone's keys are replaced later, the match only carries over when one of their devices that your app has known for at least a week made the change. Otherwise they're unverified again, and the chat says so.
 
-Your password never leaves your device. A key derived from it authenticates you, and a separate one opens a key pair that the account key is sealed to, so any of your devices can seal a new account key to your password without knowing it. The first is bound to the server's address and your username, so one a malicious server collects is no use anywhere else, even if you use the same password on several servers. Clients only derive keys within fixed limits, so a malicious server can't downgrade them or make the app run out of memory.
+### Groups
 
-Sealing to that key pair needs no secret, so a server could seal a key of its own to it. What you unlock also names the key your account began with, and signing in only goes ahead with keys that really are that account's. A device that already knows your account also won't give it up for one that began with another key.
+The server keeps the list of who's in each conversation and decides who may do what, but your app goes by who really holds the keys. Someone joining without a member adding them, or a device that isn't what it claims, gets a warning in the conversation. Someone leaving is only announced once their keys are gone, and the member list shows it when the server's list and the keys disagree. Only an admin's device can change a group's name and picture.
 
-### Identity and devices
+The server can't make your app erase anything. If it says you're out of a conversation or signed out, your messages stay until you clear them, sign in again, or 30 days pass. A message is only erased when its author's device, or in a group an admin's, signed the deletion: otherwise it's hidden and kept for 30 days. A device you remove keeps what it already holds. Nor can the server pin a message on its own.
 
-Each account has one long-term Ed25519 **identity key**. Each device's MLS credential is a certificate signed by it, naming the key that device signs with. Certificates are public, so holding one proves nothing: clients check every member of every group, whenever a group's tree may have changed and before encrypting anything, against the identity key they know for that person, and that the member really signs with the key its certificate names. So without that identity key, the server can't add a device to anyone's account. Whoever tries is removed, and everyone is warned. A leaf nobody can check yet counts for nothing, and nothing is encrypted to a group while one is on its roster. A server can make accounts of its own, as it can sign anyone up. It can put one in a group, where it shows as having joined, but never in a direct message: a direct message's two people are settled when a device first sees it, and anyone else in its tree is removed. What you write to someone can't be sent to another conversation either: if the server names one this device knows as something else, nothing is sent.
+### The community key
 
-A device signs in to the server with a session token. Removing a device, deleting a message or a conversation, pinning or unpinning one, leaving one, changing who's a group's admin, managing invites, writing to the vault, and anything an admin does also take a signature by the device's own key, so a token found on its own, such as in a proxy's log, can't do them.
+Display names, avatars, channel names and the soundboard's sounds are encrypted with a community key, which everyone on a server shares and the server doesn't have. It travels in the part of an invite link after `#`, which browsers never send to servers. Being in a channel also takes proving you hold it, so a server can't get an account of its own making into one.
 
-Clients pin the first identity key they see for each person, and share those pins, and what you've verified, with your other devices through your encrypted vault. One item there, a manifest, lists all of them with your preferences, under a number that only goes up, so the server can't leave out one person's pin or verification, and a device that has seen a manifest refuses an older one and says so. Each replacement of your keys seals that number in, so a new device warns if it's shown an older manifest than that. If two of your devices hold different keys for someone, they warn too. An account moves on from that key only by a signed chain that starts from it. Anything else, including two chains for the same person, produces a loud warning, including on a new device of yours.
-
-### Replacing your account's keys
-
-When a device is removed or signs out, your password or recovery key changes, or someone signs in with your recovery key, your app replaces your account key, identity key and HPKE key, in the background. It seals the new account key to each remaining device and to your password and recovery key, and publishes one signed link from the old identity key to the new one, listing the devices that stay. Contacts follow that chain, and from then on a certificate signed by the old identity key means nothing unless its device is on the list. The vault is sealed again under the new key. The design and what it can't do are in `docs/ACCOUNT_KEY_ROTATION.md`, and **no independent cryptographer has reviewed it yet.**
-
-### The emoji check
-
-Pinning alone doesn't protect a first conversation: a malicious server could hand out a fake key from the start. The emoji check closes that gap. Two people compare 16 emoji (96 bits, from Argon2id over both identity keys, at the same cost as a password). A server that swaps both people's keys only needs the two sides to agree, so a match is cheaper to find than for one fixed key: the memory Argon2id needs for every attempt, and the 96 bits, put that out of reach. If they match, each app holds the other person's real key, and since every device in a chat has to be signed by that key, nobody else's device can be in the chat as them. Saying they match only ever trusts the key those emoji were made from, so a server can't use that moment to swap in another. After someone's keys are replaced, the emoji change, and a verification only carries over if a device the other person has known for at least a week made the change. Otherwise that person goes back to unverified, and a line in your chat says so.
+If an admin turns on open sign-ups, there's no invite link to carry the key, so the app gives it to the server, and Settings says so. The server can then read profiles and channel names, and put accounts of its own in channels, which anyone who signs up can join anyway. Direct messages and groups are unaffected. Old invite links carry the key too: whoever has one can read those with a copy of the server's data, and can sign up while the invite still works.
 
 ### Channels
 
-Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What they're called and everything said in them is end-to-end encrypted in the same way as a group's, and the server can't read any of it.
+Everyone on a server can see and join its channels, so a channel is only as private as the server's membership. What's said in them is encrypted as in any group. A newcomer gets a channel's history from a member's device, and a member with bad intentions could give them a wrong key for old messages, which then wouldn't open. Nothing sent from then on is at risk.
 
-To be in a channel, someone has to show they hold the community key, which comes with invite links and which the server doesn't have. Members check that for each person on the roster, and remove anyone who can't. A server can't get an account of its own making into a channel. Three things to know about that:
+### Voice, video and calls
 
-- **Open sign-ups** give the server the community key, so there it could.
-- **Someone banned** still holds the key. The server takes them off the roster, and members remove them, but a server that wants them back could put them back. They'd get what's said from then on, not what was said while they were gone.
-- **Old invite links** carry the key too. Whoever holds one can read channel names if they get hold of the server's data, and can sign up if the invite still works. Nothing else depends on that key.
+Voice, video and shared screens are encrypted in the app, frame by frame, with a key from the conversation's or channel's group, before they reach LiveKit, the media server. Neither it nor the Zuna server can hear or see them. That key is never stored, so a stolen account, or someone who joins later, can't open a recording.
 
-A newcomer gets a channel's history from a member's device, which signs what it hands over. Any member can do that, since all of them may read all of it, so a member with bad intentions could hand someone a wrong key for an old epoch, and those old messages then wouldn't open. Nothing new is at risk: only MLS's own keys are used for what's sent from then on.
+- **What the servers see.** Who's in a call or voice channel and when, as the table says. LiveKit, which knows people only by ID, also sees how much each sends and how loud they are, which is how it tells who's speaking, and that alone can hint at what's being said.
+- **Who can hear.** Whoever is in the conversation or channel. Someone removed can still open what's sent for about 1.5 seconds, while everyone moves to a new key.
+- **Who said it.** A member could send audio or video as another member. Nobody outside the group can.
+- **Your microphone** is processed entirely on your device.
+- **Who can share a screen** is up to each server's admins, and LiveKit enforces it.
+- **Ringing is the server's word.** It can say someone is calling who isn't, or not ring you. A call nobody made is an empty room.
+- **A phone woken for a call** tells the push relay and Apple that it's being rung, and when, but not by whom or in which conversation.
 
-### Voice channels
+### Files and photos
 
-Media is encrypted in the app with a key from the channel's MLS group, frame by frame, before LiveKit sees it. LiveKit and the Zuna server can't hear or see it. The key exists only for the group's current epoch and is never stored or handed on, unlike the keys to messages: a stolen vault, or someone who joins later, can't open a recording of a call.
-
-- **What they do see.** The Zuna server sees who's in which voice channel, whether they say they're muted, deafened or sharing, and when. LiveKit sees who's in a room, by user and device ID with no names, and from when to when, who's sending what, how big it is, and how loud each person's audio is, since that's what lets it say who's speaking. Frames are encrypted, not hidden: their size and timing can say something about what's being said.
-- **Who can hear.** Whoever is in the group. Someone removed goes on being able to open what's sent under the old key for about 1.5 seconds, while everyone moves to the new one. Someone in the room without the key can't open anything: the server can put someone in a room, but not in the group.
-- **Who said it.** Everyone in the group can work out everyone's sender key, so a member could send media as another member. LiveKit can't. There are no per-frame signatures.
-- **The microphone** is processed entirely on the device. Nothing about it leaves but what's sent.
-- **Who can share a screen** is up to each server's admins, and LiveKit enforces it. Coming into a voice channel doesn't allow a screen at all, and the server only allows one after checking its rules, which it can also take back. See [SCREEN_SHARE.md](docs/SCREEN_SHARE.md#what-a-server-says-and-what-a-device-chooses).
-- **The iPhone's broadcast extension**, which records the screen before iOS 27, never has a key. It hands frames to the app over a socket in the App Group, which only Zuna's own app and extensions can open, and the app encrypts them. A broadcast started from Control Center goes out only once the server has made room for it, as one from the app's button does.
-- **The native screen capture** gets its keys over its standard input, never its command line, and its token can only publish a screen. libwebrtc's logs stay off unless `ZUNA_WEBRTC_LOG` is set, since the native frame cryptor has been reported to log keys. `poc/screenshare/scripts/key-log-check.mjs` looks for that.
-- **The soundboard** is a server's sounds, which its admins add. Each one's name and the key to its file are sealed with the community key, as a channel's name is, and signed by the device that added it. Playing one sends nothing through LiveKit: the app tells the others in the room which sound, sealed under the room's group's key and naming who played it, and each of them plays the file themselves. The server passes it on to those in the room without keeping it, and refuses it from someone muted or deafened, by themselves or by an admin, or more often than every two seconds. Apps play a sound only once, and not if it names someone other than whom the server says played it, or is more than five minutes from now by the player's clock.
-- **Push to talk from another window** uses a system-wide key hook in the desktop's main process, only while someone is in a call with it on, and only the one key asked for is ever passed on. Under Wayland there's no such hook: the compositor binds that one key through the global shortcuts portal, and only says when it goes down and up.
-
-### Calls in direct messages and groups
-
-A call is a conversation's own room on the same media server, keyed from that conversation's MLS group exactly as a voice channel is from its own, so everything above holds for it: whoever is in the conversation can hear it, and nobody else.
-
-- **Who hears of a call.** Who's in it, whose devices it's ringing and who declined go only to the conversation's members, never to everyone on the server, as a voice channel's do. The server itself sees all of it, and when, as it sees who's in a voice channel.
-- **Waking a phone for a call** goes through the push relay and Apple, sealed as any push is, with the conversation's ID and who started the call. They can tell a call's push from a message's, so they learn that a phone is being rung, and when, though not by whom or in which conversation.
-- **Ringing is the server's word.** A server can say someone is calling who isn't, or not ring someone. Answering a call nobody made comes into an empty room, and can't let anyone hear anything: the media key still comes from the conversation's group.
-- **Admins have no say in a call**, which is between the people in it: muting someone for everyone, disconnecting them and stopping their share are for voice channels. The server's rules on sharing a screen hold in calls too, and a ban takes someone out of their calls.
-
-### Who's in a conversation
-
-The server keeps the list of who's in each conversation, and it says who may do what. What MLS proves is who actually holds the keys. Clients go by that:
-
-- Someone joining without a member having added them, or a device that isn't what it claims, gets a warning in the conversation.
-- That someone left is only announced once their keys are really gone. Who removed them is named only if MLS shows it: otherwise, it would be the server's word.
-- The member list shows a difference if there is one: someone who holds the keys but isn't listed, or who's listed with no device in the group.
-- Only an admin's device can set a group's name and picture, which it signs, and an older copy can't be served again.
-- A member can't remove someone from a group's keys: everyone is told, and the person removed rejoins straight away.
-
-### What the server can't make your app do
-
-The server can say you're out of a conversation or signed out, but your messages stay on your device until you clear them, sign in again, or 30 days pass. It can say a message was deleted, too, but your app only erases its copy if the deletion was signed by the device of whoever wrote it or, in a group, of an admin. Otherwise the message is hidden as deleted and kept for 30 days. That includes a device you removed from your account in Settings, so a lost device isn't wiped if it comes back online: removing it cuts off its access, not what it already holds. Nor can it pin a message on its own: a pin only shows if a member's device signed it, and only a later pin or unpin, also signed, replaces one your app has seen.
-
-### Profiles
-
-Display names and avatars are encrypted under a **community key**, carried in the fragment of invite links (`#k=...`). Browsers don't send fragments to servers. Profiles are also signed by their owners.
-
-If an admin turns on open sign-ups, there's no invite link to carry that key, so the app gives it to the server, and the settings screen says so. This exposes profiles, not messages.
-
-### Disappearing messages
-
-How long a chat's messages last is part of its details, signed by whoever set it: in a group only an admin's device counts, and in a direct message either person's. Each message then says how long it lasts, under its sender's signature, and tells the server when it's due. Every device erases its copy, with what search and the chat's details knew of it, once it's due, counting from the earlier of the server's time and the sender's own, so neither can make it last longer. An edit can't change it, and a copy the server sends again stays gone. The server removes its own copy and the message's files within a minute of that.
-
-### Files
-
-Each file gets its own random key. It's split into 1 MiB chunks encrypted with XChaCha20-Poly1305 in the STREAM construction, which detects reordered, missing or truncated chunks. The key travels inside the encrypted message.
-
-### Metadata in files
-
-The server can't read files, but everyone who receives one can, and so can anyone they pass it to. So before a file is sent, the sender's device takes out what it says about where, when and on what it was made: the place, the camera or phone and its serial number, dates, the program, editing history, comments, and the thumbnails some cameras keep of the picture as it was before it was cropped. This covers photos (JPEG, PNG, WebP, GIF, HEIC and AVIF), videos (MP4, MOV, 3GP, WebM and MKV), and drawings (SVG), along with pictures inside a drawing. A video loses its tracks of timed metadata too, where some cameras record where they were at each moment, and anything a phone adds after a photo's end, such as a motion photo's video. Nothing is compressed again: what a photo or video shows stays as it was, byte for byte, and so do which way up it goes and its colors. A drawing keeps what's drawn, without what drawing programs keep for themselves, such as layer names and the paths of files on the sender's disk.
-
-This is on unless someone turns it off on a device, in Privacy settings, which first says what files will then show and asks to be sure. Other files, such as documents, sound files and RAW photos, are sent as they are, and so is a file that doesn't read the way its kind should. What a picture shows can't be taken out, and nor can the faint pattern a camera's sensor leaves, which can tie photos to the camera that took them.
+Each file is encrypted with its own key, which travels inside the message. Before a photo, video or drawing is sent, your device takes out what it says about where, when and on what it was made: the place, the camera or phone and its serial number, dates, the program, editing history and comments. Nothing is compressed again, so the picture stays exactly as it was. This is on unless you turn it off in Privacy settings. Documents, sound files and RAW photos are sent as they are, and nothing can take out what a picture shows, or the faint pattern a camera's sensor leaves, which can tie photos to the camera that took them.
 
 ### Link previews
 
-The sender's device makes a link's preview while they write: it fetches the page, and the title, description and a small picture travel encrypted inside the message. Recipients never contact the site, and the server never sees the link. The site sees the sender's IP address, as it would if they opened the link, and from when the link is typed, even if the message is never sent. Pages are fetched without cookies, only over HTTPS, and only from public addresses: redirects are checked one at a time, and names that lead to this machine or a private network are refused. What counts is where each connection really went, so a site's DNS can't switch where it points between the check and the fetch: the desktop app connects through a small proxy of its own, which reaches only the address it checked, and the iPhone and iPad app drops what it fetched if the system says it came from this device or a private network. When the system is set to use a proxy for a link, that proxy decides where the connection goes. Previews can be turned off on each device.
+Your device makes a link's preview while you write, and sends it inside the message, so the people you write to never contact the site, and the server never sees the link. The site sees your IP address from when you type the link, even if you never send the message. You can turn previews off. In the web app, its host fetches them instead, so the host sees which links are previewed, and sites see its address instead of yours.
 
-In the web app, the page can't fetch other sites, so its host, `zuna-web`, fetches pages for it by the same rules, and only on port 443. It checks the address a name leads to as it connects. The web app's host therefore sees which links are previewed, and sites see the host's address instead of the sender's. The chat server still never sees them. A host can turn previews off.
+A preview says whatever the sender's app made it say, but the app always shows which site the link really goes to, and a preview can't make your device load anything.
 
-A preview's title and picture are the sender's claim about the page, like the message's text, so a card can say anything. The app only shows a preview for a whole link in the message's own text, always shows which site that link really goes to, and requires its picture to be inline: a preview can't make your device load anything.
+### Locations and forwarding
 
-### Shared locations
+The app only asks where you are when you choose to share your location, and shows you what it found before sending. Nothing in a message loads a map: only opening the coordinates tells a map service.
 
-A shared location is where the sender's device said it was, sent inside the encrypted message like its text. The app only asks the system where it is when someone chooses to share it, and shows what it found before sending. Nothing in a message loads a map, since that would tell a map's server where people are looking: the app shows the coordinates, and only opening them, on OpenStreetMap from the desktop and the web app or in Maps on iPhone and iPad, tells that service.
+A forwarded message is a new message from whoever forwarded it. On the same server it names the original author, and its files aren't uploaded again, so the server can tell a file was forwarded, though not what's in it. The "forwarded from" label is the forwarder's claim, as in other messengers.
 
-### Forwarding
+### Disappearing messages
 
-A forwarded message is a new message from whoever forwarded it. On the same server it names the original author, and its files aren't uploaded again: the copy refers to the same encrypted file, so the server can tell that a file was forwarded, though not what's in it. The file stays until the last message using it is deleted. Forwarded to another server, a message only says it's forwarded, and its files are uploaded there again. The "forwarded from" label is the forwarder's claim, as in other messengers.
+How long a chat's messages last is set by an admin in a group, or by either person in a direct message, and each message carries it under its sender's signature. Every device erases its copy once it's due, and neither the server nor the sender's clock can make it last longer. The server removes its own copy and the message's files within a minute.
 
 ### Data on your device
 
-Sensitive local data is encrypted with a device key held in your OS keychain (DPAPI, Keychain or Secret Service). The search index stores keyed hashes of words instead of readable text, and the index of each message's photos, files and links, and of which ones mention you or reply to you, names their kinds the same way, though how many a message has is in the clear. If Linux has no keychain available, the app warns you in Settings, because this protection is weaker there.
-
-The web app has no keychain to use, so its device key is in the browser's own storage, next to the data it protects. Anyone who can copy the browser's profile can read that data, and Settings says so.
-
-On the iPhone and iPad, the share extension uses the same data and device key as the app, from the same Keychain group, and asks for Face ID or the passcode first when App lock is on. What it hands the app while the app is awake is sealed with a key from the device key. Files being shared wait in the App Group until they're sent, as readable as they were in the app they came from.
+Sensitive data the app keeps is encrypted with a key held in your system's keychain. Search runs on your device, and its index keeps no readable text. If Linux has no keychain, Settings warns you. The web app has no keychain, so anyone who can copy your browser's profile can read its data, and Settings says so.
 
 ## Limits
 
@@ -176,39 +128,30 @@ These are real limitations, stated plainly.
 
 These need the server against you: its operator, someone who broke into it, or someone with a copy of its data.
 
-- **A malicious server can try to guess weak passwords.** It holds what's needed to test guesses offline. Argon2id slows this down, and the app refuses a new password that lists of common passwords, words and names would guess within about a billion tries, but a long, unique password is your real protection.
-- **A server can show a brand-new device an older manifest.** The device only knows which manifest was current when your keys were last replaced. A server could show it any copy from since then, leaving out whoever you verified or came to trust later, and the device would take that copy as all there is.
-- **Someone with your old keys and the server's help can fool a brand-new device of yours.** A new device has nothing to compare with, so they can give it an account key of their choosing, and read what it stores in your vault after that. It can't read your real history, and your contacts and other devices see a device that doesn't follow from the chain they hold, and warn. Without your old keys, a server can't do this.
-- **A contact can't always tell a real change of key from a stolen one.** Someone with your old identity key and a malicious server's help can show a false chain to a contact who hasn't seen the real one. The first one a contact sees stays, a second produces a warning, and comparing emoji shows which is real.
-- **A kicked member keeps the community key.** They could still read profile data if they had access to the server's database. They lose access to the server itself and to new messages.
-- **A server can see some emote pictures being fetched.** The apps fetch a server's whole emote set in the background, so showing an emote asks the server for nothing. An emote from outside the current set is still fetched when a message first shows it, which tells the server which emote, from which address, and roughly when. So is any emote while nothing has been fetched ahead: when someone has asked to save data (Low Data Mode on iPhone and iPad), or after iPhone and iPad clear space, until the app next starts.
-- **The time shown comes from the server.** The sender's device also signs the time it sent a message, and the app flags a message if the two are far apart.
-- **Invite pages run on your server.** An invite link's landing page is served by that server, which could read the fragment with altered page code. Pasting links directly into the app avoids this.
+- **It can try to guess weak passwords.** It holds what's needed to test guesses offline. Each guess is slow, and the app refuses a new password that lists of common passwords, words and names would guess within about a billion tries, but a long, unique password is your real protection.
+- **It can show a brand-new device an older list of who you've verified.** A new device only knows how recent that list was when your keys were last replaced, so it can be shown any copy since then, without whoever you verified or came to trust later.
+- **With your old keys, it can fool a brand-new device of yours.** Someone who has your keys from before they were last replaced can, with the server's help, give a new device an account key of their choosing, and read what it saves from then on. They can't read your real history, and your contacts and other devices warn about that device.
+- **With your old keys, it can fool a contact.** Someone with your old identity key and the server's help can show a contact a false change of your keys, if the contact hasn't seen the real one. The first a contact sees stays, a second gives a warning, and comparing emoji shows which is real.
+- **Someone removed from the server keeps the community key.** With a copy of the server's data, they could still read profiles and channel names. A server could also put someone banned back into its channels, where they'd get what's said from then on.
+- **It can see some emotes being fetched.** The apps fetch a server's whole emote set ahead, so showing one usually asks for nothing. An emote from outside the set, or any emote when nothing was fetched ahead, as when you've asked to save data or after an iPhone or iPad cleared space, is fetched when a message shows it. That tells the server which one, from which address, and roughly when.
+- **The time shown comes from the server.** The sender's device signs its own time too, and the app flags a message when the two are far apart.
+- **Invite pages run on your server.** If you open an invite link in a browser, the page comes from that server, and altered page code could read the community key from the link. Pasting the link into the app avoids this.
 
 ### Even with an honest server
 
-- **Stealing your account key exposes your history.** Anyone with your password or recovery key can read everything you had access to, by signing in or from a copy of the server's data. Stored history has no forward secrecy; this is the cost of history on new devices.
-- **Replacing your keys only takes effect once the secret has changed.** If you think your password or recovery key was stolen, change them and remove any device you don't recognize in Settings. Removing a device evicts someone who has that device but not your password, and changing your password evicts someone who only had that. What they could already read, they keep.
-- **A member can hold up a group for a while.** MLS can't let the server check a commit, so a member can send one nobody can apply. Any member's app then undoes it, without anyone doing anything, back to what the server held before, and whoever sent it has to wait longer each time. The same undoing means a member can make another wait, by undoing their commits. An admin can remove someone doing either, and a plain member can't undo an admin's commit.
-- **A server's limits on a share's size, frame rate and bitrate are kept by the apps.** The picture is encrypted, so neither the server nor LiveKit can check it, and a modified app could send more. Who may share, with sound, and how many at once are enforced, except that a modified app could use a token from an earlier share again for the few minutes it lasts.
-- **iOS learns who you write to on an iPhone or iPad.** As in Messages and Telegram, the app tells iOS which chats it sends to and which messages its notifications are about, with names and pictures, so the share sheet can suggest them. What was said in a message sent stays out; a notification's text goes in as the notification shows it. Setting notifications to show nothing stops both.
-- **Deleting is best effort.** "Delete for everyone" removes the server's copy and the copies on members' apps, but a modified client or a screenshot can keep it. Disappearing messages are the same, and so is a notification already shown, except on Windows, where the app draws its own and takes it back, and where message text doesn't go into the system's notification history.
+- **Your password or recovery key opens your history.** Anyone who has either can read everything you had access to, by signing in or from a copy of the server's data. That's the cost of history on new devices.
+- **New keys only help once a stolen secret is changed.** Until you change a stolen password or recovery key, whoever has it can open your new keys too. What they already read, they keep.
+- **A member can hold up a group for a while.** The server can't check a change to a group's keys, so a member can send one nobody can apply. The apps undo it on their own, and make whoever sent it wait longer each time, but the same undoing lets a member make others wait. An admin can remove someone doing either, and a plain member can't undo an admin's change.
+- **A server's limits on a shared screen's size, frame rate and bitrate are kept by the apps.** The picture is encrypted, so nobody can check it, and a modified app could send more. Who may share, with sound, and how many at once are enforced, though a modified app could reuse an earlier share's permission for the few minutes it lasts.
+- **iOS learns who you write to on an iPhone or iPad.** As in Messages and Telegram, the app tells iOS which chats you send to and which messages its notifications are about, with names and pictures, so the share sheet can suggest them. What you write stays out, but a notification's text goes in as the notification shows it. Setting notifications to show nothing stops both.
+- **Deleting is best effort.** "Delete for everyone" removes the message from the server and from members' apps, but a modified app or a screenshot can keep it. So it is with disappearing messages, and with a notification already shown, except on Windows, where the app takes back its own notifications and keeps message text out of the system's history.
 
 ## The web app
 
-A web app's code comes from its host on every visit. A malicious or hacked host could quietly send code that steals keys, which defeats the purpose of end-to-end encryption. Installed apps avoid this, so they remain the safer choice. The web app is for people who host it themselves, or trust whoever does as they'd trust their own computer.
+The web app's code comes from its host on every visit, so a malicious or hacked host could quietly send code that steals your keys, which defeats the purpose of end-to-end encryption. The installed apps don't have this problem, and remain the safer choice. The web app is for people who host it themselves, or trust whoever does as they'd trust their own computer.
 
-What limits the risk:
+Its host is never a chat server, so a chat server, or someone who breaks into one, can't change its code. It loads nothing from anyone else. Each release lists a checksum of every file it serves, so anyone can check what a host serves, though only at the moment they check. `docs/WEB.md` says how to run it.
 
-- **The web app's host is never a chat server.** It runs as its own program, `zuna-web`, on an address of its own. A chat server, or someone who breaks into one, can't change the code, and its pages can't reach the web app's storage.
-- **It loads nothing from anyone else.** Every file comes from its host, under the desktop's content security policy: no inline scripts, and images only from memory. The host also sends `frame-ancestors 'none'`, `X-Frame-Options`, `Cross-Origin-Opener-Policy` and `nosniff`, and pages it fetches for previews are marked so they can never run as pages there.
-- **A copy can be checked.** Each release lists the SHA-256 of every file the web app serves, and `scripts/check-web.mjs` compares a running copy with it. This shows what the host serves when you check, not what it serves to everyone at every moment.
-- **Its local data is weaker,** as described under "Data on your device".
+## Installing
 
-`docs/WEB.md` says how to run it.
-
-Installed apps only hold their advantage if the app you installed is genuine, so **install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases)**. Each release lists SHA-256 checksums for its files. Signed Windows and macOS builds update themselves, and only ever to an update signed by the same publisher. Linux builds don't update themselves yet.
-
-## Electron hardening
-
-The renderer runs sandboxed with context isolation and no Node access. A strict content security policy applies, the main process only accepts requests from the app's own origin, and links only open in your browser for `http(s)` addresses. Nothing in a message can load remote content: images only ever come from memory, so a link or an attachment can't be used to track whether you've seen it. Packaged builds can't be started as a plain Node process or with an inspector, and their code is checked for changes when they start. Anything a message says is checked before it's shown, and one that can't be displayed can't take the rest of the app with it.
+Installed apps only hold their advantage if the app you installed is genuine, so install Zuna only from the [official releases](https://github.com/SocketByte/zuna-chat/releases). Each release lists SHA-256 checksums for its files. Signed Windows and macOS builds update themselves, and only ever to an update signed by the same publisher. Linux builds don't update themselves yet.

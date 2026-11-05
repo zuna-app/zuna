@@ -107,7 +107,7 @@ On Linux, `dev/build.sh` rebuilds the encryption core and then runs both, giving
 
 ## Changes touching cryptography
 
-Please read [SECURITY.md](SECURITY.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first, and add an end-to-end test in `packages/core/test` for the behavior you're changing. Don't add cryptographic constructions when an established one exists.
+Please read [SECURITY.md](SECURITY.md), [docs/SECURITY_DETAILS.md](docs/SECURITY_DETAILS.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first, and add an end-to-end test in `packages/core/test` for the behavior you're changing. Don't add cryptographic constructions when an established one exists.
 
 ## License
 
