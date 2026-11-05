@@ -16,6 +16,10 @@
 // With ZUNA_VOICE_OWN_CERTIFICATE=1, the server goes by its address with a
 // certificate of its own, which both apps trust by the pin in its links, and
 // they reach LiveKit through it, as a server without a domain has them.
+//
+// With ZUNA_VOICE_SETUP_LINK, everyone uses a server already running with a
+// LiveKit of its own, such as the Docker setup on another machine, by the setup
+// link it printed, rather than ones started here.
 
 import { execFileSync, spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -59,20 +63,30 @@ const fixtures = mkdtempSync(join(tmpdir(), "zuna-ios-voice-sounds-"));
 const speech = join(fixtures, "speech.wav");
 execFileSync("say", ["-o", speech, "--data-format=LEI16@48000", "Testing the voice channel from the desktop. Can the phone hear me? One two three four five. The quick brown fox jumps over the lazy dog, again and again, until someone answers."]);
 
-const liveKitBinary = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => console.log(lib.ensureLiveKit()))"], { cwd: root, encoding: "utf8" }).trim();
-const liveKitConfig = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => process.stdout.write(lib.LIVEKIT_CONFIG))"], { cwd: root, encoding: "utf8" });
+const elsewhere = process.env.ZUNA_VOICE_SETUP_LINK;
 const liveKitPort = 17900 + Math.floor(Math.random() * 50);
-const liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens", "--config-body", liveKitConfig], { stdio: ["ignore", "pipe", "pipe"] });
-const liveKitLog = createWriteStream(join(shots, "livekit-server.log"));
-liveKit.stdout.pipe(liveKitLog);
-liveKit.stderr.pipe(liveKitLog);
+let liveKit: ReturnType<typeof spawn> | null = null;
+if (!elsewhere) {
+  const liveKitBinary = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => console.log(lib.ensureLiveKit()))"], { cwd: root, encoding: "utf8" }).trim();
+  const liveKitConfig = execFileSync(process.execPath, ["-e", "import('./scripts/lib.mjs').then((lib) => process.stdout.write(lib.LIVEKIT_CONFIG))"], { cwd: root, encoding: "utf8" });
+  liveKit = spawn(liveKitBinary, ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--keys", "key: a-long-enough-secret-for-signing-tokens", "--config-body", liveKitConfig], { stdio: ["ignore", "pipe", "pipe"] });
+  const liveKitLog = createWriteStream(join(shots, "livekit-server.log"));
+  liveKit.stdout!.pipe(liveKitLog);
+  liveKit.stderr!.pipe(liveKitLog);
+}
 // The app's own log and LiveKit's in it, with everything LiveKit says (-ZunaVoiceLog).
 const phoneLog = spawn("xcrun", ["simctl", "spawn", udid, "log", "stream", "--style", "compact", "--level", "debug", "--predicate", 'subsystem == "chat.zuna" OR subsystem == "io.livekit.sdk"'], { stdio: ["ignore", "pipe", "ignore"] });
 phoneLog.stdout.pipe(createWriteStream(join(shots, "phone.log")));
 
 loadCrypto();
-const server = new TestServer({ liveKit: `ws://127.0.0.1:${liveKitPort}`, ownCertificate: process.env.ZUNA_VOICE_OWN_CERTIFICATE === "1" });
-await server.start();
+let server: { setupLink: string; stop(): Promise<void> };
+if (elsewhere) {
+  server = { setupLink: elsewhere, stop: async () => undefined };
+} else {
+  const started = new TestServer({ liveKit: `ws://127.0.0.1:${liveKitPort}`, ownCertificate: process.env.ZUNA_VOICE_OWN_CERTIFICATE === "1" });
+  await started.start();
+  server = started;
+}
 
 let desktop: { app: ElectronApplication; page: Page } | null = null;
 let phone: HostApp | null = null;
@@ -436,7 +450,7 @@ try {
   await desktop?.app.close().catch(() => undefined);
   for (const app of others) app.client.stop();
   await server.stop();
-  liveKit.kill();
+  liveKit?.kill();
   phoneLog.kill();
   rmSync(fixtures, { recursive: true, force: true });
 }

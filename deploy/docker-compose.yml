@@ -60,7 +60,25 @@ services:
     ports:
       - "7881:7881/tcp"
       - "7882:7882/udp"
+    # Without a domain, LiveKit gives apps the address ZUNA_DOMAIN names for calls' media,
+    # rather than the public one STUN finds, by turning off use_external_ip below. Apps on
+    # the same network can't reach the public one unless the router sends it back, so a
+    # call would only connect where LiveKit reaches the apps first, which a firewall stops.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        address="$${ZUNA_DOMAIN#[}"
+        address="$${address%]}"
+        case "$$address" in
+          *:*) ;;
+          *[!0-9.]*) exec /livekit-server ;;
+        esac
+        export NODE_IP="$$address"
+        export LIVEKIT_CONFIG="$$(printf '%s\n' "$$LIVEKIT_CONFIG" | sed 's/use_external_ip: true/use_external_ip: false/')"
+        exec /livekit-server
     environment:
+      ZUNA_DOMAIN: ${ZUNA_DOMAIN}
       LIVEKIT_CONFIG: |
         port: 7880
         rtc:

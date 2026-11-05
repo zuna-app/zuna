@@ -138,6 +138,7 @@ No certificate authority vouches for an address, so the server makes its own cer
 - **Share links whole,** with everything after the `#`. To sign in on another device, enter the address the server prints at the start, which ends in `#pin=`, or paste any of its links. Members find that address in **Settings → Security**, under their devices.
 - **Keep `certificate.key`** from the data folder with your backups. A new key means new links, and everyone signing out of the server and in again.
 - **Keep the address the same.** It's how the apps find the server.
+- **Calls go through the same ports as with a domain,** 7881/tcp and 7882/udp. The Docker setup has LiveKit give apps this address for their media, rather than the public one it would find through STUN, which apps on the same network may not reach. Running LiveKit yourself, start it with `--node-ip` set to the address, and `use_external_ip` off.
 - **The web app can't reach it,** as a browser can't check a certificate by its key. The desktop app and the iPhone and iPad app can.
 
 ## Configuration
