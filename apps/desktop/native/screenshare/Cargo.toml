@@ -75,4 +75,6 @@ cc = "1"
 
 [profile.release]
 opt-level = 3
-debug = "line-tables-only"
+# Line tables made 90 MB of the 124 MB program on Linux, which keeps them in the binary
+# itself. Symbols stay, so a backtrace still names its functions.
+strip = "debuginfo"
