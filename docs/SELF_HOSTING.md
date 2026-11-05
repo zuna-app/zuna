@@ -211,7 +211,7 @@ sqlite3 /var/lib/zuna/zuna.db ".backup '/backups/zuna.db'"
 
 With Docker, the data is in the `zuna-data` volume. From source on Linux, it's in `/var/lib/zuna`, and a push relay's `/var/lib/zuna-push/handle.key` is worth keeping too.
 
-A backup doesn't let you read anyone's messages, since they're encrypted, but keep it as safe as the server itself: as [SECURITY.md](../SECURITY.md) explains, what's in it lets someone try to guess weak passwords offline. It also lets someone sign in as any account that has an older kind of sign-in key, which an account has until it next signs in with an updated app. The server says how many are left when it starts. Restoring an old backup does roll back the state of conversations; clients repair themselves by rejoining, but messages sent after the backup was taken are lost.
+A backup doesn't let you read anyone's messages, since they're encrypted, but keep it as safe as the server itself: as [SECURITY.md](../SECURITY.md) explains, what's in it lets someone try to guess weak passwords offline. Restoring an old backup does roll back the state of conversations; clients repair themselves by rejoining, but messages sent after the backup was taken are lost.
 
 ## Moving to a new address
 
