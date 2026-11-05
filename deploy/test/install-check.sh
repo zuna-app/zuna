@@ -104,10 +104,16 @@ WantedBy=multi-user.target
 U
   systemctl daemon-reload
 fi
-# Pebble makes a new root each time it starts, so it's trusted afresh.
-if ! systemctl is-active --quiet pebble; then
-  systemctl enable --now --quiet pebble
-  for _ in $(seq 1 30); do curl -fsk https://localhost:15000/roots/0 -o /opt/pebble/certs/root.pem && break; sleep 1; done
+# Pebble makes a new root each time it starts, and forgets its accounts, so when
+# the root isn't the one trusted, as after the VM restarts, it's trusted afresh,
+# and what came from the Pebble before goes.
+systemctl enable --now --quiet pebble
+for _ in $(seq 1 30); do curl -fsk https://localhost:15000/roots/0 -o /opt/pebble/certs/root.new && break; sleep 1; done
+if ! cmp -s /opt/pebble/certs/root.new /opt/pebble/certs/root.pem; then
+  mv -f /opt/pebble/certs/root.new /opt/pebble/certs/root.pem
+  rm -rf /etc/letsencrypt/accounts/localhost:14000 /etc/letsencrypt/live/chat.zuna.test /etc/letsencrypt/archive/chat.zuna.test
+  rm -f /etc/letsencrypt/renewal/chat.zuna.test.conf
+  rm -rf /var/lib/caddy/.local/share/caddy/acme/localhost-14000-dir /var/lib/caddy/.local/share/caddy/certificates/localhost-14000-dir
   if [ -d /usr/local/share/ca-certificates ]; then
     cp /opt/pebble/certs/root.pem /usr/local/share/ca-certificates/pebble-root.crt
     cp /opt/pebble/certs/pebble.minica.pem /usr/local/share/ca-certificates/pebble-minica.crt
@@ -197,8 +203,9 @@ set timeout 120
 expect "Check again"
 exec limactl shell --workdir / zuna-install-debian -- sudo sh -c {mkdir -p /etc/caddy/Caddyfile.d && cp /etc/zuna/proxy/caddy.conf /etc/caddy/Caddyfile.d/zuna.caddyfile && echo 'import /etc/caddy/Caddyfile.d/zuna.caddyfile' >>/etc/caddy/Caddyfile && systemctl reload caddy && sleep 8}
 sleep 0.3; send "\r"
+set tries 0
 expect {
-  "Check again" { exec sleep 5; send "\r"; exp_continue }
+  "Check again" { incr tries; if {\$tries < 12} { exec sleep 5; send "\r"; exp_continue } }
   "Back up" {}
 }
 expect eof
