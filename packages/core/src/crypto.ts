@@ -179,6 +179,9 @@ export const sealVaultItem = (accountKey: Uint8Array, id: string, data: Uint8Arr
 export const openVaultItem = (accountKey: Uint8Array, id: string, sealed: Uint8Array, generation = 0) =>
   wasm.aeadOpen(accountKey, sealed, vaultItemLabel(id, generation));
 
+/** The vault item listing everything an account trusts (see TrustManifest in session.ts). */
+export const MANIFEST_ID = "manifest";
+
 // --- Identity and device certificates ---
 
 const hpkeSignatureInput = (hpkePublic: Uint8Array) => concat(label("zuna/hpke-key/v1"), hpkePublic);

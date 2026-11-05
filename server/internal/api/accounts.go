@@ -1,4 +1,4 @@
-﻿package api
+package api
 
 import (
 	"context"
@@ -136,17 +136,18 @@ func validKDF(k store.KDFParams) bool {
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		InviteCode         string          `json:"invite_code"`
-		Username           string          `json:"username"`
-		KDF                store.KDFParams `json:"kdf"`
-		AuthKey            []byte          `json:"auth_key"`
-		RecoveryAuthKey    []byte          `json:"recovery_auth_key"`
-		IdentityKey        []byte          `json:"identity_key"`
-		HpkeKey            []byte          `json:"hpke_key"`
-		HpkeKeySig         []byte          `json:"hpke_key_sig"`
-		VaultCore          []byte          `json:"vault_core"`
-		Profile            []byte          `json:"profile"`
-		Slots              []store.Slot    `json:"slots"`
+		InviteCode      string            `json:"invite_code"`
+		Username        string            `json:"username"`
+		KDF             store.KDFParams   `json:"kdf"`
+		AuthKey         []byte            `json:"auth_key"`
+		RecoveryAuthKey []byte            `json:"recovery_auth_key"`
+		IdentityKey     []byte            `json:"identity_key"`
+		HpkeKey         []byte            `json:"hpke_key"`
+		HpkeKeySig      []byte            `json:"hpke_key_sig"`
+		VaultCore       []byte            `json:"vault_core"`
+		Profile         []byte            `json:"profile"`
+		Slots           []store.Slot      `json:"slots"`
+		Items           []store.VaultItem `json:"items"`
 	}
 	if !readJSONUpTo(w, r, maxSignUpBody, &body) {
 		return
@@ -161,7 +162,8 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validKDF(body.KDF) || len(body.AuthKey) != 32 || len(body.RecoveryAuthKey) != 32 ||
-		len(body.IdentityKey) != 32 || len(body.HpkeKey) != 32 || !validNewSlots(body.Slots) || len(body.VaultCore) == 0 {
+		len(body.IdentityKey) != 32 || len(body.HpkeKey) != 32 || !validNewSlots(body.Slots) || len(body.VaultCore) == 0 ||
+		len(body.Items) > maxSignUpItems || !validVaultItems(body.Items) {
 		writeError(w, http.StatusBadRequest, "bad_request", "The sign-up data is incomplete.")
 		return
 	}
@@ -178,20 +180,25 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// A new account's keys are its first generation's.
+	for i := range body.Items {
+		body.Items[i].Generation = 0
+	}
 	authSalt, recoverySalt := newSalt(), newSalt()
 	userID, err := s.db.CreateUser(r.Context(), store.NewUser{
-		Username:           body.Username,
-		KDF:                body.KDF,
-		AuthHash:           saltedHash(authSalt, body.AuthKey),
-		AuthSalt:           authSalt,
-		RecoveryHash:       saltedHash(recoverySalt, body.RecoveryAuthKey),
-		RecoverySalt:       recoverySalt,
-		IdentityKey:        body.IdentityKey,
-		HpkeKey:            body.HpkeKey,
-		HpkeKeySig:         body.HpkeKeySig,
-		VaultCore:          body.VaultCore,
-		Profile:            body.Profile,
-		Slots:              body.Slots,
+		Username:     body.Username,
+		KDF:          body.KDF,
+		AuthHash:     saltedHash(authSalt, body.AuthKey),
+		AuthSalt:     authSalt,
+		RecoveryHash: saltedHash(recoverySalt, body.RecoveryAuthKey),
+		RecoverySalt: recoverySalt,
+		IdentityKey:  body.IdentityKey,
+		HpkeKey:      body.HpkeKey,
+		HpkeKeySig:   body.HpkeKeySig,
+		VaultCore:    body.VaultCore,
+		Profile:      body.Profile,
+		Slots:        body.Slots,
+		VaultItems:   body.Items,
 	}, body.InviteCode)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusBadRequest, "invalid_invite", "This invite link has expired or was already used.")

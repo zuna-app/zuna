@@ -596,7 +596,7 @@ describe("a verified contact on a new device (Z-11)", () => {
     const dave = await person("dave");
     const erin = await person("erin");
     await dave.session.markVerified(erin.userId, dave.session.safetyCheck(erin.userId)!.covers);
-    await waitFor(() => (dave.session as any).db.get("SELECT uploaded FROM pinned_identities WHERE user_id = ?", [erin.userId])?.uploaded === 1, "the pin to be saved");
+    await waitFor(() => !!(dave.session as any).manifest?.verified[erin.userId], "the verification to be saved");
 
     // A new device starts from nothing but what's in the vault.
     const phone = await new TestApp("dave-phone").open();

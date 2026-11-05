@@ -625,16 +625,27 @@ describe("someone holding old keys, with the server's help", () => {
     db.close();
   }
 
-  it("can't keep a verification from a new device by leaving out its items", async () => {
+  it("keeps who the account trusts in its manifest alone, which a new device gets whole", async () => {
     const dave = await person("dave");
     await sessionOf(dave).ensureUser(alice.userId, true);
     await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
     expect(sessionOf(dave).manifest.verified[alice.userId]).toBeTruthy();
-    const db = serverDatabase();
-    db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id IN (?, ?)").run(dave.userId, `pin:${alice.userId}`, `verified:${alice.userId}`);
-    db.close();
+    expect(serverVault(dave.userId).map((item) => item.id).filter((id) => id !== "manifest" && !id.startsWith("device:") && !id.startsWith("ek:"))).toEqual([]);
     const phone = await secondDevice(dave, "dave-phone");
     expect(phone.session.safetyCheck(alice.userId)!.trust).toBe("verified");
+  });
+
+  it("lets a new device of an account that never rotated know when its manifest is held back (Z3-04)", async () => {
+    const dave = await person("dave");
+    expect(sessionOf(dave).account.core.manifest).toBe(1);
+    await sessionOf(dave).ensureUser(alice.userId, true);
+    await dave.session.markVerified(alice.userId, dave.session.safetyCheck(alice.userId)!.covers);
+    const db = serverDatabase();
+    db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest'").run(dave.userId);
+    db.close();
+    const phone = await secondDevice(dave, "dave-phone");
+    expect(securityEvents(phone).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
+    expect(phone.session.safetyCheck(alice.userId)!.trust).not.toBe("verified");
   });
 
   it("can't undo a verification's removal or a preference with older copies", async () => {
@@ -651,7 +662,7 @@ describe("someone holding old keys, with the server's help", () => {
       return phone.session.safetyCheck(alice.userId)!.trust === "unverified" && phone.session.getPreferences().sendReadReceipts;
     }, "the phone to catch up");
 
-    for (const id of [`verified:${alice.userId}`, "prefs", "manifest"]) plantVaultItem(dave.userId, id, older[id]!.generation, older[id]!.data);
+    plantVaultItem(dave.userId, "manifest", older.manifest!.generation, older.manifest!.data);
     await sessionOf(phone).syncVault();
     expect(phone.session.safetyCheck(alice.userId)!.trust).toBe("unverified");
     expect(phone.session.getPreferences().sendReadReceipts).toBe(true);
@@ -666,7 +677,7 @@ describe("someone holding old keys, with the server's help", () => {
     await waitFor(() => sessionOf(dave).account.core.closedBelow >= 1, "the generation to close");
     expect(sessionOf(dave).account.core.manifest).toBeGreaterThan(0);
     const db = serverDatabase();
-    db.prepare("DELETE FROM vault_items WHERE user_id = ? AND (id = 'manifest' OR id LIKE 'verified:%')").run(dave.userId);
+    db.prepare("DELETE FROM vault_items WHERE user_id = ? AND id = 'manifest'").run(dave.userId);
     db.close();
     const phone = await secondDevice(dave, "dave-phone");
     expect(securityEvents(phone).some((event) => event.message.includes("Not everything your account trusts"))).toBe(true);
@@ -690,8 +701,8 @@ describe("someone holding old keys, with the server's help", () => {
     const oldKey = accountKeyOf(dave).slice();
     await dave.session.rotate();
     const attacker = wasm.signingKeygen();
-    const id = `verified:${alice.userId}`;
-    plantVaultItem(dave.userId, id, 0, sealVaultItem(oldKey, id, attacker.publicKey));
+    const planted = { v: 1000, pins: {}, verified: { [alice.userId]: toBase64(attacker.publicKey) }, chains: {}, trust: {} };
+    plantVaultItem(dave.userId, "manifest", 0, sealVaultItem(oldKey, "manifest", utf8(JSON.stringify(planted))));
     await sessionOf(dave).syncVault();
     expect(dave.session.safetyCheck(alice.userId)!.trust).toBe("verified");
     expect(toBase64(sessionOf(dave).verifiedIdentity(alice.userId))).not.toBe(toBase64(attacker.publicKey));
@@ -894,7 +905,7 @@ describe("someone holding old keys, with the server's help", () => {
     const rootPublic = sessionOf(erin).account.core.rootPublic;
     await erin.session.rotate();
     await waitFor(() => sessionOf(dave).headGeneration(erin.userId) === 1, "dave to follow");
-    await waitFor(() => serverVault(dave.userId).some((item) => item.id === `chain:${erin.userId}`), "dave's position in the vault");
+    await waitFor(() => sessionOf(dave).manifest?.chains[erin.userId]?.gen === 1, "dave's position in the vault");
 
     const { buildLink, rootHash, slotsHash } = await import("../src/generations");
     const other = wasm.signingKeygen();
@@ -1274,7 +1285,7 @@ describe("verified contacts", () => {
     age(erin, dave.userId);
     await dave.session.rotate();
     await waitFor(() => erin.session.safetyCheck(dave.userId)!.trust === "verified" && sessionOf(erin).headGeneration(dave.userId) === 1, "erin to follow");
-    await waitFor(() => serverVault(erin.userId).some((item) => item.id === `trust:${dave.userId}`), "the position in the vault");
+    await waitFor(() => sessionOf(erin).manifest?.trust[dave.userId] === 1, "the position in the vault");
     const phone = await secondDevice(erin, "erin-phone");
     await waitFor(() => sessionOf(phone).headGeneration(dave.userId) === 1, "the phone to follow");
     await waitFor(() => phone.session.safetyCheck(dave.userId)?.trust === "verified", "the phone to agree");

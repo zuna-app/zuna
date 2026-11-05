@@ -1,4 +1,4 @@
-﻿// Package api implements Zuna's HTTP and WebSocket interface.
+// Package api implements Zuna's HTTP and WebSocket interface.
 //
 // The server is a delivery service and a blob store. It authenticates accounts,
 // orders each group's commits and relays ciphertext. It never handles message
@@ -39,6 +39,8 @@ const (
 	maxVaultBody  = 4 << 20
 	maxSignInBody = 8 << 10
 	maxSignUpBody = 64 << 10
+	// What a sign-up may put in the vault: its manifest, and room to spare.
+	maxSignUpItems = 4
 	// A profile or a group's details: a few short texts and a picture's reference.
 	maxDetailsBody = 64 << 10
 	maxDetailBytes = 16 << 10

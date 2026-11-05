@@ -39,6 +39,7 @@ import {
   openProfileAtGeneration,
   openSignal,
   openVaultCore,
+  MANIFEST_ID,
   openVaultItem,
   parseCertificate,
   randomId,
@@ -196,7 +197,6 @@ const VAULT_BATCH = 200;
 /** The longest a timer waits, well short of where setTimeout overflows, after which it looks again. */
 const LONGEST_WAIT_MS = 24 * 3600 * 1000;
 /** The vault item that lists every pin and verification this account holds, and its preferences. */
-const MANIFEST_ID = "manifest";
 /** Past this, a manifest wouldn't fit in a vault item, and pins and verifications travel only one by one. */
 const MAX_MANIFEST_BYTES = 200 << 10;
 const DB_LABEL = (name: string) => utf8(`zuna/local/${name}`);
@@ -395,19 +395,29 @@ const validApiMessage = (message: ApiMessage): boolean =>
   Array.isArray(message.reactions);
 
 /** The vault's manifest: every pin and verification, by user, as base64 keys, an empty one for a cleared verification. */
+/** Everything in the vault that decides who this account trusts, in one item, so none of it can be left out alone. */
 interface TrustManifest {
   v: number;
   pins: Record<string, string>;
   verified: Record<string, string>;
+  /** How far along each person's chain of keys this account has got. */
+  chains: Record<string, { gen: number; hash: string }>;
+  /** Up to which generation of their keys each person's verification holds. */
+  trust: Record<string, number>;
   prefs?: unknown;
 }
 
 function parseManifest(value: unknown): TrustManifest | null {
   const manifest = value as Partial<TrustManifest> | null;
-  const keys = (record: unknown): record is Record<string, string> =>
-    !!record && typeof record === "object" && Object.values(record).every((key) => typeof key === "string");
-  if (!manifest || !Number.isSafeInteger(manifest.v) || manifest.v! < 1 || !keys(manifest.pins) || !keys(manifest.verified)) return null;
-  return { v: manifest.v!, pins: manifest.pins, verified: manifest.verified, prefs: manifest.prefs };
+  const record = <T>(value: unknown, fits: (item: unknown) => item is T): value is Record<string, T> =>
+    !!value && typeof value === "object" && !Array.isArray(value) && Object.values(value).every(fits);
+  const key = (item: unknown): item is string => typeof item === "string";
+  const generation = (item: unknown): item is number => Number.isSafeInteger(item) && (item as number) >= 0;
+  const position = (item: unknown): item is { gen: number; hash: string } =>
+    !!item && typeof item === "object" && generation((item as { gen?: unknown }).gen) && typeof (item as { hash?: unknown }).hash === "string";
+  if (!manifest || !Number.isSafeInteger(manifest.v) || manifest.v! < 1 || !record(manifest.pins, key) || !record(manifest.verified, key)) return null;
+  if (!record(manifest.chains, position) || !record(manifest.trust, generation)) return null;
+  return { v: manifest.v!, pins: manifest.pins, verified: manifest.verified, chains: manifest.chains, trust: manifest.trust, prefs: manifest.prefs };
 }
 
 /** A message as this device stored it: what can be shown, or null if that's nothing. */
@@ -730,7 +740,7 @@ export class ServerSession {
     await this.syncVault();
     this.checkManifestFloor();
     await this.syncUsers();
-    await this.uploadPins();
+    await this.saveTrust();
     await this.refreshEmotes();
     await this.processWelcomes();
     // A group that arrives while the list is on its way won't be in it, so only
@@ -1092,39 +1102,11 @@ export class ServerSession {
             touchedGroups.add(groupId!);
           }
         } else if (item.id === MANIFEST_ID) {
+          // Who this account trusts comes from here alone, so nothing in it can be left out by itself.
           this.applyManifest(data);
-        } else if (item.id === "prefs") {
-          // A manifest's copy is the current one. This item may be an older one, served again.
-          if (this.manifest) continue;
-          try {
-            this.prefs = { ...this.prefs, ...parsePreferences(JSON.parse(fromUtf8(data))) };
-          } catch {
-            console.warn("[zuna] saved preferences could not be read");
-            continue;
-          }
-          this.setKv("prefs", this.prefs);
-          this.emit({ type: "preferences", serverId: this.serverId });
-          this.watchMutes();
-          this.resendPush();
-        } else if (item.id.startsWith("verified:")) {
-          const userId = item.id.slice("verified:".length);
-          // The same goes for a verification the manifest lists.
-          if (this.manifest && userId in this.manifest.verified) continue;
-          this.db.run("INSERT OR REPLACE INTO verified(user_id, identity_key) VALUES(?, ?)", [userId, data]);
-          // The person accepted this key on another device, so it's the one to expect here too.
-          if (data.length > 0) this.db.run("INSERT OR REPLACE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, data]);
-          this.refreshTrust(userId);
-        } else if (item.id.startsWith("pin:")) {
-          const userId = item.id.slice("pin:".length);
-          this.db.run("INSERT OR IGNORE INTO pinned_identities(user_id, identity_key, uploaded) VALUES(?, ?, 1)", [userId, data]);
-          this.refreshTrust(userId);
         } else if (item.id.startsWith("device:")) {
           this.deviceNames.set(item.id.slice("device:".length), fromUtf8(data));
           this.setKv("device_names", Object.fromEntries(this.deviceNames));
-        } else if (item.id.startsWith("chain:")) {
-          this.noteChainPosition(item.id.slice("chain:".length), data);
-        } else if (item.id.startsWith("trust:")) {
-          this.noteVerifiedPosition(item.id.slice("trust:".length), data);
         }
       }
       this.setKv("vault_cursor", cursor);
@@ -1180,22 +1162,9 @@ export class ServerSession {
     await this.putItems([{ id, data }]);
   }
 
-  /** Shares the keys pinned here with this account's other devices, a batch at a time. */
-  private async uploadPins(): Promise<void> {
-    for (;;) {
-      const rows = this.db.all<{ user_id: string; identity_key: Uint8Array }>(
-        "SELECT user_id, identity_key FROM pinned_identities WHERE uploaded = 0 LIMIT ?",
-        [VAULT_BATCH],
-      );
-      if (rows.length === 0) break;
-      const stored = await this.putItems(rows.map((row) => ({ id: `pin:${row.user_id}`, data: row.identity_key })));
-      if (!stored) return;
-      this.db.transaction(() => {
-        for (const row of rows) this.db.run("UPDATE pinned_identities SET uploaded = 1 WHERE user_id = ?", [row.user_id]);
-      });
-    }
+  /** Shares what this device trusts with this account's other devices, through the manifest. */
+  private async saveTrust(): Promise<void> {
     if (this.manifestBehind()) await this.writeManifest();
-    await this.uploadChainPositions();
   }
 
   // --- Vault manifest ---
@@ -1248,6 +1217,8 @@ export class ServerSession {
         this.warnOnce(`pin/${userId}`, `Another of your devices holds a different security key for ${name}. Compare emoji with them before trusting their messages.`, userId);
       }
     }
+    for (const [userId, position] of Object.entries(manifest.chains)) this.noteChainPosition(userId, position);
+    for (const [userId, generation] of Object.entries(manifest.trust)) this.noteVerifiedPosition(userId, generation);
     this.manifest = manifest;
     this.setKv("manifest", manifest);
     if (manifest.prefs) {
@@ -1267,24 +1238,50 @@ export class ServerSession {
     const pins = this.db.all<{ user_id: string }>("SELECT user_id FROM pinned_identities");
     if (pins.some((row) => !(row.user_id in manifest.pins))) return true;
     const verified = this.db.all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM verified");
-    return verified.some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key));
+    if (verified.some((row) => manifest.verified[row.user_id] !== toBase64(row.identity_key))) return true;
+    return !!this.db.get("SELECT 1 FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0 LIMIT 1");
+  }
+
+  /** What this device holds, as the manifest after the one it has. */
+  private nextManifest(): TrustManifest {
+    const entries = (rows: { user_id: string; identity_key: Uint8Array }[]) => Object.fromEntries(rows.map((row) => [row.user_id, toBase64(row.identity_key)]));
+    const chains: TrustManifest["chains"] = {};
+    for (const userId of this.chains.keys()) {
+      const head = this.headOf(userId);
+      if (head) chains[userId] = { gen: head.gen, hash: toBase64(head.hash) };
+    }
+    const trust: TrustManifest["trust"] = {};
+    for (const row of this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state WHERE trust_generation > 0")) {
+      trust[row.user_id] = row.trust_generation;
+    }
+    return {
+      v: (this.manifest?.v ?? 0) + 1,
+      pins: entries(this.db.all("SELECT user_id, identity_key FROM pinned_identities ORDER BY user_id")),
+      verified: entries(this.db.all("SELECT user_id, identity_key FROM verified ORDER BY user_id")),
+      chains,
+      trust,
+      prefs: this.prefs,
+    };
   }
 
   /** Writes what this device holds as the next manifest, one at a time. */
   private writeManifest(): Promise<void> {
     this.manifestWrite = this.manifestWrite
       .then(async () => {
-        const entries = (rows: { user_id: string; identity_key: Uint8Array }[]) => Object.fromEntries(rows.map((row) => [row.user_id, toBase64(row.identity_key)]));
-        const manifest: TrustManifest = {
-          v: (this.manifest?.v ?? 0) + 1,
-          pins: entries(this.db.all("SELECT user_id, identity_key FROM pinned_identities ORDER BY user_id")),
-          verified: entries(this.db.all("SELECT user_id, identity_key FROM verified ORDER BY user_id")),
-          prefs: this.prefs,
-        };
+        const written = this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0");
+        const manifest = this.nextManifest();
         const data = utf8(JSON.stringify(manifest));
         if (data.length > MAX_MANIFEST_BYTES || !(await this.putItems([{ id: MANIFEST_ID, data }]))) return;
         this.manifest = manifest;
         this.setKv("manifest", manifest);
+        // A position that moved on while this was on its way is written next time.
+        this.db.transaction(() => {
+          for (const row of written) {
+            if ((manifest.chains[row.user_id]?.gen ?? 0) === this.headGeneration(row.user_id)) {
+              this.db.run("UPDATE identity_state SET chain_uploaded = 1, trust_uploaded = 1 WHERE user_id = ? AND trust_generation = ?", [row.user_id, row.trust_generation]);
+            }
+          }
+        });
       })
       .catch((error) => console.warn("[zuna] saving the manifest", error));
     return this.manifestWrite;
@@ -1445,14 +1442,8 @@ export class ServerSession {
   }
 
   /** What a sibling device says it has reached on someone's chain. Two versions of it means trouble. */
-  private noteChainPosition(userId: string, data: Uint8Array): void {
-    let position: { gen: number; hash: string };
-    try {
-      position = JSON.parse(fromUtf8(data));
-      if (!Number.isSafeInteger(position.gen) || typeof position.hash !== "string") return;
-    } catch {
-      return;
-    }
+  private noteChainPosition(userId: string, position: { gen: number; hash: string }): void {
+    if (position.gen < 1) return;
     const held = this.chainOf(userId)[position.gen - 1];
     const expected = fromBase64(position.hash);
     if (held) {
@@ -1462,35 +1453,10 @@ export class ServerSession {
     }
   }
 
-  private noteVerifiedPosition(userId: string, data: Uint8Array): void {
-    let position: { gen: number };
-    try {
-      position = JSON.parse(fromUtf8(data));
-      if (!Number.isSafeInteger(position.gen)) return;
-    } catch {
-      return;
-    }
-    if (position.gen <= this.identityState(userId).trust_generation) return;
-    this.updateIdentityState(userId, "trust_generation = ?", [position.gen]);
+  private noteVerifiedPosition(userId: string, generation: number): void {
+    if (generation <= this.identityState(userId).trust_generation) return;
+    this.updateIdentityState(userId, "trust_generation = ?", [generation]);
     this.refreshTrust(userId);
-  }
-
-  private async uploadChainPositions(): Promise<void> {
-    const rows = this.db.all<{ user_id: string; chain_uploaded: number; trust_uploaded: number; trust_generation: number }>(
-      "SELECT user_id, chain_uploaded, trust_uploaded, trust_generation FROM identity_state WHERE chain_uploaded = 0 OR trust_uploaded = 0 LIMIT ?",
-      [VAULT_BATCH],
-    );
-    if (rows.length === 0) return;
-    const items: { id: string; data: Uint8Array }[] = [];
-    for (const row of rows) {
-      const head = this.headOf(row.user_id);
-      if (!row.chain_uploaded && head) items.push({ id: `chain:${row.user_id}`, data: utf8(JSON.stringify({ gen: head.gen, hash: toBase64(head.hash) })) });
-      if (!row.trust_uploaded) items.push({ id: `trust:${row.user_id}`, data: utf8(JSON.stringify({ gen: row.trust_generation })) });
-    }
-    if (!(await this.putItems(items))) return;
-    this.db.transaction(() => {
-      for (const row of rows) this.db.run("UPDATE identity_state SET chain_uploaded = 1, trust_uploaded = 1 WHERE user_id = ?", [row.user_id]);
-    });
   }
 
   /** Takes on a link that's been checked: from here, what it says about devices goes. */
@@ -1570,7 +1536,7 @@ export class ServerSession {
     this.rescheduleAffectedByDeviceChange(userId);
     this.emit({ type: "users", serverId: this.serverId });
     this.emitConversations();
-    await this.uploadChainPositions().catch(() => undefined);
+    await this.saveTrust().catch(() => undefined);
   }
 
   private hasContinuity(userId: string, deviceId: string): boolean {
@@ -1804,6 +1770,8 @@ export class ServerSession {
       });
     }
 
+    // The manifest goes along sealed under the new key, and its number into the core, so a new device knows not to settle for less.
+    const manifest = this.nextManifest();
     const slots = { ...core.slots };
     const newSlots = new Map((plan.slots ?? []).map((slot) => [slot.kind, slot]));
     for (const slot of newSlots.values()) slots[slot.kind] = { seal: slot.seal, sign: slot.sign };
@@ -1822,7 +1790,7 @@ export class ServerSession {
       olderHpkeSecrets: [...core.olderHpkeSecrets, core.hpkeSecret].slice(-OLDER_HPKE_KEPT),
       closedBelow: core.closedBelow,
       slots,
-      manifest: this.manifest?.v ?? 0,
+      manifest: manifest.v,
     };
     const head = this.headOf(userId);
     const signed = buildLink(
@@ -1862,7 +1830,7 @@ export class ServerSession {
           : { kind, sealed_key: sealedKey };
       }),
       bundles,
-      items: this.trustItems(accountKey, generation),
+      items: this.trustItems(accountKey, generation, manifest),
       password: plan.password,
       recovery: plan.recovery,
     };
@@ -1879,22 +1847,10 @@ export class ServerSession {
     return intent;
   }
 
-  /** Everything in the vault that decides who this account trusts, sealed under the new key in one go. */
-  private trustItems(accountKey: Uint8Array, generation: number): { id: string; data: Uint8Array }[] {
+  /** What the vault holds that isn't epoch keys, sealed under the new key in one go: the manifest, which decides who this account trusts, and the names of its devices. */
+  private trustItems(accountKey: Uint8Array, generation: number, manifest: TrustManifest): { id: string; data: Uint8Array }[] {
     const seal = (id: string, data: Uint8Array) => ({ id, data: sealVaultItem(accountKey, id, data, generation) });
-    const items: { id: string; data: Uint8Array }[] = [];
-    for (const row of this.db.all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM pinned_identities")) {
-      items.push(seal(`pin:${row.user_id}`, row.identity_key));
-    }
-    for (const row of this.db.all<{ user_id: string; identity_key: Uint8Array }>("SELECT user_id, identity_key FROM verified")) {
-      items.push(seal(`verified:${row.user_id}`, row.identity_key));
-    }
-    for (const row of this.db.all<{ user_id: string; trust_generation: number }>("SELECT user_id, trust_generation FROM identity_state")) {
-      const head = this.headOf(row.user_id);
-      if (head) items.push(seal(`chain:${row.user_id}`, utf8(JSON.stringify({ gen: head.gen, hash: toBase64(head.hash) }))));
-      if (row.trust_generation > 0) items.push(seal(`trust:${row.user_id}`, utf8(JSON.stringify({ gen: row.trust_generation }))));
-    }
-    items.push(seal("prefs", utf8(JSON.stringify(this.prefs))));
+    const items = [seal(MANIFEST_ID, utf8(JSON.stringify(manifest)))];
     for (const [id, name] of this.deviceNames) items.push(seal(`device:${id}`, utf8(name)));
     return items;
   }
@@ -1983,7 +1939,7 @@ export class ServerSession {
       await this.ensureCertificate(me);
       this.applyUser(await this.api.user(userId));
       this.rescheduleAffectedByDeviceChange(userId);
-      await this.uploadPins();
+      await this.saveTrust();
       // The manifest so far is sealed under the old key, which nothing believes now.
       await this.writeManifest();
       await this.uploadEpochKeys();
@@ -3893,7 +3849,7 @@ export class ServerSession {
         break;
       case "user":
         this.applyUser(data as ApiUser);
-        void this.uploadPins().catch(() => undefined);
+        void this.saveTrust().catch(() => undefined);
         this.emit({ type: "users", serverId: this.serverId });
         this.emitConversations();
         this.rescheduleAffectedByDeviceChange((data as ApiUser).id);
@@ -4736,9 +4692,6 @@ export class ServerSession {
     this.emitConversations();
     this.watchMutes();
     if (changes.muted || changes.mutedUntil || changes.blocked) this.resendPush();
-    await this.putVault("prefs", utf8(JSON.stringify(this.prefs))).catch((error) => {
-      console.warn("[zuna] saving preferences", error);
-    });
     await this.writeManifest();
   }
 
@@ -5766,8 +5719,7 @@ export class ServerSession {
     }
     this.refreshTrust(userId);
     this.emit({ type: "users", serverId: this.serverId });
-    await this.putVault(`verified:${userId}`, pin).catch((error) => console.warn("[zuna] saving verification", error));
-    await this.uploadPins().catch((error) => console.warn("[zuna] saving a known key", error));
+    await this.saveTrust().catch((error) => console.warn("[zuna] saving a verification", error));
   }
 
   async clearVerification(userId: string): Promise<void> {
@@ -5778,7 +5730,6 @@ export class ServerSession {
     user.trust = this.trustOf(userId, user.identityKey);
     this.persistUser(user);
     this.emit({ type: "users", serverId: this.serverId });
-    await this.putVault(`verified:${userId}`, new Uint8Array(0)).catch(() => undefined);
     await this.writeManifest();
   }
 

@@ -1,4 +1,4 @@
-﻿package store
+package store
 
 import (
 	"context"
@@ -62,33 +62,36 @@ type KDFParams struct {
 
 // NewUser holds everything created on the client during sign-up.
 type NewUser struct {
-	Username           string
-	KDF                KDFParams
-	AuthHash           []byte
-	AuthSalt           []byte
-	RecoveryHash       []byte
-	RecoverySalt       []byte
-	IdentityKey        []byte
-	HpkeKey            []byte
-	HpkeKeySig         []byte
-	VaultCore          []byte
-	Profile            []byte
-	Slots              []Slot
+	Username     string
+	KDF          KDFParams
+	AuthHash     []byte
+	AuthSalt     []byte
+	RecoveryHash []byte
+	RecoverySalt []byte
+	IdentityKey  []byte
+	HpkeKey      []byte
+	HpkeKeySig   []byte
+	VaultCore    []byte
+	Profile      []byte
+	Slots        []Slot
+	// What the vault starts with, such as the manifest of what the account trusts,
+	// so that a new device never finds an account without one.
+	VaultItems []VaultItem
 }
 
 // Credentials is the authentication material for one user.
 type Credentials struct {
-	UserID             string
-	Username           string
-	Role               string
-	KDF                KDFParams
-	AuthHash           []byte
-	AuthSalt           []byte
-	RecoveryHash       []byte
-	RecoverySalt       []byte
-	VaultCore          []byte
-	Banned             bool
-	KeyGeneration      int64
+	UserID        string
+	Username      string
+	Role          string
+	KDF           KDFParams
+	AuthHash      []byte
+	AuthSalt      []byte
+	RecoveryHash  []byte
+	RecoverySalt  []byte
+	VaultCore     []byte
+	Banned        bool
+	KeyGeneration int64
 }
 
 // CreateUser consumes the invite (if any) and creates the user atomically.
@@ -134,7 +137,10 @@ func (d *DB) CreateUser(ctx context.Context, u NewUser, inviteCode string) (stri
 		if err != nil {
 			return err
 		}
-		return d.insertSlots(ctx, tx, id, u.Slots)
+		if err := d.insertSlots(ctx, tx, id, u.Slots); err != nil {
+			return err
+		}
+		return putItems(ctx, tx, id, u.VaultItems)
 	})
 	return id, err
 }
