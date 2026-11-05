@@ -256,15 +256,17 @@ final class AppUnderTest {
         }
         let field = element(A11y.Onboarding.link)
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        type(link, into: A11y.Onboarding.link)
-        try tapSettled(A11y.Onboarding.continue)
-        // On an iPad the keyboard goes once typing ends and the sheet moves, sometimes from under
-        // the tap; tapped again, Continue does nothing while the link is being looked at.
+        // Return sends it. On an iPad the keyboard comes and goes as typing ends, and the
+        // sheet moves with it, so a tap meant for Continue can land on the button below.
+        type(link + "\n", into: A11y.Onboarding.link)
         let setUp = app.staticTexts["Set up your server"]
         try waitFor("the screen to set the server up", timeout: 30) {
             if setUp.waitForExistence(timeout: 5) { return true }
-            let next = self.element(A11y.Onboarding.continue)
-            if next.exists, next.isHittable { next.tap() }
+            // Sent again, it does nothing while the link is being looked at.
+            if field.exists, field.isHittable {
+                field.tap()
+                field.typeText("\n")
+            }
             return setUp.exists
         }
 
