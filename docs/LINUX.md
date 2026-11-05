@@ -164,15 +164,25 @@ sudo ufw allow 7881/tcp
 sudo ufw allow 7882/udp
 ```
 
-LiveKit finds the machine's public address when it starts, by asking a public STUN server, and tells apps to send media there. Behind a router, forward both ports to the machine. With the proxy on another machine, people's media still comes to this one, so it has to be reachable from the internet on those two ports.
+LiveKit tells apps where to send media. With `--voice-ip 203.0.113.7`, or a server without a domain, that's the address given. Otherwise LiveKit finds the machine's public address when it starts, by asking a public STUN server, which apps on the machine's own network may not reach. Behind a router, forward both ports to the machine. With the proxy on another machine, people's media still comes to this one, so it has to be reachable from the internet on those two ports.
+
+## Without a domain
+
+With an IP address in place of the domain, the server serves HTTPS itself, with a certificate of its own that its links pin, as [Without a domain](SELF_HOSTING.md#without-a-domain) explains. It needs no proxy, listens on every address on `--server-port`, which has to be 1024 or above, and LiveKit gives apps that address for calls' media:
+
+```bash
+sudo /opt/zuna/deploy/update.sh --server 203.0.113.7 --server-port 8443 --voice on
+```
+
+Open the port to everyone, with 7881/tcp and 7882/udp, and back up `/var/lib/zuna/certificate.key`.
 
 ## Updating
 
 ```bash
-sudo /opt/zuna/deploy/update.sh
+sudo zuna-update
 ```
 
-It remembers what runs on the machine, in `/etc/zuna/update.conf`. Add `--test` to run the server's tests before installing anything. If a new build doesn't start, the script prints the service's log, puts the previous build back and exits with an error.
+That's `/usr/local/sbin/zuna-update`, which runs `deploy/update.sh` from the checkout, with any options given to it. It remembers what runs on the machine, in `/etc/zuna/update.conf`. Add `--test` to run the server's tests before installing anything. If a new build doesn't start, the script prints the service's log, puts the previous build back and exits with an error.
 
 The script runs as root, but building doesn't: that's done by a `zuna-build` user, since it runs code from the repository. So that the script itself can't be changed by anyone else, it refuses to run from a checkout that someone other than root can write to, and says how to fix that. `--allow-user-checkout` runs it anyway, and has the checkout's owner build, at the cost of them being root at the next update.
 
@@ -196,6 +206,8 @@ Run the script again with the option you're changing. The others stay as they we
 | Add voice channels to a machine that runs the server | `--voice on` |
 | Turn voice channels off | `--voice off`. Channels stay, but nobody can join a call |
 | Give LiveKit other ports | `--voice-port 9880`, which only the server uses, and `--voice-tcp-port 9881`, `--voice-udp-port 9882` for media |
+| Tell LiveKit the address calls' media reaches | `--voice-ip 203.0.113.7`, or `--voice-ip ""` to have it ask a STUN server |
+| Go by the machine's IP address, without a domain | `--server 203.0.113.7 --server-port 8443` |
 | Listen somewhere else | `--listen 10.0.0.5` for a proxy on another machine, or `--listen 127.0.0.1` for one on this machine |
 | Say exactly which proxies to trust | `--trusted-proxies 203.0.113.7,10.0.0.0/24` |
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
@@ -221,6 +233,7 @@ An update restarts LiveKit only when it brings a new LiveKit or new settings for
 | What the web app is built with | Node in `/usr/local/node`, Rust and `wasm-bindgen` in the builder's `~/.cargo`, and a copy of the code in its `~/.cache/zuna-web-build` |
 | APNs key | `/etc/zuna/apns.p8`, readable only by the relay |
 | What the script set up | `/etc/zuna/update.conf` |
+| The update command | `/usr/local/sbin/zuna-update` |
 | The previous build | `/usr/local/bin/zuna-server.previous`, `zuna-push.previous`, `zuna-web.previous` and `livekit-server.previous` |
 
 **Back up** `/var/lib/zuna`, as described in [Backups](SELF_HOSTING.md#backups), and `/var/lib/zuna-push/handle.key`. If the handle key is lost, every phone's registration breaks until its app registers again, which it does when it next opens.

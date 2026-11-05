@@ -7,22 +7,30 @@
 # and goes back to the previous build if the new one doesn't start. See
 # docs/LINUX.md.
 #
-# The first time, say what runs here:
+# deploy/install.sh asks about the chat server and its proxy and runs this. Or,
+# the first time, say what runs here:
 #
 #   sudo deploy/update.sh --server chat.example.com
+#   sudo deploy/update.sh --server 203.0.113.7 --server-port 8443 --voice on
 #   sudo deploy/update.sh --server chat.example.com --relay push.example.com \
 #     --apns-key AuthKey_ABC123DEFG.p8 --apns-key-id ABC123DEFG
 #   sudo deploy/update.sh --server chat.example.com --web web.chat.example.com
 #   sudo deploy/update.sh --server chat.example.com --voice on
 #
-# After that, to update:
+# After that, to update, which runs this script:
 #
-#   sudo deploy/update.sh
+#   sudo zuna-update
 #
 # Options:
-#   --server DOMAIN      run the chat server at DOMAIN
+#   --server DOMAIN      run the chat server at DOMAIN, or at this machine's IP
+#                        address instead, where it serves HTTPS itself, with a
+#                        certificate of its own, on --server-port on every address
+#                        (docs/SELF_HOSTING.md#without-a-domain)
 #   --voice on|off       run LiveKit, the media server for voice channels, next to
 #                        the server (default off). Apps reach it through the server
+#   --voice-ip ADDRESS   the address calls' media reaches this machine at, which
+#                        LiveKit gives apps (default: the server's IP address, or
+#                        else the public one LiveKit asks a STUN server for)
 #   --relay DOMAIN       run the push relay at DOMAIN
 #   --web DOMAIN         run the web app at DOMAIN, a domain of its own
 #   --web-server URL     the server the web app's sign-in form starts with
@@ -95,6 +103,7 @@ SERVER_PORT=8080
 RELAY_PORT=8090
 WEB_PORT=8081
 VOICE=off
+VOICE_IP=""
 VOICE_PORT=7880
 VOICE_TCP_PORT=7881
 VOICE_UDP_PORT=7882
@@ -114,7 +123,7 @@ DATABASE_URL=""
 DATABASE_URL_GIVEN=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --server) SERVER_DOMAIN="${2:?--server needs a domain}"; SERVER_CHANGED=1; shift 2 ;;
+    --server) SERVER_DOMAIN="${2:?--server needs a domain}"; SERVER_CHANGED=1; VOICE_CHANGED=1; shift 2 ;;
     --relay) RELAY_DOMAIN="${2:?--relay needs a domain}"; RELAY_CHANGED=1; shift 2 ;;
     --web) WEB_DOMAIN="${2:?--web needs a domain}"; WEB_CHANGED=1; shift 2 ;;
     --web-server) WEB_SERVER="${2:?--web-server needs an address}"; WEB_SERVER_GIVEN=1; WEB_CHANGED=1; shift 2 ;;
@@ -130,6 +139,7 @@ while [ $# -gt 0 ]; do
     --relay-port) RELAY_PORT="${2:?--relay-port needs a port}"; RELAY_CHANGED=1; shift 2 ;;
     --web-port) WEB_PORT="${2:?--web-port needs a port}"; WEB_CHANGED=1; shift 2 ;;
     --voice) VOICE="${2:?--voice needs on or off}"; VOICE_CHANGED=1; SERVER_CHANGED=1; shift 2 ;;
+    --voice-ip) VOICE_IP="${2?--voice-ip needs an address}"; VOICE_CHANGED=1; shift 2 ;;
     --voice-port) VOICE_PORT="${2:?--voice-port needs a port}"; VOICE_CHANGED=1; SERVER_CHANGED=1; shift 2 ;;
     --voice-tcp-port) VOICE_TCP_PORT="${2:?--voice-tcp-port needs a port}"; VOICE_CHANGED=1; shift 2 ;;
     --voice-udp-port) VOICE_UDP_PORT="${2:?--voice-udp-port needs a port}"; VOICE_CHANGED=1; shift 2 ;;
@@ -148,6 +158,16 @@ command -v systemctl >/dev/null || fail "this needs systemd."
 [ -d "$SRC/.git" ] || fail "$SRC isn't a git checkout of Zuna."
 [ -n "$SERVER_DOMAIN$RELAY_DOMAIN$WEB_DOMAIN" ] || fail "nothing to run yet. Say what runs here the first time, for example: --server chat.example.com"
 if [ -n "$APNS_KEY_FILE" ] && [ ! -r "$APNS_KEY_FILE" ]; then fail "can't read $APNS_KEY_FILE"; fi
+# Without a domain, the server is reached at an IP address and serves HTTPS itself,
+# with no proxy, so on a port it may use without any power, on every address.
+SERVER_IP=""
+if [[ "$SERVER_DOMAIN" =~ ^[0-9.]+$ ]] || [[ "$SERVER_DOMAIN" == *:* ]]; then
+  SERVER_IP="${SERVER_DOMAIN#[}"
+  SERVER_IP="${SERVER_IP%]}"
+  [ "$SERVER_PORT" -ge 1024 ] || fail "without a domain, the server needs a --server-port from 1024 up, as it runs without the power to use lower ones."
+fi
+# LiveKit gives apps the server's address for calls' media, as that's where they reach this machine.
+LIVEKIT_IP="${VOICE_IP:-$SERVER_IP}"
 # The server sends notifications through the relay on this machine, unless told otherwise.
 if [ "$RELAYS_GIVEN" = 0 ] && [ -z "$PUSH_RELAYS" ] && [ -n "$RELAY_DOMAIN" ]; then
   PUSH_RELAYS="https://$RELAY_DOMAIN"
@@ -159,8 +179,9 @@ if [ -n "$WEB_DOMAIN" ]; then
     fail "the web app needs a domain of its own, such as web.$WEB_DOMAIN (docs/WEB.md)."
   fi
   case "$WEB_PREVIEWS" in on | off) ;; *) fail "--web-previews is on or off" ;; esac
-  # Its sign-in form starts with the server on this machine, unless told otherwise.
-  if [ "$WEB_SERVER_GIVEN" = 0 ] && [ -z "$WEB_SERVER" ] && [ -n "$SERVER_DOMAIN" ]; then
+  # Its sign-in form starts with the server on this machine, unless told otherwise, or
+  # the server has no domain, which a browser can't reach.
+  if [ "$WEB_SERVER_GIVEN" = 0 ] && [ -z "$WEB_SERVER" ] && [ -n "$SERVER_DOMAIN" ] && [ -z "$SERVER_IP" ]; then
     WEB_SERVER="https://$SERVER_DOMAIN"
     WEB_CHANGED=1
   fi
@@ -446,10 +467,20 @@ SERVER_PORT="$SERVER_PORT"
 RELAY_PORT="$RELAY_PORT"
 WEB_PORT="$WEB_PORT"
 VOICE="$VOICE"
+VOICE_IP="$VOICE_IP"
 VOICE_PORT="$VOICE_PORT"
 VOICE_TCP_PORT="$VOICE_TCP_PORT"
 VOICE_UDP_PORT="$VOICE_UDP_PORT"
 EOF
+
+# sudo zuna-update runs this script, wherever this checkout is.
+cat >/usr/local/sbin/zuna-update.new <<EOF
+#!/bin/sh
+# Updates Zuna on this machine. Written by deploy/update.sh.
+exec "$SRC/deploy/update.sh" "\$@"
+EOF
+chmod 0755 /usr/local/sbin/zuna-update.new
+mv -f /usr/local/sbin/zuna-update.new /usr/local/sbin/zuna-update
 
 # Keeps the running binary as .previous, so a build that doesn't start can be undone.
 install_binary() {
@@ -483,6 +514,14 @@ if [ "$VOICE" = on ]; then
     VOICE_RESTART=1
   fi
   if [ ! -f /etc/zuna/livekit.yaml ] || [ "$VOICE_CHANGED" = 1 ]; then
+    # Where apps send calls' media: the address given, or else the public one a STUN
+    # server sees, which apps on this machine's own network may not reach.
+    if [ -n "$LIVEKIT_IP" ]; then
+      media_address="  use_external_ip: false
+  node_ip: $LIVEKIT_IP"
+    else
+      media_address="  use_external_ip: true"
+    fi
     cat >/etc/zuna/livekit.yaml <<EOF
 # LiveKit, the media server for voice channels. Written by deploy/update.sh.
 # Only the server on this machine reaches it here, and hands apps' signaling on.
@@ -493,7 +532,7 @@ bind_addresses:
 rtc:
   tcp_port: $VOICE_TCP_PORT
   udp_port: $VOICE_UDP_PORT
-  use_external_ip: true
+$media_address
 key_file: /etc/zuna/livekit-keys.yaml
 EOF
     VOICE_RESTART=1
@@ -539,7 +578,16 @@ if [ -n "$SERVER_DOMAIN" ]; then
     # Only root reads it, since it can hold LiveKit's secret. systemd reads it before
     # it starts the server.
     install -m 0600 /dev/null /etc/zuna/zuna.env
-    cat >>/etc/zuna/zuna.env <<EOF
+    if [ -n "$SERVER_IP" ]; then
+      cat >>/etc/zuna/zuna.env <<EOF
+# The chat server, at this machine's IP address, with HTTPS and a certificate of its
+# own, whose key is certificate.key in ZUNA_DATA. Written by deploy/update.sh.
+ZUNA_DATA=/var/lib/zuna
+ZUNA_DOMAIN=$SERVER_DOMAIN
+ZUNA_LISTEN=:$SERVER_PORT
+EOF
+    else
+      cat >>/etc/zuna/zuna.env <<EOF
 # The chat server, behind a reverse proxy that adds HTTPS. Written by deploy/update.sh.
 ZUNA_DATA=/var/lib/zuna
 ZUNA_LISTEN=$(address "$LISTEN" "$SERVER_PORT")
@@ -547,6 +595,9 @@ ZUNA_PUBLIC_URL=https://$SERVER_DOMAIN
 # Believes X-Forwarded-For from this machine and private networks, or else from these proxies.
 ZUNA_TRUST_PROXY=true
 ZUNA_TRUSTED_PROXIES=$TRUSTED_PROXIES
+EOF
+    fi
+    cat >>/etc/zuna/zuna.env <<EOF
 # Empty is the project's relay, and "off" is none.
 ZUNA_PUSH_RELAYS=$PUSH_RELAYS
 # PostgreSQL, or empty for SQLite in ZUNA_DATA.
@@ -611,11 +662,12 @@ fi
 step "Restarting"
 systemctl daemon-reload
 
-# Whether a service answers at an address and path, such as 127.0.0.1:8080/healthz.
-# LiveKit can take a few seconds to find this machine's public address.
+# Whether a service answers at an address, such as http://127.0.0.1:8080/healthz, or
+# with HTTPS, whatever its certificate. LiveKit can take a few seconds to find this
+# machine's public address.
 healthy() {
   for _ in $(seq 1 60); do
-    if curl -fs -o /dev/null "http://$1"; then return 0; fi
+    if curl -fsk -o /dev/null "$1"; then return 0; fi
     sleep 0.5
   done
   return 1
@@ -643,14 +695,18 @@ restart() {
 if [ "$VOICE" = on ]; then
   if [ "$VOICE_RESTART" = 1 ]; then action=restart; else action=start; fi
   if [ "$LIVEKIT_NEW" = 1 ]; then binary=livekit-server; else binary=""; fi
-  restart zuna-livekit "$binary" "$(address 127.0.0.1 "$VOICE_PORT")/" "LiveKit $LIVEKIT_VERSION" "$action"
+  restart zuna-livekit "$binary" "http://$(address 127.0.0.1 "$VOICE_PORT")/" "LiveKit $LIVEKIT_VERSION" "$action"
 elif [ -f /etc/systemd/system/zuna-livekit.service ]; then
   systemctl disable --now --quiet zuna-livekit
   if [ "$VOICE_CHANGED" = 1 ]; then echo "zuna-livekit is stopped, so voice channels can't be joined"; fi
 fi
-if [ -n "$SERVER_DOMAIN" ]; then restart zuna zuna-server "$(local_address "$SERVER_PORT")/healthz"; fi
-if [ -n "$RELAY_DOMAIN" ]; then restart zuna-push zuna-push "$(local_address "$RELAY_PORT")/healthz"; fi
-if [ -n "$WEB_DOMAIN" ]; then restart zuna-web zuna-web "$(local_address "$WEB_PORT")/healthz"; fi
+if [ -n "$SERVER_IP" ]; then
+  restart zuna zuna-server "https://$(address 127.0.0.1 "$SERVER_PORT")/healthz"
+elif [ -n "$SERVER_DOMAIN" ]; then
+  restart zuna zuna-server "http://$(local_address "$SERVER_PORT")/healthz"
+fi
+if [ -n "$RELAY_DOMAIN" ]; then restart zuna-push zuna-push "http://$(local_address "$RELAY_PORT")/healthz"; fi
+if [ -n "$WEB_DOMAIN" ]; then restart zuna-web zuna-web "http://$(local_address "$WEB_PORT")/healthz"; fi
 
 echo
 # Where a proxy on another machine finds them: this machine's address, when they listen on all of them.
@@ -658,14 +714,21 @@ HOST="$LISTEN"
 case "$LISTEN" in
   0.0.0.0 | ::) HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"; HOST="${HOST:-this-machine}" ;;
 esac
-echo "Point your reverse proxy at them, with HTTPS and WebSockets (see docs/LINUX.md):"
-if [ -n "$SERVER_DOMAIN" ]; then echo "  https://$SERVER_DOMAIN -> http://$(address "$HOST" "$SERVER_PORT")"; fi
-if [ -n "$RELAY_DOMAIN" ]; then echo "  https://$RELAY_DOMAIN -> http://$(address "$HOST" "$RELAY_PORT")"; fi
-if [ -n "$WEB_DOMAIN" ]; then echo "  https://$WEB_DOMAIN -> http://$(address "$HOST" "$WEB_PORT")"; fi
+if [ -n "$SERVER_IP" ]; then
+  echo "People reach the server at https://$(address "$SERVER_IP" "$SERVER_PORT"), with a certificate of its"
+  echo "own, so open ${SERVER_PORT}/tcp to them. Back up /var/lib/zuna/certificate.key: a new one would"
+  echo "need new links for everyone (docs/SELF_HOSTING.md#without-a-domain)."
+fi
+if [ -n "$RELAY_DOMAIN$WEB_DOMAIN" ] || { [ -n "$SERVER_DOMAIN" ] && [ -z "$SERVER_IP" ]; }; then
+  echo "Point your reverse proxy at them, with HTTPS and WebSockets (see docs/LINUX.md):"
+  if [ -n "$SERVER_DOMAIN" ] && [ -z "$SERVER_IP" ]; then echo "  https://$SERVER_DOMAIN -> http://$(address "$HOST" "$SERVER_PORT")"; fi
+  if [ -n "$RELAY_DOMAIN" ]; then echo "  https://$RELAY_DOMAIN -> http://$(address "$HOST" "$RELAY_PORT")"; fi
+  if [ -n "$WEB_DOMAIN" ]; then echo "  https://$WEB_DOMAIN -> http://$(address "$HOST" "$WEB_PORT")"; fi
+fi
 if [ "$VOICE" = on ]; then
   echo
-  echo "Voice channels' signaling goes through the server's domain, at /livekit/. Their media"
-  echo "doesn't go through the proxy: open ${VOICE_TCP_PORT}/tcp and ${VOICE_UDP_PORT}/udp to everyone, straight to this machine."
+  echo "Voice channels' signaling goes through the server's address, at /livekit/. Their media"
+  echo "doesn't: open ${VOICE_TCP_PORT}/tcp and ${VOICE_UDP_PORT}/udp to everyone, straight to this machine."
 fi
 if [ "$FIRST_SERVER" = 1 ]; then
   link="$(journalctl -u zuna --no-pager -n 50 | grep -o "https://[^ ]*/invite/[^ ]*" | tail -n1 || true)"
@@ -677,3 +740,5 @@ if [ "$FIRST_SERVER" = 1 ]; then
     echo "Find your setup link with: journalctl -u zuna | grep invite"
   fi
 fi
+echo
+echo "Update later with: sudo zuna-update"
