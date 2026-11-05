@@ -150,7 +150,8 @@ async function interactions(browser) {
   const steps = await page.locator("#host .steps").evaluateAll((lists) => lists.filter((list) => getComputedStyle(list).visibility === "visible").map((list) => list.textContent));
   check("and its guide is the script's", (await page.locator("#host .host-guide").getAttribute("href")).endsWith("docs/LINUX.md"));
   check("and the steps follow it", steps.length === 1 && steps[0].includes("run the script"), steps.join(" | "));
-  check("switching how to host doesn't move the page", (await place()) === placed);
+  const moved = await place();
+  check("switching how to host doesn't move the page", moved === placed, `${placed} to ${moved}`);
   await page.keyboard.press("ArrowLeft");
   const docker = await shownPanels();
   check("the arrow keys go back to Docker", docker.length === 1 && docker[0].includes("docker compose up"), docker.join(" | "));
