@@ -409,12 +409,17 @@ impl VideoPlayer {
                 player::play(&self.key, clip, from);
             }
         }
-        self._tick = Some(cx.spawn(async move |player, cx| loop {
-            cx.background_executor().timer(Duration::from_millis(15)).await;
-            if player.update(cx, |player, cx| player.tick(cx)).unwrap_or(false) {
-                continue;
+        // Wakes when the next frame is due rather than every few milliseconds, and draws only
+        // when the picture changed, as each draw redraws what's around it too.
+        self._tick = Some(cx.spawn(async move |player, cx| {
+            let mut wait = Duration::from_millis(5);
+            loop {
+                cx.background_executor().timer(wait).await;
+                match player.update(cx, |player, cx| player.tick(cx)) {
+                    Ok(Some(next)) => wait = next,
+                    _ => break,
+                }
             }
-            break;
         }));
     }
 
@@ -427,10 +432,10 @@ impl VideoPlayer {
         self.from + self.origin.elapsed().as_secs_f64()
     }
 
-    /// Shows the frame that's due; false once it stopped.
-    fn tick(&mut self, cx: &mut Context<Self>) -> bool {
+    /// Shows the frame that's due, and says how long until the next one, or nothing once it stopped.
+    fn tick(&mut self, cx: &mut Context<Self>) -> Option<Duration> {
         if !self.playing {
-            return false;
+            return None;
         }
         if self.drawn.elapsed() > Duration::from_millis(500) {
             // Its chat was left. Frames retired since it was last drawn were never painted, so
@@ -446,11 +451,13 @@ impl VideoPlayer {
                 }
             }
             self.offscreen = true;
-            return false;
+            return None;
         }
         let clock = self.clock();
+        let shown_second = self.position.floor();
         self.position = clock;
         let mut ended = false;
+        let mut changed = false;
         loop {
             if self.next.is_none() {
                 match self.frames.as_ref().map(|frames| frames.try_recv()) {
@@ -468,6 +475,7 @@ impl VideoPlayer {
                     if let Some(old) = self.frame.replace(image) {
                         self.retired.push(old);
                     }
+                    changed = true;
                 }
                 _ => break,
             }
@@ -476,20 +484,34 @@ impl VideoPlayer {
             if self.round && !self.heard {
                 // Over and over, without sound.
                 self.start(0., cx);
-                return false;
+                return None;
             }
             if self.round {
                 // Heard to the end, it goes back to playing by itself without sound.
                 self.heard = false;
                 player::stop(&self.key);
                 self.start(0., cx);
-                return false;
+                return None;
             }
             self.playing = false;
             player::stop(&self.key);
+            cx.notify();
+            return None;
         }
-        cx.notify();
-        self.playing
+        // The time shown moves each second, even while the decoder catches up.
+        if changed || clock.floor() != shown_second {
+            cx.notify();
+        }
+        // Back when the next frame is due, or soon while it's still being decoded.
+        let wait = match &self.next {
+            Some((at, _)) => Duration::from_secs_f64((at - clock).clamp(0.001, 0.1)),
+            None => Duration::from_millis(4),
+        };
+        // Drawn now and then while nothing changes, so it learns when it's no longer shown.
+        if !changed && self.drawn.elapsed() > Duration::from_millis(250) {
+            cx.notify();
+        }
+        Some(wait)
     }
 
     /// From the start with its sound, or back to playing by itself without.
