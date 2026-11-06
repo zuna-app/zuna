@@ -1,12 +1,13 @@
-//! The sound devices, through cpal (WASAPI): everyone's voices and the app's own sounds
-//! mixed onto one output, and the microphone read at 48 kHz, as a browser's AudioContext
-//! does for the desktop.
+//! The sound devices, through cpal (WASAPI) on Windows and PipeWire on Linux
+//! (`voice/pipewire.rs`): everyone's voices and the app's own sounds mixed onto one output,
+//! and the microphone read at 48 kHz, as a browser's AudioContext does for the desktop.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
+#[cfg(windows)]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use parking_lot::Mutex;
 
@@ -15,13 +16,14 @@ pub const RATE: u32 = 48_000;
 /// 10 ms, which WebRTC's processing and RNNoise each take at a time.
 pub const FRAME: usize = 480;
 
-/// A device the person can choose, by the name Windows gives it.
+/// A device the person can choose, by the name the system gives it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Device {
     pub id: String,
     pub name: String,
 }
 
+#[cfg(windows)]
 fn find(input: bool, id: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
     if id != "default" {
@@ -34,6 +36,13 @@ fn find(input: bool, id: &str) -> Option<cpal::Device> {
 }
 
 /// The microphones or the speakers, with the default first.
+#[cfg(target_os = "linux")]
+pub fn devices(input: bool) -> Vec<Device> {
+    super::pipewire::devices(input)
+}
+
+/// The microphones or the speakers, with the default first.
+#[cfg(windows)]
 pub fn devices(input: bool) -> Vec<Device> {
     let host = cpal::default_host();
     let mut list = vec![Device { id: "default".into(), name: "Default".into() }];
@@ -196,20 +205,16 @@ fn mix(state: &Mutex<MixerState>, frames: usize, out: &mut Vec<f32>) {
     state.sources.retain(|_, source| !(source.once && source.buffer.is_empty()));
 }
 
-fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedProcessing, failed: Arc<AtomicBool>) -> Option<cpal::Stream> {
-    let device = find(false, device)?;
-    let config = device.default_output_config().ok()?;
-    let rate = config.sample_rate().0;
-    let channels = config.channels() as usize;
-    let format = config.sample_format();
-    let config: cpal::StreamConfig = config.into();
+/// What the output plays, at a device's rate and on its channels: `fill` is given a place to
+/// put each sample and how many frames it wants.
+fn output_filler(rate: u32, channels: usize, state: Arc<Mutex<MixerState>>, processing: SharedProcessing) -> impl FnMut(&mut dyn FnMut(usize, f32), usize) + Send + 'static {
     // What's been mixed at 48 kHz and not yet played, and how far into it the device is.
     let mut pending: VecDeque<f32> = VecDeque::new();
     let mut position = 0f64;
     let step = RATE as f64 / rate as f64;
     let mut mixed = Vec::new();
     let mut reverse: Vec<i16> = Vec::new();
-    let mut fill = move |data: &mut dyn FnMut(usize, f32), frames: usize| {
+    move |data: &mut dyn FnMut(usize, f32), frames: usize| {
         // Enough 48 kHz frames to cover this many at the device's rate, and one beyond for interpolating.
         let needed = ((position + frames as f64 * step).ceil() as usize + 2).saturating_sub(pending.len() / 2);
         if needed > 0 {
@@ -243,7 +248,25 @@ fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedPr
         let drop = (used * 2).min(pending.len());
         pending.drain(..drop);
         position -= used as f64;
-    };
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedProcessing, failed: Arc<AtomicBool>) -> Option<super::pipewire::Stream> {
+    // PipeWire takes 48 kHz stereo and converts it for the device.
+    let mut fill = output_filler(RATE, 2, state, processing);
+    super::pipewire::play(device, super::pipewire::Playing::Voice, move |data, frames| fill(&mut |index, value| data[index] = value, frames), failed)
+}
+
+#[cfg(windows)]
+fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedProcessing, failed: Arc<AtomicBool>) -> Option<cpal::Stream> {
+    let device = find(false, device)?;
+    let config = device.default_output_config().ok()?;
+    let rate = config.sample_rate().0;
+    let channels = config.channels() as usize;
+    let format = config.sample_format();
+    let config: cpal::StreamConfig = config.into();
+    let mut fill = output_filler(rate, channels, state, processing);
     let error = move |_| failed.store(true, Ordering::Relaxed);
     let stream = match format {
         cpal::SampleFormat::F32 => device.build_output_stream(&config, move |data: &mut [f32], _| {
@@ -303,19 +326,14 @@ impl Input {
     }
 }
 
-fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> Result<cpal::Stream, String> {
-    let none = || "There's no microphone Zuna can use.".to_string();
-    let device = find(true, device).ok_or_else(none)?;
-    let config = device.default_input_config().map_err(|_| none())?;
-    let rate = config.sample_rate().0;
-    let channels = config.channels() as usize;
-    let format = config.sample_format();
-    let config: cpal::StreamConfig = config.into();
+/// What reads the microphone, at a device's rate and on its channels, into 10 ms frames of
+/// 48 kHz mono: `take` is given a way to read each sample and how many there are.
+fn input_taker(rate: u32, channels: usize, frames: Sender<Vec<f32>>) -> impl FnMut(&mut dyn FnMut(usize) -> f32, usize) + Send + 'static {
     let step = rate as f64 / RATE as f64;
     let mut source: Vec<f32> = Vec::new();
     let mut position = 0f64;
     let mut frame: Vec<f32> = Vec::with_capacity(FRAME);
-    let mut take = move |read: &mut dyn FnMut(usize) -> f32, count: usize| {
+    move |read: &mut dyn FnMut(usize) -> f32, count: usize| {
         for index in 0..count / channels {
             let mut sum = 0.;
             for channel in 0..channels {
@@ -336,7 +354,29 @@ fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> 
         let used = (position as usize).min(source.len());
         source.drain(..used);
         position -= used as f64;
-    };
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> Result<super::pipewire::Stream, String> {
+    // PipeWire hands over 48 kHz mono, converted from the device.
+    let mut take = input_taker(RATE, 1, frames);
+    super::pipewire::record(device, move |samples| take(&mut |index| samples[index], samples.len()), lost).map_err(|error| {
+        log::warn!("the microphone: {error}");
+        "There's no microphone Zuna can use.".to_string()
+    })
+}
+
+#[cfg(windows)]
+fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> Result<cpal::Stream, String> {
+    let none = || "There's no microphone Zuna can use.".to_string();
+    let device = find(true, device).ok_or_else(none)?;
+    let config = device.default_input_config().map_err(|_| none())?;
+    let rate = config.sample_rate().0;
+    let channels = config.channels() as usize;
+    let format = config.sample_format();
+    let config: cpal::StreamConfig = config.into();
+    let mut take = input_taker(rate, channels, frames);
     let error = move |_| lost.store(true, Ordering::Relaxed);
     let stream = match format {
         cpal::SampleFormat::F32 => device.build_input_stream(&config, move |data: &[f32], _| take(&mut |index| data[index], data.len()), error, None),

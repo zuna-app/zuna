@@ -52,9 +52,9 @@ open = "5"
 raw-window-handle = "0.6"
 
 # Voice channels and calls: LiveKit, as the native screen share uses it, whose frame
-# encryption opens the desktop's; the sound devices; and RNNoise for the microphone.
+# encryption opens the desktop's, and RNNoise for the microphone. The sound devices are
+# below, by system.
 livekit = { version = "=0.10.0", features = ["rustls-tls-native-roots"] }
-cpal = "0.16"
 nnnoiseless = { version = "0.5", default-features = false }
 
 # What the app asks of Linux: D-Bus for notifications and the badge, the Secret Service for the
@@ -66,11 +66,17 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 oo7 = { version = "0.5", default-features = false, features = ["async-std", "native_crypto"] }
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
 ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
+# The sound devices, the notification sound's too: listed by the names PipeWire gives them, and
+# played and recorded through it, as ALSA's own list holds hardware that playing takes away
+# from PipeWire.
+pipewire = "0.10"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
+# The sound devices, through WASAPI.
+cpal = "0.16"
 # What windows's macro for declaring a COM interface expands to.
 windows-core = "0.61"
 

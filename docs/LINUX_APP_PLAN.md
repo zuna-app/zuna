@@ -1,6 +1,6 @@
 # The native app on Linux: plan
 
-Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session (2026-11-06).
+Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 under way: sound through PipeWire and a voice channel with the Electron app checked (2026-11-06).
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
 
@@ -223,7 +223,7 @@ Everything is checked on this machine: KDE Plasma 6.8 under Wayland, with an RTX
 
 ### A KWin of its own
 
-`apps/desktop/test/linux-check.mjs` runs the app where it can't touch the person's own desktop, and runs every check that needs no person:
+`apps/desktop/test/linux-check.mjs` runs the app where it can't touch the person's own desktop, and runs every check that needs no person. `linux-voice-check.mjs` does the same for voice, and both start their session from `linux-session.mjs`:
 
 - **Its own session bus,** from `dbus-run-session`, so that nothing it registers or listens to reaches the person's own.
 - **Its own KWin,** `kwin_wayland --virtual --socket zuna-test --width 1280 --height 832`, the Windows app's own size, at a scale of 1, then 2. The app is started in it with `WAYLAND_DISPLAY=zuna-test` and a throwaway `ZUNA_DATA_DIR`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME`.

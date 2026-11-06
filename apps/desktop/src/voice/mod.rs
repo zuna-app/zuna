@@ -5,6 +5,8 @@
 
 pub mod audio;
 pub mod mic;
+#[cfg(target_os = "linux")]
+pub mod pipewire;
 pub mod room;
 pub mod rules;
 pub mod screen;

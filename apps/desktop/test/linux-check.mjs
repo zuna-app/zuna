@@ -6,149 +6,19 @@
 //
 //   node apps/desktop/test/linux-check.mjs [screenshot-dir]
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { fileURLToPath } from "node:url";
+import { appBinary, here, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const crate = join(here, "..");
-const root = join(crate, "..", "..");
-// The inside's XDG_CACHE_HOME is the check's own, so it's told where the builds are.
-const target = process.env.ZUNA_CHECK_TARGET || join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "zuna-desktop-target");
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Outside: build everything, then run the checks again inside a session bus of their own.
-if (process.env.ZUNA_LINUX_CHECK_INNER !== "1") {
-  if (process.platform !== "linux") {
-    console.log("This checks the native app on Linux.");
-    process.exit(0);
-  }
-  execFileSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", cwd: root });
-  execFileSync("cargo", ["build"], { stdio: "inherit", cwd: crate, env: { ...process.env, CARGO_TARGET_DIR: target } });
-  execFileSync("cargo", ["build"], { stdio: "inherit", cwd: join(here, "driver"), env: { ...process.env, CARGO_TARGET_DIR: target } });
-  const server = join(tmpdir(), "zuna-linux-check-server");
-  execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", server, "./cmd/zuna-server"], { stdio: "inherit", cwd: join(root, "server") });
-  // Each run is marked, as what the session bus starts for the portals outlives it.
-  const run = `${process.pid}-${Date.now()}`;
-  // Folders of its own, given to the session bus itself, so that everything it starts, the
-  // portals, a keyring, KWallet, touches nothing of the person's: a service the bus starts
-  // has the bus's environment, not the caller's.
-  const work = mkdtempSync(join(tmpdir(), "zuna-linux-check-"));
-  const xdg = Object.fromEntries(["config", "data", "cache", "state"].map((name) => [`XDG_${name.toUpperCase()}_HOME`, join(work, name)]));
-  for (const dir of Object.values(xdg)) mkdirSync(dir, { recursive: true });
-  const env = { ...process.env, ...xdg, MANGOHUD: "0", DISABLE_MANGOHUD: "1", XDG_CURRENT_DESKTOP: "KDE", WAYLAND_DISPLAY: `zuna-check-${run}` };
-  delete env.DISPLAY;
-  const inner = spawnSync("dbus-run-session", ["--", process.execPath, fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
-    stdio: "inherit",
-    env: { ...env, ZUNA_LINUX_CHECK_INNER: "1", ZUNA_LINUX_CHECK_RUN: run, ZUNA_LINUX_CHECK_WORK: work, ZUNA_CHECK_SERVER_BINARY: server, ZUNA_CHECK_TARGET: target },
-  });
-  for (const pid of readdirSync("/proc").filter((name) => /^\d+$/.test(name))) {
-    try {
-      if (readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").includes(`ZUNA_LINUX_CHECK_RUN=${run}`)) process.kill(Number(pid));
-    } catch {}
-  }
-  rmSync(work, { recursive: true, force: true });
-  process.exit(inner.status ?? 1);
-}
-
-const appBinary = join(target, "debug", "zuna");
-const driverBinary = join(target, "debug", "zuna-test-driver");
-const shots = process.argv[2] ?? mkdtempSync(join(tmpdir(), "zuna-linux-shots-"));
-mkdirSync(shots, { recursive: true });
-const work = process.env.ZUNA_LINUX_CHECK_WORK;
-const socket = process.env.WAYLAND_DISPLAY;
-
-// The folders the outside gave the session bus, KWin and everything else.
-const xdg = Object.fromEntries(["config", "data", "cache", "state"].map((name) => [`XDG_${name.toUpperCase()}_HOME`, join(work, name)]));
-const applications = join(xdg.XDG_DATA_HOME, "applications");
-mkdirSync(applications, { recursive: true });
-writeFileSync(
-  join(applications, "zuna-test-driver.desktop"),
-  `[Desktop Entry]\nType=Application\nName=Zuna test driver\nExec=${driverBinary}\nNoDisplay=true\nX-KDE-Wayland-Interfaces=org_kde_kwin_fake_input,org_kde_plasma_window_management\n`,
-);
-writeFileSync(join(applications, "zuna-native.desktop"), `[Desktop Entry]\nType=Application\nName=Zuna Native\nExec=${appBinary} %u\nIcon=zuna\nMimeType=x-scheme-handler/zuna;\n`);
-// Animations off, as the desktop's setting, which KWin's own animations heed too.
-writeFileSync(join(xdg.XDG_CONFIG_HOME, "kdeglobals"), "[KDE]\nAnimationDurationFactor=0\n");
-// The GPU overlays some systems put over every Vulkan program would be in each screenshot.
-const quiet = { MANGOHUD: "0", DISABLE_MANGOHUD: "1" };
-const base = { ...process.env, ...xdg, ...quiet };
-delete base.WAYLAND_DISPLAY;
-execFileSync("kbuildsycoca6", [], { env: base, stdio: "ignore" });
-
-const failures = [];
-function check(name, passed, detail = "") {
-  console.log(`${passed ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
-  if (!passed) failures.push(name);
-}
-
-const children = [];
-function start(command, args, env, name, cwd) {
-  const child = spawn(command, args, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
-  child.output = "";
-  child.stdout.on("data", (chunk) => (child.output += chunk));
-  child.stderr.on("data", (chunk) => (child.output += chunk));
-  child.label = name;
-  children.push(child);
-  return child;
-}
-
-async function until(condition, what, timeoutMs = 20_000) {
-  const end = Date.now() + timeoutMs;
-  for (;;) {
-    const value = await condition();
-    if (value) return value;
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
-    await sleep(100);
-  }
-}
-
-const kwin = start("kwin_wayland", ["--virtual", "--socket", socket, "--width", "1400", "--height", "900", "--no-lockscreen", "--no-global-shortcuts"], base, "kwin");
-await until(() => existsSync(join(process.env.XDG_RUNTIME_DIR, socket)), "KWin's socket");
-const session = { ...base, WAYLAND_DISPLAY: socket };
-
-/** A screenshot of the whole KWin, taken by Spectacle inside it. */
-async function shot(name) {
-  const file = join(shots, `${name}.png`);
-  spawnSync("spectacle", ["-b", "-n", "-f", "-o", file], { env: session, stdio: "ignore", timeout: 15_000 });
-  return file;
-}
-
-function clipboard() {
-  const read = spawnSync("wl-paste", ["-n"], { env: session, encoding: "utf8", timeout: 3_000 });
-  return read.status === 0 ? read.stdout : "";
-}
-
-/** Main-thread wakeups a second, and the share of a core, over a while with nothing happening. */
-async function idleCost(pid, seconds) {
-  const ticks = () => readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1].split(" ").slice(11, 13).reduce((sum, value) => sum + Number(value), 0);
-  const switches = () =>
-    readFileSync(`/proc/${pid}/task/${pid}/status`, "utf8")
-      .split("\n")
-      .filter((line) => line.includes("ctxt_switches"))
-      .reduce((sum, line) => sum + Number(line.split(/\s+/)[1]), 0);
-  const [t0, s0] = [ticks(), switches()];
-  await sleep(seconds * 1000);
-  const hz = Number(execFileSync("getconf", ["CLK_TCK"], { encoding: "utf8" }).trim());
-  return { wakeups: Math.round((switches() - s0) / seconds), cpu: ((ticks() - t0) / hz / seconds) * 100 };
-}
+outside(import.meta.url);
+const { work, base, session, check, start, shot, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, finish } = await inside({ shots: process.argv[2] });
 
 let peer;
 try {
-  // The server, and its setup link for the owner's account.
-  const serverData = join(work, "server");
-  const port = 21000 + Math.floor(Math.random() * 20000);
-  const url = `http://127.0.0.1:${port}`;
-  const server = start(process.env.ZUNA_CHECK_SERVER_BINARY, ["--listen", `127.0.0.1:${port}`, "--data", serverData, "--public-url", url, "--auth-burst", "1000"], base, "server");
-  const setupLink = await until(() => server.output.match(/http:\/\/\S+\/invite\/\S+/)?.[0], "the server's setup link");
-
-  // The Secret Service, unlocked with a throwaway password, as a desktop's keyring is at login.
-  const keyring = start("gnome-keyring-daemon", ["--foreground", "--unlock", "--components=secrets"], session, "keyring");
-  keyring.stdin.end(`linux-check-${process.pid}-keyring`);
-  const owned = (name) => spawnSync("gdbus", ["call", "--session", "--dest", "org.freedesktop.DBus", "--object-path", "/org/freedesktop/DBus", "--method", "org.freedesktop.DBus.NameHasOwner", name], { env: session, encoding: "utf8" }).stdout.includes("true");
-  check("the check's own keyring holds the Secret Service's name", !!(await until(() => owned("org.freedesktop.secrets"), "the keyring", 10_000).catch(() => false)));
+  const { port, setupLink } = await startServer();
+  check("the check's own keyring holds the Secret Service's name", await startKeyring());
 
   // Without Wayland it says so and leaves, rather than running with no window.
   const noWayland = spawnSync(appBinary, [], { env: { ...base, ZUNA_DATA_DIR: join(work, "no-wayland") }, encoding: "utf8", timeout: 20_000 });
@@ -159,31 +29,12 @@ try {
   const coreCheck = spawnSync(appBinary, ["--core-check", "listServers"], { env: { ...base, ZUNA_DATA_DIR: coreData }, encoding: "utf8", timeout: 60_000 });
   check("--core-check runs the core without a window", coreCheck.status === 0 && coreCheck.stdout.trim() === "[]", coreCheck.stdout.trim() || coreCheck.stderr.trim().split("\n").pop());
 
-  // The driver first, as its stand-ins for the desktop's services have to be there before the app looks.
-  const driver = start(driverBinary, [], session, "driver");
-  const answers = createInterface({ input: driver.stdout });
-  const waiting = [];
-  const events = [];
-  answers.on("line", (line) => {
-    const said = JSON.parse(line);
-    if (said.event) events.push(said.event);
-    else waiting.shift()?.(said);
-  });
-  await until(() => driver.output.includes('"ready"'), "the driver");
+  const { drive, windowOf, events, heardEvent } = await startDriver();
   const appData = join(work, "app");
   // A 12-hour clock, from the locale as a desktop sets it.
-  const app = start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, LC_TIME: "en_US.UTF-8", RUST_LOG: "warn,zuna::platform=info" }, "app");
-  const heardEvent = (match, timeoutMs = 10_000, after = 0) => until(() => events.slice(after).find(match), "an event", timeoutMs).catch(() => null);
-  // Input is followed by a moment for the app to draw what it changed, as a person would wait.
-  const drive = async (command) => {
-    const answer = await new Promise((resolve) => {
-      waiting.push(resolve);
-      driver.stdin.write(`${JSON.stringify(command)}\n`);
-    });
-    if (["click", "key", "press", "type", "drag"].includes(command.do)) await sleep(250);
-    return answer;
-  };
-  const windowOf = async () => (await drive({ do: "windows" })).windows?.find((window) => window.appId === "zuna-native");
+  // Its sounds go to speakers nobody hears, through PipeWire's own override for a stream's target.
+  const speakers = quietSpeakers("speakers");
+  const app = start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, LC_TIME: "en_US.UTF-8", RUST_LOG: "warn,zuna::platform=info", PIPEWIRE_NODE: speakers }, "app");
 
   // --- The window ---
   const first = await until(windowOf, "the app's window", 30_000);
@@ -305,7 +156,7 @@ try {
   await shot("08-invite-made");
   // Its ×, as Escape only reaches a dialog through a field in it.
   await drive({ do: "click", x: 889, y: 281 });
-  peer = start("npx", ["vite-node", join(here, "peer.ts"), invite ?? ""], { ...process.env, ...quiet }, "peer", join(root, "packages", "core"));
+  peer = start("npx", ["vite-node", join(here, "peer.ts"), invite ?? ""], { ...process.env, MANGOHUD: "0", DISABLE_MANGOHUD: "1" }, "peer", join(root, "packages", "core"));
   peer.stdout.removeAllListeners("data");
   const heard = [];
   createInterface({ input: peer.stdout }).on("line", (line) => {
@@ -350,11 +201,15 @@ try {
   await sleep(800);
   let since = events.length;
   const unsafe = "<b>Bold</b> & <a href='https://example.com'>a link</a>";
+  const sound = loudestOn(speakers, 8);
+  await sleep(500);
   peer.stdin.write(`${JSON.stringify({ send: unsafe })}\n`);
   const notified = (await heardEvent((event) => event.notified, 15_000, since))?.notified;
   check("a message in another chat shows a system notification, named and pictured", notified?.summary === "Casey Park" && notified?.image && notified?.desktopEntry === "zuna-native" && notified?.actions?.includes("default"), JSON.stringify(notified));
   check("its text goes as text, not markup", notified?.body === "&lt;b&gt;Bold&lt;/b&gt; &amp; &lt;a href='https://example.com'&gt;a link&lt;/a&gt;", notified?.body);
   check("the server adds no sound, as the app plays its own", notified?.suppressSound === true);
+  const chime = await sound;
+  check("and the app's own plays, through PipeWire", chime > 0.02, `peak ${chime.toFixed(3)}`);
   const badge = await heardEvent((event) => event.badge?.count === 1, 10_000, since);
   check("the badge shows one unread", !!badge && badge.badge.visible === true && badge.badge.app === "application://zuna-native.desktop", JSON.stringify(badge));
   const tooltip = await drive({ do: "tray" });
@@ -407,19 +262,7 @@ try {
   check("Quit in the tray's menu quits", !!(await until(() => app.exitCode !== null, "the app to quit", 10_000).catch(() => null)));
   const again = spawnSync(appBinary, ["--core-check", "listServers"], { env: { ...session, ZUNA_DATA_DIR: appData }, encoding: "utf8", timeout: 60_000 });
   check("starting again reads the device key back from the Secret Service", again.status === 0 && again.stdout.includes("Linux Lab"), again.stderr.trim().split("\n").pop());
+  await finish();
 } catch (error) {
-  failures.push(String(error));
-  console.error(error);
-  for (const child of children) if (child.label !== "kwin") console.error(`--- ${child.label} ---\n${child.output.split("\n").slice(-15).join("\n")}`);
-} finally {
-  for (const child of children.reverse()) child.kill();
-  await sleep(500);
-  rmSync(work, { recursive: true, force: true });
+  await finish(error);
 }
-
-console.log(`\nScreenshots in ${shots}`);
-if (failures.length) {
-  console.log(`${failures.length} failed: ${failures.join("; ")}`);
-  process.exit(1);
-}
-console.log("All passed.");
