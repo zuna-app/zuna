@@ -70,8 +70,10 @@ struct Source {
     /// Interleaved stereo at 48 kHz.
     buffer: VecDeque<f32>,
     volume: f32,
-    /// Live sound keeps no more than this many samples behind, so a slow device doesn't drift.
+    /// Live sound plays `LIVE_DELAY` behind what's arrived, and keeps to it.
     live: bool,
+    /// Live sound that hasn't got `LIVE_DELAY` in hand yet, as it starts or after it ran out.
+    waiting: bool,
     /// Gone once it's played out.
     once: bool,
 }
@@ -90,7 +92,12 @@ pub struct Mixer {
     output: Arc<Mutex<Option<OutputThread>>>,
 }
 
-/// Live sound that falls further behind than this drops what's oldest: 200 ms, stereo.
+/// How far behind what's arrived live sound plays, in frames: 40 ms. LiveKit hands each 10 ms
+/// of a voice over on a timer of its own, sometimes late, and the device takes it on its own
+/// clock, so playing what's just arrived goes quiet whenever a piece is late.
+const LIVE_DELAY: usize = RATE as usize / 25;
+/// Live sound that falls further behind than this drops what's oldest: 200 ms, stereo. That's
+/// only while nothing plays it, as playing keeps it near `LIVE_DELAY`.
 const LIVE_LIMIT: usize = (RATE as usize / 5) * 2;
 
 impl Mixer {
@@ -111,14 +118,14 @@ impl Mixer {
     /// A place to send live sound, such as a person's voice.
     pub fn live(&self, volume: f32) -> u64 {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.state.lock().sources.insert(id, Source { buffer: VecDeque::new(), volume, live: true, once: false });
+        self.state.lock().sources.insert(id, Source { buffer: VecDeque::new(), volume, live: true, waiting: true, once: false });
         id
     }
 
     /// Plays a sound once, interleaved stereo at 48 kHz.
     pub fn once(&self, samples: Vec<f32>, volume: f32) {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        self.state.lock().sources.insert(id, Source { buffer: samples.into(), volume, live: false, once: true });
+        self.state.lock().sources.insert(id, Source { buffer: samples.into(), volume, live: false, waiting: false, once: true });
     }
 
     /// More of a live sound, mono or stereo at 48 kHz.
@@ -135,8 +142,8 @@ impl Mixer {
             }
         }
         if source.live && source.buffer.len() > LIVE_LIMIT {
-            let extra = source.buffer.len() - LIVE_LIMIT / 2;
-            source.buffer.drain(..extra & !1);
+            let extra = source.buffer.len() - LIVE_DELAY * 2;
+            source.buffer.drain(..extra);
         }
     }
 
@@ -197,6 +204,24 @@ fn mix(state: &Mutex<MixerState>, frames: usize, out: &mut Vec<f32>) {
     out.resize(frames * 2, 0.);
     let mut state = state.lock();
     for source in state.sources.values_mut() {
+        if source.live {
+            let held = source.buffer.len() / 2;
+            if source.waiting && held < LIVE_DELAY {
+                continue;
+            }
+            source.waiting = false;
+            // LiveKit's timer and the device's clock drift apart, which a frame dropped or played
+            // twice now and then makes up for, so that the delay neither grows nor runs out.
+            if held > LIVE_DELAY * 3 / 2 {
+                source.buffer.drain(..2);
+            } else if held < LIVE_DELAY * 3 / 4 && held > 0 {
+                let (left, right) = (source.buffer[0], source.buffer[1]);
+                source.buffer.push_front(right);
+                source.buffer.push_front(left);
+            }
+            // Run out, it waits for the whole delay again, rather than stutter on what trickles in.
+            source.waiting = source.buffer.len() < frames * 2;
+        }
         let available = source.buffer.len().min(frames * 2);
         for (index, sample) in source.buffer.drain(..available).enumerate() {
             out[index] += sample * source.volume;
@@ -390,4 +415,58 @@ fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> 
     })?;
     stream.play().map_err(|_| none())?;
     Ok(stream)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// How often a steady voice goes quiet over ten minutes, handed over 10 ms at a time on
+    /// LiveKit's own timer, usually up to 2 ms late and now and then up to `late` seconds, and
+    /// played 256 frames at a time by a device whose clock runs `fast` parts per million ahead.
+    /// Also, how far behind the voice is by the end, in frames.
+    fn gaps(late: f64, fast: f64) -> (usize, usize) {
+        let mixer = Mixer::new(Arc::default());
+        let id = mixer.live(1.);
+        let mut fill = output_filler(RATE, 2, mixer.state.clone(), mixer.processing.clone());
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut random = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let period = 256. / RATE as f64 / (1. + fast / 1e6);
+        let voice = [8192i16; FRAME];
+        let mut out = vec![0f32; 512];
+        let (mut tick, mut next) = (0u64, 0f64);
+        let (mut sounding, mut gaps) = (false, 0);
+        for callback in 0..(600. / period) as u64 {
+            while next <= callback as f64 * period {
+                mixer.push(id, &voice, 1);
+                tick += 1;
+                let lateness = if random() < 0.02 { random() * late } else { random() * 0.002 };
+                // LiveKit's timer keeps to its schedule, so a late frame doesn't hold up later ones.
+                next = next.max(tick as f64 * 0.010 + lateness);
+            }
+            fill(&mut |index, value| out[index] = value, 256);
+            for frame in out.chunks(2) {
+                if sounding && frame[0] == 0. {
+                    gaps += 1;
+                }
+                sounding = frame[0] != 0.;
+            }
+        }
+        let behind = mixer.state.lock().sources[&id].buffer.len() / 2;
+        (gaps, behind)
+    }
+
+    #[test]
+    fn plays_voices_through_late_frames_and_a_drifting_clock() {
+        for fast in [100., 0., -100.] {
+            let (gaps, behind) = gaps(0.015, fast);
+            assert_eq!(gaps, 0, "a device {fast} ppm fast");
+            assert!(behind < RATE as usize / 10, "a device {fast} ppm fast ends {behind} frames behind");
+        }
+    }
 }
