@@ -955,19 +955,36 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
     chip.into_any_element()
 }
 
-/// A photo's corners, as the bubble's around it: GPUI clips to rectangles, so the picture
-/// is rounded itself, at the bubble's outer corners only.
-fn rounded_image(image: gpui::Img, single: bool, only_images: bool, own: bool, grouped_top: bool, after_header: bool) -> gpui::Img {
-    if !single {
-        return image;
+/// The corners of the pictures above a message, as `.media-grid`'s `border-radius: inherit`
+/// takes the bubble's, or a channel's 8 px. GPUI clips to rectangles, so the pictures at the
+/// grid's corners are rounded themselves.
+fn media_corners(is_channel: bool, only_images: bool, own: bool, grouped_top: bool, after_header: bool) -> gpui::Corners<Pixels> {
+    if is_channel {
+        return gpui::Corners::all(px(8.));
     }
     let big = px(15.);
     let small = px(5.);
     let top_inner = if grouped_top { small } else { big };
-    let (tl, tr) = if after_header { (px(0.), px(0.)) } else if own { (big, top_inner) } else { (top_inner, big) };
-    let (bl, br) = if only_images { if own { (big, small) } else { (small, big) } } else { (px(0.), px(0.)) };
-    image.rounded_tl(tl).rounded_tr(tr).rounded_bl(bl).rounded_br(br)
+    let (top_left, top_right) = if after_header { (px(0.), px(0.)) } else if own { (big, top_inner) } else { (top_inner, big) };
+    let (bottom_left, bottom_right) = if only_images { if own { (big, small) } else { (small, big) } } else { (px(0.), px(0.)) };
+    gpui::Corners { top_left, top_right, bottom_right, bottom_left }
 }
+
+/// Which of the grid's corners the picture at `index` of `count`, two to a row, is at.
+fn tile_corners(grid: gpui::Corners<Pixels>, index: usize, count: usize) -> gpui::Corners<Pixels> {
+    if count == 1 {
+        return grid;
+    }
+    let (row, column, last_row) = (index / 2, index % 2, (count - 1) / 2);
+    let zero = px(0.);
+    gpui::Corners {
+        top_left: if row == 0 && column == 0 { grid.top_left } else { zero },
+        top_right: if row == 0 && column == 1 { grid.top_right } else { zero },
+        bottom_right: if row == last_row && column == 1 { grid.bottom_right } else { zero },
+        bottom_left: if row == last_row && column == 0 { grid.bottom_left } else { zero },
+    }
+}
+
 
 pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, after_header: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let mut column = div().flex().flex_col();
@@ -985,7 +1002,11 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                 grid = if after_header { grid.rounded_b(px(15.)) } else { grid.rounded(px(15.)) };
             }
         }
-        for attachment in images {
+        let corners = media_corners(context.is_channel, only_images, own, grouped_top, after_header);
+        for (index, attachment) in images.iter().enumerate() {
+            let corners = tile_corners(corners, index, images.len());
+            // A lone picture's box is its own shape; the others are squares.
+            let shape = if single { (attachment.width.unwrap_or(320.) / attachment.height.unwrap_or(240.)) as f32 } else { 1. };
             let width = attachment.width.unwrap_or(320.);
             let height = attachment.height.unwrap_or(240.);
             let (w, h) = if single {
@@ -997,12 +1018,15 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
             };
             let image = context.images.get(&attachment.file_id).cloned();
             let thumb = attachment.thumb.as_ref().and_then(|thumb| data_url_image(thumb));
-            let mut tile = div()
-                .id(SharedString::from(format!("tile-{}-{}", message.id, attachment.file_id)))
-                .relative()
-                .w(px(w as f32))
-                .when(image.is_none(), |el| el.bg(theme.bg3))
-                .overflow_hidden();
+            let mut tile = round_corners(
+                div()
+                    .id(SharedString::from(format!("tile-{}-{}", message.id, attachment.file_id)))
+                    .relative()
+                    .w(px(w as f32))
+                    .when(image.is_none(), |el| el.bg(theme.bg3))
+                    .overflow_hidden(),
+                corners,
+            );
             if single {
                 // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
                 // bubble's width, as wide as text or a link preview made it, keeping its shape.
@@ -1017,10 +1041,10 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                 tile = tile
                     .cursor_pointer()
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)))
-                    .child(rounded_image(img(image).size_full().object_fit(gpui::ObjectFit::Cover), single, only_images, own, grouped_top, after_header));
+                    .child(round_corners(if single { img(image).object_fit(gpui::ObjectFit::Cover) } else { cover(image, shape, 418, cx) }.size_full(), corners));
             } else {
                 if let Some(thumb) = thumb {
-                    tile = tile.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover).opacity(0.85));
+                    tile = tile.child(round_corners(cover(thumb, shape, 200, cx).size_full().opacity(0.85), corners));
                 }
                 if attachment.file_id.is_empty() {
                     tile = tile.child(div().absolute().inset_0().flex().items_center().justify_center().child(spinner(18., gpui::white())));
@@ -1176,7 +1200,7 @@ pub fn data_url_image(data: &str) -> Option<Arc<Image>> {
     Some(Arc::new(Image::from_bytes(crate::state::image_format(mime, &bytes), bytes)))
 }
 
-fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, _cx: &mut App) -> AnyElement {
+fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, cx: &mut App) -> AnyElement {
     let host = url::Url::parse(&preview.url).ok().and_then(|url| url.host_str().map(|host| host.trim_start_matches("www.").to_string())).unwrap_or_default();
     let site = match &preview.site_name {
         Some(name) if name.to_lowercase() != host => format!("{host} · {name}"),
@@ -1187,10 +1211,10 @@ fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, _cx
         div().one_line().text_size(px(12.5)).line_height(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(if own { theme.bubble_own_text } else { theme.text1 }).child(site),
     );
     if let Some(title) = &preview.title {
-        text = text.child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).overflow_hidden().line_clamp(2).text_ellipsis().child(title.clone()));
+        text = text.child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).child(clamped(title.clone(), 2)));
     }
     if let Some(description) = &preview.description {
-        text = text.child(div().text_size(px(12.5)).line_height(px(17.)).overflow_hidden().line_clamp(3).text_ellipsis().text_color(if own { theme.bubble_own_faint } else { theme.text2 }).child(description.clone()));
+        text = text.child(div().text_size(px(12.5)).line_height(px(17.)).text_color(if own { theme.bubble_own_faint } else { theme.text2 }).child(clamped(description.clone(), 3)));
     }
     let mut card = div()
         .id(SharedString::from(format!("link-{}", preview.url)))
@@ -1212,7 +1236,7 @@ fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, _cx
         .on_click(move |_, _, cx| cx.open_url(&url))
         .child(text);
     if let Some(image) = preview.image.as_ref().and_then(|image| data_url_image(&image.data)) {
-        card = card.child(cover_image(image, 56., 56., RADIUS_S));
+        card = card.child(cover_image(image, 56., 56., RADIUS_S, cx));
     }
     card.into_any_element()
 }

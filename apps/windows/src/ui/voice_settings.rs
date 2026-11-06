@@ -261,7 +261,7 @@ impl VoiceSettingsPage {
             }
         }
         let content: AnyElement = match (&self.camera, &self.camera_image) {
-            (Some(_), Some((_, image))) => img(image.clone()).w_full().max_h(px(260.)).object_fit(gpui::ObjectFit::Contain).into_any_element(),
+            (Some(_), Some((_, image))) => img(image.clone()).w_full().max_h(px(260.)).object_fit(gpui::ObjectFit::Contain).rounded(RADIUS_M).into_any_element(),
             (Some(_), None) => spinner(18., theme.text2).into_any_element(),
             (None, _) => button("try-camera", ButtonKind::Default, ButtonSize::Normal, false, cx).child(div().flex().items_center().gap(px(6.)).child(icon("camera", 15., theme.text1)).child("Try your camera")).on_click(cx.listener(|page, _, _, cx| page.toggle_camera(cx))).into_any_element(),
         };

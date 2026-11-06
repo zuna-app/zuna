@@ -69,18 +69,35 @@ impl VoiceStage {
         VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), _tick: tick }
     }
 
-    /// A video's newest picture, made into an image once per frame.
-    fn picture(&mut self, tile: &VideoTile) -> Option<Arc<RenderImage>> {
+    /// A video's newest picture, made into an image once per frame. Covering a 16:9 tile, it's
+    /// cropped to 16:9 first: GPUI rounds a covering picture's corners past the tile's, where
+    /// they'd be cut off square.
+    fn picture(&mut self, tile: &VideoTile, cover: bool) -> Option<Arc<RenderImage>> {
         let frame = tile.feed.lock().clone()?;
-        if let Some((serial, image)) = self.images.get(&tile.key) {
+        let key = if cover { format!("{}#cover", tile.key) } else { tile.key.clone() };
+        if let Some((serial, image)) = self.images.get(&key) {
             if *serial == frame.serial {
                 return Some(image.clone());
             }
         }
+        let (mut width, mut height) = (frame.width, frame.height);
         let mut bytes = frame.bgra.as_ref().clone();
+        if cover && width > 0 && height > 0 {
+            let shape = 16. / 9.;
+            let (keep_width, keep_height) = if width as f32 / height as f32 > shape { (((height as f32 * shape).round() as u32).clamp(1, width), height) } else { (width, ((width as f32 / shape).round() as u32).clamp(1, height)) };
+            if (keep_width, keep_height) != (width, height) {
+                let (left, top) = ((width - keep_width) / 2, (height - keep_height) / 2);
+                let mut kept = Vec::with_capacity((keep_width * keep_height * 4) as usize);
+                for row in top..top + keep_height {
+                    let start = ((row * width + left) * 4) as usize;
+                    kept.extend_from_slice(&bytes[start..start + (keep_width * 4) as usize]);
+                }
+                (bytes, width, height) = (kept, keep_width, keep_height);
+            }
+        }
         // Your own camera as you'd see yourself in a mirror.
         if tile.local && tile.source == VideoSource::Camera {
-            let row = frame.width as usize * 4;
+            let row = width as usize * 4;
             for line in bytes.chunks_mut(row) {
                 let pixels: Vec<[u8; 4]> = line.chunks(4).rev().map(|pixel| [pixel[0], pixel[1], pixel[2], pixel[3]]).collect();
                 for (index, pixel) in pixels.iter().enumerate() {
@@ -88,17 +105,17 @@ impl VoiceStage {
                 }
             }
         }
-        let buffer = image::RgbaImage::from_raw(frame.width, frame.height, bytes)?;
+        let buffer = image::RgbaImage::from_raw(width, height, bytes)?;
         let image = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
-        if let Some((_, old)) = self.images.insert(tile.key.clone(), (frame.serial, image.clone())) {
+        if let Some((_, old)) = self.images.insert(key, (frame.serial, image.clone())) {
             self.retired.push(old);
         }
         Some(image)
     }
 
     fn video(&mut self, tile: &VideoTile, contain: bool) -> AnyElement {
-        match self.picture(tile) {
-            Some(image) => img(image).size_full().object_fit(if contain { gpui::ObjectFit::Contain } else { gpui::ObjectFit::Cover }).into_any_element(),
+        match self.picture(tile, !contain) {
+            Some(image) => img(image).size_full().object_fit(if contain { gpui::ObjectFit::Contain } else { gpui::ObjectFit::Fill }).rounded(RADIUS_L).into_any_element(),
             None => div().size_full().bg(gpui::black()).into_any_element(),
         }
     }

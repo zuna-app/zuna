@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, Entity, FontWeight, Image, IntoElement, MouseButton, ParentElement, Render, SharedString, Styled,
-    Task, WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, img, point, prelude::*, px,
+    Task, WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, point, prelude::*, px,
     size,
 };
 
@@ -569,7 +569,7 @@ impl NotificationsView {
         let photo: AnyElement = match &payload.picture {
             None => logo(62.).into_any_element(),
             Some(picture) => match &picture.image {
-                Some(image) => img(image.clone()).size(px(62.)).rounded_full().object_fit(gpui::ObjectFit::Cover).into_any_element(),
+                Some(image) => cover(image.clone(), 1., 124, cx).size(px(62.)).rounded_full().into_any_element(),
                 None => div()
                     .size(px(62.))
                     .rounded_full()

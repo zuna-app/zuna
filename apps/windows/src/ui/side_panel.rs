@@ -955,7 +955,7 @@ impl SidePanel {
                             .child(div().flex_1().one_line().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(name))
                             .child(div().text_size(px(11.5)).text_color(theme.text3).child(format_list_time(message.created_at))),
                     )
-                    .child(div().text_size(px(13.)).text_color(theme.text2).overflow_hidden().line_clamp(3).text_ellipsis().child(plain_text(&message.text))),
+                    .child(div().text_size(px(13.)).text_color(theme.text2).child(clamped(plain_text(&message.text), 3))),
             )
             .into_any_element()
     }

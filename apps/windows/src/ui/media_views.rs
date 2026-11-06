@@ -236,7 +236,7 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     }
     frame = frame.bg(theme.bg3);
     if let Some(thumb) = thumb {
-        frame = frame.child(img(thumb).absolute().inset_0().size_full().object_fit(gpui::ObjectFit::Cover));
+        frame = frame.child(cover(thumb, (width / height) as f32, 400, cx).absolute().inset_0().size_full().rounded(RADIUS_M));
     }
     let (state, server_id, a) = (context.state.clone(), context.server_id.clone(), attachment.clone());
     let center: AnyElement = match file {
@@ -514,7 +514,7 @@ impl Render for VideoPlayer {
             return stage.into_any_element();
         }
         if let Some(frame) = self.frame.clone() {
-            stage = stage.child(img(frame).size_full().object_fit(gpui::ObjectFit::Cover));
+            stage = stage.child(img(frame).size_full().object_fit(gpui::ObjectFit::Cover).rounded(RADIUS_M));
         }
         // A video's own controls: play or pause, how far it's got, and the time.
         let duration = self.clip.as_ref().map(|clip| clip.duration()).unwrap_or(0.);

@@ -688,7 +688,7 @@ impl ChatView {
                 .overflow_hidden()
                 .bg(gpui::black())
                 .shadow(shadow_m())
-                .when_some(self.preview_frame.clone(), |el, frame| el.child(img(frame).size_full().object_fit(gpui::ObjectFit::Cover)))
+                .when_some(self.preview_frame.clone(), |el, frame| el.child(img(frame).size_full().object_fit(gpui::ObjectFit::Cover).rounded_full()))
                 .child(
                     gpui::canvas(
                         |_, _, _| {},
@@ -1402,7 +1402,7 @@ impl ChatView {
                                 .child(div().one_line().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(title))
                                 .child(div().one_line().text_size(px(12.5)).text_color(theme.text2).child(text)),
                         )
-                        .when_some(picture, |el, picture| el.child(cover_image(picture, 36., 36., RADIUS_S)))
+                        .when_some(picture, |el, picture| el.child(cover_image(picture, 36., 36., RADIUS_S, cx)))
                         .child(icon_button("remove-link", "x", 15., true, false, cx).on_click(cx.listener(move |view, _, _, cx| {
                             view.dismissed_link = Some(url.clone());
                             view.link_wanted = None;
@@ -1417,7 +1417,7 @@ impl ChatView {
             let mut chips = div().id("composer-files").flex().gap(px(6.)).pt(px(8.)).px(px(12.)).overflow_x_scroll();
             for (index, staged) in self.files.iter().enumerate() {
                 let picture: AnyElement = match &staged.preview {
-                    Some(image) => cover_image(image.clone(), 36., 36., RADIUS_S).into_any_element(),
+                    Some(image) => cover_image(image.clone(), 36., 36., RADIUS_S, cx).into_any_element(),
                     None => div().size(px(36.)).flex_none().rounded(RADIUS_S).bg(theme.bg4).flex().items_center().justify_center().child(icon("file", 16., theme.text2)).into_any_element(),
                 };
                 chips = chips.child(

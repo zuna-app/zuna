@@ -90,7 +90,7 @@ pub fn avatar(props: AvatarProps, cx: &App) -> Div {
         .line_height(px(size * 0.38 * 1.2));
     match props.image {
         Some(image) => {
-            el = el.bg(theme.bg3).child(cover_image(image, size, size, radius));
+            el = el.bg(theme.bg3).child(cover_image(image, size, size, radius, cx));
         }
         None => {
             el = el.bg(theme::css(avatar_color(&props.seed))).child(initials_of(&props.name));
@@ -372,10 +372,78 @@ pub trait OneLine: Styled + Sized {
 
 impl<T: Styled> OneLine for T {}
 
-/// A picture filling a box of this size, cropped to it: GPUI draws a covering picture
-/// past its bounds unless something around it clips.
-pub fn cover_image(image: Arc<Image>, width: f32, height: f32, radius: Pixels) -> Div {
-    div().w(px(width)).h(px(height)).flex_none().rounded(radius).overflow_hidden().child(gpui::img(image).size_full().object_fit(gpui::ObjectFit::Cover))
+/// Each of four corners rounded as given.
+pub fn round_corners<E: Styled>(element: E, corners: gpui::Corners<Pixels>) -> E {
+    element.rounded_tl(corners.top_left).rounded_tr(corners.top_right).rounded_br(corners.bottom_right).rounded_bl(corners.bottom_left)
+}
+
+/// A picture filling a box of this size, cropped to it, with rounded corners.
+pub fn cover_image(image: Arc<Image>, width: f32, height: f32, radius: Pixels, cx: &App) -> Div {
+    let longest = (width.max(height) * 2.).ceil() as u32;
+    div().w(px(width)).h(px(height)).flex_none().rounded(radius).child(cover(image, width / height, longest, cx).size_full().rounded(radius))
+}
+
+enum Crop {
+    Working,
+    /// Already the box's shape, or something that can't be cropped, such as an animation.
+    AsItIs,
+    Ready(Arc<gpui::RenderImage>),
+}
+
+/// Pictures cropped to the shape of the box they fill, by picture and shape.
+static CROPS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<(u64, u32), Crop>>> = std::sync::LazyLock::new(Default::default);
+
+/// A picture filling a box of this shape (width over height), as `object-fit: cover` does,
+/// for the caller to size and round. GPUI rounds a covering picture's corners where its
+/// bounds are, past the box, and clips to rectangles only, so a picture of another shape is
+/// cropped to the box's first, once, away from the window, and shown uncropped meanwhile.
+/// `longest` is how many pixels its longer side needs.
+pub fn cover(image: Arc<Image>, shape: f32, longest: u32, cx: &App) -> gpui::Img {
+    let key = (image.id(), (shape * 1000.).round() as u32);
+    let mut crops = CROPS.lock().unwrap();
+    match crops.get(&key) {
+        Some(Crop::Ready(cropped)) => return gpui::img(cropped.clone()).object_fit(gpui::ObjectFit::Fill),
+        Some(_) => return gpui::img(image).object_fit(gpui::ObjectFit::Cover),
+        None => {}
+    }
+    crops.insert(key, Crop::Working);
+    drop(crops);
+    let source = image.clone();
+    let work = cx.background_executor().spawn(async move { crop_to(&source, shape, longest) });
+    cx.spawn(async move |cx| {
+        let crop = work.await;
+        CROPS.lock().unwrap().insert(key, crop);
+        cx.update(|cx| cx.refresh_windows()).ok();
+    })
+    .detach();
+    gpui::img(image).object_fit(gpui::ObjectFit::Cover)
+}
+
+fn crop_to(image: &Image, shape: f32, longest: u32) -> Crop {
+    if image.format() == gpui::ImageFormat::Gif {
+        return Crop::AsItIs;
+    }
+    let Ok(decoded) = image::load_from_memory(image.bytes()) else { return Crop::AsItIs };
+    let (width, height) = (decoded.width(), decoded.height());
+    if width == 0 || height == 0 || ((width as f32 / height as f32) / shape - 1.).abs() < 0.01 {
+        return Crop::AsItIs;
+    }
+    let (crop_width, crop_height) = if width as f32 / height as f32 > shape {
+        (((height as f32 * shape).round() as u32).clamp(1, width), height)
+    } else {
+        (width, ((width as f32 / shape).round() as u32).clamp(1, height))
+    };
+    let mut cropped = decoded.crop_imm((width - crop_width) / 2, (height - crop_height) / 2, crop_width, crop_height);
+    let scale = longest as f32 / crop_width.max(crop_height) as f32;
+    if scale < 1. {
+        cropped = cropped.resize_exact(((crop_width as f32 * scale).round() as u32).max(1), ((crop_height as f32 * scale).round() as u32).max(1), image::imageops::FilterType::Triangle);
+    }
+    let mut pixels = cropped.to_rgba8();
+    // GPUI's pictures are BGRA.
+    for pixel in pixels.pixels_mut() {
+        pixel.0.swap(0, 2);
+    }
+    Crop::Ready(Arc::new(gpui::RenderImage::new(smallvec::smallvec![image::Frame::new(pixels)])))
 }
 
 /// A line of information in a soft box, with its icon (`.notice`).
@@ -447,4 +515,123 @@ pub fn slider(id: impl Into<ElementId>, value: f32, on_change: impl Fn(f32, &mut
                 drag(at(drag_bounds.get(), event.position.x), window, cx);
             }
         })
+}
+
+/// Text of at most `lines` lines, ending in "…" when there's more, as `-webkit-line-clamp`
+/// does. GPUI's own `line_clamp` stops wrapping at its last line, which then runs on past
+/// the box, and puts its ellipsis after `lines` widths of text, out of sight. It takes the
+/// size, weight and color of the text around it.
+pub fn clamped(text: impl Into<SharedString>, lines: usize) -> Clamped {
+    Clamped { text: text.into(), lines: lines.max(1) }
+}
+
+pub struct Clamped {
+    text: SharedString,
+    lines: usize,
+}
+
+#[derive(Default)]
+pub struct ClampedLayout {
+    width: Option<Pixels>,
+    shaped: smallvec::SmallVec<[gpui::WrappedLine; 1]>,
+    line_height: Pixels,
+    font_size: Pixels,
+    run: Option<gpui::TextRun>,
+}
+
+fn line_count(shaped: &[gpui::WrappedLine]) -> usize {
+    shaped.iter().map(|line| line.wrap_boundaries().len() + 1).sum()
+}
+
+/// The text wrapped at `width` and cut to `lines`, with "…" where it was cut.
+fn clamp_lines(text: &str, font_size: Pixels, run: &gpui::TextRun, width: Option<Pixels>, lines: usize, window: &Window) -> smallvec::SmallVec<[gpui::WrappedLine; 1]> {
+    let shape = |text: String| {
+        let run = gpui::TextRun { len: text.len(), ..run.clone() };
+        window.text_system().shape_text(SharedString::from(text), font_size, &[run], width, None).unwrap_or_default()
+    };
+    let whole = shape(text.to_string());
+    if line_count(&whole) <= lines {
+        return whole;
+    }
+    let Some(_) = width else {
+        // Unwrapped, only its first lines count.
+        return whole.into_iter().take(lines).collect();
+    };
+    // The longest start that fits with its ellipsis: lo fits, hi doesn't.
+    let ends: Vec<usize> = text.char_indices().map(|(at, _)| at).chain(std::iter::once(text.len())).collect();
+    let cut = |end: usize| format!("{}…", text[..ends[end]].trim_end());
+    let (mut lo, mut hi) = (0, ends.len() - 1);
+    while hi - lo > 1 {
+        let middle = (lo + hi) / 2;
+        if line_count(&shape(cut(middle))) <= lines { lo = middle } else { hi = middle }
+    }
+    shape(cut(lo))
+}
+
+impl IntoElement for Clamped {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl gpui::Element for Clamped {
+    type RequestLayoutState = std::rc::Rc<std::cell::RefCell<ClampedLayout>>;
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, window: &mut Window, _: &mut App) -> (gpui::LayoutId, Self::RequestLayoutState) {
+        let style = window.text_style();
+        let font_size = style.font_size.to_pixels(window.rem_size());
+        let line_height = style.line_height_in_pixels(window.rem_size());
+        let run = style.to_run(self.text.len());
+        let layout = std::rc::Rc::new(std::cell::RefCell::new(ClampedLayout { line_height, font_size, run: Some(run.clone()), ..Default::default() }));
+        let (text, lines, measured) = (self.text.clone(), self.lines, layout.clone());
+        let id = window.request_measured_layout(gpui::Style::default(), move |known, available, window, _| {
+            let width = known.width.or(match available.width {
+                gpui::AvailableSpace::Definite(width) => Some(width),
+                _ => None,
+            });
+            // At its narrowest it gives way, as min-width: 0 lets text.
+            if width.is_none() && matches!(available.width, gpui::AvailableSpace::MinContent) {
+                return gpui::size(px(0.), line_height);
+            }
+            let shaped = clamp_lines(&text, font_size, &run, width, lines, window);
+            let height = line_height * line_count(&shaped).min(lines) as f32;
+            let widest = shaped.iter().map(|line| line.width()).fold(px(0.), |a, b| a.max(b));
+            let mut layout = measured.borrow_mut();
+            layout.width = width;
+            layout.shaped = shaped;
+            gpui::size(known.width.unwrap_or(widest), height)
+        });
+        (id, layout)
+    }
+
+    fn prepaint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: gpui::Bounds<Pixels>, layout: &mut Self::RequestLayoutState, window: &mut Window, _: &mut App) {
+        let mut layout = layout.borrow_mut();
+        // Measured at another width than it was given: wrapped again at its own.
+        if layout.width != Some(bounds.size.width) {
+            if let Some(run) = layout.run.clone() {
+                layout.shaped = clamp_lines(&self.text, layout.font_size, &run, Some(bounds.size.width), self.lines, window);
+                layout.width = Some(bounds.size.width);
+            }
+        }
+    }
+
+    fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, bounds: gpui::Bounds<Pixels>, layout: &mut Self::RequestLayoutState, _: &mut (), window: &mut Window, cx: &mut App) {
+        let layout = layout.borrow();
+        let mut top = bounds.origin.y;
+        for line in &layout.shaped {
+            line.paint(point(bounds.origin.x, top), layout.line_height, gpui::TextAlign::Left, Some(bounds), window, cx).ok();
+            top += line.size(layout.line_height).height;
+        }
+    }
 }

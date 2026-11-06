@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use gpui::{AnyElement, App, Entity, FontWeight, Image, IntoElement, MouseButton, ParentElement, SharedString, Styled, div, img, prelude::*, px};
+use gpui::{AnyElement, App, Entity, FontWeight, Image, IntoElement, MouseButton, ParentElement, Pixels, SharedString, Styled, div, prelude::*, px};
 
 use super::components::*;
 use super::menu::{MenuEntry, open_menu};
@@ -131,10 +131,19 @@ pub fn content(state: &Entity<AppState>, server: &ServerState, kind: SharedKind,
             .flat_map(|message| message.attachments.iter().filter(|attachment| attachment_kind(attachment) == kind).map(move |attachment| (message.clone(), attachment.clone())))
             .collect();
         let mut grid = div().flex().flex_col().gap(px(2.)).rounded(RADIUS_M).overflow_hidden();
-        for row in tiles.chunks(3) {
+        let last_row = tiles.len().saturating_sub(1) / 3;
+        for (row_index, row) in tiles.chunks(3).enumerate() {
             let mut line = div().flex().gap(px(2.));
-            for (message, attachment) in row {
-                line = line.child(tile(state, server, message, attachment, kind == SharedKind::Video, cx));
+            for (column, (message, attachment)) in row.iter().enumerate() {
+                // GPUI clips to rectangles, so the tiles at the grid's corners round themselves.
+                let at = |corner: bool| if corner { RADIUS_M } else { px(0.) };
+                let corners = gpui::Corners {
+                    top_left: at(row_index == 0 && column == 0),
+                    top_right: at(row_index == 0 && column == 2),
+                    bottom_right: at(row_index == last_row && column == 2),
+                    bottom_left: at(row_index == last_row && column == 0),
+                };
+                line = line.child(tile(state, server, message, attachment, kind == SharedKind::Video, corners, cx));
             }
             for _ in row.len()..3 {
                 line = line.child(div().flex_1());
@@ -167,7 +176,7 @@ pub fn content(state: &Entity<AppState>, server: &ServerState, kind: SharedKind,
 
 /// A photo or a video, as a square. A photo opens in the viewer, loading first if it's
 /// one too big to load by itself; a video shows where it was sent.
-fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, attachment: &Attachment, video: bool, cx: &mut App) -> AnyElement {
+fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, attachment: &Attachment, video: bool, corners: gpui::Corners<Pixels>, cx: &mut App) -> AnyElement {
     let theme = theme(cx);
     let key = format!("file:{}", attachment.file_id);
     let wanted = loads_by_itself(attachment) || state.read(cx).pictures.contains_key(&key);
@@ -185,13 +194,21 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
     let server_id = server.entry.id.clone();
     let load = reference(attachment);
     let ready = picture.is_some();
-    div()
-        .id(SharedString::from(format!("shared-{}-{}", message.id, attachment.file_id)))
-        .relative()
-        .flex_1()
-        .h(px(96.))
-        .overflow_hidden()
-        .bg(theme.bg3)
+    let hover = SharedString::from(format!("shared-{}-{}", message.id, attachment.file_id));
+    let mut square = round_corners(
+        div()
+            .id(hover.clone())
+            .group(hover.clone())
+            .relative()
+            .w_full()
+            .overflow_hidden()
+            .bg(theme.bg3),
+        corners,
+    );
+    // As `.shared-tile`: a square, however wide the panel is. It takes its width from a
+    // third of the row first, where GPUI can make its height from it.
+    square.style().aspect_ratio = Some(1.);
+    let square = square
         .cursor_pointer()
         .tooltip(tooltip(format_full(message.created_at)))
         .on_click(move |_, _, cx| {
@@ -206,8 +223,8 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
             })
         })
         .on_mouse_down(MouseButton::Right, show_in_chat(state.clone(), message))
-        .when_some(thumb, |el, thumb| el.child(img(thumb).absolute().inset_0().size_full().object_fit(gpui::ObjectFit::Cover)))
-        .when_some(picture, |el, picture| el.child(img(picture).absolute().inset_0().size_full().object_fit(gpui::ObjectFit::Cover)))
+        .when_some(thumb, |el, thumb| el.child(round_corners(cover(thumb, 1., 120, cx).absolute().inset_0().size_full(), corners)))
+        .when_some(picture, |el, picture| el.child(round_corners(cover(picture, 1., 240, cx).absolute().inset_0().size_full(), corners)))
         .when(video || !wanted, |el| {
             el.child(
                 div().absolute().inset_0().flex().items_center().justify_center().child(
@@ -236,8 +253,8 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
                     .child(format_duration(attachment.duration.unwrap_or(0.))),
             )
         })
-        .hover(|style| style.opacity(0.92))
-        .into_any_element()
+        .child(round_corners(div().absolute().inset_0().group_hover(hover, |style| style.bg(theme::color(theme::white_a(0.07)))), corners));
+    div().flex_1().min_w_0().child(square).into_any_element()
 }
 
 /// A file, a sound file or a voice message, and who sent it.
@@ -305,7 +322,7 @@ fn link_row(state: &Entity<AppState>, server: &ServerState, message: &MessageVie
         .unwrap_or_else(|| links.iter().fold(text.clone(), |rest, link| rest.replace(link.as_str(), "")).split_whitespace().collect::<Vec<_>>().join(" "));
     let picture = preview.and_then(|preview| preview.image.as_ref()).and_then(|image| super::message::data_url_image(&image.data));
     let mark: AnyElement = match picture {
-        Some(picture) => cover_image(picture, 44., 44., RADIUS_M).into_any_element(),
+        Some(picture) => cover_image(picture, 44., 44., RADIUS_M, cx).into_any_element(),
         None => div()
             .size(px(44.))
             .flex_none()
@@ -329,7 +346,7 @@ fn link_row(state: &Entity<AppState>, server: &ServerState, message: &MessageVie
         .gap(px(1.))
         .child(div().one_line().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(title));
     if !description.is_empty() {
-        body = body.child(div().text_size(px(12.5)).text_color(theme.text2).overflow_hidden().line_clamp(3).text_ellipsis().child(description));
+        body = body.child(div().text_size(px(12.5)).text_color(theme.text2).child(clamped(description, 3)));
     }
     for (index, link) in links.iter().enumerate() {
         let url = link.clone();

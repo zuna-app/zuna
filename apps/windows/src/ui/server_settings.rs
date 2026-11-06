@@ -160,7 +160,7 @@ impl ServerSettings {
                 .detach();
             }))
             .child(match icon_image {
-                Some(image) => img(image).size_full().object_fit(gpui::ObjectFit::Cover).into_any_element(),
+                Some(image) => cover(image, 1., 144, cx).size_full().rounded(RADIUS_XL).into_any_element(),
                 None => avatar(AvatarProps { name: server.entry.name.clone(), seed: server.entry.url.clone(), image: None, size: 72., online: false, rounded: true, dot_border: theme.bg1 }, cx).into_any_element(),
             })
             .child(div().absolute().inset_0().flex().items_center().justify_center().bg(crate::theme::color(crate::theme::black_a(0.5))).opacity(0.).group_hover("server-icon", |style| style.opacity(1.)).child(icon("image", 18., gpui::white())));

@@ -430,7 +430,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
             body = body.child(div().my(px(2.)).flex().flex_col().items_start().gap(px(4.)).child(attachments(message, &images, false, false, false, false, context, &theme, cx)));
         }
         if let Some(preview) = &message.preview {
-            body = body.child(channel_link_card(preview, &theme));
+            body = body.child(channel_link_card(preview, &theme, cx));
         }
         if let Some(location) = &message.location {
             body = body.child(super::message::location_card(&message.id, location, own, true, &theme));
@@ -667,7 +667,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
 }
 
 /// A link's preview in a channel, as Discord's embed: a bar on the left, the title as a link.
-fn channel_link_card(preview: &crate::models::LinkPreview, theme: &Theme) -> AnyElement {
+fn channel_link_card(preview: &crate::models::LinkPreview, theme: &Theme, cx: &App) -> AnyElement {
     let theme = *theme;
     let host = url::Url::parse(&preview.url).ok().and_then(|url| url.host_str().map(|host| host.trim_start_matches("www.").to_string())).unwrap_or_default();
     let site = match &preview.site_name {
@@ -680,7 +680,7 @@ fn channel_link_card(preview: &crate::models::LinkPreview, theme: &Theme) -> Any
         text = text.child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.link).child(title.clone()));
     }
     if let Some(description) = &preview.description {
-        text = text.child(div().mt(px(4.)).text_size(px(14.)).text_color(theme.text1).overflow_hidden().line_clamp(4).text_ellipsis().child(description.clone()));
+        text = text.child(div().mt(px(4.)).text_size(px(14.)).text_color(theme.text1).child(clamped(description.clone(), 4)));
     }
     let mut card = div()
         .id(SharedString::from(format!("clink-{}", preview.url)))
@@ -700,7 +700,7 @@ fn channel_link_card(preview: &crate::models::LinkPreview, theme: &Theme) -> Any
         .on_click(move |_, _, cx| cx.open_url(&url))
         .child(text);
     if let Some(image) = preview.image.as_ref().and_then(|image| super::message::data_url_image(&image.data)) {
-        card = card.child(cover_image(image, 80., 80., px(4.)));
+        card = card.child(cover_image(image, 80., 80., px(4.), cx));
     }
     card.into_any_element()
 }
