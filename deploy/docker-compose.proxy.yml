@@ -24,6 +24,8 @@ services:
       ZUNA_LISTEN: ":9660"
       ZUNA_PUBLIC_URL: ${ZUNA_PUBLIC_URL:?Set ZUNA_PUBLIC_URL to the address members will use}
       ZUNA_TRUST_PROXY: "true"
+      # "true" behind Cloudflare's proxy (docs/SELF_HOSTING.md#behind-cloudflare).
+      ZUNA_BEHIND_CLOUDFLARE: ${ZUNA_BEHIND_CLOUDFLARE:-false}
       # The push relays that may wake members' phones (docs/SELF_HOSTING.md#phone-notifications).
       ZUNA_PUSH_RELAYS: ${ZUNA_PUSH_RELAYS:-}
       # Voice channels, through LiveKit below, with the key the two share, which Zuna

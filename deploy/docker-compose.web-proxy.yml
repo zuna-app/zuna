@@ -25,6 +25,8 @@ services:
     environment:
       ZUNA_WEB_LISTEN: ":8080"
       ZUNA_WEB_TRUST_PROXY: "true"
+      # "true" behind Cloudflare's proxy (docs/SELF_HOSTING.md#behind-cloudflare).
+      ZUNA_WEB_BEHIND_CLOUDFLARE: ${ZUNA_WEB_BEHIND_CLOUDFLARE:-false}
       ZUNA_WEB_SERVER: ${ZUNA_WEB_SERVER:-}
       ZUNA_WEB_SERVERS: ${ZUNA_WEB_SERVERS:-}
       ZUNA_WEB_PREVIEWS: ${ZUNA_WEB_PREVIEWS:-on}

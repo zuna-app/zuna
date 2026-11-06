@@ -45,6 +45,7 @@ type config struct {
 	tlsKey         string
 	trustProxy     bool
 	trustedProxies string
+	cloudflare     bool
 	previews       string
 	server         string
 	servers        string
@@ -74,6 +75,7 @@ func splitList(value string) []string {
 func parseFlags() config {
 	var cfg config
 	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_WEB_TRUST_PROXY"))
+	cloudflare, _ := strconv.ParseBool(os.Getenv("ZUNA_WEB_BEHIND_CLOUDFLARE"))
 	flag.StringVar(&cfg.listen, "listen", os.Getenv("ZUNA_WEB_LISTEN"), "address to listen on, such as :8080 (env ZUNA_WEB_LISTEN)")
 	flag.StringVar(&cfg.domain, "domain", os.Getenv("ZUNA_WEB_DOMAIN"), "public domain; turns on automatic HTTPS on ports 80 and 443 (env ZUNA_WEB_DOMAIN)")
 	flag.StringVar(&cfg.dataDir, "data", envOr("ZUNA_WEB_DATA", "./zuna-web-data"), "folder for automatic HTTPS certificates (env ZUNA_WEB_DATA)")
@@ -81,6 +83,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.tlsKey, "tls-key", os.Getenv("ZUNA_WEB_TLS_KEY"), "TLS key file (env ZUNA_WEB_TLS_KEY)")
 	flag.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy on this machine or a private network, for rate limiting (env ZUNA_WEB_TRUST_PROXY)")
 	flag.StringVar(&cfg.trustedProxies, "trusted-proxies", os.Getenv("ZUNA_WEB_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_WEB_TRUSTED_PROXIES)")
+	flag.BoolVar(&cfg.cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP, for rate limiting (env ZUNA_WEB_BEHIND_CLOUDFLARE)")
 	flag.StringVar(&cfg.previews, "previews", envOr("ZUNA_WEB_PREVIEWS", "on"), `"on" to fetch pages for link previews, "off" not to (env ZUNA_WEB_PREVIEWS)`)
 	flag.StringVar(&cfg.server, "server", os.Getenv("ZUNA_WEB_SERVER"), "a server address to fill in on the sign-in form (env ZUNA_WEB_SERVER)")
 	flag.StringVar(&cfg.servers, "servers", os.Getenv("ZUNA_WEB_SERVERS"), "comma-separated servers that are the only ones the app may connect to; empty for any (env ZUNA_WEB_SERVERS)")
@@ -139,7 +142,7 @@ func run(cfg config) error {
 	if err != nil {
 		return err
 	}
-	resolver, err := clientip.New(cfg.trustProxy, splitList(cfg.trustedProxies))
+	resolver, err := clientip.New(cfg.trustProxy, splitList(cfg.trustedProxies), cfg.cloudflare)
 	if err != nil {
 		return err
 	}

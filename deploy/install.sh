@@ -44,9 +44,6 @@ ACME_ROOT=/var/www/zuna-acme
 ACME_CA="${ZUNA_INSTALL_ACME_CA:-}"
 ACME_CA_ROOT="${ZUNA_INSTALL_ACME_ROOT:-}"
 
-# Cloudflare's addresses, from cloudflare.com/ips, which its proxy reaches this
-# machine from. Behind it, they're trusted to say who's calling.
-CLOUDFLARE="173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32"
 # What the server trusts by default: this machine and private networks.
 LOCAL_PROXIES="127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1/128,fc00::/7,fe80::/10"
 
@@ -932,11 +929,9 @@ run_update() {
   if [ -n "$DOMAIN" ]; then
     args+=(--listen "$LISTEN")
     # Always given, so that one left from an earlier setup doesn't stay.
-    if [ "$CLOUDFLARE_FOUND" = 1 ]; then
-      args+=(--trusted-proxies "$LOCAL_PROXIES,$CLOUDFLARE")
-    else
-      args+=(--trusted-proxies "${PROXY_ADDRESS:-$LOCAL_PROXIES}")
-    fi
+    args+=(--trusted-proxies "${PROXY_ADDRESS:-$LOCAL_PROXIES}")
+    # Behind Cloudflare, a request from it is from whoever it names.
+    if [ "$CLOUDFLARE_FOUND" = 1 ]; then args+=(--behind-cloudflare on); else args+=(--behind-cloudflare off); fi
   fi
   [ -n "$DATABASE_URL" ] && args+=(--database-url "$DATABASE_URL")
   if [ "$DRY" = 1 ]; then
@@ -1047,15 +1042,9 @@ caddy_site() {
   elif [ -n "$ACME_CA" ] && [ -z "$scheme" ]; then
     printf '\ttls {\n\t\tca %s\n\t\tca_root %s\n\t}\n' "$ACME_CA" "$ACME_CA_ROOT"
   fi
-  if [ "$CLOUDFLARE_FOUND" = 1 ]; then
-    # Caddy replaces X-Forwarded-For unless told otherwise, and Zuna reads it from the right,
-    # trusting Cloudflare's addresses, so this keeps what Cloudflare says ahead of who called.
-    echo "	reverse_proxy $(upstream) {"
-    echo "		header_up X-Forwarded-For \"{http.request.header.X-Forwarded-For}, {http.request.remote.host}\""
-    echo "	}"
-  else
-    echo "	reverse_proxy $(upstream)"
-  fi
+  # Caddy sets X-Forwarded-For to who called, which behind Cloudflare is one of its
+  # addresses, and passes on CF-Connecting-IP, which then names the caller.
+  echo "	reverse_proxy $(upstream)"
   echo "}"
 }
 

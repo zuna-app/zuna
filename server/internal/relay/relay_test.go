@@ -299,7 +299,7 @@ func TestMadeUpPhonesCostNobodyElseAnything(t *testing.T) {
 		return http.StatusBadRequest, "BadDeviceToken"
 	}
 	// From many addresses, as anyone with enough of them, or behind Cloudflare, could.
-	h.relay.Callers, _ = clientip.New(true, nil)
+	h.relay.Callers, _ = clientip.New(true, nil, false)
 	refused := 0
 	for i := range 150 {
 		status, _ := h.registerFrom(fmt.Sprintf("198.51.100.%d", i), map[string]any{"token": fmt.Sprintf("%064x", i), "environment": "production", "count": 1})

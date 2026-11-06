@@ -139,7 +139,7 @@ Set `ZUNA_TRUST_PROXY=true` behind a proxy, so that rate limiting sees members' 
 Zuna works behind Cloudflare's proxy, WebSockets and uploads included. The installer notices Cloudflare in front of the domain and asks which SSL/TLS mode it's set to.
 
 - **Use Full (strict).** Flexible sends everything between Cloudflare and your server unencrypted, sign-ins and session tokens included, for anyone on the way to read or change, though messages stay encrypted end to end. Full doesn't check your server's certificate. A Cloudflare origin certificate, made under SSL/TLS → Origin Server in Cloudflare's dashboard, is the simplest one for your proxy to use, as Let's Encrypt can't always get through Cloudflare.
-- **Trust Cloudflare's addresses,** from [cloudflare.com/ips](https://www.cloudflare.com/ips/), in `ZUNA_TRUSTED_PROXIES`, as well as your own proxy's. Otherwise everyone counts as one of a few Cloudflare addresses for rate limits. The installer does this.
+- **Set `ZUNA_BEHIND_CLOUDFLARE=true`,** so that rate limits see members' real addresses: a request from one of [Cloudflare's addresses](https://www.cloudflare.com/ips/) then counts as from whoever Cloudflare names in `CF-Connecting-IP`. Otherwise everyone counts as one of a few Cloudflare addresses. Cloudflare's addresses never count as trusted proxies, even listed in `ZUNA_TRUSTED_PROXIES`, as anyone can call from one through a Worker and make up the rest of `X-Forwarded-For`. The installer does this. Someone who knows your machine's own address can still reach it from Cloudflare, through a Worker, and name any address. Only [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/), or Authenticated Origin Pulls with a certificate of your own, rules that out.
 - **Calls don't go through Cloudflare.** Their media goes straight to your server on 7881/tcp and 7882/udp, so members in a call can see its real address.
 - **Turn off Bot Fight Mode and Under Attack Mode** for the server's domain. The apps can't solve a challenge.
 
@@ -178,7 +178,8 @@ Everything can be set by flag or environment variable.
 | `--public-url` | `ZUNA_PUBLIC_URL` | From the domain | Address people use to reach this server |
 | `--tls-cert`, `--tls-key` | `ZUNA_TLS_CERT`, `ZUNA_TLS_KEY` | | Use your own certificate files |
 | `--trust-proxy` | `ZUNA_TRUST_PROXY` | `false` | Trust `X-Forwarded-For` from a reverse proxy on this machine or a private network |
-| `--trusted-proxies` | `ZUNA_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks |
+| `--trusted-proxies` | `ZUNA_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks. Cloudflare's never count |
+| `--behind-cloudflare` | `ZUNA_BEHIND_CLOUDFLARE` | `false` | Take a request from Cloudflare's proxy to be from whoever it names in `CF-Connecting-IP` ([Behind Cloudflare](#behind-cloudflare)) |
 | `--download-url` | `ZUNA_DOWNLOAD_URL` | | A link for downloading the app, which invite pages show as well as the official releases |
 | `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address, where an IPv6 /48 counts as one |
 | `--user-quota-mb` | `ZUNA_USER_QUOTA_MB` | `10240` | How many MB of files each person may keep, and as many again of messages, or `-1` for no limit |

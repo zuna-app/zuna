@@ -38,6 +38,8 @@ func main() {
 	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_PUSH_TRUST_PROXY"))
 	flag.BoolVar(&trustProxy, "trust-proxy", trustProxy, "take callers' addresses from X-Forwarded-For, when the connection comes from this machine or a private network (env ZUNA_PUSH_TRUST_PROXY)")
 	trustedProxies := flag.String("trusted-proxies", os.Getenv("ZUNA_PUSH_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_PUSH_TRUSTED_PROXIES)")
+	cloudflare, _ := strconv.ParseBool(os.Getenv("ZUNA_PUSH_BEHIND_CLOUDFLARE"))
+	flag.BoolVar(&cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP (env ZUNA_PUSH_BEHIND_CLOUDFLARE)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -71,7 +73,7 @@ func main() {
 			proxies = append(proxies, proxy)
 		}
 	}
-	if service.Callers, err = clientip.New(trustProxy, proxies); err != nil {
+	if service.Callers, err = clientip.New(trustProxy, proxies, cloudflare); err != nil {
 		fail("%v", err)
 	}
 	server := &http.Server{Addr: *listen, Handler: service.Handler(), ReadTimeout: relay.ReadTimeout, WriteTimeout: relay.WriteTimeout}

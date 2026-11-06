@@ -102,7 +102,7 @@ Settings, as flags or environment variables in the style of `zuna-server`:
 |---|---|
 | `ZUNA_WEB_DOMAIN` | Automatic HTTPS on ports 80 and 443 |
 | `ZUNA_WEB_LISTEN`, `ZUNA_WEB_TLS_CERT`, `ZUNA_WEB_TLS_KEY` | Your own address or certificates, such as behind a reverse proxy |
-| `ZUNA_WEB_TRUST_PROXY`, `ZUNA_WEB_TRUSTED_PROXIES` | Client addresses from a reverse proxy, for rate limits |
+| `ZUNA_WEB_TRUST_PROXY`, `ZUNA_WEB_TRUSTED_PROXIES`, `ZUNA_WEB_BEHIND_CLOUDFLARE` | Client addresses from a reverse proxy, or from Cloudflare's, for rate limits |
 | `ZUNA_WEB_PREVIEWS` | `off` turns link previews off |
 | `ZUNA_WEB_SERVER` | A server address filled in on the first screen |
 | `ZUNA_WEB_SERVERS` | If set, the only servers this web app can join. `connect-src` lists only them |

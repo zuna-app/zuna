@@ -53,7 +53,9 @@
 #                        or 0.0.0.0 for every address, for a proxy on another)
 #   --trusted-proxies L  the proxies to believe about who's calling, as addresses
 #                        or CIDR ranges, comma-separated (default: this machine
-#                        and private networks)
+#                        and private networks). Cloudflare's never count
+#   --behind-cloudflare on|off  whether the domains here are behind Cloudflare's
+#                        proxy, which then says who's calling (default off)
 #   --server-port PORT   the server's port (default 9660)
 #   --relay-port PORT    the relay's port (default 8090)
 #   --web-port PORT      the web app's port (default 8081)
@@ -97,6 +99,7 @@ PUSH_RELAYS=""
 APNS_KEY_ID=""
 LISTEN=127.0.0.1
 TRUSTED_PROXIES=""
+BEHIND_CLOUDFLARE=off
 SIGNED_TAGS=0
 ALLOW_USER_CHECKOUT=0
 SERVER_PORT=9660
@@ -135,6 +138,7 @@ while [ $# -gt 0 ]; do
     --database-url) DATABASE_URL="${2?--database-url needs an address}"; DATABASE_URL_GIVEN=1; SERVER_CHANGED=1; shift 2 ;;
     --listen) LISTEN="${2:?--listen needs an address}"; SERVER_CHANGED=1; RELAY_CHANGED=1; WEB_CHANGED=1; shift 2 ;;
     --trusted-proxies) TRUSTED_PROXIES="${2:?--trusted-proxies needs a list}"; SERVER_CHANGED=1; RELAY_CHANGED=1; WEB_CHANGED=1; shift 2 ;;
+    --behind-cloudflare) BEHIND_CLOUDFLARE="${2:?--behind-cloudflare needs on or off}"; SERVER_CHANGED=1; RELAY_CHANGED=1; WEB_CHANGED=1; shift 2 ;;
     --server-port) SERVER_PORT="${2:?--server-port needs a port}"; SERVER_CHANGED=1; shift 2 ;;
     --relay-port) RELAY_PORT="${2:?--relay-port needs a port}"; RELAY_CHANGED=1; shift 2 ;;
     --web-port) WEB_PORT="${2:?--web-port needs a port}"; WEB_CHANGED=1; shift 2 ;;
@@ -187,6 +191,9 @@ if [ -n "$WEB_DOMAIN" ]; then
   fi
 fi
 case "$VOICE" in on | off) ;; *) fail "--voice is on or off" ;; esac
+case "$BEHIND_CLOUDFLARE" in on | off) ;; *) fail "--behind-cloudflare is on or off" ;; esac
+CLOUDFLARE_ENV=false
+if [ "$BEHIND_CLOUDFLARE" = on ]; then CLOUDFLARE_ENV=true; fi
 # The server hands apps' signaling on to LiveKit, so LiveKit runs next to it.
 if [ "$VOICE" = on ] && [ -z "$SERVER_DOMAIN" ]; then
   fail "voice channels run next to the chat server, so this machine needs --server too."
@@ -461,6 +468,7 @@ PUSH_RELAYS="$PUSH_RELAYS"
 APNS_KEY_ID="$APNS_KEY_ID"
 LISTEN="$LISTEN"
 TRUSTED_PROXIES="$TRUSTED_PROXIES"
+BEHIND_CLOUDFLARE="$BEHIND_CLOUDFLARE"
 SIGNED_TAGS="$SIGNED_TAGS"
 ALLOW_USER_CHECKOUT="$ALLOW_USER_CHECKOUT"
 SERVER_PORT="$SERVER_PORT"
@@ -595,6 +603,8 @@ ZUNA_PUBLIC_URL=https://$SERVER_DOMAIN
 # Believes X-Forwarded-For from this machine and private networks, or else from these proxies.
 ZUNA_TRUST_PROXY=true
 ZUNA_TRUSTED_PROXIES=$TRUSTED_PROXIES
+# Behind Cloudflare, a request from it is from whoever it names in CF-Connecting-IP.
+ZUNA_BEHIND_CLOUDFLARE=$CLOUDFLARE_ENV
 EOF
     fi
     cat >>/etc/zuna/zuna.env <<EOF
@@ -629,6 +639,7 @@ if [ -n "$RELAY_DOMAIN" ]; then
       echo "ZUNA_PUSH_LISTEN=$(address "$LISTEN" "$RELAY_PORT")"
       echo "ZUNA_PUSH_TRUST_PROXY=true"
       echo "ZUNA_PUSH_TRUSTED_PROXIES=$TRUSTED_PROXIES"
+      echo "ZUNA_PUSH_BEHIND_CLOUDFLARE=$CLOUDFLARE_ENV"
       if [ -f /etc/zuna/apns.p8 ]; then
         echo "ZUNA_PUSH_APNS_KEY=/etc/zuna/apns.p8"
         echo "ZUNA_PUSH_APNS_KEY_ID=$APNS_KEY_ID"
@@ -636,7 +647,7 @@ if [ -n "$RELAY_DOMAIN" ]; then
     } >/etc/zuna/push.env
   fi
   if [ ! -f /etc/zuna/apns.p8 ]; then
-    echo "No APNs key yet: phones can register, but pushes will fail. Add one with --apns-key and --apns-key-id."
+    echo "No APNs key yet: phones can't register, and pushes fail. Add one with --apns-key and --apns-key-id."
   fi
 fi
 
@@ -649,6 +660,7 @@ if [ -n "$WEB_DOMAIN" ]; then
 ZUNA_WEB_LISTEN=$(address "$LISTEN" "$WEB_PORT")
 ZUNA_WEB_TRUST_PROXY=true
 ZUNA_WEB_TRUSTED_PROXIES=$TRUSTED_PROXIES
+ZUNA_WEB_BEHIND_CLOUDFLARE=$CLOUDFLARE_ENV
 ZUNA_WEB_SERVER=$WEB_SERVER
 # Empty lets the app connect to any server.
 ZUNA_WEB_SERVERS=$WEB_SERVERS

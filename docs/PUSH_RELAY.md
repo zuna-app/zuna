@@ -74,7 +74,8 @@ Then run `docker compose up -d`.
 | `ZUNA_PUSH_LISTEN` | `127.0.0.1:8090` (`:8090` in Docker) | Where to listen, behind the proxy that adds HTTPS |
 | `ZUNA_PUSH_DATA` | `./zuna-push-data` (`/data` in Docker) | Holds `handle.key` |
 | `ZUNA_PUSH_TRUST_PROXY` | `false` | Take callers' addresses from the proxy's `X-Forwarded-For`, for rate limits, when it's on this machine or a private network |
-| `ZUNA_PUSH_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks |
+| `ZUNA_PUSH_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks. Cloudflare's never count |
+| `ZUNA_PUSH_BEHIND_CLOUDFLARE` | `false` | Behind Cloudflare's proxy, take a request from it to be from whoever it names in `CF-Connecting-IP`, as the server does ([Behind Cloudflare](SELF_HOSTING.md#behind-cloudflare)). `deploy/install-relay.sh` sets it when the domain is behind Cloudflare |
 
 **Back up `handle.key`.** Every handle is sealed with it. If it's lost, servers forget the handles they hold the next time they push, and notifications stop until each app registers again, which it does when it's opened once its handles are a week old.
 

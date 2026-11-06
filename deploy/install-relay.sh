@@ -81,6 +81,12 @@ echo "This sets up Zuna's push relay here, and nothing else."
 echo
 ask "The relay's domain:" "" check_domain
 DOMAIN="${ANSWER,,}"
+# Behind Cloudflare, a request from it is from whoever it names, for the relay's limits.
+CLOUDFLARE=off
+if curl -sI --max-time 5 "http://$DOMAIN/" 2>/dev/null | tr -d '\r' | grep -qi -e '^cf-ray:' -e '^server: cloudflare'; then
+  echo "$DOMAIN is behind Cloudflare."
+  CLOUDFLARE=on
+fi
 ask "The APNs key, a .p8 file:" "" check_key
 KEY="$ANSWER"
 # Apple names the file after the key: AuthKey_ABC123DEFG.p8.
@@ -108,7 +114,7 @@ printf 'Set it up? [Y/n] '
 IFS= read -r -u 3 reply || exit 1
 case "${reply:-y}" in [Yy]*) ;; *) echo "Nothing was changed."; exit 0 ;; esac
 
-"$SRC/deploy/update.sh" --relay "$DOMAIN" --apns-key "$KEY" --apns-key-id "$KEY_ID" --listen "$LISTEN" --relay-port "$PORT"
+"$SRC/deploy/update.sh" --relay "$DOMAIN" --apns-key "$KEY" --apns-key-id "$KEY_ID" --listen "$LISTEN" --relay-port "$PORT" --behind-cloudflare "$CLOUDFLARE"
 
 echo
 echo "Your proxy has to reach http://$LISTEN:$PORT. If a firewall is on here, let it through to"

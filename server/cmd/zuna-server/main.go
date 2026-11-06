@@ -41,6 +41,7 @@ type config struct {
 	tlsKey          string
 	trustProxy      bool
 	trustedProxies  string
+	cloudflare      bool
 	downloadURL     string
 	authBurst       int
 	userQuotaMB     int
@@ -80,6 +81,7 @@ func envOr(key, fallback string) string {
 func parseFlags() config {
 	var cfg config
 	trustProxy, _ := strconv.ParseBool(os.Getenv("ZUNA_TRUST_PROXY"))
+	cloudflare, _ := strconv.ParseBool(os.Getenv("ZUNA_BEHIND_CLOUDFLARE"))
 	flag.StringVar(&cfg.dataDir, "data", envOr("ZUNA_DATA", "./zuna-data"), "folder for the database and uploaded files (env ZUNA_DATA)")
 	flag.StringVar(&cfg.databaseURL, "database-url", os.Getenv("ZUNA_DATABASE_URL"), "PostgreSQL database to use instead of the one in the data folder, such as postgres://zuna:password@localhost/zuna (env ZUNA_DATABASE_URL)")
 	flag.StringVar(&cfg.domain, "domain", os.Getenv("ZUNA_DOMAIN"), "public domain, which turns on automatic HTTPS on ports 80 and 443, or this machine's IP address, for which the server makes its own certificate (env ZUNA_DOMAIN)")
@@ -89,6 +91,7 @@ func parseFlags() config {
 	flag.StringVar(&cfg.tlsKey, "tls-key", os.Getenv("ZUNA_TLS_KEY"), "TLS key file (env ZUNA_TLS_KEY)")
 	flag.BoolVar(&cfg.trustProxy, "trust-proxy", trustProxy, "trust X-Forwarded-For from a reverse proxy on this machine or a private network, for rate limiting (env ZUNA_TRUST_PROXY)")
 	flag.StringVar(&cfg.trustedProxies, "trusted-proxies", os.Getenv("ZUNA_TRUSTED_PROXIES"), "comma-separated addresses or CIDR ranges of reverse proxies to trust, instead of those networks (env ZUNA_TRUSTED_PROXIES)")
+	flag.BoolVar(&cfg.cloudflare, "behind-cloudflare", cloudflare, "take a request from Cloudflare's proxy to be from whoever it names in CF-Connecting-IP, for rate limiting (env ZUNA_BEHIND_CLOUDFLARE)")
 	flag.StringVar(&cfg.downloadURL, "download-url", envOr("ZUNA_DOWNLOAD_URL", ""), "where invite pages link for downloading the app, as well as the official releases (env ZUNA_DOWNLOAD_URL)")
 	flag.IntVar(&cfg.authBurst, "auth-burst", 0, "sign-in attempts allowed at once per address (default 20)")
 	quota, _ := strconv.Atoi(os.Getenv("ZUNA_USER_QUOTA_MB"))
@@ -176,19 +179,20 @@ func run(cfg config) error {
 	defer db.Close()
 
 	proxies := splitList(cfg.trustedProxies)
-	if _, err := clientip.New(cfg.trustProxy, proxies); err != nil {
+	if _, err := clientip.New(cfg.trustProxy, proxies, cfg.cloudflare); err != nil {
 		return err
 	}
 	srv := api.New(api.Config{
-		DataDir:        cfg.dataDir,
-		PublicURL:      cfg.publicURL,
-		Version:        version,
-		TrustProxy:     cfg.trustProxy,
-		TrustedProxies: proxies,
-		DownloadURL:    cfg.downloadURL,
-		AuthBurst:      cfg.authBurst,
-		UserQuotaMB:    cfg.userQuotaMB,
-		PushRelays:     splitList(cfg.pushRelays),
+		DataDir:          cfg.dataDir,
+		PublicURL:        cfg.publicURL,
+		Version:          version,
+		TrustProxy:       cfg.trustProxy,
+		TrustedProxies:   proxies,
+		BehindCloudflare: cfg.cloudflare,
+		DownloadURL:      cfg.downloadURL,
+		AuthBurst:        cfg.authBurst,
+		UserQuotaMB:      cfg.userQuotaMB,
+		PushRelays:       splitList(cfg.pushRelays),
 
 		LiveKitURL:         cfg.liveKitURL,
 		LiveKitInternalURL: cfg.liveKitInternal,

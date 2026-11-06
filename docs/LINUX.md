@@ -183,7 +183,7 @@ server {
   sudo ufw allow from 10.0.0.2 to any port 9660,8090,8081 proto tcp
   ```
 
-- **Only a trusted proxy can name a caller's address.** That's this machine and private networks by default. A connection from anywhere else is taken at face value, so a public proxy needs `--trusted-proxies 203.0.113.7`, or its callers all count as one address for rate limits. A list replaces the default, so it's also how to narrow it down to exactly your proxy.
+- **Only a trusted proxy can name a caller's address.** That's this machine and private networks by default. A connection from anywhere else is taken at face value, so a public proxy needs `--trusted-proxies 203.0.113.7`, or its callers all count as one address for rate limits. A list replaces the default, so it's also how to narrow it down to exactly your proxy. Cloudflare's addresses never count: behind Cloudflare, `--behind-cloudflare on` takes the caller from what Cloudflare says instead, which `deploy/install.sh` and `deploy/install-relay.sh` set when the domain is behind it.
 
 ## Voice channels
 
@@ -243,6 +243,7 @@ Run the script again with the option you're changing. The others stay as they we
 | Go by the machine's IP address, without a domain | `--server 203.0.113.7` |
 | Listen somewhere else | `--listen 10.0.0.5` for a proxy on another machine, or `--listen 127.0.0.1` for one on this machine |
 | Say exactly which proxies to trust | `--trusted-proxies 203.0.113.7,10.0.0.0/24` |
+| Say the domains are behind Cloudflare's proxy | `--behind-cloudflare on` |
 | Use other ports | `--server-port 9080`, `--relay-port 9090`, `--web-port 9081` |
 | Build what's checked out, without pulling | `--no-pull` |
 

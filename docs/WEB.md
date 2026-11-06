@@ -100,7 +100,8 @@ Each setting is a flag or an environment variable.
 | `--tls-cert`, `--tls-key` | `ZUNA_WEB_TLS_CERT`, `ZUNA_WEB_TLS_KEY` | Your own certificate |
 | `--data` | `ZUNA_WEB_DATA` | Where automatic HTTPS keeps its certificates |
 | `--trust-proxy` | `ZUNA_WEB_TRUST_PROXY` | Takes callers' addresses from a reverse proxy on this machine or a private network, for rate limits |
-| `--trusted-proxies` | `ZUNA_WEB_TRUSTED_PROXIES` | Exactly which proxies to trust, as addresses or CIDR ranges |
+| `--trusted-proxies` | `ZUNA_WEB_TRUSTED_PROXIES` | Exactly which proxies to trust, as addresses or CIDR ranges. Cloudflare's never count |
+| `--behind-cloudflare` | `ZUNA_WEB_BEHIND_CLOUDFLARE` | Takes a request from Cloudflare's proxy to be from whoever it names in `CF-Connecting-IP`, as the server does ([Behind Cloudflare](SELF_HOSTING.md#behind-cloudflare)) |
 | `--server` | `ZUNA_WEB_SERVER` | A server address filled in on the sign-in form |
 | `--servers` | `ZUNA_WEB_SERVERS` | If set, the only servers the app may connect to, separated by commas. The browser enforces it |
 | `--previews` | `ZUNA_WEB_PREVIEWS` | `off` stops `zuna-web` fetching pages for link previews |

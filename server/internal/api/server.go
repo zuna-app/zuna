@@ -74,6 +74,9 @@ type Config struct {
 	// TrustedProxies replaces those networks with exactly these, as addresses or
 	// CIDR ranges, for a reverse proxy elsewhere.
 	TrustedProxies []string
+	// BehindCloudflare takes a request from Cloudflare's proxy to be from whoever
+	// it names in CF-Connecting-IP.
+	BehindCloudflare bool
 	// DownloadURL is where invite pages send people who need the app.
 	DownloadURL string
 	// AuthBurst is how many sign-in attempts one address can make at once.
@@ -155,7 +158,7 @@ func New(cfg Config, db *store.DB) *Server {
 	if cfg.MinFreeDiskMB == 0 {
 		cfg.MinFreeDiskMB = defaultMinFreeDiskMB
 	}
-	callers, err := clientip.New(cfg.TrustProxy, cfg.TrustedProxies)
+	callers, err := clientip.New(cfg.TrustProxy, cfg.TrustedProxies, cfg.BehindCloudflare)
 	if err != nil {
 		panic(err)
 	}
