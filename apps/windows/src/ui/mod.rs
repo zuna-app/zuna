@@ -94,7 +94,11 @@ impl Root {
                 })
                 .child(gpui::svg().path(format!("icons/{icon_name}.svg")).size(px(10.)).text_color(theme::color(theme::hex(0xa0a0a6))))
         };
+        // Covers the root, whose focus tracking would otherwise take each press here and leave
+        // Windows nothing to drag, minimize, maximize or close with.
         div()
+            .id("titlebar")
+            .occlude()
             .flex()
             .flex_none()
             .items_center()
