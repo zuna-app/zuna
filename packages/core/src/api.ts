@@ -117,6 +117,8 @@ export interface ApiGroup {
   created_by: string;
   created_at: number;
   members: ApiMember[];
+  /** Who a direct message is between, which stays so once either has gone. */
+  dm_users?: string[];
 }
 
 export interface ApiChannel {

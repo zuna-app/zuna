@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -743,6 +744,12 @@ func TestBanRemovesAccessAndAsksMembersToClean(t *testing.T) {
 	h.mustDo("GET", "/api/groups/"+group.ID+"/changes?after=0", owner.token, nil, &feed)
 	if last := feed.Events[len(feed.Events)-1]; last.Kind != "member_left" || last.TargetUser != bob.userID {
 		t.Fatalf("last event: %+v", last)
+	}
+	// Off the list, but the direct message is still with them.
+	var after store.Group
+	h.mustDo("GET", "/api/groups/"+group.ID, owner.token, nil, &after)
+	if len(after.Members) != 1 || !slices.Contains(after.DMUsers, bob.userID) || !slices.Contains(after.DMUsers, owner.userID) {
+		t.Fatalf("the direct message after the ban: %+v", after)
 	}
 }
 

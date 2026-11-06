@@ -21,6 +21,9 @@ type Group struct {
 	CreatedBy      string        `json:"created_by"`
 	CreatedAt      int64         `json:"created_at"`
 	Members        []GroupMember `json:"members"`
+	// DMUsers are the two people a direct message is between, who stay its two
+	// once either has left the server.
+	DMUsers []string `json:"dm_users,omitempty"`
 }
 
 type GroupMember struct {
@@ -181,8 +184,9 @@ func (d *DB) Group(ctx context.Context, id string) (*Group, error) {
 	var g Group
 	var metaEpoch sql.NullInt64
 	var history int
-	err := d.sql.QueryRowContext(ctx, `SELECT id, kind, epoch, seq, meta, meta_epoch, history_visible, created_by, created_at
-		FROM groups WHERE id = ?`, id).Scan(&g.ID, &g.Kind, &g.Epoch, &g.Seq, &g.Meta, &metaEpoch, &history, &g.CreatedBy, &g.CreatedAt)
+	var dmKey sql.NullString
+	err := d.sql.QueryRowContext(ctx, `SELECT id, kind, dm_key, epoch, seq, meta, meta_epoch, history_visible, created_by, created_at
+		FROM groups WHERE id = ?`, id).Scan(&g.ID, &g.Kind, &dmKey, &g.Epoch, &g.Seq, &g.Meta, &metaEpoch, &history, &g.CreatedBy, &g.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -191,6 +195,9 @@ func (d *DB) Group(ctx context.Context, id string) (*Group, error) {
 	}
 	g.MetaEpoch = nullableInt(metaEpoch)
 	g.HistoryVisible = history != 0
+	if dmKey.Valid {
+		g.DMUsers = strings.Split(dmKey.String, ":")
+	}
 	members, err := d.groupMembers(ctx, id)
 	if err != nil {
 		return nil, err

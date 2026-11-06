@@ -1000,6 +1000,25 @@ describe("administration", () => {
     await expect(mallory.login(server.url, "mallory")).rejects.toThrow();
   });
 
+  it("keeps a direct message with someone banned theirs on a device that comes later", async () => {
+    const nina = await new TestApp("nina-laptop").open();
+    await nina.register(invite, "nina");
+    const omar = await new TestApp("omar-laptop").open();
+    await omar.register(invite, "omar");
+    const omarId = omar.userId;
+    await waitFor(() => omar.session.getUsers().some((user) => user.id === nina.userId), "omar to see nina");
+    omar.session.sendMessage(`user:${nina.userId}`, { text: "before the ban" });
+    const key = `user:${omarId}`;
+    await waitFor(() => nina.texts(key).includes("before the ban"), "omar's message");
+
+    await alice.session.banUser(omarId);
+    const phone = await new TestApp("nina-phone").open();
+    await phone.login(server.url, "nina");
+    await waitFor(() => phone.texts(key).includes("before the ban"), "omar's message on a new device", 30_000);
+    expect(phone.session.getConversations().find((item) => item.key === key)?.title).toBe("omar");
+    for (const app of [nina, omar, phone]) app.client.stop();
+  });
+
   it("creates invite links that carry the community key and can be revoked", async () => {
     const link = await alice.session.createInvite(1, 3600);
     const preview = await alice.client.previewInvite(link);

@@ -2572,7 +2572,8 @@ export class ServerSession {
       if (previous && !previous.doubtful) {
         peerId = previous.peerId;
       } else {
-        peerId = others[0] ?? previous?.peerId ?? selfId;
+        // Someone banned or gone is off the list, but not out of the conversation.
+        peerId = others[0] ?? api.dm_users?.find((id) => id !== selfId) ?? previous?.peerId ?? selfId;
         doubtful = others.length > 1;
       }
       if (others.some((id) => id !== peerId)) {
