@@ -1,13 +1,18 @@
 //! Voice messages, sound files, videos and video messages in a chat, as the desktop shows
 //! them (VoiceAttachment, AudioAttachment, VideoAttachment in MessageItem.tsx, and Round.tsx).
 
+use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use gpui::{AnyElement, App, Context, FontWeight, IntoElement, ParentElement, Pixels, Render, RenderImage, SharedString, Styled, Task, Window, canvas, div, img, point, prelude::*, px};
+use gpui::{
+    AnyElement, AnyView, App, Bounds, ContentMask, Context, Element, Entity, FontWeight, GlobalElementId, InspectorElementId, IntoElement, LayoutId, ParentElement, Pixels, Render, RenderImage, SharedString,
+    Style, Styled, Task, Window, canvas, div, img, point, prelude::*, px,
+};
 
 use super::components::*;
 use super::message::ChatContext;
@@ -18,6 +23,95 @@ use crate::state::{ClipState, MediaFile};
 use crate::theme::{self, RADIUS_M};
 
 const WAVEFORM_BARS: usize = 48;
+
+/// Where each video in the messages is this frame. A message marks the place and the chat
+/// draws the player there, above the messages (`VideoLayer`): inside them, each of a video's
+/// frames would draw every message on screen again, as GPUI draws a view again with all
+/// that's in it, where above them a frame draws the player and the chat around it while the
+/// messages keep their last drawing.
+#[derive(Clone, Default)]
+pub struct VideoSlots(Rc<RefCell<Vec<VideoSlot>>>);
+
+struct VideoSlot {
+    player: Entity<VideoPlayer>,
+    bounds: Bounds<Pixels>,
+    mask: ContentMask<Pixels>,
+}
+
+impl VideoSlots {
+    /// Forgets the places, as the messages are about to be drawn again and mark them anew.
+    pub fn clear(&self) {
+        self.0.borrow_mut().clear();
+    }
+
+    /// An empty place for a player, filling its box, which records where it is as it's laid out.
+    pub fn place(&self, player: Entity<VideoPlayer>) -> impl IntoElement {
+        let slots = self.clone();
+        canvas(move |bounds, window, _| slots.0.borrow_mut().push(VideoSlot { player, bounds, mask: window.content_mask() }), |_, _, _, _| {}).size_full()
+    }
+}
+
+/// Draws the players where the messages placed them, clipped as they would be. Laid out
+/// after the messages, so it reads the places they marked this frame, or kept from the last
+/// one when GPUI reused the messages' drawing.
+pub struct VideoLayer {
+    slots: VideoSlots,
+}
+
+impl VideoLayer {
+    pub fn new(slots: VideoSlots) -> Self {
+        VideoLayer { slots }
+    }
+}
+
+impl IntoElement for VideoLayer {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for VideoLayer {
+    type RequestLayoutState = ();
+    type PrepaintState = Vec<(AnyElement, ContentMask<Pixels>)>;
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, window: &mut Window, cx: &mut App) -> (LayoutId, ()) {
+        // Nothing of its own size: it draws where the messages are.
+        let mut style = Style::default();
+        style.position = gpui::Position::Absolute;
+        (window.request_layout(style, None, cx), ())
+    }
+
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), window: &mut Window, cx: &mut App) -> Self::PrepaintState {
+        let slots: Vec<(Entity<VideoPlayer>, Bounds<Pixels>, ContentMask<Pixels>)> = self.slots.0.borrow().iter().map(|slot| (slot.player.clone(), slot.bounds, slot.mask.clone())).collect();
+        let mut drawn = Vec::new();
+        for (player, bounds, mask) in slots {
+            if bounds.intersect(&mask.bounds).is_empty() {
+                continue;
+            }
+            let mut element = AnyView::from(player).into_any_element();
+            element.layout_as_root(bounds.size.into(), window, cx);
+            window.with_content_mask(Some(mask.clone()), |window| element.prepaint_at(bounds.origin, window, cx));
+            drawn.push((element, mask));
+        }
+        drawn
+    }
+
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), drawn: &mut Self::PrepaintState, window: &mut Window, cx: &mut App) {
+        for (element, mask) in drawn.iter_mut() {
+            window.with_content_mask(Some(mask.clone()), |window| element.paint(window, cx));
+        }
+    }
+}
 
 /// Bar heights from 0 to 1. A message without a waveform gets a flat one.
 fn decode_waveform(waveform: Option<&str>) -> Vec<f32> {
@@ -232,7 +326,7 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));
     let mut frame = div().id(SharedString::from(format!("video-{key}"))).relative().w(px(w as f32)).h(px(h as f32)).my(px(2.)).rounded(RADIUS_M).overflow_hidden().bg(gpui::black());
     if let Some(player) = player {
-        return frame.child(player).into_any_element();
+        return frame.child(context.video_slots.place(player)).into_any_element();
     }
     frame = frame.bg(theme.bg3);
     if let Some(thumb) = thumb {
@@ -283,57 +377,66 @@ pub fn round(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     let failed = matches!(context.state.read(cx).media_files.get(&key), Some(MediaFile::Failed));
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));
     let duration = attachment.duration.unwrap_or(0.);
-    let (heard, position) = player.as_ref().map(|player| player.read(cx).heard()).unwrap_or((false, 0.));
     let mut circle = div().id(SharedString::from(format!("round-{key}"))).relative().size(px(240.)).rounded_full().overflow_hidden().bg(theme.bg3);
     if let Some(thumb) = thumb {
         circle = circle.child(img(thumb).absolute().inset_0().size_full().rounded_full().opacity(0.8));
     }
     if let Some(player) = player.clone() {
-        circle = circle.child(div().absolute().inset_0().child(player.clone())).cursor_pointer().on_click(move |_, _, cx| player.update(cx, |player, cx| player.toggle_heard(cx)));
+        // The player draws its picture, ring, time and mute badge itself, where this marks.
+        circle = circle.child(div().absolute().inset_0().child(context.video_slots.place(player.clone()))).cursor_pointer().on_click(move |_, _, cx| player.update(cx, |player, cx| player.toggle_heard(cx)));
     } else {
         circle = circle.child(div().absolute().inset_0().flex().items_center().justify_center().child(if failed { icon("circle-alert", 22., gpui::white()).into_any_element() } else { spinner(22., gpui::white()).into_any_element() }));
-    }
-    let progress = if heard && duration > 0. { (position / duration).min(1.) as f32 } else { 0. };
-    let accent = theme.accent;
-    circle = circle.child(
-        canvas(
-            |_, _, _| {},
-            move |bounds, _, window, _| {
-                if progress <= 0. {
-                    return;
-                }
-                // The ring, from the top, clockwise.
-                let center = bounds.center();
-                let radius = bounds.size.width / 2. - px(2.5);
-                let mut path = gpui::PathBuilder::stroke(px(3.));
-                let steps = (progress * 120.).ceil().max(2.) as usize;
-                for step in 0..=steps {
-                    let angle = -std::f32::consts::FRAC_PI_2 + progress * std::f32::consts::TAU * step as f32 / steps as f32;
-                    let at = point(center.x + radius * angle.cos(), center.y + radius * angle.sin());
-                    if step == 0 { path.move_to(at) } else { path.line_to(at) }
-                }
-                if let Ok(path) = path.build() {
-                    window.paint_path(path, accent);
-                }
-            },
-        )
-        .absolute()
-        .inset_0(),
-    );
-    circle = circle.child(
-        div()
-            .absolute()
-            .bottom(px(14.))
-            .left_0()
-            .right_0()
-            .flex()
-            .justify_center()
-            .child(div().px(px(7.)).py(px(2.)).rounded(px(99.)).bg(theme::color(theme::black_a(0.5))).text_size(px(11.5)).text_color(gpui::white()).child(format_duration(if heard { position } else { duration }))),
-    );
-    if player.is_some() && !heard {
-        circle = circle.child(div().absolute().top(px(14.)).left_0().right_0().flex().justify_center().child(div().p(px(4.)).rounded(px(99.)).bg(theme::color(theme::black_a(0.5))).child(icon("volume-x", 13., gpui::white()))));
+        circle = circle.child(round_time(format_duration(duration)));
     }
     circle.into_any_element()
+}
+
+/// A video message's time, at the bottom of its circle.
+fn round_time(text: String) -> impl IntoElement {
+    div()
+        .absolute()
+        .bottom(px(14.))
+        .left_0()
+        .right_0()
+        .flex()
+        .justify_center()
+        .child(div().px(px(7.)).py(px(2.)).rounded(px(99.)).bg(theme::color(theme::black_a(0.5))).text_size(px(11.5)).text_color(gpui::white()).child(text))
+}
+
+/// What a playing video message draws over its picture: the ring going round as it's heard,
+/// its time, and that it's muted until it's pressed.
+fn round_overlay(heard: bool, position: f64, duration: f64, accent: gpui::Hsla) -> impl IntoElement {
+    let progress = if heard && duration > 0. { (position / duration).min(1.) as f32 } else { 0. };
+    div()
+        .absolute()
+        .inset_0()
+        .child(
+            canvas(
+                |_, _, _| {},
+                move |bounds, _, window, _| {
+                    if progress <= 0. {
+                        return;
+                    }
+                    // The ring, from the top, clockwise.
+                    let center = bounds.center();
+                    let radius = bounds.size.width / 2. - px(2.5);
+                    let mut path = gpui::PathBuilder::stroke(px(3.));
+                    let steps = (progress * 120.).ceil().max(2.) as usize;
+                    for step in 0..=steps {
+                        let angle = -std::f32::consts::FRAC_PI_2 + progress * std::f32::consts::TAU * step as f32 / steps as f32;
+                        let at = point(center.x + radius * angle.cos(), center.y + radius * angle.sin());
+                        if step == 0 { path.move_to(at) } else { path.line_to(at) }
+                    }
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, accent);
+                    }
+                },
+            )
+            .absolute()
+            .inset_0(),
+        )
+        .child(round_time(format_duration(if heard { position } else { duration })))
+        .when(!heard, |el| el.child(div().absolute().top(px(14.)).left_0().right_0().flex().justify_center().child(div().p(px(4.)).rounded(px(99.)).bg(theme::color(theme::black_a(0.5))).child(icon("volume-x", 13., gpui::white())))))
 }
 
 /// Plays a video's pictures where it's shown, with its sound when it's heard.
@@ -342,6 +445,8 @@ pub struct VideoPlayer {
     path: PathBuf,
     /// A video message plays by itself without sound, over and over, until it's pressed.
     round: bool,
+    /// Its length, as its message gives it.
+    duration: f64,
     heard: bool,
     playing: bool,
     clip: Option<Clip>,
@@ -361,8 +466,8 @@ pub struct VideoPlayer {
 }
 
 impl VideoPlayer {
-    pub fn new(key: String, path: PathBuf, round: bool, clip: Option<Clip>, cx: &mut Context<Self>) -> Self {
-        let mut player = VideoPlayer { key, path, round, heard: !round, playing: false, clip, frame: None, retired: Vec::new(), next: None, frames: None, origin: Instant::now(), from: 0., position: 0., drawn: Instant::now(), offscreen: false, _tick: None };
+    pub fn new(key: String, path: PathBuf, round: bool, duration: f64, clip: Option<Clip>, cx: &mut Context<Self>) -> Self {
+        let mut player = VideoPlayer { key, path, round, duration, heard: !round, playing: false, clip, frame: None, retired: Vec::new(), next: None, frames: None, origin: Instant::now(), from: 0., position: 0., drawn: Instant::now(), offscreen: false, _tick: None };
         player.start(0., cx);
         player
     }
@@ -371,11 +476,6 @@ impl VideoPlayer {
     pub fn set_clip(&mut self, clip: Clip, cx: &mut Context<Self>) {
         self.clip = Some(clip);
         cx.notify();
-    }
-
-    /// Whether it's playing with its sound, and how far it's got.
-    pub fn heard(&self) -> (bool, f64) {
-        (self.heard, self.position)
     }
 
     fn start(&mut self, from: f64, cx: &mut Context<Self>) {
@@ -562,7 +662,8 @@ impl Render for VideoPlayer {
             if let Some(frame) = self.frame.clone() {
                 stage = stage.child(img(frame).size_full().rounded_full());
             }
-            return stage.into_any_element();
+            let duration = self.clip.as_ref().map(|clip| clip.duration()).filter(|duration| *duration > 0.).unwrap_or(self.duration);
+            return stage.child(round_overlay(self.heard, self.position, duration, theme(cx).accent)).into_any_element();
         }
         if let Some(frame) = self.frame.clone() {
             stage = stage.child(img(frame).size_full().object_fit(gpui::ObjectFit::Cover).rounded(RADIUS_M));

@@ -214,7 +214,8 @@ pub struct AppState {
     pub media_files: HashMap<String, MediaFile>,
     pub clips: HashMap<String, ClipState>,
     pub videos: HashMap<String, Entity<crate::ui::media_views::VideoPlayer>>,
-    videos_wanted: HashMap<String, bool>,
+    /// Players to make once their files are here: whether each is a video message, and its length.
+    videos_wanted: HashMap<String, (bool, f64)>,
     pub paused_at: HashMap<String, f64>,
     pub play_when_ready: Option<(String, f64)>,
     media_tick: Option<Task<()>>,
@@ -1305,13 +1306,13 @@ impl AppState {
         if matches!(self.clips.get(id), Some(ClipState::Loading)) {
             self.decode_clip(id.to_string(), path.clone(), cx);
         }
-        if let Some(round) = self.videos_wanted.remove(id) {
+        if let Some((round, duration)) = self.videos_wanted.remove(id) {
             let clip = match self.clips.get(id) {
                 Some(ClipState::Ready(clip)) => Some(clip.clone()),
                 _ => None,
             };
             let key = id.to_string();
-            let player = cx.new(|cx| crate::ui::media_views::VideoPlayer::new(key, path.clone(), round, clip, cx));
+            let player = cx.new(|cx| crate::ui::media_views::VideoPlayer::new(key, path.clone(), round, duration, clip, cx));
             self.videos.insert(id.to_string(), player);
             if !matches!(self.clips.get(id), Some(ClipState::Ready(_))) {
                 self.decode_clip(id.to_string(), path, cx);
@@ -1324,7 +1325,7 @@ impl AppState {
         if self.videos.contains_key(&attachment.file_id) {
             return;
         }
-        self.videos_wanted.insert(attachment.file_id.clone(), round);
+        self.videos_wanted.insert(attachment.file_id.clone(), (round, attachment.duration.unwrap_or(0.)));
         if let MediaFile::Ready(_) = self.media_file(server_id, attachment, cx) {
             self.media_arrived(&attachment.file_id.clone(), cx);
         }

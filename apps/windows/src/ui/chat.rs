@@ -156,6 +156,8 @@ pub struct ChatView {
     context_cache: Option<(Rc<Vec<MessageView>>, Rc<ChatContext>)>,
     /// A channel's member list, once it's been shown.
     member_view: Option<Entity<MemberList>>,
+    /// Where the messages placed their videos, which are drawn above them.
+    video_slots: super::media_views::VideoSlots,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -350,6 +352,7 @@ impl ChatView {
             messages,
             context_cache: None,
             member_view: None,
+            video_slots: Default::default(),
             _subscriptions: subscriptions,
         };
         view.open(window, cx);
@@ -2377,6 +2380,7 @@ impl ChatView {
             members: conversation.members.iter().map(|member| member.user_id.clone()).collect(),
             read_by: conversation.read_by.clone(),
             parsed: Default::default(),
+            video_slots: self.video_slots.clone(),
         };
         let server_id = self.server_id.clone();
         if !wanted.is_empty() {
@@ -2540,6 +2544,7 @@ fn file_for_sending(path: &std::path::Path) -> serde_json::Value {
 impl ChatView {
     /// The messages, or the spinner or empty state in their place: what `MessageList` draws.
     pub fn render_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.video_slots.clear();
         let theme = theme(cx);
         let Some(conversation) = self.conversation(cx) else { return div().into_any_element() };
         let is_channel = conversation.kind == "channel";
@@ -2764,7 +2769,7 @@ impl Render for ChatView {
                         )
                     })
                     .when_some(call, |el, call| el.child(call))
-                    .when(!call_expanded, |el| el.child(body).child(composer))
+                    .when(!call_expanded, |el| el.child(body).child(super::media_views::VideoLayer::new(self.video_slots.clone())).child(composer))
                     .when_some(typing_line, |el, line| el.child(line)),
             )
             .when_some(side_panel, |el, panel| el.child(div().flex().flex_none().child(panel).enter("side-panel-in", Enter::Slide(8.), 120)))

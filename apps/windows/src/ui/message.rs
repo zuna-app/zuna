@@ -59,6 +59,8 @@ pub struct ChatContext {
     /// Each message's text, parsed once while this context lasts: it's built again when
     /// the chat's state changes, so a message whose text changed is parsed again then.
     pub parsed: std::cell::RefCell<HashMap<String, Rc<Vec<Block>>>>,
+    /// Where the videos are drawn, above the messages.
+    pub video_slots: super::media_views::VideoSlots,
 }
 
 const GROUP_WINDOW_MS: f64 = 5. * 60. * 1000.;
