@@ -1,9 +1,10 @@
-//! Pictures made on this device before they're sent: profile and group pictures.
+//! Pictures made on this device before they're sent: profile and group pictures. And sound
+//! and video, read, written, recorded and played through the system's own media on Windows.
 
-pub mod encode;
-pub mod mf;
-pub mod player;
-pub mod record;
+#[cfg(windows)]
+mod windows;
+#[cfg(windows)]
+pub use self::windows::{encode, mf, player, record};
 
 use std::path::{Path, PathBuf};
 
