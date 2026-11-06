@@ -24,6 +24,14 @@ use state::{AppState, Store};
 actions!(zuna, [Quit]);
 
 fn main() {
+    // MangoHud, which some turn on for every Vulkan program with MANGOHUD=1 to see a game's frame
+    // rate, has no place over a chat window, which draws through Vulkan on Linux. Its layer stands
+    // aside for this, which has to be set before Vulkan starts.
+    #[cfg(target_os = "linux")]
+    // SAFETY: nothing else runs yet to read the environment as it changes.
+    unsafe {
+        std::env::set_var("DISABLE_MANGOHUD", "1");
+    }
     // With where each line came from: GPUI logs errors it swallowed, and their message alone rarely says enough.
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format(|out, record| {
