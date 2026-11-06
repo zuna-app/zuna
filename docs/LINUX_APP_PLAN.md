@@ -85,9 +85,9 @@ Sealed by the Secret Service, as Electron's safeStorage does with libsecret: GNO
 ### The tray, and closing to it
 
 - **The icon:** a StatusNotifierItem over D-Bus, through the `ksni` crate, with Open Zuna and Quit, and Open on a click. The picture is `icons::tray_icon(count, ratio)`, whose drawing is already independent of Windows. KDE shows it. GNOME needs the AppIndicator extension, as for the Electron app.
-- **With no tray at all,** when nothing owns `org.kde.StatusNotifierWatcher`, closing quits, since there'd be no way back.
-- **Hiding the window:** GPUI can't hide a window on Linux, so closing to the tray closes the window and keeps the app, and Open opens a new one. What lives in the window's views is lost with it, so anything that has to outlive it moves into `AppState` first, such as each chat's draft. The alternative, unmapping the window inside GPUI, is in Decisions.
-- **`main_visible()`** becomes whether the main window is open and not minimized, as far as the compositor says.
+- **Closing minimizes the window.** GPUI can't hide a window on Linux, so with "Keep running when closed" on, closing minimizes it, and it stays on the taskbar. Open in the tray's menu brings it back. Where the compositor can't minimize, as Sway can't, which it says in xdg-shell's `wm_capabilities` (GPUI's `window.window_controls()`), closing quits instead. So does closing when there's no tray at all, when nothing owns `org.kde.StatusNotifierWatcher`, since minimizing wouldn't mean running in the tray there.
+- **Bringing it back** needs an activation token under Wayland, as for a second start. KDE's tray hands one over through `ProvideXdgActivationToken` before `Activate`, which `ksni` may have to be taught, to be checked.
+- **`main_visible()`:** Wayland doesn't tell a window it's minimized. The app knows when it minimized the window itself, so the window counts as away from then until it's active again. One the person minimized from the taskbar still counts as visible, unless GPUI learns xdg-shell's `suspended` state. Where it's used, whether the window has focus is asked too, so this only matters for a window in the background.
 
 ### Whether the person is here
 
@@ -199,17 +199,19 @@ L2 to L4 don't depend on each other once L0 is in, so they can be done side by s
 
 ## Feature parity and the docs
 
-- `.agents/FEATURE_PARITY.md`: "The native Windows app" becomes "The native desktop app", with what's different on Linux in each row, and a Known gap for each piece still to come, removed in the commit that closes it, as the file asks. The app's own cards and a share under X11 go under "Not possible or pointless there".
+- `.agents/FEATURE_PARITY.md`: "The native Windows app" becomes "The native desktop app", with what's different on Linux in each row, and a Known gap for each piece still to come, removed in the commit that closes it, as the file asks. The app's own cards and a share under X11 go under "Not possible or pointless there". Closing to the tray minimizing rather than hiding is written in the Linux row, as a difference from the Electron app.
 - `docs/WINDOWS_APP.md` becomes `docs/DESKTOP_APP.md`, covering both.
 - `CLAUDE.md`: the commands table, "on Windows so far" in the first paragraph, and the `.agents` path names.
 - `apps/site` only says the app runs on Linux once it's been checked there.
 
 ## Decisions
 
-1. **Side by side with the Electron app,** as on Windows: called Zuna Native, with `zuna-native` as its program, `.desktop` file, `app_id` and package, and its own data folder, `~/.local/share/zuna-native`, so it never takes the Electron app's. Once the Electron app is retired, it becomes `zuna`, with nothing kept for the old name. Recommended.
-2. **Media through the pinned FFmpeg,** shared with `zuna-screenshare`, rather than GStreamer or the system's FFmpeg, whose codecs differ by distribution, as Fedora's own leaves several out, or separate crates for each codec. Recommended.
-3. **Sound devices through PipeWire on Linux,** with cpal kept on Windows, rather than cpal's ALSA list. Recommended, with cpal's "default" as the first step.
-4. **Closing to the tray closes the window,** and opening makes a new one, rather than changing GPUI to unmap it, which needs the renderer's surface made again on Wayland. Recommended, after what lives in the views is moved out.
+Decided 2026-11-06:
+
+1. **Side by side with the Electron app,** as on Windows: called Zuna Native, with `zuna-native` as its program, `.desktop` file, `app_id` and package, and its own data folder, `~/.local/share/zuna-native`, so it never takes the Electron app's. Once the Electron app is retired, it becomes `zuna`, with nothing kept for the old name.
+2. **Media through the pinned FFmpeg,** shared with `zuna-screenshare`, rather than GStreamer or the system's FFmpeg, whose codecs differ by distribution, as Fedora's own leaves several out, or separate crates for each codec. Media Foundation stays on Windows for now.
+3. **Sound devices through PipeWire on Linux,** with cpal kept on Windows, rather than cpal's ALSA list or PulseAudio's library. cpal's "default" is the first step.
+4. **Closing to the tray minimizes the window,** rather than hiding it as the Electron app does, which GPUI can't do on Linux, closing it and opening a new one, which loses what lives in its views, or changing GPUI to unmap it, which needs the renderer's surface made again on Wayland.
 5. **X11:** what GPUI does there works, push to talk through XInput2 is optional, and there's no screen share. As `CLAUDE.md` decides.
 
 ## Risks
