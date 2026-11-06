@@ -119,28 +119,9 @@ impl Drop for Microphone {
     }
 }
 
-/// Spreads loudnesses over the bars, as bytes, base64 (`encodeWaveform`).
-pub fn encode_waveform(levels: &[f32]) -> String {
-    use base64::Engine;
-    const BARS: usize = 48;
-    let peak = levels.iter().copied().fold(0.01f32, f32::max);
-    let bars: Vec<u8> = (0..BARS)
-        .map(|bar| {
-            let from = bar * levels.len() / BARS;
-            let to = ((bar + 1) * levels.len() / BARS).max(from + 1).min(levels.len().max(from + 1));
-            let loudest = levels.get(from..to.min(levels.len())).map(|slice| slice.iter().copied().fold(0f32, f32::max)).unwrap_or(0.);
-            ((loudest / peak).min(1.) * 255.).round() as u8
-        })
-        .collect();
-    base64::engine::general_purpose::STANDARD.encode(bars)
-}
+pub use crate::media::encode_waveform;
 
-/// A camera the person can choose, by the name Windows gives it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct CameraDevice {
-    pub id: String,
-    pub name: String,
-}
+pub use crate::media::CameraDevice;
 
 /// The cameras, by name, each with its activation object.
 unsafe fn camera_list() -> Result<Vec<(String, IMFActivate)>, String> {
@@ -345,8 +326,7 @@ pub struct RoundRecorder {
     pub path: std::path::PathBuf,
 }
 
-/// A video message is sent when it reaches a minute.
-pub const MAX_ROUND_SECONDS: f64 = 60.;
+pub use crate::media::MAX_ROUND_SECONDS;
 
 impl RoundRecorder {
     pub fn start(path: std::path::PathBuf) -> Result<RoundRecorder, String> {

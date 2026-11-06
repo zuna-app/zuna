@@ -556,7 +556,7 @@ impl SettingsView {
                     .text_size(px(13.))
                     .text_color(theme::color(theme::hex(0xe8d3a2)))
                     .child(icon("lock", 15., theme.amber))
-                    .child("Windows couldn't protect this device's key, so it's stored without that protection.")
+                    .child(crate::platform::KEY_WARNING)
                     .into_any_element(),
             );
         }
@@ -740,7 +740,7 @@ impl SettingsView {
                 .text_center()
                 .child(logo(56.))
                 .child(div().mt(px(6.)).text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Zuna"))
-                .child(div().text_color(theme.text2).child(format!("Version {} for Windows", crate::platform::updates::VERSION)))
+                .child(div().text_color(theme.text2).child(format!("Version {} for {}", crate::platform::VERSION, crate::platform::SYSTEM_NAME)))
                 .child(div().text_size(px(13.)).text_color(theme.text3).child("End-to-end encrypted chat on servers you run."))
                 .into_any_element(),
         ];

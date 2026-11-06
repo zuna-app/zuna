@@ -46,13 +46,7 @@ fn duration(reader: &IMFSourceReader) -> Option<f64> {
     }
 }
 
-/// What a video message or a video holds: its length, and its picture's size.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Details {
-    pub duration: Option<f64>,
-    pub width: Option<u32>,
-    pub height: Option<u32>,
-}
+pub use crate::media::Details;
 
 pub fn details(path: &Path) -> Option<Details> {
     let reader = reader(path, false).ok()?;
@@ -117,11 +111,7 @@ pub struct VideoFrames {
     stride: i32,
 }
 
-/// One frame: when it shows, in seconds from the start, and its pixels, top row first.
-pub struct Frame {
-    pub at: f64,
-    pub bgra: Vec<u8>,
-}
+pub use crate::media::Frame;
 
 impl VideoFrames {
     pub fn open(path: &Path) -> windows::core::Result<VideoFrames> {

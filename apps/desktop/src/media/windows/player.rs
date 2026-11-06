@@ -1,28 +1,11 @@
 //! Playing sound: one voice message, sound file or video's sound at a time, as the
 //! desktop's `playOnly` keeps it, through Windows's wave output.
 
-use std::sync::Arc;
-
 use parking_lot::Mutex;
 use windows::Win32::Media::Audio::*;
 use windows::Win32::Media::{MMTIME, TIME_SAMPLES};
 
-/// Decoded sound: 16-bit samples, one channel, and how many a second.
-#[derive(Clone)]
-pub struct Clip {
-    pub samples: Arc<Vec<i16>>,
-    pub rate: u32,
-}
-
-impl Clip {
-    pub fn from_floats(floats: &[f32], rate: u32) -> Clip {
-        Clip { samples: Arc::new(floats.iter().map(|sample| (sample.clamp(-1., 1.) * 32767.) as i16).collect()), rate }
-    }
-
-    pub fn duration(&self) -> f64 {
-        self.samples.len() as f64 / self.rate.max(1) as f64
-    }
-}
+pub use crate::media::Clip;
 
 struct Playing {
     key: String,

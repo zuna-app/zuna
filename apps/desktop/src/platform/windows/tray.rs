@@ -11,11 +11,7 @@ use windows::Win32::UI::Shell::{NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DEL
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR, w};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TrayEvent {
-    Open,
-    Quit,
-}
+pub use crate::platform::TrayEvent;
 
 const CALLBACK: u32 = WM_APP + 1;
 const UPDATE: u32 = WM_APP + 2;

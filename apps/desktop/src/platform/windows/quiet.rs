@@ -127,13 +127,7 @@ unsafe fn on_priority_list(settings: &IQuietHoursSettings, profile_id: &str) -> 
     }
 }
 
-/// What Windows wants right now (NotificationState in packages/ui/src/platform.ts).
-#[derive(Clone, Copy, Debug)]
-pub struct NotificationState {
-    pub show: bool,
-    pub sound: bool,
-    pub wait_for_input: bool,
-}
+use crate::platform::NotificationState;
 
 // Windows's QUERY_USER_NOTIFICATION_STATE.
 const NOT_PRESENT: i32 = 1;

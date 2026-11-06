@@ -51,6 +51,7 @@ pub fn program_path() -> Option<PathBuf> {
 }
 
 fn command(path: &PathBuf) -> Command {
+    #[allow(unused_mut)]
     let mut command = Command::new(path);
     #[cfg(windows)]
     {

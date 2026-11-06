@@ -33,23 +33,3 @@ pub fn clipboard_files() -> Vec<PathBuf> {
     }
     files
 }
-
-/// Writes a pasted picture where it can be sent from, named as a browser names one.
-pub fn save_pasted_image(image: &gpui::Image) -> Option<PathBuf> {
-    use gpui::ImageFormat;
-    let extension = match image.format() {
-        ImageFormat::Png => "png",
-        ImageFormat::Jpeg => "jpg",
-        ImageFormat::Gif => "gif",
-        ImageFormat::Webp => "webp",
-        ImageFormat::Bmp => "bmp",
-        ImageFormat::Tiff => "tiff",
-        ImageFormat::Svg => "svg",
-    };
-    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let dir = std::env::temp_dir().join("Zuna").join(format!("paste-{stamp}"));
-    std::fs::create_dir_all(&dir).ok()?;
-    let path = dir.join(format!("image.{extension}"));
-    std::fs::write(&path, image.bytes()).ok()?;
-    Some(path)
-}

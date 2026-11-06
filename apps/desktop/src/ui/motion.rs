@@ -263,18 +263,7 @@ fn system_reduced() -> bool {
         if read.is_some_and(|read| read.elapsed() < Duration::from_secs(2)) {
             return value;
         }
-        let mut on = windows::core::BOOL(1);
-        // SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL to the pointer it's given.
-        let ok = unsafe {
-            windows::Win32::UI::WindowsAndMessaging::SystemParametersInfoW(
-                windows::Win32::UI::WindowsAndMessaging::SPI_GETCLIENTAREAANIMATION,
-                0,
-                Some(&mut on as *mut _ as *mut std::ffi::c_void),
-                windows::Win32::UI::WindowsAndMessaging::SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-            )
-        }
-        .is_ok();
-        let reduced = ok && !on.as_bool();
+        let reduced = crate::platform::animations_off();
         cell.set((reduced, Some(Instant::now())));
         reduced
     })

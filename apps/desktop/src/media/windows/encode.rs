@@ -8,8 +8,7 @@ use windows::core::HSTRING;
 
 use super::mf::start;
 
-/// Sample rate of what's recorded, and of what's written.
-pub const RATE: u32 = 48_000;
+pub use crate::media::RATE;
 /// AAC at 96 kbit/s, the least Windows's encoder takes for one channel.
 const AAC_BYTES_PER_SECOND: u32 = 12_000;
 
@@ -76,9 +75,7 @@ pub fn write_voice(path: &Path, samples: &[i16]) -> windows::core::Result<()> {
     }
 }
 
-/// Size of a video message's square picture, and its frames a second.
-pub const ROUND_SIZE: u32 = 480;
-pub const ROUND_FPS: u32 = 30;
+pub use crate::media::{ROUND_FPS, ROUND_SIZE};
 
 /// Writes a video message as it's recorded: square frames and the sound beside them.
 pub struct RoundWriter {

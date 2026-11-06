@@ -6,7 +6,11 @@ pub mod components;
 pub mod conversations;
 pub mod menu;
 pub mod motion;
+// The cards are Windows's. On Linux the system's notifications take their place, with the same calls.
+#[cfg(windows)]
 pub mod notifications;
+#[cfg(target_os = "linux")]
+pub use crate::platform::notifications;
 pub mod message;
 pub mod onboarding;
 pub mod overlays;
@@ -109,7 +113,7 @@ impl Root {
             _ => None,
         });
         let control = |id: &'static str, icon_name: &'static str, area: WindowControlArea, close: bool| {
-            div()
+            let button = div()
                 .id(id)
                 .flex()
                 .items_center()
@@ -121,8 +125,36 @@ impl Root {
                 .hover(move |style| {
                     if close { style.bg(theme::color(theme::hex(0xc42b1c))).text_color(gpui::white()) } else { style.bg(theme::color(theme::white_a(0.09))) }
                 })
-                .child(gpui::svg().path(format!("icons/{icon_name}.svg")).size(px(10.)).text_color(theme::color(theme::hex(0xa0a0a6))))
+                .child(gpui::svg().path(format!("icons/{icon_name}.svg")).size(px(10.)).text_color(theme::color(theme::hex(0xa0a0a6))));
+            // Wayland leaves the buttons to the app.
+            #[cfg(target_os = "linux")]
+            let button = crate::platform::title_button(button, area);
+            button
         };
+        let drag = div()
+            .id("titlebar-drag")
+            .flex()
+            .flex_1()
+            .h_full()
+            .items_center()
+            .gap(px(8.))
+            .window_control_area(WindowControlArea::Drag)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(7.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(theme.text2)
+                    .child(logo(14.))
+                    .child("Zuna"),
+            )
+            .when_some(status, |el, status| {
+                el.child(div().flex().items_center().gap(px(6.)).text_color(theme.text2).child(div().size(px(6.)).rounded_full().bg(theme.amber)).child(status))
+            });
+        // Wayland leaves dragging to the app.
+        #[cfg(target_os = "linux")]
+        let drag = crate::platform::title_drag(drag);
         // Covers the root, whose focus tracking would otherwise take each press here and leave
         // Windows nothing to drag, minimize, maximize or close with.
         div()
@@ -139,29 +171,7 @@ impl Root {
             .border_color(theme.line)
             .text_size(px(12.))
             .text_color(theme.text3)
-            .child(
-                div()
-                    .id("titlebar-drag")
-                    .flex()
-                    .flex_1()
-                    .h_full()
-                    .items_center()
-                    .gap(px(8.))
-                    .window_control_area(WindowControlArea::Drag)
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(7.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(theme.text2)
-                            .child(logo(14.))
-                            .child("Zuna"),
-                    )
-                    .when_some(status, |el, status| {
-                        el.child(div().flex().items_center().gap(px(6.)).text_color(theme.text2).child(div().size(px(6.)).rounded_full().bg(theme.amber)).child(status))
-                    }),
-            )
+            .child(drag)
             .child(
                 div()
                     .flex()
@@ -691,7 +701,7 @@ impl Render for Root {
         }
         self.covered = covered;
         let calls = if matches!(self.state.read(cx).phase, Phase::Ready) && has_servers { voice::incoming_calls(&self.state, &self.voice, cx) } else { None };
-        div()
+        let root = div()
             .size_full()
             .track_focus(&self.focus)
             .on_action(cx.listener(|root, _: &FocusSearch, window, cx| {
@@ -742,6 +752,10 @@ impl Render for Root {
             .when_some(overlay, |el, overlay| el.child(overlay))
             .child(self.toasts(cx))
             .child(self.menu.clone())
-            .child(self.picker.clone())
+            .child(self.picker.clone());
+        // Wayland leaves resizing to the app, from a margin around the window.
+        #[cfg(target_os = "linux")]
+        let root = crate::platform::window_frame(root, window);
+        root
     }
 }

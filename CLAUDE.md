@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows so far), the Electron desktop app it's taking over from (`apps/desktop-electron-legacy`), and a native iPhone and iPad app.
+Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, and being ported to Linux under Wayland, `docs/LINUX_APP_PLAN.md`), the Electron desktop app it's taking over from (`apps/desktop-electron-legacy`), and a native iPhone and iPad app.
 
 ## Working rules
 
@@ -33,6 +33,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | Installers (`apps/desktop-electron-legacy/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
 | Native screen capture, and on macOS a share's sound, which go into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
 | The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, or a release one in `dist/windows` | `npm run dev:windows`, `npm run build:windows` |
+| The same app on Linux, under Wayland only: a debug build, or a release one in `dist/linux` | `npm run dev:linux`, `npm run build:linux` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 

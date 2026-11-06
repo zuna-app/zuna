@@ -9,33 +9,7 @@ use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::BOOL;
 
-/// How large a source's picture is, as the desktop asks Electron for.
-pub const THUMB_WIDTH: u32 = 340;
-pub const THUMB_HEIGHT: u32 = 212;
-
-#[derive(Clone, Debug)]
-pub struct Source {
-    /// `screen:<n>:<x>,<y>` with the screen's top left corner, or `window:<hwnd>:0`.
-    pub id: String,
-    pub name: String,
-    pub screen: bool,
-    /// BGRA, THUMB_WIDTH by THUMB_HEIGHT, the picture fitted inside and the rest black.
-    pub thumbnail: Option<Vec<u8>>,
-}
-
-impl Source {
-    /// Where on the desktop the screen is, a pixel in from its corner, for `--monitor-at`.
-    pub fn monitor_at(&self) -> Option<(i32, i32)> {
-        let corner = self.id.strip_prefix("screen:")?.split(':').nth(1)?;
-        let (x, y) = corner.split_once(',')?;
-        Some((x.parse::<i32>().ok()? + 1, y.parse::<i32>().ok()? + 1))
-    }
-
-    /// The window's HWND, for `--window`.
-    pub fn window(&self) -> Option<String> {
-        Some(self.id.strip_prefix("window:")?.split(':').next()?.to_string())
-    }
-}
+pub use crate::platform::{Source, THUMB_HEIGHT, THUMB_WIDTH};
 
 /// Copies part of a device context into a thumbnail, fitted and centred.
 unsafe fn thumbnail_from(source: HDC, width: i32, height: i32) -> Option<Vec<u8>> {

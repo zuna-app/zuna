@@ -76,7 +76,7 @@ pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("ZUNA_DATA_DIR") {
         return PathBuf::from(dir);
     }
-    dirs::data_dir().unwrap_or_else(std::env::temp_dir).join("Zuna Native")
+    dirs::data_dir().unwrap_or_else(std::env::temp_dir).join(crate::platform::DATA_FOLDER)
 }
 
 impl Core {

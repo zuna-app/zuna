@@ -39,8 +39,14 @@ fn main() {
     if let Some(code) = checks(&args) {
         std::process::exit(code);
     }
+    // Without Wayland, GPUI would run with no window at all.
+    #[cfg(target_os = "linux")]
+    if !platform::wayland_session() {
+        eprintln!("Zuna needs a Wayland session, and this isn't one.");
+        std::process::exit(1);
+    }
     // One Zuna for each data folder: a second start hands its zuna:// link to the first, or asks it to show itself.
-    let link = platform::single::link_in(&args);
+    let link = platform::link_in(&args);
     let handed = match platform::single::claim(&host::data_dir()) {
         platform::single::Claim::First(receiver) => receiver,
         platform::single::Claim::Running => {
@@ -59,9 +65,11 @@ fn main() {
     let dir = host::data_dir();
     let device_key = host::device_key::load(&dir);
     let (core, events) = host::Core::start(dir);
-    let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), "Windows PC".into()));
+    let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), platform::DEVICE_NAME.into()));
     Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         assets::load_fonts(cx);
+        #[cfg(target_os = "linux")]
+        platform::install(cx);
         ui::text_input::bind_keys(cx);
         ui::bind_keys(cx);
         cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
@@ -130,7 +138,10 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions { title: Some("Zuna".into()), appears_transparent: true, traffic_light_position: Some(point(px(12.), px(10.))) }),
                 window_min_size: Some(size(px(720.), px(480.))),
-                app_id: Some("Zuna".into()),
+                app_id: Some(platform::APP_ID.into()),
+                // Under Wayland the app draws its own title bar, as it does on Windows.
+                #[cfg(target_os = "linux")]
+                window_decorations: Some(gpui::WindowDecorations::Client),
                 ..Default::default()
             },
             |window, cx| {
@@ -170,7 +181,7 @@ fn checks(args: &[String]) -> Option<i32> {
             let dir = host::data_dir();
             let key = host::device_key::load(&dir).expect("a device key");
             let (core, _events) = host::Core::start(dir);
-            futures::executor::block_on(core.boot(key.key, "Windows PC".into())).expect("the core boots");
+            futures::executor::block_on(core.boot(key.key, platform::DEVICE_NAME.into())).expect("the core boots");
             for source in &args[2..] {
                 if let Some(ms) = source.strip_prefix("sleep:") {
                     std::thread::sleep(std::time::Duration::from_millis(ms.parse().unwrap_or(500)));
@@ -185,7 +196,7 @@ fn checks(args: &[String]) -> Option<i32> {
             let key = host::device_key::load(&dir).expect("a device key");
             let (core, _events) = host::Core::start(dir);
             let result = futures::executor::block_on(async {
-                core.boot(key.key, "Windows PC".into()).await?;
+                core.boot(key.key, platform::DEVICE_NAME.into()).await?;
                 let method = args.get(2).cloned().unwrap_or_else(|| "listServers".into());
                 let call_args: Vec<serde_json::Value> = args[3.min(args.len())..].iter().map(|arg| serde_json::from_str(arg).unwrap_or(serde_json::Value::String(arg.clone()))).collect();
                 // ZUNA_CHECK_SERVER asks a server's session rather than the client.

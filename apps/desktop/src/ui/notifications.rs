@@ -6,11 +6,10 @@
 //! that the mouse stops. What it shows came from someone else, so it only goes in as text.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnyElement, App, AppContext, Bounds, Context, Entity, FontWeight, Image, IntoElement, MouseButton, ParentElement, Render, SharedString, Styled,
+    AnyElement, App, AppContext, Bounds, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Render, SharedString, Styled,
     Task, WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, point, prelude::*, px,
     size,
 };
@@ -35,28 +34,7 @@ const FAST: Duration = Duration::from_millis(150);
 const SLOW: Duration = Duration::from_millis(4000);
 const AFTER_INPUT: Duration = Duration::from_millis(3000);
 
-/// What a notification says and where it leads.
-#[derive(Clone)]
-pub struct Payload {
-    pub title: String,
-    pub body: String,
-    pub server_id: String,
-    pub key: String,
-    pub message_id: String,
-    pub kind: String,
-    /// The chat's picture, or nothing for the app's own when it shows nothing about who.
-    pub picture: Option<Picture>,
-    pub can_reply: bool,
-    /// Stays up until the person next touches the computer, rather than only for a while.
-    pub wait_for_input: bool,
-}
-
-#[derive(Clone)]
-pub struct Picture {
-    pub image: Option<Arc<Image>>,
-    pub initials: String,
-    pub seed: String,
-}
+pub use crate::platform::notification::{Payload, Picture};
 
 #[derive(Clone, Copy)]
 struct Fade {

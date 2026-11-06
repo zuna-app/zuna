@@ -1,0 +1,13 @@
+//! Updates on Linux come from the system's packages, or a new AppImage, as for the
+//! Electron app (`updates.ts` returns on Linux), so the app never updates itself.
+
+use std::path::Path;
+
+pub fn start() {}
+
+pub fn install_on_quit() {}
+
+/// Whether this copy is the one a package installed, which registers `zuna://` itself.
+pub fn installed(_exe: &Path) -> bool {
+    false
+}

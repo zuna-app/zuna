@@ -18,11 +18,7 @@ use windows::Win32::Security::Cryptography::*;
 use windows::Win32::Security::WinTrust::*;
 use windows::core::{GUID, HSTRING, PCWSTR};
 
-/// This build's version, as `npm run dist:windows` gives it, the desktop app's.
-pub const VERSION: &str = match option_env!("ZUNA_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
+pub use crate::platform::VERSION;
 
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 const RELEASES: &str = "https://api.github.com/repos/SocketByte/zuna-chat/releases/latest";

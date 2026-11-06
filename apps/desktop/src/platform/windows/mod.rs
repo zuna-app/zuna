@@ -24,7 +24,7 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-pub use clipboard::{clipboard_files, save_pasted_image};
+pub use clipboard::clipboard_files;
 pub use quiet::notification_state;
 
 /// A window's handle, as Windows knows it.
@@ -111,12 +111,6 @@ pub fn work_area() -> (RECT, f32) {
     }
 }
 
-/// Runs a Win32 call on a GPUI window right after the update it's asked in. Windows answers
-/// many calls with messages to the window at once, which GPUI drops in the middle of an update.
-pub fn later(cx: &gpui::App, work: impl FnOnce() + 'static) {
-    cx.spawn(async move |_| work()).detach();
-}
-
 /// Makes a window a notification: above everything, off the taskbar, and never taking
 /// focus unless `focusable` says so, which only typing a reply needs.
 pub fn make_popup(hwnd: HWND, focusable: bool) {
@@ -195,3 +189,18 @@ pub fn play_notification_sound() {
     }
 }
 
+/// Whether Windows's Animation effects are turned off.
+pub fn animations_off() -> bool {
+    let mut on = windows::core::BOOL(1);
+    // SAFETY: SPI_GETCLIENTAREAANIMATION writes one BOOL to the pointer it's given.
+    let ok = unsafe {
+        windows::Win32::UI::WindowsAndMessaging::SystemParametersInfoW(
+            windows::Win32::UI::WindowsAndMessaging::SPI_GETCLIENTAREAANIMATION,
+            0,
+            Some(&mut on as *mut _ as *mut std::ffi::c_void),
+            windows::Win32::UI::WindowsAndMessaging::SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    }
+    .is_ok();
+    ok && !on.as_bool()
+}

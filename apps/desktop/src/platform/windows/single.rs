@@ -5,7 +5,7 @@
 
 use std::io::Write;
 use std::path::Path;
-use std::sync::mpsc::{Receiver, channel};
+use std::sync::mpsc::channel;
 
 use sha2::{Digest, Sha256};
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE};
@@ -14,11 +14,7 @@ use windows::Win32::System::Pipes::{ConnectNamedPipe, CreateNamedPipeW, Disconne
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::core::HSTRING;
 
-/// What a second start said: a link, or empty for just showing the window.
-pub enum Claim {
-    First(Receiver<String>),
-    Running,
-}
+pub use crate::platform::Claim;
 
 fn names(data_dir: &Path) -> (String, String) {
     let digest = Sha256::digest(data_dir.to_string_lossy().to_lowercase().as_bytes());
@@ -88,11 +84,6 @@ pub fn forward(data_dir: &Path, message: &str) {
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-}
-
-/// The `zuna://` link this start was given, if any.
-pub fn link_in(args: &[String]) -> Option<String> {
-    args.iter().skip(1).find(|arg| arg.starts_with("zuna://")).cloned()
 }
 
 /// Makes `zuna://` links open this app, for this person only, as the desktop's installer does.

@@ -1,6 +1,6 @@
 # The native app on Linux: plan
 
-Status: planned 2026-11-06, nothing ported yet.
+Status: L0 under way: the app builds and opens its window on Linux (2026-11-06).
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
 
@@ -64,7 +64,7 @@ The callers stay as they are, except:
 
 - **`xattr`:** a `[patch.crates-io]` entry with the one line changed, in `vendor/xattr`, listed in `vendor/gpui/ZUNA.md` beside GPUI's changes. It's only compiled on Unix, so Windows doesn't see it.
 - **No X11:** `gpui` is taken with `default-features = false` and `font-kit`, `wayland` and `windows-manifest`, which leaves out X11's client and its libraries. Without it, GPUI quietly runs with no window at all when there's no Wayland display (`guess_compositor` in `platform.rs` falls to "Headless"), so `main.rs` checks first: on Linux without `WAYLAND_DISPLAY`, it writes that Zuna needs a Wayland session to standard error, shows that as a system notification, and exits. `--core-check` and `--core-eval` run before that check, as they need no window.
-- **The script:** `scripts/linux-app.mjs`, with `npm run dev:linux`, `build:linux` and `dist:linux`, beside the Windows one, which stays as it is. It bundles the core as the Windows one does, builds with the distribution's Rust, and keeps its target folder outside the checkout, in `~/.cache/zuna-desktop-target`, as `apps/desktop/target` isn't ignored.
+- **The script:** `scripts/linux-app.mjs`, with `npm run dev:linux`, `build:linux` and `dist:linux`, beside the Windows one, which stays as it is. It bundles the core as the Windows one does, builds with the distribution's Rust, and keeps its target folder outside the checkout, in `~/.cache/zuna-desktop-target`, as the Windows script keeps its own.
 - **What a build needs,** besides Rust, Node and a C compiler: the development files of `libxkbcommon`, `wayland`, `fontconfig` and `freetype2`. Vulkan, PipeWire and D-Bus are only needed while running. The first build in L0 says whether anything else is.
 
 ### The window and its title bar
