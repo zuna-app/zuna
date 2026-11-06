@@ -1,5 +1,5 @@
 // Checks the AppImage and the .tar.gz that `npm run dist:linux` makes, in a KWin of its own:
-// each starts and opens its window, and writes this person's zuna-native.desktop pointing at
+// each starts and opens its window, and writes this person's zuna.desktop pointing at
 // itself, as an AppImage or a .tar.gz has no package to install one, with its icon beside it.
 // The .tar.gz, started after the AppImage, points the same file at itself.
 //
@@ -21,10 +21,10 @@ try {
   if (!image || !archive) throw new Error("No AppImage or .tar.gz: run npm run dist:linux first.");
   const unpacked = mkdtempSync(join(work, "tar-"));
   spawnSync("tar", ["-xzf", join(packages, archive), "-C", unpacked], { stdio: "inherit" });
-  const fromArchive = join(unpacked, readdirSync(unpacked)[0], "zuna-native");
+  const fromArchive = join(unpacked, readdirSync(unpacked)[0], "zuna");
 
   // The check's session has its own for the portals, which the app would leave alone as someone else's.
-  const entry = join(xdg.XDG_DATA_HOME, "applications", "zuna-native.desktop");
+  const entry = join(xdg.XDG_DATA_HOME, "applications", "zuna.desktop");
   rmSync(entry, { force: true });
   // A Secret Service for the device key, without which the app waits two minutes for one.
   check("the check's own keyring holds the Secret Service's name", await startKeyring());
@@ -36,7 +36,7 @@ try {
     check(`the ${kind} starts and opens its window`, !!window, window ? `${window.width}x${window.height}` : app.output.slice(-300));
     const written = await until(() => existsSync(entry) && readFileSync(entry, "utf8").includes(program) && readFileSync(entry, "utf8"), `the ${kind}'s .desktop file`, 10_000).catch(() => "");
     const exec = written.split("\n").find((line) => line.startsWith("Exec="));
-    check(`it writes its own zuna-native.desktop, pointing at itself`, !!exec && exec.includes(program) && written.includes("X-Zuna-Written-By-Itself=true"), exec ?? "none");
+    check(`it writes its own zuna.desktop, pointing at itself`, !!exec && exec.includes(program) && written.includes("X-Zuna-Written-By-Itself=true"), exec ?? "none");
     const validated = spawnSync("desktop-file-validate", [entry], { encoding: "utf8" });
     check("which desktop-file-validate takes", validated.status === 0, `${validated.stdout}${validated.stderr}`.trim());
     const icon = written.split("\n").find((line) => line.startsWith("Icon="))?.slice(5);

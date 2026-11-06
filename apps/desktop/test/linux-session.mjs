@@ -95,7 +95,7 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
     join(applications, "zuna-test-driver.desktop"),
     `[Desktop Entry]\nType=Application\nName=Zuna test driver\nExec=${driverBinary}\nNoDisplay=true\nX-KDE-Wayland-Interfaces=org_kde_kwin_fake_input,org_kde_plasma_window_management\n`,
   );
-  writeFileSync(join(applications, "zuna-native.desktop"), `[Desktop Entry]\nType=Application\nName=Zuna Native\nExec=${appBinary} %u\nIcon=zuna\nMimeType=x-scheme-handler/zuna;\n`);
+  writeFileSync(join(applications, "zuna.desktop"), `[Desktop Entry]\nType=Application\nName=Zuna\nExec=${appBinary} %u\nIcon=zuna\nMimeType=x-scheme-handler/zuna;\n`);
   // Animations off, as the desktop's setting, which KWin's own animations heed too.
   writeFileSync(join(xdg.XDG_CONFIG_HOME, "kdeglobals"), "[KDE]\nAnimationDurationFactor=0\n");
   // The GPU overlays some systems put over every Vulkan program would be in each screenshot.
@@ -210,7 +210,7 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
       if (["click", "key", "press", "type", "drag"].includes(command.do)) await sleep(250);
       return answer;
     };
-    const windowOf = async () => (await drive({ do: "windows" })).windows?.find((window) => window.appId === "zuna-native");
+    const windowOf = async () => (await drive({ do: "windows" })).windows?.find((window) => window.appId === "zuna");
     const heardEvent = (match, timeoutMs = 10_000, after = 0) => until(() => events.slice(after).find(match), "an event", timeoutMs).catch(() => null);
     return { drive, windowOf, events, heardEvent };
   }

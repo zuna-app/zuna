@@ -75,13 +75,13 @@ The app draws its own title bar with Windows's three buttons, which Windows drag
 - **Buttons:** `minimize_window`, `zoom_window`, and closing as the close request does today. The Electron app on Linux draws the same buttons (`titleBarStyle: "hidden"` with `titleBarOverlay` in `main/index.ts`).
 - **Decorations drawn by the app:** `window_decorations: Some(WindowDecorations::Client)`, since KWin's would put a second title bar above this one.
 - **Resizing:** `window.start_window_resize(edge)` from the outermost few pixels of each edge and corner, drawn as nothing but the resize cursor. A shadow or rounded corners, as Windows adds, would need a transparent margin around the window, which would change how it looks and where it is, so there's neither.
-- **`app_id`** on Linux is the `.desktop` file's name, `zuna-native`. KWin finds the window's icon by it, and the portals, notifications and the badge find the app by it.
+- **`app_id`** on Linux is the `.desktop` file's name, `zuna`. KWin finds the window's icon by it, and the portals, notifications and the badge find the app by it.
 
 ### One app at a time, and `zuna://` links
 
 - **One for each data folder:** a lock on a file in the data folder (`File::try_lock`, in std since Rust 1.89), and a Unix socket in `$XDG_RUNTIME_DIR` named from the folder's hash, as the pipe is named now. A second start sends its link, or an empty line, and leaves.
 - **Raising the window from a second start:** under Wayland only a token from `xdg_activation_v1` can bring a window to the front. A launcher hands one to the program it starts in `XDG_ACTIVATION_TOKEN`, so the second start sends it with the link, and the first activates its window with it. GPUI's `activate()` asks for a token of its own without a fresh serial, which compositors refuse, as its own comment says, so this needs a change to GPUI that activates with a given token.
-- **`zuna://`:** the `.desktop` file has `MimeType=x-scheme-handler/zuna;` and `Exec=zuna-native %u`. A package installs it. An AppImage or a `.tar.gz` writes the person's own in `~/.local/share/applications` as it starts, and removes it once a package has one, as `main/desktop-entry.ts` does for the Electron app, which this ports.
+- **`zuna://`:** the `.desktop` file has `MimeType=x-scheme-handler/zuna;` and `Exec=zuna %u`. A package installs it. An AppImage or a `.tar.gz` writes the person's own in `~/.local/share/applications` as it starts, and removes it once a package has one, as `main/desktop-entry.ts` does for the Electron app, which this ports.
 
 ### The device key
 
@@ -149,7 +149,7 @@ Video4Linux2, as Chromium uses on Linux, through `libavdevice`'s `v4l2` input: e
 
 ### Push to talk
 
-- **The key, held in any window:** the global shortcuts portal, asked by the app itself over zbus, as `zuna-screenshare --push-to-talk` asks it for the Electron app. The portal knows an app by the systemd scope it runs in, which a launcher names after the `.desktop` file, so the app's connection first registers as `zuna-native` through the portal's host registry, which works wherever that file is installed, from a terminal too. Without it, push to talk is greyed out and says why, as in the Electron app.
+- **The key, held in any window:** the global shortcuts portal, asked by the app itself over zbus, as `zuna-screenshare --push-to-talk` asks it for the Electron app. The portal knows an app by the systemd scope it runs in, which a launcher names after the `.desktop` file, so the app's connection first registers as `zuna` through the portal's host registry, which works wherever that file is installed, from a terminal too. Without it, push to talk is greyed out and says why, as in the Electron app.
 - **Choosing the key** happens in the app's window, since nothing else sees keys under Wayland. GPUI's key events carry the key a layout makes, not the physical one that `KeyboardEvent.code` names, so keys are named as on a US layout, which is also how the portal is given them, by XKB's names.
 
 ### Screen sharing
@@ -158,7 +158,7 @@ Video4Linux2, as Chromium uses on Linux, through `libavdevice`'s `v4l2` input: e
 
 - **The portal's dialog picks.** The picker only offers its two tabs, a screen or a window, with no pictures, and the program gets `--source screen` or `--source window` in place of `--monitor-at` and `--window`. `--portal-sources` says first whether there's a portal and what it shares, as `portalSources` in `native-screen.ts` asks. The picker's look in that case comes from `ScreenPicker.tsx`'s, which the Electron app shows under Wayland.
 - **A window's sound:** the portal doesn't say whose window it is, so a window starts with no sound and the picker says to choose the app, as the Electron app does.
-- **The program's name** has no `.exe`, and it's looked for in `screenshare` beside the app, then in the package's `/usr/lib/zuna-native/screenshare`.
+- **The program's name** has no `.exe`, and it's looked for in `screenshare` beside the app, then in the package's `/usr/lib/zuna/screenshare`.
 
 ### Updates
 
@@ -169,7 +169,7 @@ None on Linux, as for the Electron app (`updates.ts` returns on Linux): packages
 The same five as the Electron app: a `.deb`, an `.rpm`, a pacman package, an AppImage and a `.tar.gz`, for x64.
 
 - **Made with nfpm** for the three packages, from one file of its settings, run with `go run` at a pinned version, since Go is already needed for the server; the AppImage as AppImage's own runtime, a tagged release pinned by its hash, with the program's folder appended as SquashFS by `mksquashfs`, which is what `appimagetool` does; and the `.tar.gz` by the script.
-- **Laid out as:** `/usr/lib/zuna-native/zuna-native`, `/usr/lib/zuna-native/screenshare/` with the screen capture and FFmpeg's libraries, `/usr/bin/zuna-native` linking to the program, `/usr/share/applications/zuna-native.desktop`, and the icons in hicolor from `apps/desktop-electron-legacy/resources/icons`.
+- **Laid out as:** `/usr/lib/zuna/zuna`, `/usr/lib/zuna/screenshare/` with the screen capture and FFmpeg's libraries, `/usr/bin/zuna` linking to the program, `/usr/share/applications/zuna.desktop`, and the icons in hicolor from `apps/desktop-electron-legacy/resources/icons`.
 - **What they depend on:** `libxkbcommon`, `wayland`, `vulkan-icd-loader` and a Vulkan driver, `fontconfig`, `freetype2`, `pipewire`, `xdg-desktop-portal` with a backend for the session, and a color emoji font such as Noto Color Emoji. Recommended: a Secret Service and `geoclue`.
 - **Built here, for now:** `npm run dist:linux` makes them, and the release workflow stays as it is until it's decided otherwise.
 - **glibc:** the program needs the glibc it was built against or newer. Packages built on this machine need Arch's, which is fine here. Once they're published, they'll have to be built in an old enough container, such as Debian 12's or Ubuntu 22.04's.
@@ -243,7 +243,7 @@ For what only the whole desktop shows, or what needs a person to click in a syst
 
 | | In the test KWin | In the real session |
 |---|---|---|
-| L0 | `cargo test`. Starts, with a window whose `app_id` is `zuna-native`. Started with no `WAYLAND_DISPLAY`, exits with the message. `--core-check` without a window. Onboarding typed through, signing in, a chat with a bot both ways. Each screen's screenshot at a scale of 1 and 2, beside the Electron app's at the same size: the layout is the same, and only glyphs may differ, since GPUI draws text with cosmic-text and fontconfig there. The title bar: a drag moves the window, a double click maximizes and restores, each button works, and each edge and corner resizes | The window on the real screen |
+| L0 | `cargo test`. Starts, with a window whose `app_id` is `zuna`. Started with no `WAYLAND_DISPLAY`, exits with the message. `--core-check` without a window. Onboarding typed through, signing in, a chat with a bot both ways. Each screen's screenshot at a scale of 1 and 2, beside the Electron app's at the same size: the layout is the same, and only glyphs may differ, since GPUI draws text with cosmic-text and fontconfig there. The title bar: a drag moves the window, a double click maximizes and restores, each button works, and each edge and corner resizes | The window on the real screen |
 | L1 | Frames: see below. A second start with a link hands it over, and the window becomes active. `xdg-open zuna://…` with the `.desktop` file in the throwaway `XDG_DATA_HOME`. The device key: an item in the keyring, the same key after starting again, and without a keyring a 0600 file and Settings' sentence. Notifications: what `Notify` was given, the default action opening the chat, `CloseNotification` once a bot reads it elsewhere, and with `Inhibited` no sound. The sound recorded from the sink, at 880 and 1174.66 Hz. The badge's counts. The tray's icon with the red count, `Activate` bringing the window back, Quit taking the icon away. Closing minimizes, and Open restores. Idle past 30 s, from the stand-in `ScreenSaver`, reported as away. Animations off stilling a menu, seen in screenshots taken while it opens. The 12-hour clock under `LC_TIME=en_US.UTF-8`, and the 24-hour one under `pl_PL.UTF-8`. A `text/uri-list` put on the clipboard with `wl-copy`, then Ctrl+V, making file chips | KWallet. The tray and badge in plasmashell. Coming back from the taskbar. Locking the screen with `loginctl lock-session`. Location, once `geoclue` is installed |
 | L2 | Each device listed by its name, the run's own among them. A voice channel and a call with the Electron app: each hears the other's tone, by frequency, both ways. Choosing another device during a call. Mute, deafen and each person's volume. Ringing, answering, declining and a missed call. The camera both ways: the Electron app shows the test pattern, and the app shows the Electron app's fake camera. Settings' microphone test and camera test | Push to talk: the key bound in KDE's dialog, then pressed through `kglobalaccel`'s D-Bus, as the Electron app's was checked, heard as talking and stopping |
 | L3 | The picker in its portal form, beside the Electron app's under Wayland | A screen and a window shared to the Electron app, which shows them, through KDE's dialog. A tone played by one app heard as the share's sound, with Zuna's own left out. Stopping, and closing the shared window ending it |
@@ -277,7 +277,7 @@ Measured in the test KWin, before GPUI's Wayland change and after, and written i
 
 Decided 2026-11-06:
 
-1. **Side by side with the Electron app,** as on Windows: called Zuna Native, with `zuna-native` as its program, `.desktop` file, `app_id` and package, and its own data folder, `~/.local/share/zuna-native`, so it never takes the Electron app's. Once the Electron app is retired, it becomes `zuna`, with nothing kept for the old name.
+1. **It's Zuna, and the Electron app is Zuna Legacy** (2026-11-07): `zuna` is the native app's program, `.desktop` file, `app_id`, package and data folder, `~/.local/share/zuna`, and the Electron app's Linux names are `zuna-legacy`, its menu entry Zuna Legacy, so the two can still be installed side by side. Until then they were Zuna Native, `zuna-native`, and Zuna, `zuna`; nothing is kept for those names.
 2. **Media through the pinned FFmpeg,** shared with `zuna-screenshare`, rather than GStreamer or the system's FFmpeg, whose codecs differ by distribution, or separate crates for each codec. Media Foundation stays on Windows.
 3. **Sound devices through PipeWire on Linux,** with cpal kept on Windows, rather than cpal's ALSA list or PulseAudio's library. cpal's "default" is the first step.
 4. **Closing to the tray minimizes the window,** rather than hiding it as the Electron app does, which GPUI can't do on Linux, closing it and opening a new one, which loses what lives in its views, or changing GPUI to unmap it, which needs the renderer's surface made again.

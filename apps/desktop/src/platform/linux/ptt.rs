@@ -8,7 +8,7 @@
 //! A mouse button can't be, as the portal's shortcuts are keys alone.
 //!
 //! Each talk with the portal is on a D-Bus connection of its own, which first names the app to
-//! it as `zuna-native` through the host registry, as ashpd can't (it takes only dotted IDs).
+//! it as `zuna` through the host registry, as ashpd can't (it takes only dotted IDs).
 //! The portal only gives shortcuts to an app it can name, and otherwise knows one only by how
 //! it was started: from its .desktop file, not from a terminal or a development build.
 

@@ -30,18 +30,19 @@ pub const SYSTEM_NAME: &str = "Windows";
 #[cfg(target_os = "linux")]
 pub const SYSTEM_NAME: &str = "Linux";
 
-/// The app's data folder, in the system's folder for app data, apart from the Electron app's.
+/// The app's data folder, in the system's folder for app data, apart from the Electron app's,
+/// which keeps its own in the configuration folder.
 #[cfg(windows)]
 pub const DATA_FOLDER: &str = "Zuna Native";
 #[cfg(target_os = "linux")]
-pub const DATA_FOLDER: &str = "zuna-native";
+pub const DATA_FOLDER: &str = "zuna";
 
 /// The app's ID for its windows. On Linux it's the `.desktop` file's name, by which the
 /// desktop finds the app's icon, and the portals and notifications find the app.
 #[cfg(windows)]
 pub const APP_ID: &str = "Zuna";
 #[cfg(target_os = "linux")]
-pub const APP_ID: &str = "zuna-native";
+pub const APP_ID: &str = "zuna";
 
 /// What Security says when the system couldn't protect the device key, as the desktop says it.
 #[cfg(windows)]

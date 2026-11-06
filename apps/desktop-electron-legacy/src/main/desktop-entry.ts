@@ -1,5 +1,5 @@
 // On Linux the applications menu, `zuna://` links and the global shortcuts portal all find
-// the app by its .desktop file, `zuna.desktop`, named after `desktopName` in package.json,
+// the app by its .desktop file, `zuna-legacy.desktop`, named after `desktopName` in package.json,
 // which Electron also names its systemd scope after. The .deb, .rpm and pacman packages
 // install it in /usr/share/applications. An AppImage or a .tar.gz has nowhere to put one,
 // so it writes this person's own each time it starts, pointing at wherever it is now, and
@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-const NAME = "zuna.desktop";
+const NAME = "zuna-legacy.desktop";
 /** Marks a .desktop file as one this wrote, so it never changes or removes anyone else's. */
 const MARK = "X-Zuna-Written-By-Itself=true";
 
@@ -46,7 +46,7 @@ function program(): string {
   return process.execPath;
 }
 
-/** Writes this person's `zuna.desktop` for an AppImage or a .tar.gz, or takes it away once a package has one. */
+/** Writes this person's `zuna-legacy.desktop` for an AppImage or a .tar.gz, or takes it away once a package has one. */
 export function keepDesktopEntry(icon: string): void {
   if (process.platform !== "linux" || !app.isPackaged) return;
   const own = join(dataHome(), "applications", NAME);
@@ -64,7 +64,7 @@ export function keepDesktopEntry(icon: string): void {
     if (/[\x00-\x1f\x7f]/.test(path)) return;
 
     // What runs from an AppImage is gone once it stops, so the menu's icon is a copy.
-    const picture = join(dataHome(), "icons", "zuna.png");
+    const picture = join(dataHome(), "icons", "zuna-legacy.png");
     const drawn = readFileSync(icon);
     if (!existsSync(picture) || !readFileSync(picture).equals(drawn)) {
       mkdirSync(dirname(picture), { recursive: true });
@@ -75,14 +75,15 @@ export function keepDesktopEntry(icon: string): void {
     // As the packages' own, from electron-builder.yml, and gone from the menu once the program is.
     const text = [
       "[Desktop Entry]",
-      `Name=${app.getName()}`,
+      // As the packages' own, so the menu tells it from the native app, which is Zuna.
+      "Name=Zuna Legacy",
       ...(description ? [`Comment=${escaped(description)}`] : []),
       `Exec=${execArgument(path)} %U`,
       `TryExec=${escaped(path)}`,
       "Terminal=false",
       "Type=Application",
       `Icon=${escaped(picture)}`,
-      "StartupWMClass=zuna",
+      "StartupWMClass=zuna-legacy",
       "MimeType=x-scheme-handler/zuna;",
       "Categories=Network;InstantMessaging;",
       MARK,

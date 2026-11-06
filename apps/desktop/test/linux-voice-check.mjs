@@ -225,8 +225,14 @@ try {
   // The system's default devices too, for messages recorded and played, are the check's own.
   start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, RUST_LOG: "warn,zuna=info", ZUNA_CHECK_SPEAKERS: speakers, ZUNA_CHECK_MICROPHONE: microphone, ...trust }, "app");
   const first = await until(windowOf, "the app's window", 30_000);
-  await drive({ do: "click", x: first.x + 300, y: first.y + 16, count: 2 });
-  await sleep(2500);
+  // Maximized, so where things are is the same each run, by a double click on the title bar,
+  // again until it takes, as a window that's only just appeared may not have drawn it yet.
+  await until(async () => {
+    await drive({ do: "click", x: first.x + 300, y: first.y + 16, count: 2 });
+    await sleep(800);
+    return (await windowOf())?.maximized;
+  }, "the window to be maximized", 20_000);
+  await sleep(1700);
   await shot("01-native-ready");
 
   // --- The Electron app, the other person ---
@@ -274,7 +280,7 @@ try {
   // The Electron app's window out of the way, as the two share the KWin and activating one
   // doesn't raise it. Its page goes on as before.
   await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
-  await drive({ do: "activate", appId: "zuna-native" });
+  await drive({ do: "activate", appId: "zuna" });
   await sleep(800);
   await drive({ do: "click", x: 134, y: 221 });
   const native = await page.locator(".voice-occupant", { hasText: "Linux Owner" }).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
@@ -501,7 +507,7 @@ try {
 
   // --- Sharing the screen, picked in the portal's own dialog ---
   await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
-  await drive({ do: "activate", appId: "zuna-native" });
+  await drive({ do: "activate", appId: "zuna" });
   await sleep(800);
   await drive({ do: "click", x: 302, y: 843 });
   await sleep(1500);

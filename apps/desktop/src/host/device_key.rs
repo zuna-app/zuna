@@ -92,7 +92,7 @@ fn protect(data: &[u8]) -> Option<Vec<u8>> {
     within_wait(async move {
         let keyring = oo7::Keyring::new().await.inspect_err(|error| log::warn!("no Secret Service for the device key: {error}")).ok()?;
         keyring.unlock().await.ok()?;
-        keyring.create_item("Zuna Native device key", &secret_attributes(&id), data.as_slice(), true).await.inspect_err(|error| log::warn!("the device key wasn't sealed: {error}")).ok()?;
+        keyring.create_item("Zuna device key", &secret_attributes(&id), data.as_slice(), true).await.inspect_err(|error| log::warn!("the device key wasn't sealed: {error}")).ok()?;
         Some(format!("{SECRET_PREFIX}{id}").into_bytes())
     })
 }
@@ -124,5 +124,5 @@ fn within_wait<T: Send + 'static>(work: impl std::future::Future<Output = Option
 
 #[cfg(target_os = "linux")]
 fn secret_attributes(id: &str) -> std::collections::HashMap<&'static str, String> {
-    std::collections::HashMap::from([("application", "chat.zuna.native".to_string()), ("device-key", id.to_string())])
+    std::collections::HashMap::from([("application", "chat.zuna".to_string()), ("device-key", id.to_string())])
 }

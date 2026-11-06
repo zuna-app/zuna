@@ -38,12 +38,12 @@ try {
 
   // --- The window ---
   const first = await until(windowOf, "the app's window", 30_000);
-  check("the window's app ID is its .desktop file's", first.appId === "zuna-native");
+  check("the window's app ID is its .desktop file's", first.appId === "zuna");
   check("the window is named", first.title === "Zuna", first.title);
   const registered = await heardEvent((event) => event.trayRegistered);
   check("the tray's icon registers", !!registered);
   const tray = registered ? await drive({ do: "tray" }) : {};
-  check("it's the app's, with its name as the tooltip and its icon in several sizes", tray.id === "zuna-native" && tray.tooltip === "Zuna" && tray.icons?.length >= 3, JSON.stringify(tray));
+  check("it's the app's, with its name as the tooltip and its icon in several sizes", tray.id === "zuna" && tray.tooltip === "Zuna" && tray.icons?.length >= 3, JSON.stringify(tray));
   check("the desktop's animations being off reaches the app", await until(() => app.output.includes("animations are off"), "the setting", 10_000).catch(() => false));
   await sleep(1500);
   await shot("01-start");
@@ -84,7 +84,7 @@ try {
   await drive({ do: "click", ...button(taller, 115) });
   await sleep(600);
   check("the minimize button minimizes", (await windowOf()).minimized);
-  await drive({ do: "restore", appId: "zuna-native" });
+  await drive({ do: "restore", appId: "zuna" });
   await sleep(600);
   check("and the taskbar brings it back", !(await windowOf()).minimized);
   await drive({ do: "click", ...button(await windowOf(), 23) });
@@ -96,7 +96,7 @@ try {
   const clicked = await drive({ do: "tray-activate" });
   await sleep(800);
   check("a click on the tray's icon shows the window with the token it was handed", app.output.includes("showing the window with an activation token"), JSON.stringify(clicked));
-  await drive({ do: "restore", appId: "zuna-native" });
+  await drive({ do: "restore", appId: "zuna" });
   await sleep(600);
   // Maximized from here on, so where things are is the same each run.
   await drive({ do: "click", ...bar(await windowOf(), 300), count: 2 });
@@ -132,7 +132,7 @@ try {
   }, "the recovery key to be copied", 60_000).catch(() => null);
   check("the account is made, and Copy puts its recovery key on the clipboard", !!recovery);
   const sealed = existsSync(join(appData, "device-key.sealed")) ? readFileSync(join(appData, "device-key.sealed"), "utf8") : "";
-  const stored = spawnSync("secret-tool", ["search", "--all", "application", "chat.zuna.native"], { env: session, encoding: "utf8", timeout: 10_000 });
+  const stored = spawnSync("secret-tool", ["search", "--all", "application", "chat.zuna"], { env: session, encoding: "utf8", timeout: 10_000 });
   check("the device key is in the Secret Service, with only its item's ID on disk", sealed.startsWith("secret-service:") && `${stored.stdout}${stored.stderr}`.includes("device-key") && !existsSync(join(appData, "device-key.bin")), `${sealed.slice(0, 20)}, plain ${existsSync(join(appData, "device-key.bin"))}, ${stored.stdout.split("\n").length} lines found`);
   await shot("05-recovery-key");
   await drive({ do: "click", x: 529, y: 582 });
@@ -223,13 +223,13 @@ try {
   await sleep(500);
   peer.stdin.write(`${JSON.stringify({ send: unsafe })}\n`);
   const notified = (await heardEvent((event) => event.notified, 15_000, since))?.notified;
-  check("a message in another chat shows a system notification, named and pictured", notified?.summary === "Casey Park" && notified?.image && notified?.desktopEntry === "zuna-native" && notified?.actions?.includes("default"), JSON.stringify(notified));
+  check("a message in another chat shows a system notification, named and pictured", notified?.summary === "Casey Park" && notified?.image && notified?.desktopEntry === "zuna" && notified?.actions?.includes("default"), JSON.stringify(notified));
   check("its text goes as text, not markup", notified?.body === "&lt;b&gt;Bold&lt;/b&gt; &amp; &lt;a href='https://example.com'&gt;a link&lt;/a&gt;", notified?.body);
   check("the server adds no sound, as the app plays its own", notified?.suppressSound === true);
   const chime = await sound;
   check("and the app's own plays, through PipeWire", chime > 0.02, `peak ${chime.toFixed(3)}`);
   const badge = await heardEvent((event) => event.badge?.count === 1, 10_000, since);
-  check("the badge shows one unread", !!badge && badge.badge.visible === true && badge.badge.app === "application://zuna-native.desktop", JSON.stringify(badge));
+  check("the badge shows one unread", !!badge && badge.badge.visible === true && badge.badge.app === "application://zuna.desktop", JSON.stringify(badge));
   const tooltip = await drive({ do: "tray" });
   check("and so does the tray's tooltip", tooltip.tooltip === "Zuna: 1 unread", tooltip.tooltip);
   await shot("11-notified");

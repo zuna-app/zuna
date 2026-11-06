@@ -6,7 +6,7 @@
   "description": "Zuna: private, end-to-end encrypted chat on servers you run.",
   "author": "Zuna contributors",
   "homepage": "https://github.com/SocketByte/zuna-chat",
-  "desktopName": "zuna.desktop",
+  "desktopName": "zuna-legacy.desktop",
   "main": "./out/main/index.js",
   "type": "module",
   "scripts": {

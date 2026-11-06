@@ -19,7 +19,7 @@ fn socket_path(data_dir: &Path) -> PathBuf {
     let digest = Sha256::digest(data_dir.to_string_lossy().as_bytes());
     let tag: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|| data_dir.to_path_buf());
-    runtime.join(format!("zuna-native-{tag}.sock"))
+    runtime.join(format!("zuna-{tag}.sock"))
 }
 
 /// Becomes the one running for this data folder, or says one already is.

@@ -50,7 +50,7 @@ pub fn program_path() -> Option<PathBuf> {
         }
     }
     if cfg!(target_os = "linux") {
-        candidates.push(PathBuf::from("/usr/lib/zuna-native/screenshare").join(EXECUTABLE));
+        candidates.push(PathBuf::from("/usr/lib/zuna/screenshare").join(EXECUTABLE));
     }
     if cfg!(debug_assertions) {
         candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../screenshare/dist").join(EXECUTABLE));

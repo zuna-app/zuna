@@ -1,5 +1,5 @@
 //! On Linux the applications menu, `zuna://` links and the portals find the app by its .desktop
-//! file, `zuna-native.desktop`. The .deb, .rpm and pacman packages install it in
+//! file, `zuna.desktop`. The .deb, .rpm and pacman packages install it in
 //! /usr/share/applications. An AppImage or a .tar.gz has nowhere to put one, so it writes this
 //! person's own each time it starts, pointing at wherever it is now, and takes it away again
 //! once a package has one, as the desktop's `desktop-entry.ts` does.
@@ -109,7 +109,7 @@ fn write() -> std::io::Result<()> {
     // As the packages' own, from scripts/linux-app.mjs, and gone from the menu once the program is.
     let text = [
         "[Desktop Entry]".to_string(),
-        "Name=Zuna Native".into(),
+        "Name=Zuna".into(),
         "Comment=Zuna: private, end-to-end encrypted chat on servers you run.".into(),
         format!("Exec={} %U", exec_argument(path)),
         format!("TryExec={}", escaped(path)),
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn quotes_a_path_for_exec_as_the_specification_asks() {
-        assert_eq!(exec_argument("/opt/Zuna/zuna-native"), "/opt/Zuna/zuna-native");
+        assert_eq!(exec_argument("/opt/Zuna/zuna"), "/opt/Zuna/zuna");
         assert_eq!(exec_argument("/home/a b/Zuna 100%.AppImage"), "\"/home/a b/Zuna 100%%.AppImage\"");
         assert_eq!(exec_argument("/x/$y\"z"), "\"/x/\\\\$y\\\\\"z\"");
     }

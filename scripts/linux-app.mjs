@@ -8,7 +8,7 @@
 //   node scripts/linux-app.mjs dist                             that, as a .deb, an .rpm, a pacman
 //                                                               package, an AppImage and a .tar.gz
 //
-// Its data is in ~/.local/share/zuna-native, or ZUNA_DATA_DIR, so it never touches the
+// Its data is in ~/.local/share/zuna, or ZUNA_DATA_DIR, so it never touches the
 // Electron app's.
 
 import { createHash } from "node:crypto";
@@ -48,7 +48,7 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 if (command === "build" || command === "dist") {
   const dist = join(root, "dist", "linux");
   mkdirSync(dist, { recursive: true });
-  copyFileSync(join(target, "release", "zuna"), join(dist, "zuna-native"));
+  copyFileSync(join(target, "release", "zuna"), join(dist, "zuna"));
   // The screen capture and FFmpeg's libraries, which the program finds at $ORIGIN/screenshare.
   const screenshare = join(root, "apps", "screenshare", "dist");
   if (!existsSync(join(screenshare, "zuna-screenshare"))) {
@@ -57,7 +57,7 @@ if (command === "build" || command === "dist") {
   }
   rmSync(join(dist, "screenshare"), { recursive: true, force: true });
   cpSync(screenshare, join(dist, "screenshare"), { recursive: true });
-  console.log(`> wrote ${join(dist, "zuna-native")}, with the screen capture in ${join(dist, "screenshare")}`);
+  console.log(`> wrote ${join(dist, "zuna")}, with the screen capture in ${join(dist, "screenshare")}`);
   if (command === "dist") await packages(dist);
 }
 
@@ -73,14 +73,14 @@ async function packages(dist) {
   const entry = (exec, icon) =>
     [
       "[Desktop Entry]",
-      "Name=Zuna Native",
+      "Name=Zuna",
       `Comment=${description}`,
       `Exec=${exec} %U`,
       `TryExec=${exec}`,
       "Terminal=false",
       "Type=Application",
       `Icon=${icon}`,
-      "StartupWMClass=zuna-native",
+      "StartupWMClass=zuna",
       "MimeType=x-scheme-handler/zuna;",
       "Categories=Network;InstantMessaging;",
       "",
@@ -90,22 +90,22 @@ async function packages(dist) {
     if (done.status !== 0) throw new Error(`${program} ${args.join(" ")} failed`);
   };
 
-  // --- The three packages, through nfpm, laid out as /usr/lib/zuna-native with a link in /usr/bin ---
-  const desktop = join(out, "zuna-native.desktop");
-  writeFileSync(desktop, entry("/usr/bin/zuna-native", "zuna-native"));
+  // --- The three packages, through nfpm, laid out as /usr/lib/zuna with a link in /usr/bin ---
+  const desktop = join(out, "zuna.desktop");
+  writeFileSync(desktop, entry("/usr/bin/zuna", "zuna"));
   run("desktop-file-validate", [desktop]);
   const contents = [
-    { src: join(dist, "zuna-native"), dst: "/usr/lib/zuna-native/zuna-native", file_info: { mode: 0o755 } },
-    { src: join(dist, "screenshare"), dst: "/usr/lib/zuna-native/screenshare", type: "tree" },
-    { src: "/usr/lib/zuna-native/zuna-native", dst: "/usr/bin/zuna-native", type: "symlink" },
-    { src: desktop, dst: "/usr/share/applications/zuna-native.desktop", file_info: { mode: 0o644 } },
-    { src: join(root, "LICENSE"), dst: "/usr/share/licenses/zuna-native/LICENSE", file_info: { mode: 0o644 } },
-    ...sizes.map((name) => ({ src: join(icons, name), dst: `/usr/share/icons/hicolor/${name.replace(".png", "")}/apps/zuna-native.png`, file_info: { mode: 0o644 } })),
+    { src: join(dist, "zuna"), dst: "/usr/lib/zuna/zuna", file_info: { mode: 0o755 } },
+    { src: join(dist, "screenshare"), dst: "/usr/lib/zuna/screenshare", type: "tree" },
+    { src: "/usr/lib/zuna/zuna", dst: "/usr/bin/zuna", type: "symlink" },
+    { src: desktop, dst: "/usr/share/applications/zuna.desktop", file_info: { mode: 0o644 } },
+    { src: join(root, "LICENSE"), dst: "/usr/share/licenses/zuna/LICENSE", file_info: { mode: 0o644 } },
+    ...sizes.map((name) => ({ src: join(icons, name), dst: `/usr/share/icons/hicolor/${name.replace(".png", "")}/apps/zuna.png`, file_info: { mode: 0o644 } })),
   ];
   // What the program links and loads, by each system's names: Wayland, Vulkan, fonts, PipeWire,
   // and the portals, with a color emoji font and GeoClue for location recommended.
   const config = {
-    name: "zuna-native",
+    name: "zuna",
     arch: "amd64",
     platform: "linux",
     version,
@@ -151,32 +151,32 @@ async function packages(dist) {
     writeFileSync(runtime, Buffer.from(await response.arrayBuffer()));
     if (hash(runtime) !== runtimeHash) throw new Error("The AppImage runtime isn't the one pinned.");
   }
-  const appDir = join(dist, "Zuna-Native.AppDir");
+  const appDir = join(dist, "Zuna.AppDir");
   rmSync(appDir, { recursive: true, force: true });
-  mkdirSync(join(appDir, "usr", "lib", "zuna-native"), { recursive: true });
-  copyFileSync(join(dist, "zuna-native"), join(appDir, "usr", "lib", "zuna-native", "zuna-native"));
-  cpSync(join(dist, "screenshare"), join(appDir, "usr", "lib", "zuna-native", "screenshare"), { recursive: true });
-  symlinkSync("usr/lib/zuna-native/zuna-native", join(appDir, "AppRun"));
+  mkdirSync(join(appDir, "usr", "lib", "zuna"), { recursive: true });
+  copyFileSync(join(dist, "zuna"), join(appDir, "usr", "lib", "zuna", "zuna"));
+  cpSync(join(dist, "screenshare"), join(appDir, "usr", "lib", "zuna", "screenshare"), { recursive: true });
+  symlinkSync("usr/lib/zuna/zuna", join(appDir, "AppRun"));
   // The runtime's own .desktop file and icon, for tools that look; the app writes its own as it starts.
-  writeFileSync(join(appDir, "zuna-native.desktop"), entry("zuna-native", "zuna-native"));
-  copyFileSync(join(icons, "256x256.png"), join(appDir, "zuna-native.png"));
-  symlinkSync("zuna-native.png", join(appDir, ".DirIcon"));
-  const squashfs = join(dist, "Zuna-Native.squashfs");
+  writeFileSync(join(appDir, "zuna.desktop"), entry("zuna", "zuna"));
+  copyFileSync(join(icons, "256x256.png"), join(appDir, "zuna.png"));
+  symlinkSync("zuna.png", join(appDir, ".DirIcon"));
+  const squashfs = join(dist, "Zuna.squashfs");
   run("mksquashfs", [appDir, squashfs, "-root-owned", "-noappend", "-comp", "zstd", "-quiet"]);
-  const image = join(out, `Zuna-Native-${version}-x86_64.AppImage`);
+  const image = join(out, `Zuna-${version}-x86_64.AppImage`);
   writeFileSync(image, Buffer.concat([readFileSync(runtime), readFileSync(squashfs)]));
   chmodSync(image, 0o755);
   rmSync(squashfs);
   rmSync(appDir, { recursive: true, force: true });
 
   // --- The .tar.gz: the program and its screen capture in one folder ---
-  const folder = `zuna-native-${version}`;
+  const folder = `zuna-${version}`;
   const staged = join(dist, folder);
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(staged);
-  copyFileSync(join(dist, "zuna-native"), join(staged, "zuna-native"));
+  copyFileSync(join(dist, "zuna"), join(staged, "zuna"));
   cpSync(join(dist, "screenshare"), join(staged, "screenshare"), { recursive: true });
-  run("tar", ["-czf", join(out, `Zuna-Native-${version}-x64.tar.gz`), "-C", dist, folder]);
+  run("tar", ["-czf", join(out, `Zuna-${version}-x64.tar.gz`), "-C", dist, folder]);
   rmSync(staged, { recursive: true, force: true });
   console.log(`> wrote ${readdirSync(out).join(", ")} in ${out}`);
 }

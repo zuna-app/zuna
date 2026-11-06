@@ -70,8 +70,10 @@ mac:
     NSLocationUsageDescription: Zuna uses your location only when you choose to share it in a chat.
     NSLocationWhenInUseUsageDescription: Zuna uses your location only when you choose to share it in a chat.
   artifactName: Zuna-${version}-${arch}.${ext}
-# Each package installs zuna.desktop in /usr/share/applications. An AppImage or a .tar.gz
-# writes this person's own as it starts (src/main/desktop-entry.ts).
+# Each package installs zuna-legacy.desktop in /usr/share/applications. An AppImage or a
+# .tar.gz writes this person's own as it starts (src/main/desktop-entry.ts). On Linux it's
+# Zuna Legacy, so that it never takes the names of the native app (apps/desktop), which is
+# zuna, in the menu, the packages, /usr/bin or the portals.
 linux:
   target:
     # Debian and Ubuntu.
@@ -90,22 +92,26 @@ linux:
   # One for each size in hicolor, from scripts/make-icons.mjs.
   icon: resources/icons
   # The default comes from the package name, @zuna/desktop-electron-legacy, which isn't a valid file name.
-  executableName: zuna
+  executableName: zuna-legacy
   # Names the .desktop file after desktopName in package.json, which Electron uses
   # as the window's app ID, so the desktop links the window to its icon.
   syncDesktopName: true
+  desktop:
+    entry:
+      Name: Zuna Legacy
   category: Network;InstantMessaging
   maintainer: Zuna contributors <zuna@users.noreply.github.com>
   artifactName: Zuna-${version}-${arch}.${ext}
+deb:
+  packageName: zuna-legacy
 # What Electron and the key hook for push to talk link, and load as they go: notifications,
 # the secret store for the device key, and xdg-utils for links. electron-builder's own list
 # names packages as Fedora does, which openSUSE doesn't, so this names the libraries,
 # which both provide by the same name.
 rpm:
-  # The rpm and pacman packages would be named after the product, Zuna, which neither
-  # Fedora nor Arch name a package with. The .deb is lowercased anyway. Only each
-  # package's own options take a name, not linux's.
-  packageName: zuna
+  # Each package would be named after the product, Zuna, which the native app's are. Only
+  # each package's own options take a name, not linux's.
+  packageName: zuna-legacy
   depends:
     - libgtk-3.so.0()(64bit)
     - libnss3.so()(64bit)
@@ -119,7 +125,7 @@ rpm:
     - xdg-utils
 # electron-builder's own list is for an Electron from the system, with packages Arch has dropped.
 pacman:
-  packageName: zuna
+  packageName: zuna-legacy
   depends:
     - gtk3
     - nss
