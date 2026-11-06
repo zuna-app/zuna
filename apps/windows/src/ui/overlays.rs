@@ -872,9 +872,12 @@ impl Dialog {
         let mut body = Vec::new();
         if channel.is_none() {
             let choice = |kind: &'static str, icon_name: &'static str, title: &'static str, text: &'static str, active: bool, cx: &mut Context<Self>| {
+                // Two equal columns, as `.channel-types`, the text wrapping inside each.
                 div()
                     .id(kind)
                     .flex_1()
+                    .flex_basis(px(0.))
+                    .min_w_0()
                     .flex()
                     .items_start()
                     .gap(px(10.))
@@ -895,7 +898,7 @@ impl Dialog {
                         cx.notify();
                     }))
                     .child(icon(icon_name, 18., if active { theme.text1 } else { theme.text2 }))
-                    .child(div().flex().flex_col().child(div().text_size(px(14.)).font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(title)).child(div().text_size(px(12.)).text_color(theme.text3).child(text)))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(14.)).font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(title)).child(div().mt(px(1.)).text_size(px(12.)).text_color(theme.text3).child(text)))
             };
             body.push(
                 div()
