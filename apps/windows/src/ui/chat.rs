@@ -359,6 +359,16 @@ impl ChatView {
         view
     }
 
+    /// Moves to the newest message and tells the chat it's there, as the list's own scrolling
+    /// would: the button for it goes, and what's there counts as read.
+    fn to_newest(&mut self, cx: &mut Context<Self>) {
+        let count = self.list.item_count();
+        self.list.scroll_to(gpui::ListOffset { item_ix: count, offset_in_item: px(0.) });
+        self.at_bottom = true;
+        self.refresh_messages(cx);
+        cx.notify();
+    }
+
     /// Has the messages drawn again on the next frame, for a change in what they show.
     /// Never during a draw, when it would only take effect a frame late.
     fn refresh_messages(&self, cx: &mut Context<Self>) {
@@ -2014,10 +2024,8 @@ impl ChatView {
         } else {
             "You're viewing older messages".to_string()
         };
-        let list_state = self.list.clone();
         let state = self.state.clone();
         let list_id = conversation.list_id();
-        let count = self.rows.len();
         let detached = self.state.read(cx).lists.get(&list_id).is_some_and(|list| list.detached);
         div()
             .id("jump-present")
@@ -2039,13 +2047,13 @@ impl ChatView {
             .text_color(theme.text2)
             .cursor_pointer()
             .hover(move |style| style.bg(theme.bg4).text_color(theme.text1))
-            .on_click(move |_, _, cx| {
+            .on_click(cx.listener(move |view, _, _, cx| {
                 if detached {
                     state.update(cx, |state, cx| state.return_to_latest(&list_id, cx));
                 } else {
-                    list_state.scroll_to(gpui::ListOffset { item_ix: count, offset_in_item: px(0.) });
+                    view.to_newest(cx);
                 }
-            })
+            }))
             .child(div().min_w_0().one_line().child(text))
             .child(div().flex_none().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Jump to present").child(icon("arrow-down", 15., theme.text1)))
             .enter("jump-present-in", Enter::Rise(5.), 120)
@@ -2628,7 +2636,6 @@ impl ChatView {
                 let raised = !self.at_bottom || list.as_ref().is_some_and(|list| list.detached);
                 let mention_button = self.mention_button(&conversation, raised, cx);
                 let jump_bar = (is_channel && raised).then(|| self.jump_present(&conversation, unread_below, cx));
-                let list_state = self.list.clone();
                 let detached = list.as_ref().is_some_and(|list| list.detached);
                 let to_bottom_state = self.state.clone();
                 let list_id = conversation.list_id();
@@ -2667,13 +2674,13 @@ impl ChatView {
                                 .cursor_pointer()
                                 // `.to-bottom`: background 0.1s.
                                 .child(super::motion::hover_layer("to-bottom", theme::color(theme::hex(0x45454b)), px(20.), 100))
-                                .on_click(move |_, _, cx| {
+                                .on_click(cx.listener(move |view, _, _, cx| {
                                     if detached {
                                         to_bottom_state.update(cx, |state, cx| state.return_to_latest(&list_id, cx));
                                     } else {
-                                        list_state.scroll_to(gpui::ListOffset { item_ix: count, offset_in_item: px(0.) });
+                                        view.to_newest(cx);
                                     }
-                                })
+                                }))
                                 .child(icon("chevron-down", 22., theme.text1))
                                 .when(unread_below > 0, |el| {
                                     el.child(
