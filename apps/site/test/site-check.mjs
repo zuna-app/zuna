@@ -25,7 +25,7 @@ const chosen = args.filter((arg) => arg in engines);
 const shots = args.find((arg) => !(arg in engines)) ?? mkdtempSync(join(tmpdir(), "zuna-site-"));
 mkdirSync(shots, { recursive: true });
 
-const PAGES = ["/", "/privacy/", "/support/"];
+const PAGES = ["/", "/privacy/", "/terms/", "/support/"];
 const WIDTHS = [375, 768, 1440];
 const failures = [];
 let engine = "";

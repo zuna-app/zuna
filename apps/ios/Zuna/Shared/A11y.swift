@@ -23,6 +23,7 @@ enum A11y {
         static let confirmPassword = "onboarding.confirmPassword"
         static let strength = "onboarding.strength"
         static let create = "onboarding.create"
+        static let terms = "onboarding.terms"
         static let recoveryKey = "onboarding.recoveryKey"
         static let copyKey = "onboarding.copyKey"
         static let saveKey = "onboarding.saveKey"

@@ -259,4 +259,6 @@ enum OnboardingText {
 
     static let projectURL = URL(string: "https://github.com/SocketByte/zuna-chat")!
     static let selfHostingURL = projectURL.appending(path: "blob/main/docs/SELF_HOSTING.md")
+    /// The terms of use everyone agrees to when they create an account.
+    static let termsURL = URL(string: "https://zuna.chat/terms/")!
 }

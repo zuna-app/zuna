@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { platform } from "@/platform";
 import { Avatar, ConfirmPasswordField, Field, Logo, PasswordField, Spinner } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
-import { PROJECT_URL } from "@/lib/links";
+import { PROJECT_URL, TERMS_URL } from "@/lib/links";
 import { MIN_PASSWORD } from "@/lib/format";
 import { usePasswordStrength } from "@/lib/password";
 import { useApp } from "@/state/store";
@@ -373,9 +373,16 @@ function InviteStep({
             <Spinner /> Securing your account
           </>
         ) : (
-          "Create account"
+          "Agree and create account"
         )}
       </button>
+      <p className="faint" style={{ fontSize: 12.5, textAlign: "center", margin: 0 }}>
+        By creating an account, you agree to the{" "}
+        <button type="button" className="link-button" onClick={() => platform.openExternal(TERMS_URL)}>
+          Terms of Use
+        </button>
+        .
+      </p>
     </form>
   );
 }

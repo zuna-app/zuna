@@ -36,7 +36,7 @@ The page looks like the app: dark, monochrome, white as the one accent, Inter fo
 | 11 | Final call | Stop renting your group chat. | Download and Host a server |
 | 12 | Footer | | Links, the license, and that the page has no cookies, analytics or third-party requests |
 
-Pages beside it: `/privacy`, the app's and the relay's privacy policy, and `/support`. App Store Connect needs both.
+Pages beside it: `/privacy`, the app's and the relay's privacy policy, `/terms`, the terms of use everyone agrees to when they create an account, and `/support`. App Store Connect needs the privacy policy and support, and App Review terms with no tolerance for objectionable content.
 
 ## Copy
 

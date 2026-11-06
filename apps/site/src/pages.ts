@@ -1,7 +1,7 @@
 export const SITE = "https://zuna.chat";
 export const REPO = "https://github.com/SocketByte/zuna-chat";
 
-export type PageId = "home" | "privacy" | "support" | "missing";
+export type PageId = "home" | "privacy" | "terms" | "support" | "missing";
 
 export interface Page {
   id: PageId;
@@ -28,6 +28,13 @@ export const PAGES: Page[] = [
     file: "privacy/index.html",
     title: "Zuna's privacy policy",
     description: "What Zuna's apps, its push relay and this website learn about you, and what they never can.",
+  },
+  {
+    id: "terms",
+    path: "/terms/",
+    file: "terms/index.html",
+    title: "Zuna's terms of use",
+    description: "The rules for using Zuna: what nobody may post, what happens to those who do, and what running a server asks of you.",
   },
   {
     id: "support",

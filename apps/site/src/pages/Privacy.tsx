@@ -11,7 +11,7 @@ export function Privacy() {
           that they can't read them. The project itself runs two things: this website, and zuna-push, the relay that wakes iPhones and iPads. Neither sees what
           you write.
         </p>
-        <p className="prose-updated">Last changed on 4 November 2026.</p>
+        <p className="prose-updated">Last changed on 6 November 2026.</p>
 
         <h2>The apps</h2>
         <p>The apps for Windows, macOS, Linux, the web, iPhone and iPad send the project nothing: no analytics, no crash reports, and no account with us.</p>

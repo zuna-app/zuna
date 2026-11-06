@@ -26,6 +26,7 @@ const COLUMNS = [
       { href: doc("SECURITY.md"), label: "Security model" },
       { href: doc("docs/ARCHITECTURE.md"), label: "Architecture" },
       { href: "/privacy/", label: "Privacy" },
+      { href: "/terms/", label: "Terms" },
       { href: "/support/", label: "Support" },
     ],
   },

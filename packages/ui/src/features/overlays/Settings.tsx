@@ -22,7 +22,7 @@ import { createPortal } from "react-dom";
 import { platform } from "@/platform";
 import { Avatar, ConfirmPasswordField, Field, Logo, Modal, PasswordField, Spinner, Switch, useAction, useReturnFocus } from "@/components/ui";
 import { copyText } from "@/lib/clipboard";
-import { PROJECT_URL } from "@/lib/links";
+import { PROJECT_URL, TERMS_URL } from "@/lib/links";
 import { formatFull, MIN_PASSWORD } from "@/lib/format";
 import { usePasswordStrength } from "@/lib/password";
 import { prepareAvatar } from "@/lib/media";
@@ -511,6 +511,7 @@ function AboutSection() {
       <div className="row">
         <button className="btn" onClick={() => open(PROJECT_URL)}>Source code</button>
         <button className="btn" onClick={() => open(`${PROJECT_URL}/blob/main/SECURITY.md`)}>Security model</button>
+        <button className="btn" onClick={() => open(TERMS_URL)}>Terms of Use</button>
       </div>
     </>
   );

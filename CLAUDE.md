@@ -153,7 +153,7 @@ Rules the core depends on:
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
 | Adding bots or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
-| The landing page, zuna.chat, with the privacy policy and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |
+| The landing page, zuna.chat, with the privacy policy, terms of use and support page the App Store asks for | `apps/site`, `docs/SITE_PLAN.md` |
 | What's planned | `docs/ROADMAP.md` |
 
 ## Decisions to keep

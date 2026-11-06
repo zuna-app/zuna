@@ -266,9 +266,16 @@ struct InviteStep: View {
                     .foregroundStyle(Theme.red)
                     .accessibilityIdentifier(A11y.Onboarding.error)
             }
-            PrimaryButton(title: "Create account", busyTitle: "Securing your account", busy: busy, action: submit)
+            PrimaryButton(title: "Agree and create account", busyTitle: "Securing your account", busy: busy, action: submit)
                 .disabled(!canSubmit)
                 .accessibilityIdentifier(A11y.Onboarding.create)
+            Text("By creating an account, you agree to the [Terms of Use](https://zuna.chat/terms/).")
+                .font(.footnote)
+                .foregroundStyle(Theme.text2)
+                .tint(Theme.link)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier(A11y.Onboarding.terms)
         }
         .navigationBarTitleDisplayMode(.inline)
     }

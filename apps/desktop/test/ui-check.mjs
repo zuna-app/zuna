@@ -95,14 +95,15 @@ try {
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill("Alex Rivera", { timeout: 15_000 });
   // The password is typed twice, and a typo in the second one is pointed out.
-  const create = page.getByRole("button", { name: "Create account" });
+  const create = page.getByRole("button", { name: "Agree and create account" });
   await page.locator('input[type="password"]').first().fill("ui-check-only-Pass-9182");
   await page.getByLabel("Confirm password").fill("ui-check-only-Pass-9128");
   const mismatch = await page.getByText("The passwords don't match.").waitFor({ timeout: 5000 }).then(() => true, () => false);
   check("a typo in the second password is caught", mismatch && (await create.isDisabled()));
   await page.getByLabel("Confirm password").fill("ui-check-only-Pass-9182");
-  await page.getByRole("button", { name: "Create account", disabled: false }).waitFor({ timeout: 5000 });
+  await page.getByRole("button", { name: "Agree and create account", disabled: false }).waitFor({ timeout: 5000 });
   check("the passwords matching takes the error away", (await page.getByText("The passwords don't match.").count()) === 0);
+  check("creating an account says it agrees to the terms of use", await page.getByRole("button", { name: "Terms of Use" }).isVisible());
   await sleep(200);
   await shot("02-signup");
   await create.click();

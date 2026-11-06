@@ -494,6 +494,7 @@ struct AboutView: View {
             Section {
                 Link(destination: OnboardingText.projectURL) { Label("Source code", systemImage: "chevron.left.forwardslash.chevron.right") }
                 Link(destination: OnboardingText.projectURL.appending(path: "blob/main/SECURITY.md")) { Label("Security model", systemImage: "lock.shield") }
+                Link(destination: OnboardingText.termsURL) { Label("Terms of Use", systemImage: "doc.text") }
             }
             .listRowBackground(Theme.bg2)
         }
