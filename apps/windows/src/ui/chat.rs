@@ -366,7 +366,27 @@ impl ChatView {
     }
 
     pub fn focus_composer(&self, window: &mut Window, cx: &gpui::App) {
+        if !self.was_selecting {
+            self.composer.read(cx).focus(window);
+        }
+    }
+
+    /// Typing that had nowhere to go: the message box takes focus and what was typed, or
+    /// what's pasted. False while messages are being picked, when it has no message box.
+    pub fn type_into_composer(&mut self, text: Option<&str>, paste: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.was_selecting {
+            return false;
+        }
         self.composer.read(cx).focus(window);
+        self.composer.update(cx, |input, cx| {
+            if let Some(text) = text {
+                input.insert(text, window, cx);
+            }
+            if paste {
+                input.paste(&super::text_input::Paste, window, cx);
+            }
+        });
+        true
     }
 
     fn conversation(&self, cx: &gpui::App) -> Option<ConversationView> {

@@ -133,10 +133,26 @@ pub struct TextInput {
 
 impl EventEmitter<InputEvent> for TextInput {}
 
+thread_local! {
+    /// Every field's focus, to tell whether typing already has somewhere to go.
+    static FIELDS: std::cell::RefCell<Vec<gpui::WeakFocusHandle>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Whether any text field has focus.
+pub fn any_focused(window: &Window) -> bool {
+    FIELDS.with(|fields| {
+        let mut fields = fields.borrow_mut();
+        fields.retain(|field| field.upgrade().is_some());
+        fields.iter().any(|field| field.upgrade().is_some_and(|field| field.is_focused(window)))
+    })
+}
+
 impl TextInput {
     pub fn new(cx: &mut Context<Self>, placeholder: impl Into<SharedString>) -> Self {
+        let focus_handle = cx.focus_handle();
+        FIELDS.with(|fields| fields.borrow_mut().push(focus_handle.downgrade()));
         TextInput {
-            focus_handle: cx.focus_handle(),
+            focus_handle,
             content: String::new(),
             placeholder: placeholder.into(),
             selected_range: 0..0,
@@ -493,7 +509,7 @@ impl TextInput {
         self.replace_text_in_range(None, "", window, cx)
     }
 
-    fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if self.accepts_files {
             let files = crate::platform::clipboard_files();
             if !files.is_empty() {

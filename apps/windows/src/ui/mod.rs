@@ -79,12 +79,15 @@ impl Root {
         let menu = menu::menu_layer(cx);
         cx.observe(&menu, |_, _, cx| cx.notify()).detach();
         let activation_state = state.clone();
-        cx.observe_window_activation(window, move |_, window, cx| {
+        cx.observe_window_activation(window, move |root, window, cx| {
             let active = window.is_window_active();
             activation_state.update(cx, |state, cx| {
                 state.window_focused = active;
                 cx.notify();
             });
+            if active {
+                root.refocus_composer(window, cx);
+            }
         })
         .detach();
         let picker = picker::picker_layer(window, cx);
@@ -526,6 +529,24 @@ impl Root {
         }
     }
 
+    /// Whether the message box may take focus: no dialog, settings, menu or picker is open, and
+    /// no other field has it (`focusComposer` and `onKeyDown` in lib/focus.ts).
+    fn composer_may_focus(&self, window: &Window, cx: &App) -> bool {
+        self.overlay.is_none() && self.settings.is_none() && !menu::is_open(cx) && !picker::is_open(cx) && !text_input::any_focused(window)
+    }
+
+    /// Gives the message box focus again once a click or the window coming back has settled,
+    /// so it never needs clicking into.
+    fn refocus_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.defer_in(window, |root, window, cx| {
+            if root.composer_may_focus(window, cx) {
+                if let Some((_, chat)) = &root.chat {
+                    chat.read(cx).focus_composer(window, cx);
+                }
+            }
+        });
+    }
+
     /// The next or previous conversation in the list, hidden ones left out.
     fn step_conversation(&mut self, step: isize, cx: &mut Context<Self>) {
         let Some(server) = self.state.read(cx).active() else { return };
@@ -679,6 +700,26 @@ impl Render for Root {
             }))
             .on_action(cx.listener(|root, _: &NextConversation, _, cx| root.step_conversation(1, cx)))
             .on_action(cx.listener(|root, _: &PreviousConversation, _, cx| root.step_conversation(-1, cx)))
+            // Typing with nowhere for it to go starts a message, and a click leaves focus in the
+            // message box, as lib/focus.ts keeps it. Space and Enter stay with what has focus.
+            .on_key_down(cx.listener(|root, event: &gpui::KeyDownEvent, window, cx| {
+                let keystroke = &event.keystroke;
+                let modifiers = &keystroke.modifiers;
+                let paste = (modifiers.control || modifiers.platform) && keystroke.key == "v";
+                if (modifiers.control || modifiers.alt || modifiers.platform) && !paste {
+                    return;
+                }
+                let typed = keystroke.key_char.clone().filter(|text| text.chars().count() == 1 && text != " " && !text.chars().any(char::is_control));
+                if (typed.is_none() && !paste) || !root.composer_may_focus(window, cx) {
+                    return;
+                }
+                let Some((_, chat)) = root.chat.clone() else { return };
+                if chat.update(cx, |chat, cx| chat.type_into_composer(typed.as_deref(), paste, window, cx)) {
+                    // Handled, so Windows doesn't also type the letter wherever focus was.
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_any_mouse_up(cx.listener(|root, _: &MouseUpEvent, window, cx| root.refocus_composer(window, cx)))
             .flex()
             .flex_col()
             .bg(theme.bg0)
