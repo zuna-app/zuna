@@ -23,6 +23,7 @@ pub use runtime::shrink_image;
 use runtime::Task;
 
 const CORE_BUNDLE: &str = include_str!("../../assets/core/zuna-core.js");
+const PASSWORD_BUNDLE: &str = include_str!("../../assets/core/zuna-password.js");
 /// The UI's channel. Channel 0 broadcasts, which is how events arrive.
 const UI_CHANNEL: u32 = 1;
 
@@ -123,6 +124,7 @@ impl Core {
             tokio: tokio().handle().clone(),
             post,
             test_hooks: std::env::var_os("ZUNA_TEST_HOOKS").is_some(),
+            password_bundle: PASSWORD_BUNDLE,
         };
         std::thread::Builder::new()
             .name("zuna-core".into())
@@ -149,6 +151,20 @@ impl Core {
         wait.await.unwrap_or_default()
     }
 
+    /// How hard a password is to guess: a score from 0 to 4, and what to call it.
+    pub fn password_strength(&self, password: String, related: Vec<String>) -> impl Future<Output = (u8, String)> + use<> {
+        let (done, wait) = oneshot::channel();
+        let sent = self.inner.tasks.send(Task::Password { password, related, done });
+        async move {
+            if sent.is_err() {
+                return (0, String::new());
+            }
+            let json = wait.await.unwrap_or_default();
+            let value: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
+            (value.get("score").and_then(Value::as_u64).unwrap_or(0) as u8, value.get("label").and_then(Value::as_str).unwrap_or("").to_string())
+        }
+    }
+
     /// Calls a method of the client, or of a server's session.
     pub fn call(&self, server: Option<&str>, method: &str, args: Vec<Value>) -> impl Future<Output = Result<Value, CoreError>> + use<> {
         let id = self.inner.next.fetch_add(1, Ordering::Relaxed);
@@ -163,6 +179,30 @@ impl Core {
             wait.await.unwrap_or_else(|_| Err(CoreError { message: "The core stopped.".into(), code: None, status: None }))
         }
     }
+}
+
+/// Fetches something a server serves openly, such as its icon or an emote, with the
+/// same certificate rules as the core. It never carries anything of the account.
+pub fn fetch(url: String) -> impl Future<Output = Result<Vec<u8>, String>> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    let client = CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .tls_backend_preconfigured(tls::client_config(&[b"h2", b"http/1.1"]))
+                .connect_timeout(std::time::Duration::from_secs(15))
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .expect("an HTTP client")
+        })
+        .clone();
+    let task = tokio().spawn(async move {
+        let response = client.get(&url).send().await.map_err(|error| error.to_string())?;
+        if !response.status().is_success() {
+            return Err(format!("{} answered {}", url, response.status()));
+        }
+        response.bytes().await.map(|bytes| bytes.to_vec()).map_err(|error| error.to_string())
+    });
+    async move { task.await.map_err(|error| error.to_string())? }
 }
 
 /// An argument left out in the middle of a call, which JSON's null can't say (wire.ts).

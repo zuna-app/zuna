@@ -38,6 +38,8 @@ pub enum Task {
     WebDone { id: u32, url: String, mime: String, body: Option<Vec<u8>>, error: Option<String> },
     /// Script for checks and tests, whose result comes back as JSON.
     Eval { source: String, done: futures::channel::oneshot::Sender<String> },
+    /// How hard a password is to guess, as JSON `{ score, label }`, from the estimator every app shares.
+    Password { password: String, related: Vec<String>, done: futures::channel::oneshot::Sender<String> },
 }
 
 enum SocketCommand {
@@ -63,6 +65,8 @@ pub struct Options {
     pub tokio: Handle,
     pub post: Arc<dyn Fn(u32, String) + Send + Sync>,
     pub test_hooks: bool,
+    /// The password meter, loaded into a context of its own when first asked.
+    pub password_bundle: &'static str,
 }
 
 pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
@@ -111,7 +115,25 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
     }
     drain(&runtime);
 
+    let mut password: Option<Context> = None;
     while let Ok(task) = inbox.recv() {
+        if let Task::Password { password: text, related, done } = task {
+            let meter = password.get_or_insert_with(|| {
+                let meter = Context::full(&runtime).expect("a QuickJS context");
+                meter.with(|ctx| {
+                    if ctx.eval::<(), _>(options.password_bundle.as_bytes()).is_err() {
+                        log::error!(target: "core", "the password meter didn't load: {}", describe_exception(&ctx));
+                    }
+                });
+                meter
+            });
+            let result = meter.with(|ctx| -> Result<String> {
+                let estimate: Function = ctx.globals().get("__zunaPasswordStrength")?;
+                estimate.call((text, related))
+            });
+            done.send(result.unwrap_or_else(|_| "{\"score\":0,\"label\":\"\"}".into())).ok();
+            continue;
+        }
         context.with(|ctx| {
             if let Err(error) = dispatch(&ctx, &host, task) {
                 log::error!(target: "core", "{error}: {}", describe_exception(&ctx));
@@ -212,6 +234,7 @@ fn dispatch<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<Host>>, task: Task) -> Result
                 vec![number(ctx, id as f64), string(ctx, kind)?, optional_string(ctx, data.as_deref())?, number(ctx, code as f64)],
             )
         }
+        Task::Password { .. } => Ok(()),
         Task::Eval { source, done } => {
             let result = match ctx.eval::<Value, _>(source.as_bytes()) {
                 Ok(value) => ctx.json_stringify(value).ok().flatten().and_then(|text| text.to_string().ok()).unwrap_or_else(|| "undefined".into()),

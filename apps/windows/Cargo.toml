@@ -41,6 +41,9 @@ parking_lot = "0.12"
 log = "0.4"
 env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
 unicode-segmentation = "1"
+regex = "1"
+fancy-regex = "0.14"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 smallvec = "1"
 dirs = "6"
 open = "5"
@@ -51,6 +54,7 @@ features = [
     "Win32_Foundation",
     "Win32_Security_Cryptography",
     "Win32_System_Memory",
+    "Win32_Globalization",
 ]
 
 [profile.dev]
