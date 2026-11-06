@@ -208,7 +208,7 @@ jobs:
           # Only a signed build updates itself: an update must carry the same signature.
           ZUNA_SIGNED_BUILD: ${{ secrets.CSC_LINK != '' && '1' || '0' }}
         run: npm run dist
-      # The native Windows app (apps/windows), signed with the same certificate, beside the
+      # The native Windows app (apps/desktop), signed with the same certificate, beside the
       # desktop's installer. It only updates itself from an installer signed the same.
       - name: Package the native Windows app
         if: matrix.os == 'windows-latest'

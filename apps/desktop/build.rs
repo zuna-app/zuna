@@ -28,7 +28,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=assets/core/zuna-core.js");
     if !Path::new("assets/core/zuna-core.js").exists() {
-        panic!("The core bundle is missing. Build it first: node apps/windows/core-bundle/build.mjs");
+        panic!("The core bundle is missing. Build it first: node apps/desktop/core-bundle/build.mjs");
     }
 }
 

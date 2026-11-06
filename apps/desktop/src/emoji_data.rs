@@ -1,4 +1,4 @@
-// Written by apps/windows/scripts/emoji.mjs from packages/ui/src/lib/emoji-data.ts. Don't edit it by hand.
+// Written by apps/desktop/scripts/emoji.mjs from packages/ui/src/lib/emoji-data.ts. Don't edit it by hand.
 
 pub struct EmojiCategory {
     pub label: &'static str,

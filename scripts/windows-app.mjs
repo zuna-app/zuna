@@ -1,4 +1,4 @@
-// Builds or runs the native Windows app (apps/windows), drawn with GPUI. It bundles
+// Builds or runs the native Windows app (apps/desktop), drawn with GPUI. It bundles
 // the client core for QuickJS first, then builds with a Rust MSVC toolchain, which
 // GPUI's DirectX renderer and the C in QuickJS and SQLite need, as does Visual
 // Studio's C++ build tools.
@@ -27,7 +27,7 @@ const flags = split < 0 ? rest : rest.slice(0, split);
 const appArgs = split < 0 ? [] : rest.slice(split + 1);
 const release = command === "build" || command === "dist" || flags.includes("--release");
 
-const crate = join(root, "apps", "windows");
+const crate = join(root, "apps", "desktop");
 // cl.exe can't open paths over 260 characters, which a target folder deep in a checkout reaches.
 const target = join(process.env.LOCALAPPDATA ?? root, "zuna-windows-target");
 // The same version as the desktop app, which is released with it.

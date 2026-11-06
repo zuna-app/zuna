@@ -3,7 +3,7 @@
 // native shims (apps/ios/core-bundle/src): the Rust host installs the same
 // __zunaHost, __zunaCrypto and __zunaDb that the Swift host does.
 //
-//   node apps/windows/core-bundle/build.mjs
+//   node apps/desktop/core-bundle/build.mjs
 
 import { build } from "esbuild";
 import { mkdirSync } from "node:fs";

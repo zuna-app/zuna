@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), an Electron desktop app and a native iPhone and iPad app.
+Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows so far), the Electron desktop app it's taking over from (`apps/desktop-electron-legacy`), and a native iPhone and iPad app.
 
 ## Working rules
 
@@ -32,7 +32,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Installers (`apps/desktop-electron-legacy/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
 | Native screen capture, and on macOS a share's sound, which go into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
-| The native Windows app in GPUI (`apps/windows`, `docs/WINDOWS_APP.md`): run a debug build, or a release one in `dist/windows` | `npm run dev:windows`, `npm run build:windows` |
+| The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, or a release one in `dist/windows` | `npm run dev:windows`, `npm run build:windows` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 
@@ -77,7 +77,7 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model and known limits in `SECURITY.md`, and how each protection works in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
 
-**One client core, five hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop and the web (`packages/ui/src/core/serve.ts`, started by each app's `worker.ts`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in QuickJS in the native Windows app (`apps/windows/src/host`, with the iOS bundle's shims), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
+**One client core, five hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop and the web (`packages/ui/src/core/serve.ts`, started by each app's `worker.ts`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in QuickJS in the native Windows app (`apps/desktop/src/host`, with the iOS bundle's shims), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
 **The desktop and the web app share one interface, `packages/ui`.** `@zuna/ui` holds the React screens and their state. It asks for anything outside the page, such as notifications or the device key, through the `Platform` its host passes to `startApp` (`packages/ui/src/platform.ts`). The desktop's is `apps/desktop-electron-legacy/src/renderer/src/platform.ts`, and the web's is `apps/web/src/platform.ts`.
 
@@ -108,9 +108,9 @@ Rules the core depends on:
 
 | When you change | Also change |
 |---|---|
-| A crypto function | `mls.rs`, `wasm.rs`, `native.rs`, `apps/ios/core-bundle/src/crypto.ts`, `ZunaHost/CryptoBridge.swift` and `apps/windows/src/host/crypto.rs` |
-| `packages/core/src/types.ts` | `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift` and `apps/windows/src/models.rs` |
-| What the iOS core bundle asks of its host (`apps/ios/core-bundle/src/natives.d.ts`) | `ZunaHost` and `apps/windows/src/host`, which give the same functions |
+| A crypto function | `mls.rs`, `wasm.rs`, `native.rs`, `apps/ios/core-bundle/src/crypto.ts`, `ZunaHost/CryptoBridge.swift` and `apps/desktop/src/host/crypto.rs` |
+| `packages/core/src/types.ts` | `apps/ios/ZunaKit/Sources/ZunaModels/Models.swift` and `apps/desktop/src/models.rs` |
+| What the iOS core bundle asks of its host (`apps/ios/core-bundle/src/natives.d.ts`) | `ZunaHost` and `apps/desktop/src/host`, which give the same functions |
 | A public `ServerSession` method the UI uses | `ZunaModels/CoreAPI.swift` |
 | Desktop markup (`lib/markup.tsx`) | `ZunaModels/Markup.swift`, and the golden file: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
 | A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |

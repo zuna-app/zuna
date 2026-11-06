@@ -46,6 +46,6 @@ apps/ios/.e2e/
 server/cmd/zuna-web/site/*
 !server/cmd/zuna-web/site/.gitkeep
 
-# Windows app (apps/windows): its build, and the core bundle core-bundle/build.mjs writes
-apps/windows/target/
-apps/windows/assets/core/
+# Windows app (apps/desktop): its build, and the core bundle core-bundle/build.mjs writes
+apps/desktop/target/
+apps/desktop/assets/core/

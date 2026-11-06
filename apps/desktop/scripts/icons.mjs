@@ -1,9 +1,9 @@
 // Writes each Lucide icon the desktop's interface imports (packages/ui) as an SVG in
-// apps/windows/assets/icons, from the same lucide-react the desktop draws them with,
+// apps/desktop/assets/icons, from the same lucide-react the desktop draws them with,
 // so the native app's icons are the same shapes. Run it after the interface starts
 // using another icon:
 //
-//   node apps/windows/scripts/icons.mjs [ExtraIconName ...]
+//   node apps/desktop/scripts/icons.mjs [ExtraIconName ...]
 
 import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
