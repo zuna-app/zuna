@@ -79,6 +79,9 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
 
 /// Opens the picker with its top left near this point, kept inside the window.
 pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl Fn(Pick, &mut Window, &mut App) + 'static, window: &mut Window, cx: &mut App) {
+    if super::menu::reopens_closed(position) {
+        return;
+    }
     let layer = picker_layer(window, cx);
     let has_emotes = store(cx).read(cx).active().is_some_and(|server| !server.emotes.emotes.is_empty());
     layer.update(cx, |layer, cx| {
@@ -91,6 +94,11 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
         layer.search.read(cx).focus(window);
         cx.notify();
     });
+}
+
+/// Whether the picker is open.
+pub fn is_open(cx: &App) -> bool {
+    cx.try_global::<PickerGlobal>().is_some_and(|global| global.0.read(cx).open.is_some())
 }
 
 impl PickerLayer {
@@ -310,7 +318,10 @@ impl Render for PickerLayer {
             .rounded(RADIUS_L)
             .shadow(shadow_l())
             .occlude()
-            .on_mouse_down_out(cx.listener(|layer, _, _, cx| {
+            .on_mouse_down_out(cx.listener(|layer, event: &gpui::MouseDownEvent, _, cx| {
+                if let Some(open) = &layer.open {
+                    super::menu::closed_by_press(event, open.position);
+                }
                 layer.close();
                 cx.notify();
             }))

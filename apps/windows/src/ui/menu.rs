@@ -73,6 +73,28 @@ struct OpenMenu {
 
 pub type Header = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
+thread_local! {
+    /// A popup a left press outside it just closed: when, and where it had been opened.
+    static PRESSED_SHUT: std::cell::Cell<Option<(std::time::Instant, Point<Pixels>)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Remembers that a press outside closed a popup opened at this point, if it was a left one.
+pub(super) fn closed_by_press(event: &gpui::MouseDownEvent, position: Point<Pixels>) {
+    if event.button == MouseButton::Left {
+        PRESSED_SHUT.set(Some((std::time::Instant::now(), position)));
+    }
+}
+
+/// Whether opening a popup here would only open again the one this same click's press just
+/// closed. Then the click on what opened it closes it, as the desktop's dropdowns do, rather
+/// than opening it anew. A right click's menu is never held back.
+pub(super) fn reopens_closed(position: Point<Pixels>) -> bool {
+    match PRESSED_SHUT.take() {
+        Some((at, was)) => at.elapsed() < std::time::Duration::from_millis(500) && (was.x - position.x).abs() <= px(28.) && (was.y - position.y).abs() <= px(28.),
+        None => false,
+    }
+}
+
 pub struct MenuLayer {
     open: Option<OpenMenu>,
     /// One just closed, fading out over 60 ms as `PopupMenu`'s exit does.
@@ -99,6 +121,9 @@ pub fn menu_layer(cx: &mut App) -> Entity<MenuLayer> {
 
 /// Opens a menu at a point in the window.
 pub fn open_menu(position: Point<Pixels>, entries: Vec<MenuEntry>, align_right: bool, cx: &mut App) {
+    if reopens_closed(position) {
+        return;
+    }
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
         layer.opened += 1;
@@ -110,6 +135,9 @@ pub fn open_menu(position: Point<Pixels>, entries: Vec<MenuEntry>, align_right: 
 
 /// Opens a menu with something drawn above its entries, upwards from the point if `above`.
 pub fn open_menu_with_header(position: Point<Pixels>, header: Option<Header>, entries: Vec<MenuEntry>, above: bool, cx: &mut App) {
+    if reopens_closed(position) {
+        return;
+    }
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
         layer.opened += 1;
@@ -128,6 +156,9 @@ pub fn open_menu_with_reactions(
     align_right: bool,
     cx: &mut App,
 ) {
+    if reopens_closed(position) {
+        return;
+    }
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
         layer.opened += 1;
@@ -135,6 +166,11 @@ pub fn open_menu_with_reactions(
         layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right, header: None, above: false });
         cx.notify();
     });
+}
+
+/// Whether a menu is open.
+pub fn is_open(cx: &App) -> bool {
+    cx.try_global::<MenuGlobal>().is_some_and(|global| global.0.read(cx).open.is_some())
 }
 
 pub fn close_menu(cx: &mut App) {
@@ -209,7 +245,10 @@ impl MenuLayer {
                     cx.notify();
                 }
             }))
-            .on_mouse_down_out(cx.listener(|layer, _, _, cx| {
+            .on_mouse_down_out(cx.listener(|layer, event: &gpui::MouseDownEvent, _, cx| {
+                if let Some(open) = &layer.open {
+                    closed_by_press(event, open.position);
+                }
                 layer.close();
                 cx.notify();
             }));
