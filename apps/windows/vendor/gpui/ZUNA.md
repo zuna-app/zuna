@@ -27,3 +27,8 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   as Chromium's does, eased out over about 150 ms, and notches that come while it moves add to
   where it's going. A touchpad's pixels still move at once (`elements/smooth.rs`, and where
   `list.rs` and `div.rs` handle the wheel).
+- **A cached view's own dependencies.** `App::detect_accessed_entities` counted what a cached
+  view's draw touched less what anything had touched earlier in the frame, so a view made
+  earlier in the frame left itself out. Once its drawing was reused, the window stopped
+  listening for it, and notifying it drew nothing: a chat opened before its first message never
+  showed it. It now counts what the draw touched (`app.rs`).

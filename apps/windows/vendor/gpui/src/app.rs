@@ -795,13 +795,18 @@ impl App {
         &mut self,
         callback: impl FnOnce(&mut App) -> R,
     ) -> (R, FxHashSet<EntityId>) {
-        let accessed_entities_start = self.entities.accessed_entities.borrow().clone();
+        // Zuna: what the callback itself touched, not what it touched that nothing had earlier in
+        // the frame. A cached view made earlier in the frame left itself out of its own set, so
+        // once its drawing was reused the window stopped listening for it, and notifying it did
+        // nothing: a chat's messages stopped updating.
+        let outer = std::mem::take(&mut *self.entities.accessed_entities.borrow_mut());
         let result = callback(self);
-        let accessed_entities_end = self.entities.accessed_entities.borrow().clone();
-        let entities_accessed_in_callback = accessed_entities_end
-            .difference(&accessed_entities_start)
-            .copied()
-            .collect::<FxHashSet<EntityId>>();
+        let entities_accessed_in_callback =
+            std::mem::replace(&mut *self.entities.accessed_entities.borrow_mut(), outer);
+        self.entities
+            .accessed_entities
+            .borrow_mut()
+            .extend(entities_accessed_in_callback.iter().copied());
         (result, entities_accessed_in_callback)
     }
 
