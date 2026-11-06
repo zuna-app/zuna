@@ -418,8 +418,12 @@ impl ChatView {
         let Some(conversation) = self.conversation(cx) else { return };
         let list_id = conversation.list_id();
         if list_id != self.last_list_id {
-            // The first message of a direct message moved its list to the new group.
+            // The first message of a direct message moved its list to the new group, whose
+            // messages are loaded as the desktop's list loads whenever its id changes. Without
+            // this the chat kept showing it was empty while its messages came in.
             self.last_list_id = list_id.clone();
+            let group_id = conversation.group_id.clone();
+            self.state.update(cx, |state, cx| state.load_list(&list_id, group_id, cx));
         }
         let state = self.state.read(cx);
         let Some(list) = state.lists.get(&list_id) else { return };
