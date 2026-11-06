@@ -33,6 +33,28 @@ func TestTheTableCantGrowWithoutLimit(t *testing.T) {
 	}
 }
 
+func TestASlowKeyIsntForgottenBeforeItWouldHaveFilledAgain(t *testing.T) {
+	for _, c := range []struct {
+		limit     rate.Limit
+		forgotten bool
+	}{{rate.Every(time.Hour), false}, {rate.Limit(1), true}} {
+		limiter := NewKeyed(c.limit, 5)
+		for limiter.Allow("caller") {
+		}
+		for i := range pruneAbove {
+			limiter.Allow(fmt.Sprint("other-", i))
+		}
+		limiter.limiters["caller"].seen = time.Now().Add(-time.Hour)
+		limiter.Allow("someone new")
+		if _, kept := limiter.limiters["caller"]; kept == c.forgotten {
+			t.Fatalf("at %v a second, a key idle for an hour was kept: %v", c.limit, kept)
+		}
+		if !c.forgotten && limiter.Allow("caller") {
+			t.Fatal("a key that used up its bucket can go again")
+		}
+	}
+}
+
 func TestBackoffGetsLongerAndStartsOverAfterASuccess(t *testing.T) {
 	backoff := NewBackoff(2, time.Hour, 4*time.Hour)
 	backoff.Fail("bob")

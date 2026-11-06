@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	// Past this many keys, ones unused for a while are forgotten.
+	// Past this many keys, ones unused for a while are forgotten: for this long,
+	// or for as long as their bucket takes to fill again, if that's longer.
 	pruneAbove = 10_000
 	pruneEvery = time.Minute
 	idleAfter  = 10 * time.Minute
@@ -24,6 +25,7 @@ type Keyed struct {
 	limiters  map[string]*entry
 	limit     rate.Limit
 	burst     int
+	idle      time.Duration
 	lastPrune time.Time
 }
 
@@ -33,7 +35,12 @@ type entry struct {
 }
 
 func NewKeyed(limit rate.Limit, burst int) *Keyed {
-	return &Keyed{limiters: map[string]*entry{}, limit: limit, burst: burst}
+	// Forgetting a key sooner would give it back what it has used, sooner than waiting would.
+	idle := idleAfter
+	if limit > 0 {
+		idle = max(idle, time.Duration(float64(burst)/float64(limit)*float64(time.Second)))
+	}
+	return &Keyed{limiters: map[string]*entry{}, limit: limit, burst: burst, idle: idle}
 }
 
 func (l *Keyed) Allow(key string) bool {
@@ -54,7 +61,7 @@ func (l *Keyed) makeRoom(now time.Time) {
 	if len(l.limiters) > pruneAbove && now.Sub(l.lastPrune) > pruneEvery {
 		l.lastPrune = now
 		for k, e := range l.limiters {
-			if now.Sub(e.seen) > idleAfter {
+			if now.Sub(e.seen) > l.idle {
 				delete(l.limiters, k)
 			}
 		}
