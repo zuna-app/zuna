@@ -482,20 +482,41 @@ impl VideoPlayer {
         let (sender, receiver) = sync_channel(3);
         let path = self.path.clone();
         let square = self.round;
+        // A video message playing by itself goes round on the same decoder: opening the file
+        // and a decoder again for each pass cost more than playing it.
+        let looping = self.round && !self.heard;
         std::thread::spawn(move || {
             let Ok(mut frames) = crate::media::mf::VideoFrames::open(&path) else { return };
             if from > 0. {
                 frames.seek(from).ok();
             }
-            while let Ok(Some(frame)) = frames.next() {
-                let Some(mut buffer) = image::RgbaImage::from_raw(frames.width, frames.height, frame.bgra) else { break };
-                if square && frames.width != frames.height {
-                    let side = frames.width.min(frames.height);
-                    buffer = image::imageops::crop_imm(&buffer, (frames.width - side) / 2, (frames.height - side) / 2, side, side).to_image();
-                }
-                let image = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
-                if sender.send((frame.at, image)).is_err() {
-                    break;
+            // Each pass's times follow on from the last one's, so the clock just carries on.
+            let (mut offset, mut last, mut gap) = (0., 0., 1. / 30.);
+            loop {
+                match frames.next() {
+                    Ok(Some(frame)) => {
+                        if frame.at > last {
+                            gap = (frame.at - last).clamp(0.001, 0.5);
+                        }
+                        last = frame.at;
+                        let Some(mut buffer) = image::RgbaImage::from_raw(frames.width, frames.height, frame.bgra) else { break };
+                        if square && frames.width != frames.height {
+                            let side = frames.width.min(frames.height);
+                            buffer = image::imageops::crop_imm(&buffer, (frames.width - side) / 2, (frames.height - side) / 2, side, side).to_image();
+                        }
+                        let image = Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
+                        if sender.send((offset + frame.at, image)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) if looping => {
+                        if frames.seek(0.).is_err() {
+                            break;
+                        }
+                        offset += last + gap;
+                        last = 0.;
+                    }
+                    _ => break,
                 }
             }
         });
