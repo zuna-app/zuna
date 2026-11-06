@@ -57,6 +57,16 @@ func (l *Keyed) Allow(key string) bool {
 	return e.limiter.Allow()
 }
 
+// Tokens is how many times a key may do something now, without using any of them.
+func (l *Keyed) Tokens(key string) float64 {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e, ok := l.limiters[key]; ok {
+		return e.limiter.Tokens()
+	}
+	return float64(l.burst)
+}
+
 func (l *Keyed) makeRoom(now time.Time) {
 	if len(l.limiters) > pruneAbove && now.Sub(l.lastPrune) > pruneEvery {
 		l.lastPrune = now

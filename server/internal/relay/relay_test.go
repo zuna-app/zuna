@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -73,6 +74,7 @@ func (f *fakeAPNs) last(t *testing.T) apnsRequest {
 type harness struct {
 	t      *testing.T
 	url    string
+	client *http.Client
 	apns   *fakeAPNs
 	relay  *relay.Relay
 	public *ecdsa.PublicKey
@@ -94,15 +96,18 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := httptest.NewServer(service.Handler())
+	// Over HTTP/2, as a proxy in front can be, so that many requests at once share a connection.
+	server := httptest.NewUnstartedServer(service.Handler())
+	server.EnableHTTP2 = true
+	server.StartTLS()
 	t.Cleanup(server.Close)
-	return &harness{t: t, url: server.URL, apns: fake, relay: service, public: &key.PublicKey}
+	return &harness{t: t, url: server.URL, client: server.Client(), apns: fake, relay: service, public: &key.PublicKey}
 }
 
 func (h *harness) post(path string, body any) (int, map[string]any) {
 	h.t.Helper()
 	data, _ := json.Marshal(body)
-	response, err := http.Post(h.url+path, "application/json", bytes.NewReader(data))
+	response, err := h.client.Post(h.url+path, "application/json", bytes.NewReader(data))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -122,7 +127,7 @@ type registration struct {
 func (h *harness) registerWith(body map[string]any) (int, registration) {
 	h.t.Helper()
 	data, _ := json.Marshal(body)
-	response, err := http.Post(h.url+"/v1/register", "application/json", bytes.NewReader(data))
+	response, err := h.client.Post(h.url+"/v1/register", "application/json", bytes.NewReader(data))
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -137,7 +142,7 @@ func (h *harness) registerFrom(address string, body map[string]any) (int, regist
 	data, _ := json.Marshal(body)
 	request, _ := http.NewRequest(http.MethodPost, h.url+"/v1/register", bytes.NewReader(data))
 	request.Header.Set("X-Forwarded-For", address)
-	response, err := http.DefaultClient.Do(request)
+	response, err := h.client.Do(request)
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -288,7 +293,8 @@ func TestAPhoneAppleDoesntKnowGetsNoHandles(t *testing.T) {
 }
 
 // Made-up phones used to put whoever named them on hold, and with them everyone
-// sharing their address, such as every server behind one of Cloudflare's.
+// sharing their address, such as every server behind one of Cloudflare's. Then
+// they held up everyone's registrations instead.
 func TestMadeUpPhonesCostNobodyElseAnything(t *testing.T) {
 	h := newHarness(t)
 	real := h.register(token, "production")
@@ -298,25 +304,88 @@ func TestMadeUpPhonesCostNobodyElseAnything(t *testing.T) {
 		}
 		return http.StatusBadRequest, "BadDeviceToken"
 	}
-	// From many addresses, as anyone with enough of them, or behind Cloudflare, could.
 	h.relay.Callers, _ = clientip.New(true, nil, false)
-	refused := 0
-	for i := range 150 {
-		status, _ := h.registerFrom(fmt.Sprintf("198.51.100.%d", i), map[string]any{"token": fmt.Sprintf("%064x", i), "environment": "production", "count": 1})
-		switch status {
-		case http.StatusOK:
+	before := h.apns.sent()
+	for i := range 20 {
+		status, reply := h.registerFrom("198.51.100.1", map[string]any{"token": fmt.Sprintf("%064x", i+1), "environment": "production", "count": 1})
+		if status == http.StatusOK || len(reply.Handles) > 0 {
 			t.Fatal("a made-up phone got a handle")
-		case http.StatusServiceUnavailable:
-			refused++
 		}
 	}
-	if refused == 0 {
-		t.Fatal("a flood of made-up phones was checked with Apple without end")
+	if checked := h.apns.sent() - before; checked > 5 {
+		t.Fatalf("one network had Apple check %d made-up phones", checked)
+	}
+	// From many networks, as anyone with enough of them could.
+	for i := range 150 {
+		h.registerFrom(fmt.Sprintf("192.0.2.%d", i), map[string]any{"token": fmt.Sprintf("%064x", 100+i), "environment": "production", "count": 1})
+	}
+	if status, _ := h.registerFrom("203.0.113.9", map[string]any{"token": token, "environment": "production", "count": 1}); status != http.StatusOK {
+		t.Fatalf("a real phone registering during the flood: %d", status)
 	}
 	for range 5 {
 		if status := h.push(real, ""); status != http.StatusNoContent {
 			t.Fatalf("a real phone's push during the flood: %d", status)
 		}
+	}
+}
+
+func TestMadeUpPhonesSentAtOnceDontGetPastTheLimit(t *testing.T) {
+	h := newHarness(t)
+	h.apns.reply = func(string) (int, string) {
+		time.Sleep(50 * time.Millisecond)
+		return http.StatusBadRequest, "BadDeviceToken"
+	}
+	h.relay.Callers, _ = clientip.New(true, nil, false)
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			h.registerFrom("198.51.100.1", map[string]any{"token": fmt.Sprintf("%064x", i+1), "environment": "production", "count": 1})
+		})
+	}
+	wg.Wait()
+	if checked := h.apns.sent(); checked > 5 {
+		t.Fatalf("one network had Apple check %d made-up phones at once", checked)
+	}
+}
+
+func TestRegistrationsNeverHoldUpPushes(t *testing.T) {
+	h := newHarness(t)
+	real := h.register(token, "production")
+	release := make(chan struct{})
+	h.apns.reply = func(device string) (int, string) {
+		if device == token {
+			return http.StatusOK, ""
+		}
+		<-release
+		return http.StatusBadRequest, "BadDeviceToken"
+	}
+	h.relay.Callers, _ = clientip.New(true, nil, false)
+	before := h.apns.sent()
+	var busy atomic.Int32
+	var wg sync.WaitGroup
+	// More than every push may have waiting on Apple, from as many networks.
+	for i := range 300 {
+		wg.Go(func() {
+			status, _ := h.registerFrom(fmt.Sprintf("203.0.%d.%d", i/250, i%250+1), map[string]any{"token": fmt.Sprintf("%064x", i+1), "environment": "production", "count": 1})
+			if status == http.StatusServiceUnavailable {
+				busy.Add(1)
+			}
+		})
+	}
+	for deadline := time.Now().Add(5 * time.Second); h.apns.sent()-before+int(busy.Load()) < 300; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatalf("%d registrations reached Apple and %d were turned away", h.apns.sent()-before, busy.Load())
+		}
+	}
+	status := h.push(real, "")
+	close(release)
+	wg.Wait()
+	if status != http.StatusNoContent {
+		t.Fatalf("a push while registrations wait on Apple: %d", status)
+	}
+	if busy.Load() == 0 {
+		t.Fatal("registrations waited on Apple without end")
 	}
 }
 

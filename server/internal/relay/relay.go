@@ -44,14 +44,16 @@ const (
 	// again costs Apple nothing.
 	deadFor = 24 * time.Hour
 	maxDead = 100_000
-	// How many requests may wait on Apple at once, from every caller together.
-	maxSending = 256
+	// How many pushes may wait on Apple at once, from every server together, and
+	// apart from them how many registrations, which anyone can make up.
+	maxSending     = 256
+	maxRegistering = 32
 )
 
 var handleLabel = []byte("zuna-push/handle/v2")
 
-// errBusy means too many pushes are waiting on Apple already.
-var errBusy = errors.New("too many pushes are waiting on Apple")
+// errBusy means too many requests are waiting on Apple already.
+var errBusy = errors.New("too many requests are waiting on Apple")
 
 // Relay serves the relay's HTTP API.
 type Relay struct {
@@ -74,12 +76,16 @@ type Relay struct {
 	rings *ratelimit.Keyed
 	// VoIP tokens registered with one phone's push token: Apple can't check one without ringing it.
 	voipTokens *ratelimit.Keyed
-	// Registrations naming phones Apple says don't exist, from everyone together.
-	badTokens *rate.Limiter
-	sending   chan struct{}
+	// Registrations naming phones Apple says don't exist, by the caller's network,
+	// so that a flood of made-up phones only holds up whoever sends it.
+	badTokens   *ratelimit.Keyed
+	sending     chan struct{}
+	registering chan struct{}
 
 	mu   sync.Mutex
 	dead map[[16]byte]time.Time
+	// Registrations waiting on Apple, by network.
+	checking map[string]int
 }
 
 // New makes a relay that seals handles with handleKey (32 bytes, kept across
@@ -105,9 +111,12 @@ func New(handleKey []byte, apns *APNs) (*Relay, error) {
 		perToken:   ratelimit.NewKeyed(rate.Limit(2), 60),
 		rings:      ratelimit.NewKeyed(rate.Every(20*time.Second), 5),
 		voipTokens: ratelimit.NewKeyed(rate.Every(time.Hour), 20),
-		badTokens:  rate.NewLimiter(rate.Limit(1), 100),
-		sending:    make(chan struct{}, maxSending),
-		dead:       map[[16]byte]time.Time{},
+		// A real phone's token is one Apple knows, so only a mistake is ever refused.
+		badTokens:   ratelimit.NewKeyed(rate.Every(time.Hour), 5),
+		sending:     make(chan struct{}, maxSending),
+		registering: make(chan struct{}, maxRegistering),
+		dead:        map[[16]byte]time.Time{},
+		checking:    map[string]int{},
 	}, nil
 }
 
@@ -208,11 +217,32 @@ func (r *Relay) bury(d device) {
 	r.dead[d.deadKey()] = now.Add(deadFor)
 }
 
-// send passes a push to Apple, unless too many are waiting on it already.
-func (r *Relay) send(req *http.Request, d device, kind string, data map[string]string, collapseID string) error {
+// startChecking lets a network check a phone with Apple while it may still name
+// a made-up one: each it's checking counts as one until Apple says otherwise, so
+// that sending many at once doesn't get more past its limit.
+func (r *Relay) startChecking(network string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.badTokens.Tokens(network)-float64(r.checking[network]) < 1 {
+		return false
+	}
+	r.checking[network]++
+	return true
+}
+
+func (r *Relay) doneChecking(network string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.checking[network]--; r.checking[network] <= 0 {
+		delete(r.checking, network)
+	}
+}
+
+// send passes a push to Apple, unless too many in its pool are waiting on it already.
+func (r *Relay) send(req *http.Request, pool chan struct{}, d device, kind string, data map[string]string, collapseID string) error {
 	select {
-	case r.sending <- struct{}{}:
-		defer func() { <-r.sending }()
+	case pool <- struct{}{}:
+		defer func() { <-pool }()
 	default:
 		return errBusy
 	}
@@ -221,7 +251,8 @@ func (r *Relay) send(req *http.Request, d device, kind string, data map[string]s
 
 func (r *Relay) handleRegister(w http.ResponseWriter, req *http.Request) {
 	// Phones on one carrier's network share its /48s, so only a smaller one counts as one caller.
-	if !r.registers.Allow(clientip.KeyWithin(r.Callers.Address(req), 56)) {
+	network := clientip.KeyWithin(r.Callers.Address(req), 56)
+	if !r.registers.Allow(network) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
@@ -260,18 +291,19 @@ func (r *Relay) handleRegister(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
-	// A flood of made-up phones holds up new registrations for a while, never pushes.
-	if r.badTokens.Tokens() < 1 {
-		writeError(w, http.StatusServiceUnavailable, "busy")
+	if !r.startChecking(network) {
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
 		return
 	}
+	defer r.doneChecking(network)
 	// A silent push with nothing in it, which the app ignores: Apple refuses it
-	// for a phone it doesn't know, which then gets no handles.
-	err := r.send(req, phone, KindBackground, nil, "")
+	// for a phone it doesn't know, which then gets no handles. Registrations wait
+	// on Apple apart from pushes, so a flood of them never holds up a push.
+	err := r.send(req, r.registering, phone, KindBackground, nil, "")
 	switch {
 	case errors.Is(err, ErrGone):
 		r.bury(phone)
-		r.badTokens.Allow()
+		r.badTokens.Allow(network)
 		writeError(w, http.StatusBadRequest, "bad_token")
 		return
 	case errors.Is(err, errBusy):
@@ -358,7 +390,7 @@ func (r *Relay) handlePush(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "no_apns")
 		return
 	}
-	err := r.send(req, target, kind, body.Data, body.CollapseID)
+	err := r.send(req, r.sending, target, kind, body.Data, body.CollapseID)
 	switch {
 	case err == nil:
 		w.WriteHeader(http.StatusNoContent)
