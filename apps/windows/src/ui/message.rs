@@ -335,32 +335,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
             bubble = bubble.child(link_card(preview, own, &theme, cx));
         }
         if let Some(location) = &message.location {
-            let url = format!("https://www.openstreetmap.org/?mlat={:.6}&mlon={:.6}#map=16/{:.6}/{:.6}", location.lat, location.lon, location.lat, location.lon);
-            bubble = bubble.child(
-                div()
-                    .id(SharedString::from(format!("location-{}", message.id)))
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .my(px(2.))
-                    .pl(px(8.))
-                    .pr(px(12.))
-                    .py(px(8.))
-                    .min_w(px(220.))
-                    .rounded(RADIUS_M)
-                    .bg(if own { theme::color(theme::white_a(0.07)) } else { theme.hover })
-                    .cursor_pointer()
-                    .on_click(move |_, _, cx| cx.open_url(&url))
-                    .child(div().size(px(40.)).rounded_full().bg(theme.accent).flex().items_center().justify_center().child(icon("map-pin", 20., theme.on_accent)))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .text_size(px(13.))
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child("Location"))
-                            .child(format!("{:.5}° {}, {:.5}° {}", location.lat.abs(), if location.lat >= 0. { "N" } else { "S" }, location.lon.abs(), if location.lon >= 0. { "E" } else { "W" })),
-                    ),
-            );
+            bubble = bubble.child(location_card(&message.id, location, own, false, &theme));
         }
     }
 
@@ -1040,7 +1015,6 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                 if attachment.file_id.is_empty() {
                     tile = tile.child(div().absolute().inset_0().flex().items_center().justify_center().child(spinner(18., gpui::white())));
                 } else {
-                    // Ask for it; it shows on a later frame.
                     let server_id = context.server_id.clone();
                     let reference = crate::models::AvatarRef {
                         file_id: attachment.file_id.clone(),
@@ -1049,10 +1023,24 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                         chunks: attachment.chunks,
                         mime: attachment.mime.clone(),
                     };
-                    context.state.update(cx, |state, cx| {
-                        state.decrypted_picture(&server_id, &reference, cx);
-                    });
-                    tile = tile.child(div().absolute().inset_0().flex().items_center().justify_center().child(spinner(18., gpui::white())));
+                    let asked = context.state.read(cx).pictures.contains_key(&format!("file:{}", attachment.file_id));
+                    if super::shared_media::loads_by_itself(attachment) || asked {
+                        // Ask for it; it shows on a later frame.
+                        context.state.update(cx, |state, cx| {
+                            state.decrypted_picture(&server_id, &reference, cx);
+                        });
+                        tile = tile.child(div().absolute().inset_0().flex().items_center().justify_center().child(spinner(18., gpui::white())));
+                    } else {
+                        // Very large pictures wait to be asked for, with their size.
+                        let state = context.state.clone();
+                        tile = tile.cursor_pointer().on_click(move |_, _, cx| state.update(cx, |state, cx| {
+                            state.decrypted_picture(&server_id, &reference, cx);
+                        })).child(
+                            div().absolute().inset_0().flex().flex_col().items_center().justify_center().gap(px(4.)).child(
+                                div().size(px(40.)).rounded_full().flex().items_center().justify_center().bg(theme::color(theme::black_a(0.55))).child(icon("download", 18., gpui::white())),
+                            ).child(div().px(px(6.)).rounded(px(4.)).bg(theme::color(theme::black_a(0.55))).text_size(px(11.)).text_color(gpui::white()).child(format_bytes(attachment.size))),
+                        );
+                    }
                 }
             }
             grid = grid.child(tile);
@@ -1273,4 +1261,41 @@ pub(super) fn menu_entries(message: &MessageView, own: bool, can_act: bool, cont
     }
     let _ = format_full;
     entries
+}
+
+/// A shared location: a pin, the coordinates and how far off they may be, opening a map.
+pub(super) fn location_card(id: &str, location: &crate::models::SharedLocation, own: bool, channel: bool, theme: &Theme) -> AnyElement {
+    let theme = *theme;
+    let url = crate::format::map_link(location.lat, location.lon);
+    let bg = if channel { theme.bg2 } else if own { theme::color(theme::white_a(0.07)) } else { theme.hover };
+    div()
+        .id(SharedString::from(format!("location-{id}")))
+        .flex()
+        .items_center()
+        .gap(px(10.))
+        .my(px(2.))
+        .when(channel, |el| el.mt(px(4.)).mb(px(0.)).border_1().border_color(theme.line))
+        .pl(px(8.))
+        .pr(px(12.))
+        .py(px(8.))
+        .min_w(px(220.))
+        .rounded(RADIUS_M)
+        .bg(bg)
+        .cursor_pointer()
+        .hover(move |style| style.bg(theme.hover_strong))
+        .tooltip(tooltip("Open on OpenStreetMap"))
+        .on_click(move |_, _, cx| cx.open_url(&url))
+        .child(div().size(px(40.)).flex_none().rounded_full().bg(theme.accent).flex().items_center().justify_center().child(icon("map-pin", 20., theme.on_accent)))
+        .child(
+            div()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .text_size(px(13.))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("Location"))
+                .child(crate::format::coordinates_text(location.lat, location.lon))
+                .when_some(location.accuracy, |el, meters| el.child(div().text_size(px(12.)).text_color(if own && !channel { theme.bubble_own_faint } else { theme.text2 }).child(crate::format::accuracy_text(meters)))),
+        )
+        .into_any_element()
 }

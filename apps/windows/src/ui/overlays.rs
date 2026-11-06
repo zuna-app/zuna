@@ -24,6 +24,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::Verify { user_id } => cx.new(|cx| Dialog::new(state, DialogKind::Verify(user_id), window, cx)).into(),
         Overlay::LeaveServer => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer, window, cx)).into(),
         Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
+        Overlay::ShareLocation { conversation_key } => cx.new(|cx| Dialog::new(state, DialogKind::ShareLocation(conversation_key), window, cx)).into(),
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
         Overlay::Channel { channel_id, category } => cx.new(|cx| Dialog::new(state, DialogKind::Channel { channel_id, kind: category }, window, cx)).into(),
         Overlay::Settings { .. } | Overlay::ServerSettings { .. } => return None,
@@ -39,6 +40,7 @@ enum DialogKind {
     LeaveServer,
     Forward { server_id: String, group_id: String, ids: Vec<String> },
     AddMembers(String),
+    ShareLocation(String),
     Channel { channel_id: Option<String>, kind: Option<String> },
 }
 
@@ -94,6 +96,8 @@ pub struct Dialog {
     focused: Option<usize>,
     channel_form: Option<ChannelForm>,
     invite_panel: Option<Entity<super::invites::InvitePanel>>,
+    /// Where this device was found, or why it wasn't, while sharing a location.
+    location: Option<Result<(f64, f64, Option<f64>), String>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -170,7 +174,10 @@ impl Dialog {
             people_search.update(cx, |input, cx| input.set_placeholder("Search chats", cx));
             people_search.read(cx).focus(window);
         }
-        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, _subscriptions: subscriptions };
+        let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, _subscriptions: subscriptions };
+        if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
+            dialog.locate(cx);
+        }
         if let DialogKind::Verify(user_id) = &dialog.kind {
             let user_id = user_id.clone();
             dialog.load_check(user_id, cx);
@@ -709,6 +716,85 @@ impl Dialog {
             .into_any_element()
     }
 
+    /// Asks Windows where this device is, away from the window.
+    fn locate(&mut self, cx: &mut Context<Self>) {
+        self.location = None;
+        cx.notify();
+        cx.spawn(async move |dialog, cx| {
+            let found = cx.background_executor().spawn(async { crate::platform::location::locate() }).await;
+            dialog
+                .update(cx, |dialog, cx| {
+                    dialog.location = Some(found);
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// Finds where this device is and, once that's shown, sends it to a chat (ShareLocation.tsx).
+    fn share_location(&mut self, key: String, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let text: AnyElement = match &self.location {
+            Some(Ok((lat, lon, accuracy))) => div()
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .text_size(px(13.))
+                .child(div().font_weight(FontWeight::SEMIBOLD).child("Your current location"))
+                .child(crate::format::coordinates_text(*lat, *lon))
+                .when_some(*accuracy, |el, meters| el.child(div().text_color(theme.text3).child(crate::format::accuracy_text(meters))))
+                .into_any_element(),
+            Some(Err(error)) => div().text_size(px(13.)).child(error.clone()).into_any_element(),
+            None => div().flex().items_center().gap(px(8.)).text_size(px(13.)).child(spinner(14., theme.text2)).child("Finding where you are…").into_any_element(),
+        };
+        let body = vec![
+            div()
+                .flex()
+                .items_center()
+                .gap(px(14.))
+                .pt(px(6.))
+                .pb(px(12.))
+                .child(div().size(px(52.)).flex_none().rounded_full().bg(theme.accent).flex().items_center().justify_center().child(icon("map-pin", 26., theme.on_accent)))
+                .child(text)
+                .into_any_element(),
+            div().text_size(px(12.5)).text_color(theme.text3).child("It's sent encrypted, like a message. Nobody else learns it, unless someone opens it on a map.").into_any_element(),
+        ];
+        let busy = self.busy;
+        let found = match &self.location {
+            Some(Ok(found)) => Some(*found),
+            _ => None,
+        };
+        let failed = matches!(self.location, Some(Err(_)));
+        let footer = div()
+            .flex()
+            .gap(px(8.))
+            .child(button("cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx))))
+            .child(if failed {
+                button("retry-location", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Try again").on_click(cx.listener(|dialog, _, _, cx| dialog.locate(cx)))
+            } else {
+                button("send-location", ButtonKind::Primary, ButtonSize::Normal, found.is_none() || busy, cx).child(if busy { "Sending…" } else { "Send location" }).when_some(found.filter(|_| !busy), |el, (lat, lon, accuracy)| {
+                    el.on_click(cx.listener(move |dialog, _, _, cx| {
+                        dialog.busy = true;
+                        let mut location = json!({ "lat": lat, "lon": lon });
+                        if let Some(meters) = accuracy {
+                            location["accuracy"] = json!(meters);
+                        }
+                        let key = key.clone();
+                        dialog.state.update(cx, |state, cx| {
+                            let server = state.active_server.clone();
+                            state.call(server.as_deref(), "sendMessage", vec![json!(key), json!({ "location": location })], cx, |state, result, cx| match result {
+                                Ok(_) => state.set_overlay(None, cx),
+                                Err(error) => state.toast(error.message, ToastKind::Error, cx),
+                            });
+                        });
+                        cx.notify();
+                    }))
+                })
+            });
+        self.modal(Some("Share location".into()), 400., body, Some(footer.into_any_element()), cx)
+    }
+
     /// People to add to a group: everyone on the server who isn't in it yet.
     fn add_members(&mut self, group_id: String, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
@@ -1062,6 +1148,10 @@ impl Render for Dialog {
                 self.verify(user_id, cx)
             }
             DialogKind::LeaveServer => self.leave_server(cx),
+            DialogKind::ShareLocation(key) => {
+                let key = key.clone();
+                self.share_location(key, cx)
+            }
             DialogKind::AddMembers(group_id) => {
                 let group_id = group_id.clone();
                 self.add_members(group_id, cx)

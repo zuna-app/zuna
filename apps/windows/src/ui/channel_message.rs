@@ -432,6 +432,9 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
         if let Some(preview) = &message.preview {
             body = body.child(channel_link_card(preview, &theme));
         }
+        if let Some(location) = &message.location {
+            body = body.child(super::message::location_card(&message.id, location, own, true, &theme));
+        }
     }
     if !message.reactions.is_empty() {
         let mut reactions = div().mt(px(4.)).flex().flex_wrap().items_center().gap(px(4.));

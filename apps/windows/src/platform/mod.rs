@@ -3,6 +3,7 @@
 //! Windows wants quiet right now. The desktop gets these from Electron.
 
 mod clipboard;
+pub mod location;
 pub mod icons;
 mod quiet;
 pub mod tray;

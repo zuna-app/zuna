@@ -128,6 +128,8 @@ pub enum Overlay {
     Forward { server_id: String, group_id: String, ids: Vec<String> },
     /// People to add to a group.
     AddMembers { group_id: String },
+    /// Finding where this device is, to send it to a chat.
+    ShareLocation { conversation_key: String },
     /// A server's settings, for its admins, and signing out of it.
     ServerSettings { section: Option<String> },
     /// Making a channel, or editing one, for server admins.

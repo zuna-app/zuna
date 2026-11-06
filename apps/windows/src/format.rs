@@ -183,3 +183,24 @@ pub fn wait_text(seconds: u64) -> String {
     let rest = seconds % 60;
     if hours > 0 { format!("{hours}:{minutes:02}:{rest:02}") } else { format!("{minutes}:{rest:02}") }
 }
+
+/// "52.22970° N, 21.01220° E" (lib/location.ts).
+pub fn coordinates_text(lat: f64, lon: f64) -> String {
+    format!("{:.5}° {}, {:.5}° {}", lat.abs(), if lat >= 0. { "N" } else { "S" }, lon.abs(), if lon >= 0. { "E" } else { "W" })
+}
+
+/// "Within 20 m", or "Within 1.5 km".
+pub fn accuracy_text(meters: f64) -> String {
+    if meters < 1000. {
+        format!("Within {} m", meters.round().max(1.) as u64)
+    } else if meters < 10_000. {
+        format!("Within {:.1} km", meters / 1000.)
+    } else {
+        format!("Within {:.0} km", meters / 1000.)
+    }
+}
+
+/// Where a location opens: OpenStreetMap, in the browser, so nothing here loads a map.
+pub fn map_link(lat: f64, lon: f64) -> String {
+    format!("https://www.openstreetmap.org/?mlat={lat:.6}&mlon={lon:.6}#map=16/{lat:.6}/{lon:.6}")
+}

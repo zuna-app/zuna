@@ -58,6 +58,16 @@ struct Suggestion {
     what: Suggested,
 }
 
+/// A drag across messages that picks them: where it began, what was picked before, and
+/// whether it lets go of them instead.
+struct DragPick {
+    start: String,
+    base: Vec<String>,
+    let_go: bool,
+    dragging: bool,
+    y: gpui::Pixels,
+}
+
 /// The first link's preview, made on this device once typing pauses.
 struct LinkDraft {
     url: String,
@@ -103,6 +113,11 @@ pub struct ChatView {
     inline_editor: Entity<TextInput>,
     /// The channel message being edited where it is.
     inline_editing: Option<String>,
+    /// The rows on screen, and a drag picking messages across them.
+    visible: std::ops::Range<usize>,
+    row_bounds: Rc<RefCell<HashMap<usize, gpui::Bounds<gpui::Pixels>>>>,
+    drag: Option<DragPick>,
+    drag_tick: Option<Task<()>>,
     /// Unread messages here that mention you or reply to you, oldest first, and what they were asked for.
     mentions: Vec<(String, f64)>,
     mentions_asked: Option<(f64, f64)>,
@@ -183,6 +198,10 @@ impl ChatView {
             focus: cx.focus_handle(),
             inline_editor,
             inline_editing: None,
+            visible: 0..0,
+            row_bounds: Rc::new(RefCell::new(HashMap::new())),
+            drag: None,
+            drag_tick: None,
             mentions: Vec::new(),
             mentions_asked: None,
             _subscriptions: subscriptions,
@@ -301,6 +320,7 @@ impl ChatView {
 
     fn on_scroll(&mut self, visible: std::ops::Range<usize>, scrolled: bool, cx: &mut Context<Self>) {
         self.at_bottom = !scrolled;
+        self.visible = visible.clone();
         let Some(conversation) = self.conversation(cx) else { return };
         let list_id = conversation.list_id();
         // Older messages, well before the top is reached.
@@ -429,6 +449,100 @@ impl ChatView {
             _ => {}
         }
         let _ = window;
+    }
+
+    // --- Picking by dragging ---
+
+    /// The message row at this height, held to the list's own top and bottom.
+    fn row_at(&self, y: gpui::Pixels) -> Option<usize> {
+        let view = self.list.viewport_bounds();
+        let at = y.clamp(view.top() + px(1.), view.bottom() - px(1.));
+        self.row_bounds.borrow().iter().find(|(index, bounds)| **index < self.rows.len() && bounds.top() <= at && at < bounds.bottom()).map(|(index, _)| *index)
+    }
+
+    /// A press on a message may start picking by dragging, as in Telegram's desktop app.
+    fn drag_start(&mut self, event: &gpui::MouseDownEvent, cx: &mut Context<Self>) {
+        if event.button != MouseButton::Left || event.modifiers.shift || event.modifiers.control || event.modifiers.alt || event.modifiers.platform {
+            return;
+        }
+        let found = self.row_at(event.position.y);
+        let Some(index) = found else { return };
+        let start = self.rows[index].0.clone();
+        let base = match &self.state.read(cx).selection {
+            Some((list, ids)) if *list == self.last_list_id => ids.clone(),
+            _ => Vec::new(),
+        };
+        let let_go = base.contains(&start);
+        self.drag = Some(DragPick { start, base, let_go, dragging: false, y: event.position.y });
+    }
+
+    fn drag_move(&mut self, y: gpui::Pixels, cx: &mut Context<Self>) {
+        let found = self.row_at(y).map(|index| self.rows[index].0.clone());
+        let Some(drag) = &mut self.drag else { return };
+        drag.y = y;
+        let Some(id) = found else { return };
+        if !drag.dragging && id == drag.start {
+            return;
+        }
+        if !drag.dragging {
+            drag.dragging = true;
+            // Held near the top or bottom, or past it, the list scrolls, faster the further out.
+            self.drag_tick = Some(cx.spawn(async move |view, cx| loop {
+                cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
+                let going = view
+                    .update(cx, |view, cx| {
+                        let Some(y) = view.drag.as_ref().map(|drag| drag.y) else { return false };
+                        let bounds = view.list.viewport_bounds();
+                        let edge = px(56.);
+                        let over = if y < bounds.top() + edge { f32::from(y - bounds.top() - edge) } else if y > bounds.bottom() - edge { f32::from(y - bounds.bottom() + edge) } else { 0. };
+                        if over != 0. {
+                            view.list.scroll_by(px((over / 56.).clamp(-3., 3.) * 12.));
+                            view.drag_move(y, cx);
+                            cx.notify();
+                        }
+                        true
+                    })
+                    .unwrap_or(false);
+                if !going {
+                    break;
+                }
+            }));
+        }
+        self.pick_to(&id, cx);
+    }
+
+    /// Picks what's between where the drag began and here, or lets go of it.
+    fn pick_to(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(drag) = &self.drag else { return };
+        let state = self.state.read(cx);
+        let Some(list) = state.lists.get(&self.last_list_id) else { return };
+        let blocked = state.servers.get(&self.server_id).map(|server| server.prefs.blocked().to_vec()).unwrap_or_default();
+        let (Some(from), Some(to)) = (list.items.iter().position(|item| item.id == drag.start), list.items.iter().position(|item| item.id == id)) else { return };
+        // Only what a click could pick: not a line about the chat, nor a hidden message from someone blocked.
+        let range: Vec<String> = list.items[from.min(to)..=from.max(to)]
+            .iter()
+            .filter(|item| item.system.is_none() && item.seq.is_some() && item.deleted_at.is_none() && item.status == "sent" && !blocked.contains(&item.sender_id))
+            .map(|item| item.id.clone())
+            .collect();
+        let ids: Vec<String> = if drag.let_go {
+            drag.base.iter().filter(|item| !range.contains(item)).cloned().collect()
+        } else {
+            drag.base.iter().cloned().chain(range.into_iter().filter(|item| !drag.base.contains(item))).collect()
+        };
+        let list_id = self.last_list_id.clone();
+        self.state.update(cx, |state, cx| {
+            state.selection = (!ids.is_empty()).then(|| (list_id, ids));
+            cx.notify();
+        });
+    }
+
+    /// Ends a drag; the click a drag ends with doesn't also pick, or open, what it lands on.
+    fn drag_end(&mut self, cx: &mut Context<Self>) {
+        let dragged = self.drag.take().is_some_and(|drag| drag.dragging);
+        self.drag_tick = None;
+        if dragged {
+            cx.stop_propagation();
+        }
     }
 
     // --- Suggestions, link previews and files ---
@@ -691,6 +805,23 @@ impl ChatView {
         self.composer.update(cx, |input, cx| input.set_text("", cx));
         self.list.scroll_to(gpui::ListOffset { item_ix: self.rows.len(), offset_in_item: px(0.) });
         self.composer.read(cx).focus(window);
+    }
+
+    /// What the attach button offers: a photo or file, or where this device is.
+    fn attach_menu(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let Some(conversation) = self.conversation(cx) else { return };
+        let view = cx.entity().downgrade();
+        let state = self.state.clone();
+        let key = conversation.key.clone();
+        let entries = vec![
+            super::menu::MenuEntry::new("Photo or file", "file", move |window, cx| {
+                view.update(cx, |view, cx| view.attach(window, cx)).ok();
+            }),
+            super::menu::MenuEntry::new("Location", "map-pin", move |_, cx| {
+                state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::ShareLocation { conversation_key: key.clone() }), cx))
+            }),
+        ];
+        super::menu::open_menu(gpui::point(position.x - px(10.), position.y - px(96.)), entries, false, cx);
     }
 
     /// Picks files to go with the next message, as the desktop's attach button does.
@@ -1073,12 +1204,12 @@ impl ChatView {
                         .justify_center()
                         .cursor_pointer()
                         .tooltip(tooltip("Attach"))
-                        .on_click(cx.listener(|view, _, window, cx| view.attach(window, cx)))
+                        .on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx)))
                         .child(icon("plus-circle-filled", 22., theme.text2)),
                 )
         } else {
             div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
-                el.child(icon_button("attach", "paperclip", 18., false, false, cx).tooltip(tooltip("Attach")).on_click(cx.listener(|view, _, window, cx| view.attach(window, cx))))
+                el.child(icon_button("attach", "paperclip", 18., false, false, cx).tooltip(tooltip("Attach")).on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx))))
             })
         };
         let message_size = if is_channel { theme.message_size + px(1.5) } else { theme.message_size };
@@ -1908,11 +2039,19 @@ impl Render for ChatView {
                     self.list.reset(count);
                 }
                 let items_for_rows = items.clone();
+                // Where each drawn row is, for picking by dragging across them.
+                self.row_bounds.borrow_mut().clear();
+                let row_bounds = self.row_bounds.clone();
                 let rows = gpui::list(self.list.clone(), move |index, window, cx| {
                     if index >= items_for_rows.len() {
                         return div().into_any_element();
                     }
-                    render_row(&items_for_rows, index, &context, window, cx)
+                    let recorded = row_bounds.clone();
+                    div()
+                        .relative()
+                        .child(render_row(&items_for_rows, index, &context, window, cx))
+                        .child(gpui::canvas(move |bounds, _, _| { recorded.borrow_mut().insert(index, bounds); }, |_, _, _, _| {}).absolute().inset_0())
+                        .into_any_element()
                 })
                 .size_full();
                 let unread_below = if !self.at_bottom { conversation.unread as u32 } else { 0 };
@@ -1928,6 +2067,16 @@ impl Render for ChatView {
                     .flex_1()
                     .min_h_0()
                     .flex()
+                    .on_mouse_down(MouseButton::Left, cx.listener(|view, event: &gpui::MouseDownEvent, _, cx| view.drag_start(event, cx)))
+                    .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
+                        if event.pressed_button == Some(MouseButton::Left) && view.drag.is_some() {
+                            view.drag_move(event.position.y, cx);
+                        } else if view.drag.is_some() && event.pressed_button.is_none() {
+                            view.drag = None;
+                            view.drag_tick = None;
+                        }
+                    }))
+                    .capture_any_mouse_up(cx.listener(|view, _: &gpui::MouseUpEvent, _, cx| view.drag_end(cx)))
                     .child(rows)
                     .when_some(mention_button, |el, button| el.child(button))
                     .when_some(jump_bar, |el, bar| el.child(bar))
