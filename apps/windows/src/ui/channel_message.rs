@@ -662,7 +662,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
         Some(emote) => {
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
-                Some(image) => chip.child(img(image).h(px(20.)).max_w(px(44.)).object_fit(gpui::ObjectFit::Contain)),
+                Some(image) => chip.child(img(image).h(px(20.)).max_w(px(44.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)))),
                 None => chip.child(reaction.key.clone()),
             }
         }

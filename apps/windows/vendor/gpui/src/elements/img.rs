@@ -251,6 +251,8 @@ struct ImgState {
     frame_index: usize,
     last_frame_time: Option<Instant>,
     started_loading: Option<(Instant, Task<()>)>,
+    /// Zuna: when the view is to be drawn again for the next frame of an animation.
+    next_frame: Option<(Instant, Task<()>)>,
 }
 
 /// The image layout state between frames
@@ -289,6 +291,7 @@ impl Element for Img {
                     frame_index: 0,
                     last_frame_time: None,
                     started_loading: None,
+                    next_frame: None,
                 })
             });
 
@@ -363,8 +366,26 @@ impl Element for Img {
                                 };
                             }
 
+                            // Zuna: drawn again when the next frame is due, rather than on every
+                            // vsync, which drew the whole view 120 times a second for an
+                            // animation of 20 frames a second.
                             if global_id.is_some() && data.frame_count() > 1 {
-                                window.request_animation_frame();
+                                if let Some(state) = &mut state {
+                                    let delay = Duration::from(data.delay(state.frame_index));
+                                    let due = state.last_frame_time.map_or_else(Instant::now, |at| at + delay);
+                                    let waiting = state.next_frame.as_ref().is_some_and(|(at, _)| *at <= due && *at > Instant::now());
+                                    if !waiting {
+                                        let view = window.current_view();
+                                        let wait = due.saturating_duration_since(Instant::now());
+                                        let task = window.spawn(cx, async move |cx| {
+                                            cx.background_executor().timer(wait).await;
+                                            cx.update(|_, cx| cx.notify(view)).ok();
+                                        });
+                                        state.next_frame = Some((due, task));
+                                    }
+                                } else {
+                                    window.request_animation_frame();
+                                }
                             }
                         }
                         Some(_err) => {

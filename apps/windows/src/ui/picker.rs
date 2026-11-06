@@ -203,7 +203,7 @@ impl PickerLayer {
                             }
                         }))
                         .on_click(cx.listener(move |layer, _, window, cx| layer.pick(Pick::Emote(emote.clone()), window, cx)))
-                        .when_some(image, |el, image| el.child(img(image).size_full().object_fit(gpui::ObjectFit::Contain))),
+                        .when_some(image, |el, image| el.child(img(image).size_full().object_fit(gpui::ObjectFit::Contain).id("picture"))),
                 );
             }
             for _ in row.len()..columns {
@@ -276,7 +276,7 @@ impl Render for PickerLayer {
                     .items_center()
                     .gap(px(9.))
                     .min_w_0()
-                    .when_some(image, |el, image| el.child(img(image).size(px(28.)).flex_none().object_fit(gpui::ObjectFit::Contain)))
+                    .when_some(image, |el, image| el.child(img(image).size(px(28.)).flex_none().object_fit(gpui::ObjectFit::Contain).id("hovered-emote")))
                     .child(
                         div()
                             .flex_1()

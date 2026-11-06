@@ -1781,7 +1781,25 @@ impl Image {
             }
             ImageFormat::Png => frames_for_image(&self.bytes, image::ImageFormat::Png)?,
             ImageFormat::Jpeg => frames_for_image(&self.bytes, image::ImageFormat::Jpeg)?,
-            ImageFormat::Webp => frames_for_image(&self.bytes, image::ImageFormat::WebP)?,
+            // Zuna: an animated WebP's every frame, as `img` decodes one it loads itself.
+            ImageFormat::Webp => {
+                let mut decoder = image::codecs::webp::WebPDecoder::new(Cursor::new(&self.bytes))?;
+                if decoder.has_animation() {
+                    let _ = decoder.set_background_color(image::Rgba([0, 0, 0, 0]));
+                    let mut frames = SmallVec::new();
+                    for frame in decoder.into_frames() {
+                        let mut frame = frame?;
+                        // Convert from RGBA to BGRA.
+                        for pixel in frame.buffer_mut().chunks_exact_mut(4) {
+                            pixel.swap(0, 2);
+                        }
+                        frames.push(frame);
+                    }
+                    frames
+                } else {
+                    frames_for_image(&self.bytes, image::ImageFormat::WebP)?
+                }
+            }
             ImageFormat::Bmp => frames_for_image(&self.bytes, image::ImageFormat::Bmp)?,
             ImageFormat::Tiff => frames_for_image(&self.bytes, image::ImageFormat::Tiff)?,
             ImageFormat::Svg => {

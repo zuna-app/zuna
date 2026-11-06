@@ -698,6 +698,8 @@ fn flow_text(
                     .my(px(-3.))
                     .when(zero_width, |el| el.ml(px(-28.)))
                     .object_fit(gpui::ObjectFit::Contain)
+                    // An id keeps an animated emote's place between frames.
+                    .id(SharedString::from(format!("emote-{}-{}-{}", message.id, index, range.start)))
                     .into_any_element(),
                 None => div().text_color(theme.text2).child(name.clone()).into_any_element(),
             });
@@ -895,12 +897,12 @@ fn code_block(text: &str, language: Option<&str>, message_id: &str, index: usize
 
 pub(super) fn jumbo_body(message: &MessageView, _size: u8, context: &ChatContext, cx: &mut App) -> AnyElement {
     let mut row = div().flex().flex_wrap().items_end().gap(px(2.));
-    for word in message.text.split_whitespace() {
+    for (position, word) in message.text.split_whitespace().enumerate() {
         if let Some(emote) = message.emotes.get(word) {
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             row = row.child(match image {
-                Some(image) => img(image).h(px(48.)).max_w(px(150.)).object_fit(gpui::ObjectFit::Contain).into_any_element(),
+                Some(image) => img(image).h(px(48.)).max_w(px(150.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("jumbo-{}-{position}", message.id))).into_any_element(),
                 None => div().h(px(48.)).w(px(48.)).into_any_element(),
             });
         } else {
@@ -952,7 +954,7 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
         Some(emote) => {
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
-                Some(image) => chip.child(img(image).h(px(18.)).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain)),
+                Some(image) => chip.child(img(image).h(px(18.)).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)))),
                 None => chip.child(div().text_color(theme.text2).child(reaction.key.clone())),
             }
         }

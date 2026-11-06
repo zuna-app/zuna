@@ -2269,7 +2269,7 @@ impl ChatView {
                     let url = format!("{server_url}/api/emotes/{}/2x.webp", emote.id);
                     let image = self.state.update(cx, |state, cx| state.remote_picture(&url, cx));
                     match image {
-                        Some(image) => img(image).size(px(24.)).flex_none().object_fit(gpui::ObjectFit::Contain).into_any_element(),
+                        Some(image) => img(image).size(px(24.)).flex_none().object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("suggested-emote-{index}"))).into_any_element(),
                         None => div().size(px(24.)).flex_none().into_any_element(),
                     }
                 }
