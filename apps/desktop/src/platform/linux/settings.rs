@@ -8,18 +8,23 @@ use zbus::blocking::MessageIterator;
 use zbus::zvariant::{OwnedValue, Value};
 use zbus::MatchRule;
 
-static ANIMATIONS_OFF: AtomicBool = AtomicBool::new(false);
+/// Whether KDE's setting, and GNOME's, has animations off. Either can, as a portal answers
+/// the other desktop's key with its default.
+static KDE_OFF: AtomicBool = AtomicBool::new(false);
+static GNOME_OFF: AtomicBool = AtomicBool::new(false);
 
-fn set_animations_off(off: bool) {
-    if ANIMATIONS_OFF.swap(off, Ordering::Relaxed) != off {
-        log::info!("the desktop's animations are {}", if off { "off" } else { "on" });
+fn set_animations_off(namespace: &str, off: bool) {
+    let before = animations_off();
+    if namespace.starts_with("org.kde") { &KDE_OFF } else { &GNOME_OFF }.store(off, Ordering::Relaxed);
+    if animations_off() != before {
+        log::info!("the desktop's animations are {}", if animations_off() { "off" } else { "on" });
     }
 }
 
 /// Whether the desktop has its animations off: KDE's speed at its slowest end, GNOME's
 /// switch turned off.
 pub fn animations_off() -> bool {
-    ANIMATIONS_OFF.load(Ordering::Relaxed)
+    KDE_OFF.load(Ordering::Relaxed) || GNOME_OFF.load(Ordering::Relaxed)
 }
 
 /// What a setting's value says about animations, if it's one about them.
@@ -54,7 +59,7 @@ pub fn start() {
                 let reply = bus.call_method(Some("org.freedesktop.portal.Desktop"), "/org/freedesktop/portal/desktop", Some("org.freedesktop.portal.Settings"), "ReadOne", &(namespace, key));
                 if let Ok(value) = reply.and_then(|reply| reply.body().deserialize::<OwnedValue>()) {
                     if let Some(off) = says_off(namespace, key, &value) {
-                        set_animations_off(off);
+                        set_animations_off(namespace, off);
                     }
                 }
             }
@@ -63,7 +68,7 @@ pub fn start() {
             for message in signals.flatten() {
                 if let Ok((namespace, key, value)) = message.body().deserialize::<(String, String, OwnedValue)>() {
                     if let Some(off) = says_off(&namespace, &key, &value) {
-                        set_animations_off(off);
+                        set_animations_off(&namespace, off);
                     }
                 }
             }
