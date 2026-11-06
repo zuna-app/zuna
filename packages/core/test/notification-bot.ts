@@ -1,4 +1,4 @@
-// For apps/desktop/test/notification-check.mjs: someone to get notifications from, who
+// For apps/desktop-electron-legacy/test/notification-check.mjs: someone to get notifications from, who
 // does what they're told on standard input, one line of JSON at a time, and says what
 // arrives. They're an ordinary client using the real protocol.
 //

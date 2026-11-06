@@ -3,7 +3,7 @@
 // actually reaches each of them: audio that decrypts, noise that doesn't get
 // through, screens to look over, and a call that rings.
 //
-//   npm run build -w @zuna/desktop && node apps/desktop/test/voice-check.mjs [screenshot-dir]
+//   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/voice-check.mjs [screenshot-dir]
 //
 // Each app's microphone is a sound file Chromium plays as a fake device: spoken words
 // on Windows and macOS, and on Linux with eSpeak NG installed, and a tone elsewhere.

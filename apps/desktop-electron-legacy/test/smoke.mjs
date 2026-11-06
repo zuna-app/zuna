@@ -2,7 +2,7 @@
 // content security policy, OS keychain, encrypted storage, and a real server, reached
 // by its IP address with a certificate it makes itself, which the app trusts by its pin.
 //
-//   npm run build -w @zuna/desktop && node apps/desktop/test/smoke.mjs [screenshot-dir]
+//   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/smoke.mjs [screenshot-dir]
 //
 // This can't drive a packaged build: its fuses refuse the --inspect flag Playwright needs.
 

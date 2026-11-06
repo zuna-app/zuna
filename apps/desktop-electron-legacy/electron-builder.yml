@@ -89,7 +89,7 @@ linux:
       arch: [x64]
   # One for each size in hicolor, from scripts/make-icons.mjs.
   icon: resources/icons
-  # The default comes from the package name, @zuna/desktop, which isn't a valid file name.
+  # The default comes from the package name, @zuna/desktop-electron-legacy, which isn't a valid file name.
   executableName: zuna
   # Names the .desktop file after desktopName in package.json, which Electron uses
   # as the window's app ID, so the desktop links the window to its icon.

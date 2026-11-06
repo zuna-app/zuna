@@ -130,7 +130,7 @@ func serverOrigin(server string) (*url.URL, error) {
 	return &url.URL{Scheme: parsed.Scheme, Host: parsed.Host}, nil
 }
 
-// contentSecurityPolicy is the desktop's (apps/desktop/src/main/index.ts), with
+// contentSecurityPolicy is the desktop's (apps/desktop-electron-legacy/src/main/index.ts), with
 // connections narrowed to the allowed servers when there are any.
 func contentSecurityPolicy(servers, mediaServers []string) string {
 	connect := "'self' https: wss: http://localhost:* ws://localhost:* http://127.0.0.1:* ws://127.0.0.1:*"

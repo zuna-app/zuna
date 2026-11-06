@@ -1,4 +1,4 @@
-// For apps/desktop/test/attack-check.mjs: an account that sends what a modified
+// For apps/desktop-electron-legacy/test/attack-check.mjs: an account that sends what a modified
 // client could, to see that the real app shrugs it off.
 //
 //   npx vite-node packages/core/test/attack-bot.ts <invite-link> <tracker-address>

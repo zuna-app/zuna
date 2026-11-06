@@ -1,36 +1,34 @@
-// The computer's sound going with a screen share on macOS, which the native program takes
-// through Core Audio's process taps. Drives two real Electron apps against a real server
-// and a real LiveKit, and checks what reaches someone watching: everything but Zuna, and
-// one app alone.
+// The computer's sound going with a screen share on Linux, which the native program
+// captures from PipeWire. Drives two real Electron apps against a real server and a
+// real LiveKit, with players that go to no speaker, so nothing here can be heard, and
+// checks what reaches someone watching: everything but Zuna, one app alone, and by
+// default the app whose window is shared.
 //
-//   npm run build:screenshare && npm run build -w @zuna/desktop && node apps/desktop/test/mac-sound-check.mjs [screenshot-dir]
+//   npm run build:screenshare && npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/sound-check.mjs [screenshot-dir]
 //
-// macOS asks once whether an app may record the computer's sound, and remembers the app
-// that started the program asking. So the one sharing is started through `open`, which
-// makes Electron that app rather than whatever runs this, and is driven over its debugging
-// port. The first run waits for that answer. What it shares is a moving picture, as macOS's
-// own picker can't be driven. Zuna's own sound is a tone its page plays, and the other apps
-// are two small ones built here, each playing a tone through afplay. macOS has no player
-// nobody hears, so they're quiet but out loud, and anything else playing on the computer
-// goes into the share too: it's best run in quiet.
+// Zuna's own sound is stood in for by a player the app starts itself, which is how
+// Chromium plays: from a process under the app's. The window shared is the other app's,
+// which plays a tone of its own the same way. The apps run on X11 and share a window,
+// since on Wayland listing what can be shared asks the person through the portal. Anything
+// else playing on the computer goes into the share as well, so it's best run in quiet.
 
 import { execFileSync, spawn } from "node:child_process";
-import { createWriteStream, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { _electron as electron, chromium } from "playwright-core";
+import { _electron as electron } from "playwright-core";
 import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 
-if (process.platform !== "darwin") {
-  console.log("This checks macOS's sound; sound-check.mjs checks Linux's and win-sound-check.mjs Windows's.");
+if (process.platform !== "linux") {
+  console.log("This checks Linux's sound; mac-sound-check.mjs checks macOS's and win-sound-check.mjs Windows's.");
   process.exit(0);
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
 const app = join(here, "..");
 const root = join(app, "..", "..");
-const shots = process.argv[2] ?? mkdtempSync(join(tmpdir(), "zuna-mac-sound-"));
+const shots = process.argv[2] ?? mkdtempSync(join(tmpdir(), "zuna-sound-"));
 mkdirSync(shots, { recursive: true });
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,7 +38,7 @@ function check(name, passed, detail = "") {
   if (!passed) failures.push(name);
 }
 
-// --- Apps that play a tone ---
+// --- Players nobody hears ---
 
 /** A tone as a stereo WAV, at this frequency and peak. */
 function tone(path, frequency, peak, seconds = 120) {
@@ -67,53 +65,34 @@ function tone(path, frequency, peak, seconds = 120) {
   writeFileSync(path, Buffer.concat([header, data]));
 }
 
-const fixtures = mkdtempSync(join(tmpdir(), "zuna-mac-sound-tones-"));
+const fixtures = mkdtempSync(join(tmpdir(), "zuna-sound-tones-"));
+const loudPath = join(fixtures, "own.wav");
+const aPath = join(fixtures, "a.wav");
+const bPath = join(fixtures, "b.wav");
+const windowPath = join(fixtures, "window.wav");
+tone(loudPath, 1500, 0.8);
+tone(aPath, 1000, 0.05);
+tone(bPath, 2000, 0.02);
+tone(windowPath, 2500, 0.035);
 
-/** An app of its own, so macOS names the sound it plays after it, as the picker does. */
-function toneApp(name, frequency, peak) {
-  const wav = join(fixtures, `${name}.wav`);
-  tone(wav, frequency, peak);
-  const contents = join(fixtures, `${name}.app`, "Contents");
-  mkdirSync(join(contents, "MacOS"), { recursive: true });
-  writeFileSync(
-    join(contents, "Info.plist"),
-    `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>CFBundleExecutable</key><string>${name}</string><key>CFBundleIdentifier</key><string>chat.zuna.check.${name.toLowerCase()}</string><key>CFBundleName</key><string>${name}</string><key>CFBundlePackageType</key><string>APPL</string><key>LSUIElement</key><true/></dict></plist>\n`,
-  );
-  // A program of its own that starts afplay, rather than a script, which macOS would know by its shell.
-  const source = join(fixtures, `${name}.c`);
-  writeFileSync(
-    source,
-    `#include <spawn.h>\n#include <sys/wait.h>\nextern char **environ;\nint main(void) {\n  char *args[] = { "/usr/bin/afplay", ${JSON.stringify(wav)}, 0 };\n  pid_t pid;\n  if (posix_spawn(&pid, args[0], 0, 0, args, environ)) return 1;\n  int status;\n  waitpid(pid, &status, 0);\n  return 0;\n}\n`,
-  );
-  execFileSync("cc", ["-O2", "-o", join(contents, "MacOS", name), source]);
-  return join(fixtures, `${name}.app`);
-}
-
-const toneA = toneApp("ToneA", 1000, 0.05);
-const toneB = toneApp("ToneB", 2000, 0.02);
-const playing = [];
-const play = (bundle) => playing.push(spawn("open", ["-n", "-W", bundle], { stdio: "ignore" }));
-const stopPlaying = () => {
-  try {
-    execFileSync("pkill", ["-f", fixtures]);
-  } catch {
-    // Already done.
-  }
+// "--target 0" links a player to nothing, so it's silent until the share links it in.
+const players = [];
+const play = (name, file) => {
+  const player = spawn("pw-play", ["--target", "0", "-P", `application.name=${name}`, file], { stdio: "ignore" });
+  players.push(player);
+  return player;
 };
 
 // --- A server and a media server ---
 
 const goBin = [join(homedir(), "go", "bin")];
 const pathEnv = { ...process.env, PATH: [...goBin, process.env.PATH ?? ""].join(delimiter) };
-const binary = join(tmpdir(), "zuna-mac-sound-server");
+const binary = join(tmpdir(), "zuna-sound-server");
 execFileSync("go", ["build", "-trimpath", "-ldflags", "-s -w", "-o", binary, "./cmd/zuna-server"], { cwd: join(root, "server"), env: pathEnv, stdio: "inherit" });
 
-const liveKitPort = 17895;
-const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], { stdio: ["ignore", "pipe", "pipe"] });
-const liveKitLog = createWriteStream(join(shots, "livekit-server.log"));
-liveKit.stdout.pipe(liveKitLog);
-liveKit.stderr.pipe(liveKitLog);
-const data = mkdtempSync(join(tmpdir(), "zuna-mac-sound-data-"));
+const liveKitPort = 17890;
+const liveKit = spawn(ensureLiveKit(), ["--dev", "--bind", "127.0.0.1", "--node-ip", "127.0.0.1", "--port", String(liveKitPort), "--config-body", LIVEKIT_CONFIG], { stdio: "ignore" });
+const data = mkdtempSync(join(tmpdir(), "zuna-sound-data-"));
 const port = 21000 + Math.floor(Math.random() * 20000);
 const url = `http://127.0.0.1:${port}`;
 const server = spawn(binary, ["--listen", `127.0.0.1:${port}`, "--data", data, "--public-url", url, "--auth-burst", "1000", "--livekit-url", `ws://127.0.0.1:${liveKitPort}`, "--livekit-internal-url", `http://127.0.0.1:${liveKitPort}`, "--livekit-key", "devkey", "--livekit-secret", "secret"], { stdio: ["ignore", "pipe", "pipe"] });
@@ -134,18 +113,20 @@ async function setupLink() {
 
 const apps = [];
 const errors = [];
-
-function watch(name, page) {
+async function launch(name) {
+  const userData = mkdtempSync(join(tmpdir(), `zuna-sound-${name}-`));
+  // Neither app plays anything out loud, and both run on X11, where listing screens asks nobody.
+  const args = [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--mute-audio", "--ozone-platform=x11", "--disable-features=WebRtcPipeWireCapturer"];
+  const env = { ...process.env, ELECTRON_RENDERER_URL: "", XDG_SESSION_TYPE: "x11" };
+  delete env.WAYLAND_DISPLAY;
+  const electronApp = await electron.launch({ args, env });
+  const page = await electronApp.firstWindow();
   page.on("pageerror", (error) => errors.push(`${name}: ${error.message}`));
   page.on("console", (message) => {
     const text = message.text();
     if (message.type() === "error" && !text.includes("WebSocket")) errors.push(`${name}: ${text}`);
     if (text.includes("[zuna]") || process.env.VOICE_DEBUG) console.log(`  [${name}] ${message.type()}: ${text}`);
   });
-}
-
-/** So that what's really being received can be listened to, and with a moving picture to share in place of the screen. */
-async function prepare(page) {
   await page.addInitScript(() => {
     const Original = window.RTCPeerConnection;
     window.__connections = [];
@@ -155,59 +136,9 @@ async function prepare(page) {
         window.__connections.push(this);
       }
     };
-    navigator.mediaDevices.getDisplayMedia = async () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = 1280;
-      canvas.height = 720;
-      const context = canvas.getContext("2d");
-      let frame = 0;
-      setInterval(() => {
-        frame++;
-        context.fillStyle = "#123";
-        context.fillRect(0, 0, 1280, 720);
-        context.fillStyle = "#0f0";
-        context.fillRect((frame * 8) % 1200, 300, 80, 80);
-      }, 33);
-      return canvas.captureStream(30);
-    };
   });
   await page.reload();
-}
-
-/** The one sharing: Electron started through `open`, so it's what macOS asks about, and driven over its debugging port. */
-async function launchOpened(name) {
-  const userData = mkdtempSync(join(tmpdir(), `zuna-mac-sound-${name}-`));
-  const debugPort = 19400 + Math.floor(Math.random() * 500);
-  const electronApp = join(root, "node_modules", "electron", "dist", "Electron.app");
-  spawn("open", ["-n", "-W", electronApp, "--args", app, `--user-data-dir=${userData}`, `--remote-debugging-port=${debugPort}`, "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"], { stdio: "ignore" });
-  let browser = null;
-  for (let i = 0; i < 120 && !browser; i++) {
-    browser = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`).catch(() => null);
-    if (!browser) await sleep(250);
-  }
-  if (!browser) throw new Error(`${name} didn't open its debugging port`);
-  const context = browser.contexts()[0];
-  let page = null;
-  for (let i = 0; i < 120 && !page; i++) {
-    page = context.pages().find((candidate) => candidate.url().startsWith("zuna-app:")) ?? null;
-    if (!page) await sleep(250);
-  }
-  if (!page) throw new Error(`${name} showed no window`);
-  watch(name, page);
-  await prepare(page);
-  const entry = { name, page, userData, close: async () => { await browser.close().catch(() => undefined); try { execFileSync("pkill", ["-f", userData]); } catch { /* Gone. */ } } };
-  apps.push(entry);
-  return entry;
-}
-
-/** Someone watching, who plays nothing out loud. */
-async function launch(name) {
-  const userData = mkdtempSync(join(tmpdir(), `zuna-mac-sound-${name}-`));
-  const electronApp = await electron.launch({ args: [app, `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--mute-audio"], env: { ...process.env, ELECTRON_RENDERER_URL: "" } });
-  const page = await electronApp.firstWindow();
-  watch(name, page);
-  await prepare(page);
-  const entry = { name, page, userData, close: () => electronApp.close().catch(() => undefined) };
+  const entry = { name, page, electronApp, userData };
   apps.push(entry);
   return entry;
 }
@@ -218,8 +149,8 @@ async function signUp({ page }, link, displayName, first) {
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByPlaceholder("How people will see you").fill(displayName, { timeout: 15_000 });
   if (first === false) await page.getByPlaceholder(/username/i).fill(displayName.toLowerCase()).catch(() => undefined);
-  await page.locator('input[type="password"]').first().fill(`mac-sound-check-Pass-${displayName}-9182`);
-  await page.getByLabel("Confirm password").fill(`mac-sound-check-Pass-${displayName}-9182`);
+  await page.locator('input[type="password"]').first().fill(`sound-check-Pass-${displayName}-9182`);
+  await page.getByLabel("Confirm password").fill(`sound-check-Pass-${displayName}-9182`);
   await page.getByRole("button", { name: "Create account" }).click();
   await page.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
   await page.getByText("I've stored it somewhere safe").click();
@@ -274,9 +205,8 @@ const rowFor = (page, name) => page.locator(".channel-row", { hasText: name });
 
 let failed = null;
 try {
-  for (let i = 0; i < 100 && !(await fetch(`http://127.0.0.1:${liveKitPort}/`).then(() => true, () => false)); i++) await sleep(100);
   const link = await setupLink();
-  const alice = await launchOpened("alice");
+  const alice = await launch("alice");
   const shot = (who, name) => who.page.screenshot({ path: join(shots, `${name}.png`) });
 
   await signUp(alice, link, "Alice", true);
@@ -303,34 +233,39 @@ try {
   }
   await alice.page.locator(".voice-occupant", { hasText: "Bob" }).waitFor({ timeout: 10_000 });
 
-  // What plays: Zuna itself, loud, from its page as everything it plays does, and two other apps, quietly.
-  await alice.page.evaluate(() => {
-    const context = new AudioContext();
-    const own = context.createOscillator();
-    own.frequency.value = 1500;
-    const gain = context.createGain();
-    gain.gain.value = 0.3;
-    own.connect(gain).connect(context.destination);
-    own.start();
-    window.__ownTone = context;
-    return context.resume();
-  });
-  play(toneA);
-  play(toneB);
-  await sleep(2500);
+  // Through the browser, since the native capture of a screen asks through the portal.
+  await alice.page.getByLabel("Settings", { exact: true }).click();
+  await alice.page.locator(".settings-nav-item", { hasText: "Screen sharing" }).click();
+  await alice.page.getByRole("switch", { name: "Capture on your graphics card" }).click();
+  await alice.page.keyboard.press("Escape");
+
+  // What plays: Zuna itself, loud, the app whose window is shared, and two other apps.
+  const playInside = (who, name, file) =>
+    who.electronApp.evaluate(
+      (_electron, { name, file }) => {
+        const { spawn } = process.getBuiltinModule("node:child_process");
+        globalThis.__ownPlayer = spawn("pw-play", ["--target", "0", "-P", `application.name=${name}`, file], { stdio: "ignore" });
+      },
+      { name, file },
+    );
+  await playInside(alice, "ZunaItself", loudPath);
+  await playInside(bob, "WindowTone", windowPath);
+  play("ToneA", aPath);
+  play("ToneB", bPath);
+  await sleep(1500);
 
   const soundChoice = () => alice.page.getByRole("combobox", { name: /^Sound/ });
-  // With the list of screens where Zuna may record the screen, and saying macOS's own picker comes next where it may not.
+  // The other app's window: XWayland's screen is the whole of it, which shows little.
   const openPicker = async () => {
     await alice.page.getByRole("button", { name: "Share your screen" }).first().click();
-    await soundChoice().waitFor({ timeout: 10_000 });
+    await alice.page.getByRole("button", { name: "Windows", exact: true }).click();
+    await alice.page.locator(".screen-source").first().click({ timeout: 15_000 });
   };
   const share = async (choice) => {
     await openPicker();
     if (choice) await soundChoice().selectOption({ label: choice });
     await alice.page.getByRole("button", { name: "Share", exact: true }).click();
-    // The first time, macOS asks the person whether this may record the computer's sound.
-    await alice.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 150_000 });
+    await alice.page.getByRole("button", { name: "Stop sharing" }).first().waitFor({ timeout: 30_000 });
     await bob.page.locator(".voice-tile.is-screen video").first().waitFor({ timeout: 20_000 });
     await sleep(3000);
   };
@@ -340,35 +275,61 @@ try {
     await sleep(2500);
   };
 
+  const picked = () => soundChoice().evaluate((select) => ({ value: select.value, label: select.selectedOptions[0]?.textContent ?? "" }));
   await openPicker();
   await sleep(3500);
   const offered = await soundChoice().locator("option").allTextContents();
-  const byDefault = await soundChoice().evaluate((select) => ({ value: select.value, label: select.selectedOptions[0]?.textContent ?? "" }));
+  const byDefault = await picked();
   await shot(alice, "01-picker");
   console.log(`  Offered: ${offered.join(", ")}, with ${byDefault.label} (${byDefault.value})`);
-  check("the picker offers no sound, the entire system, and each app playing", ["No sound", "Entire system", "ToneA", "ToneB"].every((name) => offered.some((option) => option.startsWith(name))), offered.join(", "));
-  check("Zuna's own sound isn't offered", !offered.some((name) => name.startsWith("Electron")), offered.join(", "));
-  check("a screen starts with the entire system's sound", byDefault.value === "everything", `${byDefault.label} (${byDefault.value})`);
+  check("the picker offers no sound, the entire system, and each app playing", ["No sound", "Entire system", "ToneA", "ToneB"].every((name) => offered.includes(name)), offered.join(", "));
+  check("Zuna's own sound isn't offered", !offered.some((name) => name.includes("ZunaItself")), offered.join(", "));
+  check("a window starts with the sound of the app it belongs to", byDefault.value.startsWith("app:pid:"), `${byDefault.label} (${byDefault.value})`);
+  check("that app's sound isn't offered twice", !offered.includes("WindowTone"), offered.join(", "));
+  await alice.page.getByRole("button", { name: "Screens", exact: true }).click();
+  await alice.page.locator(".screen-source").first().click({ timeout: 15_000 });
+  const forScreen = await picked();
+  check("a screen starts with the entire system's sound", forScreen.value === "everything", `${forScreen.label} (${forScreen.value})`);
   await alice.page.getByRole("button", { name: "Cancel" }).click();
 
   const quiet = await loudestArriving(bob.page, 2);
   check("before sharing, nothing arrives", quiet < 0.005, `peak ${quiet.toFixed(4)}`);
 
-  await share();
-  await shot(bob, "02-watching");
-  const everything = await loudestArriving(bob.page, 4);
+  await share(null);
+  const windowSound = await loudestArriving(bob.page, 3);
+  check("by default a window's app's sound reaches someone watching alone", windowSound > 0.025 && windowSound < 0.045, `peak ${windowSound.toFixed(3)}, where that app's is 0.035 and everything 0.9`);
+  await stop();
+
+  await share("Entire system");
+  const everything = await loudestArriving(bob.page, 3);
   check("the entire system's sound reaches someone watching, and decrypts", everything > 0.04, `peak ${everything.toFixed(3)}`);
-  check("Zuna's own sound isn't in it", everything < 0.2, `peak ${everything.toFixed(3)}, where Zuna's own is 0.3 and the two apps' 0.07`);
+  check("Zuna's own sound isn't in it", everything < 0.3, `peak ${everything.toFixed(3)}, where Zuna's own is 0.8`);
   check("it's captured by the native program", capturing() === 1, `${capturing()} running`);
+  await shot(bob, "02-watching");
   await stop();
   check("stopping the share stops capturing", capturing() === 0, `${capturing()} running`);
 
   await share("ToneB");
-  const one = await loudestArriving(bob.page, 4);
-  check("one app's sound reaches someone watching alone", one > 0.01 && one < 0.035, `peak ${one.toFixed(3)}, where that app's is 0.02 and the rest 0.35`);
+  const one = await loudestArriving(bob.page, 3);
+  check("one app's sound reaches someone watching alone", one > 0.01 && one < 0.035, `peak ${one.toFixed(3)}, where that app's is 0.02 and the rest 0.85`);
   await stop();
 
-  // Someone new can't open what others send under the old key for a moment, until they all move on to the new one.
+  // What was chosen for one share isn't kept for the next.
+  await openPicker();
+  await sleep(500);
+  const next = await picked();
+  check("the next share starts from the window's app again", next.value.startsWith("app:pid:"), `${next.label} (${next.value})`);
+  // It's the window's app that's chosen, whatever in it is playing at the moment.
+  await bob.electronApp.evaluate(() => globalThis.__ownPlayer?.kill());
+  await alice.page.getByRole("button", { name: "Cancel" }).click();
+  await sleep(1000);
+  await openPicker();
+  await sleep(500);
+  const after = await picked();
+  check("a window's app stays chosen as what it plays changes", after.value === next.value, `${after.label} (${after.value})`);
+  await shot(alice, "03-picker-after");
+  await alice.page.getByRole("button", { name: "Cancel" }).click();
+
   const realErrors = errors.filter((error) => !error.includes("MissingKey"));
   check("nothing went wrong on the page", realErrors.length === 0, realErrors.slice(0, 5).join(" | "));
 } catch (error) {
@@ -376,8 +337,11 @@ try {
   console.error(error);
   for (const entry of apps) await entry.page.screenshot({ path: join(shots, `failed-${entry.name}.png`) }).catch(() => undefined);
 } finally {
-  stopPlaying();
-  for (const entry of apps) await entry.close();
+  for (const player of players) player.kill();
+  for (const entry of apps) {
+    await entry.electronApp.evaluate(() => globalThis.__ownPlayer?.kill()).catch(() => undefined);
+    await entry.electronApp.close().catch(() => undefined);
+  }
   server.kill();
   liveKit.kill();
   await sleep(300);
@@ -389,5 +353,5 @@ if (failed || failures.length > 0) {
   console.error(failed ? "It stopped partway." : `${failures.length} checks failed: ${failures.join("; ")}`);
   process.exit(1);
 }
-console.log("All of macOS's sound checks passed.");
+console.log("All sound checks passed.");
 process.exit(0);

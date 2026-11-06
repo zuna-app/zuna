@@ -1,5 +1,5 @@
 //! The tray's icon, with the unread count over it and a menu to open or quit, as the
-//! desktop's (createTray in apps/desktop/src/main/index.ts). It lives on a thread of its
+//! desktop's (createTray in apps/desktop-electron-legacy/src/main/index.ts). It lives on a thread of its
 //! own with a hidden window for its messages, and tells the app what was clicked.
 
 use std::sync::{Mutex, OnceLock};

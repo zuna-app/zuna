@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="apps/desktop/resources/icon.png" width="96" alt="">
+  <img src="apps/desktop-electron-legacy/resources/icon.png" width="96" alt="">
   <h1>Zuna</h1>
   <p><b>Private, end-to-end encrypted chat on servers you and your friends run.</b></p>
   <p>Windows, Linux, macOS, and an iPhone and iPad app on its way. Free and open source under the AGPL-3.0.</p>

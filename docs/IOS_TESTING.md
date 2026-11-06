@@ -218,8 +218,8 @@ The app's control channel listens on the phone's loopback only, so it's reached 
 | `swift test --package-path apps/ios/ZunaKit` | L2 bridge tests | since F0 |
 | `npm run test:ios:ui -- [--only LaunchAndUnlockTests[/testName][,OtherTests]]` | L5: XCUITest against peers, writes `apps/ios/.e2e/latest/summary.md` | since F1 |
 | `ZUNA_E2E_SIMULATOR="Zuna E2E iPad" npm run test:ios:ui -- --only PadTests` | L5 on an iPad simulator, made on first use | since F8 |
-| `npm run build -w @zuna/desktop && npm run test:ios:voice [-- screenshot-dir]` | a voice channel between the phone in the simulator and the desktop app, through a real LiveKit | since voice channels |
-| `npm run build -w @zuna/desktop && npm run test:ios:notify [-- screenshot-dir]` | which of someone's devices is notified, and when: the desktop app, the phone in the simulator and a second phone | since Telegram's notification timings |
+| `npm run build -w @zuna/desktop-electron-legacy && npm run test:ios:voice [-- screenshot-dir]` | a voice channel between the phone in the simulator and the desktop app, through a real LiveKit | since voice channels |
+| `npm run build -w @zuna/desktop-electron-legacy && npm run test:ios:notify [-- screenshot-dir]` | which of someone's devices is notified, and when: the desktop app, the phone in the simulator and a second phone | since Telegram's notification timings |
 | `npm run test:ios:release` | the Release guard | since F1 |
 | `npm run test:ios:check` | L0, L1, L2 together, with the app built with warnings as errors | since F1 |
 | `npm run test:ios:all` | everything, plus the desktop's `npm test` | since F1 |

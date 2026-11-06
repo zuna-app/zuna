@@ -3,7 +3,7 @@
 // LiveKit, and checks what reaches someone watching: everything but Zuna, one app alone, and
 // beside a native share.
 //
-//   npm run build:screenshare && npm run build -w @zuna/desktop && node apps/desktop/test/win-sound-check.mjs [screenshot-dir]
+//   npm run build:screenshare && npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/win-sound-check.mjs [screenshot-dir]
 //
 // Windows has no player nobody hears, and process loopback only hears what goes to the
 // default output, so the other app is FFmpeg's ffplay playing a tone at -60 dBFS: quiet

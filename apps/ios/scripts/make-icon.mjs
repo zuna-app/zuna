@@ -15,7 +15,7 @@ const icons = [
   ["icon-dark.svg", "AppIcon-Dark"],
 ];
 for (const [source, set] of icons) {
-  const svg = readFileSync(join(here, "..", "..", "desktop", "resources", source), "utf8").replace(/ rx="[^"]*"/, "");
+  const svg = readFileSync(join(here, "..", "..", "desktop-electron-legacy", "resources", source), "utf8").replace(/ rx="[^"]*"/, "");
   const png = new Resvg(svg, { fitTo: { mode: "width", value: 1024 } }).render().asPng();
   const rgba = join(tmpdir(), "zuna-icon-rgba.png");
   const jpeg = join(tmpdir(), "zuna-icon.jpg");

@@ -1,6 +1,6 @@
 //! The app's icon, and the unread count over it: on the taskbar's button and on the
 //! tray's icon, drawn as Telegram draws them, as the desktop does in
-//! apps/desktop/src/renderer/src/counter.ts. Sizes are for 100%, scaled to the screen.
+//! apps/desktop-electron-legacy/src/renderer/src/counter.ts. Sizes are for 100%, scaled to the screen.
 
 use std::sync::Mutex;
 
@@ -12,10 +12,10 @@ use windows::Win32::UI::Shell::{ITaskbarList3, TaskbarList};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR};
 
-const ICON_16: &[u8] = include_bytes!("../../../desktop/resources/icons/16x16.png");
-const ICON_32: &[u8] = include_bytes!("../../../desktop/resources/icons/32x32.png");
-const ICON_48: &[u8] = include_bytes!("../../../desktop/resources/icons/48x48.png");
-const ICON_256: &[u8] = include_bytes!("../../../desktop/resources/icons/256x256.png");
+const ICON_16: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/16x16.png");
+const ICON_32: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/32x32.png");
+const ICON_48: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/48x48.png");
+const ICON_256: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/256x256.png");
 
 const RED: [u8; 3] = [0xf2, 0x3c, 0x34];
 const SIZE: f32 = 16.;

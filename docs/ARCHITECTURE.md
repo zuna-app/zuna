@@ -24,7 +24,7 @@ flowchart LR
 | Crypto core | `crypto/` | Rust, OpenMLS, WebAssembly | One audited MLS implementation, reusable natively on mobile |
 | Client core | `packages/core/` | TypeScript | All protocol logic, independent of any UI, so it can power a mobile app |
 | Interface | `packages/ui/` | React, Motion | The desktop's screens, shared with the web app. Each host gives it a `Platform` for what's outside the page |
-| Desktop app | `apps/desktop/` | Electron | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for voice channels |
+| Desktop app | `apps/desktop-electron-legacy/` | Electron | The same Chromium everywhere: consistent animation, animated emotes and full WebRTC for voice channels |
 | Web app | `apps/web/`, `server/cmd/zuna-web` | The same interface in a browser, served by its own Go program | For people who'd rather not install anything, on a host they run themselves (`docs/WEB.md`) |
 | Server | `server/` | Go, pure-Go SQLite, or PostgreSQL for a large server | A single static binary for every platform, with no dependencies to install |
 
@@ -167,11 +167,11 @@ Clients know emotes by name. A message records the emotes it uses, so it keeps r
 | Crypto | `npm run test:crypto` | MLS flows and primitives, as WebAssembly under Node |
 | Server | `npm run test:server` | HTTP and WebSocket behavior, permissions, epoch ordering |
 | Client core | `npm run test:core` | Real clients against a real server: DMs, groups, new devices, recovery, self-repair, attacks |
-| Desktop | `node apps/desktop/test/smoke.mjs` | The production build in real Electron |
-| Interface | `node apps/desktop/test/ui-check.mjs` | Every screen in real Electron with live bots: chat-open speed, spacing, keyboard focus, plus screenshots for review |
-| Sending | `node apps/desktop/test/send-check.mjs` | What each frame paints while messages are sent in real Electron: no jumps or blanks, notices in place, always all the way down |
-| Attacks | `node apps/desktop/test/attack-check.mjs` | What a modified client could send, against real Electron: the app stays up, contacts nobody and starts again afterwards |
-| Voice | `node apps/desktop/test/voice-check.mjs` | Real apps against a real LiveKit: audio that decrypts on every side, noise kept out, a new key mid-call, cameras, screens both ways, push to talk |
-| A share's sound, on Linux | `node apps/desktop/test/sound-check.mjs` | Real apps, a real LiveKit and PipeWire: the entire system's sound without Zuna's, or one app's, reaching someone watching |
+| Desktop | `node apps/desktop-electron-legacy/test/smoke.mjs` | The production build in real Electron |
+| Interface | `node apps/desktop-electron-legacy/test/ui-check.mjs` | Every screen in real Electron with live bots: chat-open speed, spacing, keyboard focus, plus screenshots for review |
+| Sending | `node apps/desktop-electron-legacy/test/send-check.mjs` | What each frame paints while messages are sent in real Electron: no jumps or blanks, notices in place, always all the way down |
+| Attacks | `node apps/desktop-electron-legacy/test/attack-check.mjs` | What a modified client could send, against real Electron: the app stays up, contacts nobody and starts again afterwards |
+| Voice | `node apps/desktop-electron-legacy/test/voice-check.mjs` | Real apps against a real LiveKit: audio that decrypts on every side, noise kept out, a new key mid-call, cameras, screens both ways, push to talk |
+| A share's sound, on Linux | `node apps/desktop-electron-legacy/test/sound-check.mjs` | Real apps, a real LiveKit and PipeWire: the entire system's sound without Zuna's, or one app's, reaching someone watching |
 
 `npm run dev:server` opens a fully set up test server for UI work, using the bots in `packages/core/test/dev-bots.ts`. `CONTRIBUTING.md` describes it.

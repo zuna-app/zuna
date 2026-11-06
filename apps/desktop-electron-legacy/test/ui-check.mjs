@@ -1,7 +1,7 @@
 // Drives the real Electron app against a real server and live bots, checks how
 // the interface behaves, and saves screenshots to look over.
 //
-//   npm run build -w @zuna/desktop && node apps/desktop/test/ui-check.mjs [screenshot-dir]
+//   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/ui-check.mjs [screenshot-dir]
 
 import { execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:http";

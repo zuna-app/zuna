@@ -31,7 +31,7 @@ const crate = join(root, "apps", "windows");
 // cl.exe can't open paths over 260 characters, which a target folder deep in a checkout reaches.
 const target = join(process.env.LOCALAPPDATA ?? root, "zuna-windows-target");
 // The same version as the desktop app, which is released with it.
-const version = JSON.parse(readFileSync(join(root, "apps", "desktop", "package.json"), "utf8")).version;
+const version = JSON.parse(readFileSync(join(root, "apps", "desktop-electron-legacy", "package.json"), "utf8")).version;
 
 function toolchain() {
   const list = spawnSync("rustup", ["toolchain", "list"], { encoding: "utf8", env }).stdout ?? "";
@@ -72,14 +72,14 @@ if (command === "dist") {
   }
   // Signed with the desktop's certificate where it's given, as electron-builder signs the desktop's:
   // only a signed build updates itself, and only from an update signed the same.
-  const require = createRequire(join(root, "apps", "desktop", "package.json"));
+  const require = createRequire(join(root, "apps", "desktop-electron-legacy", "package.json"));
   const signer = await signing(require);
   if (signer) {
     signer(join(staged, "Zuna.exe"));
     if (existsSync(join(staged, "screenshare", "zuna-screenshare.exe"))) signer(join(staged, "screenshare", "zuna-screenshare.exe"));
   }
   const icon = join(dist, "zuna.ico");
-  writeFileSync(icon, ico(join(root, "apps", "desktop", "resources", "icons")));
+  writeFileSync(icon, ico(join(root, "apps", "desktop-electron-legacy", "resources", "icons")));
   // electron-builder's own NSIS, which the desktop's installer is made with, fetched once if it isn't here.
   const { getMakeNsisPath } = require("app-builder-lib/out/toolsets/windows");
   const makensis = await getMakeNsisPath(undefined, undefined);

@@ -25,6 +25,6 @@ if (!(await devServerRunning())) {
 const result = spawnSync(
   process.execPath,
   [join(root, "node_modules", "electron-vite", "bin", "electron-vite.js"), "dev", "--", `--user-data-dir=${devAppData}`, ...process.argv.slice(2)],
-  { cwd: join(root, "apps", "desktop"), env: appEnv, stdio: "inherit" },
+  { cwd: join(root, "apps", "desktop-electron-legacy"), env: appEnv, stdio: "inherit" },
 );
 process.exit(result.status ?? 0);

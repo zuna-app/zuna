@@ -24,7 +24,7 @@ What this plan does about it:
 
 - **The host is not the chat server.** The chat server's operator, or someone who breaks into it, can't touch the web app. Running your own `zuna-web` means the only code host you trust is yourself.
 - **It must be its own origin.** Never the same scheme, host and port as a chat server. Browsers share storage within an origin, so a chat server's pages on the same origin could read the web app's data.
-- **Nothing third-party loads.** Every file comes from the host, and the content security policy is the desktop's (`apps/desktop/src/main/index.ts`): no inline scripts, `'wasm-unsafe-eval'` only, images only from memory.
+- **Nothing third-party loads.** Every file comes from the host, and the content security policy is the desktop's (`apps/desktop-electron-legacy/src/main/index.ts`): no inline scripts, `'wasm-unsafe-eval'` only, images only from memory.
 - **A build can be checked.** Each release lists the SHA-256 of every file it serves, and a script compares a running instance with a release.
 - **Local data is less protected than on the desktop.** Browsers have no keychain a page can use, so the device key sits in the browser's storage. Copying the browser profile copies the key. The Security screen says so, as the desktop does on Linux without a secret store, and suggests the desktop app for shared computers. Asking for a password on every visit would protect it, but that adds a step, which the decisions in `CLAUDE.md` rule out.
 
@@ -58,7 +58,7 @@ flowchart LR
 
 ### Shared interface: `@zuna/ui`
 
-`apps/desktop/src/renderer/src` moved to `packages/ui/src` (done in W1). Everything it asks of Electron goes through one `Platform` object that each host passes to `startApp` (`packages/ui/src/platform.ts`):
+`apps/desktop-electron-legacy/src/renderer/src` moved to `packages/ui/src` (done in W1). Everything it asks of Electron goes through one `Platform` object that each host passes to `startApp` (`packages/ui/src/platform.ts`):
 
 - `bootCore` starts the host's worker. The shared worker code is `packages/ui/src/core/serve.ts`, so each host's worker only says how it fetches pages for previews.
 - `setUnreadCount` is the dock, taskbar or tray on the desktop, and the tab's title on the web.
@@ -66,7 +66,7 @@ flowchart LR
 - `microphone`, `idleState`, `onPresence`, `onFocus`, the deep-link calls and `setCloseToTray` are optional. Whatever a host leaves out, the interface does without.
 - `keyWarning` is what Security says when the device key isn't protected.
 
-The desktop keeps `index.html`, and its `main.tsx`, `platform.ts` and `worker.ts` in `apps/desktop/src/renderer/src` make its `Platform`. `apps/web` has its own versions.
+The desktop keeps `index.html`, and its `main.tsx`, `platform.ts` and `worker.ts` in `apps/desktop-electron-legacy/src/renderer/src` make its `Platform`. `apps/web` has its own versions.
 
 ### Web host: `zuna-web`
 
@@ -156,8 +156,8 @@ As on the desktop (`state/activity.ts`), the person is using the app while the t
 
 | Where | What |
 |---|---|
-| `packages/ui` (new) | The renderer, moved from `apps/desktop/src/renderer/src`, and the `Platform` interface |
-| `apps/desktop` | `platform.ts` and `worker.ts` make the desktop's `Platform`. No change people can see |
+| `packages/ui` (new) | The renderer, moved from `apps/desktop-electron-legacy/src/renderer/src`, and the `Platform` interface |
+| `apps/desktop-electron-legacy` | `platform.ts` and `worker.ts` make the desktop's `Platform`. No change people can see |
 | `apps/web` (new) | `index.html`, `main.tsx`, the web `Platform`, its worker, the device key, the tab lock, the title and tests |
 | `server/cmd/zuna-web` (new) | The web host. The built app is copied into a gitignored folder there before building |
 | `server/internal/webhost` (new) | Its handlers and the preview fetcher, with Go tests |
@@ -191,7 +191,7 @@ Each phase ends with its checks passing and is committed and pushed in small ste
 
 **W1. Shared interface.**
 - Move the renderer to `packages/ui` and put every Electron call behind `Platform`.
-- Done when the desktop works exactly as before: `npm run typecheck`, and `smoke.mjs`, `ui-check.mjs`, `send-check.mjs` and `attack-check.mjs` in `apps/desktop/test`, with their screenshots compared.
+- Done when the desktop works exactly as before: `npm run typecheck`, and `smoke.mjs`, `ui-check.mjs`, `send-check.mjs` and `attack-check.mjs` in `apps/desktop-electron-legacy/test`, with their screenshots compared.
 
 **W2. The web app.**
 - `apps/web` with its `Platform`, worker, device key, tab lock, storage request, tab title, connection state, version check, drop guard and the Settings differences.

@@ -172,7 +172,7 @@ pub(crate) fn logical_point(x: f32, y: f32, scale_factor: f32) -> Point<Pixels> 
     }
 }
 
-// https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/apply-windows-themes
+// https://learn.microsoft.com/en-us/windows/apps/desktop-electron-legacy/modernize/apply-windows-themes
 #[inline]
 pub(crate) fn system_appearance() -> Result<WindowAppearance> {
     let ui_settings = UISettings::new()?;

@@ -2,7 +2,7 @@
 // a message that used to blank the app on every launch, one that made it contact
 // someone's server, and one that ran it out of stack.
 //
-//   npm run build -w @zuna/desktop && node apps/desktop/test/attack-check.mjs
+//   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/attack-check.mjs
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";

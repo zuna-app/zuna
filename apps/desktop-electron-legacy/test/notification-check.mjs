@@ -3,7 +3,7 @@
 // and what the page showing them can reach. Screenshots of the screen itself go in the
 // output folder, just the corner and the taskbar, to look at.
 //
-//   npm run build -w @zuna/desktop && node apps/desktop/test/notification-check.mjs [output-dir] [--real-input] [--scale=1.5]
+//   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/notification-check.mjs [output-dir] [--real-input] [--scale=1.5]
 //
 // Playwright's mouse and keyboard go around the system, so clicks would reach a window
 // that should let them through, and keys one that doesn't have focus. --real-input

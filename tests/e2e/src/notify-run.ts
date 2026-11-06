@@ -4,7 +4,7 @@
 // a stand-in for zuna-push that hands pushes to the simulator. It checks which of
 // them is told about each message, and when.
 //
-//   npm run build -w @zuna/desktop && npm run test:ios:notify [-- screenshot-dir]
+//   npm run build -w @zuna/desktop-electron-legacy && npm run test:ios:notify [-- screenshot-dir]
 //
 // The desktop is in use while its window has focus and there was input anywhere on
 // the computer in the last 30 s. Nothing here can make real input without the
@@ -132,7 +132,7 @@ try {
   // --- The desktop app, signed up as bob ---
   log("starting the desktop app");
   const userData = mkdtempSync(join(tmpdir(), "zuna-ios-notify-desktop-"));
-  desktop = await electron.launch({ args: [join(root, "apps", "desktop"), `--user-data-dir=${userData}`], env: { ...process.env, ELECTRON_RENDERER_URL: "" } });
+  desktop = await electron.launch({ args: [join(root, "apps", "desktop-electron-legacy"), `--user-data-dir=${userData}`], env: { ...process.env, ELECTRON_RENDERER_URL: "" } });
   const app = desktop;
   const page: Page = await app.firstWindow();
   page.on("console", (message) => {

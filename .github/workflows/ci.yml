@@ -39,7 +39,7 @@ jobs:
       - run: npm run build:crypto
       - run: npm run typecheck
       - run: npm run test:core
-      - run: npm run build -w @zuna/desktop
+      - run: npm run build -w @zuna/desktop-electron-legacy
       - run: npm run build -w @zuna/web
 
   # Known advisories in what's shipped.

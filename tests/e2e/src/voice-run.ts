@@ -5,7 +5,7 @@
 // new has changed them; and an admin's mute holds. Then a call in a direct message,
 // from the desktop, rings the phone, which answers it.
 //
-//   npm run build -w @zuna/desktop && npm run test:ios:voice [-- screenshot-dir]
+//   npm run build -w @zuna/desktop-electron-legacy && npm run test:ios:voice [-- screenshot-dir]
 //
 // The phone's microphone is a tone, and its camera and its screen moving bars
 // (VoiceTesting.swift), since the simulator has no camera, and nothing can answer
@@ -118,7 +118,7 @@ try {
   const userData = mkdtempSync(join(tmpdir(), "zuna-ios-voice-desktop-"));
   // Without the sandbox, as macOS's keeps the audio service from opening the speech, and the fake device sends silence.
   const app = await electron.launch({
-    args: [join(root, "apps", "desktop"), `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${speech}`, "--autoplay-policy=no-user-gesture-required", "--no-sandbox"],
+    args: [join(root, "apps", "desktop-electron-legacy"), `--user-data-dir=${userData}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${speech}`, "--autoplay-policy=no-user-gesture-required", "--no-sandbox"],
     env: { ...process.env, ELECTRON_RENDERER_URL: "" },
   });
   const page = await app.firstWindow();

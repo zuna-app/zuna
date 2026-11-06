@@ -37,7 +37,7 @@ Each time, it first pulls the latest code, unless you have uncommitted changes o
 
 **Cleaning** removes the `.dev-data` folder, which holds everything the test server and the development app store. It refuses to run while either is still open, and it can't affect an installed copy of Zuna, which keeps its data elsewhere.
 
-For quick UI work in a browser, `npm run dev:web -w @zuna/desktop` serves the UI at `http://localhost:5173`. That's only a development convenience: Zuna doesn't ship a web client, and the browser keeps its own data, which cleaning doesn't touch.
+For quick UI work in a browser, `npm run dev:web -w @zuna/desktop-electron-legacy` serves the UI at `http://localhost:5173`. That's only a development convenience: Zuna doesn't ship a web client, and the browser keeps its own data, which cleaning doesn't touch.
 
 To add the same people to a server of your own, without keeping anything afterwards, create an invite in the app and run:
 
@@ -62,34 +62,34 @@ npm run typecheck
 To check a production build in real Electron:
 
 ```bash
-npm run build -w @zuna/desktop
+npm run build -w @zuna/desktop-electron-legacy
 ```
 
 ```bash
-node apps/desktop/test/smoke.mjs
+node apps/desktop-electron-legacy/test/smoke.mjs
 ```
 
 To walk through the whole interface with a real server and live bots, which checks speed, spacing and keyboard focus and saves a screenshot of every screen for review:
 
 ```bash
-node apps/desktop/test/ui-check.mjs
+node apps/desktop-electron-legacy/test/ui-check.mjs
 ```
 
 To check what each painted frame shows while messages are sent, after changing the message list or the message box:
 
 ```bash
-node apps/desktop/test/send-check.mjs
+node apps/desktop-electron-legacy/test/send-check.mjs
 ```
 
 To send the real app what a modified client could, and see that it stays up, contacts nobody and starts again afterwards:
 
 ```bash
-node apps/desktop/test/attack-check.mjs
+node apps/desktop-electron-legacy/test/attack-check.mjs
 ```
 
 Native Rust tests (`cargo test`) need a C toolchain on Windows, so `npm run test:crypto` runs them as WebAssembly instead, under Node.
 
-Voice needs a LiveKit server, which `npm run dev:server` builds from a pinned tag the first time and runs for you. `node apps/desktop/test/voice-check.mjs` drives real apps against one: on Windows, each app's fake microphone speaks with the system's text to speech, and elsewhere it plays a tone, which the speech checks don't apply to.
+Voice needs a LiveKit server, which `npm run dev:server` builds from a pinned tag the first time and runs for you. `node apps/desktop-electron-legacy/test/voice-check.mjs` drives real apps against one: on Windows, each app's fake microphone speaks with the system's text to speech, and elsewhere it plays a tone, which the speech checks don't apply to.
 
 ## Packaging
 
@@ -101,7 +101,7 @@ npm run dist
 npm run build:server
 ```
 
-Installers go to `apps/desktop/release`, and server binaries for every platform to `dist/server`.
+Installers go to `apps/desktop-electron-legacy/release`, and server binaries for every platform to `dist/server`.
 
 On Linux, `dev/build.sh` rebuilds the encryption core and then runs both, giving a `.deb` for Debian and Ubuntu, an `.rpm` for Fedora and openSUSE, a `.pacman` for Arch, an AppImage and a `.tar.gz`. The `.rpm` needs `rpmbuild`, which `dev/setup.sh` installs. `dev/build.sh app` or `dev/build.sh server` builds just one.
 

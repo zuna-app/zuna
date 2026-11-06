@@ -222,16 +222,16 @@ jobs:
           name: desktop-${{ matrix.os }}
           path: |
             dist/windows/Zuna-Native-Setup-*.exe
-            apps/desktop/release/*.exe
-            apps/desktop/release/*.dmg
-            apps/desktop/release/*.zip
-            apps/desktop/release/*.AppImage
-            apps/desktop/release/*.deb
-            apps/desktop/release/*.rpm
-            apps/desktop/release/*.pacman
-            apps/desktop/release/*.tar.gz
-            apps/desktop/release/*.blockmap
-            apps/desktop/release/latest*.yml
+            apps/desktop-electron-legacy/release/*.exe
+            apps/desktop-electron-legacy/release/*.dmg
+            apps/desktop-electron-legacy/release/*.zip
+            apps/desktop-electron-legacy/release/*.AppImage
+            apps/desktop-electron-legacy/release/*.deb
+            apps/desktop-electron-legacy/release/*.rpm
+            apps/desktop-electron-legacy/release/*.pacman
+            apps/desktop-electron-legacy/release/*.tar.gz
+            apps/desktop-electron-legacy/release/*.blockmap
+            apps/desktop-electron-legacy/release/latest*.yml
           if-no-files-found: error
 
   publish:

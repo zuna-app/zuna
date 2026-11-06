@@ -3,7 +3,7 @@
 #
 #   dev/build.sh           the app and the server
 #   dev/build.sh app       the app as a .deb, an .rpm, a pacman package, an AppImage
-#                          and a .tar.gz, in apps/desktop/release
+#                          and a .tar.gz, in apps/desktop-electron-legacy/release
 #   dev/build.sh server    the server for every platform, in dist/server
 #
 # Set ZUNA_VERSION to stamp a version into the server, as releases do.
@@ -32,11 +32,11 @@ if [ "$what" != app ]; then
   npm run build:server
 fi
 
-version=$(node -p 'require("./apps/desktop/package.json").version')
+version=$(node -p 'require("./apps/desktop-electron-legacy/package.json").version')
 echo
 echo "Built:"
 if [ "$what" != server ]; then
-  ls -1 apps/desktop/release/Zuna-"$version"-*.{deb,rpm,pacman,AppImage,tar.gz}
+  ls -1 apps/desktop-electron-legacy/release/Zuna-"$version"-*.{deb,rpm,pacman,AppImage,tar.gz}
 fi
 if [ "$what" != app ]; then
   ls -1 dist/server/zuna-server-*

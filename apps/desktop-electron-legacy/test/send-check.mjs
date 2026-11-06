@@ -2,7 +2,7 @@
 // and records what's on screen after every painted frame. It fails if a send
 // makes the list jump back, hide or blank, or if a notice leaves its place.
 //
-//   npm run build -w @zuna/desktop && node apps/desktop/test/send-check.mjs [output-dir]
+//   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop-electron-legacy/test/send-check.mjs [output-dir]
 
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";

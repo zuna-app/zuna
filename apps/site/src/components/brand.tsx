@@ -1,4 +1,4 @@
-/** The app's icon, as in apps/desktop/resources/icon.svg. */
+/** The app's icon, as in apps/desktop-electron-legacy/resources/icon.svg. */
 export function Logo({ size = 24 }: { size?: number }) {
   return (
     <svg className="logo" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
