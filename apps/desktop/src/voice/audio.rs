@@ -255,7 +255,7 @@ fn output_filler(rate: u32, channels: usize, state: Arc<Mutex<MixerState>>, proc
 fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedProcessing, failed: Arc<AtomicBool>) -> Option<super::pipewire::Stream> {
     // PipeWire takes 48 kHz stereo and converts it for the device.
     let mut fill = output_filler(RATE, 2, state, processing);
-    super::pipewire::play(device, super::pipewire::Playing::Voice, move |data, frames| fill(&mut |index, value| data[index] = value, frames), failed)
+    super::pipewire::play(device, super::pipewire::Playing::Voice, RATE, move |data, frames| fill(&mut |index, value| data[index] = value, frames), failed)
 }
 
 #[cfg(windows)]

@@ -1273,7 +1273,15 @@ impl AppState {
     fn decode_clip(&mut self, id: String, path: std::path::PathBuf, cx: &mut Context<Self>) {
         self.clips.insert(id.clone(), ClipState::Loading);
         cx.spawn(async move |state, cx| {
-            let decoded = cx.background_executor().spawn(async move { crate::media::mf::decode_audio(&path).ok().map(|(samples, rate)| crate::media::player::Clip::from_floats(&samples, rate)) }).await;
+            let decoded = cx
+                .background_executor()
+                .spawn(async move {
+                    crate::media::mf::decode_audio(&path)
+                        .inspect_err(|error| log::warn!("a sound couldn't be decoded: {error}"))
+                        .ok()
+                        .map(|(samples, rate)| crate::media::player::Clip::from_floats(&samples, rate))
+                })
+                .await;
             state
                 .update(cx, |state, cx| {
                     match decoded {

@@ -19,7 +19,7 @@ import { _electron as electron } from "playwright-core";
 import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 import { appBinary, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
-outside(import.meta.url);
+await outside(import.meta.url);
 // KWin's own global shortcuts, which the portal's push to talk goes through.
 const { work, session, check, start, shot, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish } = await inside({ shots: process.argv[2], globalShortcuts: true });
 
@@ -94,6 +94,49 @@ async function videoOut(page, seconds = 2) {
     await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
     return ((await sent()) - before) / seconds;
   }, seconds);
+}
+
+/** The next thing the Electron app plays after `before` things: how loud it is, how long, how far it got, its picture's width and how much that varies. */
+async function playedIn(page, before, seconds = 2) {
+  return page.evaluate(
+    async ({ before, seconds }) => {
+      const until = performance.now() + 20_000;
+      while (window.__played.length <= before && performance.now() < until) await new Promise((resolve) => setTimeout(resolve, 100));
+      const element = window.__played[before];
+      if (!element) return { error: "nothing played" };
+      const context = new AudioContext();
+      await context.resume();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      context.createMediaElementSource(element).connect(analyser);
+      let peak = 0;
+      const samples = new Float32Array(2048);
+      const end = performance.now() + seconds * 1000;
+      while (performance.now() < end) {
+        analyser.getFloatTimeDomainData(samples);
+        for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+      let spread = 0;
+      if (element.videoWidth) {
+        const canvas = document.createElement("canvas");
+        [canvas.width, canvas.height] = [48, 48];
+        const drawing = canvas.getContext("2d");
+        drawing.drawImage(element, 0, 0, 48, 48);
+        const { data } = drawing.getImageData(0, 0, 48, 48);
+        let [sum, squares] = [0, 0];
+        for (let at = 0; at < data.length; at += 4) {
+          const luma = (data[at] + data[at + 1] + data[at + 2]) / 765;
+          sum += luma;
+          squares += luma * luma;
+        }
+        spread = Math.sqrt(squares / (data.length / 4) - (sum / (data.length / 4)) ** 2);
+      }
+      await context.close();
+      return { peak, duration: element.duration, at: element.currentTime, width: element.videoWidth ?? 0, spread, error: element.error?.message ?? null };
+    },
+    { before, seconds },
+  );
 }
 
 /** How loud what's arriving at the Electron app really is, listening to its tracks. */
@@ -179,7 +222,8 @@ try {
   writeFileSync(join(appData, "voice-settings.json"), JSON.stringify({ inputDevice: microphone, outputDevice: speakers, cameraDevice: cameraName }));
 
   const { drive, windowOf } = await startDriver();
-  start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, RUST_LOG: "warn,zuna=info", ...trust }, "app");
+  // The system's default devices too, for messages recorded and played, are the check's own.
+  start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, RUST_LOG: "warn,zuna=info", ZUNA_CHECK_SPEAKERS: speakers, ZUNA_CHECK_MICROPHONE: microphone, ...trust }, "app");
   const first = await until(windowOf, "the app's window", 30_000);
   await drive({ do: "click", x: first.x + 300, y: first.y + 16, count: 2 });
   await sleep(2500);
@@ -199,6 +243,13 @@ try {
         super(...args);
         window.__connections.push(this);
       }
+    };
+    // What plays, a voice message's detached Audio too, to measure it.
+    window.__played = [];
+    const play = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function () {
+      window.__played.push(this);
+      return play.call(this);
     };
   });
   await page.reload();
@@ -243,8 +294,8 @@ try {
   await shot("04-both-talking");
 
   // --- Cameras both ways ---
-  // The tiles' insides, clear of their names and borders: the Electron app's, then the native app's.
-  const [electronTile, nativeTile] = [[430, 340, 420, 200], [930, 340, 420, 200]];
+  // The tiles' insides, clear of their names and their speaking borders: the Electron app's, then the native app's.
+  const [electronTile, nativeTile] = [[401, 326, 482, 230], [930, 340, 420, 200]];
   if (!camera) check("a v4l2loopback device to stand in for a camera", false, "load v4l2loopback");
   else {
     await drive({ do: "click", x: 146, y: 843 });
@@ -326,6 +377,64 @@ try {
   await shot("10-declined");
   const afterDecline = await loudestOn(speakers, 3);
   check("declining in the Electron app stops the native app ringing", afterDecline < 0.005, `peak ${afterDecline.toFixed(3)}`);
+
+  // --- Voice and video messages, recorded here and played in the Electron app ---
+  // The message box's microphone, recording what's said into the check's own.
+  await drive({ do: "click", x: 1373, y: 875 });
+  start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking a voice message");
+  await sleep(4000);
+  await shot("10b-recording-voice");
+  // Its send button, where the microphone's was.
+  await drive({ do: "click", x: 1373, y: 875 });
+  let before = await page.evaluate(() => window.__played.length);
+  await page.locator("button.voice-play").last().click({ timeout: 30_000 });
+  const voiceMessage = await playedIn(page, before);
+  check("a voice message recorded here, AAC in MP4, plays in the Electron app", !voiceMessage.error && voiceMessage.duration > 2 && voiceMessage.at > 0.5 && voiceMessage.peak > 0.05, JSON.stringify(voiceMessage));
+  // The message box's camera, recording a video message from the check's camera and microphone.
+  await drive({ do: "click", x: 1339, y: 875 });
+  start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking a video message");
+  await sleep(4000);
+  await shot("10c-recording-round");
+  await drive({ do: "click", x: 1373, y: 875 });
+  before = await page.evaluate(() => window.__played.length);
+  await page.locator("button.round").last().click({ timeout: 30_000 });
+  const round = await playedIn(page, before);
+  check("a video message recorded here, H.264 and AAC in MP4, plays in the Electron app", !round.error && round.width === 480 && round.at > 0.5 && round.spread > 0.1, JSON.stringify(round));
+  await sleep(1000);
+  await shot("10d-messages-sent");
+
+  // --- And the other way: what the Electron app records, Opus in MP4 as Chromium writes it, played here ---
+  await page.getByRole("button", { name: "Record a voice message" }).click();
+  await sleep(3500);
+  await page.getByRole("button", { name: "Send voice message" }).click();
+  await sleep(4000);
+  await shot("10e-voice-received");
+  let listening = loudestOn(speakers, 8);
+  await sleep(300);
+  // The play button of the newest message, from the other side, at the bottom left, pointed
+  // at first, as a hand would: the message list only takes a click where the pointer has been.
+  await drive({ do: "move", x: 430, y: 789 });
+  await sleep(400);
+  await drive({ do: "click", x: 430, y: 789 });
+  await sleep(3000);
+  await shot("10f-voice-playing");
+  const voiceHere = await listening;
+  check("a voice message the Electron app recorded plays here, through PipeWire", voiceHere > 0.05, `peak ${voiceHere.toFixed(3)}`);
+  await page.getByRole("button", { name: "Record a video message" }).click();
+  await sleep(3500);
+  await page.getByRole("button", { name: "Send video message" }).click();
+  await sleep(5000);
+  await shot("10g-round-received");
+  // A click on a video message plays it from the start with its sound.
+  listening = loudestOn(speakers, 8);
+  await sleep(300);
+  await drive({ do: "move", x: 520, y: 715 });
+  await sleep(400);
+  await drive({ do: "click", x: 520, y: 715 });
+  await sleep(3000);
+  await shot("10h-round-playing");
+  const roundHere = await listening;
+  check("a video message the Electron app recorded plays here with its sound", roundHere > 0.05, `peak ${roundHere.toFixed(3)}`);
 
   // --- Settings' Voice and video page, with the devices it lists ---
   await drive({ do: "click", x: 32, y: 834 });

@@ -1,6 +1,6 @@
 # The native app on Linux: plan
 
-Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 and L3 done: sound through PipeWire, a voice channel, calls, cameras, push to talk, and sharing a screen and a window with its sound, checked with the Electron app (2026-11-06).
+Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 to L4 done: sound through PipeWire, a voice channel, calls, cameras, push to talk, sharing a screen and a window with its sound, and voice and video messages both ways, checked with the Electron app. L5, the packages, next (2026-11-06).
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
 
@@ -139,7 +139,7 @@ On Linux this goes through the FFmpeg that `scripts/ffmpeg.mjs` pins for `zuna-s
 
 - **Reading:** `libavformat` for MP4 and the other containers a sound or video file comes in, `libavcodec` to decode, `libswresample` to 48 kHz in one channel, and `libswscale` to BGRA.
 - **Writing:** AAC in MP4 for a voice message, and H.264 Baseline (`libopenh264`) and AAC in MP4 for a video message, the same as Windows writes. Chromium on Linux writes Opus there, since it has no AAC encoder, which costs AVFoundation an eighth of a voice message and hasn't been tried in a video message on the iPhone, so AAC avoids both.
-- **Binding it:** a small C file built with `cc` against the pinned headers, as `zuna-screenshare`'s `native/encoder.c` is, or generated bindings. Either way the libraries are loaded with an rpath of `$ORIGIN/screenshare`. Being shared libraries, they keep their Opus apart from the copy linked into libwebrtc, as long as the program exports none of its own symbols, which `nm -D` checks once it links.
+- **Binding it:** `ffmpeg-next`, generated against the pinned headers, which `FFMPEG_DIR` in `apps/desktop/.cargo/config.toml` points `ffmpeg-sys-next` at. The libraries are found by an rpath of `$ORIGIN/screenshare`, and in a debug build where they're pinned. Being shared libraries, they keep their Opus apart from the copy linked into libwebrtc, as the program exports none of its own symbols (`nm -D` lists 20, none of them Opus).
 - **Recording and playing sound** go through the app's own sound output and microphone (Sound devices) rather than waveIn and waveOut.
 - **A soundboard sound** is read the same way, from anything FFmpeg reads.
 

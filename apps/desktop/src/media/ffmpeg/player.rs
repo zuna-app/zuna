@@ -1,22 +1,96 @@
 //! Playing sound: one voice message, sound file or video's sound at a time, as the
-//! desktop's `playOnly` keeps it.
+//! desktop's `playOnly` keeps it, through PipeWire's default output at the clip's own rate.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+use parking_lot::Mutex;
+
+use crate::voice::pipewire::{self, Playing as Kind};
 pub use crate::media::Clip;
 
-pub fn play(_key: &str, _clip: &Clip, _from: f64) {}
-
-pub fn pause(_key: &str) {}
-
-pub fn resume(_key: &str) {}
-
-pub fn stop(_key: &str) {}
-
-/// Where the one playing is, in seconds, and whether it's playing.
-pub fn position(_key: &str) -> Option<(f64, bool)> {
-    None
+struct Playing {
+    key: String,
+    rate: u32,
+    /// Where it's got to in the clip, in samples.
+    at: Arc<AtomicUsize>,
+    paused: Arc<AtomicBool>,
+    done: Arc<AtomicBool>,
+    _stream: pipewire::Stream,
 }
 
-/// What's playing now, by its key.
+static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
+
+/// Plays a clip from a moment, in seconds, stopping whatever else was playing.
+pub fn play(key: &str, clip: &Clip, from: f64) {
+    // The last one's stream goes first, outside the lock its own sound never takes.
+    let last = PLAYING.lock().take();
+    drop(last);
+    let samples = clip.samples.clone();
+    let at = Arc::new(AtomicUsize::new(((from.max(0.) * clip.rate as f64) as usize).min(samples.len())));
+    let (paused, done) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicBool::new(false)));
+    let fill = {
+        let (at, paused, done) = (at.clone(), paused.clone(), done.clone());
+        move |data: &mut [f32], _frames: usize| {
+            if paused.load(Ordering::Relaxed) {
+                data.fill(0.);
+                return;
+            }
+            let mut position = at.load(Ordering::Relaxed);
+            for frame in data.chunks_mut(2) {
+                let sample = samples.get(position).map_or(0., |sample| *sample as f32 / 32768.);
+                frame.fill(sample);
+                position = (position + 1).min(samples.len());
+            }
+            at.store(position, Ordering::Relaxed);
+            if position >= samples.len() {
+                done.store(true, Ordering::Relaxed);
+            }
+        }
+    };
+    let Some(stream) = pipewire::play("default", Kind::Media, clip.rate, fill, Arc::new(AtomicBool::new(false))) else {
+        log::warn!("no sound out");
+        return;
+    };
+    *PLAYING.lock() = Some(Playing { key: key.to_string(), rate: clip.rate, at, paused, done, _stream: stream });
+}
+
+pub fn pause(key: &str) {
+    if let Some(playing) = PLAYING.lock().as_ref().filter(|playing| playing.key == key) {
+        playing.paused.store(true, Ordering::Relaxed);
+    }
+}
+
+pub fn resume(key: &str) {
+    if let Some(playing) = PLAYING.lock().as_ref().filter(|playing| playing.key == key) {
+        playing.paused.store(false, Ordering::Relaxed);
+    }
+}
+
+pub fn stop(key: &str) {
+    let mut playing = PLAYING.lock();
+    if playing.as_ref().is_some_and(|current| current.key == key) {
+        let stopped = playing.take();
+        drop(playing);
+        drop(stopped);
+    }
+}
+
+/// How far a clip has played, in seconds, and whether it's playing now; none if it isn't
+/// the one playing or it reached its end.
+pub fn position(key: &str) -> Option<(f64, bool)> {
+    let mut playing = PLAYING.lock();
+    let current = playing.as_ref().filter(|current| current.key == key)?;
+    if current.done.load(Ordering::Relaxed) {
+        let done = playing.take();
+        drop(playing);
+        drop(done);
+        return None;
+    }
+    Some((current.at.load(Ordering::Relaxed) as f64 / current.rate.max(1) as f64, !current.paused.load(Ordering::Relaxed)))
+}
+
+/// Which clip is playing, if one is.
 pub fn current() -> Option<String> {
-    None
+    PLAYING.lock().as_ref().filter(|current| !current.done.load(Ordering::Relaxed)).map(|current| current.key.clone())
 }

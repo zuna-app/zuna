@@ -176,6 +176,7 @@ Rules the core depends on:
 ## Gotchas
 
 - **Keep every workspace on one Vite major.** `electron-vite` uses the root's Vite (7), so a newer Vite or `@vitejs/plugin-react` 6 in `apps/desktop-electron-legacy` breaks `npm run dev` with "Missing field moduleType". Builds and tests still pass, so only running the dev app shows it.
+- **The native app on Linux links the FFmpeg `scripts/ffmpeg.mjs` pins,** in `apps/screenshare/.deps`, through `FFMPEG_DIR` in `apps/desktop/.cargo/config.toml`. `npm run dev:linux`, `build:linux` and the Linux checks fetch it first; a plain `cargo build` there needs it fetched already.
 - **`packages/crypto/pkg` is generated and gitignored,** so it goes stale until `npm run build:crypto`. The `dev:*` scripts, `npm run dev` and `build:web` rebuild it when `crypto` changed, but tests and `npm run dist` don't.
 - **`@zuna/e2e` needs Swift,** because its global setup builds the iOS host. To regenerate the golden files on Windows, run `UPDATE_GOLDEN=1 npx vitest run test/golden.test.ts --config <file>` in `tests/e2e`, with a throwaway config that spreads `vitest.config` and sets `globalSetup: []`. Without `UPDATE_GOLDEN` the test fails there on line endings alone. Afterwards `git status` lists the fixtures and `emoji.json` as changed with an empty diff, which `git checkout --` clears.
 - **When `crypto/Cargo.lock` moves to a new wasm-bindgen,** update the hashes pinned in `.github/workflows/ci.yml`.

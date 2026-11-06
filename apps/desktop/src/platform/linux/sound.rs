@@ -26,7 +26,7 @@ pub fn play_notification_sound() {
                     position += 1;
                 }
             };
-            let Some(stream) = crate::voice::pipewire::play("default", crate::voice::pipewire::Playing::Notification, fill, std::sync::Arc::new(AtomicBool::new(false))) else {
+            let Some(stream) = crate::voice::pipewire::play("default", crate::voice::pipewire::Playing::Notification, 48_000, fill, std::sync::Arc::new(AtomicBool::new(false))) else {
                 log::warn!("the notification sound didn't play");
                 return;
             };

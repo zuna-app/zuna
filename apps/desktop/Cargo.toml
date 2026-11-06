@@ -72,6 +72,9 @@ ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
 pipewire = "0.10"
 # Cameras, read through V4L2 as Chromium reads them.
 v4l = "0.14"
+# Media: reading and writing voice and video messages, videos and sound files, through the
+# FFmpeg the repository pins for the screen capture (FFMPEG_DIR in .cargo/config.toml).
+ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 libc = "0.2"

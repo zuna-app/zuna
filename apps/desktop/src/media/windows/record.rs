@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use windows::Win32::Media::Audio::*;
 use windows::Win32::Media::MediaFoundation::*;
 
-use super::encode::{RATE, ROUND_SIZE};
+use super::encode::RATE;
 
 /// What's been heard so far: the samples, and a loudness from 0 to 1 every 50 ms.
 #[derive(Default)]
@@ -262,87 +262,5 @@ mod tests {
     }
 }
 
-/// A video message being recorded: the camera's frames and the microphone's sound, written
-/// as they come, up to a minute.
-pub struct RoundRecorder {
-    camera: Arc<Camera>,
-    stop: Arc<AtomicBool>,
-    thread: Option<std::thread::JoinHandle<Result<f64, String>>>,
-    started: Instant,
-    pub path: std::path::PathBuf,
-}
-
 pub use crate::media::MAX_ROUND_SECONDS;
-
-impl RoundRecorder {
-    pub fn start(path: std::path::PathBuf) -> Result<RoundRecorder, String> {
-        let camera = Arc::new(Camera::start()?);
-        let microphone = Microphone::start()?;
-        let stop = Arc::new(AtomicBool::new(false));
-        let (frames, stopping, target) = (camera.clone(), stop.clone(), path.clone());
-        let thread = std::thread::spawn(move || {
-            let failed = |_| "The video message couldn't be recorded.".to_string();
-            let mut writer = super::encode::RoundWriter::create(&target).map_err(failed)?;
-            let frame_time = Duration::from_secs_f64(1. / super::encode::ROUND_FPS as f64);
-            let mut next = Instant::now();
-            let mut started = false;
-            while !stopping.load(Ordering::Relaxed) && writer.seconds() < MAX_ROUND_SECONDS {
-                // Starts with the camera's first picture, and keeps the newest after.
-                if let Some(frame) = frames.frame() {
-                    if !started {
-                        started = true;
-                        microphone.take_fresh();
-                    }
-                    writer.frame(&frame).map_err(failed)?;
-                    writer.sound(&microphone.take_fresh()).map_err(failed)?;
-                }
-                next += frame_time;
-                if let Some(wait) = next.checked_duration_since(Instant::now()) {
-                    std::thread::sleep(wait);
-                }
-            }
-            let seconds = writer.seconds();
-            writer.finish().map_err(failed)?;
-            if !started {
-                return Err("The video message couldn't be recorded.".into());
-            }
-            Ok(seconds)
-        });
-        Ok(RoundRecorder { camera, stop, thread: Some(thread), started: Instant::now(), path })
-    }
-
-    pub fn elapsed(&self) -> f64 {
-        self.started.elapsed().as_secs_f64()
-    }
-
-    /// The camera as the person sees themselves, mirrored.
-    pub fn preview(&self) -> Option<Vec<u8>> {
-        let mut frame = self.camera.frame()?;
-        let row = ROUND_SIZE as usize * 4;
-        for line in frame.chunks_mut(row) {
-            for x in 0..ROUND_SIZE as usize / 2 {
-                let mirror = ROUND_SIZE as usize - 1 - x;
-                for byte in 0..4 {
-                    line.swap(x * 4 + byte, mirror * 4 + byte);
-                }
-            }
-        }
-        Some(frame)
-    }
-
-    /// Stops and gives how long it is, once it's written.
-    pub fn stop(mut self) -> Result<f64, String> {
-        self.stop.store(true, Ordering::Relaxed);
-        self.thread.take().map(|thread| thread.join().unwrap_or(Err("The video message couldn't be recorded.".into()))).unwrap_or(Err("The video message couldn't be recorded.".into()))
-    }
-}
-
-impl Drop for RoundRecorder {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(thread) = self.thread.take() {
-            thread.join().ok();
-            std::fs::remove_file(&self.path).ok();
-        }
-    }
-}
+pub use crate::media::round::RoundRecorder;

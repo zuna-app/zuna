@@ -1,56 +1,84 @@
 //! Recording from the microphone and the camera, for voice and video messages
-//! (VoiceRecorder in lib/voice.ts and RoundRecorder in lib/round.ts).
+//! (VoiceRecorder in lib/voice.ts and RoundRecorder in lib/round.ts). The microphone is
+//! PipeWire's default, read at 48 kHz in one channel, as voice reads its own.
 
-/// The microphone, recording until it's stopped.
-pub struct Microphone;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Instant;
 
-impl Microphone {
-    pub fn start() -> Result<Microphone, String> {
-        Err(super::NOT_YET.into())
-    }
+use parking_lot::Mutex;
 
-    pub fn elapsed(&self) -> f64 {
-        0.
-    }
-
-    pub fn levels(&self, _count: usize) -> Vec<f32> {
-        Vec::new()
-    }
-
-    pub fn take_fresh(&self) -> Vec<i16> {
-        Vec::new()
-    }
-
-    pub fn stop(self) -> (Vec<i16>, Vec<f32>) {
-        (Vec::new(), Vec::new())
-    }
-}
-
+use crate::voice::pipewire;
 pub use crate::media::camera::Camera;
-pub use crate::media::{MAX_ROUND_SECONDS, encode_waveform};
+pub use crate::media::round::RoundRecorder;
+pub use crate::media::{MAX_ROUND_SECONDS, RATE, encode_waveform};
 
 pub use super::v4l2::cameras;
 pub(crate) use super::v4l2::open;
 
-/// A video message being recorded.
-pub struct RoundRecorder {
-    pub path: std::path::PathBuf,
+/// What's been heard so far: the samples, and a loudness from 0 to 1 every 50 ms.
+#[derive(Default)]
+struct Heard {
+    samples: Vec<i16>,
+    levels: Vec<f32>,
+    /// Samples not yet handed on, for a video message's writer.
+    fresh: Vec<i16>,
+    /// What's come since the last loudness.
+    chunk: Vec<i16>,
 }
 
-impl RoundRecorder {
-    pub fn start(_path: std::path::PathBuf) -> Result<RoundRecorder, String> {
-        Err(super::NOT_YET.into())
+const CHUNK: usize = RATE as usize / 20;
+
+/// The microphone, recording until it's stopped.
+pub struct Microphone {
+    heard: Arc<Mutex<Heard>>,
+    stream: Option<pipewire::Stream>,
+    started: Instant,
+}
+
+impl Microphone {
+    /// Starts recording, or says why it can't, in words to show.
+    pub fn start() -> Result<Microphone, String> {
+        let heard = Arc::new(Mutex::new(Heard::default()));
+        let shared = heard.clone();
+        let take = move |samples: &[f32]| {
+            let mut heard = shared.lock();
+            for sample in samples {
+                heard.chunk.push((sample.clamp(-1., 1.) * 32767.) as i16);
+                if heard.chunk.len() == CHUNK {
+                    let chunk = std::mem::take(&mut heard.chunk);
+                    // The same loudness as Windows works out from each 50 ms.
+                    let sum: f64 = chunk.iter().map(|sample| (*sample as f64 / 32768.).powi(2)).sum();
+                    let level = ((sum / CHUNK as f64).sqrt() * 4.).min(1.) as f32;
+                    heard.samples.extend_from_slice(&chunk);
+                    heard.fresh.extend_from_slice(&chunk);
+                    heard.levels.push(level);
+                }
+            }
+        };
+        let stream = pipewire::record("default", take, Arc::new(AtomicBool::new(false))).map_err(|_| "There's no microphone Zuna can use.".to_string())?;
+        Ok(Microphone { heard, stream: Some(stream), started: Instant::now() })
     }
 
     pub fn elapsed(&self) -> f64 {
-        0.
+        self.started.elapsed().as_secs_f64()
     }
 
-    pub fn preview(&self) -> Option<Vec<u8>> {
-        None
+    /// The last loudnesses, for the bars while recording.
+    pub fn levels(&self, count: usize) -> Vec<f32> {
+        let heard = self.heard.lock();
+        heard.levels[heard.levels.len().saturating_sub(count)..].to_vec()
     }
 
-    pub fn stop(self) -> Result<f64, String> {
-        Err(super::NOT_YET.into())
+    /// What's been heard since this was last asked.
+    pub fn take_fresh(&self) -> Vec<i16> {
+        std::mem::take(&mut self.heard.lock().fresh)
+    }
+
+    /// Stops and gives what was recorded: the samples and the loudness every 50 ms.
+    pub fn stop(mut self) -> (Vec<i16>, Vec<f32>) {
+        self.stream.take();
+        let mut heard = self.heard.lock();
+        (std::mem::take(&mut heard.samples), std::mem::take(&mut heard.levels))
     }
 }

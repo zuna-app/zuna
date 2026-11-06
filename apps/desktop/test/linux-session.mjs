@@ -10,6 +10,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { ensureFfmpeg } from "../../../scripts/ffmpeg.mjs";
 
 export const here = dirname(fileURLToPath(import.meta.url));
 export const crate = join(here, "..");
@@ -24,13 +25,15 @@ export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * Outside: builds everything, then runs the check again inside a session bus of its own,
  * and exits with how that went. Inside, it returns at once.
  */
-export function outside(script) {
+export async function outside(script) {
   if (process.env.ZUNA_LINUX_CHECK_INNER === "1") return;
   if (process.platform !== "linux") {
     console.log("This checks the native app on Linux.");
     process.exit(0);
   }
   execFileSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", cwd: root });
+  // The FFmpeg the app's media links to, as scripts/linux-app.mjs makes sure of.
+  await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: crate, env: { ...process.env, CARGO_TARGET_DIR: target } });
   execFileSync("cargo", ["build"], { stdio: "inherit", cwd: join(here, "driver"), env: { ...process.env, CARGO_TARGET_DIR: target } });
   const server = join(tmpdir(), "zuna-linux-check-server");

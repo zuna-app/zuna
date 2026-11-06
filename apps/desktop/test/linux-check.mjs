@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { appBinary, here, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
-outside(import.meta.url);
+await outside(import.meta.url);
 const { work, base, session, check, start, shot, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, finish } = await inside({ shots: process.argv[2] });
 
 let peer;
@@ -32,9 +32,9 @@ try {
   const { drive, windowOf, events, heardEvent } = await startDriver();
   const appData = join(work, "app");
   // A 12-hour clock, from the locale as a desktop sets it.
-  // Its sounds go to speakers nobody hears, through PipeWire's own override for a stream's target.
+  // Its sounds go to speakers nobody hears, in place of the system's default.
   const speakers = quietSpeakers("speakers");
-  const app = start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, LC_TIME: "en_US.UTF-8", RUST_LOG: "warn,zuna::platform=info", PIPEWIRE_NODE: speakers }, "app");
+  const app = start(appBinary, [], { ...session, ZUNA_DATA_DIR: appData, LC_TIME: "en_US.UTF-8", RUST_LOG: "warn,zuna::platform=info", ZUNA_CHECK_SPEAKERS: speakers }, "app");
 
   // --- The window ---
   const first = await until(windowOf, "the app's window", 30_000);
@@ -195,6 +195,24 @@ try {
   await drive({ do: "key", key: "enter" });
   check("a file copied in a file manager pastes into the message box and goes", !!(await until(() => heard.length > before, "the file to arrive", 20_000).catch(() => null)));
   await sleep(1500);
+
+  // --- A voice message the desktop recorded, from the other person, played here ---
+  const fixtures = join(root, "apps", "ios", "ZunaKit", "Tests", "ZunaHostTests", "Fixtures");
+  peer.stdin.write(`${JSON.stringify({ sendFile: { path: join(fixtures, "chromium-opus.m4a"), name: "Voice message.m4a", mime: "audio/mp4", duration: 3.4, voice: true } })}\n`);
+  await until(() => heard.some((line) => line.sentFile), "the voice message to go", 20_000);
+  await sleep(2500);
+  await shot("10c-voice-arrived");
+  const listening = loudestOn(speakers, 8);
+  await sleep(300);
+  // Its play button, under the other person's echo of what the app sent last, pointed at
+  // first, as a hand would: the message list only takes a click where the pointer has been.
+  await drive({ do: "move", x: 430, y: 752 });
+  await sleep(400);
+  await drive({ do: "click", x: 430, y: 752 });
+  await sleep(2000);
+  await shot("10d-voice-playing");
+  const played = await listening;
+  check("a voice message the desktop recorded plays here, through PipeWire", played > 0.05, `peak ${played.toFixed(3)}`);
 
   // --- Notifications and the badge, with another chat open ---
   await drive({ do: "click", x: 237, y: 311 });

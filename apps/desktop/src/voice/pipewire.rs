@@ -1,7 +1,8 @@
 //! The sound devices on Linux, through PipeWire itself: listed by the names it gives them, and
 //! played and recorded through streams aimed at the one chosen. ALSA's own list, which cpal
 //! reads, holds the cards themselves, and playing on one takes it away from PipeWire.
-//! Streams are 32-bit floats at 48 kHz, which PipeWire converts for the device.
+//! Streams are 32-bit floats, at 48 kHz but for a clip played at its own rate, which PipeWire
+//! converts for the device.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -116,32 +117,34 @@ impl Drop for Stream {
 pub enum Playing {
     Voice,
     Notification,
+    /// A voice message, a sound file or a video's sound.
+    Media,
 }
 
-/// Plays stereo on a device, by its node's name, or the default one: `fill` is given room for
-/// interleaved samples and how many frames that is. `failed` is set if the device goes.
-pub fn play(device: &str, playing: Playing, fill: impl FnMut(&mut [f32], usize) + Send + 'static, failed: Arc<AtomicBool>) -> Option<Stream> {
-    start(device, Some(playing), Box::new(fill), Box::new(|_| {}), failed).ok()
+/// Plays stereo at a rate on a device, by its node's name, or the default one: `fill` is given
+/// room for interleaved samples and how many frames that is. `failed` is set if the device goes.
+pub fn play(device: &str, playing: Playing, rate: u32, fill: impl FnMut(&mut [f32], usize) + Send + 'static, failed: Arc<AtomicBool>) -> Option<Stream> {
+    start(device, Some(playing), rate, Box::new(fill), Box::new(|_| {}), failed).ok()
 }
 
 /// Records one channel from a device, by its node's name, or the default one, handing what's
 /// heard to `take`. `lost` is set if the device goes.
 pub fn record(device: &str, take: impl FnMut(&[f32]) + Send + 'static, lost: Arc<AtomicBool>) -> Result<Stream, String> {
-    start(device, None, Box::new(|_, _| {}), Box::new(take), lost)
+    start(device, None, RATE, Box::new(|_, _| {}), Box::new(take), lost)
 }
 
 type Fill = Box<dyn FnMut(&mut [f32], usize) + Send>;
 type Take = Box<dyn FnMut(&[f32]) + Send>;
 
 /// A stream playing `playing`, or recording without it.
-fn start(device: &str, playing: Option<Playing>, fill: Fill, take: Take, failed: Arc<AtomicBool>) -> Result<Stream, String> {
+fn start(device: &str, playing: Option<Playing>, rate: u32, fill: Fill, take: Take, failed: Arc<AtomicBool>) -> Result<Stream, String> {
     let (quit, quitting) = pw::channel::channel::<()>();
     let (ready, started) = std::sync::mpsc::channel::<Result<(), String>>();
     let device = device.to_string();
     let thread = std::thread::Builder::new()
         .name(if playing.is_some() { "zuna-sound-out" } else { "zuna-sound-in" }.into())
         .spawn(move || {
-            if let Err(error) = run(&device, playing, fill, take, failed, quitting, &ready) {
+            if let Err(error) = run(&device, playing, rate, fill, take, failed, quitting, &ready) {
                 ready.send(Err(error)).ok();
             }
         })
@@ -151,7 +154,7 @@ fn start(device: &str, playing: Option<Playing>, fill: Fill, take: Take, failed:
 }
 
 /// The stream's thread: its main loop, until it's told to quit.
-fn run(device: &str, playing: Option<Playing>, mut fill: Fill, mut take: Take, failed: Arc<AtomicBool>, quitting: pw::channel::Receiver<()>, ready: &std::sync::mpsc::Sender<Result<(), String>>) -> Result<(), String> {
+fn run(device: &str, playing: Option<Playing>, rate: u32, mut fill: Fill, mut take: Take, failed: Arc<AtomicBool>, quitting: pw::channel::Receiver<()>, ready: &std::sync::mpsc::Sender<Result<(), String>>) -> Result<(), String> {
     if !init() {
         return Err("no PipeWire".into());
     }
@@ -164,6 +167,7 @@ fn run(device: &str, playing: Option<Playing>, mut fill: Fill, mut take: Take, f
     let (name, role) = match playing {
         Some(Playing::Voice) => ("Zuna voice", "Communication"),
         Some(Playing::Notification) => ("Zuna notification", "Notification"),
+        Some(Playing::Media) => ("Zuna media", "Music"),
         None => ("Zuna microphone", "Communication"),
     };
     let mut props = properties! {
@@ -172,7 +176,14 @@ fn run(device: &str, playing: Option<Playing>, mut fill: Fill, mut take: Take, f
         *pw::keys::MEDIA_ROLE => role,
         *pw::keys::APP_NAME => "Zuna",
         // 10 ms, which WebRTC's processing and RNNoise each take at a time.
-        *pw::keys::NODE_LATENCY => format!("{}/{RATE}", super::audio::FRAME),
+        *pw::keys::NODE_LATENCY => format!("{}/{rate}", super::audio::FRAME),
+    };
+    // In a development build, a check's own devices in place of the system's defaults, so that
+    // nothing it plays or records is the person's.
+    let checks = if output { "ZUNA_CHECK_SPEAKERS" } else { "ZUNA_CHECK_MICROPHONE" };
+    let device = match std::env::var(checks) {
+        Ok(stand_in) if device == "default" && cfg!(debug_assertions) => stand_in,
+        _ => device.to_string(),
     };
     if device != "default" {
         props.insert("target.object", device);
@@ -218,7 +229,7 @@ fn run(device: &str, playing: Option<Playing>, mut fill: Fill, mut take: Take, f
         .map_err(fail)?;
     let mut format = spa::param::audio::AudioInfoRaw::new();
     format.set_format(spa::param::audio::AudioFormat::F32LE);
-    format.set_rate(RATE);
+    format.set_rate(rate);
     format.set_channels(channels);
     let mut position = [0; spa::param::audio::MAX_CHANNELS];
     if output {

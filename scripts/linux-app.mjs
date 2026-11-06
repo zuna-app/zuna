@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { ensureFfmpeg } from "./ffmpeg.mjs";
 import { env, root } from "./lib.mjs";
 
 if (process.platform !== "linux") {
@@ -33,6 +34,8 @@ const version = JSON.parse(readFileSync(join(root, "apps", "desktop-electron-leg
 
 const bundle = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
 if (bundle.status !== 0) process.exit(bundle.status ?? 1);
+// The FFmpeg the screen capture pins, which the app's media links to (FFMPEG_DIR in .cargo/config.toml).
+await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
 
 const cargo = [command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
 const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
