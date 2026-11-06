@@ -7,6 +7,7 @@ use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, 
 use serde_json::json;
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::MIN_PASSWORD;
 use crate::models::{InvitePreview, Registered, from_value};
@@ -775,14 +776,17 @@ impl Render for Onboarding {
             .flex_1()
             .min_w_0()
             .overflow_y_scroll()
+            .track_scroll(&scroll_handle("onboarding"))
             .flex()
             .flex_col()
             .items_center()
             .justify_center()
             .px(px(24.))
+            .pr(px(24.) + gutter(&scroll_handle("onboarding")))
             .py(px(32.))
             // A width of its own, so wrapping text is measured at it when centering.
             .child(div().flex_none().w(px(360.)).max_w_full().flex().flex_col().gap(px(gap)).children(children))
+            .child(scrollbar("onboarding", Scrolls::Div(scroll_handle("onboarding"))))
     }
 }
 

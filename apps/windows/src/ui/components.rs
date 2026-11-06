@@ -505,6 +505,7 @@ pub fn notice(icon_name: &str, text: impl Into<SharedString>, cx: &App) -> Div {
 /// A choice among several, as a `.select` shows it: what's chosen, opening a menu of the rest.
 pub fn select_box(id: impl Into<ElementId>, label: impl Into<SharedString>, choices: Vec<(String, std::rc::Rc<dyn Fn(&mut Window, &mut App)>)>, cx: &App) -> Stateful<Div> {
     let theme = theme(cx);
+    let (bounds, probe) = bounds_probe();
     div()
         .id(id)
         .w_full()
@@ -520,9 +521,12 @@ pub fn select_box(id: impl Into<ElementId>, label: impl Into<SharedString>, choi
         .border_color(theme.line)
         .text_size(px(13.5))
         .cursor_pointer()
-        .on_click(move |event, _, cx| {
+        .child(probe)
+        .on_click(move |_, _, cx| {
+            // Under itself, from its left edge, as a native select opens.
             let entries = choices.iter().map(|(label, action)| super::menu::MenuEntry::plain(label.clone(), action.clone())).collect();
-            super::menu::open_menu(point(event.position().x, event.position().y + px(14.)), entries, false, cx);
+            let at = bounds.get();
+            super::menu::open_menu(point(at.left(), at.bottom() + px(4.)), entries, false, cx);
         })
         .child(div().min_w_0().one_line().child(label.into()))
         .child(icon("chevron-down", 15., theme.text2))
@@ -674,4 +678,12 @@ impl gpui::Element for Clamped {
             top += line.size(layout.line_height).height;
         }
     }
+}
+
+/// Where an element is, recorded as it's drawn, for opening something against it as the
+/// desktop does with `getBoundingClientRect`. The probe goes in the element as a child.
+pub fn bounds_probe() -> (std::rc::Rc<std::cell::Cell<gpui::Bounds<Pixels>>>, gpui::Canvas<()>) {
+    let bounds = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::default()));
+    let seen = bounds.clone();
+    (bounds, gpui::canvas(move |area, _, _| seen.set(area), |_, _, _, _| {}).absolute().inset_0())
 }

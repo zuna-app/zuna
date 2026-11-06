@@ -8,6 +8,7 @@ use gpui::{AnyElement, AnyView, App, Context, Entity, FontWeight, IntoElement, P
 use serde_json::json;
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::onboarding::Onboarding;
 use super::text_input::{InputEvent, TextInput};
 use crate::models::{SafetyCheck, from_value};
@@ -243,7 +244,10 @@ impl Dialog {
                             .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(title))
                             .child(icon_button("close-modal", "x", 16., true, false, cx).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx)))),
                     )
-                    .child(div().id("modal-body").overflow_y_scroll().px(px(20.)).pt(px(10.)).pb(px(20.)).flex().flex_col().gap(px(14.)).children(body));
+                    .child({
+                        let handle = scroll_handle("modal-body");
+                        div().id("modal-body").overflow_y_scroll().track_scroll(&handle).px(px(20.)).pr(px(20.) + gutter(&handle)).pt(px(10.)).pb(px(20.)).flex().flex_col().gap(px(14.)).children(body).child(scrollbar("modal-body", Scrolls::Div(handle.clone())))
+                    });
                 if let Some(footer) = footer {
                     card = card.child(div().flex().justify_end().gap(px(8.)).px(px(20.)).pb(px(16.)).child(footer));
                 }
@@ -255,8 +259,11 @@ impl Dialog {
                         .id("modal-flow")
                         .p(px(24.))
                         .overflow_y_scroll()
+                        .track_scroll(&scroll_handle("modal-flow"))
+                        .pr(px(24.) + gutter(&scroll_handle("modal-flow")))
                         .child(div().absolute().right(px(10.)).top(px(10.)).child(icon_button("close-modal", "x", 17., true, false, cx).on_click(cx.listener(|dialog, _, _, cx| dialog.close(cx)))))
-                        .children(body),
+                        .children(body)
+                        .child(scrollbar("modal-flow", Scrolls::Div(scroll_handle("modal-flow")))),
                 );
             }
         }
@@ -287,7 +294,8 @@ impl Dialog {
         let mut users: Vec<_> = server.users.values().filter(|user| user.id != server.self_id() && !user.banned).cloned().collect();
         users.sort_by_key(|user| user.display_name.to_lowercase());
         let filtered: Vec<_> = users.into_iter().filter(|user| query.is_empty() || user.display_name.to_lowercase().contains(&query) || user.username.to_lowercase().contains(&query)).collect();
-        let mut people = div().id("people-list").max_h(px(260.)).overflow_y_scroll().flex().flex_col().gap(px(1.)).mx(px(-4.));
+        let people_scroll = scroll_handle("new-group-people");
+        let mut people = div().id("people-list").max_h(px(260.)).overflow_y_scroll().track_scroll(&people_scroll).pr(gutter(&people_scroll)).flex().flex_col().gap(px(1.)).mx(px(-4.));
         if filtered.is_empty() {
             people = people.child(div().p(px(16.)).text_center().text_color(theme.text2).child("Nobody matches that search."));
         }
@@ -361,7 +369,7 @@ impl Dialog {
                         .child(icon("search", 14., theme.text3))
                         .child(div().flex_1().min_w_0().child(self.people_search.clone())),
                 )
-                .child(people)
+                .child(people.child(scrollbar("new-group-people", Scrolls::Div(people_scroll.clone()))))
                 .into_any_element(),
             div()
                 .flex()
@@ -559,7 +567,8 @@ impl Dialog {
             }
         }
         let show_names = sections.len() > 1 || sections.first().is_some_and(|(id, _, _)| *id != from_server);
-        let mut list = div().id("forward-list").max_h(px(380.)).mt(px(10.)).overflow_y_scroll().flex().flex_col().mx(px(-4.));
+        let forward_scroll = scroll_handle("forward-list");
+        let mut list = div().id("forward-list").max_h(px(380.)).mt(px(10.)).overflow_y_scroll().track_scroll(&forward_scroll).pr(gutter(&forward_scroll)).flex().flex_col().mx(px(-4.));
         if sections.is_empty() {
             list = list.child(div().p(px(16.)).text_center().text_color(theme.text2).child("No chats match that search."));
         }
@@ -639,7 +648,7 @@ impl Dialog {
             .text_size(px(13.5))
             .child(icon("search", 14., theme.text3))
             .child(div().flex_1().min_w_0().child(self.people_search.clone()));
-        self.modal(Some("Forward to".into()), 440., vec![div().flex().flex_col().child(search).child(list).into_any_element()], None, cx)
+        self.modal(Some("Forward to".into()), 440., vec![div().flex().flex_col().child(search).child(list.child(scrollbar("forward-list", Scrolls::Div(forward_scroll.clone())))).into_any_element()], None, cx)
     }
 
     /// People to pick from, with a search above them, as `PeoplePicker` lists them.
@@ -647,7 +656,8 @@ impl Dialog {
         let theme = theme(cx);
         let query = self.people_search.read(cx).text().trim().to_lowercase();
         let filtered: Vec<_> = users.into_iter().filter(|user| query.is_empty() || user.display_name.to_lowercase().contains(&query) || user.username.to_lowercase().contains(&query)).collect();
-        let mut people = div().id("people-list").max_h(px(260.)).overflow_y_scroll().flex().flex_col().gap(px(1.)).mx(px(-4.));
+        let people_scroll = scroll_handle("add-people");
+        let mut people = div().id("add-people").max_h(px(260.)).overflow_y_scroll().track_scroll(&people_scroll).pr(gutter(&people_scroll)).flex().flex_col().gap(px(1.)).mx(px(-4.));
         if filtered.is_empty() {
             people = people.child(div().p(px(16.)).text_center().text_color(theme.text2).child("Nobody matches that search."));
         }
@@ -714,7 +724,7 @@ impl Dialog {
                     .child(icon("search", 14., theme.text3))
                     .child(div().flex_1().min_w_0().child(self.people_search.clone())),
             )
-            .child(people)
+            .child(people.child(scrollbar("add-people", Scrolls::Div(people_scroll.clone()))))
             .into_any_element()
     }
 

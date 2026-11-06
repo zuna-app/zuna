@@ -5,6 +5,7 @@ use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, 
 use serde_json::json;
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::{MIN_PASSWORD, format_full};
 use crate::models::{DeviceView, from_value};
@@ -410,6 +411,7 @@ impl SettingsView {
         };
         let preview_state = self.state.clone();
         // As the desktop's select: the choice, and a menu of the three under it.
+        let (select_bounds, select_probe) = bounds_probe();
         let select = div()
             .id("notification-preview")
             .w(px(180.))
@@ -424,7 +426,8 @@ impl SettingsView {
             .border_color(theme.line)
             .text_size(px(13.5))
             .cursor_pointer()
-            .on_click(move |event, _, cx| {
+            .child(select_probe)
+            .on_click(move |_, _, cx| {
                 let choice = |label: &str, value: &'static str| {
                     let state = preview_state.clone();
                     super::menu::MenuEntry::new(label, "bell", move |_, cx| {
@@ -432,7 +435,8 @@ impl SettingsView {
                     })
                 };
                 let entries = vec![choice("Sender and message", "full"), choice("Sender only", "sender"), choice("Nothing", "none")];
-                super::menu::open_menu(gpui::point(event.position().x - px(150.), event.position().y + px(14.)), entries, false, cx);
+                let at = select_bounds.get();
+                super::menu::open_menu(gpui::point(at.left(), at.bottom() + px(4.)), entries, false, cx);
             })
             .child(preview_label)
             .child(icon("chevron-down", 15., theme.text2));
@@ -887,7 +891,10 @@ impl Render for SettingsView {
                     .relative()
                     .flex_1()
                     .min_w_0()
-                    .child(div().id("settings-content").size_full().overflow_y_scroll().child(div().max_w(px(580.)).mx_auto().pt(px(32.)).px(px(28.)).pb(px(56.)).flex().flex_col().gap(px(14.)).children(page)))
+                    .child({
+                        let handle = scroll_handle("settings-content");
+                        div().id("settings-content").size_full().overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(div().max_w(px(580.)).mx_auto().pt(px(32.)).px(px(28.)).pb(px(56.)).flex().flex_col().gap(px(14.)).children(page)).child(scrollbar("settings-content", Scrolls::Div(handle.clone())))
+                    })
                     .child(div().absolute().right(px(16.)).top(px(16.)).child(icon_button("close-settings", "x", 19., false, false, cx).on_click(cx.listener(|view, _, _, cx| view.close(cx))))),
             )
             .when(self.confirming_keep, |el| el.child(self.keep_metadata_confirm(cx)))

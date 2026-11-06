@@ -10,6 +10,7 @@ use gpui::{
 use serde_json::json;
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::menu::{MenuEntry, open_menu};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::format_list_time;
@@ -389,9 +390,11 @@ impl Render for ConversationList {
             .gap(px(4.))
             .px(px(8.))
             .h(px(52.))
-            .child(
+            .child({
+                let (title_bounds, title_probe) = bounds_probe();
                 div()
                     .id("server-title")
+                    .child(title_probe)
                     .flex_1()
                     .min_w_0()
                     .flex()
@@ -404,7 +407,7 @@ impl Render for ConversationList {
                     .font_weight(FontWeight::SEMIBOLD)
                     .cursor_pointer()
                     .hover(move |style| style.bg(theme.hover))
-                    .on_click(move |event, _, cx| {
+                    .on_click(move |_, _, cx| {
                         let state = header_state.clone();
                         let mut entries = vec![
                             {
@@ -423,12 +426,13 @@ impl Render for ConversationList {
                         entries.push(MenuEntry::separator());
                         let leave = state.clone();
                         entries.push(MenuEntry::new("Leave this server", "log-out", move |_, cx| leave.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))).danger());
-                        let position = gpui::point(event.position().x - px(60.), event.position().y + px(18.));
-                        open_menu(position, entries, false, cx);
+                        // From the title's left edge, 4 px under it, as the desktop opens it.
+                        let at = title_bounds.get();
+                        open_menu(gpui::point(at.left(), at.bottom() + px(4.)), entries, false, cx);
                     })
                     .child(div().min_w_0().one_line().child(server.entry.name.clone()))
-                    .child(icon("chevron-down", 15., theme.text3)),
-            )
+                    .child(icon("chevron-down", 15., theme.text3))
+            })
             .child({
                 let state = self.state.clone();
                 icon_button("new-group", "square-pen", 17., false, false, cx)
@@ -621,7 +625,10 @@ impl Render for ConversationList {
             .child(header)
             .child(search)
             .child(tabs)
-            .child(div().id("conv-list").flex_1().min_h_0().overflow_y_scroll().pt(px(4.)).pb(px(8.)).children(rows))
+            .child({
+                let handle = scroll_handle("conv-list");
+                div().id("conv-list").flex_1().min_h_0().overflow_y_scroll().track_scroll(&handle).pt(px(4.)).pb(px(8.)).pr(gutter(&handle)).children(rows).child(scrollbar("conv-list", Scrolls::Div(handle.clone())))
+            })
             .into_any_element()
     }
 }

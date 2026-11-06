@@ -8,6 +8,7 @@ use std::time::Duration;
 use gpui::{AnyElement, App, Context, Entity, FocusHandle, FontWeight, IntoElement, ParentElement, Render, RenderImage, SharedString, Styled, Task, Window, div, img, prelude::*, px};
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use crate::platform::screens::{self, Source, THUMB_HEIGHT, THUMB_WIDTH};
 use crate::state::{AppState, Overlay};
 use crate::theme::{self, RADIUS_M, RADIUS_S, RADIUS_XL};
@@ -272,7 +273,8 @@ impl Render for ScreenPicker {
                 if pickable.is_empty() {
                     grid = grid.child(div().text_color(theme.text3).child(if self.screen_tab { "There are no screens to share." } else { "There are no windows to share." }));
                 }
-                body.push(div().id("screen-grid").max_h(px(320.)).overflow_y_scroll().child(grid).into_any_element());
+                let handle = scroll_handle("screen-grid");
+                body.push(div().id("screen-grid").max_h(px(320.)).overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(grid).child(scrollbar("screen-grid", Scrolls::Div(handle.clone()))).into_any_element());
                 if program {
                     body.push(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).text_color(theme.text2).child(icon("zap", 13., theme.text2)).child("Captured and encoded on your graphics card, so it stays light on your computer.").into_any_element());
                 } else {
@@ -447,7 +449,10 @@ impl Render for ScreenPicker {
                             .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child("Share your screen"))
                             .child(icon_button("close-modal", "x", 16., true, false, cx).on_click(cx.listener(|picker, _, window, cx| picker.close(window, cx)))),
                     )
-                    .child(div().id("modal-body").overflow_y_scroll().px(px(20.)).pt(px(10.)).pb(px(20.)).flex().flex_col().gap(px(14.)).children(body))
+                    .child({
+                        let handle = scroll_handle("screen-picker-body");
+                        div().id("modal-body").overflow_y_scroll().track_scroll(&handle).px(px(20.)).pr(px(20.) + gutter(&handle)).pt(px(10.)).pb(px(20.)).flex().flex_col().gap(px(14.)).children(body).child(scrollbar("screen-picker-body", Scrolls::Div(handle.clone())))
+                    })
                     .child(footer),
             )
     }

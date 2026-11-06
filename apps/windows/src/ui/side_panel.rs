@@ -7,6 +7,7 @@ use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, 
 use serde_json::json;
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scrollbar};
 use super::conversations::mute_entries;
 use super::menu::{MenuEntry, open_menu};
 use super::shared_media;
@@ -1074,7 +1075,7 @@ impl Render for SidePanel {
                         })
                     })),
             )
-            .child(div().id("side-body").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.scroll).p(px(12.)).flex().flex_col().gap(px(10.)).children(body))
+            .child(div().id("side-body").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.scroll).p(px(12.)).pr(px(12.) + gutter(&self.scroll)).flex().flex_col().gap(px(10.)).children(body).child(scrollbar("side-body", Scrolls::Div(self.scroll.clone()))))
             .into_any_element()
     }
 }

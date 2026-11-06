@@ -8,6 +8,7 @@ use std::time::Duration;
 use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, SharedString, Styled, Task, Window, canvas, div, point, prelude::*, px};
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use crate::state::AppState;
 use crate::theme::{self, RADIUS_L};
 use crate::voice::stats::{Extra, Reader, Section, as_text};
@@ -135,7 +136,8 @@ pub fn mic_filters(voice: &Voice) -> String {
 impl Render for StreamStatsPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
-        let mut body = div().id("stream-stats-body").flex().flex_col().overflow_y_scroll();
+        let body_scroll = scroll_handle("stream-stats-body");
+        let mut body = div().id("stream-stats-body").flex().flex_col().overflow_y_scroll().track_scroll(&body_scroll).pr(gutter(&body_scroll));
         for (index, section) in self.sections.clone().into_iter().enumerate() {
             // Sound is what there's least to wonder about, so it starts folded.
             let open = section.audio == self.toggled.contains(&section.id);
@@ -199,6 +201,7 @@ impl Render for StreamStatsPanel {
             }
             body = body.child(part);
         }
+        let body = body.child(scrollbar("stream-stats-body", Scrolls::Div(body_scroll.clone())));
         let copied = self.copied;
         div()
             .id("stream-stats")

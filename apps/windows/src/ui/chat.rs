@@ -18,6 +18,7 @@ use regex::Regex;
 use serde_json::json;
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::message::{ChatContext, render_row};
 use super::side_panel::SidePanel;
 use super::text_input::{InputEvent, TextInput};
@@ -1533,6 +1534,8 @@ impl ChatView {
             })
         };
         let message_size = if is_channel { theme.message_size + px(1.5) } else { theme.message_size };
+        let (emoji_bounds, emoji_probe) = bounds_probe();
+        let composer_scroll = scroll_handle("composer-scroll");
         area = area.child(
             row
                 .child(
@@ -1542,14 +1545,19 @@ impl ChatView {
                         .min_w_0()
                         .max_h(px(220.))
                         .overflow_y_scroll()
+                        .track_scroll(&composer_scroll)
                         .when(!is_channel, |el| el.px(px(6.)).py(px(6.)).min_h(px(32.)).line_height(px(20.)))
-                        .when(is_channel, |el| el.pr(px(6.)).py(px(11.)).min_h(px(44.)).line_height(px(22.)))
+                        .when(is_channel, |el| el.py(px(11.)).min_h(px(44.)).line_height(px(22.)))
+                        .pr(px(6.) + gutter(&composer_scroll))
                         .text_size(message_size)
-                        .child(self.composer.clone()),
+                        .child(self.composer.clone())
+                        .child(scrollbar("composer-scroll", Scrolls::Div(composer_scroll.clone()))),
                 )
-                .child(composer_button("emoji", "face-slightly-smiling", cx).tip("Emoji and emotes", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
+                .child(composer_button("emoji", "face-slightly-smiling", cx).child(emoji_probe).tip("Emoji and emotes", Side::Top).on_click(cx.listener(move |view, _: &gpui::ClickEvent, window, cx| {
                     let composer = view.composer.clone();
-                    let position = gpui::point(event.position().x - px(314.), event.position().y - px(10.));
+                    // As the desktop's: 330 px left of the button's right edge, at its top.
+                    let at = emoji_bounds.get();
+                    let position = gpui::point(at.right() - px(330.), at.top());
                     super::picker::open_picker(
                         position,
                         true,
@@ -1752,7 +1760,8 @@ impl ChatView {
         users.sort_by_key(|user| user.display_name.to_lowercase());
         let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().partition(|user| user.online || user.is_self);
         let server_id = self.server_id.clone();
-        let mut list = div().id("member-list").flex_none().w(px(240.)).h_full().overflow_y_scroll().pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
+        let members_scroll = scroll_handle("member-list");
+        let mut list = div().id("member-list").flex_none().w(px(240.)).h_full().overflow_y_scroll().track_scroll(&members_scroll).pr(gutter(&members_scroll)).pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
         for (title, people, here) in [("Online", online, true), ("Offline", offline, false)] {
             if people.is_empty() {
                 continue;
@@ -1795,7 +1804,7 @@ impl ChatView {
                 );
             }
         }
-        list.into_any_element()
+        list.child(scrollbar("member-list", Scrolls::Div(members_scroll))).into_any_element()
     }
 
     /// Who's typing in a channel, under the message box, with slow mode on the right. Always there, so nothing moves.
@@ -2122,7 +2131,9 @@ impl ChatView {
             .max_w(gpui::relative(0.9))
             .max_h(px(300.))
             .overflow_y_scroll()
+            .track_scroll(&scroll_handle("suggestions"))
             .p(px(4.))
+            .pr(px(4.) + gutter(&scroll_handle("suggestions")))
             .bg(theme.bg3)
             .border_1()
             .border_color(theme.line_strong)
@@ -2473,6 +2484,7 @@ impl Render for ChatView {
                     }))
                     .capture_any_mouse_up(cx.listener(|view, _: &gpui::MouseUpEvent, _, cx| view.drag_end(cx)))
                     .child(rows)
+                    .child(scrollbar("chat-list", Scrolls::List(self.list.clone())).thin())
                     .when_some(mention_button, |el, button| el.child(button))
                     .when_some(jump_bar, |el, bar| el.child(bar))
                     .when(!is_channel && (!self.at_bottom || detached), |el| {

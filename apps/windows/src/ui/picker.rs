@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::emoji_data::EMOJI_CATEGORIES;
 use crate::models::Emote;
@@ -171,6 +172,8 @@ impl PickerLayer {
                     div()
                         .id(SharedString::from(format!("emote-{}", emote.id)))
                         .flex_1()
+                        // Equal cells, as `.emote-grid`'s columns: a wide emote fits in its own.
+                        .min_w_0()
                         .h(px(53.))
                         .p(px(6.))
                         .rounded(RADIUS_M)
@@ -307,7 +310,10 @@ impl Render for PickerLayer {
                         .child(div().flex_1().min_w_0().child(self.search.clone())),
                 ),
             )
-            .child(div().id("picker-body").flex_1().min_h_0().overflow_y_scroll().px(px(8.)).pb(px(8.)).flex().flex_col().children(body))
+            .child({
+                let handle = scroll_handle("picker-body");
+                div().id("picker-body").flex_1().min_h_0().overflow_y_scroll().track_scroll(&handle).px(px(8.)).pr(px(8.) + gutter(&handle)).pb(px(8.)).flex().flex_col().children(body).child(scrollbar("picker-body", Scrolls::Div(handle.clone())))
+            })
             .child(div().flex_none().h(px(44.)).flex().items_center().px(px(12.)).border_t_1().border_color(theme.line).text_size(px(13.)).child(footer));
         deferred(anchored().position(gpui::point(left, top)).child(panel)).with_priority(2).into_any_element()
     }

@@ -5,6 +5,7 @@
 use gpui::{AnyElement, App, Corner, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, anchored, deferred, div, prelude::*, px};
 
 use super::components::*;
+use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use crate::state::{AppState, Overlay};
 use crate::theme::{RADIUS_L, RADIUS_M, RADIUS_S};
 use crate::voice::Voice;
@@ -155,7 +156,10 @@ fn panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, room_sounds: bo
                 })
                 .into_any_element()
         } else {
-            div().id("soundboard-grid").max_h(px(300.)).overflow_y_scroll().child(grid).into_any_element()
+            {
+                let handle = scroll_handle("soundboard-grid");
+                div().id("soundboard-grid").max_h(px(300.)).overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(grid).child(scrollbar("soundboard-grid", Scrolls::Div(handle.clone()))).into_any_element()
+            }
         })
         .child(
             div()

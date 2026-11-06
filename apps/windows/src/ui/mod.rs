@@ -13,6 +13,7 @@ pub mod invites;
 pub mod media_views;
 pub mod picker;
 pub mod screen_picker;
+pub mod scrollbar;
 pub mod server_settings;
 pub mod server_voice;
 pub mod settings;
