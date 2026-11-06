@@ -566,12 +566,22 @@ pub fn slider(id: impl Into<ElementId>, value: f32, on_change: impl Fn(f32, &mut
 /// the box, and puts its ellipsis after `lines` widths of text, out of sight. It takes the
 /// size, weight and color of the text around it.
 pub fn clamped(text: impl Into<SharedString>, lines: usize) -> Clamped {
-    Clamped { text: text.into(), lines: lines.max(1) }
+    Clamped { text: text.into(), lines: lines.max(1), colors: Vec::new() }
 }
 
 pub struct Clamped {
     text: SharedString,
     lines: usize,
+    /// Colors for its first runs of bytes, in order; the rest is the text color around it.
+    colors: Vec<(usize, Hsla)>,
+}
+
+impl Clamped {
+    /// Colors its first runs of bytes, such as an author before what they wrote.
+    pub fn colored(mut self, colors: Vec<(usize, Hsla)>) -> Self {
+        self.colors = colors;
+        self
+    }
 }
 
 #[derive(Default)]
@@ -581,6 +591,7 @@ pub struct ClampedLayout {
     line_height: Pixels,
     font_size: Pixels,
     run: Option<gpui::TextRun>,
+    colors: Vec<(usize, Hsla)>,
 }
 
 fn line_count(shaped: &[gpui::WrappedLine]) -> usize {
@@ -588,10 +599,25 @@ fn line_count(shaped: &[gpui::WrappedLine]) -> usize {
 }
 
 /// The text wrapped at `width` and cut to `lines`, with "…" where it was cut.
-fn clamp_lines(text: &str, font_size: Pixels, run: &gpui::TextRun, width: Option<Pixels>, lines: usize, window: &Window) -> smallvec::SmallVec<[gpui::WrappedLine; 1]> {
+fn clamp_lines(text: &str, font_size: Pixels, run: &gpui::TextRun, colors: &[(usize, Hsla)], width: Option<Pixels>, lines: usize, window: &Window) -> smallvec::SmallVec<[gpui::WrappedLine; 1]> {
+    // A cut text is a start of the whole, so its colored runs are the whole's, cut short.
     let shape = |text: String| {
-        let run = gpui::TextRun { len: text.len(), ..run.clone() };
-        window.text_system().shape_text(SharedString::from(text), font_size, &[run], width, None).unwrap_or_default()
+        let mut runs = Vec::new();
+        let mut at = 0;
+        for (length, color) in colors {
+            if at >= text.len() {
+                break;
+            }
+            let take = (*length).min(text.len() - at);
+            if take > 0 {
+                runs.push(gpui::TextRun { len: take, color: *color, ..run.clone() });
+            }
+            at += take;
+        }
+        if at < text.len() {
+            runs.push(gpui::TextRun { len: text.len() - at, ..run.clone() });
+        }
+        window.text_system().shape_text(SharedString::from(text), font_size, &runs, width, None).unwrap_or_default()
     };
     let whole = shape(text.to_string());
     if line_count(&whole) <= lines {
@@ -637,8 +663,8 @@ impl gpui::Element for Clamped {
         let font_size = style.font_size.to_pixels(window.rem_size());
         let line_height = style.line_height_in_pixels(window.rem_size());
         let run = style.to_run(self.text.len());
-        let layout = std::rc::Rc::new(std::cell::RefCell::new(ClampedLayout { line_height, font_size, run: Some(run.clone()), ..Default::default() }));
-        let (text, lines, measured) = (self.text.clone(), self.lines, layout.clone());
+        let layout = std::rc::Rc::new(std::cell::RefCell::new(ClampedLayout { line_height, font_size, run: Some(run.clone()), colors: self.colors.clone(), ..Default::default() }));
+        let (text, lines, measured, colors) = (self.text.clone(), self.lines, layout.clone(), self.colors.clone());
         let id = window.request_measured_layout(gpui::Style::default(), move |known, available, window, _| {
             let width = known.width.or(match available.width {
                 gpui::AvailableSpace::Definite(width) => Some(width),
@@ -648,7 +674,7 @@ impl gpui::Element for Clamped {
             if width.is_none() && matches!(available.width, gpui::AvailableSpace::MinContent) {
                 return gpui::size(px(0.), line_height);
             }
-            let shaped = clamp_lines(&text, font_size, &run, width, lines, window);
+            let shaped = clamp_lines(&text, font_size, &run, &colors, width, lines, window);
             let height = line_height * line_count(&shaped).min(lines) as f32;
             let widest = shaped.iter().map(|line| line.width()).fold(px(0.), |a, b| a.max(b));
             let mut layout = measured.borrow_mut();
@@ -664,7 +690,8 @@ impl gpui::Element for Clamped {
         // Measured at another width than it was given: wrapped again at its own.
         if layout.width != Some(bounds.size.width) {
             if let Some(run) = layout.run.clone() {
-                layout.shaped = clamp_lines(&self.text, layout.font_size, &run, Some(bounds.size.width), self.lines, window);
+                let colors = layout.colors.clone();
+                layout.shaped = clamp_lines(&self.text, layout.font_size, &run, &colors, Some(bounds.size.width), self.lines, window);
                 layout.width = Some(bounds.size.width);
             }
         }

@@ -642,14 +642,10 @@ impl NotificationsView {
                     .top(px(29.))
                     .w(px(206.))
                     .max_h(px(36.))
-                    .overflow_hidden()
-                    .line_clamp(2)
-                    .text_ellipsis()
+                    .font_family(theme::FONT_UI)
                     .text_color(theme.text2)
-                    .child(gpui::StyledText::new(SharedString::from(format!("{author}{body}"))).with_runs(vec![
-                        gpui::TextRun { len: author.len(), font: gpui::font(theme::FONT_UI), color: theme.accent_text, background_color: None, underline: None, strikethrough: None },
-                        gpui::TextRun { len: body.len(), font: gpui::font(theme::FONT_UI), color: theme.text2, background_color: None, underline: None, strikethrough: None },
-                    ].into_iter().filter(|run| run.len > 0).collect())),
+                    // Two lines at most, the second ending in an ellipsis, as `-webkit-line-clamp`.
+                    .child(clamped(format!("{author}{body}"), 2).colored(vec![(author.len(), theme.accent_text)])),
             )
             .child(
                 div()
