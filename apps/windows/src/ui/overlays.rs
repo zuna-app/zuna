@@ -23,6 +23,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::Invite => cx.new(|cx| Dialog::new(state, DialogKind::Invite, window, cx)).into(),
         Overlay::Verify { user_id } => cx.new(|cx| Dialog::new(state, DialogKind::Verify(user_id), window, cx)).into(),
         Overlay::LeaveServer => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer, window, cx)).into(),
+        Overlay::Forward { server_id, group_id, ids } => cx.new(|cx| Dialog::new(state, DialogKind::Forward { server_id, group_id, ids }, window, cx)).into(),
         Overlay::Settings { .. } => return None,
         Overlay::Image { file_id, name } => cx.new(|cx| ImageViewer::new(state, file_id, name, window, cx)).into(),
     })
@@ -34,6 +35,7 @@ enum DialogKind {
     Invite,
     Verify(String),
     LeaveServer,
+    Forward { server_id: String, group_id: String, ids: Vec<String> },
 }
 
 pub struct Dialog {
@@ -71,6 +73,10 @@ impl Dialog {
         }
         if matches!(kind, DialogKind::NewGroup) {
             name.read(cx).focus(window);
+        }
+        if matches!(kind, DialogKind::Forward { .. }) {
+            people_search.update(cx, |input, cx| input.set_placeholder("Search chats", cx));
+            people_search.read(cx).focus(window);
         }
         let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, check: None, invite_link: None, busy: false, focused: None, _subscriptions: subscriptions };
         if let DialogKind::Verify(user_id) = &dialog.kind {
@@ -503,6 +509,111 @@ impl Dialog {
         self.modal(Some(title), 460., body, None, cx)
     }
 
+    /// Where to forward messages: any chat on any server, this one first. Picking one sends
+    /// them there and opens it, as Telegram's desktop app does.
+    fn forward(&mut self, from_server: String, group_id: String, ids: Vec<String>, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let query = self.people_search.read(cx).text().trim().to_lowercase();
+        let state = self.state.read(cx);
+        let order: Vec<String> = std::iter::once(from_server.clone()).chain(state.order.iter().filter(|id| **id != from_server).cloned()).collect();
+        let mut sections = Vec::new();
+        for server_id in order {
+            let Some(server) = state.servers.get(&server_id) else { continue };
+            let chats: Vec<crate::models::ConversationView> = server
+                .conversations
+                .iter()
+                .cloned()
+                .chain(server.channels.iter().filter_map(|channel| channel.conversation.clone()))
+                .filter(|chat| !server.prefs.hidden.contains(&chat.key) && (query.is_empty() || chat.title.to_lowercase().contains(&query)))
+                .collect();
+            if !chats.is_empty() {
+                sections.push((server_id.clone(), server.entry.name.clone(), chats));
+            }
+        }
+        let show_names = sections.len() > 1 || sections.first().is_some_and(|(id, _, _)| *id != from_server);
+        let mut list = div().id("forward-list").max_h(px(380.)).mt(px(10.)).overflow_y_scroll().flex().flex_col().mx(px(-4.));
+        if sections.is_empty() {
+            list = list.child(div().p(px(16.)).text_center().text_color(theme.text2).child("No chats match that search."));
+        }
+        let busy = self.busy;
+        for (index, (server_id, server_name, chats)) in sections.into_iter().enumerate() {
+            let mut section = div().flex().flex_col().gap(px(1.)).when(index > 0, |el| el.mt(px(8.)));
+            if show_names {
+                section = section.child(div().px(px(8.)).py(px(4.)).text_size(px(11.5)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text3).child(server_name.to_uppercase()));
+            }
+            for chat in chats {
+                let image = chat.avatar.as_ref().and_then(|avatar| {
+                    let server_id = server_id.clone();
+                    self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, avatar, cx))
+                });
+                let seed = chat.peer_id.clone().or(chat.group_id.clone()).unwrap_or(chat.key.clone());
+                let (to_server, key) = (server_id.clone(), chat.key.clone());
+                let (from_server, group_id, ids) = (from_server.clone(), group_id.clone(), ids.clone());
+                section = section.child(
+                    div()
+                        .id(SharedString::from(format!("forward-{server_id}-{}", chat.key)))
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .px(px(8.))
+                        .py(px(5.))
+                        .rounded(RADIUS_M)
+                        .text_size(px(13.5))
+                        .when(!busy, |el| el.cursor_pointer().hover(move |style| style.bg(theme.hover)))
+                        .on_click(cx.listener(move |dialog, _, _, cx| {
+                            if dialog.busy {
+                                return;
+                            }
+                            dialog.busy = true;
+                            cx.notify();
+                            let args = vec![json!(from_server), json!(group_id), json!(ids), json!(to_server), json!(key)];
+                            let call = dialog.state.read(cx).core.call(None, "forwardMessages", args);
+                            let (to_server, key) = (to_server.clone(), key.clone());
+                            cx.spawn(async move |dialog, cx| {
+                                let result = call.await;
+                                dialog
+                                    .update(cx, |dialog, cx| match result {
+                                        Ok(_) => dialog.state.update(cx, |state, cx| {
+                                            state.selection = None;
+                                            if state.active_server.as_deref() != Some(to_server.as_str()) {
+                                                state.select_server(&to_server, cx);
+                                            }
+                                            state.select_conversation(Some(key.clone()), cx);
+                                            state.set_overlay(None, cx);
+                                        }),
+                                        Err(error) => {
+                                            dialog.busy = false;
+                                            dialog.state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx));
+                                            cx.notify();
+                                        }
+                                    })
+                                    .ok();
+                            })
+                            .detach();
+                        }))
+                        .child(avatar(AvatarProps { name: chat.title.clone(), seed, image, size: 36., online: false, rounded: false, dot_border: theme.bg1 }, cx))
+                        .child(div().flex_1().min_w_0().one_line().font_weight(FontWeight::SEMIBOLD).child(chat.title.clone())),
+                );
+            }
+            list = list.child(section);
+        }
+        let search = div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .bg(theme.bg3)
+            .rounded(RADIUS_M)
+            .border_1()
+            .border_color(if self.focused == Some(1) { theme.line_strong } else { gpui::transparent_black() })
+            .px(px(11.))
+            .h(px(34.))
+            .text_size(px(13.5))
+            .child(icon("search", 14., theme.text3))
+            .child(div().flex_1().min_w_0().child(self.people_search.clone()));
+        self.modal(Some("Forward to".into()), 440., vec![div().flex().flex_col().child(search).child(list).into_any_element()], None, cx)
+    }
+
     fn leave_server(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
@@ -540,6 +651,10 @@ impl Render for Dialog {
                 self.verify(user_id, cx)
             }
             DialogKind::LeaveServer => self.leave_server(cx),
+            DialogKind::Forward { server_id, group_id, ids } => {
+                let (server_id, group_id, ids) = (server_id.clone(), group_id.clone(), ids.clone());
+                self.forward(server_id, group_id, ids, cx)
+            }
         }
     }
 }

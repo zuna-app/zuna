@@ -124,6 +124,8 @@ pub enum Overlay {
     LeaveServer,
     /// A picture from a message, over everything, by its file.
     Image { file_id: String, name: String },
+    /// Where to forward messages: any chat on any server.
+    Forward { server_id: String, group_id: String, ids: Vec<String> },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -164,6 +166,8 @@ pub struct AppState {
     pub reply_to: HashMap<String, MessageView>,
     /// What was written in each chat and not sent, by its key, for as long as the app runs.
     pub drafts: HashMap<String, String>,
+    /// Messages picked in one chat, by its list, in the order they were picked.
+    pub selection: Option<(String, Vec<String>)>,
     pub editing: HashMap<String, MessageView>,
     /// A message to scroll to and highlight: (groupId, messageId, nonce).
     pub jump_target: Option<(String, String, u64)>,
@@ -249,6 +253,7 @@ impl AppState {
             window_focused: true,
             reply_to: HashMap::new(),
             drafts: HashMap::new(),
+            selection: None,
             editing: HashMap::new(),
             jump_target: None,
             pictures: HashMap::new(),
@@ -777,6 +782,26 @@ impl AppState {
         }
         self.reading.insert(group_id.to_string(), seq);
         self.act("markRead", vec![json!(group_id), json!(seq)], cx);
+    }
+
+    /// Picks or unpicks a message, or with none stops picking (toggleSelected).
+    pub fn toggle_selected(&mut self, list_id: &str, id: Option<&str>, cx: &mut Context<Self>) {
+        let Some(id) = id else {
+            self.selection = None;
+            cx.notify();
+            return;
+        };
+        let mut ids = match &self.selection {
+            Some((list, ids)) if list == list_id => ids.clone(),
+            _ => Vec::new(),
+        };
+        if let Some(index) = ids.iter().position(|item| item == id) {
+            ids.remove(index);
+        } else {
+            ids.push(id.to_string());
+        }
+        self.selection = (!ids.is_empty()).then(|| (list_id.to_string(), ids));
+        cx.notify();
     }
 
     pub fn set_reply(&mut self, list_id: &str, message: Option<MessageView>, cx: &mut Context<Self>) {

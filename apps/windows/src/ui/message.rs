@@ -40,6 +40,12 @@ pub struct ChatContext {
     pub revealed: Rc<std::cell::RefCell<HashSet<String>>>,
     pub images: HashMap<String, Arc<Image>>,
     pub avatars: HashMap<String, Arc<Image>>,
+    /// Picking messages in this chat, and those picked.
+    pub selecting: bool,
+    pub selected: HashSet<String>,
+    /// Who's in the chat and how far each has read, for "Read by n".
+    pub members: Vec<String>,
+    pub read_by: HashMap<String, f64>,
 }
 
 const GROUP_WINDOW_MS: f64 = 5. * 60. * 1000.;
@@ -302,7 +308,9 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
             );
         }
         if !message.attachments.is_empty() {
-            bubble = bubble.child(attachments(message, &images, only_images, own, grouped, context, &theme, cx));
+            // Under the name, a forwarded line or a reply, pictures start below them (`.msg-author + .media-grid`).
+            let after_header = (!own && context.is_group && !grouped && jumbo == 0) || message.forwarded.is_some() || message.reply.is_some();
+            bubble = bubble.child(attachments(message, &images, only_images, own, grouped, after_header, context, &theme, cx));
         }
         if !message.text.is_empty() {
             if jumbo > 0 {
@@ -396,6 +404,8 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
     }
 
     let entries = menu_entries(message, own, can_act, context);
+    let selecting = context.selecting;
+    let selected = context.selected.contains(&message.id);
     let react_state = context.state.clone();
     let (react_group, react_id) = (message.group_id.clone(), message.id.clone());
     let menu_entries_for_right_click = entries.clone();
@@ -410,6 +420,35 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         .rounded(px(12.))
         .when(highlighted, |el| el.bg(theme.hover_strong))
         .when(own, |el| el.flex_row_reverse())
+        // Picking, as in Telegram: a circle on the left, the row highlighted, and a click picks.
+        .when(selecting, |el| {
+            let state = context.state.clone();
+            let (list_id, id) = (context.list_id.clone(), message.id.clone());
+            el.pl(px(34.))
+                .pr(px(8.))
+                .cursor_pointer()
+                .when(selected, |el| el.bg(theme.accent_soft))
+                .on_click(move |_, _, cx| {
+                    if can_act {
+                        state.update(cx, |state, cx| state.toggle_selected(&list_id, Some(&id), cx));
+                    }
+                })
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(6.))
+                        .bottom(px(6.))
+                        .size(px(20.))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .border_2()
+                        .border_color(if selected { theme.accent } else { theme.text3 })
+                        .when(selected, |el| el.bg(theme.accent).child(icon("check", 13., theme.on_accent)))
+                        .when(!can_act, |el| el.opacity(0.3)),
+                )
+        })
         .on_mouse_down(MouseButton::Right, move |event, _, cx| {
             if menu_entries_for_right_click.is_empty() {
                 return;
@@ -437,7 +476,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         row = row.child(slot);
     }
     row = row.child(stack);
-    if can_act {
+    if can_act && !selecting {
         let state = context.state.clone();
         let list_id = context.list_id.clone();
         let reply_message = message.clone();
@@ -928,26 +967,28 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
 
 /// A photo's corners, as the bubble's around it: GPUI clips to rectangles, so the picture
 /// is rounded itself, at the bubble's outer corners only.
-fn rounded_image(image: gpui::Img, single: bool, only_images: bool, own: bool, grouped_top: bool) -> gpui::Img {
+fn rounded_image(image: gpui::Img, single: bool, only_images: bool, own: bool, grouped_top: bool, after_header: bool) -> gpui::Img {
     if !single {
         return image;
     }
     let big = px(15.);
     let small = px(5.);
     let top_inner = if grouped_top { small } else { big };
-    let (tl, tr) = if own { (big, top_inner) } else { (top_inner, big) };
+    let (tl, tr) = if after_header { (px(0.), px(0.)) } else if own { (big, top_inner) } else { (top_inner, big) };
     let (bl, br) = if only_images { if own { (big, small) } else { (small, big) } } else { (px(0.), px(0.)) };
     image.rounded_tl(tl).rounded_tr(tr).rounded_bl(bl).rounded_br(br)
 }
 
-fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
+fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, after_header: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let mut column = div().flex().flex_col();
     if !images.is_empty() {
         let single = images.len() == 1;
-        let mut grid = div().relative().flex().flex_wrap().gap(px(2.)).mx(px(-11.)).mt(px(-7.)).mb(px(if only_images { -7. } else { 6. })).overflow_hidden();
-        grid = grid.rounded_t(px(15.));
+        let mut grid = div().relative().flex().flex_wrap().gap(px(2.)).mx(px(-11.)).mt(px(if after_header { 4. } else { -7. })).mb(px(if only_images { -7. } else { 6. })).overflow_hidden();
+        if !after_header {
+            grid = grid.rounded_t(px(15.));
+        }
         if only_images {
-            grid = grid.rounded(px(15.));
+            grid = if after_header { grid.rounded_b(px(15.)) } else { grid.rounded(px(15.)) };
         }
         for attachment in images {
             let width = attachment.width.unwrap_or(320.);
@@ -974,7 +1015,7 @@ fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool,
                 tile = tile
                     .cursor_pointer()
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)))
-                    .child(rounded_image(img(image).size_full().object_fit(gpui::ObjectFit::Cover), single, only_images, own, grouped_top));
+                    .child(rounded_image(img(image).size_full().object_fit(gpui::ObjectFit::Cover), single, only_images, own, grouped_top, after_header));
             } else {
                 if let Some(thumb) = thumb {
                     tile = tile.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover).opacity(0.85));
@@ -1129,6 +1170,13 @@ fn menu_entries(message: &MessageView, own: bool, can_act: bool, context: &ChatC
     if can_act {
         let (state, list_id, message) = (state.clone(), list_id.clone(), message.clone());
         entries.push(MenuEntry::new("Reply", "corner-up-left", move |_, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(message.clone()), cx))));
+        let (forward_state, server_id, forward_group, forward_id) = (context.state.clone(), context.server_id.clone(), group.clone(), id.clone());
+        entries.push(MenuEntry::new("Forward", "forward", move |_, cx| {
+            let overlay = Overlay::Forward { server_id: server_id.clone(), group_id: forward_group.clone(), ids: vec![forward_id.clone()] };
+            forward_state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx))
+        }));
+        let (select_state, select_list, select_id) = (context.state.clone(), context.list_id.clone(), id.clone());
+        entries.push(MenuEntry::new("Select", "circle-check", move |_, cx| select_state.update(cx, |state, cx| state.toggle_selected(&select_list, Some(&select_id), cx))));
     }
     if !message.text.is_empty() && !is_deleted {
         let (state, text) = (state.clone(), message.text.clone());
@@ -1147,6 +1195,27 @@ fn menu_entries(message: &MessageView, own: bool, can_act: bool, context: &ChatC
         entries.push(MenuEntry::new(if pinned { "Unpin" } else { "Pin" }, if pinned { "pin-off" } else { "pin" }, move |_, cx| {
             state.update(cx, |state, cx| state.act("setPinned", vec![json!(group), json!(id), json!(!pinned)], cx))
         }));
+    }
+    // Who in a group has read your message, as far as their read receipts say.
+    if let (true, true, true, Some(seq)) = (own, context.is_group, can_act, message.seq) {
+        let mut readers: Vec<&UserView> = context
+            .members
+            .iter()
+            .filter(|member| **member != context.self_id && context.read_by.get(*member).copied().unwrap_or(0.) >= seq)
+            .filter_map(|member| context.users.get(member))
+            .collect();
+        readers.sort_by_key(|user| user.display_name.to_lowercase());
+        if !readers.is_empty() {
+            let people = readers
+                .iter()
+                .map(|user| {
+                    let (state, key) = (state.clone(), format!("user:{}", user.id));
+                    MenuEntry::new(user.display_name.clone(), "user", move |_, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx)))
+                        .with_avatar(user.display_name.clone(), user.id.clone(), context.avatars.get(&user.id).cloned())
+                })
+                .collect();
+            entries.push(MenuEntry::submenu(format!("Read by {}", readers.len()), "check-check", people));
+        }
     }
     if message.status == "failed" {
         let (retry_state, group_a, id_a) = (state.clone(), group.clone(), id.clone());

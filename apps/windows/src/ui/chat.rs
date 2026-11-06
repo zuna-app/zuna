@@ -96,6 +96,13 @@ pub struct ChatView {
     /// When the message just sent here lets the next go in slow mode, before the core says.
     sent_until: f64,
     slow_tick: Option<Task<()>>,
+    /// Whether messages were being picked when last drawn: rows change width when it changes.
+    was_selecting: bool,
+    /// Holds focus while messages are picked, so Escape stops picking.
+    focus: gpui::FocusHandle,
+    /// Unread messages here that mention you or reply to you, oldest first, and what they were asked for.
+    mentions: Vec<(String, f64)>,
+    mentions_asked: Option<(f64, f64)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -167,6 +174,10 @@ impl ChatView {
             link_task: None,
             sent_until: 0.,
             slow_tick: None,
+            was_selecting: false,
+            focus: cx.focus_handle(),
+            mentions: Vec::new(),
+            mentions_asked: None,
             _subscriptions: subscriptions,
         };
         view.open(window, cx);
@@ -1085,6 +1096,177 @@ impl ChatView {
         area.into_any_element()
     }
 
+    /// Asks the core which unread messages mention you, whenever how far you've read changes.
+    fn update_mentions(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
+        let Some(group) = conversation.group_id.clone() else { return };
+        let asked = (conversation.own_read, conversation.unread_mentions);
+        if self.mentions_asked == Some(asked) {
+            return;
+        }
+        self.mentions_asked = Some(asked);
+        if conversation.unread_mentions <= 0. && !conversation.mentioned {
+            self.mentions.clear();
+            return;
+        }
+        let call = self.state.read(cx).core.call(Some(&self.server_id), "unreadMentions", vec![json!(group), json!(conversation.own_read)]);
+        cx.spawn(async move |view, cx| {
+            let Ok(found) = call.await else { return };
+            let found: Vec<(String, f64)> = found
+                .as_array()
+                .map(|items| items.iter().filter_map(|item| Some((item.get("id")?.as_str()?.to_string(), item.get("seq")?.as_f64()?))).collect())
+                .unwrap_or_default();
+            view.update(cx, |view, cx| {
+                if view.mentions_asked == Some(asked) {
+                    view.mentions = found;
+                    cx.notify();
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// As Telegram's "@": goes to the oldest unread message that mentions you, then the next.
+    fn mention_button(&self, conversation: &ConversationView, raised: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let theme = theme(cx);
+        let (next_id, _) = self.mentions.first()?.clone();
+        let group = conversation.group_id.clone()?;
+        let count = self.mentions.len();
+        Some(
+            div()
+                .id("to-mention")
+                .absolute()
+                .right(px(14.))
+                .bottom(px(if raised { 66. } else { 16. }))
+                .size(px(40.))
+                .rounded_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(theme.bg5)
+                .shadow(shadow_s())
+                .cursor_pointer()
+                .hover(|style| style.bg(theme::color(theme::hex(0x45454b))))
+                .on_click(cx.listener(move |view, _, _, cx| {
+                    if !view.mentions.is_empty() {
+                        view.mentions.remove(0);
+                    }
+                    let (group, id) = (group.clone(), next_id.clone());
+                    view.state.update(cx, |state, cx| {
+                        state.act("markMentionSeen", vec![json!(group), json!(id)], cx);
+                        state.jump_to_message(&group, &id, cx);
+                    });
+                    cx.notify();
+                }))
+                .child(icon("at-sign", 21., theme.text1))
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(-7.))
+                        .min_w(px(18.))
+                        .h(px(18.))
+                        .px(px(5.))
+                        .rounded(px(9.))
+                        .bg(theme.accent)
+                        .text_color(theme.on_accent)
+                        .text_size(px(11.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .line_height(px(18.))
+                        .flex()
+                        .justify_center()
+                        .child(if count > 99 { "99+".to_string() } else { count.to_string() }),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// What can be done with the picked messages, in place of the message box, as in Telegram.
+    fn selection_bar(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let state = self.state.read(cx);
+        let Some(server) = state.servers.get(&self.server_id) else { return div().into_any_element() };
+        let list_id = conversation.list_id();
+        let ids = state.selection.as_ref().map(|(_, ids)| ids.clone()).unwrap_or_default();
+        // In the chat's order, whatever order they were picked in.
+        let picked: Vec<MessageView> = state.lists.get(&list_id).map(|list| list.items.iter().filter(|item| ids.contains(&item.id)).cloned().collect()).unwrap_or_default();
+        let self_id = server.self_id().to_string();
+        let is_admin = conversation.members.iter().any(|member| member.user_id == self_id && member.role == "admin");
+        let can_delete = !picked.is_empty() && picked.iter().all(|item| item.sender_id == self_id || (conversation.kind != "dm" && is_admin));
+        let names: HashMap<String, String> = server.users.iter().map(|(id, user)| (id.clone(), user.display_name.clone())).collect();
+        let count = picked.len();
+        let group = conversation.group_id.clone();
+        let server_id = self.server_id.clone();
+        let picked_ids: Vec<String> = picked.iter().map(|item| item.id.clone()).collect();
+        let stop = {
+            let list_id = list_id.clone();
+            cx.listener(move |view, _, _, cx| view.state.update(cx, |state, cx| state.toggle_selected(&list_id, None, cx)))
+        };
+        let copy = {
+            let (picked, list_id, self_id) = (picked.clone(), list_id.clone(), self_id.clone());
+            cx.listener(move |view, _, _, cx| {
+                let name = |id: &str| if id == self_id { "You".to_string() } else { names.get(id).cloned().unwrap_or_else(|| "Unknown".into()) };
+                let text = if picked.len() == 1 {
+                    picked[0].text.clone()
+                } else {
+                    picked
+                        .iter()
+                        .map(|item| {
+                            let body = if item.text.is_empty() { item.attachments.iter().map(|file| file.name.clone()).collect::<Vec<_>>().join(", ") } else { item.text.clone() };
+                            format!("{}, [{}]\n{}", name(&item.sender_id), crate::format::format_full(item.created_at), body)
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
+                };
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+                let count = picked.len();
+                view.state.update(cx, |state, cx| {
+                    state.toast(if count == 1 { "Copied".to_string() } else { format!("Copied {count} messages") }, ToastKind::Info, cx);
+                    state.toggle_selected(&list_id, None, cx);
+                });
+            })
+        };
+        let forward = {
+            let (ids, group, server_id) = (picked_ids.clone(), group.clone(), server_id.clone());
+            cx.listener(move |view, _, _, cx| {
+                let Some(group_id) = group.clone() else { return };
+                let overlay = crate::state::Overlay::Forward { server_id: server_id.clone(), group_id, ids: ids.clone() };
+                view.state.update(cx, |state, cx| state.set_overlay(Some(overlay), cx));
+            })
+        };
+        let delete = {
+            let (ids, group, list_id) = (picked_ids.clone(), group.clone(), list_id.clone());
+            cx.listener(move |view, _, _, cx| {
+                let Some(group_id) = group.clone() else { return };
+                view.state.update(cx, |state, cx| {
+                    state.act("deleteMessages", vec![json!(group_id), json!(ids)], cx);
+                    state.toggle_selected(&list_id, None, cx);
+                });
+            })
+        };
+        div()
+            .flex_none()
+            .bg(theme.bg1)
+            .border_t_1()
+            .border_color(theme.line)
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .w_full()
+                    .pt(px(10.))
+                    .pr(px(12.))
+                    .pb(px(12.))
+                    .pl(px(8.))
+                    .child(icon_button("cancel-selection", "x", 18., false, false, cx).tooltip(tooltip("Cancel")).on_click(stop))
+                    .child(div().flex_1().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(format!("{count} {} selected", if count == 1 { "message" } else { "messages" })))
+                    .child(button("copy-selection", ButtonKind::Default, ButtonSize::Normal, count == 0, cx).child(icon("copy", 15., theme.text1)).child("Copy").on_click(copy))
+                    .child(button("forward-selection", ButtonKind::Default, ButtonSize::Normal, count == 0 || group.is_none(), cx).child(icon("forward", 15., theme.text1)).child("Forward").on_click(forward))
+                    .when(can_delete, |el| el.child(button("delete-selection", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(icon("trash", 15., theme.red)).child("Delete for everyone").on_click(delete))),
+            )
+            .into_any_element()
+    }
+
     /// The autocomplete list over the message box (`.suggestions`).
     fn suggestion_list(&self, server_url: &str, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
@@ -1163,6 +1345,7 @@ impl ChatView {
         };
         let is_group_admin = conversation.members.iter().any(|member| member.user_id == self_id && member.role == "admin");
         let items = Rc::new(list.items.clone());
+        let selection = state.selection.clone().filter(|(list, _)| *list == conversation.list_id());
         // The pictures already here: decrypted images and people's avatars.
         let mut images = HashMap::new();
         for message in items.iter() {
@@ -1204,6 +1387,10 @@ impl ChatView {
             revealed: self.revealed.clone(),
             images,
             avatars,
+            selecting: selection.is_some(),
+            selected: selection.map(|(_, ids)| ids.into_iter().collect()).unwrap_or_default(),
+            members: conversation.members.iter().map(|member| member.user_id.clone()).collect(),
+            read_by: conversation.read_by.clone(),
         };
         let server_id = self.server_id.clone();
         if !wanted.is_empty() {
@@ -1343,6 +1530,7 @@ impl Render for ChatView {
                 })
                 .size_full();
                 let unread_below = if !self.at_bottom { conversation.unread as u32 } else { 0 };
+                let mention_button = self.mention_button(&conversation, !self.at_bottom || list.as_ref().is_some_and(|list| list.detached), cx);
                 let list_state = self.list.clone();
                 let detached = list.as_ref().is_some_and(|list| list.detached);
                 let to_bottom_state = self.state.clone();
@@ -1353,6 +1541,7 @@ impl Render for ChatView {
                     .min_h_0()
                     .flex()
                     .child(rows)
+                    .when_some(mention_button, |el, button| el.child(button))
                     .when(!self.at_bottom || detached, |el| {
                         el.child(
                             div()
@@ -1401,7 +1590,20 @@ impl Render for ChatView {
                     .into_any_element()
             }
         };
-        let composer = self.composer_area(&conversation, cx);
+        let selecting = self.state.read(cx).selection.as_ref().is_some_and(|(list, _)| *list == conversation.list_id());
+        if selecting != self.was_selecting {
+            // The check circles take room on the left, so every row is measured again.
+            self.was_selecting = selecting;
+            let count = self.list.item_count();
+            self.list.splice(0..count, count);
+            if selecting {
+                window.focus(&self.focus);
+            } else {
+                self.composer.read(cx).focus(window);
+            }
+        }
+        self.update_mentions(&conversation, cx);
+        let composer = if selecting { self.selection_bar(&conversation, cx) } else { self.composer_area(&conversation, cx) };
         let side_panel = if panel.is_some() {
             if self.side_panel.is_none() {
                 let state = self.state.clone();
@@ -1455,6 +1657,13 @@ impl Render for ChatView {
             )
             .when_some(side_panel, |el, panel| el.child(panel))
             .relative()
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" && view.was_selecting {
+                    let list_id = view.last_list_id.clone();
+                    view.state.update(cx, |state, cx| state.toggle_selected(&list_id, None, cx));
+                }
+            }))
             .group("chat-drop")
             .on_drop(cx.listener(|view, paths: &ExternalPaths, _, cx| view.add_files(paths.paths().to_vec(), cx)))
             .child(
