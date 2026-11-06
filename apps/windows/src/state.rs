@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui::{App, AppContext, Context, Entity, Image, ImageFormat, Task};
+use gpui::{App, Context, Entity, Image, ImageFormat, Task};
 use serde_json::{Value, json};
 
 use crate::format::now_ms;
@@ -169,7 +169,12 @@ pub struct AppState {
     pending: HashSet<String>,
     next_toast: u64,
     reading: HashMap<String, f64>,
+    /// When each chat was last notified about, by server: what may still be up.
+    notified: HashMap<String, HashMap<String, f64>>,
+    /// Whether the core was last told this person is here (activity.ts).
+    reported_active: Option<bool>,
     _events: Option<Task<()>>,
+    _activity: Option<Task<()>>,
 }
 
 pub fn image_format(mime: &str, bytes: &[u8]) -> ImageFormat {
@@ -247,7 +252,10 @@ impl AppState {
             pending: HashSet::new(),
             next_toast: 1,
             reading: HashMap::new(),
+            notified: HashMap::new(),
+            reported_active: None,
             _events: Some(events),
+            _activity: None,
         }
     }
 
@@ -325,6 +333,8 @@ impl AppState {
                 state.order = entries.iter().map(|entry| entry.id.clone()).collect();
                 state.active_server = entries.first().map(|entry| entry.id.clone());
                 state.phase = Phase::Ready;
+                state.watch_activity(cx);
+                state.update_badge(cx);
                 cx.notify();
             })
             .ok();
@@ -356,6 +366,8 @@ impl AppState {
     }
 
     pub fn remove_server(&mut self, server_id: &str, cx: &mut Context<Self>) {
+        self.notified.remove(server_id);
+        clear_notifications(Some(server_id), None, None, cx);
         self.servers.remove(server_id);
         self.order.retain(|id| id != server_id);
         if self.active_server.as_deref() == Some(server_id) {
@@ -406,6 +418,7 @@ impl AppState {
         self.debounced(format!("conversations:{id}"), 60, cx, move |state, cx| {
             let core = state.core.clone();
             cx.spawn(async move |this, cx| {
+                let asked = now_ms();
                 let conversations = core.call(Some(&id), "getConversations", vec![]).await;
                 let channels = core.call(Some(&id), "getChannels", vec![]).await;
                 this.update(cx, |state, cx| {
@@ -418,6 +431,8 @@ impl AppState {
                         }
                         cx.notify();
                     }
+                    state.update_badge(cx);
+                    state.clear_read(&id, asked, cx);
                 })
                 .ok();
             })
@@ -487,6 +502,10 @@ impl AppState {
             }
             "message" => {
                 let message: MessageView = from_value(event.get("message").cloned().unwrap_or_default());
+                // Deleted for everyone: what it said goes from everywhere.
+                if message.deleted_at.is_some() {
+                    clear_notifications(Some(&server_id), None, Some(&message.id), cx);
+                }
                 let is_new = event.get("isNew").and_then(Value::as_bool).unwrap_or(false);
                 if is_new {
                     if let Some(server) = self.servers.get_mut(&server_id) {
@@ -500,6 +519,7 @@ impl AppState {
             "message_removed" => {
                 let group = text("groupId");
                 let id = text("id");
+                clear_notifications(Some(&server_id), None, Some(&id), cx);
                 if let Some(list) = self.lists.get_mut(&group) {
                     list.items.retain(|item| item.id != id);
                 }
@@ -587,6 +607,8 @@ impl AppState {
             }
             "signed_out" => {
                 let reason = text("reason");
+                self.notified.remove(&server_id);
+                clear_notifications(Some(&server_id), None, None, cx);
                 if let Some(server) = self.servers.get_mut(&server_id) {
                     server.entry.signed_out = Some(reason.clone());
                 }
@@ -599,6 +621,7 @@ impl AppState {
                 }
             }
             "security" => self.toast(text("message"), ToastKind::Security, cx),
+            "notify" => self.notify(&event, cx),
             _ => {}
         }
         cx.notify();
@@ -820,6 +843,150 @@ impl AppState {
         cx.notify();
     }
 
+    // --- Notifications, the badge and activity ---
+
+    /// The unread count across servers, on the taskbar and the tray (updateBadge).
+    pub fn update_badge(&self, cx: &App) {
+        let total: u32 = self.servers.values().map(ServerState::unread).sum();
+        crate::platform::later(cx, move || crate::platform::icons::set_unread(total));
+    }
+
+    /// A chat with nothing unread has nothing to notify about any more, however it came to be read.
+    fn clear_read(&mut self, server_id: &str, asked: f64, cx: &mut Context<Self>) {
+        let Some(server) = self.servers.get(server_id) else { return };
+        let Some(in_server) = self.notified.get_mut(server_id) else { return };
+        if in_server.is_empty() {
+            return;
+        }
+        let conversations = server.conversations.iter().chain(server.channels.iter().filter_map(|channel| channel.conversation.as_ref()));
+        // What was just notified about may be newer than this list of what's unread.
+        let keys: Vec<String> = conversations
+            .filter(|item| item.unread == 0. && in_server.get(&item.key).copied().unwrap_or(asked) < asked)
+            .map(|item| item.key.clone())
+            .collect();
+        if keys.is_empty() {
+            return;
+        }
+        for key in &keys {
+            in_server.remove(key);
+        }
+        clear_notifications(Some(server_id), Some(&keys), None, cx);
+    }
+
+    /// A message the core says to notify about, unless its chat is open in front of the person (notify in store.ts).
+    fn notify(&mut self, event: &Value, cx: &mut Context<Self>) {
+        let text = |name: &str| event.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
+        let server_id = text("serverId");
+        let key = text("conversationKey");
+        let open_here = self.window_focused
+            && crate::platform::main_visible()
+            && self.active_server.as_deref() == Some(server_id.as_str())
+            && self.active().is_some_and(|server| server.active_key.as_deref() == Some(key.as_str()));
+        if open_here || !self.settings.notifications {
+            return;
+        }
+        self.notified.entry(server_id.clone()).or_default().insert(key.clone(), now_ms());
+        let system = crate::platform::notification_state();
+        if self.settings.notification_sound && system.sound {
+            crate::platform::play_notification_sound();
+        }
+        crate::platform::later(cx, crate::platform::flash_main);
+        if !system.show {
+            return;
+        }
+        let preview = self.settings.notification_preview.clone();
+        let conversation = self.servers.get(&server_id).and_then(|server| server.find_conversation(&key)).cloned();
+        let title = if preview == "none" { "Zuna".to_string() } else { text("title") };
+        let body = if preview == "full" { text("body") } else { "New message".to_string() };
+        // The same picture as beside the chat in the list.
+        let picture = if preview == "none" {
+            None
+        } else {
+            let image = conversation.as_ref().and_then(|conversation| conversation.avatar.as_ref()).and_then(|avatar| match self.pictures.get(&format!("file:{}", avatar.file_id)) {
+                Some(Picture::Ready(image)) => Some(image.clone()),
+                _ => None,
+            });
+            let title = conversation.as_ref().map(|c| c.title.clone()).unwrap_or_else(|| text("title"));
+            let seed = conversation.as_ref().and_then(|c| c.peer_id.clone().or(c.group_id.clone())).unwrap_or_else(|| key.clone());
+            Some(crate::ui::notifications::Picture { image, initials: crate::format::initials_of(&title), seed })
+        };
+        let payload = crate::ui::notifications::Payload {
+            title,
+            body,
+            server_id,
+            key,
+            message_id: text("messageId"),
+            kind: conversation.as_ref().map(|c| c.kind.clone()).unwrap_or_else(|| "dm".into()),
+            picture,
+            // Writing back needs to show what's being answered, and somewhere to write it.
+            can_reply: preview == "full" && !conversation.as_ref().is_some_and(|c| c.removed),
+            wait_for_input: system.wait_for_input,
+        };
+        let reduce_motion = self.settings.reduce_motion;
+        if let Some(center) = crate::ui::notifications::center(cx) {
+            center.update(cx, |center, cx| center.show(payload, reduce_motion, cx));
+        }
+    }
+
+    /// A reply typed into a notification: it reads the chat, and answers the message in a group (sendNotificationReply).
+    pub fn send_notification_reply(&mut self, server_id: &str, key: &str, message_id: &str, text: &str, cx: &mut Context<Self>) {
+        let Some(server) = self.servers.get(server_id) else { return };
+        let Some(conversation) = server.find_conversation(key).cloned() else { return };
+        let value = text.trim().to_string();
+        if value.is_empty() {
+            return;
+        }
+        let mentions = crate::markup::mentions_in(&value, &server.mentionable);
+        let emotes: serde_json::Map<String, Value> = value
+            .split_whitespace()
+            .filter_map(|word| {
+                server
+                    .emotes
+                    .emotes
+                    .iter()
+                    .find(|emote| emote.name == word)
+                    .map(|emote| (word.to_string(), json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner })))
+            })
+            .collect();
+        if let (Some(group), Some(newest)) = (&conversation.group_id, conversation.last_message.as_ref().and_then(|m| m.seq)) {
+            self.call(Some(server_id), "markRead", vec![json!(group), json!(newest)], cx, |_, _, _| {});
+        }
+        let mut body = json!({ "text": value, "emotes": emotes, "mentions": mentions });
+        if conversation.kind != "dm" {
+            body["replyTo"] = json!(message_id);
+        }
+        self.call(Some(server_id), "sendMessage", vec![json!(key), body], cx, |state, result, cx| {
+            if let Err(error) = result {
+                state.toast(error.message, ToastKind::Error, cx);
+            }
+        });
+    }
+
+    /// Tells the core whether the person is here, as Telegram counts it: the window in front and
+    /// input in the last 30 s. While they are, their other devices hold notifications back (activity.ts).
+    fn watch_activity(&mut self, cx: &mut Context<Self>) {
+        if self._activity.is_some() {
+            return;
+        }
+        self._activity = Some(cx.spawn(async move |this, cx| {
+            loop {
+                let alive = this
+                    .update(cx, |state, cx| {
+                        let here = state.window_focused && crate::platform::main_visible() && crate::platform::idle_ms() < 30_000;
+                        if state.reported_active != Some(here) {
+                            state.reported_active = Some(here);
+                            state.call(None, "setActive", vec![json!(here)], cx, |_, _, _| {});
+                        }
+                    })
+                    .is_ok();
+                if !alive {
+                    break;
+                }
+                cx.background_executor().timer(Duration::from_secs(5)).await;
+            }
+        }));
+    }
+
     // --- Pictures ---
 
     fn store_picture(&mut self, key: String, result: Result<(Vec<u8>, String), String>, cx: &mut Context<Self>) {
@@ -875,6 +1042,13 @@ impl AppState {
 
     pub fn emote_url(&self, server_url: &str, id: &str) -> String {
         format!("{server_url}/api/emotes/{id}/2x.webp")
+    }
+}
+
+/// Takes notifications back: those matching everything given.
+fn clear_notifications(server_id: Option<&str>, keys: Option<&[String]>, message_id: Option<&str>, cx: &mut App) {
+    if let Some(center) = crate::ui::notifications::center(cx) {
+        center.update(cx, |center, cx| center.clear(server_id, keys, message_id, cx));
     }
 }
 

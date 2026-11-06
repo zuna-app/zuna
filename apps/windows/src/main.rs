@@ -9,6 +9,7 @@ mod format;
 mod host;
 mod markup;
 mod models;
+mod platform;
 mod settings;
 mod state;
 mod theme;
@@ -21,7 +22,17 @@ use state::{AppState, Store};
 actions!(zuna, [Quit]);
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // With where each line came from: GPUI logs errors it swallowed, and their message alone rarely says enough.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|out, record| {
+            use std::io::Write;
+            let place = match (record.file(), record.line()) {
+                (Some(file), Some(line)) => format!("{file}:{line}"),
+                _ => record.target().to_string(),
+            };
+            writeln!(out, "[{} {} {place}] {}", chrono::Local::now().format("%H:%M:%S%.3f"), record.level(), record.args())
+        })
+        .init();
     let args: Vec<String> = std::env::args().collect();
     if let Some(code) = checks(&args) {
         std::process::exit(code);
@@ -32,13 +43,31 @@ fn main() {
         ui::text_input::bind_keys(cx);
         ui::bind_keys(cx);
         cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
-        cx.on_action(|_: &Quit, cx| cx.quit());
+        cx.on_action(|_: &Quit, cx| quit(cx));
 
         let dir = host::data_dir();
         let device_key = host::device_key::load(&dir);
         let (core, events) = host::Core::start(dir);
         let state = cx.new(|cx| AppState::new(core, events, cx));
         cx.set_global(Store(state.clone()));
+        ui::notifications::install(state.downgrade(), cx);
+
+        // The tray's icon, and what's picked from it.
+        let mut tray = platform::tray::start();
+        cx.spawn(async move |cx| {
+            use futures::StreamExt;
+            while let Some(event) = tray.next().await {
+                // Outside an update, as showing the window sends it messages GPUI answers.
+                match event {
+                    platform::tray::TrayEvent::Open => platform::show_main(),
+                    platform::tray::TrayEvent::Quit => {
+                        cx.update(quit).ok();
+                        break;
+                    }
+                }
+            }
+        })
+        .detach();
         match device_key {
             Ok(key) => state.update(cx, |state, cx| state.boot(key.key, key.protected, cx)),
             Err(error) => state.update(cx, |state, cx| {
@@ -56,11 +85,31 @@ fn main() {
                 app_id: Some("Zuna".into()),
                 ..Default::default()
             },
-            |window, cx| cx.new(|cx| ui::Root::new(state.clone(), window, cx)),
+            |window, cx| {
+                platform::set_main_window(window);
+                // Closing keeps it running in the tray, so messages still arrive, unless that's turned off.
+                let closing = state.clone();
+                window.on_window_should_close(cx, move |_, cx| {
+                    if closing.read(cx).settings.close_to_tray {
+                        platform::later(cx, platform::hide_main);
+                        false
+                    } else {
+                        quit(cx);
+                        true
+                    }
+                });
+                cx.new(|cx| ui::Root::new(state.clone(), window, cx))
+            },
         )
         .expect("the window opens");
         cx.activate(true);
     });
+}
+
+/// Quits for good, taking the tray's icon with it.
+fn quit(cx: &mut App) {
+    platform::tray::remove();
+    cx.quit();
 }
 
 /// Checks of the hosted core with no window, for development:

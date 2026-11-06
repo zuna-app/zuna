@@ -9407,6 +9407,7 @@ dependencies = [
  "log",
  "open",
  "parking_lot",
+ "raw-window-handle",
  "regex",
  "reqwest",
  "rquickjs",
@@ -9424,6 +9425,7 @@ dependencies = [
  "url",
  "webpki-roots",
  "windows 0.61.3",
+ "windows-core 0.61.2",
  "x509-parser",
  "zuna-crypto",
 ]

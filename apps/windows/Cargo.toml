@@ -47,6 +47,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 smallvec = "1"
 dirs = "6"
 open = "5"
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+# What windows's macro for declaring a COM interface expands to.
+windows-core = "0.61"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.61"
@@ -55,6 +60,15 @@ features = [
     "Win32_Security_Cryptography",
     "Win32_System_Memory",
     "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_System_SystemInformation",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
 ]
 
 [profile.dev]

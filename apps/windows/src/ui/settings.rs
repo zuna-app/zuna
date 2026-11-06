@@ -398,6 +398,69 @@ impl SettingsView {
         parts
     }
 
+    fn notifications(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = theme(cx);
+        let settings = self.state.read(cx).settings.clone();
+        let (on_state, sound_state, tray_state) = (self.state.clone(), self.state.clone(), self.state.clone());
+        let (on, sound, tray) = (settings.notifications, settings.notification_sound, settings.close_to_tray);
+        let preview_label = match settings.notification_preview.as_str() {
+            "sender" => "Sender only",
+            "none" => "Nothing",
+            _ => "Sender and message",
+        };
+        let preview_state = self.state.clone();
+        // As the desktop's select: the choice, and a menu of the three under it.
+        let select = div()
+            .id("notification-preview")
+            .w(px(180.))
+            .h(px(36.))
+            .px(px(10.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .rounded(RADIUS_M)
+            .bg(theme.bg2)
+            .border_1()
+            .border_color(theme.line)
+            .text_size(px(13.5))
+            .cursor_pointer()
+            .on_click(move |event, _, cx| {
+                let choice = |label: &str, value: &'static str| {
+                    let state = preview_state.clone();
+                    super::menu::MenuEntry::new(label, "bell", move |_, cx| {
+                        state.update(cx, |state, cx| state.update_settings(|settings| settings.notification_preview = value.to_string(), cx))
+                    })
+                };
+                let entries = vec![choice("Sender and message", "full"), choice("Sender only", "sender"), choice("Nothing", "none")];
+                super::menu::open_menu(gpui::point(event.position().x - px(150.), event.position().y + px(14.)), entries, false, cx);
+            })
+            .child(preview_label)
+            .child(icon("chevron-down", 15., theme.text2));
+        vec![
+            Self::heading("Notifications", &theme),
+            Self::lead("Previews are decrypted on this device. No notification service ever sees them.".into(), &theme),
+            Self::row(
+                "Desktop notifications",
+                Some("While you're on another device, they wait 30 seconds, and don't show if you read the chat there."),
+                switch("notifications-on", on, cx).on_click(move |_, _, cx| on_state.update(cx, |state, cx| state.update_settings(|s| s.notifications = !on, cx))),
+                &theme,
+            ),
+            Self::row(
+                "Sound",
+                None,
+                switch("notification-sound", sound, cx).on_click(move |_, _, cx| sound_state.update(cx, |state, cx| state.update_settings(|s| s.notification_sound = !sound, cx))),
+                &theme,
+            ),
+            Self::row("What notifications show", Some("Choose less if others can see your screen."), select, &theme),
+            Self::row(
+                "Keep running when closed",
+                Some("Zuna stays in the system tray so messages still arrive."),
+                switch("close-to-tray", tray, cx).on_click(move |_, _, cx| tray_state.update(cx, |state, cx| state.update_settings(|s| s.close_to_tray = !tray, cx))),
+                &theme,
+            ),
+        ]
+    }
+
     fn appearance(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let settings = self.state.read(cx).settings.clone();
@@ -765,7 +828,7 @@ impl Render for SettingsView {
         let theme = theme(cx);
         let page = match self.section.as_str() {
             "privacy" => self.privacy(cx),
-            "notifications" => self.not_here("Notifications", "Desktop notifications aren't in the Windows app yet. Messages still arrive while it's open.", cx),
+            "notifications" => self.notifications(cx),
             "voice" => self.not_here("Voice and video", "Voice channels and calls aren't in the Windows app yet. Use the desktop app for them for now.", cx),
             "screen" => self.not_here("Screen sharing", "Screen sharing isn't in the Windows app yet. Use the desktop app for it for now.", cx),
             "appearance" => self.appearance(cx),

@@ -4,6 +4,7 @@ pub mod chat;
 pub mod components;
 pub mod conversations;
 pub mod menu;
+pub mod notifications;
 pub mod message;
 pub mod onboarding;
 pub mod overlays;

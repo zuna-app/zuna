@@ -1,6 +1,6 @@
 # The native Windows app
 
-A Windows app that draws Zuna's interface with [GPUI](https://gpui.rs/), Zed's GPU-accelerated UI framework, in place of Electron. It's a work in progress on the `wip-gpui` branch: chatting works, while voice, notifications and much else are still to come.
+A Windows app that draws Zuna's interface with [GPUI](https://gpui.rs/), Zed's GPU-accelerated UI framework, in place of Electron. It's a work in progress on the `wip-gpui` branch: chatting and notifications work, while voice and much else are still to come.
 
 ## How it's built
 
@@ -10,6 +10,8 @@ All of the protocol stays in one place. The app runs the same client core as eve
 - **Storage** is SQLite, in `%APPDATA%\Zuna Native` (or wherever `ZUNA_DATA_DIR` points), apart from the Electron app's.
 - **Network** goes through rustls. A server reached by its IP address, which makes its own certificate, is trusted by the pin from its links and nothing else, as on iOS and the desktop.
 - **The device key** is sealed with Windows's data protection, as the Electron app's is through safeStorage.
+
+What the Electron app asks of Windows itself, the GPUI app asks directly, in `apps/windows/src/platform`: the tray's icon and menu, the unread count on the taskbar button, and whether Windows wants quiet for a presentation, a full-screen game or Focus Assist. Notifications are the app's own cards, as the Electron app draws them on Windows, in a window of their own at the bottom right of the screen.
 
 The interface in `apps/windows/src/ui` follows the desktop's styles in `packages/ui`: the same colors, sizes, spacing, fonts (Inter and JetBrains Mono) and icons (Lucide's, written out by `apps/windows/scripts/icons.mjs`).
 
@@ -27,4 +29,4 @@ For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` 
 
 ## What's missing
 
-Voice channels, calls and screen sharing; notifications, the unread badge and the tray; link previews; voice and video messages; forwarding; the server's settings; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.
+Voice channels, calls and screen sharing; link previews; voice and video messages; forwarding; the server's settings; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.
