@@ -313,8 +313,8 @@ impl SidePanel {
                                 .min_w_0()
                                 .flex()
                                 .flex_col()
-                                .child(div().truncate().font_weight(FontWeight::MEDIUM).child(if is_me { format!("{name} (you)") } else { name }))
-                                .child(div().truncate().text_size(px(12.)).text_color(theme.text3).child(if member.no_keys == Some(true) {
+                                .child(div().one_line().font_weight(FontWeight::MEDIUM).child(if is_me { format!("{name} (you)") } else { name }))
+                                .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(if member.no_keys == Some(true) {
                                     "No device in this chat yet".to_string()
                                 } else {
                                     format!("@{}", user.as_ref().map(|u| u.username.clone()).unwrap_or_default())
@@ -432,7 +432,7 @@ impl SidePanel {
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .child(div().flex_1().truncate().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(name))
+                            .child(div().flex_1().one_line().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(name))
                             .child(div().text_size(px(11.5)).text_color(theme.text3).child(format_list_time(message.created_at))),
                     )
                     .child(div().text_size(px(13.)).text_color(theme.text2).line_clamp(3).child(plain_text(&message.text))),

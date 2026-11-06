@@ -185,7 +185,7 @@ impl ConversationList {
         if item.kind == "group" {
             title = title.child(icon("users-round", 13., theme.text3));
         }
-        title = title.child(div().min_w_0().truncate().child(item.title.clone()));
+        title = title.child(div().min_w_0().one_line().child(item.title.clone()));
         if let Some(peer) = &peer {
             if peer.trust == "verified" {
                 title = title.child(icon("badge-check", 14., theme.text2));
@@ -204,9 +204,9 @@ impl ConversationList {
         } else if call {
             div().flex().items_center().gap(px(4.)).text_color(theme.green).child(icon("phone", 12., theme.green)).child("In a call").into_any_element()
         } else if preview.is_empty() {
-            div().text_color(theme.text3).truncate().child(fallback).into_any_element()
+            div().text_color(theme.text3).one_line().child(fallback).into_any_element()
         } else {
-            div().truncate().child(preview).into_any_element()
+            div().one_line().child(preview).into_any_element()
         };
         let badge = |text: String, muted: bool| {
             div()
@@ -416,7 +416,7 @@ impl Render for ConversationList {
                         let position = gpui::point(event.position().x - px(60.), event.position().y + px(18.));
                         open_menu(position, entries, false, cx);
                     })
-                    .child(div().min_w_0().truncate().child(server.entry.name.clone()))
+                    .child(div().min_w_0().one_line().child(server.entry.name.clone()))
                     .child(icon("chevron-down", 15., theme.text3)),
             )
             .child({
@@ -531,10 +531,10 @@ impl Render for ConversationList {
                                         .flex()
                                         .items_center()
                                         .gap(px(6.))
-                                        .child(div().flex_1().min_w_0().truncate().font_weight(FontWeight::MEDIUM).child(conversation))
+                                        .child(div().flex_1().min_w_0().one_line().font_weight(FontWeight::MEDIUM).child(conversation))
                                         .child(div().text_size(px(11.5)).text_color(theme.text3).child(format_list_time(hit.message.created_at))),
                                 )
-                                .child(div().truncate().text_size(px(13.)).text_color(theme.text2).child(plain_text(&hit.message.text))),
+                                .child(div().one_line().text_size(px(13.)).text_color(theme.text2).child(plain_text(&hit.message.text))),
                         )
                         .into_any_element(),
                 );
@@ -665,7 +665,7 @@ impl ConversationList {
                     .cursor_pointer()
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx)))
                     .child(icon(if channel.kind == "voice" { "volume-2" } else { "hash" }, 18., theme.text3))
-                    .child(div().flex_1().min_w_0().truncate().child(channel.name.clone()))
+                    .child(div().flex_1().min_w_0().one_line().child(channel.name.clone()))
                     .when(mentions > 0., |el| {
                         el.child(
                             div()

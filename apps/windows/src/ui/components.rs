@@ -292,3 +292,14 @@ pub trait AlignSelfExt: Styled + Sized {
 }
 
 impl<T: Styled> AlignSelfExt for T {}
+
+/// One line that ends in an ellipsis when it doesn't fit, as CSS's text-overflow does.
+/// GPUI's `truncate()` measures nowrap text once, before its width is known, and keeps
+/// that, so this clamps a wrapping line instead, which it measures again at each width.
+pub trait OneLine: Styled + Sized {
+    fn one_line(self) -> Self {
+        self.overflow_hidden().whitespace_normal().line_clamp(1).text_ellipsis()
+    }
+}
+
+impl<T: Styled> OneLine for T {}

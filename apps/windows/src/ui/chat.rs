@@ -437,7 +437,7 @@ impl ChatView {
             )
             .into_any_element()
         };
-        let mut title = div().flex().items_center().gap(px(5.)).text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).line_height(gpui::relative(1.3)).child(div().truncate().child(conversation.title.clone()));
+        let mut title = div().flex().items_center().gap(px(5.)).text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).line_height(gpui::relative(1.3)).child(div().one_line().child(conversation.title.clone()));
         if peer.as_ref().is_some_and(|p| p.trust == "verified") && !is_saved {
             title = title.child(icon("badge-check", 14., theme.text2));
         }
@@ -583,7 +583,7 @@ impl ChatView {
                                 .flex()
                                 .flex_col()
                                 .child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(title))
-                                .child(div().truncate().text_size(px(12.5)).text_color(theme.text2).child(text)),
+                                .child(div().one_line().text_size(px(12.5)).text_color(theme.text2).child(text)),
                         )
                         .child(icon_button("cancel-context", "x", 16., true, false, cx).on_click(move |_, _, cx| {
                             state.update(cx, |state, cx| {

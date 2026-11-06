@@ -298,7 +298,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                     .hover(move |style| style.bg(theme.hover_strong))
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.jump_to_message(&group, &target, cx)))
                     .child(div().text_size(px(12.5)).line_height(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(author_color).child(reply_name))
-                    .child(div().max_w(px(340.)).truncate().text_size(px(12.5)).line_height(px(17.)).text_color(faint).child(reply_text)),
+                    .child(div().max_w(px(340.)).one_line().text_size(px(12.5)).line_height(px(17.)).text_color(faint).child(reply_text)),
             );
         }
         if !message.attachments.is_empty() {
@@ -918,7 +918,7 @@ fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool,
                         .min_w_0()
                         .flex()
                         .flex_col()
-                        .child(div().truncate().font_weight(FontWeight::MEDIUM).text_size(px(13.5)).line_height(px(18.)).child(label))
+                        .child(div().one_line().font_weight(FontWeight::MEDIUM).text_size(px(13.5)).line_height(px(18.)).child(label))
                         .child(div().text_size(px(12.)).line_height(px(16.)).text_color(size_color).child(format_bytes(attachment.size))),
                 )
                 .child(icon("download", 15., size_color).opacity(0.55)),
@@ -973,7 +973,7 @@ fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, _cx
     };
     let url = preview.url.clone();
     let mut text = div().flex_1().min_w_0().flex().flex_col().gap(px(1.)).child(
-        div().truncate().text_size(px(12.5)).line_height(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(if own { theme.bubble_own_text } else { theme.text1 }).child(site),
+        div().one_line().text_size(px(12.5)).line_height(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(if own { theme.bubble_own_text } else { theme.text1 }).child(site),
     );
     if let Some(title) = &preview.title {
         text = text.child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(title.clone()));

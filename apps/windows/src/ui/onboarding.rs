@@ -428,18 +428,19 @@ impl Onboarding {
                 .items_center()
                 .text_center()
                 .gap(px(6.))
-                .child(div().mb(px(10.)).child(logo(64.)))
+                .child(div().mb(px(14.)).child(logo(64.)))
                 .child(div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child("Welcome to Zuna"))
                 .child(div().text_size(px(13.5)).text_color(theme.text2).child("Private chat on servers you and your friends run."))
+                // Two rows, as they wrap at this width on the desktop. GPUI measures a wrapping
+                // row as one line when centering, which would put everything lower.
                 .child(
                     div()
                         .flex()
-                        .flex_wrap()
-                        .justify_center()
+                        .flex_col()
+                        .items_center()
                         .gap(px(6.))
                         .mt(px(10.))
-                        .child(chip("lock", "End-to-end encrypted"))
-                        .child(chip("shield-check", "Open source"))
+                        .child(div().flex().gap(px(6.)).child(chip("lock", "End-to-end encrypted")).child(chip("shield-check", "Open source")))
                         .child(chip("server", "Self-hosted")),
                 )
                 .into_any_element(),
@@ -730,17 +731,19 @@ impl Render for Onboarding {
             }
         };
         let _ = SharedString::default();
+        // As CSS grid centering in a scrolling box: in the middle while it fits, from the top when it doesn't.
         div()
             .id("onboarding")
             .flex_1()
-            .size_full()
+            .min_w_0()
+            .overflow_y_scroll()
             .flex()
+            .flex_col()
             .items_center()
             .justify_center()
-            .overflow_y_scroll()
             .px(px(24.))
             .py(px(32.))
-            .child(div().w_full().max_w(px(360.)).flex().flex_col().gap(px(gap)).children(children))
+            .child(div().flex_none().w_full().max_w(px(360.)).flex().flex_col().gap(px(gap)).children(children))
     }
 }
 

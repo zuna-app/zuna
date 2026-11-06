@@ -211,8 +211,8 @@ impl Dialog {
                         }
                         cx.notify();
                     }))
-                    .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: user.online, rounded: false, dot_border: row_bg }, cx))
-                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().truncate().font_weight(FontWeight::MEDIUM).child(user.display_name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))))
+                    .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 36., online: user.online, rounded: false, dot_border: row_bg }, cx))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().one_line().font_weight(FontWeight::SEMIBOLD).child(user.display_name.clone())).child(div().text_size(px(12.)).text_color(theme.text3).child(format!("@{}", user.username))))
                     .child(
                         div()
                             .size(px(18.))
@@ -243,12 +243,13 @@ impl Dialog {
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .bg(theme.bg2)
+                        .bg(theme.bg3)
                         .rounded(RADIUS_M)
                         .border_1()
-                        .border_color(if self.focused == Some(1) { theme.line_strong } else { theme.line })
+                        .border_color(if self.focused == Some(1) { theme.line_strong } else { gpui::transparent_black() })
                         .px(px(11.))
-                        .h(px(38.))
+                        .h(px(34.))
+                        .text_size(px(13.5))
                         .child(icon("search", 14., theme.text3))
                         .child(div().flex_1().child(self.people_search.clone())),
                 )
@@ -385,7 +386,7 @@ impl Dialog {
                         .border_1()
                         .border_color(theme.line)
                         .text_size(px(12.))
-                        .child(div().flex_1().min_w_0().truncate().font_family(theme::FONT_MONO).child(link))
+                        .child(div().flex_1().min_w_0().one_line().font_family(theme::FONT_MONO).child(link))
                         .child(icon_button("copy-invite", "copy", 14., true, false, cx).on_click(move |_, _, cx| {
                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
                             state.update(cx, |state, cx| state.toast("Invite link copied", ToastKind::Info, cx));

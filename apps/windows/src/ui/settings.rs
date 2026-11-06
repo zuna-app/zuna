@@ -197,14 +197,52 @@ impl SettingsView {
                 .flex()
                 .items_center()
                 .gap(px(18.))
-                .child(avatar(AvatarProps { name: me.display_name.clone(), seed: me.id.clone(), image, size: 72., online: false, rounded: false, dot_border: theme.bg_chat }, cx))
+                .child(
+                    div()
+                        .relative()
+                        .flex_none()
+                        .child(avatar(AvatarProps { name: me.display_name.clone(), seed: me.id.clone(), image, size: 72., online: false, rounded: false, dot_border: theme.bg_chat }, cx))
+                        .child(
+                            div()
+                                .id("change-avatar")
+                                .absolute()
+                                .right(px(-2.))
+                                .bottom(px(-2.))
+                                .size(px(28.))
+                                .rounded_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(theme.bg4)
+                                .border_2()
+                                .border_color(theme.bg1)
+                                .cursor_pointer()
+                                .hover(move |style| style.bg(theme.bg5))
+                                .tooltip(tooltip("Change profile picture"))
+                                .on_click(cx.listener(|view, _, _, cx| view.change_avatar(cx)))
+                                .child(icon("camera", 17., theme.text1)),
+                        ),
+                )
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .gap(px(4.))
                         .child(div().font_weight(FontWeight::SEMIBOLD).text_size(px(15.)).child(me.display_name.clone()))
-                        .child(div().text_color(theme.text2).child(format!("@{}", me.username))),
+                        .child(div().text_color(theme.text2).child(format!("@{}", me.username)))
+                        .when(me.avatar.is_some(), |el| {
+                            let state = self.state.clone();
+                            el.child(
+                                div()
+                                    .id("remove-avatar")
+                                    .text_size(px(13.))
+                                    .text_color(theme.text2)
+                                    .cursor_pointer()
+                                    .hover(move |style| style.text_color(theme.text1))
+                                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("updateProfile", vec![json!({}), serde_json::Value::Null], cx)))
+                                    .child("Remove picture"),
+                            )
+                        }),
                 )
                 .into_any_element(),
             field(Some("Display name"), self.display_name.clone(), None, None, self.focused == Some(0), None, cx).into_any_element(),
@@ -227,6 +265,7 @@ impl SettingsView {
                 )
                 .into_any_element(),
             div()
+                .flex()
                 .child(
                     button("save-profile", ButtonKind::Primary, ButtonSize::Normal, !dirty || name.is_empty() || busy, cx)
                         .child(if busy { "Saving…" } else { "Save changes" })
@@ -247,7 +286,47 @@ impl SettingsView {
                         }),
                 )
                 .into_any_element(),
+            Self::divider(&theme),
+            {
+                let state = self.state.clone();
+                div()
+                    .flex()
+                    .child(
+                        button("sign-out", ButtonKind::Danger, ButtonSize::Normal, false, cx)
+                            .child(icon("log-out", 15., theme.red))
+                            .child("Sign out of this server")
+                            .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))),
+                    )
+                    .into_any_element()
+            },
         ]
+    }
+
+    /// A new profile picture: the middle square of an image, 256 pixels across, as the desktop makes it.
+    fn change_avatar(&mut self, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
+        let state = self.state.clone();
+        cx.spawn(async move |_, cx| {
+            let Ok(Ok(Some(paths))) = paths.await else { return };
+            let Some(path) = paths.first() else { return };
+            let prepared = std::fs::read(path).ok().and_then(|bytes| image::load_from_memory(&bytes).ok()).and_then(|image| {
+                let side = image.width().min(image.height());
+                let square = image.crop_imm((image.width() - side) / 2, (image.height() - side) / 2, side, side).resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
+                let mut out = Vec::new();
+                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(&square.to_rgb8()).ok()?;
+                let file = crate::host::data_dir().join("files").join(format!("avatar-{}.jpg", crate::format::now_ms() as u64));
+                std::fs::create_dir_all(file.parent()?).ok()?;
+                std::fs::write(&file, out).ok()?;
+                Some(file)
+            });
+            state
+                .update(cx, |state, cx| match prepared {
+                    Some(file) => state.act("updateProfile", vec![json!({}), crate::host::file(&file.to_string_lossy(), "image/jpeg")], cx),
+                    None => state.toast("That image couldn't be processed.", ToastKind::Error, cx),
+                })
+                .ok();
+        })
+        .detach();
     }
 
     fn privacy(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -334,9 +413,10 @@ impl SettingsView {
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
+                .relative()
                 .border_1()
                 .border_color(theme::color(theme::white_a(0.1)))
-                .when(active, |el| el.border_2().border_color(theme.text1))
+                .when(active, |el| el.child(div().absolute().top(px(-5.)).left(px(-5.)).size(px(40.)).rounded_full().border_2().border_color(theme.text1)))
                 .tooltip(tooltip(accent.label()))
                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.update_settings(|s| s.accent = accent, cx)))
                 .when(active, |el| el.child(icon("check", 15., check)))
@@ -682,7 +762,6 @@ impl SettingsView {
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
-        let server_name = self.state.read(cx).active().map(|server| server.entry.name.clone()).unwrap_or_default();
         let page = match self.section.as_str() {
             "privacy" => self.privacy(cx),
             "notifications" => self.not_here("Notifications", "Desktop notifications aren't in the Windows app yet. Messages still arrive while it's open.", cx),
@@ -705,7 +784,7 @@ impl Render for SettingsView {
             .flex()
             .flex_col()
             .gap(px(1.))
-            .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).truncate().child(server_name))
+            .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child("Settings"))
             .children(SECTIONS.iter().map(|(id, label, icon_name)| {
                 let active = self.section == *id;
                 let id_string = id.to_string();
