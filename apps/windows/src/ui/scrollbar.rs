@@ -53,6 +53,8 @@ const OVERFLOW: Pixels = px(1.);
 thread_local! {
     /// The handle kept for each scrolling area, by its name, so it scrolls on across frames.
     static HANDLES: RefCell<HashMap<&'static str, ScrollHandle>> = RefCell::new(HashMap::new());
+    /// Whether each ran past its height when last laid out, which its gutter was drawn by.
+    static OVERFLOWED: RefCell<HashMap<&'static str, bool>> = RefCell::new(HashMap::new());
     /// A thumb being dragged: which, where the pointer was, and how far it had scrolled then.
     static DRAG: RefCell<Option<(&'static str, Pixels, Pixels)>> = const { RefCell::new(None) };
 }
@@ -130,6 +132,13 @@ impl gpui::Element for Scrollbar {
     }
 
     fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, _: &mut (), window: &mut Window, _: &mut App) -> Option<Hitbox> {
+        // `gutter` goes by how it was laid out last time. When what scrolls changed, as when
+        // Settings shows another page, that was wrong for this frame, so the next one is drawn
+        // at once with the right padding, rather than whenever something else redraws.
+        let overflows = self.scrolls.extent().0 > OVERFLOW;
+        if OVERFLOWED.with(|overflowed| overflowed.borrow_mut().insert(self.name, overflows)).is_some_and(|before| before != overflows) {
+            window.request_animation_frame();
+        }
         let (track, _, _, _) = self.geometry()?;
         Some(window.insert_hitbox(track, HitboxBehavior::BlockMouse))
     }
