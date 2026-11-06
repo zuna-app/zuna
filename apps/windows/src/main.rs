@@ -39,8 +39,21 @@ fn main() {
     if let Some(code) = checks(&args) {
         std::process::exit(code);
     }
+    // One Zuna for each data folder: a second start hands its zuna:// link to the first, or asks it to show itself.
+    let link = platform::single::link_in(&args);
+    let handed = match platform::single::claim(&host::data_dir()) {
+        platform::single::Claim::First(receiver) => receiver,
+        platform::single::Claim::Running => {
+            platform::single::forward(&host::data_dir(), link.as_deref().unwrap_or(""));
+            return;
+        }
+    };
+    // As a packaged desktop app registers it. A development build leaves the registry alone.
+    if !cfg!(debug_assertions) {
+        platform::single::register_scheme();
+    }
 
-    Application::new().with_assets(assets::Assets).run(|cx: &mut App| {
+    Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         assets::load_fonts(cx);
         ui::text_input::bind_keys(cx);
         ui::bind_keys(cx);
@@ -54,6 +67,34 @@ fn main() {
         cx.set_global(Store(state.clone()));
         voice::init(&state, cx);
         ui::notifications::install(state.downgrade(), cx);
+
+        // What a second start, or this one, was given: a zuna:// link opens the invite in it, once the app is ready.
+        let (links, mut incoming) = futures::channel::mpsc::unbounded::<String>();
+        if let Some(link) = link.clone() {
+            links.unbounded_send(link).ok();
+        }
+        std::thread::spawn(move || {
+            while let Ok(message) = handed.recv() {
+                if links.unbounded_send(message).is_err() {
+                    break;
+                }
+            }
+        });
+        let opening = state.clone();
+        cx.spawn(async move |cx| {
+            use futures::StreamExt;
+            while let Some(message) = incoming.next().await {
+                platform::show_main();
+                if !message.starts_with("zuna://") {
+                    continue;
+                }
+                while cx.update(|cx| !matches!(opening.read(cx).phase, state::Phase::Ready)).unwrap_or(false) {
+                    cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
+                }
+                cx.update(|cx| opening.update(cx, |state, cx| state.set_overlay(Some(state::Overlay::AddServer { link: Some(message.clone()), sign_in_url: None }), cx))).ok();
+            }
+        })
+        .detach();
 
         // The tray's icon, and what's picked from it.
         let mut tray = platform::tray::start();

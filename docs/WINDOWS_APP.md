@@ -31,4 +31,4 @@ For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` 
 
 ## What's missing
 
-Installers and updates, and `zuna://` links. `.agents/FEATURE_PARITY.md` keeps the full list.
+Installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.

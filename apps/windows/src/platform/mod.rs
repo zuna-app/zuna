@@ -6,6 +6,7 @@ mod clipboard;
 pub mod location;
 pub mod ptt;
 pub mod screens;
+pub mod single;
 pub mod icons;
 mod quiet;
 pub mod tray;
