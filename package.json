@@ -22,6 +22,7 @@
     "dist:windows": "node scripts/windows-app.mjs dist",
     "dev:windows": "node scripts/windows-app.mjs run",
     "build:linux": "node scripts/linux-app.mjs build",
+    "dist:linux": "node scripts/linux-app.mjs dist",
     "dev:linux": "node scripts/linux-app.mjs run",
     "test": "npm run test:crypto && npm run test:server && npm run test:core",
     "test:crypto": "node scripts/test-crypto.mjs",

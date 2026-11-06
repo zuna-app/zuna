@@ -3,6 +3,7 @@
 //! whether the system wants quiet. The Electron app gets these from Electron.
 
 mod bus;
+mod desktop_entry;
 mod frame;
 pub mod icons;
 mod idle;
@@ -67,6 +68,7 @@ pub fn install(cx: &mut App) {
     }
     idle::start();
     settings::start();
+    desktop_entry::keep();
     cx.spawn(async move |cx| {
         while let Some(command) = receiver.next().await {
             run(command, cx).await;

@@ -1,6 +1,6 @@
 # The native app on Linux: plan
 
-Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 to L4 done: sound through PipeWire, a voice channel, calls, cameras, push to talk, sharing a screen and a window with its sound, and voice and video messages both ways, checked with the Electron app. L5, the packages, next (2026-11-06).
+Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L0 to L5 built: sound through PipeWire, a voice channel, calls, cameras, push to talk, sharing a screen and a window with its sound, and voice and video messages both ways, checked with the Electron app, and the five packages, of which the AppImage and the .tar.gz are checked running. Waiting on the checks in the real Plasma session, and on installing a package (2026-11-07).
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
 
@@ -168,7 +168,7 @@ None on Linux, as for the Electron app (`updates.ts` returns on Linux): packages
 
 The same five as the Electron app: a `.deb`, an `.rpm`, a pacman package, an AppImage and a `.tar.gz`, for x64.
 
-- **Made with nfpm** for the three packages, from one file of its settings, run with `go run` at a pinned version, since Go is already needed for the server; the AppImage with `appimagetool`, pinned and checked by hash; and the `.tar.gz` by the script.
+- **Made with nfpm** for the three packages, from one file of its settings, run with `go run` at a pinned version, since Go is already needed for the server; the AppImage as AppImage's own runtime, a tagged release pinned by its hash, with the program's folder appended as SquashFS by `mksquashfs`, which is what `appimagetool` does; and the `.tar.gz` by the script.
 - **Laid out as:** `/usr/lib/zuna-native/zuna-native`, `/usr/lib/zuna-native/screenshare/` with the screen capture and FFmpeg's libraries, `/usr/bin/zuna-native` linking to the program, `/usr/share/applications/zuna-native.desktop`, and the icons in hicolor from `apps/desktop-electron-legacy/resources/icons`.
 - **What they depend on:** `libxkbcommon`, `wayland`, `vulkan-icd-loader` and a Vulkan driver, `fontconfig`, `freetype2`, `pipewire`, `xdg-desktop-portal` with a backend for the session, and a color emoji font such as Noto Color Emoji. Recommended: a Secret Service and `geoclue`.
 - **Built here, for now:** `npm run dist:linux` makes them, and the release workflow stays as it is until it's decided otherwise.

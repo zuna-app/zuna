@@ -33,7 +33,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | Installers (`apps/desktop-electron-legacy/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
 | Native screen capture, and on macOS a share's sound, which go into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
 | The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, or a release one in `dist/windows` | `npm run dev:windows`, `npm run build:windows` |
-| The same app on Linux, under Wayland only: a debug build, or a release one in `dist/linux` | `npm run dev:linux`, `npm run build:linux` |
+| The same app on Linux, under Wayland only: a debug build, a release one in `dist/linux`, or its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages` | `npm run dev:linux`, `npm run build:linux`, `npm run dist:linux` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
 
@@ -65,6 +65,8 @@ Checks in real Electron, after `npm run build -w @zuna/desktop-electron-legacy`:
 | `mac-sound-check.mjs` | The computer's sound for a share on macOS, in the app or in `src/sound/macos.rs`: real apps and a real LiveKit, everything but Zuna and one app alone. The sharing app is started through `open`, so that macOS asks about Electron, and the tones play quietly out loud |
 | `win-sound-check.mjs` | The computer's sound for a share on Windows, in the app or in `src/sound/windows.rs`: real apps and a real LiveKit, beside a native share and one through the browser, everything but Zuna, one app alone, and what a window starts with. Its tones are at -60 dBFS, told apart by frequency, so nobody hears them |
 | `notification-check.mjs` | Windows's notifications or unread badge. `--real-input` moves the real mouse and types, which is the only way to see clicks go through the window and focus arrive |
+
+The native app on Linux has checks of its own in `apps/desktop/test`, each running it in a KWin of its own with its own session bus, keyring and PipeWire devices nobody hears, driven through KWin's fake input: `linux-check.mjs` for the window, tray, notifications, device key and a chat, `linux-voice-check.mjs` for voice, calls, cameras, push to talk, screen sharing and voice and video messages with the Electron app (after `npm run build -w @zuna/desktop-electron-legacy`, and with a `v4l2loopback` device loaded), and `linux-package-check.mjs` for the AppImage and the .tar.gz (after `npm run dist:linux`). Run the first two after changing anything under `platform/linux`, `media/ffmpeg` or `voice`.
 
 `packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`. Playwright's Firefox doesn't start on macOS 27, so there name `moz-firefox` instead, which runs the Firefox installed from Mozilla, as the site's check below also takes.
 

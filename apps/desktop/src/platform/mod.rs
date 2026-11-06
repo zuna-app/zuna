@@ -173,7 +173,7 @@ impl Source {
 const ICON_16: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/16x16.png");
 const ICON_32: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/32x32.png");
 const ICON_48: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/48x48.png");
-const ICON_256: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/256x256.png");
+pub(crate) const ICON_256: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/256x256.png");
 /// The app's icon at a size, from the nearest larger picture.
 pub fn app_icon(size: u32) -> RgbaImage {
     let source = match size {
