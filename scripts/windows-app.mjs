@@ -64,7 +64,7 @@ if (command === "dist") {
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(staged, { recursive: true });
   copyFileSync(join(target, "release", "zuna.exe"), join(staged, "Zuna.exe"));
-  const screenshare = join(root, "apps", "desktop", "native", "screenshare", "dist");
+  const screenshare = join(root, "apps", "screenshare", "dist");
   if (existsSync(join(screenshare, "zuna-screenshare.exe"))) {
     cpSync(screenshare, join(staged, "screenshare"), { recursive: true });
   } else {

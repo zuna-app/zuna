@@ -61,7 +61,7 @@ export function ensureBuilt() {
  * shares through Chromium without it. The folder is made anew by each build.
  */
 export function ensureNativeScreenCurrent() {
-  const crate = join(root, "apps", "desktop", "native", "screenshare");
+  const crate = join(root, "apps", "screenshare");
   const dist = join(crate, "dist");
   if (!existsSync(dist)) return;
   const sources = ["src", "native", "build.rs", "Cargo.toml", "Cargo.lock"].map((name) => join(crate, name));

@@ -30,7 +30,7 @@ const app = join(here, "..");
 const root = join(app, "..", "..");
 const shots = process.argv[2] ?? mkdtempSync(join(tmpdir(), "zuna-win-sound-"));
 mkdirSync(shots, { recursive: true });
-const ffplay = join(app, "native", "screenshare", ".deps", "ffmpeg", "bin", "ffplay.exe");
+const ffplay = join(root, "apps", "screenshare", ".deps", "ffmpeg", "bin", "ffplay.exe");
 if (!existsSync(ffplay)) {
   console.error("Run npm run build:screenshare first, which fetches FFmpeg and its ffplay.");
   process.exit(1);

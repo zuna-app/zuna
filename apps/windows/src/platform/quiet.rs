@@ -1,7 +1,7 @@
 //! Whether Windows wants quiet right now. The app draws its notifications itself, so
 //! they don't get the rules the system's own do. These are the questions Telegram asks,
 //! as the desktop's native program asks them (notification_state.rs in
-//! apps/desktop/native/screenshare): what the shell says about the screen, and which
+//! apps/screenshare): what the shell says about the screen, and which
 //! Focus Assist profile is on, which has no public interface.
 
 use std::sync::Mutex;

@@ -17,7 +17,7 @@ const EXECUTABLE = process.platform === "win32" ? "zuna-screenshare.exe" : "zuna
 export function nativeScreenPath(): string | null {
   const candidates = [
     process.env.ZUNA_SCREENSHARE,
-    app.isPackaged ? join(process.resourcesPath, "screenshare", EXECUTABLE) : join(app.getAppPath(), "native", "screenshare", "dist", EXECUTABLE),
+    app.isPackaged ? join(process.resourcesPath, "screenshare", EXECUTABLE) : join(app.getAppPath(), "..", "screenshare", "dist", EXECUTABLE),
   ];
   return candidates.find((path): path is string => !!path && existsSync(path)) ?? null;
 }

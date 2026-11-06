@@ -1,5 +1,5 @@
 // Builds the native screen capture for this system, and gathers what it needs into
-// apps/desktop/native/screenshare/dist, which goes into installers. A build of the app
+// apps/screenshare/dist, which goes into installers. A build of the app
 // without it shares screens through Chromium instead, so this is optional. On macOS it
 // only takes the computer's sound, and only Macs with Apple silicon use it.
 //
@@ -19,7 +19,7 @@ if (process.platform !== "win32" && process.platform !== "linux" && process.plat
 }
 
 const isWindows = process.platform === "win32";
-const crate = join(root, "apps", "desktop", "native", "screenshare");
+const crate = join(root, "apps", "screenshare");
 const dist = join(crate, "dist");
 
 /** Swaps a gathered build in, so whatever goes wrong leaves a whole one. */

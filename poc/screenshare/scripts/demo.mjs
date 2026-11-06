@@ -34,7 +34,7 @@ const viewerKey = { right: e2eeKey, wrong: 'some-other-key-entirely', none: '' }
 
 // cl.exe doesn't take paths over 260 characters, and LiveKit's headers go past that
 // from a target folder this deep in a checkout.
-const crate = join(root, '..', '..', 'apps', 'desktop', 'native', 'screenshare')
+const crate = join(root, '..', '..', 'apps', 'screenshare')
 const targetDir = isWindows ? join(process.env.LOCALAPPDATA, 'zss') : join(crate, 'target')
 
 function msvcToolchain() {

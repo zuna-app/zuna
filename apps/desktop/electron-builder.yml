@@ -19,7 +19,7 @@ asarUnpack:
 # Captures and encodes a screen on the GPU, where it was built, and the computer's sound for a share,
 # which is all it does on macOS. A build without it shares through Chromium.
 extraResources:
-  - from: native/screenshare/dist
+  - from: ../screenshare/dist
     to: screenshare
     filter: ["**/*"]
 protocols:

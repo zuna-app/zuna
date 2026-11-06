@@ -66,9 +66,9 @@ The test window is the test scene. A clock drawn in pixels at its top left is re
 
 `node scripts/key-log-check.mjs` publishes with every native log on and looks for the key in the output.
 
-`cargo test --release` in `apps/desktop/native/screenshare`, which is where the program went once the app used it, runs the bitstream and PipeWire format tests, with the MSVC toolchain on Windows.
+`cargo test --release` in `apps/screenshare`, which is where the program went once the app used it, runs the bitstream and PipeWire format tests, with the MSVC toolchain on Windows.
 
-`apps/desktop/native/screenshare/target/release/zuna-screenshare --check-dmabuf`, on Linux with NVIDIA, makes a DMA-BUF of every modifier EGL can import, brings each into CUDA as a frame would come, and checks the colours that come out, all without a compositor.
+`apps/screenshare/target/release/zuna-screenshare --check-dmabuf`, on Linux with NVIDIA, makes a DMA-BUF of every modifier EGL can import, brings each into CUDA as a frame would come, and checks the colours that come out, all without a compositor.
 
 ## What it measured
 

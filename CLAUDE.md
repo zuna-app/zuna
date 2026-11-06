@@ -146,7 +146,7 @@ Rules the core depends on:
 | Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/main/index.ts` (through `preview-proxy.ts`), `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
 | Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session.ts`, `server/internal/api/channels.go`, `packages/ui/src/features/voice` |
 | Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `packages/ui/src/voice`, `apps/ios/Zuna/Voice`, `server/internal/api/voice.go` |
-| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/desktop/native/screenshare`, `apps/desktop/src/main/native-screen.ts` |
+| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, `apps/desktop/src/main/native-screen.ts` |
 | Electron: content security policy, IPC, device key | `apps/desktop/src/main/index.ts` |
 | Notifications and the unread badge on Windows, drawn as Telegram's | `apps/desktop/src/main/notifications.ts`, `apps/desktop/src/renderer/src/notifications`, `apps/desktop/src/renderer/src/counter.ts` |
 | Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |

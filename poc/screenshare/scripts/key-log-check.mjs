@@ -8,7 +8,7 @@ import { ensureLiveKit, isWindows, root } from './deps.mjs'
 
 const key = 'stand-in-for-a-key-from-mls-exporter'
 const salt = 'LKFrameEncryptionKey'
-const targetDir = isWindows ? join(process.env.LOCALAPPDATA, 'zss') : join(root, '..', '..', 'apps', 'desktop', 'native', 'screenshare', 'target')
+const targetDir = isWindows ? join(process.env.LOCALAPPDATA, 'zss') : join(root, '..', '..', 'apps', 'screenshare', 'target')
 const publisher = join(targetDir, 'release', isWindows ? 'zuna-screenshare.exe' : 'zuna-screenshare')
 
 const liveKit = spawn(ensureLiveKit(), ['--dev', '--bind', '127.0.0.1', '--node-ip', '127.0.0.1'], { stdio: 'ignore' })

@@ -45,7 +45,7 @@ pub fn program_path() -> Option<PathBuf> {
         }
     }
     if cfg!(debug_assertions) {
-        candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../desktop/native/screenshare/dist").join(EXECUTABLE));
+        candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../screenshare/dist").join(EXECUTABLE));
     }
     candidates.into_iter().find(|path| path.exists())
 }
