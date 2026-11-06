@@ -137,9 +137,19 @@ impl Core {
 
     /// Opens the client with this device's key.
     pub async fn boot(&self, key: Vec<u8>, name: String) -> Result<(), String> {
+        self.start_boot(key, name).await
+    }
+
+    /// Boots it now and gives what to wait on, so it boots while the window is still being made.
+    pub fn start_boot(&self, key: Vec<u8>, name: String) -> impl Future<Output = Result<(), String>> + use<> {
         let (done, wait) = oneshot::channel();
-        self.inner.tasks.send(Task::Boot { key, name, done }).map_err(|_| "The core stopped.".to_string())?;
-        wait.await.unwrap_or_else(|_| Err("The core stopped.".into()))
+        let sent = self.inner.tasks.send(Task::Boot { key, name, done });
+        async move {
+            if sent.is_err() {
+                return Err("The core stopped.".to_string());
+            }
+            wait.await.unwrap_or_else(|_| Err("The core stopped.".into()))
+        }
     }
 
     /// Runs script in the core's context and returns its result as JSON, for checks.

@@ -54,6 +54,12 @@ fn main() {
         platform::single::register_scheme();
     }
 
+    // The core starts and boots before GPUI does, as GPUI spends most of its start loading the
+    // graphics driver, and the core is ready by the time the window is.
+    let dir = host::data_dir();
+    let device_key = host::device_key::load(&dir);
+    let (core, events) = host::Core::start(dir);
+    let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), "Windows PC".into()));
     Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
         assets::load_fonts(cx);
         ui::text_input::bind_keys(cx);
@@ -61,9 +67,6 @@ fn main() {
         cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| quit(cx));
 
-        let dir = host::data_dir();
-        let device_key = host::device_key::load(&dir);
-        let (core, events) = host::Core::start(dir);
         let state = cx.new(|cx| AppState::new(core, events, cx));
         cx.set_global(Store(state.clone()));
         voice::init(&state, cx);
@@ -114,7 +117,7 @@ fn main() {
         })
         .detach();
         match device_key {
-            Ok(key) => state.update(cx, |state, cx| state.boot(key.key, key.protected, cx)),
+            Ok(key) => state.update(cx, |state, cx| state.boot(booting.expect("booting with the key"), key.protected, cx)),
             Err(error) => state.update(cx, |state, cx| {
                 state.phase = state::Phase::Failed(error.to_string());
                 cx.notify();

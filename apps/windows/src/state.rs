@@ -364,11 +364,13 @@ impl AppState {
 
     // --- Starting ---
 
-    pub fn boot(&mut self, key: Vec<u8>, protected: bool, cx: &mut Context<Self>) {
+    /// Carries on from the boot `main` started, before the window.
+    pub fn boot(&mut self, booting: impl std::future::Future<Output = Result<(), String>> + 'static, protected: bool, cx: &mut Context<Self>) {
         self.key_protected = protected;
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
-            if let Err(error) = core.boot(key, "Windows PC".into()).await {
+            let booting = booting.await;
+            if let Err(error) = booting {
                 this.update(cx, |state, cx| {
                     state.phase = Phase::Failed(error);
                     cx.notify();
