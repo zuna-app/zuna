@@ -142,8 +142,8 @@ pub fn hide_window(hwnd: HWND) {
     }
 }
 
-/// A short, soft sound, as the desktop synthesizes it: 880 Hz, then 1174.66 Hz 90 ms later,
-/// each rising in 12 ms and falling over 220 ms. Made once into a WAV that Windows plays.
+/// A short, soft sound, as the desktop synthesizes it (`notification_tones`), made once into
+/// a WAV that Windows plays.
 pub fn play_notification_sound() {
     static WAV: OnceLock<Vec<u8>> = OnceLock::new();
     static LAST: AtomicIsize = AtomicIsize::new(0);
@@ -154,20 +154,7 @@ pub fn play_notification_sound() {
     LAST.store(now, Ordering::Relaxed);
     let wav = WAV.get_or_init(|| {
         let rate = 48_000u32;
-        let length = (rate as f32 * 0.35) as usize;
-        let mut samples = vec![0f32; length];
-        for (offset, frequency) in [(0.0f32, 880.0f32), (0.09, 1174.66)] {
-            let start = (offset * rate as f32) as usize;
-            for i in 0..(rate as f32 * 0.24) as usize {
-                let t = i as f32 / rate as f32;
-                // exponentialRampToValueAtTime from 0.0001 to 0.09 over 12 ms, then back to 0.0001 by 220 ms.
-                let gain = if t < 0.012 { 0.0001 * (0.09f32 / 0.0001).powf(t / 0.012) } else { 0.09 * (0.0001f32 / 0.09).powf(((t - 0.012) / 0.208).min(1.)) };
-                if let Some(sample) = samples.get_mut(start + i) {
-                    *sample += gain * (std::f32::consts::TAU * frequency * t).sin();
-                }
-            }
-        }
-        let data: Vec<u8> = samples.iter().flat_map(|sample| ((sample.clamp(-1., 1.) * 32767.) as i16).to_le_bytes()).collect();
+        let data: Vec<u8> = super::notification_tones().iter().flat_map(|sample| sample.to_le_bytes()).collect();
         let mut wav = Vec::with_capacity(44 + data.len());
         wav.extend_from_slice(b"RIFF");
         wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());

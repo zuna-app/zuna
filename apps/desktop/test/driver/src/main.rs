@@ -7,6 +7,8 @@
 //! of JSON: `{"do":"click","x":640,"y":500}`, `{"do":"type","text":"hello"}`,
 //! `{"do":"press","keys":["ctrl","k"]}`, `{"do":"windows"}` and the rest below.
 
+mod services;
+
 use std::io::{BufRead, Write};
 use std::time::Duration;
 
@@ -350,6 +352,11 @@ impl Driver {
 }
 
 fn main() {
+    // The desktop's services stand in on the session bus before the app looks for them.
+    match services::Services::start() {
+        Ok(services) => *services::SERVICES.lock().unwrap() = Some(services),
+        Err(error) => eprintln!("the stand-in services didn't start: {error}"),
+    }
     let connection = Connection::connect_to_env().expect("a Wayland display");
     let (globals, queue) = registry_queue_init::<State>(&connection).expect("the registry");
     let handle = queue.handle();
@@ -367,6 +374,10 @@ fn main() {
             continue;
         }
         let answer = match serde_json::from_str::<Value>(&line) {
+            Ok(command) if services::handles(&command) => match services::SERVICES.lock().unwrap().as_ref() {
+                Some(services) => services.run(&command).unwrap_or_else(|error| json!({ "ok": false, "error": error })),
+                None => json!({ "ok": false, "error": "no stand-in services" }),
+            },
             Ok(command) => driver.run(&command).unwrap_or_else(|error| json!({ "ok": false, "error": error })),
             Err(error) => json!({ "ok": false, "error": error.to_string() }),
         };

@@ -987,6 +987,14 @@ impl PlatformWindow for WaylandWindow {
         }
     }
 
+    fn activate_with_token(&self, token: &str) {
+        // Zuna: a token another program was given lets this window come to the front.
+        let state = self.borrow();
+        if let Some(activation) = &state.globals.activation {
+            activation.activate(token.to_string(), &state.surface);
+        }
+    }
+
     fn is_active(&self) -> bool {
         self.borrow().active
     }

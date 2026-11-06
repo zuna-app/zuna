@@ -14,6 +14,9 @@ pub use self::linux::*;
 pub mod notification;
 
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+use image::{RgbaImage, imageops::FilterType};
 
 /// What this device is called among the person's devices, as the desktop names it.
 #[cfg(windows)]
@@ -131,4 +134,44 @@ impl Source {
     pub fn window(&self) -> Option<String> {
         Some(self.id.strip_prefix("window:")?.split(':').next()?.to_string())
     }
+}
+
+// The desktop app's own pictures of its icon.
+const ICON_16: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/16x16.png");
+const ICON_32: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/32x32.png");
+const ICON_48: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/48x48.png");
+const ICON_256: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/256x256.png");
+/// The app's icon at a size, from the nearest larger picture.
+pub fn app_icon(size: u32) -> RgbaImage {
+    let source = match size {
+        0..=16 => ICON_16,
+        17..=32 => ICON_32,
+        33..=48 => ICON_48,
+        _ => ICON_256,
+    };
+    let image = image::load_from_memory(source).map(|image| image.to_rgba8()).unwrap_or_else(|_| RgbaImage::new(size, size));
+    if image.width() == size { image } else { image::imageops::resize(&image, size, size, FilterType::Lanczos3) }
+}
+
+/// The notification sound, as the desktop synthesizes it: 880 Hz, then 1174.66 Hz 90 ms later,
+/// each rising in 12 ms and falling over 220 ms. 16-bit samples, one channel, at 48 kHz.
+pub fn notification_tones() -> &'static [i16] {
+    static TONES: OnceLock<Vec<i16>> = OnceLock::new();
+    TONES.get_or_init(|| {
+        let rate = 48_000u32;
+        let length = (rate as f32 * 0.35) as usize;
+        let mut samples = vec![0f32; length];
+        for (offset, frequency) in [(0.0f32, 880.0f32), (0.09, 1174.66)] {
+            let start = (offset * rate as f32) as usize;
+            for i in 0..(rate as f32 * 0.24) as usize {
+                let t = i as f32 / rate as f32;
+                // exponentialRampToValueAtTime from 0.0001 to 0.09 over 12 ms, then back to 0.0001 by 220 ms.
+                let gain = if t < 0.012 { 0.0001 * (0.09f32 / 0.0001).powf(t / 0.012) } else { 0.09 * (0.0001f32 / 0.09).powf(((t - 0.012) / 0.208).min(1.)) };
+                if let Some(sample) = samples.get_mut(start + i) {
+                    *sample += gain * (std::f32::consts::TAU * frequency * t).sin();
+                }
+            }
+        }
+        samples.iter().map(|sample| (sample.clamp(-1., 1.) * 32767.) as i16).collect()
+    })
 }

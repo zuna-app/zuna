@@ -22,9 +22,21 @@ fn system_hour12() -> bool {
     !format.contains('H')
 }
 
-#[cfg(not(windows))]
+/// Whether the time format of the person's LC_TIME shows 12 hours, read from a locale of its
+/// own, as setlocale would change it for everything else in the process.
+#[cfg(target_os = "linux")]
 fn system_hour12() -> bool {
-    false
+    // SAFETY: the locale is made, read and freed here, and nl_langinfo_l's string is copied
+    // before it is.
+    unsafe {
+        let locale = libc::newlocale(libc::LC_TIME_MASK, c"".as_ptr(), std::ptr::null_mut());
+        if locale.is_null() {
+            return false;
+        }
+        let format = std::ffi::CStr::from_ptr(libc::nl_langinfo_l(libc::T_FMT, locale)).to_string_lossy().into_owned();
+        libc::freelocale(locale);
+        format.contains("%I") || format.contains("%l") || format.contains("%r")
+    }
 }
 
 pub fn local(at_ms: f64) -> DateTime<Local> {

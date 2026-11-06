@@ -1,6 +1,7 @@
 //! This device's key, which seals everything the core keeps here. It's sealed in turn
 //! with Windows's data protection for this user, as Electron's safeStorage does for
-//! the desktop app on Windows, so another account on this computer can't read it.
+//! the desktop app on Windows, so another account on this computer can't read it. On
+//! Linux it's kept in the Secret Service, where safeStorage keeps its own.
 
 use std::path::Path;
 
@@ -18,7 +19,7 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
         if let Some(key) = unprotect(&sealed) {
             return Ok(DeviceKey { key, protected: true });
         }
-        return Err(std::io::Error::other("Windows couldn't unseal this device's key."));
+        return Err(std::io::Error::other(UNSEAL_FAILED));
     }
     if let Ok(key) = std::fs::read(&plain_path) {
         return Ok(DeviceKey { key, protected: false });
@@ -39,6 +40,9 @@ pub fn load(dir: &Path) -> std::io::Result<DeviceKey> {
 fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let partial = path.with_extension("partial");
     std::fs::write(&partial, bytes)?;
+    // For this person alone, as Electron writes its own.
+    #[cfg(unix)]
+    std::fs::set_permissions(&partial, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
     std::fs::rename(partial, path)
 }
 
@@ -73,12 +77,52 @@ unsafe fn take_blob(blob: windows::Win32::Security::Cryptography::CRYPT_INTEGER_
     }
 }
 
-#[cfg(not(windows))]
-fn protect(_: &[u8]) -> Option<Vec<u8>> {
-    None
+#[cfg(windows)]
+const UNSEAL_FAILED: &str = "Windows couldn't unseal this device's key.";
+#[cfg(target_os = "linux")]
+const UNSEAL_FAILED: &str = "The system's keyring couldn't unseal this device's key.";
+
+/// On Linux the key itself goes into the Secret Service (GNOME Keyring, KWallet, KeePassXC),
+/// as Electron's safeStorage keeps its own there, and what's written to disk only names its
+/// item. None with no Secret Service, and it's kept unprotected, as with `basic_text`.
+#[cfg(target_os = "linux")]
+fn protect(data: &[u8]) -> Option<Vec<u8>> {
+    let id: String = zuna_crypto::primitives::random_bytes(16).ok()?.iter().map(|byte| format!("{byte:02x}")).collect();
+    let data = data.to_vec();
+    within_wait(async move {
+        let keyring = oo7::Keyring::new().await.inspect_err(|error| log::warn!("no Secret Service for the device key: {error}")).ok()?;
+        keyring.unlock().await.ok()?;
+        keyring.create_item("Zuna Native device key", &secret_attributes(&id), data.as_slice(), true).await.inspect_err(|error| log::warn!("the device key wasn't sealed: {error}")).ok()?;
+        Some(format!("{SECRET_PREFIX}{id}").into_bytes())
+    })
 }
 
-#[cfg(not(windows))]
-fn unprotect(_: &[u8]) -> Option<Vec<u8>> {
-    None
+#[cfg(target_os = "linux")]
+fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
+    let id = std::str::from_utf8(sealed).ok()?.strip_prefix(SECRET_PREFIX)?.to_string();
+    within_wait(async move {
+        let keyring = oo7::Keyring::new().await.inspect_err(|error| log::warn!("no Secret Service for the device key: {error}")).ok()?;
+        let items = keyring.search_items(&secret_attributes(&id)).await.ok()?;
+        let item = items.first()?;
+        item.unlock().await.ok()?;
+        Some(item.secret().await.ok()?.to_vec())
+    })
+}
+
+#[cfg(target_os = "linux")]
+const SECRET_PREFIX: &str = "secret-service:";
+
+/// Runs a request to the Secret Service, which can ask the person something first, such as
+/// to make KWallet's wallet, so it gets two minutes. A service that never answers then
+/// counts as none, rather than keeping the app from starting.
+#[cfg(target_os = "linux")]
+fn within_wait<T: Send + 'static>(work: impl std::future::Future<Output = Option<T>> + Send + 'static) -> Option<T> {
+    let (done, answer) = std::sync::mpsc::channel();
+    std::thread::Builder::new().name("zuna-secret-service".into()).spawn(move || done.send(futures::executor::block_on(work)).ok()).ok()?;
+    answer.recv_timeout(std::time::Duration::from_secs(120)).inspect_err(|_| log::warn!("the Secret Service didn't answer")).ok().flatten()
+}
+
+#[cfg(target_os = "linux")]
+fn secret_attributes(id: &str) -> std::collections::HashMap<&'static str, String> {
+    std::collections::HashMap::from([("application", "chat.zuna.native".to_string()), ("device-key", id.to_string())])
 }

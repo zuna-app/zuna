@@ -10,3 +10,5 @@ publish = false
 wayland-client = "0.31"
 wayland-protocols-plasma = { version = "0.3", features = ["client"] }
 serde_json = "1"
+serde = "1"
+zbus = "5"

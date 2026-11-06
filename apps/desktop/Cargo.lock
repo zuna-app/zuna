@@ -186,6 +186,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
 
 [[package]]
+name = "arc-swap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arg_enum_proc_macro"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4131,6 +4140,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "ksni"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bcc1cb43797140f74b711f1c4a49f48a7a7429f211c5fb78264e7bcd1e99caf"
+dependencies = [
+ "arc-swap",
+ "async-executor",
+ "async-io",
+ "async-lock",
+ "crossbeam-queue",
+ "futures-channel",
+ "futures-lite 2.6.1",
+ "futures-util",
+ "pastey 0.2.3",
+ "serde",
+ "task-local",
+ "zbus",
+]
+
+[[package]]
 name = "kurbo"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7984,6 +8013,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8bdb6fa0dfa67b38c1e66b7041ba9dcf23b99d8121907cd31c807a332f7a0bbb"
 
 [[package]]
+name = "task-local"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2972044a9e5e448a506a7ff6f0d03b566d8ef4cd6918a58fc59835a0f8666626"
+dependencies = [
+ "pin-project-lite",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10248,9 +10286,12 @@ dependencies = [
  "gpui",
  "hkdf 0.12.4",
  "image",
+ "ksni",
+ "libc",
  "livekit",
  "log",
  "nnnoiseless",
+ "oo7",
  "open",
  "parking_lot",
  "raw-window-handle",
@@ -10269,10 +10310,13 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "unicode-segmentation",
  "url",
+ "wayland-client",
+ "wayland-protocols 0.32.13",
  "webpki-roots",
  "windows 0.61.3",
  "windows-core 0.61.2",
  "x509-parser",
+ "zbus",
  "zuna-crypto",
 ]
 

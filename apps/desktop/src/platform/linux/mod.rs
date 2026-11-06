@@ -2,13 +2,17 @@
 //! the main window, the tray, the unread count, idle time, the notification sound, and
 //! whether the system wants quiet. The Electron app gets these from Electron.
 
+mod bus;
 mod frame;
 pub mod icons;
+mod idle;
 pub mod location;
 pub mod notifications;
 pub mod ptt;
 pub mod screens;
+mod settings;
 pub mod single;
+mod sound;
 pub mod tray;
 pub mod updates;
 
@@ -22,6 +26,9 @@ use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui::{AnyWindowHandle, App, AsyncApp};
 
 pub use frame::{title_button, title_drag, window_frame};
+pub use idle::idle_ms;
+pub use settings::animations_off;
+pub use sound::play_notification_sound;
 
 /// What's asked of the main window from outside an update, done on the next one.
 enum Command {
@@ -35,13 +42,32 @@ static COMMANDS: OnceLock<UnboundedSender<Command>> = OnceLock::new();
 /// Minimized by the app itself, until the window is active again. Wayland doesn't tell a
 /// window it's minimized, so this is all there is to know.
 static MINIMIZED: AtomicBool = AtomicBool::new(false);
+/// The latest activation token handed over, by a second start, the tray or a notification,
+/// which the next showing of the window uses: Wayland only lets a window come to the front
+/// with one.
+static ACTIVATION_TOKEN: Mutex<Option<String>> = Mutex::new(None);
 
-/// Starts what acts on the main window for the functions below, which aren't given a context.
+pub(crate) fn set_activation_token(token: String) {
+    *ACTIVATION_TOKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(token);
+}
+
+fn take_activation_token() -> Option<String> {
+    ACTIVATION_TOKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take()
+}
+
+/// Starts what acts on the main window for the functions below, which aren't given a context,
+/// and what listens to the desktop: idle time and its settings.
 pub fn install(cx: &mut App) {
     let (sender, mut receiver) = unbounded();
     if COMMANDS.set(sender).is_err() {
         return;
     }
+    // What the launcher gave this start, for its window.
+    if let Ok(token) = std::env::var("XDG_ACTIVATION_TOKEN") {
+        set_activation_token(token);
+    }
+    idle::start();
+    settings::start();
     cx.spawn(async move |cx| {
         while let Some(command) = receiver.next().await {
             run(command, cx).await;
@@ -59,33 +85,53 @@ async fn run(command: Command, cx: &mut AsyncApp) {
     match command {
         Command::Show => {
             MINIMIZED.store(false, Ordering::Relaxed);
-            handle.update(cx, |_, window, _| window.activate_window()).ok();
+            let token = take_activation_token();
+            if token.is_some() {
+                log::info!("showing the window with an activation token");
+            }
+            handle
+                .update(cx, |_, window, _| match &token {
+                    Some(token) => window.activate_window_with_token(token),
+                    None => window.activate_window(),
+                })
+                .ok();
         }
         // Asking for activation without a token is refused, which KWin shows as wanting attention.
         Command::Flash => {
             handle.update(cx, |_, window, _| window.activate_window()).ok();
         }
         Command::Hide => {
+            // Minimizing only keeps the app running in the tray where there's a tray, and a
+            // compositor that minimizes, as Sway doesn't. Otherwise closing quits.
+            let can_minimize = handle.update(cx, |_, window, _| window.window_controls().minimize).unwrap_or(false);
+            if !can_minimize || !tray::available() {
+                cx.update(|cx| cx.dispatch_action(&crate::Quit)).ok();
+                return;
+            }
             let minimized = handle.update(cx, |_, window, _| window.minimize_window()).is_ok();
             if !minimized {
                 return;
             }
             MINIMIZED.store(true, Ordering::Relaxed);
-            // Visible again once it's been away and then active, from the taskbar or anywhere.
-            let mut away = false;
-            loop {
-                cx.background_executor().timer(Duration::from_millis(250)).await;
-                if !MINIMIZED.load(Ordering::Relaxed) {
-                    return;
+            // Visible again once it's been away and then active, from the taskbar or anywhere,
+            // watched apart, so what's asked meanwhile, as showing it, isn't held up.
+            cx.spawn(async move |cx| {
+                let mut away = false;
+                loop {
+                    cx.background_executor().timer(Duration::from_millis(250)).await;
+                    if !MINIMIZED.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    let Ok(active) = handle.update(cx, |_, window, _| window.is_window_active()) else { return };
+                    if !active {
+                        away = true;
+                    } else if away {
+                        MINIMIZED.store(false, Ordering::Relaxed);
+                        return;
+                    }
                 }
-                let Ok(active) = handle.update(cx, |_, window, _| window.is_window_active()) else { return };
-                if !active {
-                    away = true;
-                } else if away {
-                    MINIMIZED.store(false, Ordering::Relaxed);
-                    return;
-                }
-            }
+            })
+            .detach();
         }
     }
 }
@@ -96,9 +142,13 @@ fn send(command: Command) {
     }
 }
 
-/// The app's main window, which the tray, notifications and the badge act on.
+/// The app's main window, which the tray, notifications and the badge act on. It comes to
+/// the front with the token the launcher gave, if there was one.
 pub fn set_main_window(window: &gpui::Window) {
     *MAIN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(window.window_handle());
+    if ACTIVATION_TOKEN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).is_some() {
+        send(Command::Show);
+    }
 }
 
 pub fn main_visible() -> bool {
@@ -120,26 +170,15 @@ pub fn flash_main() {
     send(Command::Flash);
 }
 
-/// How long since anyone touched the computer, in milliseconds.
-pub fn idle_ms() -> u32 {
-    0
-}
-
-pub fn play_notification_sound() {}
-
-/// What the system wants right now.
+/// What the system wants right now. The notification server holds notifications back itself,
+/// so they always go to it, and only the app's own sound asks whether it's quiet.
 pub fn notification_state() -> super::NotificationState {
-    super::NotificationState { show: true, sound: true, wait_for_input: true }
+    super::NotificationState { show: true, sound: !notifications::inhibited(), wait_for_input: true }
 }
 
 /// The files copied in a file manager, if that's what the clipboard holds.
 pub fn clipboard_files() -> Vec<PathBuf> {
     Vec::new()
-}
-
-/// Whether the system asks for animations to be off.
-pub fn animations_off() -> bool {
-    false
 }
 
 /// Whether there's a Wayland session to open the window in.

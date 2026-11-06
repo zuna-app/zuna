@@ -4129,6 +4129,14 @@ impl Window {
         self.platform_window.activate();
     }
 
+    /// Zuna: brings the window to the front with an activation token, such as one a launcher
+    /// gave a second start of the app, or the tray gave with a click. Wayland only lets a
+    /// window come to the front with one.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    pub fn activate_window_with_token(&self, token: &str) {
+        self.platform_window.activate_with_token(token);
+    }
+
     /// Minimize the current window at the platform level.
     pub fn minimize_window(&self) {
         self.platform_window.minimize();

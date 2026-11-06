@@ -12,25 +12,11 @@ use windows::Win32::UI::Shell::{ITaskbarList3, TaskbarList};
 use windows::Win32::UI::WindowsAndMessaging::*;
 use windows::core::{HSTRING, PCWSTR};
 
-const ICON_16: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/16x16.png");
-const ICON_32: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/32x32.png");
-const ICON_48: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/48x48.png");
-const ICON_256: &[u8] = include_bytes!("../../../desktop-electron-legacy/resources/icons/256x256.png");
 
 const RED: [u8; 3] = [0xf2, 0x3c, 0x34];
 const SIZE: f32 = 16.;
 
-/// The app's icon at a size, from the nearest larger picture.
-pub fn app_icon(size: u32) -> RgbaImage {
-    let source = match size {
-        0..=16 => ICON_16,
-        17..=32 => ICON_32,
-        33..=48 => ICON_48,
-        _ => ICON_256,
-    };
-    let image = image::load_from_memory(source).map(|image| image.to_rgba8()).unwrap_or_else(|_| RgbaImage::new(size, size));
-    if image.width() == size { image } else { image::imageops::resize(&image, size, size, FilterType::Lanczos3) }
-}
+pub use crate::platform::app_icon;
 
 /// An HICON from RGBA pixels.
 pub fn hicon(image: &RgbaImage) -> Option<HICON> {
