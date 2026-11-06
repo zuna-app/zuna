@@ -273,6 +273,14 @@ impl Render for AnchoredTooltip {
         let theme = theme(cx);
         let tip = tooltip_box(self.text.clone(), &theme);
         let Some(target) = self.target else { return div().child(tip) };
+        // As the desktop's, it goes once the pointer leaves its element, and doesn't come
+        // after a press on it until the pointer has left. GPUI judges by the element's bounds
+        // even under an overlay, and lets one waiting to show come after a click.
+        let mouse = window.mouse_position();
+        let pressed = PRESSED.with(|pressed| pressed.get()) == Some(target);
+        if !target.contains(&mouse) || pressed {
+            return div();
+        }
         let run = gpui::TextRun { len: self.text.len(), font: gpui::font(theme::FONT_UI), color: theme.text1, background_color: None, underline: None, strikethrough: None };
         let width = window.text_system().shape_line(self.text.clone(), px(12.), &[run], None).width + px(TIP_PAD_X * 2.);
         let height = px(TIP_LINE + TIP_PAD_Y * 2.);
@@ -288,8 +296,17 @@ impl Render for AnchoredTooltip {
         top = top.min(viewport.height - height - px(4.)).max(px(4.));
         // Nothing of its own size, so GPUI never moves it, and the box placed from the pointer.
         let origin = self.from + point(px(1.), px(1.));
-        div().size_0().child(tip.absolute().left(left - origin.x).top(top - origin.y))
+        div()
+            .size_0()
+            .child(tip.absolute().left(left - origin.x).top(top - origin.y))
+            // Drawn again as the pointer moves, so it's gone as soon as it leaves.
+            .child(gpui::canvas(|_, _, _| {}, |_, _, window, _| window.on_mouse_event(|_: &gpui::MouseMoveEvent, _, window, _| window.refresh())))
     }
+}
+
+thread_local! {
+    /// The element last pressed that has a tooltip, until the pointer leaves it.
+    static PRESSED: std::cell::Cell<Option<gpui::Bounds<Pixels>>> = const { std::cell::Cell::new(None) };
 }
 
 pub trait Tip: StatefulInteractiveElement + ParentElement + Sized {
@@ -297,8 +314,23 @@ pub trait Tip: StatefulInteractiveElement + ParentElement + Sized {
     fn tip(self, text: impl Into<SharedString>, side: Side) -> Self {
         let text = text.into();
         let bounds = std::rc::Rc::new(std::cell::Cell::new(None));
-        let seen = bounds.clone();
-        self.child(gpui::canvas(move |area, _, _| seen.set(Some(area)), |_, _, _, _| {}).absolute().inset_0()).tooltip(move |window, cx| {
+        let (seen, pressed) = (bounds.clone(), bounds.clone());
+        self.child(
+            gpui::canvas(
+                move |area, window, _| {
+                    seen.set(Some(area));
+                    // Pressed and since left, it can have its tooltip again.
+                    if PRESSED.with(|pressed| pressed.get()) == Some(area) && !area.contains(&window.mouse_position()) {
+                        PRESSED.with(|pressed| pressed.set(None));
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .inset_0(),
+        )
+        .on_mouse_down(gpui::MouseButton::Left, move |_, _, _| PRESSED.with(|cell| cell.set(pressed.get())))
+        .tooltip(move |window, cx| {
             let (text, target, from) = (text.clone(), bounds.get(), window.mouse_position());
             cx.new(|_| AnchoredTooltip { text, side, target, from }).into()
         })

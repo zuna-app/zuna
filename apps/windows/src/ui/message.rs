@@ -1027,9 +1027,10 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                     .overflow_hidden(),
                 corners,
             );
-            if single {
+            if single && !context.is_channel {
                 // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
                 // bubble's width, as wide as text or a link preview made it, keeping its shape.
+                // A channel's has no bubble to fill, and stays its own size.
                 tile = tile.min_w(relative(1.)).max_w(relative(1.));
                 tile.style().aspect_ratio = Some((width / height) as f32);
             } else {
