@@ -28,11 +28,16 @@ use super::{ShareInfo, ToastKind, Voice};
 const START_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long the media server gets to say a share's sound may go out, after the chat server has told it.
 const SHARE_PERMISSION_WAIT: Duration = Duration::from_secs(5);
+#[cfg(windows)]
 const EXECUTABLE: &str = "zuna-screenshare.exe";
+#[cfg(not(windows))]
+const EXECUTABLE: &str = "zuna-screenshare";
 /// Keeps the native program's window from flashing up.
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Where this build's program is: beside the app, as an installer puts it, or the desktop's in a checkout.
+/// Where this build's program is: beside the app, as an installer puts it, where a Linux
+/// package puts it, or the desktop's in a checkout.
 pub fn program_path() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(path) = std::env::var_os("ZUNA_SCREENSHARE") {
@@ -43,6 +48,9 @@ pub fn program_path() -> Option<PathBuf> {
             candidates.push(dir.join("screenshare").join(EXECUTABLE));
             candidates.push(dir.join(EXECUTABLE));
         }
+    }
+    if cfg!(target_os = "linux") {
+        candidates.push(PathBuf::from("/usr/lib/zuna-native/screenshare").join(EXECUTABLE));
     }
     if cfg!(debug_assertions) {
         candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../screenshare/dist").join(EXECUTABLE));
@@ -125,6 +133,8 @@ struct StartOptions {
     keyframe_seconds: u32,
     monitor_at: Option<(i32, i32)>,
     window: Option<String>,
+    /// A screen, or where the system's own dialog picks, a window.
+    screen: bool,
 }
 
 fn start_native(options: StartOptions) -> Result<(NativeShare, UnboundedReceiver<Said>), String> {
@@ -143,7 +153,7 @@ fn start_native(options: StartOptions) -> Result<(NativeShare, UnboundedReceiver
     }
     match &options.window {
         Some(window) => args.extend(["--window".into(), window.clone()]),
-        None => args.extend(["--source".into(), "screen".into()]),
+        None => args.extend(["--source".into(), if options.screen { "screen" } else { "window" }.into()]),
     }
     let mut child = command(&path).args(&args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|error| format!("The screen share couldn't start: {error}"))?;
     let stdout = child.stdout.take().ok_or("The screen share couldn't start.")?;
@@ -455,6 +465,7 @@ impl Voice {
                 keyframe_seconds: settings.screen_keyframes,
                 monitor_at: choice.source.monitor_at(),
                 window: choice.source.window(),
+                screen: choice.source.screen,
             };
             let started = cx.background_executor().spawn(async move { start_native(options) }).await;
             let (native_share, mut said) = match started {

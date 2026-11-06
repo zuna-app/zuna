@@ -216,6 +216,13 @@ impl Render for ScreenPicker {
                 .cursor_pointer()
                 .on_click(cx.listener(move |picker, _, _, cx| {
                     picker.screen_tab = screen;
+                    // Where the system picks, each tab has one thing to choose, which is what the tab means.
+                    let only: Vec<&Source> = picker.sources.iter().flatten().filter(|source| source.screen == screen).collect();
+                    if let [only] = only.as_slice() {
+                        if only.system_picks() {
+                            picker.chosen = Some(only.id.clone());
+                        }
+                    }
                     cx.notify();
                 }))
                 .child(label)
@@ -275,6 +282,11 @@ impl Render for ScreenPicker {
                 }
                 let handle = scroll_handle("screen-grid");
                 body.push(div().id("screen-grid").max_h(px(320.)).overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(grid).child(scrollbar("screen-grid", Scrolls::Div(handle.clone()))).into_any_element());
+                if let Some(source) = source.as_ref().filter(|source| source.system_picks()) {
+                    // `.setting-hint`.
+                    let asks = if source.screen { "Your system asks which screen, once you press Share." } else { "Your system asks which window, once you press Share." };
+                    body.push(div().text_size(px(12.5)).text_color(theme.text2).child(asks).into_any_element());
+                }
                 if program {
                     body.push(div().flex().items_center().gap(px(6.)).text_size(px(12.5)).text_color(theme.text2).child(icon("zap", 13., theme.text2)).child("Captured and encoded on your graphics card, so it stays light on your computer.").into_any_element());
                 } else {

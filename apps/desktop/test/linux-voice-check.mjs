@@ -389,6 +389,57 @@ try {
   await sleep(1500);
   const released = await loudness(page, 2);
   check("and letting it go stops it", released.peak < 0.01, `peak ${released.peak.toFixed(3)}`);
+
+  // --- Sharing the screen, picked in the portal's own dialog ---
+  await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
+  await drive({ do: "activate", appId: "zuna-native" });
+  await sleep(800);
+  await drive({ do: "click", x: 302, y: 843 });
+  await sleep(1500);
+  await shot("20-picker");
+  // A tone for the share's sound to carry, played where nobody hears it.
+  const tone = join(sounds, "tone.wav");
+  execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=660:duration=30", "-y", tone]);
+  await drive({ do: "click", x: 965, y: 758 });
+  await sleep(3000);
+  await shot("21-portal-screen-chooser");
+  // KDE's chooser: the KWin's one screen.
+  await drive({ do: "click", x: 700, y: 290 });
+  const screenIn = await until(async () => {
+    const seen = await videoIn(page, 1);
+    return seen.fps > 0 ? seen : null;
+  }, "the shared screen to arrive", 30_000).catch(() => null);
+  check("a screen picked in the portal's dialog reaches the Electron app", !!screenIn && screenIn.spread > 0.03, screenIn ? `${screenIn.fps.toFixed(1)} frames/s, spread ${screenIn.spread.toFixed(3)}` : "nothing decoded");
+  start("pw-play", ["--target", speakers, tone], process.env, "playing a tone");
+  await sleep(3000);
+  const carried = await loudness(page, 2);
+  check("and the computer's sound goes with it", carried.peak > 0.01, `peak ${carried.peak.toFixed(3)}`);
+  await shot("22-sharing-screen");
+  await drive({ do: "click", x: 302, y: 843 });
+  await sleep(3000);
+  const afterStop = await videoIn(page, 2);
+  check("stopping the share ends it for the Electron app", afterStop.fps === 0, `${afterStop.fps.toFixed(1)} frames/s`);
+
+  // --- Sharing a window, picked in the portal's dialog too ---
+  await drive({ do: "click", x: 302, y: 843 });
+  await sleep(1500);
+  await drive({ do: "click", x: 519, y: 179 });
+  await sleep(600);
+  await shot("23-picker-window");
+  await drive({ do: "click", x: 965, y: 758 });
+  await sleep(3000);
+  await shot("24-portal-window-chooser");
+  // KDE's chooser: the first of the two windows, both called Zuna.
+  await drive({ do: "click", x: 517, y: 255 });
+  const windowIn = await until(async () => {
+    const seen = await videoIn(page, 1);
+    return seen.fps > 0 ? seen : null;
+  }, "the shared window to arrive", 30_000).catch(() => null);
+  check("a window picked in the portal's dialog reaches the Electron app", !!windowIn && windowIn.spread > 0.03, windowIn ? `${windowIn.fps.toFixed(1)} frames/s, spread ${windowIn.spread.toFixed(3)}` : "nothing decoded");
+  await shot("25-sharing-window");
+  await drive({ do: "click", x: 302, y: 843 });
+  await sleep(3000);
+  check("and stopping that ends it too", (await videoIn(page, 2)).fps === 0);
 } catch (caught) {
   failed = caught;
 }

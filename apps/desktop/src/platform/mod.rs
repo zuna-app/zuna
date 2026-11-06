@@ -161,6 +161,12 @@ impl Source {
     pub fn window(&self) -> Option<String> {
         Some(self.id.strip_prefix("window:")?.split(':').next()?.to_string())
     }
+
+    /// Where the system's own dialog picks which, once Share is pressed, as under Wayland:
+    /// `portal:screen` or `portal:window`.
+    pub fn system_picks(&self) -> bool {
+        self.id.starts_with("portal:")
+    }
 }
 
 // The desktop app's own pictures of its icon.

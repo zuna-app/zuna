@@ -1,6 +1,6 @@
 # The native app on Linux: plan
 
-Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 done: sound through PipeWire, a voice channel, calls, cameras and push to talk checked with the Electron app (2026-11-06).
+Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 and L3 done: sound through PipeWire, a voice channel, calls, cameras, push to talk, and sharing a screen and a window with its sound, checked with the Electron app (2026-11-06).
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
 
@@ -149,8 +149,8 @@ Video4Linux2, as Chromium uses on Linux, through `libavdevice`'s `v4l2` input: e
 
 ### Push to talk
 
-- **The key, held in any window:** `zuna-screenshare --global-shortcuts` and `--push-to-talk KEY`, as `main/global-key.ts` runs them for the Electron app. The portal finds the app by the systemd scope it runs in, which a launcher names after the `.desktop` file. A development build started from a terminal has none, so there push to talk is greyed out and says why, as in the Electron app. Chromium makes its own scope, `app-<name>-<pid>.scope`, through systemd's `StartTransientUnit`, which the app could do as well.
-- **Choosing the key** happens in the app's window, since nothing else sees keys under Wayland. GPUI's key events carry the key a layout makes, not the physical one that `KeyboardEvent.code` names, so either a change to GPUI passes the evdev code, or keys are named as on a US layout.
+- **The key, held in any window:** the global shortcuts portal, asked by the app itself over zbus, as `zuna-screenshare --push-to-talk` asks it for the Electron app. The portal knows an app by the systemd scope it runs in, which a launcher names after the `.desktop` file, so the app's connection first registers as `zuna-native` through the portal's host registry, which works wherever that file is installed, from a terminal too. Without it, push to talk is greyed out and says why, as in the Electron app.
+- **Choosing the key** happens in the app's window, since nothing else sees keys under Wayland. GPUI's key events carry the key a layout makes, not the physical one that `KeyboardEvent.code` names, so keys are named as on a US layout, which is also how the portal is given them, by XKB's names.
 
 ### Screen sharing
 
