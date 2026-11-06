@@ -27,10 +27,19 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             finish(request.content)
             return
         }
+        let opened = PushStore.open(request.content.userInfo)
+        if opened == nil, !PushStore.registrations().isEmpty {
+            // Not sealed for a server this device is on, such as one it left, which can push until its handle
+            // stops working. Without the filtering entitlement iOS shows it all the same, so it's quiet and
+            // doesn't count. With no registrations to read, as before the phone is first unlocked, it can't tell.
+            mutable.sound = nil
+            finish(mutable)
+            return
+        }
         mutable.sound = settings.sound ? .default : nil
         PushStore.badge += 1
         mutable.badge = NSNumber(value: PushStore.badge)
-        if let push = PushStore.open(request.content.userInfo), push.kind == .call, let callerId = push.callerId {
+        if let push = opened, push.kind == .call, let callerId = push.callerId {
             PushStore.badge -= 1
             mutable.badge = nil
             mutable.userInfo["serverId"] = push.serverId
@@ -41,7 +50,7 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
             }
             return
         }
-        guard let push = PushStore.open(request.content.userInfo), push.kind == .message, let messageId = push.messageId else {
+        guard let push = opened, push.kind == .message, let messageId = push.messageId else {
             finish(mutable)
             return
         }

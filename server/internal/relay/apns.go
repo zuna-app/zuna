@@ -108,7 +108,11 @@ func (a *APNs) Send(ctx context.Context, token, environment, kind string, voip b
 		aps["category"] = "call"
 		expiry = callExpiry
 	}
-	body, _ := json.Marshal(map[string]any{"aps": aps, "zuna": data})
+	payload := map[string]any{"aps": aps}
+	if len(data) > 0 {
+		payload["zuna"] = data
+	}
+	body, _ := json.Marshal(payload)
 	base := a.Production
 	if environment == "sandbox" {
 		base = a.Sandbox

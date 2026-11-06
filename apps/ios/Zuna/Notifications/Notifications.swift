@@ -101,13 +101,14 @@ final class Notifications {
         await updateAuthorization()
     }
 
-    /// Picks up a change made in iOS Settings, and registers for pushes when allowed.
+    /// Picks up a change made in iOS Settings, and registers for pushes when allowed, or
+    /// again once the relay's handles are a week old.
     func updateAuthorization() async {
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
         let changed = status != authorization
         authorization = status
         if allowed { UIApplication.shared.registerForRemoteNotifications() }
-        if changed { await refresh() }
+        if changed || !handlesFit { await refresh() }
     }
 
     private var allowed: Bool {
@@ -132,22 +133,18 @@ final class Notifications {
         PushStore.keep(servers: model.order)
         guard let relay = Self.relay else { return }
         let wanted = settings.enabled && allowed
-        var handle: String?
-        var callHandle: String?
-        if wanted, let token {
-            handle = await relayHandle(relay: relay, token: token)
-        }
-        if wanted, let callToken {
-            callHandle = await relayHandle(relay: relay, token: callToken, platform: "apns-voip")
+        var handles: [String: RelayHandles.ForServer] = [:]
+        if wanted, let token, !model.order.isEmpty {
+            handles = await relayHandles(relay: relay, token: token, callToken: callToken, servers: model.order) ?? [:]
         }
         for serverId in model.order {
             let session = model.core.session(serverId)
             do {
                 if !wanted {
                     try await session.setPush(nil)
-                } else if let handle {
+                } else if let handle = handles[serverId] {
                     let (id, registration) = PushStore.registration(for: serverId)
-                    try await session.setPush(PushSettings(relay: relay, handle: handle, callHandle: callHandle, key: registration.key, registration: id, sendMuted: !PushStore.canFilter))
+                    try await session.setPush(PushSettings(relay: relay, handle: handle.handle, callHandle: handle.callHandle, key: registration.key, registration: id, sendMuted: !PushStore.canFilter))
                 }
                 unsupported.remove(serverId)
             } catch let error as CoreCallError where error.code == "relay_not_allowed" {
@@ -167,26 +164,42 @@ final class Notifications {
         return !channel || PushStore.canFilter
     }
 
-    /// The relay's handle for this device's push token, or its VoIP token, remembered for the same token.
-    private func relayHandle(relay: String, token: String, platform: String = "apns") async -> String? {
+    /// Whether the relay's handles are still the ones to give the servers.
+    private var handlesFit: Bool {
+        guard let relay = Self.relay, let token, settings.enabled, allowed, !model.order.isEmpty else { return true }
+        return RelayHandles.stored?.fit(relay: relay, token: token, callToken: callToken, servers: model.order) ?? false
+    }
+
+    /// The relay's handles for this device's push token and VoIP token, one of each for every server, so that
+    /// servers can't tell they wake the same phone. They're made again for every server at once each week, as the
+    /// relay's stop working after 60 days, so a server this device left can't wake it for longer than that.
+    private func relayHandles(relay: String, token: String, callToken: String?, servers: [String]) async -> [String: RelayHandles.ForServer]? {
+        if let stored = RelayHandles.stored, stored.fit(relay: relay, token: token, callToken: callToken, servers: servers) {
+            return stored.servers
+        }
         #if DEBUG
         let environment = "sandbox"
         #else
         let environment = "production"
         #endif
-        let cacheKey = "zuna-relay-handle|\(relay)|\(token)|\(environment)\(platform == "apns" ? "" : "|\(platform)")"
-        if let cached = PushStore.defaults.string(forKey: cacheKey) { return cached }
         guard let url = URL(string: "\(relay)/v1/register") else { return nil }
+        let wanted = Array(servers.prefix(RelayHandles.most))
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONEncoder().encode(["platform": platform, "token": token, "environment": environment])
+        request.httpBody = try? JSONEncoder().encode(RelayHandles.Request(token: token, voipToken: callToken, environment: environment, count: wanted.count))
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200,
-                  let handle = try JSONDecoder().decode([String: String].self, from: data)["handle"] else { return nil }
-            PushStore.defaults.set(handle, forKey: cacheKey)
-            return handle
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            let reply = try JSONDecoder().decode(RelayHandles.Reply.self, from: data)
+            guard reply.handles.count == wanted.count else { return nil }
+            var made: [String: RelayHandles.ForServer] = [:]
+            for (index, serverId) in wanted.enumerated() {
+                let calls = reply.callHandles ?? []
+                made[serverId] = RelayHandles.ForServer(handle: reply.handles[index], callHandle: index < calls.count ? calls[index] : nil)
+            }
+            RelayHandles.stored = RelayHandles(relay: relay, token: token, callToken: callToken, made: Date(), servers: made)
+            return made
         } catch {
             logger.warning("The push relay couldn't be reached: \(String(describing: error), privacy: .public)")
             return nil
@@ -394,5 +407,59 @@ final class Notifications {
             return read.contains(groupId)
         }.map(\.request.identifier)
         if !stale.isEmpty { center.removeDeliveredNotifications(withIdentifiers: stale) }
+    }
+}
+
+/// The relay's handles for this device, for every server, from one registration.
+struct RelayHandles: Codable, Equatable {
+    struct ForServer: Codable, Equatable {
+        var handle: String
+        /// For the VoIP token, where CallKit is allowed.
+        var callHandle: String?
+    }
+
+    var relay: String
+    var token: String
+    var callToken: String?
+    var made: Date
+    var servers: [String: ForServer]
+
+    /// The most one registration makes.
+    static let most = 64
+    /// They're made again well before the relay's stop working.
+    static let renewAfter: TimeInterval = 7 * 24 * 3600
+
+    /// Whether these are still the ones to use.
+    func fit(relay: String, token: String, callToken: String?, servers: [String]) -> Bool {
+        self.relay == relay && self.token == token && self.callToken == callToken
+            && servers.prefix(Self.most).allSatisfy { self.servers[$0] != nil }
+            && Date().timeIntervalSince(made) < Self.renewAfter
+    }
+
+    static var stored: RelayHandles? {
+        get { PushStore.defaults.data(forKey: "zuna-relay-handles").flatMap { try? JSONDecoder().decode(RelayHandles.self, from: $0) } }
+        set { PushStore.defaults.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: "zuna-relay-handles") }
+    }
+
+    struct Request: Encodable {
+        var token: String
+        var voipToken: String?
+        var environment: String
+        var count: Int
+
+        enum CodingKeys: String, CodingKey {
+            case token, environment, count
+            case voipToken = "voip_token"
+        }
+    }
+
+    struct Reply: Decodable {
+        var handles: [String]
+        var callHandles: [String]?
+
+        enum CodingKeys: String, CodingKey {
+            case handles
+            case callHandles = "call_handles"
+        }
     }
 }

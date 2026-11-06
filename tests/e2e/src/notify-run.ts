@@ -68,21 +68,22 @@ interface Push {
   data: { r: string; p: string };
 }
 const pushes: Push[] = [];
-let phoneHandle = "";
+let phoneHandles = new Set<string>();
 const relayServer = createServer((request, response) => {
   let body = "";
   request.on("data", (chunk) => (body += chunk));
   request.on("end", () => {
     const json = JSON.parse(body || "{}");
     if (request.url === "/v1/register") {
-      phoneHandle = `iphone-${randomBytes(4).toString("hex")}`;
+      const handles = Array.from({ length: json.count }, () => `iphone-${randomBytes(4).toString("hex")}`);
+      phoneHandles = new Set(handles);
       response.setHeader("Content-Type", "application/json");
-      response.end(JSON.stringify({ handle: phoneHandle }));
+      response.end(JSON.stringify({ handles }));
       return;
     }
     if (request.url === "/v1/push") {
       pushes.push({ handle: json.handle, type: json.type, at: Date.now(), data: json.data });
-      if (json.handle === phoneHandle) {
+      if (phoneHandles.has(json.handle)) {
         const file = join(shots, `push-${Date.now()}-${pushes.length}.json`);
         const aps =
           json.type === "background"
@@ -189,7 +190,7 @@ try {
   }).open();
   await phone.login(server.url, "bob", PASSWORD);
   const thePhone = phone;
-  const registered = await waitFor(() => !!phoneHandle, "the phone to register with the relay", 30_000).then(
+  const registered = await waitFor(() => phoneHandles.size > 0, "the phone to register with the relay", 30_000).then(
     () => true,
     () => false,
   );
@@ -225,7 +226,7 @@ try {
   const phoneKeys = JSON.parse(await thePhone.hostCommand("pushKeys")) as Record<string, string>;
   const keyFor = (push: Push) => (push.handle === "ipad" ? ipadKey : phoneKeys[push.data.r] ? Buffer.from(phoneKeys[push.data.r]!, "base64") : null);
   const pushedAt = (handle: "iphone" | "ipad", messageId: string) =>
-    pushes.find((push) => (handle === "ipad" ? push.handle === "ipad" : push.handle === phoneHandle) && push.type === "alert" && openPush(keyFor(push)!, push)?.m === messageId)?.at;
+    pushes.find((push) => (handle === "ipad" ? push.handle === "ipad" : phoneHandles.has(push.handle)) && push.type === "alert" && openPush(keyFor(push)!, push)?.m === messageId)?.at;
   const activeElsewhere = () => ipad.session.isActiveElsewhere();
 
   /** Whether something came when it should: at once, after the wait, after a moment's wait, or never. */

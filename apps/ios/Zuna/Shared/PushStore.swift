@@ -126,9 +126,7 @@ struct NotificationSettings: Codable, Equatable, Sendable {
         PushStore.defaults.removeObject(forKey: "zuna-notification-settings")
         PushStore.defaults.removeObject(forKey: "zuna-push-registrations")
         PushStore.defaults.removeObject(forKey: "zuna-badge")
-        for key in PushStore.defaults.dictionaryRepresentation().keys where key.hasPrefix("zuna-relay-handle|") {
-            PushStore.defaults.removeObject(forKey: key)
-        }
+        PushStore.defaults.removeObject(forKey: "zuna-relay-handles")
     }
     #endif
 }

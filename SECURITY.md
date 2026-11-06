@@ -140,6 +140,7 @@ These need the server against you: its operator, someone who broke into it, or s
 - **It can see some emotes being fetched.** The apps fetch a server's whole emote set ahead, so showing one usually asks for nothing. An emote from outside the set, or any emote when nothing was fetched ahead, as when you've asked to save data or after an iPhone or iPad cleared space, is fetched when a message shows it. That tells the server which one, from which address, and roughly when.
 - **It can take people out of a group,** as it decides who's listed in it, though everyone sees them go. Once it has taken out every one of a group's admins, whoever it makes the group's admin next is believed.
 - **The time shown comes from the server.** The sender's device signs its own time too, and the app flags a message when the two are far apart.
+- **A server you've left can still wake your iPhone for a while.** It keeps the push relay's handle for your phone, which works for up to 60 days after the app last renewed it. Its notifications say only that a message arrived, without a sound, and a call it rings ends at once, but the app can't hide them until Apple lets it filter notifications.
 - **Invite pages run on your server.** If you open an invite link in a browser, the page comes from that server, and altered page code could read the community key from the link. Pasting the link into the app avoids this.
 
 ### Even with an honest server

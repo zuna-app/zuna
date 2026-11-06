@@ -4,13 +4,15 @@ Phones can't keep a connection open in the background, so a Zuna server wakes th
 
 ## What the relay sees
 
-- **Phones** register their Apple push token and get back a handle: the token sealed with the relay's own key. Where CallKit is allowed, they register a VoIP token too, which calls ring through. The relay keeps no list of devices, and servers never see tokens.
+- **Phones** register their Apple push token and get back handles, one for each server they're on: the token sealed with the relay's own key, with when it was made. The relay first sends the phone a silent push with nothing in it, which the app ignores, and makes handles only if Apple takes it. Where CallKit is allowed, a phone registers its VoIP token with them, which calls ring through. The relay keeps no list of devices, and servers never see tokens. Every handle looks different and is the same length whatever it's for, so servers can't tell that their handles name the same phone, nor whether it runs a development build. A handle stops working after 60 days, and the app gets new ones each week that it's opened, so a server it left can wake it for at most that long.
 - **Servers** post a handle and a payload that the server already sealed for the phone. The payload holds only the group and message IDs. The relay passes it to Apple unchanged, as an alert, or as a silent push that tells the phone to clear a chat read or a message deleted elsewhere. A call ringing goes through PushKit to a VoIP token, which the app hands to CallKit as a phone call, or as an alert with Answer and Decline to a phone without one, and lasts a minute: a ring has nothing to say later. A VoIP token takes nothing else, since iOS stops waking an app that doesn't report a call for each such push.
-- **So the relay learns** which server addresses send pushes, when they send them, how big the sealed payloads are, and, since it opens each handle to reach Apple, which phone each push is for. That does let whoever runs a relay, or Apple, see which phones get pushes from which server address and when, even though the relay keeps no list of them. It never learns who wrote what, or anything about a message: the phone fetches the message from its server and decrypts it. It can tell a call's push from a message's, and so when a phone is rung. A push's collapse ID, which the relay and Apple see in the clear, is different for each phone, so it doesn't show who received the same message.
+- **So the relay learns** which server addresses send pushes, when they send them, how big the sealed payloads are, and, since it opens each handle to reach Apple, which phone each push is for. It sees a phone register about once a week, when its app is opened, and when it joins a server. That does let whoever runs a relay, or Apple, see which phones get pushes from which server address and when, even though the relay keeps no list of them. It never learns who wrote what, or anything about a message: the phone fetches the message from its server and decrypts it. It can tell a call's push from a message's, and so when a phone is rung. A push's collapse ID, which the relay and Apple see in the clear, is different for each phone, so it doesn't show who received the same message.
 
 ## What stops abuse
 
-Anyone holding a handle can ask for a push, so limits follow the phone: pushes are limited for each device token, however many handles someone makes for it. Registrations are limited per address. A caller who keeps naming phones Apple says don't exist is paused for a while, so that they can't get the relay's APNs key throttled for everyone.
+Anyone holding a handle can ask for a push, so limits follow the phone: pushes are limited for each device token, however many handles someone makes for it, and a call rings a phone only a few times a minute. A push over the limit is dropped but answered as if it were sent, since a refusal would show a server that another server's handle names the same phone.
+
+Nothing one caller does holds up anyone else's pushes, so it doesn't matter who else shares their address, as every server behind one of Cloudflare's does. Registrations are limited per address, and a phone can bring only so many VoIP tokens, which Apple can't check without ringing. A token Apple says doesn't exist is remembered for a day, in memory, and pushes to it are answered without asking Apple, so that naming made-up phones, which could get the relay's APNs key throttled, costs Apple one request each. Too many of those holds up new registrations from everyone for a while, never pushes. At most 256 requests wait on Apple at once.
 
 ## What it needs
 
@@ -65,7 +67,7 @@ Then run `docker compose up -d`.
 
 | Environment | Default | Purpose |
 |---|---|---|
-| `ZUNA_PUSH_APNS_KEY` | | The `.p8` file. Without it, phones can register but pushes fail |
+| `ZUNA_PUSH_APNS_KEY` | | The `.p8` file. Without it, phones can't register, and pushes fail |
 | `ZUNA_PUSH_APNS_KEY_ID` | | The key's ID |
 | `ZUNA_PUSH_APNS_TEAM` | `SGKB9R23YT` | The team that publishes the app |
 | `ZUNA_PUSH_APNS_TOPIC` | `chat.zuna.mobile` | The app's bundle ID |
@@ -74,7 +76,7 @@ Then run `docker compose up -d`.
 | `ZUNA_PUSH_TRUST_PROXY` | `false` | Take callers' addresses from the proxy's `X-Forwarded-For`, for rate limits, when it's on this machine or a private network |
 | `ZUNA_PUSH_TRUSTED_PROXIES` | | Comma-separated addresses or CIDR ranges of the proxies to trust, instead of those networks |
 
-**Back up `handle.key`.** Every phone's handle is sealed with it. If it's lost, notifications stop until each app registers again, which it does when it next opens.
+**Back up `handle.key`.** Every handle is sealed with it. If it's lost, servers forget the handles they hold the next time they push, and notifications stop until each app registers again, which it does when it's opened once its handles are a week old.
 
 ## Pointing servers and the app at it
 

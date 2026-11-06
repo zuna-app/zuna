@@ -58,9 +58,10 @@ const fake7tv = await startFake7TV();
 process.env.ZUNA_7TV_API = fake7tv.api;
 process.env.ZUNA_7TV_CDN = fake7tv.cdn;
 // A stand-in for zuna-push: it hands pushes to the simulator, as APNs would.
-// Each registration gets a new handle, and older ones are gone, as after an
-// app is reinstalled, so a test's fresh device is the only one notified.
-const relay = { registrations: 0, pushes: 0, silent: 0, latest: "" };
+// Each registration gets new handles, one for each server, and older ones are
+// gone, as after an app is reinstalled, so a test's fresh device is the only
+// one notified.
+const relay = { registrations: 0, pushes: 0, silent: 0, latest: new Set<string>() };
 const relayServer = createServer((request, response) => {
   let body = "";
   request.on("data", (chunk) => (body += chunk));
@@ -68,13 +69,16 @@ const relayServer = createServer((request, response) => {
     const json = JSON.parse(body || "{}");
     if (request.url === "/v1/register") {
       relay.registrations += 1;
-      relay.latest = `test-${relay.registrations}-${json.token}`;
+      const make = (kind: string) => Array.from({ length: json.count }, (_, i) => `test-${relay.registrations}-${kind}${i}-${json.token}`);
+      const handles = make("server");
+      const callHandles = json.voip_token ? make("call") : [];
+      relay.latest = new Set([...handles, ...callHandles]);
       response.setHeader("Content-Type", "application/json");
-      response.end(JSON.stringify({ handle: relay.latest }));
+      response.end(JSON.stringify(json.voip_token ? { handles, call_handles: callHandles } : { handles }));
       return;
     }
     if (request.url === "/v1/push") {
-      if (json.handle !== relay.latest) {
+      if (!relay.latest.has(json.handle)) {
         response.statusCode = 410;
         response.end(JSON.stringify({ error: "gone" }));
         return;

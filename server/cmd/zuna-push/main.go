@@ -59,7 +59,7 @@ func main() {
 			fail("%v", err)
 		}
 	} else {
-		slog.Warn("no APNs key: phones can register, but pushes will fail")
+		slog.Warn("no APNs key: phones can't register, and pushes fail")
 	}
 	service, err := relay.New(handleKey, apns)
 	if err != nil {

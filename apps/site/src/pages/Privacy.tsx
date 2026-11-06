@@ -43,8 +43,9 @@ export function Privacy() {
         <h3>What it receives</h3>
         <ul>
           <li>
-            When your phone signs up for notifications, its Apple push token, and where CallKit is allowed a second token for calls. It hands each back sealed with
-            its own key, as a handle, and keeps no list of them. Servers only ever see the handles.
+            When your phone signs up for notifications, about once a week, its Apple push token, and where CallKit is allowed a second token for calls. It checks the
+            first with Apple through a silent push with nothing in it, and hands both back sealed with its own key, as a different handle for each of your
+            servers, and keeps no list of them. Servers only ever see the handles, and can't tell that theirs are for the same phone.
           </li>
           <li>When a server sends a push, a handle and a payload that the server sealed for your phone, holding nothing but a conversation's and a message's IDs.</li>
         </ul>
@@ -55,8 +56,8 @@ export function Privacy() {
         </p>
         <h3>What it keeps</h3>
         <p>
-          On disk, only its own key. Its rate limits, by phone and by the address asking, are held in memory and gone when it restarts. It logs the address of a
-          caller it pauses for naming many phones that don't exist.
+          On disk, only its own key. Its rate limits, by phone and by the address asking, and for a day the tokens Apple says don't exist, are held in memory
+          and gone when it restarts.
         </p>
         <h3>Apple</h3>
         <p>

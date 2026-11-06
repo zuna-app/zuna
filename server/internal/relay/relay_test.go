@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"zuna/server/internal/clientip"
 	"zuna/server/internal/relay"
 )
 
@@ -73,6 +74,7 @@ type harness struct {
 	t      *testing.T
 	url    string
 	apns   *fakeAPNs
+	relay  *relay.Relay
 	public *ecdsa.PublicKey
 }
 
@@ -94,10 +96,10 @@ func newHarness(t *testing.T) *harness {
 	}
 	server := httptest.NewServer(service.Handler())
 	t.Cleanup(server.Close)
-	return &harness{t: t, url: server.URL, apns: fake, public: &key.PublicKey}
+	return &harness{t: t, url: server.URL, apns: fake, relay: service, public: &key.PublicKey}
 }
 
-func (h *harness) post(path string, body any) (int, map[string]string) {
+func (h *harness) post(path string, body any) (int, map[string]any) {
 	h.t.Helper()
 	data, _ := json.Marshal(body)
 	response, err := http.Post(h.url+path, "application/json", bytes.NewReader(data))
@@ -105,19 +107,66 @@ func (h *harness) post(path string, body any) (int, map[string]string) {
 		h.t.Fatal(err)
 	}
 	defer response.Body.Close()
-	var reply map[string]string
+	var reply map[string]any
 	raw, _ := io.ReadAll(response.Body)
 	json.Unmarshal(raw, &reply)
 	return response.StatusCode, reply
 }
 
+// registration is what a phone gets back: a handle for each server, and one for calls with each.
+type registration struct {
+	Handles     []string `json:"handles"`
+	CallHandles []string `json:"call_handles"`
+}
+
+func (h *harness) registerWith(body map[string]any) (int, registration) {
+	h.t.Helper()
+	data, _ := json.Marshal(body)
+	response, err := http.Post(h.url+"/v1/register", "application/json", bytes.NewReader(data))
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var reply registration
+	json.NewDecoder(response.Body).Decode(&reply)
+	return response.StatusCode, reply
+}
+
+func (h *harness) registerFrom(address string, body map[string]any) (int, registration) {
+	h.t.Helper()
+	data, _ := json.Marshal(body)
+	request, _ := http.NewRequest(http.MethodPost, h.url+"/v1/register", bytes.NewReader(data))
+	request.Header.Set("X-Forwarded-For", address)
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var reply registration
+	json.NewDecoder(response.Body).Decode(&reply)
+	return response.StatusCode, reply
+}
+
 func (h *harness) register(token, environment string) string {
 	h.t.Helper()
-	status, reply := h.post("/v1/register", map[string]string{"platform": "apns", "token": token, "environment": environment})
-	if status != http.StatusOK || reply["handle"] == "" {
+	status, reply := h.registerWith(map[string]any{"token": token, "environment": environment, "count": 1})
+	if status != http.StatusOK || len(reply.Handles) != 1 {
 		h.t.Fatalf("register: %d %v", status, reply)
 	}
-	return reply["handle"]
+	return reply.Handles[0]
+}
+
+func (h *harness) push(handle, kind string) int {
+	h.t.Helper()
+	status, _ := h.post("/v1/push", map[string]any{"handle": handle, "type": kind, "data": map[string]string{"r": "x"}})
+	return status
+}
+
+// sent counts what reached Apple.
+func (f *fakeAPNs) sent() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.requests)
 }
 
 const token = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
@@ -195,78 +244,171 @@ func (h *harness) checkToken(authorization string) {
 
 func TestTellsServersWhenAPhoneIsGone(t *testing.T) {
 	h := newHarness(t)
-	handle := h.register(token, "production")
-	h.apns.reply = func(string) (int, string) { return http.StatusBadRequest, "BadDeviceToken" }
-	if status, _ := h.post("/v1/push", map[string]any{"handle": handle, "data": map[string]string{"r": "x"}}); status != http.StatusGone {
-		t.Fatalf("a bad token gave %d", status)
-	}
-	h.apns.reply = func(string) (int, string) { return http.StatusGone, "Unregistered" }
-	if status, _ := h.post("/v1/push", map[string]any{"handle": handle, "data": map[string]string{"r": "x"}}); status != http.StatusGone {
-		t.Fatalf("an unregistered token gave %d", status)
-	}
-	h.apns.reply = func(string) (int, string) { return http.StatusInternalServerError, "InternalServerError" }
-	if status, _ := h.post("/v1/push", map[string]any{"handle": handle, "data": map[string]string{"r": "x"}}); status != http.StatusBadGateway {
-		t.Fatalf("an APNs failure gave %d", status)
+	for i, reply := range [][2]any{{http.StatusBadRequest, "BadDeviceToken"}, {http.StatusGone, "Unregistered"}, {http.StatusInternalServerError, "InternalServerError"}} {
+		phone := fmt.Sprintf("%064x", i+1)
+		handle := h.register(phone, "production")
+		h.apns.reply = func(string) (int, string) { return reply[0].(int), reply[1].(string) }
+		want := http.StatusGone
+		if reply[0] == http.StatusInternalServerError {
+			want = http.StatusBadGateway
+		}
+		if status := h.push(handle, ""); status != want {
+			t.Fatalf("%v gave %d", reply, status)
+		}
+		h.apns.reply = func(string) (int, string) { return http.StatusOK, "" }
 	}
 }
 
-func TestRefusesForgedHandlesAndFloods(t *testing.T) {
+func TestAPhoneAppleDoesntKnowGetsNoHandles(t *testing.T) {
 	h := newHarness(t)
-	if status, _ := h.post("/v1/register", map[string]string{"platform": "apns", "token": "not hex", "environment": "production"}); status != http.StatusBadRequest {
-		t.Fatalf("a bad token gave %d", status)
+	h.apns.reply = func(token string) (int, string) {
+		if strings.HasPrefix(token, "/sandbox/") {
+			return http.StatusBadRequest, "BadDeviceToken"
+		}
+		return http.StatusOK, ""
 	}
+	h.register(token, "production")
+	// Apple was asked with a silent push the app ignores.
+	checked := h.apns.last(t)
+	if checked.Path != "/3/device/"+token || checked.Headers.Get("apns-push-type") != "background" || checked.Body["zuna"] != nil {
+		t.Fatalf("the check: %+v", checked)
+	}
+	if status, reply := h.registerWith(map[string]any{"token": token, "environment": "sandbox", "count": 1}); status != http.StatusBadRequest || len(reply.Handles) != 0 {
+		t.Fatalf("a token for the wrong environment got %d %v", status, reply)
+	}
+	// Asking again doesn't ask Apple again.
+	before := h.apns.sent()
+	if status, _ := h.registerWith(map[string]any{"token": token, "environment": "sandbox", "count": 1}); status != http.StatusBadRequest || h.apns.sent() != before {
+		t.Fatalf("a dead token was checked again: %d", status)
+	}
+	// Nor does it stop the same phone in the environment it's really in.
+	if status := h.push(h.register(token, "production"), ""); status != http.StatusNoContent {
+		t.Fatalf("the phone's own push: %d", status)
+	}
+}
+
+// Made-up phones used to put whoever named them on hold, and with them everyone
+// sharing their address, such as every server behind one of Cloudflare's.
+func TestMadeUpPhonesCostNobodyElseAnything(t *testing.T) {
+	h := newHarness(t)
+	real := h.register(token, "production")
+	h.apns.reply = func(device string) (int, string) {
+		if device == token {
+			return http.StatusOK, ""
+		}
+		return http.StatusBadRequest, "BadDeviceToken"
+	}
+	// From many addresses, as anyone with enough of them, or behind Cloudflare, could.
+	h.relay.Callers, _ = clientip.New(true, nil)
+	refused := 0
+	for i := range 150 {
+		status, _ := h.registerFrom(fmt.Sprintf("198.51.100.%d", i), map[string]any{"token": fmt.Sprintf("%064x", i), "environment": "production", "count": 1})
+		switch status {
+		case http.StatusOK:
+			t.Fatal("a made-up phone got a handle")
+		case http.StatusServiceUnavailable:
+			refused++
+		}
+	}
+	if refused == 0 {
+		t.Fatal("a flood of made-up phones was checked with Apple without end")
+	}
+	for range 5 {
+		if status := h.push(real, ""); status != http.StatusNoContent {
+			t.Fatalf("a real phone's push during the flood: %d", status)
+		}
+	}
+}
+
+func TestHandlesDontShowWhichServersShareAPhone(t *testing.T) {
+	h := newHarness(t)
+	status, reply := h.registerWith(map[string]any{"token": token, "voip_token": strings.Repeat("ab", 32), "environment": "production", "count": 3})
+	if status != http.StatusOK || len(reply.Handles) != 3 || len(reply.CallHandles) != 3 {
+		t.Fatalf("register: %d %v", status, reply)
+	}
+	sandbox := h.register(token, "sandbox")
+	seen := map[string]bool{}
+	for _, handle := range append(append(reply.Handles, reply.CallHandles...), sandbox) {
+		if seen[handle] || len(handle) != len(sandbox) {
+			t.Fatalf("handles should all differ and be one length: %v", append(reply.Handles, reply.CallHandles...))
+		}
+		seen[handle] = true
+	}
+	// One server using up the phone's pushes can't tell another's handle names it:
+	// what's over the limit is dropped, and answered as if it were sent.
+	serverA, serverB := reply.Handles[0], reply.Handles[1]
+	for range 70 {
+		if status := h.push(serverA, "background"); status != http.StatusNoContent {
+			t.Fatalf("over the phone's limit: %d", status)
+		}
+	}
+	before := h.apns.sent()
+	if status := h.push(serverB, "background"); status != http.StatusNoContent || h.apns.sent() != before {
+		t.Fatalf("over the limit through another handle: %d, %d reached Apple", status, h.apns.sent()-before)
+	}
+}
+
+func TestHandlesStopWorking(t *testing.T) {
+	h := newHarness(t)
 	handle := h.register(token, "production")
+	h.relay.Now = func() time.Time { return time.Now().Add(relay.HandleLifetime + time.Hour) }
+	if status := h.push(handle, ""); status != http.StatusGone {
+		t.Fatalf("an old handle gave %d", status)
+	}
+	// One the relay can't open, such as after it lost its key, is gone too, so servers forget it.
 	forged := mustDecode(t, handle)
 	forged[len(forged)-1] ^= 1
-	if status, _ := h.post("/v1/push", map[string]any{"handle": base64.RawURLEncoding.EncodeToString(forged), "data": map[string]string{}}); status != http.StatusBadRequest {
+	if status := h.push(base64.RawURLEncoding.EncodeToString(forged), ""); status != http.StatusGone {
 		t.Fatalf("a forged handle gave %d", status)
 	}
+}
+
+func TestRefusesBadRequestsAndFloods(t *testing.T) {
+	h := newHarness(t)
+	for _, body := range []map[string]any{
+		{"token": "not hex", "environment": "production", "count": 1},
+		{"token": token, "environment": "elsewhere", "count": 1},
+		{"token": token, "environment": "production", "count": 0},
+		{"token": token, "environment": "production", "count": 65},
+		{"token": token, "voip_token": "not hex", "environment": "production", "count": 1},
+	} {
+		if status, _ := h.registerWith(body); status != http.StatusBadRequest {
+			t.Fatalf("%v gave %d", body, status)
+		}
+	}
+	handle := h.register(token, "production")
 	if status, _ := h.post("/v1/push", map[string]any{"handle": handle, "data": map[string]string{"p": strings.Repeat("x", 4000)}}); status != http.StatusBadRequest {
 		t.Fatalf("an oversized payload gave %d", status)
 	}
-	limited := false
+	before := h.apns.sent()
 	for range 100 {
-		if status, _ := h.post("/v1/push", map[string]any{"handle": handle, "data": map[string]string{}}); status == http.StatusTooManyRequests {
-			limited = true
-			break
-		}
+		h.push(handle, "")
 	}
-	if !limited {
-		t.Fatal("one phone can be flooded with pushes")
+	if got := h.apns.sent() - before; got >= 100 {
+		t.Fatalf("one phone was pushed %d times at once", got)
 	}
 }
 
 func TestLimitsFollowThePhoneNotTheHandle(t *testing.T) {
 	h := newHarness(t)
 	// Handles hold a random nonce, so anyone who knows a token can make any number of them.
-	limited := false
-	for range 25 {
-		first := h.register(token, "production")
-		second := h.register(token, "production")
-		if first == second {
-			t.Fatal("handles should differ")
-		}
+	_, reply := h.registerWith(map[string]any{"token": token, "environment": "production", "count": 20})
+	before := h.apns.sent()
+	for _, handle := range reply.Handles {
 		for range 5 {
-			for _, handle := range []string{first, second} {
-				if status, _ := h.post("/v1/push", map[string]any{"handle": handle, "data": map[string]string{}}); status == http.StatusTooManyRequests {
-					limited = true
-				}
-			}
-		}
-		if limited {
-			break
+			h.push(handle, "")
 		}
 	}
-	if !limited {
-		t.Fatal("new handles for one phone got around its limit")
+	if got := h.apns.sent() - before; got >= 100 {
+		t.Fatalf("new handles for one phone got around its limit: %d reached Apple", got)
 	}
 }
 
-func TestRegisteringAndNamingDeadPhonesIsLimited(t *testing.T) {
+func TestRegisteringIsLimited(t *testing.T) {
 	h := newHarness(t)
 	limited := false
 	for i := range 40 {
-		status, _ := h.post("/v1/register", map[string]string{"platform": "apns", "token": fmt.Sprintf("%064x", i), "environment": "production"})
+		status, _ := h.registerWith(map[string]any{"token": fmt.Sprintf("%064x", i+1), "environment": "production", "count": 1})
 		if status == http.StatusTooManyRequests {
 			limited = true
 			break
@@ -291,11 +433,11 @@ func TestRingsCallsThroughPushKitOrAsAnAlert(t *testing.T) {
 	data := map[string]string{"r": "registration", "p": "c2VhbGVk"}
 
 	// A VoIP token only ever rings, through PushKit, and not for long.
-	status, reply := h.post("/v1/register", map[string]string{"platform": "apns-voip", "token": token, "environment": "production"})
-	if status != http.StatusOK || reply["handle"] == "" {
+	status, reply := h.registerWith(map[string]any{"token": token, "voip_token": strings.Repeat("cd", 32), "environment": "production", "count": 1})
+	if status != http.StatusOK || len(reply.CallHandles) != 1 {
 		t.Fatalf("registering a VoIP token: %d %v", status, reply)
 	}
-	voip := reply["handle"]
+	voip := reply.CallHandles[0]
 	if status, reply := h.post("/v1/push", map[string]any{"handle": voip, "type": "call", "data": data, "collapse_id": "call-1"}); status != http.StatusNoContent {
 		t.Fatalf("ringing: %d %v", status, reply)
 	}
@@ -304,6 +446,9 @@ func TestRingsCallsThroughPushKitOrAsAnAlert(t *testing.T) {
 		if got := rang.Headers.Get(header); got != want {
 			t.Fatalf("%s = %q, want %q", header, got, want)
 		}
+	}
+	if rang.Path != "/3/device/"+strings.Repeat("cd", 32) {
+		t.Fatalf("rang %s", rang.Path)
 	}
 	if expiry, _ := strconv.ParseInt(rang.Headers.Get("apns-expiration"), 10, 64); expiry > time.Now().Add(2*time.Minute).Unix() {
 		t.Fatalf("a ring lasts until %d", expiry)
@@ -318,11 +463,35 @@ func TestRingsCallsThroughPushKitOrAsAnAlert(t *testing.T) {
 	}
 
 	// Without one, as where CallKit is left out, it's an alert with Answer and Decline.
-	handle := h.register(token, "production")
+	handle := reply.Handles[0]
 	h.post("/v1/push", map[string]any{"handle": handle, "type": "call", "data": data})
 	alert := h.apns.last(t)
 	aps := alert.Body["aps"].(map[string]any)
 	if alert.Headers.Get("apns-push-type") != "alert" || alert.Headers.Get("apns-topic") != "chat.zuna.mobile" || aps["category"] != "call" || aps["alert"].(map[string]any)["body"] != "Incoming call" {
 		t.Fatalf("a call's alert: %v %v", alert.Headers, alert.Body)
+	}
+
+	// A phone rings only a few times a minute, however often a server calls.
+	before := h.apns.sent()
+	for range 20 {
+		h.push(voip, "call")
+	}
+	if got := h.apns.sent() - before; got > 5 {
+		t.Fatalf("a phone rang %d times at once", got)
+	}
+}
+
+func TestOnlySoManyVoIPTokensComeWithOnePhone(t *testing.T) {
+	h := newHarness(t)
+	limited := false
+	for i := range 25 {
+		status, _ := h.registerWith(map[string]any{"token": token, "voip_token": fmt.Sprintf("%064x", i+1), "environment": "production", "count": 1})
+		if status == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("one phone registered endless VoIP tokens")
 	}
 }
