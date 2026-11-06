@@ -22,6 +22,7 @@ Things one platform should have and doesn't.
 - **Linux: VA-API's smaller picture hasn't run.** NVENC's, the OpenGL blit in `native/dmabuf_cuda.c`, has, from the app on KDE with an RTX 5080. VA-API's `scale_vaapi` in `native/encoder.c` was only compiled with `ZUNA_CHECK_VAAPI` on Windows. Should it fail, the share goes through the browser, so a limit on size still holds. `--check-dmabuf` only checks the same size. NVENC or AMF from CPU memory can't do it at all (`Encoder::open` in `src/encoder.rs`), which also ends up in the browser.
 - **Windows: Media Foundation only run on NVIDIA's encoder.** Intel's and any other GPU's encoder goes through Media Foundation (`h264_mf` in `apps/desktop/native/screenshare/native/encoder.c`, picked in `choose_adapter` in `src/capture/windows.rs`), converted to NV12 by D3D11's video processor and tagged BT.709 by `h264_metadata`. It has run on NVIDIA's own Media Foundation encoder, from the app (`VOICE_ENCODER=h264_mf node apps/desktop/test/voice-check.mjs`, a screen and a window at 60 fps, the run stopped before its later checks) and by itself, never on Intel's, nor on a laptop with two GPUs, where Media Foundation might pick the other's. AMF has never run either. Should either fail, the share goes through the browser.
 - **macOS: one app's sound with a real screen unchecked.** Through Core Audio's process taps in the native program (`src/sound/macos.rs`), from macOS 14.2, on Apple silicon (Intel Macs aren't a target). A real screen through macOS's own picker together with its sound hasn't run, as `mac-sound-check.mjs` shares a canvas.
+- **Windows native app (`apps/windows`, branch `wip-gpui`): a work in progress, most of the desktop still missing.** GPUI in place of Electron, around the same core in QuickJS (`src/host`, the iOS host's shims). Has what "The native Windows app" below lists. Missing, each where it would go: voice channels, calls and screen sharing (`src/ui/chat.rs`, LiveKit's Rust SDK as `apps/desktop/native/screenshare` uses it); notifications, the unread badge and the tray (`src/main.rs`); the emoji and emote picker and suggestions while typing (`src/ui/chat.rs`); emotes inside a line of text, which show as their name, only a message of nothing but emotes drawing them (`src/ui/message.rs`); link previews, refused by the host until it has the address rules of `preview-proxy.ts` (`webFetch` in `src/host/runtime.rs`); voice and video messages, playing video, the image viewer, shared media, forwarding and picking messages, sharing a location, the server's settings, channel management, adding people to a group, invite management beyond one link, mention suggestions, dragging files in, `zuna://` links, installers and updates. Its Notifications, Voice and video and Screen sharing settings pages say so. Checked on Windows 11 against the test server by driving the window and comparing screenshots with `ui-check.mjs`'s: signing up through an invite, the recovery key, a direct message and a group with a bot, markup, reactions, the menus, settings' Profile and Appearance. Sign in, recovery, search, pins, details, verification, editing, files and avatars are built but unchecked.
 - **Web, Firefox off macOS: video messages unchecked.** Firefox records only WebM, so its video messages are H.264 from WebCodecs in MP4 (`H264Frames` in `lib/round.ts`, `lib/mp4.ts`), checked only with Firefox 159 on macOS 27. Where its WebCodecs can't encode H.264, they fall back to VP8 in WebM, which the iPhone can't play. Voice messages need no encoder, as their Opus is moved over as it is.
 
 ## Accounts and servers
@@ -226,6 +227,23 @@ Where the web differs from the desktop, all in `apps/web/src/` unless written ou
 | "Zuna was updated" when the host has a newer build | `platform.ts` (`onUpdate`), `packages/ui/src/App.tsx` |
 | Asks before closing while anything is sending | `packages/ui/src/App.tsx` |
 | Drops outside the message box don't leave the app | `main.tsx` |
+
+## The native Windows app
+
+`apps/windows`, on the `wip-gpui` branch: the desktop's interface drawn with GPUI, which follows `packages/ui`'s styles, around the same core (`src/host`, a Rust host of `apps/ios/core-bundle`). Paths are under `apps/windows/src/`. What it doesn't have is in Known gaps.
+
+| Behavior | Code |
+|---|---|
+| The core in QuickJS, with `__zunaHost`, `__zunaCrypto` and `__zunaDb` as the Swift host gives them: the crypto crate called directly, SQLite, rustls with a server's pin, the password meter in a context of its own | `host/` |
+| Device key sealed with Windows's data protection (DPAPI), as Electron's safeStorage does | `host/device_key.rs` |
+| Title bar with Windows's own caption buttons and snap layouts | `ui/mod.rs` (`title_bar`) |
+| Rail, conversation list with search, filters, channels, hidden chats and their menus, a resizable sidebar | `ui/mod.rs`, `ui/conversations.rs` |
+| Chat: bubbles, runs and tails, the time at the end of the last line, ticks, reactions, replies, day and unread separators, the desktop's markup, photos with their preview, files saved where chosen, the menus with quick reactions, editing with Up, sending files | `ui/chat.rs`, `ui/message.rs`, `markup.rs` |
+| Details, search and pins beside a chat; muting, pinning, hiding, blocking, disappearing messages, leaving and deleting groups | `ui/side_panel.rs` |
+| Onboarding: invite, sign-up with the strength meter, recovery key, naming a new server, sign in, recovery | `ui/onboarding.rs` |
+| Settings: profile and its picture, privacy, appearance, security (devices, password, recovery key), about | `ui/settings.rs` |
+| Joining another server, a new group, an invite link, verifying someone, leaving a server | `ui/overlays.rs` |
+| Its own data, in `%APPDATA%\Zuna Native` or `ZUNA_DATA_DIR` | `host/mod.rs` (`data_dir`) |
 
 ## The desktop on each OS
 
