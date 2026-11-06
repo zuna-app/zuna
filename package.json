@@ -20,6 +20,7 @@
     "build:screenshare": "node scripts/build-screenshare.mjs",
     "build:windows": "node scripts/windows-app.mjs build",
     "dist:windows": "node scripts/windows-app.mjs dist",
+    "install:windows": "node scripts/windows-app.mjs install",
     "dev:windows": "node scripts/windows-app.mjs run",
     "build:linux": "node scripts/linux-app.mjs build",
     "dist:linux": "node scripts/linux-app.mjs dist",

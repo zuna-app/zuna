@@ -71,12 +71,20 @@ pub fn tokio() -> &'static tokio::runtime::Runtime {
     })
 }
 
-/// Where this app keeps its data: `%APPDATA%\Zuna Native`, or `ZUNA_DATA_DIR`.
+/// Where this app keeps its data: `ZUNA_DATA_DIR` where it's set, and otherwise in the system's
+/// folder for app data. On Windows only the installed copy keeps it in `Zuna Native`: a copy
+/// started from anywhere else, as a build is, keeps its own in `Zuna Native Dev`, so that it
+/// never opens the installed app's messages and keys.
 pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("ZUNA_DATA_DIR") {
         return PathBuf::from(dir);
     }
-    dirs::data_dir().unwrap_or_else(std::env::temp_dir).join(crate::platform::DATA_FOLDER)
+    let base = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
+    #[cfg(windows)]
+    if !std::env::current_exe().is_ok_and(|exe| crate::platform::updates::installed(&exe)) {
+        return base.join(format!("{} Dev", crate::platform::DATA_FOLDER));
+    }
+    base.join(crate::platform::DATA_FOLDER)
 }
 
 impl Core {
@@ -250,4 +258,16 @@ pub fn read_bytes(value: &Value) -> Option<Vec<u8>> {
     use base64::Engine;
     let encoded = value.get("$bytes").or_else(|| value.get("$blob").and_then(|blob| blob.get("bytes")))?.as_str()?;
     base64::engine::general_purpose::STANDARD.decode(encoded).ok()
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    /// The tests run from where they were built, as a development build does.
+    #[test]
+    fn a_copy_that_was_not_installed_keeps_its_data_apart() {
+        if std::env::var_os("ZUNA_DATA_DIR").is_some() {
+            return;
+        }
+        assert!(super::data_dir().ends_with("Zuna Native Dev"));
+    }
 }

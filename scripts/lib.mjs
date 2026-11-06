@@ -23,6 +23,8 @@ export const env = {
 /** Everything the test server and the development app store. Deleting it starts over. */
 export const devData = join(root, ".dev-data");
 export const devAppData = join(devData, "app");
+/** The native app's development data, as `npm run dev:windows` keeps it. */
+export const devNativeAppData = join(devData, "native-app");
 export const devWorld = join(devData, "world");
 export const devWorldFile = join(devWorld, "world.json");
 

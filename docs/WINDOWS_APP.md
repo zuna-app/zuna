@@ -1,13 +1,13 @@
 # The native Windows app
 
-A Windows app that draws Zuna's interface with [GPUI](https://gpui.rs/), Zed's GPU-accelerated UI framework, in place of Electron. It's a work in progress: chatting, notifications, voice channels, calls and screen sharing work, while installers are still to come.
+A Windows app that draws Zuna's interface with [GPUI](https://gpui.rs/), Zed's GPU-accelerated UI framework, in place of Electron. It's a work in progress: chatting, notifications, voice channels, calls and screen sharing work, and it has an installer.
 
 ## How it's built
 
 All of the protocol stays in one place. The app runs the same client core as every other Zuna app (`packages/core`), bundled for QuickJS exactly as the iOS app bundles it for JavaScriptCore (`apps/ios/core-bundle`). The Rust host in `apps/desktop/src/host` gives the core what the iOS app's Swift host gives it:
 
 - **Cryptography** calls the `crypto` crate directly, the same Rust the other apps use, so nothing about encryption is reimplemented.
-- **Storage** is SQLite, in `%APPDATA%\Zuna Native` (or wherever `ZUNA_DATA_DIR` points), apart from the Electron app's.
+- **Storage** is SQLite, in `%APPDATA%\Zuna Native` for the installed app, apart from the Electron app's. A copy started from anywhere else, as a build is, keeps its own in `%APPDATA%\Zuna Native Dev`, and `npm run dev:windows` keeps its in `.dev-data/native-app`, so that `npm run dev:clean` starts it over with the test server. None of them ever opens the installed app's messages and keys. `ZUNA_DATA_DIR` puts any of them elsewhere.
 - **Network** goes through rustls. A server reached by its IP address, which makes its own certificate, is trusted by the pin from its links and nothing else, as on iOS and the desktop.
 - **The device key** is sealed with Windows's data protection, as the Electron app's is through safeStorage.
 
@@ -27,7 +27,9 @@ npm run dev:windows
 
 That bundles the core and starts a debug build. `npm run build:windows` writes a release build to `dist/windows/Zuna.exe`.
 
-`npm run dist:windows` also makes its installer, `dist/windows/Zuna-Native-Setup-<version>.exe`, with NSIS as the desktop's is made (electron-builder's own copy, fetched once). Like the desktop's, it installs for one person in one click, into `%LOCALAPPDATA%ProgramsZuna Native`, with shortcuts in the Start menu and on the desktop, called Zuna Native as its data folder is so that the desktop app's are never taken, `zuna://` registered, and an uninstaller in Apps that leaves messages and keys where they are. The desktop's native screen capture goes in beside the app, once `npm run build:screenshare` has built it. Given the desktop's certificate in `CSC_LINK` and `CSC_KEY_PASSWORD`, as the release workflow gives it, the app, the screen capture, the uninstaller and the installer are signed through electron-builder's signtool. The installer is built twice for that, as electron-builder builds the desktop's: first as a program that only writes the uninstaller, which is run and its uninstaller signed, then as the installer that carries it.
+`npm run dist:windows` also makes its installer, `dist/windows/Zuna-Native-Setup-<version>.exe`, with NSIS as the desktop's is made (electron-builder's own copy, fetched once). Like the desktop's, it installs for one person in one click, into `%LOCALAPPDATA%\Programs\Zuna Native`, with shortcuts in the Start menu and on the desktop, called Zuna Native as its data folder is so that the desktop app's are never taken, `zuna://` registered, and an uninstaller in Apps that leaves messages and keys where they are. The desktop's native screen capture goes in beside the app, once `npm run build:screenshare` has built it. Given the desktop's certificate in `CSC_LINK` and `CSC_KEY_PASSWORD`, as the release workflow gives it, the app, the screen capture, the uninstaller and the installer are signed through electron-builder's signtool. The installer is built twice for that, as electron-builder builds the desktop's: first as a program that only writes the uninstaller, which is run and its uninstaller signed, then as the installer that carries it.
+
+`npm run install:windows` makes the installer and installs the app on this computer with it, to use as anyone would. The first time, it installs as the installer does when it's run by hand, which starts the app. After that it updates the installed app as an update is installed: it asks the copy that's running to quit, as Quit in the tray does, by starting it with `--quit`, then installs quietly and starts it again.
 
 An installed, signed release build updates itself as the desktop does: every six hours it looks at the newest release on GitHub, downloads `Zuna-Native-Setup-<version>.exe` if it's newer, keeps it only if it's signed by the same publisher as the app running, and installs it quietly as the app quits. A build that isn't signed, or wasn't installed, doesn't update itself.
 

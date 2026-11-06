@@ -6,15 +6,18 @@
 //   node scripts/windows-app.mjs run [--release] [-- app args]   build and start it
 //   node scripts/windows-app.mjs build                            a release build in dist/windows
 //   node scripts/windows-app.mjs dist                             and its installer beside it
+//   node scripts/windows-app.mjs install                          and installs it, or updates the installed app
 //
-// Its data is in %APPDATA%\Zuna Native, or ZUNA_DATA_DIR, so it never touches the
-// Electron app's.
+// The installed app keeps its data in %APPDATA%\Zuna Native, apart from the Electron app's.
+// A copy run from anywhere else keeps its own in %APPDATA%\Zuna Native Dev, and one started
+// here in .dev-data, as the Electron app's development build does, so that `npm run dev:clean`
+// starts it over with the test server. ZUNA_DATA_DIR puts any of them elsewhere.
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
-import { env, root } from "./lib.mjs";
+import { dirname, join } from "node:path";
+import { devNativeAppData, env, ensureNativeScreenCurrent, root } from "./lib.mjs";
 
 if (process.platform !== "win32") {
   console.log("The native app is for Windows. Build it there.");
@@ -25,7 +28,8 @@ const [command = "run", ...rest] = process.argv.slice(2);
 const split = rest.indexOf("--");
 const flags = split < 0 ? rest : rest.slice(0, split);
 const appArgs = split < 0 ? [] : rest.slice(split + 1);
-const release = command === "build" || command === "dist" || flags.includes("--release");
+const packaging = command === "dist" || command === "install";
+const release = command === "build" || packaging || flags.includes("--release");
 
 const crate = join(root, "apps", "desktop");
 // cl.exe can't open paths over 260 characters, which a target folder deep in a checkout reaches.
@@ -47,17 +51,19 @@ const bundle = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mj
 if (bundle.status !== 0) process.exit(bundle.status ?? 1);
 
 const cargo = [`+${toolchain()}`, command === "run" ? "run" : "build", ...(release ? ["--release"] : []), ...(appArgs.length ? ["--", ...appArgs] : [])];
-const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
+const appData = command === "run" ? { ZUNA_DATA_DIR: process.env.ZUNA_DATA_DIR ?? devNativeAppData } : {};
+const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, ...appData, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 if (result.status !== 0) process.exit(result.status ?? 1);
 
-if (command === "build" || command === "dist") {
+if (command === "build" || packaging) {
   const dist = join(root, "dist", "windows");
   mkdirSync(dist, { recursive: true });
   copyFileSync(join(target, "release", "zuna.exe"), join(dist, "Zuna.exe"));
   console.log(`> wrote ${join(dist, "Zuna.exe")}`);
 }
 
-if (command === "dist") {
+if (packaging) {
+  ensureNativeScreenCurrent();
   const dist = join(root, "dist", "windows");
   // What's installed: the app, and the desktop's native screen capture beside it, where it's been built.
   const staged = join(dist, "Zuna");
@@ -108,6 +114,42 @@ if (command === "dist") {
   rmSync(uninstaller, { force: true });
   if (signer) signer(out);
   console.log(`> wrote ${out}${signer ? ", signed" : ""}`);
+  if (command === "install") install(out);
+}
+
+/**
+ * Installs the app as anyone would, with the installer just made: the first time as it's run by
+ * hand, which starts the app, and after that quietly, as an update is installed, over the copy
+ * running, which is asked to quit first and started again afterwards.
+ */
+function install(installer) {
+  const exe = join(process.env.LOCALAPPDATA, "Programs", "Zuna Native", "Zuna.exe");
+  const first = !existsSync(exe);
+  const running = !first && runningCopy(exe);
+  // With none of this script's ZUNA_ settings, which would point the app at other data.
+  const clean = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("ZUNA_") && name !== "RUST_LOG"));
+  if (running) {
+    // As Quit in the tray does: the installer's own Stop-Process could cut off a write.
+    spawnSync(exe, ["--quit"], { stdio: "ignore", env: clean });
+    const until = Date.now() + 15_000;
+    while (runningCopy(exe) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+    if (runningCopy(exe)) console.warn("> the installed app didn't quit, so the installer closes it");
+  }
+  const result = spawnSync(installer, first ? [] : ["/S"], { stdio: "ignore", env: clean });
+  if (result.status !== 0) {
+    console.error(`The installer failed (${result.status}).`);
+    process.exit(result.status ?? 1);
+  }
+  // Started as its shortcut starts it, in its own folder.
+  if (running) spawn(exe, [], { cwd: dirname(exe), env: clean, detached: true, stdio: "ignore" }).unref();
+  console.log(`> ${first ? "installed" : "updated"} ${exe}, version ${version}${running ? ", and started it again" : ""}`);
+}
+
+/** Whether the copy at this path is running. Others named Zuna.exe, such as the Electron app's, don't count. */
+function runningCopy(exe) {
+  const path = exe.replaceAll("'", "''");
+  const found = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `@(Get-Process Zuna -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${path}' }).Count`], { encoding: "utf8" });
+  return Number(found.stdout?.trim()) > 0;
 }
 
 /**

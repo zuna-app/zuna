@@ -46,11 +46,15 @@ fn main() {
         std::process::exit(1);
     }
     // One Zuna for each data folder: a second start hands its zuna:// link to the first, or asks it to show itself.
+    // Started with --quit, as `npm run install:windows` starts it before installing over it, it asks the
+    // first to quit as Quit in the tray does, and never opens itself.
     let link = platform::link_in(&args);
+    let quitting = args.get(1).is_some_and(|arg| arg == "--quit");
     let handed = match platform::single::claim(&host::data_dir()) {
+        platform::single::Claim::First(_) if quitting => return,
         platform::single::Claim::First(receiver) => receiver,
         platform::single::Claim::Running => {
-            platform::single::forward(&host::data_dir(), link.as_deref().unwrap_or(""));
+            platform::single::forward(&host::data_dir(), if quitting { QUIT } else { link.as_deref().unwrap_or("") });
             return;
         }
     };
@@ -96,6 +100,10 @@ fn main() {
         cx.spawn(async move |cx| {
             use futures::StreamExt;
             while let Some(message) = incoming.next().await {
+                if message == QUIT {
+                    cx.update(quit).ok();
+                    break;
+                }
                 platform::show_main();
                 if !message.starts_with("zuna://") {
                     continue;
@@ -170,6 +178,9 @@ fn main() {
 }
 
 /// Quits for good, taking the tray's icon with it, and installs a downloaded update.
+/// What a start with --quit hands the copy already running.
+const QUIT: &str = "quit";
+
 fn quit(cx: &mut App) {
     platform::tray::remove();
     platform::updates::install_on_quit();

@@ -32,7 +32,7 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
 | Installers (`apps/desktop-electron-legacy/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
 | Native screen capture, and on macOS a share's sound, which go into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
-| The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, or a release one in `dist/windows` | `npm run dev:windows`, `npm run build:windows` |
+| The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, write a release one to `dist/windows`, or install it on this computer with its installer, which updates the installed copy after the first time | `npm run dev:windows`, `npm run build:windows`, `npm run install:windows` |
 | The same app on Linux, under Wayland only: a debug build, a release one in `dist/linux`, or its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages` | `npm run dev:linux`, `npm run build:linux`, `npm run dist:linux` |
 
 The test server's address and sign-in details are in `.dev-data/world/world.json`.
