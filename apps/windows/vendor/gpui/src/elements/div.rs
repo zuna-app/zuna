@@ -2414,11 +2414,14 @@ impl Interactivity {
             let line_height = window.line_height();
             let hitbox = hitbox.clone();
             let current_view = window.current_view();
+            let scroll_offset_handle = scroll_offset.clone();
             window.on_mouse_event(move |event: &ScrollWheelEvent, phase, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.should_handle_scroll(window) {
+                    // Zuna: a wheel's notches glide, each going as far as Chromium's.
+                    let gliding = super::Glide::takes(&event.delta);
                     let mut scroll_offset = scroll_offset.borrow_mut();
                     let old_scroll_offset = *scroll_offset;
-                    let delta = event.delta.pixel_delta(line_height);
+                    let delta = event.delta.pixel_delta(if gliding { px(super::PIXELS_PER_LINE) } else { line_height });
 
                     let mut delta_x = Pixels::ZERO;
                     if overflow.x == Overflow::Scroll {
@@ -2442,6 +2445,11 @@ impl Interactivity {
                         } else {
                             delta_x = Pixels::ZERO;
                         }
+                    }
+                    if gliding {
+                        drop(scroll_offset);
+                        glide_area(&scroll_offset_handle, point(delta_x, delta_y), current_view, window, cx);
+                        return;
                     }
                     scroll_offset.y += delta_y;
                     scroll_offset.x += delta_x;
@@ -3246,5 +3254,43 @@ impl ScrollHandle {
     /// Get the count of children for scrollable item.
     pub fn children_count(&self) -> usize {
         self.0.borrow().child_bounds.len()
+    }
+}
+
+thread_local! {
+    /// Zuna: each scrolling area's glide, by the place its offset is kept.
+    static AREA_GLIDES: RefCell<collections::HashMap<usize, super::Glide>> = RefCell::new(collections::HashMap::default());
+}
+
+/// Zuna: adds a notch to an area's glide, and starts its frames if it was at rest.
+fn glide_area(offset: &Rc<RefCell<Point<Pixels>>>, delta: Point<Pixels>, current_view: crate::EntityId, window: &mut Window, cx: &mut App) {
+    let key = Rc::as_ptr(offset) as usize;
+    let resting = AREA_GLIDES.with(|glides| glides.borrow_mut().entry(key).or_default().add(delta));
+    if resting {
+        step_area(offset.clone(), current_view, window, cx);
+    }
+}
+
+/// Zuna: moves an area by a frame's part of its glide, and again on the next frame while
+/// there's more. Its offset is kept within its ends where it's laid out.
+fn step_area(offset: Rc<RefCell<Point<Pixels>>>, current_view: crate::EntityId, window: &mut Window, cx: &mut App) {
+    let key = Rc::as_ptr(&offset) as usize;
+    let (step, more) = AREA_GLIDES.with(|glides| {
+        let mut glides = glides.borrow_mut();
+        let Some(glide) = glides.get_mut(&key) else { return (Point::default(), false) };
+        let (step, more) = glide.step();
+        if !more {
+            glides.remove(&key);
+        }
+        (step, more)
+    });
+    {
+        let mut offset = offset.borrow_mut();
+        offset.x += step.x;
+        offset.y += step.y;
+    }
+    cx.notify(current_view);
+    if more {
+        window.on_next_frame(move |window, cx| step_area(offset, current_view, window, cx));
     }
 }
