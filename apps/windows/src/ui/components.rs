@@ -309,3 +309,74 @@ impl<T: Styled> OneLine for T {}
 pub fn cover_image(image: Arc<Image>, width: f32, height: f32, radius: Pixels) -> Div {
     div().w(px(width)).h(px(height)).flex_none().rounded(radius).overflow_hidden().child(gpui::img(image).size_full().object_fit(gpui::ObjectFit::Cover))
 }
+
+/// A line of information in a soft box, with its icon (`.notice`).
+pub fn notice(icon_name: &str, text: impl Into<SharedString>, cx: &App) -> Div {
+    let theme = theme(cx);
+    div()
+        .flex()
+        .gap(px(10.))
+        .px(px(12.))
+        .py(px(10.))
+        .rounded(crate::theme::RADIUS_M)
+        .bg(theme.bg2)
+        .text_color(theme.text2)
+        .text_size(px(13.))
+        .child(div().flex_none().mt(px(1.)).child(icon(icon_name, 15., theme.text2)))
+        .child(div().flex_1().min_w_0().child(text.into()))
+}
+
+/// A choice among several, as a `.select` shows it: what's chosen, opening a menu of the rest.
+pub fn select_box(id: impl Into<ElementId>, label: impl Into<SharedString>, choices: Vec<(String, std::rc::Rc<dyn Fn(&mut Window, &mut App)>)>, cx: &App) -> Stateful<Div> {
+    let theme = theme(cx);
+    div()
+        .id(id)
+        .w_full()
+        .h(px(36.))
+        .px(px(10.))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(8.))
+        .rounded(crate::theme::RADIUS_M)
+        .bg(theme.bg2)
+        .border_1()
+        .border_color(theme.line)
+        .text_size(px(13.5))
+        .cursor_pointer()
+        .on_click(move |event, _, cx| {
+            let entries = choices.iter().map(|(label, action)| super::menu::MenuEntry::plain(label.clone(), action.clone())).collect();
+            super::menu::open_menu(point(event.position().x, event.position().y + px(14.)), entries, false, cx);
+        })
+        .child(div().min_w_0().one_line().child(label.into()))
+        .child(icon("chevron-down", 15., theme.text2))
+}
+
+/// A slider from 0 to 1, as `.voice-slider` draws one: pressing or dragging along it sets it.
+pub fn slider(id: impl Into<ElementId>, value: f32, on_change: impl Fn(f32, &mut Window, &mut App) + 'static, cx: &App) -> Stateful<Div> {
+    let theme = theme(cx);
+    let value = value.clamp(0., 1.);
+    let bounds = std::rc::Rc::new(std::cell::Cell::new(gpui::Bounds::<Pixels>::default()));
+    let measured = bounds.clone();
+    let on_change = std::rc::Rc::new(on_change);
+    let (press, drag) = (on_change.clone(), on_change);
+    let (press_bounds, drag_bounds) = (bounds.clone(), bounds);
+    let at = |bounds: gpui::Bounds<Pixels>, x: Pixels| if bounds.size.width > px(0.) { ((x - bounds.left()) / bounds.size.width).clamp(0., 1.) } else { 0. };
+    div()
+        .id(id)
+        .relative()
+        .w_full()
+        .h(px(18.))
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .child(gpui::canvas(move |area, _, _| measured.set(area), |_, _, _, _| {}).absolute().inset_0())
+        .child(div().w_full().h(px(4.)).rounded(px(2.)).bg(theme.bg5).child(div().h_full().w(gpui::relative(value)).rounded(px(2.)).bg(theme.accent)))
+        .child(div().absolute().left(gpui::relative(value)).ml(px(-7.)).size(px(14.)).rounded_full().bg(theme.accent))
+        .on_mouse_down(gpui::MouseButton::Left, move |event, window, cx| press(at(press_bounds.get(), event.position.x), window, cx))
+        .on_mouse_move(move |event, window, cx| {
+            if event.pressed_button == Some(gpui::MouseButton::Left) {
+                drag(at(drag_bounds.get(), event.position.x), window, cx);
+            }
+        })
+}

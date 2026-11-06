@@ -20,6 +20,8 @@ pub struct Settings {
     pub remove_metadata: bool,
     /// The conversation list's width, which the desktop keeps apart.
     pub list_width: f32,
+    /// Channel headings folded away, by name.
+    pub collapsed_categories: Vec<String>,
 }
 
 impl Default for Settings {
@@ -36,6 +38,7 @@ impl Default for Settings {
             link_previews: true,
             remove_metadata: true,
             list_width: 320.,
+            collapsed_categories: Vec::new(),
         }
     }
 }

@@ -37,6 +37,8 @@ pub struct SettingsView {
     strength: (u8, String),
     confirming_keep: bool,
     busy: bool,
+    /// Holds focus while nothing in it does, so Escape closes it.
+    focus: gpui::FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -72,6 +74,8 @@ impl SettingsView {
                 cx.notify();
             }));
         }
+        let focus = cx.focus_handle();
+        window.focus(&focus);
         let mut view = SettingsView {
             state,
             section: section.unwrap_or_else(|| "profile".into()),
@@ -87,6 +91,7 @@ impl SettingsView {
             strength: (0, String::new()),
             confirming_keep: false,
             busy: false,
+            focus,
             _subscriptions: subscriptions,
         };
         view.reset_profile(cx);
@@ -310,16 +315,7 @@ impl SettingsView {
         cx.spawn(async move |_, cx| {
             let Ok(Ok(Some(paths))) = paths.await else { return };
             let Some(path) = paths.first() else { return };
-            let prepared = std::fs::read(path).ok().and_then(|bytes| image::load_from_memory(&bytes).ok()).and_then(|image| {
-                let side = image.width().min(image.height());
-                let square = image.crop_imm((image.width() - side) / 2, (image.height() - side) / 2, side, side).resize_exact(256, 256, image::imageops::FilterType::Lanczos3);
-                let mut out = Vec::new();
-                image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90).encode_image(&square.to_rgb8()).ok()?;
-                let file = crate::host::data_dir().join("files").join(format!("avatar-{}.jpg", crate::format::now_ms() as u64));
-                std::fs::create_dir_all(file.parent()?).ok()?;
-                std::fs::write(&file, out).ok()?;
-                Some(file)
-            });
+            let prepared = crate::media::prepare_avatar(path);
             state
                 .update(cx, |state, cx| match prepared {
                     Some(file) => state.act("updateProfile", vec![json!({}), crate::host::file(&file.to_string_lossy(), "image/jpeg")], cx),
@@ -881,6 +877,7 @@ impl Render for SettingsView {
             .flex()
             .bg(theme.bg_chat)
             .occlude()
+            .track_focus(&self.focus)
             .on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
                     if view.confirming_keep {

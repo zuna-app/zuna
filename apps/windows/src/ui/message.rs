@@ -1082,7 +1082,7 @@ fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool,
 }
 
 /// Decrypts a file and saves it where the person chooses.
-fn save_attachment(state: Entity<AppState>, server_id: String, reference: serde_json::Value, name: String, cx: &mut App) {
+pub fn save_attachment(state: Entity<AppState>, server_id: String, reference: serde_json::Value, name: String, cx: &mut App) {
     let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
     let chosen = cx.prompt_for_new_path(&downloads, Some(&name));
     state.update(cx, |_, cx| {

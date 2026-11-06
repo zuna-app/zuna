@@ -8,12 +8,14 @@ mod emoji_data;
 mod format;
 mod host;
 mod markup;
+mod media;
 mod models;
 mod platform;
 mod settings;
 mod state;
 mod theme;
 mod ui;
+mod voice;
 
 use gpui::{App, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions, actions, point, prelude::*, px, size};
 

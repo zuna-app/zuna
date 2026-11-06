@@ -30,6 +30,11 @@ impl MenuEntry {
         MenuEntry { label: label.into(), icon: Some(icon), danger: false, separator: false, action: Some(Rc::new(action)), submenu: None, avatar: None }
     }
 
+    /// A choice with no icon, as in a list of options.
+    pub fn plain(label: impl Into<String>, action: Action) -> Self {
+        MenuEntry { label: label.into(), icon: None, danger: false, separator: false, action: Some(action), submenu: None, avatar: None }
+    }
+
     pub fn with_avatar(mut self, name: String, seed: String, image: Option<std::sync::Arc<gpui::Image>>) -> Self {
         self.icon = None;
         self.avatar = Some((name, seed, image));

@@ -293,11 +293,14 @@ pub fn plain_text(text: &str) -> String {
 /// The first link in a text that can have a preview, leaving out those in code and
 /// spoilers (`findLink` in links.ts).
 pub fn find_link(text: &str) -> Option<String> {
+    shared_links(text).into_iter().find(|link| url::Url::parse(link).is_ok_and(|url| crate::host::web::previewable(&url)))
+}
+
+/// The links a message shares, leaving out those in code and spoilers (`sharedLinks` in links.ts).
+pub fn shared_links(text: &str) -> Vec<String> {
     static HIDDEN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|\|\|.*?\|\|").unwrap());
     let visible = HIDDEN.replace_all(text, " ");
-    URL.find_iter(&visible)
-        .map(|found| found.as_str().to_string())
-        .find(|link| url::Url::parse(link).is_ok_and(|url| crate::host::web::previewable(&url)))
+    URL.find_iter(&visible).map(|found| found.as_str().to_string()).collect()
 }
 
 /// The user IDs a message mentions (Composer.tsx's mentionsIn).

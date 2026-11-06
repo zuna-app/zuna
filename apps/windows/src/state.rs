@@ -126,6 +126,12 @@ pub enum Overlay {
     Image { file_id: String, name: String },
     /// Where to forward messages: any chat on any server.
     Forward { server_id: String, group_id: String, ids: Vec<String> },
+    /// People to add to a group.
+    AddMembers { group_id: String },
+    /// A server's settings, for its admins, and signing out of it.
+    ServerSettings { section: Option<String> },
+    /// Making a channel, or editing one, for server admins.
+    Channel { channel_id: Option<String>, category: Option<String> },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -133,6 +139,20 @@ pub enum Panel {
     Info,
     Search,
     Pins,
+    /// One kind of what's been shared in the chat.
+    Media(SharedKind),
+}
+
+/// What a chat's details list by kind, in Telegram's order.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum SharedKind {
+    Photo,
+    Video,
+    File,
+    Audio,
+    Link,
+    Voice,
+    Groups,
 }
 
 #[derive(Clone, PartialEq, Debug)]

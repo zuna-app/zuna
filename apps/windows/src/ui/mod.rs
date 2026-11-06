@@ -8,8 +8,11 @@ pub mod notifications;
 pub mod message;
 pub mod onboarding;
 pub mod overlays;
+pub mod invites;
 pub mod picker;
+pub mod server_settings;
 pub mod settings;
+pub mod shared_media;
 pub mod side_panel;
 pub mod text_input;
 
@@ -38,7 +41,8 @@ pub struct Root {
     onboarding: Entity<onboarding::Onboarding>,
     conversations: Entity<conversations::ConversationList>,
     chat: Option<(String, Entity<chat::ChatView>)>,
-    settings: Option<Entity<settings::SettingsView>>,
+    /// Settings, or a server's settings, over everything below the title bar, and which.
+    settings: Option<(crate::state::Overlay, gpui::AnyView)>,
     overlay: Option<(crate::state::Overlay, gpui::AnyView)>,
     resizing: Option<(f32, f32)>,
     menu: Entity<menu::MenuLayer>,
@@ -441,11 +445,15 @@ impl Root {
             self.settings = None;
             return None;
         };
-        if let crate::state::Overlay::Settings { section } = &wanted {
-            if self.settings.is_none() {
+        if matches!(wanted, crate::state::Overlay::Settings { .. } | crate::state::Overlay::ServerSettings { .. }) {
+            if self.settings.as_ref().map(|(shown, _)| shown != &wanted).unwrap_or(true) {
                 let state = self.state.clone();
-                let section = section.clone();
-                self.settings = Some(cx.new(|cx| settings::SettingsView::new(state, section, window, cx)));
+                let view: gpui::AnyView = match wanted.clone() {
+                    crate::state::Overlay::Settings { section } => cx.new(|cx| settings::SettingsView::new(state, section, window, cx)).into(),
+                    crate::state::Overlay::ServerSettings { section } => cx.new(|cx| server_settings::ServerSettings::new(state, section, window, cx)).into(),
+                    _ => unreachable!(),
+                };
+                self.settings = Some((wanted.clone(), view));
             }
             return None;
         }
@@ -579,7 +587,7 @@ impl Render for Root {
         };
 
         let overlay = self.overlay(window, cx);
-        let settings = self.settings.clone();
+        let settings = self.settings.as_ref().map(|(_, view)| view.clone());
         // As the desktop's useReturnFocus: when a dialog goes, the message box has focus again.
         let covered = overlay.is_some() || settings.is_some();
         if self.covered && !covered {
