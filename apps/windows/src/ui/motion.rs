@@ -10,7 +10,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use gpui::{AnimationElement, AnimationExt, AnyElement, App, Animation, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, Point, Styled, Window, point, px};
+use gpui::{AnimationElement, AnimationExt, AnyElement, App, Animation, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, Point, SharedString, Styled, Window, point, px};
+
+thread_local! {
+    /// When each `enter_once` element was first shown.
+    static FIRST_SEEN: RefCell<HashMap<SharedString, Instant>> = RefCell::new(HashMap::new());
+}
 
 /// A CSS cubic-bezier timing function.
 pub fn bezier(x1: f32, y1: f32, x2: f32, y2: f32) -> impl Fn(f32) -> f32 + Clone + 'static {
@@ -122,6 +127,26 @@ pub trait Motion: IntoElement + Styled + Sized + 'static {
     /// Animation effects setting stills too.
     fn appear(self, id: impl Into<ElementId>, kind: Enter, ms: u64) -> AnimationElement<Moving<Self>> {
         self.enter_after(id, kind, 0, if reduced_or_system() { 0 } else { ms })
+    }
+
+    /// Comes in the first time it's shown, and is simply there after that: inside a list
+    /// that draws only the rows on screen, a row scrolled back into view is a new element
+    /// to GPUI, which would play its animation again on every scroll.
+    fn enter_once(self, id: impl Into<SharedString>, kind: Enter, ms: u64) -> AnyElement {
+        let id: SharedString = id.into();
+        let now = Instant::now();
+        let first = FIRST_SEEN.with(|seen| {
+            let mut seen = seen.borrow_mut();
+            if seen.len() > 20_000 {
+                seen.retain(|_, at| now - *at < Duration::from_secs(5));
+            }
+            *seen.entry(id.clone()).or_insert(now)
+        });
+        if now - first < Duration::from_millis(ms) {
+            self.enter(ElementId::Name(id), kind, ms).into_any_element()
+        } else {
+            self.into_any_element()
+        }
     }
 
     /// The same, after waiting, as `animation: <kind> <ms> <delay> both`.

@@ -668,7 +668,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
         }
         None => chip.child(div().text_size(px(16.)).line_height(px(20.)).child(reaction.key.clone())),
     };
-    chip.child(reaction.user_ids.len().to_string()).enter(SharedString::from(format!("creaction-in-{}-{}", message.id, reaction.key)), Enter::Pop, 100).into_any_element()
+    chip.child(reaction.user_ids.len().to_string()).enter_once(format!("creaction-in-{}-{}", message.id, reaction.key), Enter::Pop, 100)
 }
 
 /// A link's preview in a channel, as Discord's embed: a bar on the left, the title as a link.

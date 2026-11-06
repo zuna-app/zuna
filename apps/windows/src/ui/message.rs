@@ -964,7 +964,7 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
         chip = chip.child(reaction.user_ids.len().to_string());
     }
     // `.reaction`: pop-in 0.1s, when it's first there.
-    chip.enter(SharedString::from(format!("reaction-in-{}-{}", message.id, reaction.key)), Enter::Pop, 100).into_any_element()
+    chip.enter_once(format!("reaction-in-{}-{}", message.id, reaction.key), Enter::Pop, 100)
 }
 
 /// The corners of the pictures above a message, as `.media-grid`'s `border-radius: inherit`
@@ -1055,7 +1055,7 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                     .cursor_pointer()
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)))
                     // `.media-full`: faded in over the preview once it's here.
-                    .child(round_corners(if single { img(image).object_fit(gpui::ObjectFit::Cover) } else { cover(image, shape, 418, cx) }.size_full(), corners).enter(SharedString::from(format!("media-full-{}-{}", message.id, attachment.file_id)), Enter::Fade, 120));
+                    .child(round_corners(if single { img(image).object_fit(gpui::ObjectFit::Cover) } else { cover(image, shape, 418, cx) }.size_full(), corners).enter_once(format!("media-full-{}-{}", message.id, attachment.file_id), Enter::Fade, 120));
             } else {
                 if let Some(thumb) = thumb {
                     tile = tile.child(round_corners(cover(thumb, shape, 200, cx).size_full().opacity(0.85), corners));
