@@ -1058,24 +1058,20 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
             };
             let image = context.images.get(&attachment.file_id).cloned();
             let thumb = attachment.thumb.as_ref().and_then(|thumb| data_url_image(thumb));
+            // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
+            // bubble's width, as wide as text or a link preview made it, keeping its shape. It
+            // lies over a box that's sized so (`aspect_fill`). A channel's has no bubble to fill,
+            // and stays its own size.
+            let fills = single && !context.is_channel;
             let mut tile = round_corners(
                 div()
                     .id(SharedString::from(format!("tile-{}-{}", message.id, attachment.file_id)))
                     .relative()
-                    .w(px(w as f32))
                     .when(image.is_none(), |el| el.bg(theme.bg3))
                     .overflow_hidden(),
                 corners,
             );
-            if single && !context.is_channel {
-                // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
-                // bubble's width, as wide as text or a link preview made it, keeping its shape.
-                // A channel's has no bubble to fill, and stays its own size.
-                tile = tile.min_w(relative(1.)).max_w(relative(1.));
-                tile.style().aspect_ratio = Some((width / height) as f32);
-            } else {
-                tile = tile.h(px(h as f32));
-            }
+            tile = if fills { tile.absolute().inset_0() } else { tile.w(px(w as f32)).h(px(h as f32)) };
             if let Some(image) = image {
                 let state = context.state.clone();
                 let (file_id, name) = (attachment.file_id.clone(), attachment.name.clone());
@@ -1119,7 +1115,7 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                     }
                 }
             }
-            grid = grid.child(tile);
+            grid = if fills { grid.child(div().relative().w_full().child(aspect_fill(w as f32, h as f32)).child(tile)) } else { grid.child(tile) };
         }
         column = column.child(grid);
     }

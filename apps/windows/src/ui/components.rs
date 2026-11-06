@@ -417,6 +417,62 @@ pub trait OneLine: Styled + Sized {
 impl<T: Styled> OneLine for T {}
 
 /// Each of four corners rounded as given.
+/// An empty box that fills its parent's width and is as tall as a picture of this size is at
+/// that width, as CSS's `width: 100%; aspect-ratio` makes one. With nothing given it's the
+/// picture's own size, so that's the width it asks of what holds it. Taffy's own aspect ratio,
+/// with percentage widths, sized the row it was in by another width, leaving it taller than
+/// the picture.
+pub struct AspectFill {
+    width: f32,
+    height: f32,
+}
+
+pub fn aspect_fill(width: f32, height: f32) -> AspectFill {
+    AspectFill { width: width.max(1.), height: height.max(1.) }
+}
+
+impl IntoElement for AspectFill {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl gpui::Element for AspectFill {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, window: &mut Window, _: &mut App) -> (gpui::LayoutId, ()) {
+        let (width, height) = (self.width, self.height);
+        let mut style = gpui::Style::default();
+        style.size.width = gpui::relative(1.).into();
+        let layout = window.request_measured_layout(style, move |known, available, _, _| {
+            // At its narrowest it gives way, as a picture with `max-width: 100%` does, so a
+            // bubble with less room shrinks it rather than running past the chat's edge.
+            let across = known.width.unwrap_or_else(|| match available.width {
+                gpui::AvailableSpace::Definite(room) => room.min(px(width)),
+                gpui::AvailableSpace::MinContent => px(width).min(px(140.)),
+                gpui::AvailableSpace::MaxContent => px(width),
+            });
+            gpui::size(across, across * (height / width))
+        });
+        (layout, ())
+    }
+
+    fn prepaint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, _: gpui::Bounds<Pixels>, _: &mut (), _: &mut Window, _: &mut App) {}
+
+    fn paint(&mut self, _: Option<&gpui::GlobalElementId>, _: Option<&gpui::InspectorElementId>, _: gpui::Bounds<Pixels>, _: &mut (), _: &mut (), _: &mut Window, _: &mut App) {}
+}
+
 pub fn round_corners<E: Styled>(element: E, corners: gpui::Corners<Pixels>) -> E {
     element.rounded_tl(corners.top_left).rounded_tr(corners.top_right).rounded_br(corners.bottom_right).rounded_bl(corners.bottom_left)
 }

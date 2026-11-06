@@ -324,9 +324,12 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
     let player = context.state.read(cx).videos.get(&key).cloned();
     let file = context.state.read(cx).media_files.get(&key).cloned();
     let thumb = attachment.thumb.as_ref().and_then(|thumb| super::message::data_url_image(thumb));
-    let mut frame = div().id(SharedString::from(format!("video-{key}"))).relative().w(px(w as f32)).h(px(h as f32)).my(px(2.)).rounded(RADIUS_M).overflow_hidden().bg(gpui::black());
+    // Its own size where there's room, and narrower, keeping its shape, where the bubble has
+    // less, as `max-width: 100%` lets the desktop's.
+    let sized = move |frame: gpui::Stateful<gpui::Div>| div().relative().w_full().max_w(px(w as f32)).my(px(2.)).child(aspect_fill(w as f32, h as f32)).child(frame.absolute().inset_0()).into_any_element();
+    let mut frame = div().id(SharedString::from(format!("video-{key}"))).relative().rounded(RADIUS_M).overflow_hidden().bg(gpui::black());
     if let Some(player) = player {
-        return frame.child(context.video_slots.place(player)).into_any_element();
+        return sized(frame.child(context.video_slots.place(player)));
     }
     frame = frame.bg(theme.bg3);
     if let Some(thumb) = thumb {
@@ -359,7 +362,7 @@ pub fn video(attachment: &Attachment, context: &ChatContext, cx: &mut App) -> An
             })
         });
     }
-    frame.into_any_element()
+    sized(frame)
 }
 
 /// A video message, as Telegram's: a circle that plays by itself without sound, over and
