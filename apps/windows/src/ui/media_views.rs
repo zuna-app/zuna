@@ -352,12 +352,17 @@ pub struct VideoPlayer {
     origin: Instant,
     from: f64,
     position: f64,
+    /// When it was last drawn: off screen it stops, as the desktop's video does when its
+    /// chat is left, instead of decoding frames nobody sees.
+    drawn: Instant,
+    /// Stopped for being off screen, so a video message starts its loop again when it's back.
+    offscreen: bool,
     _tick: Option<Task<()>>,
 }
 
 impl VideoPlayer {
     pub fn new(key: String, path: PathBuf, round: bool, clip: Option<Clip>, cx: &mut Context<Self>) -> Self {
-        let mut player = VideoPlayer { key, path, round, heard: !round, playing: false, clip, frame: None, retired: Vec::new(), next: None, frames: None, origin: Instant::now(), from: 0., position: 0., _tick: None };
+        let mut player = VideoPlayer { key, path, round, heard: !round, playing: false, clip, frame: None, retired: Vec::new(), next: None, frames: None, origin: Instant::now(), from: 0., position: 0., drawn: Instant::now(), offscreen: false, _tick: None };
         player.start(0., cx);
         player
     }
@@ -425,6 +430,22 @@ impl VideoPlayer {
     /// Shows the frame that's due; false once it stopped.
     fn tick(&mut self, cx: &mut Context<Self>) -> bool {
         if !self.playing {
+            return false;
+        }
+        if self.drawn.elapsed() > Duration::from_millis(500) {
+            // Its chat was left. Frames retired since it was last drawn were never painted, so
+            // they're let go here, all but the one that was, which its next draw gives back.
+            self.playing = false;
+            self.frames = None;
+            self.next = None;
+            self.retired.truncate(1);
+            if self.heard {
+                player::stop(&self.key);
+                if self.round {
+                    self.heard = false;
+                }
+            }
+            self.offscreen = true;
             return false;
         }
         let clock = self.clock();
@@ -505,6 +526,14 @@ impl Render for VideoPlayer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         for old in self.retired.drain(..) {
             window.drop_image(old).ok();
+        }
+        self.drawn = Instant::now();
+        if self.offscreen {
+            self.offscreen = false;
+            // Back on screen, a video message loops again without sound.
+            if self.round {
+                self.start(0., cx);
+            }
         }
         let mut stage = div().size_full().relative();
         if self.round {
