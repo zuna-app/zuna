@@ -46,6 +46,15 @@ pub struct ChatContext {
     /// Who's in the chat and how far each has read, for "Read by n".
     pub members: Vec<String>,
     pub read_by: HashMap<String, f64>,
+    /// A text channel, laid out as Discord's, and what its welcome says.
+    pub is_channel: bool,
+    pub channel_title: String,
+    pub channel_description: String,
+    pub channel_id: Option<String>,
+    pub is_server_admin: bool,
+    /// The message being edited where it is, in a channel, and the field it's edited in.
+    pub editing_id: Option<String>,
+    pub inline_editor: Option<Entity<super::text_input::TextInput>>,
 }
 
 const GROUP_WINDOW_MS: f64 = 5. * 60. * 1000.;
@@ -60,14 +69,14 @@ pub fn continues(a: Option<&MessageView>, b: Option<&MessageView>) -> bool {
     }
 }
 
-fn name_of(context: &ChatContext, id: &str) -> String {
+pub(super) fn name_of(context: &ChatContext, id: &str) -> String {
     if id == context.self_id {
         return "You".into();
     }
     context.users.get(id).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into())
 }
 
-fn system_text(message: &MessageView, context: &ChatContext) -> String {
+pub(super) fn system_text(message: &MessageView, context: &ChatContext) -> String {
     let system = message.system.as_ref().unwrap();
     let actor = system.actor_id.as_deref().map(|id| name_of(context, id)).unwrap_or_else(|| "Someone".into());
     let targets = system.target_ids.clone().unwrap_or_default().iter().map(|id| name_of(context, id)).collect::<Vec<_>>().join(", ");
@@ -92,6 +101,9 @@ fn pill(text: String, theme: &Theme) -> gpui::Div {
 
 /// One row: the separators above a message, then the message.
 pub fn render_row(items: &[MessageView], index: usize, context: &ChatContext, window: &mut Window, cx: &mut App) -> AnyElement {
+    if context.is_channel {
+        return super::channel_message::render_row(items, index, context, window, cx);
+    }
     let theme = theme(cx);
     let message = &items[index];
     let previous = index.checked_sub(1).and_then(|i| items.get(i));
@@ -729,7 +741,7 @@ fn flow_text(
     row.into_any_element()
 }
 
-fn text_body(message: &MessageView, own: bool, meta_in_text: bool, context: &ChatContext, theme: &Theme, window: &mut Window, cx: &mut App) -> AnyElement {
+pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, context: &ChatContext, theme: &Theme, window: &mut Window, cx: &mut App) -> AnyElement {
     let markup_context = markup::Context { emotes: &message.emotes, mentionable: &context.mentionable, self_id: &context.self_id };
     let blocks = markup::parse(&message.text, &markup_context);
     let base = if own { theme.bubble_own_text } else { theme.text1 };
@@ -884,7 +896,7 @@ fn code_block(text: &str, language: Option<&str>, message_id: &str, index: usize
         .into_any_element()
 }
 
-fn jumbo_body(message: &MessageView, _size: u8, context: &ChatContext, cx: &mut App) -> AnyElement {
+pub(super) fn jumbo_body(message: &MessageView, _size: u8, context: &ChatContext, cx: &mut App) -> AnyElement {
     let mut row = div().flex().flex_wrap().items_end().gap(px(2.));
     for word in message.text.split_whitespace() {
         if let Some(emote) = message.emotes.get(word) {
@@ -979,16 +991,21 @@ fn rounded_image(image: gpui::Img, single: bool, only_images: bool, own: bool, g
     image.rounded_tl(tl).rounded_tr(tr).rounded_bl(bl).rounded_br(br)
 }
 
-fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, after_header: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
+pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, after_header: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let mut column = div().flex().flex_col();
     if !images.is_empty() {
         let single = images.len() == 1;
-        let mut grid = div().relative().flex().flex_wrap().gap(px(2.)).mx(px(-11.)).mt(px(if after_header { 4. } else { -7. })).mb(px(if only_images { -7. } else { 6. })).overflow_hidden();
-        if !after_header {
-            grid = grid.rounded_t(px(15.));
-        }
-        if only_images {
-            grid = if after_header { grid.rounded_b(px(15.)) } else { grid.rounded(px(15.)) };
+        let mut grid = div().relative().flex().flex_wrap().gap(px(2.)).overflow_hidden();
+        if context.is_channel {
+            grid = grid.max_w(px(550.)).rounded(px(8.));
+        } else {
+            grid = grid.mx(px(-11.)).mt(px(if after_header { 4. } else { -7. })).mb(px(if only_images { -7. } else { 6. }));
+            if !after_header {
+                grid = grid.rounded_t(px(15.));
+            }
+            if only_images {
+                grid = if after_header { grid.rounded_b(px(15.)) } else { grid.rounded(px(15.)) };
+            }
         }
         for attachment in images {
             let width = attachment.width.unwrap_or(320.);
@@ -1055,6 +1072,32 @@ fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool,
         let server_id = context.server_id.clone();
         let reference = serde_json::json!({ "fileId": attachment.file_id, "key": attachment.key, "prefix": attachment.prefix, "chunks": attachment.chunks, "mime": attachment.mime });
         let name = attachment.name.clone();
+        if context.is_channel {
+            column = column.child(
+                div()
+                    .id(SharedString::from(format!("file-{}-{}", message.id, attachment.file_id)))
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .w(px(432.))
+                    .max_w_full()
+                    .p(px(12.))
+                    .rounded(px(8.))
+                    .bg(theme.bg2)
+                    .border_1()
+                    .border_color(theme.line)
+                    .cursor_pointer()
+                    .hover(|style| style.border_color(theme.line_strong))
+                    .on_click({
+                        let (state, server_id, reference, name) = (state.clone(), server_id.clone(), reference.clone(), name.clone());
+                        move |_, _, cx| save_attachment(state.clone(), server_id.clone(), reference.clone(), name.clone(), cx)
+                    })
+                    .child(div().size(px(40.)).flex_none().rounded(px(8.)).flex().items_center().justify_center().bg(theme.bg3).child(icon("file", 18., theme.text1)))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child(div().one_line().text_size(px(15.)).text_color(theme.link).child(label.clone())).child(div().text_size(px(12.)).text_color(theme.text2).child(format_bytes(attachment.size))))
+                    .child(icon("download", 15., theme.text2)),
+            );
+            continue;
+        }
         column = column.child(
             div()
                 .id(SharedString::from(format!("file-{}-{}", message.id, attachment.file_id)))
@@ -1160,7 +1203,7 @@ fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, _cx
     card.into_any_element()
 }
 
-fn menu_entries(message: &MessageView, own: bool, can_act: bool, context: &ChatContext) -> Vec<MenuEntry> {
+pub(super) fn menu_entries(message: &MessageView, own: bool, can_act: bool, context: &ChatContext) -> Vec<MenuEntry> {
     let mut entries = Vec::new();
     let state = context.state.clone();
     let list_id = context.list_id.clone();

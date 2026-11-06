@@ -29,4 +29,4 @@ For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` 
 
 ## What's missing
 
-Voice channels, calls and screen sharing; channels laid out as Discord's; voice and video messages; sharing a location; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.
+Voice channels, calls and screen sharing; voice and video messages; sharing a location; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.

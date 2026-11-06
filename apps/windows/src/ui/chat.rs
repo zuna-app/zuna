@@ -100,6 +100,9 @@ pub struct ChatView {
     was_selecting: bool,
     /// Holds focus while messages are picked, so Escape stops picking.
     focus: gpui::FocusHandle,
+    inline_editor: Entity<TextInput>,
+    /// The channel message being edited where it is.
+    inline_editing: Option<String>,
     /// Unread messages here that mention you or reply to you, oldest first, and what they were asked for.
     mentions: Vec<(String, f64)>,
     mentions_asked: Option<(f64, f64)>,
@@ -132,6 +135,7 @@ impl ChatView {
             input.set_newline_on_enter(false);
             input
         });
+        let inline_editor = cx.new(|cx| TextInput::new(cx, "").multiline());
         let list = ListState::new(0, ListAlignment::Bottom, px(800.));
         let weak = cx.entity().downgrade();
         list.set_scroll_handler(move |event, _window, cx| {
@@ -147,6 +151,7 @@ impl ChatView {
                 cx.notify();
             }),
             cx.subscribe_in(&composer, window, |view, _, event, window, cx| view.on_composer(event, window, cx)),
+            cx.subscribe_in(&inline_editor, window, |view, _, event, window, cx| view.on_inline_editor(event, window, cx)),
         ];
         let mut view = ChatView {
             state,
@@ -176,6 +181,8 @@ impl ChatView {
             slow_tick: None,
             was_selecting: false,
             focus: cx.focus_handle(),
+            inline_editor,
+            inline_editing: None,
             mentions: Vec::new(),
             mentions_asked: None,
             _subscriptions: subscriptions,
@@ -404,8 +411,11 @@ impl ChatView {
                 });
                 if let Some(message) = last {
                     let text = message.text.clone();
+                    let channel = self.conversation(cx).is_some_and(|c| c.kind == "channel");
                     self.state.update(cx, |state, cx| state.set_editing(&list_id, Some(message), cx));
-                    self.composer.update(cx, |input, cx| input.set_text(text, cx));
+                    if !channel {
+                        self.composer.update(cx, |input, cx| input.set_text(text, cx));
+                    }
                 }
             }
             InputEvent::Focused => {
@@ -598,7 +608,7 @@ impl ChatView {
         let waiting = self.slow_wait(&conversation, cx) > 0;
         let state = self.state.read(cx);
         let Some(server) = state.servers.get(&self.server_id) else { return };
-        let editing = state.editing.get(&list_id).cloned();
+        let editing = if conversation.kind == "channel" { None } else { state.editing.get(&list_id).cloned() };
         let reply = state.reply_to.get(&list_id).cloned();
         if value.is_empty() && (self.files.is_empty() || editing.is_some()) {
             return;
@@ -860,12 +870,45 @@ impl ChatView {
                 );
             }
         }
-        let editing = state.editing.get(&list_id).cloned();
+        let is_channel = conversation.kind == "channel";
+        let editing = if is_channel { None } else { state.editing.get(&list_id).cloned() };
         let reply = state.reply_to.get(&list_id).cloned();
         let can_send = !self.composer.read(cx).text().trim().is_empty() || (!self.files.is_empty() && editing.is_none());
         let server_url = server.entry.url.clone();
-        let mut area = div().flex_none().relative().bg(theme.bg1).border_t_1().border_color(theme.line);
-        if editing.is_some() || reply.is_some() {
+        let mut area = if is_channel { div().relative().rounded(px(8.)).bg(theme.bg2) } else { div().flex_none().relative().bg(theme.bg1).border_t_1().border_color(theme.line) };
+        if let (true, Some(context)) = (is_channel, reply.clone()) {
+            // What's being replied to, joined to the top of the box.
+            let sender = if context.sender_id == server.self_id() { "yourself".to_string() } else { server.display_name(&context.sender_id) };
+            let state = self.state.clone();
+            let list = list_id.clone();
+            area = area.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(34.))
+                    .pl(px(16.))
+                    .pr(px(6.))
+                    .rounded_t(px(8.))
+                    .bg(theme.bg1)
+                    .text_size(px(14.))
+                    .text_color(theme.text2)
+                    .child(div().flex_1().min_w_0().flex().child("Replying to ").child(div().font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(sender)))
+                    .child(
+                        div()
+                            .id("cancel-reply")
+                            .size(px(26.))
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(theme.hover_strong))
+                            .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list, None, cx)))
+                            .child(icon("x", 15., theme.text2)),
+                    ),
+            );
+        } else if editing.is_some() || reply.is_some() {
             let context = editing.clone().or(reply.clone()).unwrap();
             let sender = if context.sender_id == server.self_id() { "yourself".to_string() } else { server.display_name(&context.sender_id) };
             let title = if editing.is_some() { "Editing message".to_string() } else { format!("Replying to {sender}") };
@@ -1013,14 +1056,34 @@ impl ChatView {
         let wait = if editing.is_none() { self.slow_wait(conversation, cx) } else { 0 };
         let send_ready = can_send;
         let send_color = if send_ready { theme.text1 } else { theme.text3 };
-        area = area.child(
+        let row = if is_channel {
             div()
                 .flex()
-                .items_end()
-                .gap(px(2.))
-                .px(px(10.))
-                .py(px(8.))
-                .when(editing.is_none(), |el| el.child(icon_button("attach", "paperclip", 18., false, false, cx).tooltip(tooltip("Attach")).on_click(cx.listener(|view, _, window, cx| view.attach(window, cx)))))
+                .items_start()
+                .min_h(px(44.))
+                .pr(px(6.))
+                .child(
+                    div()
+                        .id("attach")
+                        .w(px(56.))
+                        .h(px(44.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_pointer()
+                        .tooltip(tooltip("Attach"))
+                        .on_click(cx.listener(|view, _, window, cx| view.attach(window, cx)))
+                        .child(icon("plus-circle-filled", 22., theme.text2)),
+                )
+        } else {
+            div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
+                el.child(icon_button("attach", "paperclip", 18., false, false, cx).tooltip(tooltip("Attach")).on_click(cx.listener(|view, _, window, cx| view.attach(window, cx))))
+            })
+        };
+        let message_size = if is_channel { theme.message_size + px(1.5) } else { theme.message_size };
+        area = area.child(
+            row
                 .child(
                     div()
                         .id("composer-scroll")
@@ -1028,14 +1091,12 @@ impl ChatView {
                         .min_w_0()
                         .max_h(px(220.))
                         .overflow_y_scroll()
-                        .px(px(6.))
-                        .py(px(6.))
-                        .min_h(px(32.))
-                        .text_size(theme.message_size)
-                        .line_height(px(20.))
+                        .when(!is_channel, |el| el.px(px(6.)).py(px(6.)).min_h(px(32.)).line_height(px(20.)))
+                        .when(is_channel, |el| el.pr(px(6.)).py(px(11.)).min_h(px(44.)).line_height(px(22.)))
+                        .text_size(message_size)
                         .child(self.composer.clone()),
                 )
-                .child(icon_button("emoji", "face-slightly-smiling", 18., false, false, cx).tooltip(tooltip("Emoji and emotes")).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
+                .child(icon_button("emoji", "face-slightly-smiling", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tooltip(tooltip("Emoji and emotes")).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
                     let composer = view.composer.clone();
                     let position = gpui::point(event.position().x - px(314.), event.position().y - px(10.));
                     super::picker::open_picker(
@@ -1080,6 +1141,7 @@ impl ChatView {
                     el.child(
                         div()
                             .id("send")
+                            .when(is_channel, |el| el.mt(px(6.)))
                             .size(px(32.))
                             .flex_none()
                             .flex()
@@ -1093,7 +1155,322 @@ impl ChatView {
                     )
                 }),
         );
+        if is_channel {
+            return div().flex_none().px(px(16.)).bg(theme.bg_chat).child(area).into_any_element();
+        }
         area.into_any_element()
+    }
+
+    // --- Channels ---
+
+    /// A channel's header, as Discord's: its name and topic, then notifications, pins,
+    /// the member list and a search box.
+    fn channel_header(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let state = self.state.read(cx);
+        let panel = state.panel;
+        let show_members = !state.settings.hide_member_list;
+        let muted = conversation.muted;
+        let muted_color = theme::color(theme::hex(0x8b8b92));
+        let details = |id: &'static str, state: Entity<AppState>| {
+            div().id(id).cursor_pointer().on_click(move |_, _, cx| {
+                state.update(cx, |state, cx| state.toggle_panel(Panel::Info, cx));
+            })
+        };
+        let action = |id: &'static str, icon_name: &'static str, active: bool| {
+            div()
+                .id(id)
+                .size(px(32.))
+                .mx(px(2.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .cursor_pointer()
+                .child(icon(icon_name, 20., if active { theme.text1 } else { theme.text2 }))
+        };
+        let (mute_state, mute_key) = (self.state.clone(), conversation.key.clone());
+        let pins_state = self.state.clone();
+        let members_state = self.state.clone();
+        let search_state = self.state.clone();
+        let searching = panel == Some(Panel::Search);
+        div()
+            .flex_none()
+            .h(px(48.))
+            .flex()
+            .items_center()
+            .pl(px(16.))
+            .pr(px(8.))
+            .bg(theme.bg_chat)
+            .border_b_1()
+            .border_color(theme.line)
+            .shadow(vec![gpui::BoxShadow { color: theme::color(theme::black_a(0.25)), offset: gpui::point(px(0.), px(1.)), blur_radius: px(2.), spread_radius: px(0.) }])
+            .child(
+                details("channel-name", self.state.clone())
+                    .flex_shrink()
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(icon("hash", 22., muted_color))
+                    .child(div().min_w_0().one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::SEMIBOLD).child(conversation.title.clone())),
+            )
+            .when(!conversation.description.is_empty(), |el| {
+                el.child(div().flex_none().w(px(1.)).h(px(24.)).mx(px(12.)).bg(theme.line_strong))
+                    .child(details("channel-topic", self.state.clone()).flex_shrink().min_w_0().one_line().text_size(px(14.)).line_height(px(18.)).text_color(theme.text2).tooltip(tooltip(conversation.description.clone())).child(conversation.description.clone()))
+            })
+            .child(div().flex_1())
+            .child(
+                action("channel-mute", if muted { "bell-off" } else { "bell" }, false)
+                    .tooltip(tooltip(if muted { "Unmute channel" } else { "Notification settings" }))
+                    .on_click(move |event, _, cx| {
+                        if muted {
+                            mute_state.update(cx, |state, cx| state.act("unmute", vec![json!(mute_key)], cx));
+                        } else {
+                            super::menu::open_menu(event.position(), super::conversations::mute_entries(mute_key.clone(), mute_state.clone()), true, cx);
+                        }
+                    }),
+            )
+            .child(action("channel-pins", "pin", panel == Some(Panel::Pins)).tooltip(tooltip("Pinned messages")).on_click(move |_, _, cx| pins_state.update(cx, |state, cx| state.toggle_panel(Panel::Pins, cx))))
+            .child(
+                action("channel-members", "users", show_members && panel.is_none())
+                    .tooltip(tooltip(if show_members { "Hide member list" } else { "Show member list" }))
+                    .on_click(move |_, _, cx| {
+                        members_state.update(cx, |state, cx| {
+                            // It takes the place of whatever panel was open.
+                            if state.panel.is_some() {
+                                state.panel = None;
+                                cx.notify();
+                                if !state.settings.hide_member_list {
+                                    return;
+                                }
+                            }
+                            state.update_settings(|settings| settings.hide_member_list = !settings.hide_member_list, cx);
+                        })
+                    }),
+            )
+            .child(
+                div()
+                    .id("channel-search")
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(6.))
+                    .w(px(if searching { 220. } else { 144. }))
+                    .h(px(26.))
+                    .ml(px(8.))
+                    .mr(px(4.))
+                    .pl(px(8.))
+                    .pr(px(7.))
+                    .rounded(px(6.))
+                    .bg(theme.bg2)
+                    .text_size(px(14.))
+                    .text_color(if searching { theme.text1 } else { muted_color })
+                    .cursor_pointer()
+                    .hover(move |style| style.text_color(theme.text2))
+                    .on_click(move |_, _, cx| search_state.update(cx, |state, cx| state.toggle_panel(Panel::Search, cx)))
+                    .child("Search")
+                    .child(icon("search", 15., if searching { theme.text1 } else { muted_color })),
+            )
+            .into_any_element()
+    }
+
+    /// Everyone on the server, as Discord lists a channel's members: online first, then the rest, faded.
+    fn member_list(&self, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let state = self.state.read(cx);
+        let Some(server) = state.servers.get(&self.server_id) else { return div().into_any_element() };
+        let mut users: Vec<UserView> = server.users.values().filter(|user| !user.banned).cloned().collect();
+        users.sort_by_key(|user| user.display_name.to_lowercase());
+        let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().partition(|user| user.online || user.is_self);
+        let server_id = self.server_id.clone();
+        let mut list = div().id("member-list").flex_none().w(px(240.)).h_full().overflow_y_scroll().pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
+        for (title, people, here) in [("Online", online, true), ("Offline", offline, false)] {
+            if people.is_empty() {
+                continue;
+            }
+            list = list.child(div().h(px(40.)).pt(px(24.)).pr(px(8.)).pl(px(16.)).text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme::color(theme::hex(0x8b8b92))).child(format!("{} — {}", title.to_uppercase(), people.len())));
+            for user in people {
+                let image = user.avatar.as_ref().and_then(|avatar| self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, avatar, cx)));
+                let (open_state, profile_id) = (self.state.clone(), user.id.clone());
+                let (menu_state, menu_id, is_self) = (self.state.clone(), user.id.clone(), user.is_self);
+                let group = SharedString::from(format!("member-item-{}", user.id));
+                list = list.child(
+                    div()
+                        .id(group.clone())
+                        .group(group.clone())
+                        .mx(px(8.))
+                        .mt(px(1.))
+                        .h(px(42.))
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .px(px(8.))
+                        .rounded(px(6.))
+                        .cursor_pointer()
+                        .when(!here, |el| el.opacity(0.35))
+                        .hover(move |style| style.bg(theme.hover_strong).opacity(1.))
+                        .on_click(move |_, _, cx| open_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: profile_id.clone() }), cx)))
+                        .on_mouse_down(MouseButton::Right, move |event, _, cx| {
+                            let mut entries = Vec::new();
+                            let (state, id) = (menu_state.clone(), menu_id.clone());
+                            entries.push(super::menu::MenuEntry::new("Profile", "user-round", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: id.clone() }), cx))));
+                            if !is_self {
+                                let (state, key) = (menu_state.clone(), format!("user:{}", menu_id));
+                                entries.push(super::menu::MenuEntry::new("Message", "message-circle", move |_, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
+                            }
+                            super::menu::open_menu(event.position, entries, false, cx);
+                        })
+                        .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: here && !user.is_self || user.online, rounded: false, dot_border: theme.bg1 }, cx))
+                        .child(div().flex_none().max_w(px(if user.role == "owner" { 140. } else { 164. })).one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).text_color(theme::css(crate::format::name_color(&user.id))).child(user.display_name.clone()))
+                        .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tooltip(tooltip("Server owner")).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
+                );
+            }
+        }
+        list.into_any_element()
+    }
+
+    /// Who's typing in a channel, under the message box, with slow mode on the right. Always there, so nothing moves.
+    fn channel_typing(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let state = self.state.read(cx);
+        let server = state.servers.get(&self.server_id);
+        let names: Vec<String> = conversation
+            .group_id
+            .as_ref()
+            .and_then(|group| server.and_then(|server| server.typing.get(group)))
+            .map(|typing| typing.keys().filter(|id| server.is_some_and(|server| *id != server.self_id())).map(|id| server.and_then(|server| server.users.get(id)).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into())).collect())
+            .unwrap_or_default();
+        let bold = |name: &str| div().font_weight(FontWeight::BOLD).child(name.to_string());
+        let text: Option<gpui::Div> = match names.len() {
+            0 => None,
+            1 => Some(div().flex().child(bold(&names[0])).child("\u{a0}is typing…")),
+            2 => Some(div().flex().child(bold(&names[0])).child("\u{a0}and\u{a0}").child(bold(&names[1])).child("\u{a0}are typing…")),
+            3 => Some(div().flex().child(bold(&names[0])).child(",\u{a0}").child(bold(&names[1])).child("\u{a0}and\u{a0}").child(bold(&names[2])).child("\u{a0}are typing…")),
+            _ => Some(div().child("Several people are typing…")),
+        };
+        div()
+            .flex_none()
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .pl(px(18.))
+            .pr(px(16.))
+            .text_size(px(14.))
+            .text_color(theme.text1)
+            .bg(theme.bg_chat)
+            .overflow_hidden()
+            .when_some(text, |el, text| el.child(typing_dots(theme.text1)).child(div().min_w_0().overflow_hidden().child(text)))
+            .when(conversation.slow_mode > 0., |el| {
+                el.child(
+                    div()
+                        .id("slow-mode")
+                        .ml_auto()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .text_size(px(13.))
+                        .text_color(theme.text2)
+                        .tooltip(tooltip(format!("One message every {} for each person, except admins", crate::format::timer_text(conversation.slow_mode))))
+                        .child(icon("timer", 14., theme.text2))
+                        .child("Slow mode is on"),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// Back to the newest messages from a channel's older ones: a bar along the bottom of the list.
+    fn jump_present(&self, conversation: &ConversationView, unread_below: u32, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let first_unread = self.unread_line.clone().flatten().and_then(|id| self.state.read(cx).lists.get(&conversation.list_id()).and_then(|list| list.items.iter().find(|item| item.id == id).map(|item| item.created_at)));
+        let text = if unread_below > 0 {
+            let count = if unread_below > 99 { "99+".to_string() } else { unread_below.to_string() };
+            let since = first_unread.map(|at| format!(" since {}", crate::format::format_time(at))).unwrap_or_default();
+            format!("{count} new {}{since}", if unread_below == 1 { "message" } else { "messages" })
+        } else {
+            "You're viewing older messages".to_string()
+        };
+        let list_state = self.list.clone();
+        let state = self.state.clone();
+        let list_id = conversation.list_id();
+        let count = self.rows.len();
+        let detached = self.state.read(cx).lists.get(&list_id).is_some_and(|list| list.detached);
+        div()
+            .id("jump-present")
+            .absolute()
+            .left(px(16.))
+            .right(px(16.))
+            .bottom_0()
+            .h(px(32.))
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap(px(12.))
+            .px(px(12.))
+            .rounded_t(px(8.))
+            .bg(theme.bg3)
+            .shadow(shadow_s())
+            .text_size(px(14.))
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(theme.text2)
+            .cursor_pointer()
+            .hover(move |style| style.bg(theme.bg4).text_color(theme.text1))
+            .on_click(move |_, _, cx| {
+                if detached {
+                    state.update(cx, |state, cx| state.return_to_latest(&list_id, cx));
+                } else {
+                    list_state.scroll_to(gpui::ListOffset { item_ix: count, offset_in_item: px(0.) });
+                }
+            })
+            .child(div().min_w_0().one_line().child(text))
+            .child(div().flex_none().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Jump to present").child(icon("arrow-down", 15., theme.text1)))
+            .into_any_element()
+    }
+
+    /// Editing a channel message where it is: the field, focused, holding its text.
+    fn sync_inline_editor(&mut self, conversation: &ConversationView, window: &mut Window, cx: &mut Context<Self>) {
+        let editing = if conversation.kind == "channel" { self.state.read(cx).editing.get(&conversation.list_id()).cloned() } else { None };
+        match editing {
+            Some(message) if self.inline_editing.as_deref() != Some(message.id.as_str()) => {
+                self.inline_editing = Some(message.id.clone());
+                let text = message.text.clone();
+                let editor = self.inline_editor.clone();
+                editor.update(cx, |input, cx| input.set_text(text, cx));
+                editor.read(cx).focus(window);
+            }
+            None if self.inline_editing.is_some() => {
+                self.inline_editing = None;
+                self.composer.read(cx).focus(window);
+            }
+            _ => {}
+        }
+    }
+
+    fn on_inline_editor(&mut self, event: &InputEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let list_id = self.last_list_id.clone();
+        match event {
+            InputEvent::Submit => {
+                let Some(message) = self.state.read(cx).editing.get(&list_id).cloned() else { return };
+                let value = self.inline_editor.read(cx).text().trim().to_string();
+                if !value.is_empty() && value != message.text {
+                    let state = self.state.read(cx);
+                    let Some(server) = state.servers.get(&self.server_id) else { return };
+                    let mentions = mentions_in(&value, &server.mentionable);
+                    let emotes: serde_json::Map<String, serde_json::Value> = value
+                        .split_whitespace()
+                        .filter_map(|word| server.emotes.emotes.iter().find(|emote| emote.name == word).map(|emote| (word.to_string(), json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner }))))
+                        .collect();
+                    let args = vec![json!(message.group_id), json!(message.id), json!(value), json!(emotes), json!(mentions)];
+                    self.state.update(cx, |state, cx| state.act("editMessage", args, cx));
+                }
+                self.state.update(cx, |state, cx| state.set_editing(&list_id, None, cx));
+            }
+            InputEvent::Escape => self.state.update(cx, |state, cx| state.set_editing(&list_id, None, cx)),
+            _ => {}
+        }
+        let _ = window;
     }
 
     /// Asks the core which unread messages mention you, whenever how far you've read changes.
@@ -1137,7 +1514,7 @@ impl ChatView {
                 .id("to-mention")
                 .absolute()
                 .right(px(14.))
-                .bottom(px(if raised { 66. } else { 16. }))
+                .bottom(px(if conversation.kind == "channel" { 44. } else if raised { 66. } else { 16. }))
                 .size(px(40.))
                 .rounded_full()
                 .flex()
@@ -1387,6 +1764,13 @@ impl ChatView {
             revealed: self.revealed.clone(),
             images,
             avatars,
+            is_channel: conversation.kind == "channel",
+            channel_title: conversation.title.clone(),
+            channel_description: conversation.description.clone(),
+            channel_id: conversation.group_id.clone(),
+            is_server_admin: server.is_admin(),
+            editing_id: if conversation.kind == "channel" { state.editing.get(&conversation.list_id()).map(|message| message.id.clone()) } else { None },
+            inline_editor: (conversation.kind == "channel").then(|| self.inline_editor.clone()),
             selecting: selection.is_some(),
             selected: selection.map(|(_, ids)| ids.into_iter().collect()).unwrap_or_default(),
             members: conversation.members.iter().map(|member| member.user_id.clone()).collect(),
@@ -1501,7 +1885,9 @@ impl Render for ChatView {
         let theme = theme(cx);
         let Some(conversation) = self.conversation(cx) else { return div().into_any_element() };
         self.mark_read(&conversation, cx);
-        let header = self.header(&conversation, cx);
+        let is_channel = conversation.kind == "channel";
+        self.sync_inline_editor(&conversation, window, cx);
+        let header = if is_channel { self.channel_header(&conversation, cx) } else { self.header(&conversation, cx) };
         let state = self.state.read(cx);
         let list = state.lists.get(&conversation.list_id()).cloned();
         let panel = state.panel;
@@ -1530,7 +1916,9 @@ impl Render for ChatView {
                 })
                 .size_full();
                 let unread_below = if !self.at_bottom { conversation.unread as u32 } else { 0 };
-                let mention_button = self.mention_button(&conversation, !self.at_bottom || list.as_ref().is_some_and(|list| list.detached), cx);
+                let raised = !self.at_bottom || list.as_ref().is_some_and(|list| list.detached);
+                let mention_button = self.mention_button(&conversation, raised, cx);
+                let jump_bar = (is_channel && raised).then(|| self.jump_present(&conversation, unread_below, cx));
                 let list_state = self.list.clone();
                 let detached = list.as_ref().is_some_and(|list| list.detached);
                 let to_bottom_state = self.state.clone();
@@ -1542,7 +1930,8 @@ impl Render for ChatView {
                     .flex()
                     .child(rows)
                     .when_some(mention_button, |el, button| el.child(button))
-                    .when(!self.at_bottom || detached, |el| {
+                    .when_some(jump_bar, |el, bar| el.child(bar))
+                    .when(!is_channel && (!self.at_bottom || detached), |el| {
                         el.child(
                             div()
                                 .id("to-bottom")
@@ -1618,6 +2007,8 @@ impl Render for ChatView {
         };
         let state = self.state.clone();
         let user_id = conversation.peer_id.clone().unwrap_or_default();
+        let typing_line = is_channel.then(|| self.channel_typing(&conversation, cx));
+        let members = (is_channel && side_panel.is_none() && !self.state.read(cx).settings.hide_member_list).then(|| self.member_list(cx));
         div()
             .flex_1()
             .min_w_0()
@@ -1653,9 +2044,11 @@ impl Render for ChatView {
                         )
                     })
                     .child(body)
-                    .child(composer),
+                    .child(composer)
+                    .when_some(typing_line, |el, line| el.child(line)),
             )
             .when_some(side_panel, |el, panel| el.child(panel))
+            .when_some(members, |el, members| el.child(members))
             .relative()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {

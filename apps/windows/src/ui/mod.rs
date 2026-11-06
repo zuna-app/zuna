@@ -1,5 +1,6 @@
 //! The window's interface, laid out as the desktop's (packages/ui).
 
+pub mod channel_message;
 pub mod chat;
 pub mod components;
 pub mod conversations;

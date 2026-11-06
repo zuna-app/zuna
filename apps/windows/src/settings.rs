@@ -22,6 +22,8 @@ pub struct Settings {
     pub list_width: f32,
     /// Channel headings folded away, by name.
     pub collapsed_categories: Vec<String>,
+    /// A channel's member list stays open or closed across channels, as in Discord.
+    pub hide_member_list: bool,
 }
 
 impl Default for Settings {
@@ -39,6 +41,7 @@ impl Default for Settings {
             remove_metadata: true,
             list_width: 320.,
             collapsed_categories: Vec::new(),
+            hide_member_list: false,
         }
     }
 }
