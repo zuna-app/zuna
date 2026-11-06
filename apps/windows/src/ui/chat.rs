@@ -152,8 +152,9 @@ pub struct ChatView {
     /// box's suggestions and anything else above or below the messages don't draw every
     /// message on screen again.
     messages: Entity<MessageList>,
-    /// The messages and what their rows need, from the last time the chat's state changed.
-    context_cache: Option<(Rc<Vec<MessageView>>, Rc<ChatContext>)>,
+    /// What the rows need, from the last time the chat's state changed. The messages aren't in
+    /// it: each row reads its own and those beside it from the app's state as it's drawn.
+    context_cache: Option<Rc<ChatContext>>,
     /// A channel's member list, once it's been shown.
     member_view: Option<Entity<MemberList>>,
     /// Where the messages placed their videos, which are drawn above them.
@@ -2346,7 +2347,7 @@ impl ChatView {
         div().absolute().left(px(14.)).right(px(14.)).bottom(gpui::relative(1.)).pb(px(6.)).child(list).enter("suggestions-in", Enter::Rise(5.), 100).into_any_element()
     }
 
-    fn chat_context(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> Option<(Rc<Vec<MessageView>>, ChatContext)> {
+    fn chat_context(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> Option<ChatContext> {
         let state = self.state.read(cx);
         let server = state.servers.get(&self.server_id)?;
         let list = state.lists.get(&conversation.list_id())?;
@@ -2357,7 +2358,7 @@ impl ChatView {
             conversation.read_by.iter().filter(|(id, _)| **id != self_id).map(|(_, seq)| *seq).fold(0., f64::max)
         };
         let is_group_admin = conversation.members.iter().any(|member| member.user_id == self_id && member.role == "admin");
-        let items = Rc::new(list.items.clone());
+        let items = &list.items;
         let selection = state.selection.clone().filter(|(list, _)| *list == conversation.list_id());
         // The pictures already here: decrypted images and people's avatars.
         let mut images = HashMap::new();
@@ -2422,7 +2423,7 @@ impl ChatView {
                 }
             });
         }
-        Some((items, context))
+        Some(context)
     }
 
     fn empty_chat(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
@@ -2587,16 +2588,17 @@ impl ChatView {
             None => div().flex_1().into_any_element(),
             Some(_) => {
                 // Built again only when the chat's state changed, not each frame: it copies
-                // every message here and every person on the server.
+                // every person on the server.
                 if self.context_cache.is_none() {
-                    self.context_cache = self.chat_context(&conversation, cx).map(|(items, context)| (items, Rc::new(context)));
+                    self.context_cache = self.chat_context(&conversation, cx).map(Rc::new);
                 }
-                let Some((items, context)) = self.context_cache.clone() else { return div().into_any_element() };
-                let count = items.len();
+                let Some(context) = self.context_cache.clone() else { return div().into_any_element() };
+                let list_id = conversation.list_id();
+                let count = self.state.read(cx).lists.get(&list_id).map_or(0, |list| list.items.len());
                 if self.list.item_count() != count {
                     self.list.reset(count);
                 }
-                let items_for_rows = items.clone();
+                let rows_state = self.state.clone();
                 // The glide to new messages, over 180 ms with `--ease-out`.
                 if let Some((from, began)) = self.glide {
                     let t = began.elapsed().as_secs_f32() / 0.18;
@@ -2616,15 +2618,20 @@ impl ChatView {
                 self.row_bounds.borrow_mut().clear();
                 let row_bounds = self.row_bounds.clone();
                 let rows = gpui::list(self.list.clone(), move |index, window, cx| {
-                    if index >= items_for_rows.len() {
-                        return div().into_any_element();
-                    }
+                    // The message and those beside it, which is all a row looks at, read from the
+                    // app's state as it's drawn: copying every message for each change cost a
+                    // dropped frame each time a page of older messages came in.
+                    let near = rows_state.read(cx).lists.get(&list_id).filter(|list| index < list.items.len()).map(|list| {
+                        let start = index.saturating_sub(1);
+                        (list.items[start..(index + 2).min(list.items.len())].to_vec(), index - start)
+                    });
+                    let Some((near, at)) = near else { return div().into_any_element() };
                     let recorded = row_bounds.clone();
                     let row = div()
                         .relative()
-                        .child(render_row(&items_for_rows, index, &context, window, cx))
+                        .child(render_row(&near, at, &context, window, cx))
                         .child(gpui::canvas(move |bounds, _, _| { recorded.borrow_mut().insert(index, bounds); }, |_, _, _, _| {}).absolute().inset_0());
-                    let id = &items_for_rows[index].id;
+                    let id = &near[at].id;
                     if fresh.borrow().get(id).is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(400)) {
                         row.enter(SharedString::from(format!("fresh-{id}")), Enter::Fade, 120).into_any_element()
                     } else {
