@@ -2,11 +2,11 @@
 //! channel or a call (VoicePanel.tsx), calls ringing over everything (IncomingCalls.tsx),
 //! and a conversation's call buttons and banner (CallButtons and CallBanner in ChatView.tsx).
 
-use std::time::Duration;
 
-use gpui::{Animation, AnimationExt, AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px};
+use gpui::{AnyElement, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px};
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use crate::models::ConversationView;
 use crate::state::{AppState, Overlay};
 use crate::theme::{self, RADIUS_L, RADIUS_M, RADIUS_S};
@@ -282,11 +282,7 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
                 .border_color(theme.line_strong)
                 .shadow(shadow_l())
                 .child(
-                    div().child(avatar(AvatarProps { name: item.conversation.title.clone(), seed: item.conversation.peer_id.clone().or(item.conversation.group_id.clone()).unwrap_or_default(), image, size: 48., online: false, rounded: false, dot_border: theme.bg3 }, cx)).with_animation(
-                        SharedString::from(format!("{id}-pulse")),
-                        Animation::new(Duration::from_millis(1600)).repeat(),
-                        |el, delta| el.opacity(1. - 0.3 * (1. - (delta * 2. - 1.).abs())),
-                    ),
+                    div().child(avatar(AvatarProps { name: item.conversation.title.clone(), seed: item.conversation.peer_id.clone().or(item.conversation.group_id.clone()).unwrap_or_default(), image, size: 48., online: false, rounded: false, dot_border: theme.bg3 }, cx)).map(|ring| super::motion::pulse(ring, SharedString::from(format!("{id}-pulse")), 1600, |el, delta| el.opacity(1. - 0.3 * (1. - (delta * 2. - 1.).abs())))),
                 )
                 .child(
                     div()
@@ -300,7 +296,9 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
                 )
                 .child(round("decline", theme.red, gpui::white(), "phone-off", "Decline").on_click(decline))
                 .child(round("video", theme.bg5, theme.text1, "video", "Answer with video").on_click(answer(true)))
-                .child(round("answer", theme.green, gpui::white(), "phone", "Answer").on_click(answer(false))),
+                .child(round("answer", theme.green, gpui::white(), "phone", "Answer").on_click(answer(false)))
+                // `.incoming-call`: rise-in 0.14s.
+                .enter(SharedString::from(format!("{id}-in")), Enter::Rise(5.), 140),
         );
     }
     Some(column.into_any_element())

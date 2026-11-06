@@ -9,6 +9,7 @@ use gpui::{
 };
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::emoji_data::EMOJI_CATEGORIES;
@@ -31,7 +32,10 @@ enum Hovered {
     Emote(Emote),
 }
 
+#[derive(Clone)]
 struct Open {
+    /// Which opening this is, so each one comes in afresh.
+    id: u64,
     position: Point<Pixels>,
     on_pick: Rc<dyn Fn(Pick, &mut Window, &mut App)>,
     /// Emoji leave it open to pick more, as in the message box; emotes close it.
@@ -40,6 +44,9 @@ struct Open {
 
 pub struct PickerLayer {
     open: Option<Open>,
+    /// One just closed, fading out over 60 ms as `EmotePicker`'s exit does.
+    closing: Option<(Open, std::time::Instant)>,
+    opened: u64,
     emotes_tab: bool,
     search: Entity<TextInput>,
     hovered: Option<Hovered>,
@@ -59,12 +66,12 @@ pub fn picker_layer(window: &mut Window, cx: &mut App) -> Entity<PickerLayer> {
         let search = cx.new(|cx| TextInput::new(cx, "Search"));
         let subscriptions = vec![cx.subscribe_in(&search, window, |layer: &mut PickerLayer, _, event, _, cx| match event {
             InputEvent::Escape => {
-                layer.open = None;
+                layer.close();
                 cx.notify();
             }
             _ => cx.notify(),
         })];
-        PickerLayer { open: None, emotes_tab: false, search, hovered: None, _subscriptions: subscriptions }
+        PickerLayer { open: None, closing: None, opened: 0, emotes_tab: false, search, hovered: None, _subscriptions: subscriptions }
     });
     cx.set_global(PickerGlobal(layer.clone()));
     layer
@@ -75,7 +82,9 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
     let layer = picker_layer(window, cx);
     let has_emotes = store(cx).read(cx).active().is_some_and(|server| !server.emotes.emotes.is_empty());
     layer.update(cx, |layer, cx| {
-        layer.open = Some(Open { position, on_pick: Rc::new(on_pick), stays_for_emoji });
+        layer.opened += 1;
+        layer.closing = None;
+        layer.open = Some(Open { id: layer.opened, position, on_pick: Rc::new(on_pick), stays_for_emoji });
         layer.emotes_tab = has_emotes;
         layer.hovered = None;
         layer.search.update(cx, |input, cx| input.set_text("", cx));
@@ -85,12 +94,20 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
 }
 
 impl PickerLayer {
+    fn close(&mut self) {
+        if let Some(open) = self.open.take() {
+            if !super::motion::reduced_or_system() {
+                self.closing = Some((open, std::time::Instant::now()));
+            }
+        }
+    }
+
     fn pick(&mut self, pick: Pick, window: &mut Window, cx: &mut Context<Self>) {
         let Some(open) = &self.open else { return };
         let on_pick = open.on_pick.clone();
         let close = !(open.stays_for_emoji && matches!(pick, Pick::Emoji(_)));
         if close {
-            self.open = None;
+            self.close();
         }
         cx.notify();
         on_pick(pick, window, cx);
@@ -200,7 +217,23 @@ impl PickerLayer {
 
 impl Render for PickerLayer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(open) = &self.open else { return div().into_any_element() };
+        // Open, or fading out over 60 ms, seen but no longer used.
+        let fading = if self.open.is_some() {
+            None
+        } else {
+            match &self.closing {
+                Some((_, closed)) if closed.elapsed() < std::time::Duration::from_millis(60) => {
+                    window.request_animation_frame();
+                    Some(1. - closed.elapsed().as_secs_f32() / 0.06)
+                }
+                _ => {
+                    self.closing = None;
+                    return div().into_any_element();
+                }
+            }
+        };
+        let Some(open) = self.open.clone().or_else(|| self.closing.as_ref().map(|(open, _)| open.clone())) else { return div().into_any_element() };
+        let open = &open;
         let theme = theme(cx);
         let state = store(cx);
         let (set_name, emotes, server_url) = state
@@ -278,7 +311,7 @@ impl Render for PickerLayer {
             .shadow(shadow_l())
             .occlude()
             .on_mouse_down_out(cx.listener(|layer, _, _, cx| {
-                layer.open = None;
+                layer.close();
                 cx.notify();
             }))
             .child(
@@ -315,6 +348,11 @@ impl Render for PickerLayer {
                 div().id("picker-body").flex_1().min_h_0().overflow_y_scroll().track_scroll(&handle).px(px(8.)).pr(px(8.) + gutter(&handle)).pb(px(8.)).flex().flex_col().children(body).child(scrollbar("picker-body", Scrolls::Div(handle.clone())))
             })
             .child(div().flex_none().h(px(44.)).flex().items_center().px(px(12.)).border_t_1().border_color(theme.line).text_size(px(13.)).child(footer));
+        // As `EmotePicker`: up 4 px and in with motion's `quick`.
+        let panel = match fading {
+            Some(left) => panel.opacity(left).child(div().id("picker-closing").absolute().inset_0().occlude()).into_any_element(),
+            None => panel.appear(gpui::ElementId::Name(format!("picker-in-{}", open.id).into()), Enter::Rise(4.), 120).into_any_element(),
+        };
         deferred(anchored().position(gpui::point(left, top)).child(panel)).with_priority(2).into_any_element()
     }
 }

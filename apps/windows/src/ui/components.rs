@@ -2,15 +2,15 @@
 
 use std::f32::consts::PI;
 use std::sync::Arc;
-use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, AnyView, App, BoxShadow, Div, ElementId, FontWeight, Hsla, Image, IntoElement, ParentElement, Pixels,
+    AnyElement, AnyView, App, BoxShadow, Div, ElementId, FontWeight, Hsla, Image, IntoElement, ParentElement, Pixels,
     Render, SharedString, Stateful, Styled, Svg, Transformation, Window, div, percentage, point, prelude::*, px, svg,
 };
 
 use crate::format::{avatar_color, initials_of};
 use crate::theme::{self, Theme, RADIUS_M, RADIUS_S};
+use super::motion::Motion;
 
 pub fn theme(cx: &App) -> Theme {
     *cx.global::<Theme>()
@@ -51,13 +51,9 @@ pub fn spinner(size: f32, color: Hsla) -> impl IntoElement {
         .flex_none()
         .child(icon("spinner-track", size, theme::color(theme::white_a(0.16))))
         .child(
-            div().absolute().top_0().left_0().child(
-                icon("spinner-arc", size, color).with_animation(
-                    ElementId::Name(format!("spinner-{size}").into()),
-                    Animation::new(Duration::from_millis(700)).repeat(),
-                    |svg, delta| svg.with_transformation(Transformation::rotate(percentage(delta))),
-                ),
-            ),
+            div().absolute().top_0().left_0().child(super::motion::pulse(icon("spinner-arc", size, color), ElementId::Name(format!("spinner-{size}").into()), 700, |svg, delta| {
+                svg.with_transformation(Transformation::rotate(percentage(delta)))
+            })),
         )
 }
 
@@ -132,8 +128,10 @@ pub fn button(id: impl Into<ElementId>, kind: ButtonKind, size: ButtonSize, disa
         ButtonSize::Large => (42., 18., 14., RADIUS_M),
         ButtonSize::Small => (28., 10., 12.5, RADIUS_S),
     };
-    let mut el = div()
-        .id(id)
+    let id = id.into();
+    let key = format!("btn-{id:?}");
+    let mut el = super::motion::track_hover(div().id(id), key.clone())
+        .relative()
         .flex()
         .flex_none()
         .items_center()
@@ -152,10 +150,11 @@ pub fn button(id: impl Into<ElementId>, kind: ButtonKind, size: ButtonSize, disa
             el = el.bg(bg).text_color(fg).opacity(0.45);
         }
     } else {
-        el = el.bg(bg).text_color(fg).cursor_pointer().hover(move |style| {
-            let style = style.bg(hover);
-            if kind == ButtonKind::Ghost { style.text_color(theme.text1) } else { style }
-        });
+        // `.btn`: its background comes up over 100 ms under the pointer.
+        el = el.bg(bg).text_color(fg).cursor_pointer().child(super::motion::hover_layer(&key, hover, radius, 100));
+        if kind == ButtonKind::Ghost {
+            el = el.hover(move |style| style.text_color(theme.text1));
+        }
     }
     el
 }
@@ -170,21 +169,25 @@ pub fn icon_button_in(id: impl Into<ElementId>, name: &str, icon_size: f32, smal
     let theme = theme(cx);
     let box_size = if small { 26. } else { 32. };
     let color = if active { theme.text1 } else { resting };
-    let mut el = div()
-        .id(id)
+    let id = id.into();
+    let key = format!("icon-btn-{id:?}");
+    let radius = if small { RADIUS_S } else { RADIUS_M };
+    let text1 = theme.text1;
+    // `.icon-btn`: its background and color come up over 100 ms under the pointer. GPUI's
+    // icons take no color from around them, so the icon brightens with the button itself.
+    let svg_el = svg().path(SharedString::from(format!("icons/{name}.svg"))).size(px(icon_size)).flex_none();
+    let mut el = super::motion::track_hover(div().id(id), key.clone())
+        .relative()
         .flex()
         .flex_none()
         .items_center()
         .justify_center()
         .size(px(box_size))
-        .rounded(if small { RADIUS_S } else { RADIUS_M })
+        .rounded(radius)
         .text_color(color)
         .cursor_pointer()
-        .hover(move |style| style.bg(theme.hover_strong).text_color(theme.text1))
-        .group("icon-btn")
-        // GPUI's icons take no color from around them, so it brightens with the button itself,
-        // as `.icon-btn:hover` does.
-        .child(svg().path(SharedString::from(format!("icons/{name}.svg"))).size(px(icon_size)).flex_none().text_color(color).group_hover("icon-btn", move |style| style.text_color(theme.text1)));
+        .child(super::motion::hover_layer(&key, theme.hover_strong, radius, 100))
+        .child(super::motion::transition(svg_el, format!("{key}-color"), if super::motion::hovered(&key) { 1. } else { 0. }, 100, super::motion::ease(), move |el, t| el.text_color(super::motion::mix(color, text1, t))));
     if active {
         el = el.bg(theme.hover_strong);
     }
@@ -193,6 +196,11 @@ pub fn icon_button_in(id: impl Into<ElementId>, name: &str, icon_size: f32, smal
 
 pub fn switch(id: impl Into<ElementId>, on: bool, cx: &App) -> Stateful<Div> {
     let theme = theme(cx);
+    let id = id.into();
+    let key = format!("switch-{id:?}");
+    let to = if on { 1. } else { 0. };
+    let (accent, knob_on) = (theme.accent, theme.on_accent);
+    // `.switch`: its color over 120 ms, and its knob over 120 ms with `--ease-out`.
     div()
         .id(id)
         .relative()
@@ -201,16 +209,16 @@ pub fn switch(id: impl Into<ElementId>, on: bool, cx: &App) -> Stateful<Div> {
         .h(px(20.))
         .rounded_full()
         .cursor_pointer()
-        .bg(if on { theme.accent } else { theme.bg5 })
-        .child(
-            div()
-                .absolute()
-                .top(px(2.))
-                .left(px(if on { 18. } else { 2. }))
-                .size(px(16.))
-                .rounded_full()
-                .bg(if on { theme.on_accent } else { gpui::white() }),
-        )
+        .bg(theme.bg5)
+        .child(super::motion::transition(div().absolute().inset_0().rounded_full().bg(accent), format!("{key}-color"), to, 120, super::motion::ease(), |el, t| el.opacity(t)))
+        .child(super::motion::transition(
+            div().absolute().top(px(2.)).size(px(16.)).rounded_full(),
+            format!("{key}-knob"),
+            to,
+            120,
+            super::motion::ease_out(),
+            move |el, t| el.left(px(2. + 16. * t)).bg(super::motion::mix(gpui::white(), knob_on, t)),
+        ))
 }
 
 /// `.tooltip`'s look: 12 px text at the body's 1.45, 8 px across and 4 px down.
@@ -240,7 +248,7 @@ pub struct TooltipView {
 
 impl Render for TooltipView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        tooltip_box(self.text.clone(), &theme(cx))
+        tooltip_box(self.text.clone(), &theme(cx)).enter("tooltip-in", super::motion::Enter::Fade, 80)
     }
 }
 
@@ -298,7 +306,7 @@ impl Render for AnchoredTooltip {
         let origin = self.from + point(px(1.), px(1.));
         div()
             .size_0()
-            .child(tip.absolute().left(left - origin.x).top(top - origin.y))
+            .child(tip.absolute().left(left - origin.x).top(top - origin.y).enter("tooltip-in", super::motion::Enter::Fade, 80))
             // Drawn again as the pointer moves, so it's gone as soon as it leaves.
             .child(gpui::canvas(|_, _, _| {}, |_, _, window, _| window.on_mouse_event(|_: &gpui::MouseMoveEvent, _, window, _| window.refresh())))
     }
@@ -374,16 +382,12 @@ pub fn field(label: Option<&str>, input: impl IntoElement, error: Option<String>
 
 pub fn typing_dots(color: Hsla) -> impl IntoElement {
     div().flex().items_center().gap(px(3.)).h(px(8.)).children((0..3).map(move |index| {
-        div().size(px(4.)).rounded_full().bg(color).with_animation(
-            ElementId::Name(format!("typing-dot-{index}").into()),
-            Animation::new(Duration::from_millis(1100)).repeat(),
-            move |dot, delta| {
-                let shifted = (delta - index as f32 * 0.127).rem_euclid(1.0);
-                // 0%, 50%, 100%: faint and down; 25%: bright and up 2.5px.
-                let lift = if shifted < 0.5 { (shifted * 2.0 * PI).sin().max(0.0) } else { 0.0 };
-                dot.opacity(0.35 + 0.65 * lift).mt(px(-2.5 * lift))
-            },
-        )
+        super::motion::pulse(div().size(px(4.)).rounded_full().bg(color), ElementId::Name(format!("typing-dot-{index}").into()), 1100, move |dot, delta| {
+            let shifted = (delta - index as f32 * 0.127).rem_euclid(1.0);
+            // 0%, 50%, 100%: faint and down; 25%: bright and up 2.5px.
+            let lift = if shifted < 0.5 { (shifted * 2.0 * PI).sin().max(0.0) } else { 0.0 };
+            dot.opacity(0.35 + 0.65 * lift).mt(px(-2.5 * lift))
+        })
     }))
 }
 

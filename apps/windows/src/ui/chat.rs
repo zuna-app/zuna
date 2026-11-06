@@ -18,6 +18,7 @@ use regex::Regex;
 use serde_json::json;
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::message::{ChatContext, render_row};
 use super::side_panel::SidePanel;
@@ -101,6 +102,15 @@ pub struct ChatView {
     last_typing: f64,
     revealed: Rc<RefCell<HashSet<String>>>,
     side_panel: Option<Entity<SidePanel>>,
+    /// The conversation someone's typed in since it was opened, after which its header's
+    /// line fades between typing and the usual status, as `.chat-status.is-changing`.
+    typed_in: RefCell<Option<String>>,
+    /// Messages that arrived at the end while the chat was open, and when, which fade in as
+    /// `.msg.is-fresh` does, for 400 ms.
+    fresh: Rc<RefCell<HashMap<String, std::time::Instant>>>,
+    /// The list moving to messages that arrived while it was at the newest, from where it
+    /// was, as the desktop's list glides over 180 ms instead of jumping.
+    glide: Option<(f32, std::time::Instant)>,
     /// The call this device is in, above the chat of its conversation.
     call_stage: Option<Entity<super::voice_stage::VoiceStage>>,
     last_list_id: String,
@@ -199,6 +209,9 @@ impl ChatView {
             last_typing: 0.,
             revealed: Rc::new(RefCell::new(HashSet::new())),
             side_panel: None,
+            typed_in: RefCell::new(None),
+            fresh: Rc::new(RefCell::new(HashMap::new())),
+            glide: None,
             call_stage: None,
             last_list_id: String::new(),
             files: Vec::new(),
@@ -300,6 +313,26 @@ impl ChatView {
             for (index, (old_row, new_row)) in old.iter().zip(new_rows.iter()).enumerate() {
                 if old_row.1 != new_row.1 {
                     self.list.splice(index..index + 1, 1);
+                }
+            }
+            let added: Vec<String> = new_rows[old.len()..].iter().map(|(id, _)| id.clone()).collect();
+            if !added.is_empty() {
+                let now = std::time::Instant::now();
+                {
+                    let mut fresh = self.fresh.borrow_mut();
+                    fresh.retain(|_, at| now - *at < std::time::Duration::from_millis(400));
+                    for id in &added {
+                        fresh.insert(id.clone(), now);
+                    }
+                }
+                if self.at_bottom && !super::motion::reduced_or_system() {
+                    // Held where it shows now, so the new rows come in below it, then moved to them.
+                    if self.glide.is_none() {
+                        let height = self.list.viewport_bounds().size.height;
+                        self.list.scroll_by(-height);
+                    }
+                    let from = -f32::from(self.list.scroll_px_offset_for_scrollbar().y);
+                    self.glide = Some((from, now));
                 }
             }
             self.list.splice(old.len()..old.len(), new_rows.len() - old.len());
@@ -640,7 +673,8 @@ impl ChatView {
                 .when(is_channel, |el| el.pl(px(8.)).min_h(px(44.)))
                 .when(!is_channel, |el| el.py(px(8.)))
                 .child(icon_button("delete-recording", "trash", 18., false, false, cx).tip("Delete recording", Side::Top).on_click(cx.listener(|view, _, window, cx| view.cancel_recording(window, cx))))
-                .child(div().size(px(8.)).rounded_full().bg(theme.red))
+                // `.recording-dot`: 9 px, its opacity pulsing every 1.2 s.
+                .child(super::motion::pulse(div().size(px(9.)).flex_none().rounded_full().bg(theme.red), "recording-dot", 1200, |el, t| el.opacity(1. - 0.65 * gpui::ease_in_out(1. - (t * 2. - 1.).abs()))))
                 .child(div().text_size(px(13.)).text_color(theme.text1).child(crate::format::format_duration(elapsed)))
                 .when(round, |el| el.child(div().flex_1().text_size(px(13.5)).text_color(theme.text2).child("Recording a video message")))
                 .when(!round, |el| el.child(bars))
@@ -1185,7 +1219,18 @@ impl ChatView {
                     .cursor_pointer()
                     .on_click(toggle(Panel::Info, self.state.clone()))
                     .child(avatar_el)
-                    .child(div().min_w_0().flex().flex_col().child(title).child(div().text_size(px(12.5)).line_height(gpui::relative(1.3)).child(status))),
+                    .child(div().min_w_0().flex().flex_col().child(title).child({
+                        let line = div().text_size(px(12.5)).line_height(gpui::relative(1.3)).child(status);
+                        if !typing.is_empty() {
+                            *self.typed_in.borrow_mut() = Some(conversation.key.clone());
+                        }
+                        if self.typed_in.borrow().as_deref() == Some(conversation.key.as_str()) {
+                            // Faded in afresh each time it turns between typing and not.
+                            line.enter(if typing.is_empty() { "status-idle" } else { "status-typing" }, Enter::Fade, 140).into_any_element()
+                        } else {
+                            line.into_any_element()
+                        }
+                    })),
             )
             .child(
                 div()
@@ -1325,7 +1370,8 @@ impl ChatView {
                             .hover(move |style| style.bg(theme.hover_strong))
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list, None, cx)))
                             .child(icon("x", 15., theme.text2)),
-                    ),
+                    )
+                    .enter("composer-context", Enter::Fade, 100),
             );
         } else if editing.is_some() || reply.is_some() {
             let context = editing.clone().or(reply.clone()).unwrap();
@@ -1371,7 +1417,8 @@ impl ChatView {
                                 composer.update(cx, |input, cx| input.set_text("", cx));
                             }
                         })),
-                ),
+                )
+                .enter("composer-context", Enter::Fade, 100),
             );
         }
         if let Some(draft) = self.link_draft.as_ref().filter(|draft| draft.loading || draft.preview.is_some()) {
@@ -1411,7 +1458,8 @@ impl ChatView {
                             view.link_task = None;
                             cx.notify();
                         }))),
-                ),
+                )
+                .enter("link-draft", Enter::Fade, 100),
             );
         }
         if !self.files.is_empty() && editing.is_none() {
@@ -1464,7 +1512,8 @@ impl ChatView {
                                     cx.notify();
                                 }))
                                 .child(icon("x", 11., theme.text1)),
-                        ),
+                        )
+                        .enter(SharedString::from(format!("chip-{}-{}", staged.name, staged.size)), Enter::Pop, 100),
                 );
             }
             area = area.child(chips);
@@ -1903,6 +1952,7 @@ impl ChatView {
             })
             .child(div().min_w_0().one_line().child(text))
             .child(div().flex_none().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Jump to present").child(icon("arrow-down", 15., theme.text1)))
+            .enter("jump-present-in", Enter::Rise(5.), 120)
             .into_any_element()
     }
 
@@ -2186,7 +2236,8 @@ impl ChatView {
                     .when_some(suggestion.hint.clone(), |el, hint| el.child(div().min_w_0().one_line().text_color(theme.text3).child(hint))),
             );
         }
-        div().absolute().left(px(14.)).right(px(14.)).bottom(gpui::relative(1.)).pb(px(6.)).child(list).into_any_element()
+        // `.suggestions`: rise-in 0.1s.
+        div().absolute().left(px(14.)).right(px(14.)).bottom(gpui::relative(1.)).pb(px(6.)).child(list).enter("suggestions-in", Enter::Rise(5.), 100).into_any_element()
     }
 
     fn chat_context(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> Option<(Rc<Vec<MessageView>>, ChatContext)> {
@@ -2445,6 +2496,21 @@ impl Render for ChatView {
                     self.list.reset(count);
                 }
                 let items_for_rows = items.clone();
+                // The glide to new messages, over 180 ms with `--ease-out`.
+                if let Some((from, began)) = self.glide {
+                    let t = began.elapsed().as_secs_f32() / 0.18;
+                    if t >= 1. {
+                        self.list.scroll_to(gpui::ListOffset { item_ix: count, offset_in_item: px(0.) });
+                        self.glide = None;
+                    } else {
+                        let now_at = -f32::from(self.list.scroll_px_offset_for_scrollbar().y);
+                        let end = f32::from(self.list.max_offset_for_scrollbar().height);
+                        let target = from + (end - from) * super::motion::ease_out()(t);
+                        self.list.scroll_by(px(target - now_at));
+                        window.request_animation_frame();
+                    }
+                }
+                let fresh = self.fresh.clone();
                 // Where each drawn row is, for picking by dragging across them.
                 self.row_bounds.borrow_mut().clear();
                 let row_bounds = self.row_bounds.clone();
@@ -2453,11 +2519,16 @@ impl Render for ChatView {
                         return div().into_any_element();
                     }
                     let recorded = row_bounds.clone();
-                    div()
+                    let row = div()
                         .relative()
                         .child(render_row(&items_for_rows, index, &context, window, cx))
-                        .child(gpui::canvas(move |bounds, _, _| { recorded.borrow_mut().insert(index, bounds); }, |_, _, _, _| {}).absolute().inset_0())
-                        .into_any_element()
+                        .child(gpui::canvas(move |bounds, _, _| { recorded.borrow_mut().insert(index, bounds); }, |_, _, _, _| {}).absolute().inset_0());
+                    let id = &items_for_rows[index].id;
+                    if fresh.borrow().get(id).is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(400)) {
+                        row.enter(SharedString::from(format!("fresh-{id}")), Enter::Fade, 120).into_any_element()
+                    } else {
+                        row.into_any_element()
+                    }
                 })
                 .size_full();
                 let unread_below = if !self.at_bottom { conversation.unread as u32 } else { 0 };
@@ -2489,8 +2560,7 @@ impl Render for ChatView {
                     .when_some(jump_bar, |el, bar| el.child(bar))
                     .when(!is_channel && (!self.at_bottom || detached), |el| {
                         el.child(
-                            div()
-                                .id("to-bottom")
+                            super::motion::track_hover(div().id("to-bottom"), "to-bottom".into())
                                 .absolute()
                                 .right(px(14.))
                                 .bottom(px(16.))
@@ -2502,7 +2572,8 @@ impl Render for ChatView {
                                 .bg(theme.bg5)
                                 .shadow(shadow_s())
                                 .cursor_pointer()
-                                .hover(|style| style.bg(theme::color(theme::hex(0x45454b))))
+                                // `.to-bottom`: background 0.1s.
+                                .child(super::motion::hover_layer("to-bottom", theme::color(theme::hex(0x45454b)), px(20.), 100))
                                 .on_click(move |_, _, cx| {
                                     if detached {
                                         to_bottom_state.update(cx, |state, cx| state.return_to_latest(&list_id, cx));
@@ -2529,7 +2600,8 @@ impl Render for ChatView {
                                             .justify_center()
                                             .child(if unread_below > 99 { "99+".to_string() } else { unread_below.to_string() }),
                                     )
-                                }),
+                                })
+                                .enter("to-bottom-in", Enter::Fade, 100),
                         )
                     })
                     .into_any_element()
@@ -2603,7 +2675,7 @@ impl Render for ChatView {
                     .when(!call_expanded, |el| el.child(body).child(composer))
                     .when_some(typing_line, |el, line| el.child(line)),
             )
-            .when_some(side_panel, |el, panel| el.child(panel))
+            .when_some(side_panel, |el, panel| el.child(div().flex().flex_none().child(panel).enter("side-panel-in", Enter::Slide(8.), 120)))
             .when_some(members, |el, members| el.child(members))
             .relative()
             .track_focus(&self.focus)

@@ -6,6 +6,7 @@ use gpui::{AnyElement, App, FontWeight, IntoElement, MouseButton, ParentElement,
 use serde_json::json;
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::menu::open_menu_with_reactions;
 use super::message::{ChatContext, QUICK_REACTIONS, attachments, continues, jumbo_body, menu_entries, name_of, system_text, text_body};
 use crate::format::{format_full, format_time, name_color};
@@ -336,7 +337,9 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
             );
     }
 
-    let mut body = div().min_w_0().flex().flex_col().when(message.status == "sending", |el| el.opacity(0.55));
+    // `.msg.is-channel.is-sending .cmsg-body`: dimmed only after half a second.
+    let dim = super::motion::delayed_dim(&format!("cmsg-{}", message.id), message.status == "sending", 500, 200, 0.55, 150, window);
+    let mut body = div().min_w_0().flex().flex_col().when(dim < 1., |el| el.opacity(dim));
     let placeholder = if is_deleted {
         Some(("Message deleted", false))
     } else {
@@ -665,7 +668,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
         }
         None => chip.child(div().text_size(px(16.)).line_height(px(20.)).child(reaction.key.clone())),
     };
-    chip.child(reaction.user_ids.len().to_string()).into_any_element()
+    chip.child(reaction.user_ids.len().to_string()).enter(SharedString::from(format!("creaction-in-{}-{}", message.id, reaction.key)), Enter::Pop, 100).into_any_element()
 }
 
 /// A link's preview in a channel, as Discord's embed: a bar on the left, the title as a link.

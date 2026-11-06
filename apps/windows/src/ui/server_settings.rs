@@ -556,7 +556,7 @@ impl Render for ServerSettings {
                     .min_w_0()
                     .child({
                         let handle = scroll_handle("server-settings-content");
-                        div().id("server-settings-content").size_full().overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(div().max_w(px(580.)).mx_auto().pt(px(32.)).px(px(28.)).pb(px(56.)).flex().flex_col().gap(px(14.)).children(page)).child(scrollbar("server-settings-content", Scrolls::Div(handle.clone())))
+                        div().id("server-settings-content").size_full().overflow_y_scroll().track_scroll(&handle).pr(gutter(&handle)).child(div().w(px(580.)).max_w_full().mx_auto().pt(px(32.)).px(px(28.)).pb(px(56.)).flex().flex_col().gap(px(14.)).children(page)).child(scrollbar("server-settings-content", Scrolls::Div(handle.clone())))
                     })
                     .child(div().absolute().right(px(16.)).top(px(16.)).child(icon_button("close-server-settings", "x", 19., false, false, cx).on_click(cx.listener(|view, _, _, cx| view.close(cx))))),
             )

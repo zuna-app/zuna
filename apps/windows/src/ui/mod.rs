@@ -5,6 +5,7 @@ pub mod chat;
 pub mod components;
 pub mod conversations;
 pub mod menu;
+pub mod motion;
 pub mod notifications;
 pub mod message;
 pub mod onboarding;
@@ -45,6 +46,7 @@ pub fn bind_keys(cx: &mut App) {
 }
 use crate::theme::{self, RAIL_WIDTH, RADIUS_L, RADIUS_M, TITLEBAR_HEIGHT};
 use components::*;
+use motion::{Enter, Motion};
 
 pub struct Root {
     state: Entity<AppState>,
@@ -57,6 +59,10 @@ pub struct Root {
     /// Settings, or a server's settings, over everything below the title bar, and which.
     settings: Option<(crate::state::Overlay, gpui::AnyView)>,
     overlay: Option<(crate::state::Overlay, gpui::AnyView)>,
+    /// A dialog that's closed, fading out over 80 ms as `Modal`'s exit does.
+    closing: Option<(gpui::AnyView, std::time::Instant)>,
+    /// The server in the rail under the pointer, whose pill grows and icon brightens.
+    rail_hovered: Option<String>,
     resizing: Option<(f32, f32)>,
     menu: Entity<menu::MenuLayer>,
     picker: Entity<picker::PickerLayer>,
@@ -87,7 +93,7 @@ impl Root {
         window.focus(&focus);
         let voice = crate::voice::get(cx).expect("voice starts with the app");
         cx.observe(&voice, |_, _, cx| cx.notify()).detach();
-        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, resizing: None, menu, picker, focus, covered: false }
+        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, rail_hovered: None, resizing: None, menu, picker, focus, covered: false }
     }
 
     fn title_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -183,7 +189,9 @@ impl Root {
                 None
             };
             let group = gpui::SharedString::from(format!("rail-{id}"));
-            let pill_height = if active { 28. } else if has_new { 8. } else { 0. };
+            let hovered = self.rail_hovered.as_deref() == Some(id.as_str());
+            let pill_height = if active { 28. } else if hovered { 18. } else if has_new { 8. } else { 0. };
+            let hover_id = id.clone();
             let select_state = state_entity.clone();
             let select_id = id.clone();
             list = list.child(
@@ -194,23 +202,28 @@ impl Root {
                     .w_full()
                     .flex()
                     .justify_center()
-                    .child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .top(px(21. - pill_height / 2.))
-                            .w(px(3.))
-                            .h(px(pill_height))
-                            .rounded_r(px(3.))
-                            .bg(theme.text1)
-                            .when(!active, |el| el.group_hover(group.clone(), |style| style.top(px(21. - 9.)).h(px(18.)))),
-                    )
+                    .on_hover(cx.listener(move |root, over: &bool, _, cx| {
+                        if *over {
+                            root.rail_hovered = Some(hover_id.clone());
+                        } else if root.rail_hovered.as_ref() == Some(&hover_id) {
+                            root.rail_hovered = None;
+                        }
+                        cx.notify();
+                    }))
+                    // `.rail-pill`: its height moves over 120 ms.
+                    .child(motion::transition(
+                        div().absolute().left_0().w(px(3.)).rounded_r(px(3.)).bg(theme.text1),
+                        format!("rail-pill-{id}"),
+                        pill_height,
+                        120,
+                        motion::ease_out(),
+                        |el, height| el.top(px(21. - height / 2.)).h(px(height)),
+                    ))
                     .child(
                         div()
                             .id(gpui::ElementId::Name(format!("rail-button-{id}").into()))
                             .rounded(RADIUS_L)
                             .cursor_pointer()
-                            .when(!active, |el| el.opacity(0.72).hover(|style| style.opacity(1.)))
                             .tip(server.entry.name.clone(), Side::Right)
                             .on_click(move |_, _, cx| select_state.update(cx, |state, cx| state.select_server(&select_id, cx)))
                             .child(avatar(
@@ -224,7 +237,9 @@ impl Root {
                                     dot_border: theme.bg0,
                                 },
                                 cx,
-                            )),
+                            ))
+                            // Inactive, it's at 72% until the pointer is on it, over 100 ms.
+                            .map(|button| motion::transition(button, format!("rail-button-{id}"), if active || hovered { 1. } else { 0.72 }, 100, motion::ease(), |el, opacity| el.opacity(opacity))),
                     )
                     .when(!active && unread > 0, |el| {
                         el.child(
@@ -252,8 +267,9 @@ impl Root {
         }
         let add_state = state_entity.clone();
         list = list.child(
-            div()
-                .id("rail-add")
+            // `.rail-add`: background 0.1s.
+            motion::track_hover(div().id("rail-add"), "rail-add".into())
+                .relative()
                 .size(px(42.))
                 .rounded(RADIUS_L)
                 .flex()
@@ -261,7 +277,7 @@ impl Root {
                 .justify_center()
                 .text_color(theme.text3)
                 .cursor_pointer()
-                .hover(move |style| style.bg(theme.hover_strong).text_color(theme.text1))
+                .child(motion::hover_layer("rail-add", theme.hover_strong, RADIUS_L, 100))
                 .group("rail-add")
                 .tip("Join a server", Side::Right)
                 .on_click(move |_, _, cx| {
@@ -463,13 +479,14 @@ impl Root {
                     .text_color(theme.text1)
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.dismiss_toast(id, cx)))
                     .child(toast.message)
+                    .enter(gpui::ElementId::Name(format!("toast-in-{id}").into()), Enter::Rise(5.), 120)
             }))
     }
 
     fn overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
         let wanted = self.state.read(cx).overlay.clone();
         let Some(wanted) = wanted else {
-            self.overlay = None;
+            self.close_overlay();
             self.settings = None;
             return None;
         };
@@ -487,6 +504,7 @@ impl Root {
         }
         self.settings = None;
         if self.overlay.as_ref().map(|(current, _)| current != &wanted).unwrap_or(true) {
+            self.close_overlay();
             let view = overlays::open(&wanted, self.state.clone(), window, cx);
             self.overlay = view.map(|view| (wanted.clone(), view));
         }
@@ -495,6 +513,16 @@ impl Root {
 }
 
 impl Root {
+    /// The dialog going away fades out, as `AnimatePresence` lets `Modal` do. The image
+    /// viewer and settings aren't `motion` elements there, so they simply go.
+    fn close_overlay(&mut self) {
+        if let Some((overlay, view)) = self.overlay.take() {
+            if !matches!(overlay, crate::state::Overlay::Image { .. }) && !motion::reduced_or_system() {
+                self.closing = Some((view, std::time::Instant::now()));
+            }
+        }
+    }
+
     /// The next or previous conversation in the list, hidden ones left out.
     fn step_conversation(&mut self, step: isize, cx: &mut Context<Self>) {
         let Some(server) = self.state.read(cx).active() else { return };
@@ -614,7 +642,20 @@ impl Render for Root {
             }
         };
 
+        motion::set_reduced(self.state.read(cx).settings.reduce_motion);
         let overlay = self.overlay(window, cx);
+        let closing = match &self.closing {
+            Some((view, closed)) if closed.elapsed() < std::time::Duration::from_millis(80) => {
+                window.request_animation_frame();
+                let left = 1. - closed.elapsed().as_secs_f32() / 0.08;
+                // Seen going, not used: it no longer takes clicks.
+                Some(div().absolute().inset_0().opacity(left).child(view.clone()).child(div().id("closing-cover").absolute().inset_0().occlude()))
+            }
+            _ => {
+                self.closing = None;
+                None
+            }
+        };
         let settings = self.settings.as_ref().map(|(_, view)| view.clone());
         // As the desktop's useReturnFocus: when a dialog goes, the message box has focus again.
         let covered = overlay.is_some() || settings.is_some();
@@ -650,9 +691,10 @@ impl Render for Root {
                     .min_h_0()
                     .flex()
                     .child(body)
-                    .when_some(settings, |el, settings| el.child(div().absolute().inset_0().child(settings)))
+                    .when_some(settings, |el, settings| el.child(div().absolute().inset_0().child(settings).enter("settings-in", Enter::Fade, 80)))
                     .when_some(calls, |el, calls| el.child(calls)),
             )
+            .when_some(closing, |el, closing| el.child(closing))
             .when_some(overlay, |el, overlay| el.child(overlay))
             .child(self.toasts(cx))
             .child(self.menu.clone())

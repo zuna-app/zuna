@@ -9,11 +9,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    AnimationExt, AnyElement, App, Bounds, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Render, RenderImage, SharedString, Styled, Task, Window, canvas, div, img,
+    AnyElement, App, Bounds, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Render, RenderImage, SharedString, Styled, Task, Window, canvas, div, img,
     prelude::*, px,
 };
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::menu::{Header, MenuEntry, open_menu_with_header};
 use super::voice::mix;
 use crate::format::avatar_color;
@@ -258,7 +259,8 @@ impl VoiceStage {
             .bg(if camera.is_some() { gpui::black() } else { mix(theme::css(avatar_color(&member.user_id)), theme.bg2, 0.16) })
             .child(content)
             .when_some(sounding, |el, emoji| {
-                el.child(div().absolute().right(px(8.)).top(px(8.)).min_w(px(30.)).h(px(30.)).px(px(6.)).flex().items_center().justify_center().rounded(px(15.)).bg(theme::color(theme::black_a(0.62))).text_size(px(17.)).child(emoji))
+                // `.voice-tile-played`: in over 160 ms, as it starts playing.
+                el.child(div().absolute().right(px(8.)).top(px(8.)).min_w(px(30.)).h(px(30.)).px(px(6.)).flex().items_center().justify_center().rounded(px(15.)).bg(theme::color(theme::black_a(0.62))).text_size(px(17.)).child(emoji.clone()).appear(SharedString::from(format!("played-{}-{emoji}", member.user_id)), Enter::Pop, 160))
             })
             .child(label)
             .when(speaking, |el| el.child(div().absolute().inset_0().rounded(RADIUS_L).border_2().border_color(theme.green)))
@@ -438,11 +440,7 @@ impl VoiceStage {
             .opacity(0.8)
             .bg(mix(theme::css(avatar_color(user_id)), theme.bg2, 0.1))
             .child(
-                div().child(avatar(AvatarProps { name: name.clone(), seed: user_id.to_string(), image, size: 84., online: false, rounded: false, dot_border: theme.bg2 }, cx)).with_animation(
-                    SharedString::from(format!("ringing-{user_id}")),
-                    gpui::Animation::new(Duration::from_millis(1600)).repeat(),
-                    |el, delta| el.opacity(1. - 0.3 * (1. - (delta * 2. - 1.).abs())),
-                ),
+                div().child(avatar(AvatarProps { name: name.clone(), seed: user_id.to_string(), image, size: 84., online: false, rounded: false, dot_border: theme.bg2 }, cx)).map(|ring| super::motion::pulse(ring, SharedString::from(format!("ringing-{user_id}")), 1600, |el, delta| el.opacity(1. - 0.3 * (1. - (delta * 2. - 1.).abs())))),
             )
             .child(
                 div()
@@ -470,8 +468,8 @@ impl VoiceStage {
         let mic_off = voice.mic_off();
         let (deafened, camera, sharing, open, server_muted, no_mic) = (voice.deafened, voice.camera, voice.screen.is_some(), voice.open, voice.server_muted, voice.no_mic);
         let control = |id: &'static str, icon_name: &'static str, color: gpui::Hsla, bg: gpui::Hsla, label: String, disabled: bool| {
-            div()
-                .id(id)
+            let key = format!("control-{id}");
+            super::motion::track_hover(div().id(id), key.clone())
                 .relative()
                 .size(px(44.))
                 .flex_none()
@@ -480,7 +478,9 @@ impl VoiceStage {
                 .items_center()
                 .justify_center()
                 .bg(bg)
-                .when(!disabled, |el| el.cursor_pointer().hover(move |style| style.bg(if bg == theme.bg3 { theme.bg4 } else { bg })))
+                .when(!disabled, |el| el.cursor_pointer())
+                // `.voice-control:hover`: bg-4 over 100 ms, which a lit one keeps its color through.
+                .when(!disabled && bg == theme.bg3, |el| el.child(super::motion::hover_layer(&key, theme.bg4, px(22.), 100)))
                 .when(disabled, |el| el.opacity(0.55))
                 .tip(label, Side::Top)
                 .child(icon(icon_name, 20., color))
@@ -496,9 +496,9 @@ impl VoiceStage {
                 .bg(if off { theme.red_soft } else { theme.bg3 })
                 .child(main)
                 .child(
-                    div()
-                        .id(more)
+                    super::motion::track_hover(div().id(more), format!("control-{more}"))
                         .group(more)
+                        .relative()
                         .flex()
                         .items_center()
                         .justify_center()
@@ -508,21 +508,22 @@ impl VoiceStage {
                         // GPUI clips to a rectangle, not the pill's rounding, so each half rounds its own end.
                         .rounded_r(px(22.))
                         .cursor_pointer()
-                        .hover(move |style| style.bg(theme.hover_strong))
+                        .child(super::motion::hover_layer_corners(&format!("control-{more}"), theme.hover_strong, gpui::Corners { top_left: px(0.), bottom_left: px(0.), top_right: px(22.), bottom_right: px(22.) }, 100))
                         .on_click(move |event, _, cx| device_menu(&voice, &state, input, event.position(), cx))
                         .child(icon("chevron-up", 14., theme.text2).group_hover(more, move |style| style.text_color(theme.text1))),
                 )
         };
         let pill = |id: &'static str, icon_name: &'static str, color: gpui::Hsla, label: String, disabled: bool| {
-            div()
-                .id(id)
+            let key = format!("control-{id}");
+            super::motion::track_hover(div().id(id), key.clone())
+                .relative()
                 .flex()
                 .items_center()
                 .h_full()
                 .pl(px(15.))
                 .pr(px(5.))
                 .rounded_l(px(22.))
-                .when(!disabled, |el| el.cursor_pointer().hover(move |style| style.bg(theme.hover_strong)))
+                .when(!disabled, |el| el.cursor_pointer().child(super::motion::hover_layer_corners(&key, theme.hover_strong, gpui::Corners { top_left: px(22.), bottom_left: px(22.), top_right: px(0.), bottom_right: px(0.) }, 100)))
                 .when(disabled, |el| el.opacity(0.55))
                 .tip(label, Side::Top)
                 .child(icon(icon_name, 20., color))
@@ -569,8 +570,8 @@ impl VoiceStage {
             );
         }
         bar.child(
-            div()
-                .id("leave-control")
+            super::motion::track_hover(div().id("leave-control"), "leave-control".into())
+                .relative()
                 .w(px(56.))
                 .h(px(44.))
                 .flex_none()
@@ -580,7 +581,7 @@ impl VoiceStage {
                 .justify_center()
                 .bg(theme.red)
                 .cursor_pointer()
-                .hover(|style| style.bg(theme::color(theme::hex(0xd9444a))))
+                .child(super::motion::hover_layer("leave-control", theme::color(theme::hex(0xd9444a)), px(22.), 100))
                 .tip("Disconnect", Side::Top)
                 .on_click(move |_, _, cx| leave.update(cx, |voice, cx| voice.leave(cx)))
                 .child(icon("phone-off", 20., gpui::white())),

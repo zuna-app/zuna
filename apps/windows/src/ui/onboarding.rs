@@ -7,6 +7,7 @@ use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, 
 use serde_json::json;
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::MIN_PASSWORD;
@@ -785,7 +786,20 @@ impl Render for Onboarding {
             .pr(px(24.) + gutter(&scroll_handle("onboarding")))
             .py(px(32.))
             // A width of its own, so wrapping text is measured at it when centering.
-            .child(div().flex_none().w(px(360.)).max_w_full().flex().flex_col().gap(px(gap)).children(children))
+            // `.onboarding-step`: each step fades in over 120 ms.
+            .child(div().flex_none().w(px(360.)).max_w_full().flex().flex_col().gap(px(gap)).children(children).enter(
+                match &self.step {
+                    Step::Welcome => "step-welcome",
+                    Step::Link => "step-link",
+                    Step::Invite(_) => "step-invite",
+                    Step::RecoveryKey { .. } => "step-recovery-key",
+                    Step::NameServer { .. } => "step-name-server",
+                    Step::SignIn => "step-sign-in",
+                    Step::Recover { .. } => "step-recover",
+                },
+                Enter::Fade,
+                120,
+            ))
             .child(scrollbar("onboarding", Scrolls::Div(scroll_handle("onboarding"))))
     }
 }

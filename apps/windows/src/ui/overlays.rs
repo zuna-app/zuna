@@ -8,6 +8,7 @@ use gpui::{AnyElement, AnyView, App, Context, Entity, FontWeight, IntoElement, P
 use serde_json::json;
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::onboarding::Onboarding;
 use super::text_input::{InputEvent, TextInput};
@@ -285,7 +286,9 @@ impl Dialog {
                     dialog.close(cx);
                 }
             }))
-            .child(card)
+            // As `Modal`: the backdrop fades in over 80 ms, the card with motion's `quick`.
+            .child(card.appear("modal-card", Enter::Pop, 120))
+            .appear("modal-layer", Enter::Fade, 80)
             .into_any_element()
     }
 
@@ -1506,5 +1509,6 @@ impl Render for ImageViewer {
                             })),
                     ),
             )
+            .enter("image-viewer-in", Enter::Fade, 100)
     }
 }

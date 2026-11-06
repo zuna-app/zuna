@@ -8,6 +8,7 @@ use gpui::{
 };
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use crate::theme::{RADIUS_L, RADIUS_S};
 
 pub type Action = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -55,7 +56,10 @@ impl MenuEntry {
     }
 }
 
+#[derive(Clone)]
 struct OpenMenu {
+    /// Which opening this is, so each one comes in afresh.
+    id: u64,
     position: Point<Pixels>,
     entries: Vec<MenuEntry>,
     /// Quick reactions above the entries, as on a message.
@@ -71,6 +75,9 @@ pub type Header = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 pub struct MenuLayer {
     open: Option<OpenMenu>,
+    /// One just closed, fading out over 60 ms as `PopupMenu`'s exit does.
+    closing: Option<(OpenMenu, std::time::Instant)>,
+    opened: u64,
     /// Held while a menu is open, so Escape closes it, and what had focus before.
     focus: gpui::FocusHandle,
     restore: Option<gpui::FocusHandle>,
@@ -85,7 +92,7 @@ pub fn menu_layer(cx: &mut App) -> Entity<MenuLayer> {
     if let Some(global) = cx.try_global::<MenuGlobal>() {
         return global.0.clone();
     }
-    let layer = cx.new(|cx| MenuLayer { open: None, focus: cx.focus_handle(), restore: None });
+    let layer = cx.new(|cx| MenuLayer { open: None, closing: None, opened: 0, focus: cx.focus_handle(), restore: None });
     cx.set_global(MenuGlobal(layer.clone()));
     layer
 }
@@ -94,7 +101,9 @@ pub fn menu_layer(cx: &mut App) -> Entity<MenuLayer> {
 pub fn open_menu(position: Point<Pixels>, entries: Vec<MenuEntry>, align_right: bool, cx: &mut App) {
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
-        layer.open = Some(OpenMenu { position, entries, reactions: None, align_right, header: None, above: false });
+        layer.opened += 1;
+        layer.closing = None;
+        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: None, align_right, header: None, above: false });
         cx.notify();
     });
 }
@@ -103,7 +112,9 @@ pub fn open_menu(position: Point<Pixels>, entries: Vec<MenuEntry>, align_right: 
 pub fn open_menu_with_header(position: Point<Pixels>, header: Option<Header>, entries: Vec<MenuEntry>, above: bool, cx: &mut App) {
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
-        layer.open = Some(OpenMenu { position, entries, reactions: None, align_right: false, header, above });
+        layer.opened += 1;
+        layer.closing = None;
+        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: None, align_right: false, header, above });
         cx.notify();
     });
 }
@@ -119,7 +130,9 @@ pub fn open_menu_with_reactions(
 ) {
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
-        layer.open = Some(OpenMenu { position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right, header: None, above: false });
+        layer.opened += 1;
+        layer.closing = None;
+        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right, header: None, above: false });
         cx.notify();
     });
 }
@@ -127,10 +140,22 @@ pub fn open_menu_with_reactions(
 pub fn close_menu(cx: &mut App) {
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
-        layer.open = None;
+        layer.close();
         cx.notify();
     });
 }
+
+impl MenuLayer {
+    fn close(&mut self) {
+        if let Some(open) = self.open.take() {
+            if !super::motion::reduced_or_system() {
+                self.closing = Some((open, std::time::Instant::now()));
+            }
+        }
+    }
+}
+
+const CLOSING: std::time::Duration = std::time::Duration::from_millis(60);
 
 impl Render for MenuLayer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -140,13 +165,30 @@ impl Render for MenuLayer {
                     window.focus(&previous);
                 }
             }
-            return div().into_any_element();
+            return match self.closing.clone() {
+                Some((closing, closed)) if closed.elapsed() < CLOSING => {
+                    window.request_animation_frame();
+                    let left = 1. - closed.elapsed().as_secs_f32() / CLOSING.as_secs_f32();
+                    self.draw(&closing, Some(left), window, cx)
+                }
+                _ => {
+                    self.closing = None;
+                    div().into_any_element()
+                }
+            };
         }
         if !self.focus.is_focused(window) && self.restore.is_none() {
             self.restore = window.focused(cx);
             window.focus(&self.focus);
         }
-        let Some(open) = &self.open else { return div().into_any_element() };
+        let Some(open) = self.open.clone() else { return div().into_any_element() };
+        self.draw(&open, None, window, cx)
+    }
+}
+
+impl MenuLayer {
+    /// The menu, or one fading out, by how much of it is left.
+    fn draw(&mut self, open: &OpenMenu, fading: Option<f32>, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let mut menu = div()
             .id("popup-menu")
@@ -163,12 +205,12 @@ impl Render for MenuLayer {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|layer, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
-                    layer.open = None;
+                    layer.close();
                     cx.notify();
                 }
             }))
             .on_mouse_down_out(cx.listener(|layer, _, _, cx| {
-                layer.open = None;
+                layer.close();
                 cx.notify();
             }));
         if let Some(header) = open.header.clone() {
@@ -190,7 +232,7 @@ impl Render for MenuLayer {
                         .cursor_pointer()
                         .hover(move |style| style.bg(theme.hover_strong))
                         .on_click(cx.listener(move |layer, _, window, cx| {
-                            layer.open = None;
+                            layer.close();
                             cx.notify();
                             on_react(emoji, window, cx);
                         }))
@@ -240,7 +282,7 @@ impl Render for MenuLayer {
                     cx.notify();
                     return;
                 }
-                layer.open = None;
+                layer.close();
                 cx.notify();
                 if let Some(action) = &entry.action {
                     action(window, cx);
@@ -252,6 +294,11 @@ impl Render for MenuLayer {
             (false, true) => Corner::BottomLeft,
             (true, false) => Corner::TopRight,
             (false, false) => Corner::TopLeft,
+        };
+        // As `PopupMenu`: in over 80 ms, out over 60, where it's seen but no longer used.
+        let menu = match fading {
+            Some(left) => menu.opacity(left).child(div().id("menu-closing").absolute().inset_0().occlude()).into_any_element(),
+            None => menu.appear(gpui::ElementId::Name(format!("menu-in-{}", open.id).into()), Enter::Pop, 80).into_any_element(),
         };
         deferred(anchored().position(open.position).anchor(corner).snap_to_window_with_margin(px(8.)).child(menu))
             .with_priority(2)

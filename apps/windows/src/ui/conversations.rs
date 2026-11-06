@@ -392,8 +392,9 @@ impl Render for ConversationList {
             .h(px(52.))
             .child({
                 let (title_bounds, title_probe) = bounds_probe();
-                div()
-                    .id("server-title")
+                // `.server-title`: background 0.1s.
+                super::motion::track_hover(div().id("server-title"), "server-title".into())
+                    .relative()
                     .child(title_probe)
                     .flex_1()
                     .min_w_0()
@@ -406,7 +407,7 @@ impl Render for ConversationList {
                     .text_size(px(15.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .cursor_pointer()
-                    .hover(move |style| style.bg(theme.hover))
+                    .child(super::motion::hover_layer("server-title", theme.hover, RADIUS_M, 100))
                     .on_click(move |_, _, cx| {
                         let state = header_state.clone();
                         let mut entries = vec![
@@ -492,8 +493,10 @@ impl Render for ConversationList {
         if matches!(self.filter, Filter::All | Filter::Channels) {
             rows.extend(self.channel_rows(&server, &query, cx));
         }
+        // A row moving when the order changes slides to its new place, as the desktop's do.
+        let list_scroll = super::scrollbar::scroll_handle("conv-list");
         for item in &visible {
-            rows.push(self.row(item, &server, cx));
+            rows.push(super::motion::sliding(format!("conv-{}", item.key), list_scroll.clone(), self.row(item, &server, cx)).into_any_element());
         }
         if !self.hits.is_empty() {
             rows.push(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(14.)).py(px(6.)).mt(px(6.)).child("Messages").into_any_element());
@@ -607,7 +610,8 @@ impl Render for ConversationList {
                         list.show_hidden = !list.show_hidden;
                         cx.notify();
                     }))
-                    .child(icon(if open { "chevron-down" } else { "chevron-right" }, 14., theme.text3).group_hover("hidden-toggle", move |style| style.text_color(theme.text2)))
+                    // `.hidden-toggle svg`: turned a quarter when open, over 100 ms.
+                    .child(super::motion::transition(icon("chevron-right", 14., theme.text3).group_hover("hidden-toggle", move |style| style.text_color(theme.text2)), "hidden-toggle-chevron", if open { 1. } else { 0. }, 100, super::motion::ease(), |el, t| el.with_transformation(gpui::Transformation::rotate(gpui::radians(t * std::f32::consts::FRAC_PI_2)))))
                     .child(format!("Hidden ({})", hidden.len()))
                     .into_any_element(),
             );
@@ -701,7 +705,8 @@ impl ConversationList {
                                 )
                             })
                         })
-                        .child(icon(if folded { "chevron-right" } else { "chevron-down" }, 12., theme.text3).group_hover(SharedString::from(format!("section-title-{name}")), move |style| style.text_color(theme.text1)))
+                        // `.channel-section-title svg`: turned back a quarter when folded, over 100 ms.
+                        .child(super::motion::transition(icon("chevron-down", 12., theme.text3).group_hover(SharedString::from(format!("section-title-{name}")), move |style| style.text_color(theme.text1)), format!("section-chevron-{name}"), if folded { 1. } else { 0. }, 100, super::motion::ease_out(), |el, t| el.with_transformation(gpui::Transformation::rotate(gpui::radians(-t * std::f32::consts::FRAC_PI_2)))))
                         .child(div().min_w_0().one_line().child(name.to_uppercase())),
                 );
             if is_admin {

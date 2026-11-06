@@ -11,6 +11,7 @@ use gpui::{
 use serde_json::json;
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::menu::{MenuEntry, open_menu_with_reactions};
 use crate::format::{format_bytes, format_day_separator, format_full, format_time, name_color, timer_change_text};
 use crate::markup::{self, Block, Rich};
@@ -231,8 +232,10 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
             bubble = if own { bubble.rounded_tr(px(5.)) } else { bubble.rounded_tl(px(5.)) };
         }
     }
-    if message.status == "sending" {
-        bubble = bubble.opacity(0.7);
+    // `.bubble.is-sending`: dimmed only after half a second, so a quick send doesn't blink.
+    let dim = super::motion::delayed_dim(&format!("bubble-{}", message.id), message.status == "sending", 500, 200, 0.7, 150, window);
+    if dim < 1. {
+        bubble = bubble.opacity(dim);
     }
     if message.status == "failed" {
         bubble = bubble.border_1().border_color(theme.red);
@@ -548,17 +551,23 @@ fn meta_element(message: &MessageView, own: bool, is_deleted: bool, read_up_to: 
     meta = meta.child(format_time(message.created_at));
     if own && !is_deleted {
         let tick: AnyElement = match message.status.as_str() {
-            "sending" => icon("clock", 11., color).into_any_element(),
+            // `.msg-tick.is-sending`: only after 350 ms, faded in.
+            "sending" => icon("clock", 11., color).enter_after(SharedString::from(format!("tick-sending-{}", message.id)), Enter::Fade, 350, 120).into_any_element(),
             "failed" => icon("circle-alert", 12., theme::color(theme::hex(0xf4bcbe))).into_any_element(),
             _ => match message.seq {
                 Some(seq) if read_up_to >= 0. => {
                     let read = read_up_to >= seq;
-                    gpui::svg()
+                    let ticks = gpui::svg()
                         .path(if read { "icons/ticks-read.svg" } else { "icons/ticks-sent.svg" })
                         .w(px(18.))
                         .h(px(10.))
-                        .text_color(if read { theme.accent_text } else { color })
-                        .into_any_element()
+                        .text_color(if read { theme.accent_text } else { color });
+                    // A just-sent message's ticks pop in, as `.msg.is-fresh .msg-tick`.
+                    if crate::format::now_ms() - message.created_at < 1500. {
+                        ticks.enter(SharedString::from(format!("tick-sent-{}", message.id)), Enter::Pop, 120).into_any_element()
+                    } else {
+                        ticks.into_any_element()
+                    }
                 }
                 _ => div().into_any_element(),
             },
@@ -904,8 +913,10 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
     let state = context.state.clone();
     let (group, id, key) = (message.group_id.clone(), message.id.clone(), reaction.key.clone());
     let emote = reaction.emote.clone();
-    let mut chip = div()
-        .id(SharedString::from(format!("reaction-{}-{}", message.id, reaction.key)))
+    // `.reaction`: its background comes up over 100 ms under the pointer.
+    let hover_key = format!("reaction-{}-{}", message.id, reaction.key);
+    let mut chip = super::motion::track_hover(div().id(SharedString::from(hover_key.clone())), hover_key.clone())
+        .relative()
         .flex()
         .items_center()
         .gap(px(4.))
@@ -918,7 +929,7 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
         .text_size(px(12.))
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
-        .hover(move |style| style.bg(hover))
+        .child(super::motion::hover_layer(&hover_key, hover, px(12.), 100))
         .tip(names, Side::Top)
         .on_click(move |_, _, cx| {
             let mut args = vec![json!(group), json!(id), json!(key)];
@@ -952,7 +963,8 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
     } else {
         chip = chip.child(reaction.user_ids.len().to_string());
     }
-    chip.into_any_element()
+    // `.reaction`: pop-in 0.1s, when it's first there.
+    chip.enter(SharedString::from(format!("reaction-in-{}-{}", message.id, reaction.key)), Enter::Pop, 100).into_any_element()
 }
 
 /// The corners of the pictures above a message, as `.media-grid`'s `border-radius: inherit`
@@ -1042,7 +1054,8 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                 tile = tile
                     .cursor_pointer()
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)))
-                    .child(round_corners(if single { img(image).object_fit(gpui::ObjectFit::Cover) } else { cover(image, shape, 418, cx) }.size_full(), corners));
+                    // `.media-full`: faded in over the preview once it's here.
+                    .child(round_corners(if single { img(image).object_fit(gpui::ObjectFit::Cover) } else { cover(image, shape, 418, cx) }.size_full(), corners).enter(SharedString::from(format!("media-full-{}-{}", message.id, attachment.file_id)), Enter::Fade, 120));
             } else {
                 if let Some(thumb) = thumb {
                     tile = tile.child(round_corners(cover(thumb, shape, 200, cx).size_full().opacity(0.85), corners));

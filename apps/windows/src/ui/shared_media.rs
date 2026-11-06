@@ -6,6 +6,7 @@ use std::sync::Arc;
 use gpui::{AnyElement, App, Entity, FontWeight, Image, IntoElement, MouseButton, ParentElement, Pixels, SharedString, Styled, div, prelude::*, px};
 
 use super::components::*;
+use super::motion::{Enter, Motion};
 use super::menu::{MenuEntry, open_menu};
 use crate::format::{avatar_color, format_bytes, format_duration, format_full, name_color};
 use crate::markup::plain_text;
@@ -224,7 +225,8 @@ fn tile(state: &Entity<AppState>, server: &ServerState, message: &MessageView, a
         })
         .on_mouse_down(MouseButton::Right, show_in_chat(state.clone(), message))
         .when_some(thumb, |el, thumb| el.child(round_corners(cover(thumb, 1., 120, cx).absolute().inset_0().size_full(), corners)))
-        .when_some(picture, |el, picture| el.child(round_corners(cover(picture, 1., 240, cx).absolute().inset_0().size_full(), corners)))
+        // `.shared-tile-full`: faded in once it's here.
+        .when_some(picture, |el, picture| el.child(round_corners(cover(picture, 1., 240, cx).absolute().inset_0().size_full(), corners).enter(SharedString::from(format!("shared-full-{}", hover)), Enter::Fade, 120)))
         .when(video || !wanted, |el| {
             el.child(
                 div().absolute().inset_0().flex().items_center().justify_center().child(
