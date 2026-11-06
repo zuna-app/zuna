@@ -7,6 +7,7 @@ pub mod menu;
 pub mod message;
 pub mod onboarding;
 pub mod overlays;
+pub mod picker;
 pub mod settings;
 pub mod side_panel;
 pub mod text_input;
@@ -17,6 +18,17 @@ use gpui::{
 };
 
 use crate::state::{AppState, Phase, ToastKind};
+
+gpui::actions!(shell, [FocusSearch, NextConversation, PreviousConversation]);
+
+/// Ctrl+K jumps to search, and Alt+Up and Alt+Down move through conversations, as on the desktop.
+pub fn bind_keys(cx: &mut App) {
+    cx.bind_keys([
+        gpui::KeyBinding::new("ctrl-k", FocusSearch, None),
+        gpui::KeyBinding::new("alt-down", NextConversation, None),
+        gpui::KeyBinding::new("alt-up", PreviousConversation, None),
+    ]);
+}
 use crate::theme::{self, RAIL_WIDTH, RADIUS_L, RADIUS_M, TITLEBAR_HEIGHT};
 use components::*;
 
@@ -29,6 +41,10 @@ pub struct Root {
     overlay: Option<(crate::state::Overlay, gpui::AnyView)>,
     resizing: Option<(f32, f32)>,
     menu: Entity<menu::MenuLayer>,
+    picker: Entity<picker::PickerLayer>,
+    focus: gpui::FocusHandle,
+    /// Whether a dialog or settings was open last frame, to give focus back when they close.
+    covered: bool,
 }
 
 impl Root {
@@ -47,7 +63,11 @@ impl Root {
             });
         })
         .detach();
-        Root { state, onboarding, conversations, chat: None, settings: None, overlay: None, resizing: None, menu }
+        let picker = picker::picker_layer(window, cx);
+        cx.observe(&picker, |_, _, cx| cx.notify()).detach();
+        let focus = cx.focus_handle();
+        window.focus(&focus);
+        Root { state, onboarding, conversations, chat: None, settings: None, overlay: None, resizing: None, menu, picker, focus, covered: false }
     }
 
     fn title_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -433,6 +453,25 @@ impl Root {
     }
 }
 
+impl Root {
+    /// The next or previous conversation in the list, hidden ones left out.
+    fn step_conversation(&mut self, step: isize, cx: &mut Context<Self>) {
+        let Some(server) = self.state.read(cx).active() else { return };
+        let visible: Vec<String> = server.conversations.iter().filter(|item| !item.hidden && !item.blocked).map(|item| item.key.clone()).collect();
+        let index = server.active_key.as_ref().and_then(|key| visible.iter().position(|item| item == key));
+        let next = match index {
+            Some(index) => index as isize + step,
+            None if step > 0 => 0,
+            None => return,
+        };
+        if next < 0 || next as usize >= visible.len() {
+            return;
+        }
+        let key = visible[next as usize].clone();
+        self.state.update(cx, |state, cx| state.select_conversation(Some(key), cx));
+    }
+}
+
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
@@ -536,8 +575,24 @@ impl Render for Root {
 
         let overlay = self.overlay(window, cx);
         let settings = self.settings.clone();
+        // As the desktop's useReturnFocus: when a dialog goes, the message box has focus again.
+        let covered = overlay.is_some() || settings.is_some();
+        if self.covered && !covered {
+            match &self.chat {
+                Some((_, chat)) => chat.read(cx).focus_composer(window, cx),
+                None => window.focus(&self.focus),
+            }
+        }
+        self.covered = covered;
         div()
             .size_full()
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|root, _: &FocusSearch, window, cx| {
+                let list = root.conversations.clone();
+                list.update(cx, |list, cx| list.focus_search(window, cx));
+            }))
+            .on_action(cx.listener(|root, _: &NextConversation, _, cx| root.step_conversation(1, cx)))
+            .on_action(cx.listener(|root, _: &PreviousConversation, _, cx| root.step_conversation(-1, cx)))
             .flex()
             .flex_col()
             .bg(theme.bg0)
@@ -558,5 +613,6 @@ impl Render for Root {
             .when_some(overlay, |el, overlay| el.child(overlay))
             .child(self.toasts(cx))
             .child(self.menu.clone())
+            .child(self.picker.clone())
     }
 }

@@ -24,6 +24,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::Verify { user_id } => cx.new(|cx| Dialog::new(state, DialogKind::Verify(user_id), window, cx)).into(),
         Overlay::LeaveServer => cx.new(|cx| Dialog::new(state, DialogKind::LeaveServer, window, cx)).into(),
         Overlay::Settings { .. } => return None,
+        Overlay::Image { file_id, name } => cx.new(|cx| ImageViewer::new(state, file_id, name, window, cx)).into(),
     })
 }
 
@@ -540,5 +541,103 @@ impl Render for Dialog {
             }
             DialogKind::LeaveServer => self.leave_server(cx),
         }
+    }
+}
+
+/// A picture, fitted to the window over everything, as the desktop's ImageViewer shows it:
+/// a click outside or Escape closes it, and it can be saved.
+pub struct ImageViewer {
+    state: Entity<AppState>,
+    file_id: String,
+    name: String,
+    focus: gpui::FocusHandle,
+}
+
+impl ImageViewer {
+    fn new(state: Entity<AppState>, file_id: String, name: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let focus = cx.focus_handle();
+        window.focus(&focus);
+        ImageViewer { state, file_id, name, focus }
+    }
+
+    fn close(&mut self, cx: &mut Context<Self>) {
+        self.state.update(cx, |state, cx| state.set_overlay(None, cx));
+    }
+}
+
+impl Render for ImageViewer {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = theme(cx);
+        let image = match self.state.read(cx).pictures.get(&format!("file:{}", self.file_id)) {
+            Some(crate::state::Picture::Ready(image)) => Some(image.clone()),
+            _ => None,
+        };
+        let viewport = window.viewport_size();
+        let name = self.name.clone();
+        let file_id = self.file_id.clone();
+        let state = self.state.clone();
+        div()
+            .id("image-viewer")
+            .track_focus(&self.focus)
+            .absolute()
+            .inset_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(theme::color(theme::black_a(0.92)))
+            .occlude()
+            .on_mouse_down(gpui::MouseButton::Left, cx.listener(|viewer, _, _, cx| viewer.close(cx)))
+            .on_key_down(cx.listener(|viewer, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape" {
+                    viewer.close(cx);
+                }
+            }))
+            .when_some(image, |el, image| {
+                el.child(
+                    gpui::img(image)
+                        .max_w(viewport.width - px(80.))
+                        .max_h(viewport.height - px(80.))
+                        .rounded(crate::theme::RADIUS_S)
+                        .object_fit(gpui::ObjectFit::Contain),
+                )
+            })
+            .child(
+                div()
+                    .absolute()
+                    .right(px(18.))
+                    .bottom(px(18.))
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .p(px(4.))
+                    .rounded(RADIUS_L)
+                    .bg(theme::color(theme::rgba(24, 24, 27, 0.85)))
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(icon_button("save-image", "download", 18., false, false, cx).tooltip(tooltip("Save")).on_click(move |_, _, cx| {
+                        let downloads = dirs::download_dir().unwrap_or_else(std::env::temp_dir);
+                        let chosen = cx.prompt_for_new_path(&downloads, Some(&name));
+                        let source = crate::host::data_dir();
+                        let key = format!("file:{}", file_id);
+                        let bytes = match state.read(cx).pictures.get(&key) {
+                            Some(crate::state::Picture::Ready(image)) => Some(image.bytes().to_vec()),
+                            _ => None,
+                        };
+                        let _ = source;
+                        cx.spawn(async move |_| {
+                            if let (Ok(Ok(Some(path))), Some(bytes)) = (chosen.await, bytes) {
+                                std::fs::write(path, bytes).ok();
+                            }
+                        })
+                        .detach();
+                    })),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .top(px(44.))
+                    .right(px(18.))
+                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(icon_button("close-image", "x", 18., false, false, cx).bg(theme.bg3).on_click(cx.listener(|viewer, _, _, cx| viewer.close(cx)))),
+            )
     }
 }

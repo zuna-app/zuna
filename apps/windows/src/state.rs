@@ -122,6 +122,8 @@ pub enum Overlay {
     Invite,
     Verify { user_id: String },
     LeaveServer,
+    /// A picture from a message, over everything, by its file.
+    Image { file_id: String, name: String },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

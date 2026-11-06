@@ -302,7 +302,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
             );
         }
         if !message.attachments.is_empty() {
-            bubble = bubble.child(attachments(message, &images, only_images, own, context, &theme, cx));
+            bubble = bubble.child(attachments(message, &images, only_images, own, grouped, context, &theme, cx));
         }
         if !message.text.is_empty() {
             if jumbo > 0 {
@@ -454,15 +454,25 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                 .opacity(0.)
                 .group_hover(group, |style| style.opacity(1.))
                 .when(own, |el| el.flex_row_reverse())
-                .child(icon_button(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, cx).tooltip(tooltip("React")).on_click(move |event, _, cx| {
+                .child(icon_button(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, cx).tooltip(tooltip("React")).on_click(move |event, window, cx| {
                     let state = picker_state.clone();
                     let (group, id) = (picker_group.clone(), picker_id.clone());
-                    open_menu_with_reactions(
+                    super::picker::open_picker(
                         event.position(),
-                        Vec::new(),
-                        QUICK_REACTIONS.to_vec(),
-                        move |emoji, _, cx| state.update(cx, |state, cx| state.act("toggleReaction", vec![json!(group), json!(id), json!(emoji)], cx)),
                         false,
+                        move |pick, _, cx| {
+                            let args = match pick {
+                                super::picker::Pick::Emoji(value) => vec![json!(group), json!(id), json!(value)],
+                                super::picker::Pick::Emote(emote) => vec![
+                                    json!(group),
+                                    json!(id),
+                                    json!(emote.name),
+                                    json!({ "id": emote.id, "animated": emote.animated, "zeroWidth": emote.zero_width, "owner": emote.owner }),
+                                ],
+                            };
+                            state.update(cx, |state, cx| state.act("toggleReaction", args, cx));
+                        },
+                        window,
                         cx,
                     );
                 }))
@@ -613,6 +623,73 @@ fn runs_for(rich: &Rich, own: bool, revealed: bool, theme: &Theme, base: Hsla) -
     runs
 }
 
+/// A block with emotes in it, as words and pictures that wrap together: 26 px emotes
+/// on the line, as `.emote-inline` draws them, and a gap for the time at the end.
+#[allow(clippy::too_many_arguments)]
+fn flow_text(
+    message: &MessageView,
+    index: usize,
+    rich: &Rich,
+    own: bool,
+    revealed: bool,
+    trailing: bool,
+    color: gpui::Hsla,
+    context: &ChatContext,
+    theme: &Theme,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let mut row = div().flex().flex_wrap().items_end();
+    let mut piece = 0;
+    for (range, style) in &rich.spans {
+        let text = &rich.text[range.clone()];
+        if let Some((name, emote)) = &style.emote {
+            let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
+            let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
+            let zero_width = emote.zero_width == Some(true);
+            row = row.child(match image {
+                Some(image) => img(image)
+                    .h(px(26.))
+                    .max_w(px(110.))
+                    .mx(px(1.))
+                    .my(px(-3.))
+                    .when(zero_width, |el| el.ml(px(-28.)))
+                    .object_fit(gpui::ObjectFit::Contain)
+                    .into_any_element(),
+                None => div().text_color(theme.text2).child(name.clone()).into_any_element(),
+            });
+            continue;
+        }
+        // Words with their spaces, so lines break between them.
+        let mut start = 0;
+        let mut words = Vec::new();
+        for (offset, ch) in text.char_indices() {
+            if ch.is_whitespace() {
+                let end = offset + ch.len_utf8();
+                words.push(&text[start..end]);
+                start = end;
+            }
+        }
+        if start < text.len() {
+            words.push(&text[start..]);
+        }
+        for word in words {
+            let mut single = Rich { text: word.to_string(), spans: vec![(0..word.len(), style.clone())] };
+            single.spans.retain(|(range, _)| !range.is_empty());
+            let runs = runs_for(&single, own, revealed, theme, color);
+            row = row.child(interactive_text(&message.id, index * 10_000 + piece, single, runs, context, cx));
+            piece += 1;
+        }
+    }
+    if trailing {
+        // Room for the time, which wraps to a line of its own when the last one is full.
+        let padding = meta_padding(message, own, theme, window);
+        let run = TextRun { len: padding.len(), font: gpui::font(FONT_UI), color: gpui::transparent_black(), background_color: None, underline: None, strikethrough: None };
+        row = row.child(StyledText::new(SharedString::from(padding)).with_runs(vec![run]));
+    }
+    row.into_any_element()
+}
+
 fn text_body(message: &MessageView, own: bool, meta_in_text: bool, context: &ChatContext, theme: &Theme, window: &mut Window, cx: &mut App) -> AnyElement {
     let markup_context = markup::Context { emotes: &message.emotes, mentionable: &context.mentionable, self_id: &context.self_id };
     let blocks = markup::parse(&message.text, &markup_context);
@@ -627,6 +704,17 @@ fn text_body(message: &MessageView, own: bool, meta_in_text: bool, context: &Cha
                 let quote = matches!(block, Block::Quote(_));
                 let mut rich = rich.clone();
                 let color = if quote { if own { theme.bubble_own_faint } else { theme.text2 } } else { base };
+                if rich.has_emotes() {
+                    // Pictures can't sit inside GPUI's text, so the block flows as words and emotes.
+                    let trailing = meta_in_text && Some(index) == last_text && ends_in_text;
+                    let element = flow_text(message, index, &rich, own, revealed, trailing, color, context, theme, window, cx);
+                    column = column.child(if quote {
+                        div().pl(px(9.)).my(px(2.)).border_l_2().border_color(if own { theme.bubble_own_faint } else { theme.text3 }).child(element).into_any_element()
+                    } else {
+                        element
+                    });
+                    continue;
+                }
                 if meta_in_text && Some(index) == last_text && ends_in_text {
                     let padding = meta_padding(message, own, theme, window);
                     let start = rich.text.len();
@@ -838,7 +926,21 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
     chip.into_any_element()
 }
 
-fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
+/// A photo's corners, as the bubble's around it: GPUI clips to rectangles, so the picture
+/// is rounded itself, at the bubble's outer corners only.
+fn rounded_image(image: gpui::Img, single: bool, only_images: bool, own: bool, grouped_top: bool) -> gpui::Img {
+    if !single {
+        return image;
+    }
+    let big = px(15.);
+    let small = px(5.);
+    let top_inner = if grouped_top { small } else { big };
+    let (tl, tr) = if own { (big, top_inner) } else { (top_inner, big) };
+    let (bl, br) = if only_images { if own { (big, small) } else { (small, big) } } else { (px(0.), px(0.)) };
+    image.rounded_tl(tl).rounded_tr(tr).rounded_bl(bl).rounded_br(br)
+}
+
+fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool, own: bool, grouped_top: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
     let mut column = div().flex().flex_col();
     if !images.is_empty() {
         let single = images.len() == 1;
@@ -859,9 +961,20 @@ fn attachments(message: &MessageView, images: &[&Attachment], only_images: bool,
             };
             let image = context.images.get(&attachment.file_id).cloned();
             let thumb = attachment.thumb.as_ref().and_then(|thumb| data_url_image(thumb));
-            let mut tile = div().relative().w(px(w as f32)).h(px(h as f32)).bg(theme.bg3).overflow_hidden();
+            let mut tile = div()
+                .id(SharedString::from(format!("tile-{}-{}", message.id, attachment.file_id)))
+                .relative()
+                .w(px(w as f32))
+                .h(px(h as f32))
+                .when(image.is_none(), |el| el.bg(theme.bg3))
+                .overflow_hidden();
             if let Some(image) = image {
-                tile = tile.child(img(image).size_full().object_fit(gpui::ObjectFit::Cover));
+                let state = context.state.clone();
+                let (file_id, name) = (attachment.file_id.clone(), attachment.name.clone());
+                tile = tile
+                    .cursor_pointer()
+                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)))
+                    .child(rounded_image(img(image).size_full().object_fit(gpui::ObjectFit::Cover), single, only_images, own, grouped_top));
             } else {
                 if let Some(thumb) = thumb {
                     tile = tile.child(img(thumb).size_full().object_fit(gpui::ObjectFit::Cover).opacity(0.85));

@@ -27,4 +27,4 @@ For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` 
 
 ## What's missing
 
-Voice channels, calls and screen sharing; notifications, the unread badge and the tray; the emoji picker; link previews; voice and video messages; forwarding; the server's settings; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.
+Voice channels, calls and screen sharing; notifications, the unread badge and the tray; link previews; voice and video messages; forwarding; the server's settings; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.

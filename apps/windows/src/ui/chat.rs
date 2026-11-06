@@ -109,6 +109,10 @@ impl ChatView {
         view
     }
 
+    pub fn focus_composer(&self, window: &mut Window, cx: &gpui::App) {
+        self.composer.read(cx).focus(window);
+    }
+
     fn conversation(&self, cx: &gpui::App) -> Option<ConversationView> {
         self.state.read(cx).servers.get(&self.server_id).and_then(|server| server.find_conversation(&self.key)).cloned()
     }
@@ -624,6 +628,30 @@ impl ChatView {
                         .line_height(px(20.))
                         .child(self.composer.clone()),
                 )
+                .child(icon_button("emoji", "face-slightly-smiling", 18., false, false, cx).tooltip(tooltip("Emoji and emotes")).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
+                    let composer = view.composer.clone();
+                    let position = gpui::point(event.position().x - px(314.), event.position().y - px(10.));
+                    super::picker::open_picker(
+                        position,
+                        true,
+                        move |pick, window, cx| {
+                            composer.update(cx, |input, cx| {
+                                let text = match pick {
+                                    super::picker::Pick::Emoji(value) => value,
+                                    super::picker::Pick::Emote(emote) => {
+                                        let before = &input.text()[..input.cursor().min(input.text().len())];
+                                        let space = if before.is_empty() || before.ends_with(char::is_whitespace) { "" } else { " " };
+                                        format!("{space}{} ", emote.name)
+                                    }
+                                };
+                                input.insert(&text, window, cx);
+                            });
+                            composer.read(cx).focus(window);
+                        },
+                        window,
+                        cx,
+                    );
+                })))
                 .child(
                     div()
                         .id("send")

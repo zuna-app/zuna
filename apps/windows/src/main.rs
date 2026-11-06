@@ -4,6 +4,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod assets;
+mod emoji_data;
 mod format;
 mod host;
 mod markup;
@@ -17,7 +18,7 @@ use gpui::{App, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds, 
 
 use state::{AppState, Store};
 
-actions!(zuna, [Quit, FocusSearch]);
+actions!(zuna, [Quit]);
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -29,6 +30,7 @@ fn main() {
     Application::new().with_assets(assets::Assets).run(|cx: &mut App| {
         assets::load_fonts(cx);
         ui::text_input::bind_keys(cx);
+        ui::bind_keys(cx);
         cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
         cx.on_action(|_: &Quit, cx| cx.quit());
 
