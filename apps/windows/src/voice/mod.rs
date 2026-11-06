@@ -977,7 +977,7 @@ impl Voice {
         let call = self.core(cx).call(Some(&server_id), "soundFile", vec![json!(sound_id)]);
         cx.spawn(async move |this, cx| {
             let file = call.await;
-            let samples = file.ok().and_then(|value| read_bytes(&value)).and_then(|bytes| decode_wav(&bytes));
+            let samples = file.ok().and_then(|value| crate::host::value_bytes(&value)).and_then(|bytes| decode_wav(&bytes));
             this.update(cx, |voice, cx| {
                 let Some(samples) = samples else { return };
                 let samples = Arc::new(samples);
@@ -1011,6 +1011,32 @@ impl Voice {
             }),
         );
         cx.notify();
+    }
+
+    /// Plays a sound from the soundboard here only, outside any call, as when an admin listens to one.
+    pub fn preview_sound(&mut self, server_id: String, sound_id: String, cx: &mut Context<Self>) {
+        let volume = { let level = self.settings.output_volume * self.settings.soundboard_volume; if level > 0. { level } else { 0.6 } };
+        let key = format!("{server_id}/{sound_id}");
+        if let Some(samples) = self.sound_cache.get(&key).cloned() {
+            self.mixer.open(&self.settings.output_device);
+            self.mixer.once(samples.as_ref().clone(), volume);
+            return;
+        }
+        let call = self.core(cx).call(Some(&server_id), "soundFile", vec![json!(sound_id)]);
+        cx.spawn(async move |this, cx| {
+            let samples = call.await.ok().and_then(|value| crate::host::value_bytes(&value)).and_then(|bytes| decode_wav(&bytes));
+            this.update(cx, |voice, cx| match samples {
+                Some(samples) => {
+                    let samples = Arc::new(samples);
+                    voice.sound_cache.insert(key, samples.clone());
+                    voice.mixer.open(&voice.settings.output_device);
+                    voice.mixer.once(samples.as_ref().clone(), volume);
+                }
+                None => voice.toast("That sound couldn't be played.", ToastKind::Error, cx),
+            })
+            .ok();
+        })
+        .detach();
     }
 
     // --- Ringing ---

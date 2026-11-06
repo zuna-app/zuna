@@ -25,6 +25,8 @@ pub struct ServerSettings {
     refreshing: bool,
     /// Holds focus while nothing in it does, so Escape closes it.
     focus: gpui::FocusHandle,
+    soundboard: Option<Entity<super::server_voice::ServerSoundboard>>,
+    screen_rules: Option<Entity<super::server_voice::ServerScreenRules>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -70,6 +72,8 @@ impl ServerSettings {
             busy: false,
             refreshing: false,
             focus,
+            soundboard: None,
+            screen_rules: None,
             _subscriptions: subscriptions,
         }
     }
@@ -445,7 +449,7 @@ impl ServerSettings {
 }
 
 impl Render for ServerSettings {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
         let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
         let is_admin = server.is_admin();
@@ -456,7 +460,9 @@ impl Render for ServerSettings {
                 ("invites", "Invites", "link"),
                 ("members", "Members", "users"),
                 ("emotes", "Emotes", "face-slightly-smiling"),
+                ("soundboard", "Soundboard", "audio-lines"),
                 ("storage", "Storage", "hard-drive"),
+                ("screen", "Screen sharing", "monitor-up"),
             ]);
         }
         sections.push(("leave", "Sign out", "log-out"));
@@ -466,6 +472,30 @@ impl Render for ServerSettings {
             "members" if is_admin => self.members(&server, cx),
             "emotes" if is_admin => self.emotes(&server, cx),
             "storage" if is_admin => self.storage(cx),
+            "soundboard" if is_admin => {
+                let state = self.state.clone();
+                let page = match &self.soundboard {
+                    Some(page) => page.clone(),
+                    None => {
+                        let page = cx.new(|cx| super::server_voice::ServerSoundboard::new(state, window, cx));
+                        self.soundboard = Some(page.clone());
+                        page
+                    }
+                };
+                vec![page.into_any_element()]
+            }
+            "screen" if is_admin => {
+                let state = self.state.clone();
+                let page = match &self.screen_rules {
+                    Some(page) => page.clone(),
+                    None => {
+                        let page = cx.new(|cx| super::server_voice::ServerScreenRules::new(state, window, cx));
+                        self.screen_rules = Some(page.clone());
+                        page
+                    }
+                };
+                vec![page.into_any_element()]
+            }
             _ => self.leave(&server, cx),
         };
         let nav = div()

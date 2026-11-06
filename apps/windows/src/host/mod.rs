@@ -222,6 +222,14 @@ pub fn file(path: &str, mime: &str) -> Value {
     json!({ "$file": { "path": path, "type": mime } })
 }
 
+/// The bytes of a `$bytes`, `$blob` or `$file` value from the wire, reading a file from disk.
+pub fn value_bytes(value: &Value) -> Option<Vec<u8>> {
+    if let Some(path) = value.get("$file").and_then(|file| file.get("path")).and_then(Value::as_str) {
+        return std::fs::read(path).ok();
+    }
+    read_bytes(value)
+}
+
 /// The bytes of a `$bytes` or `$blob` value from the wire.
 pub fn read_bytes(value: &Value) -> Option<Vec<u8>> {
     use base64::Engine;

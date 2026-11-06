@@ -40,6 +40,11 @@ fn field(label: AnyElement, control: impl IntoElement, hint: Option<&str>, cx: &
     div().flex().flex_col().gap(px(6.)).child(label).child(control).when_some(hint, |el, hint| el.child(div().text_size(px(12.5)).text_color(theme.text3).child(hint.to_string()))).into_any_element()
 }
 
+/// A heading within a page, as `.settings-subhead` draws it: small, in capitals.
+fn subhead(text: &str) -> AnyElement {
+    div().mt(px(8.)).text_size(px(12.)).font_weight(FontWeight::SEMIBOLD).text_color(crate::theme::color(crate::theme::hex(0x6e6e75))).child(text.to_uppercase()).into_any_element()
+}
+
 fn plain_label(text: &str, cx: &App) -> AnyElement {
     let theme = theme(cx);
     div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(text.to_string()).into_any_element()
@@ -443,7 +448,7 @@ impl Render for ScreenSettingsPage {
         if let Some(limits) = &limits {
             parts.push(held_note(limits));
         }
-        parts.push(SettingsView::subheading("Picture"));
+        parts.push(subhead("Picture"));
         parts.push(number_select("screen-size-setting", "Size", settings.screen_height, &[0, 2160, 1440, 1080, 720, 480, 360], height_name, Some(format!("Server's choice ({})", height_name(suggested.height))), limit(shown.max_height), set(&self.voice, Rc::new(|settings, value| settings.screen_height = value)), cx));
         parts.push(hint_text(if terms.held.contains(&Held::Height) { format!("Sent at up to {}, which is this server's limit.", height_name(terms.height)) } else { "A larger screen is made smaller to fit, keeping its shape.".into() }));
         parts.push(number_select("screen-rate-setting", "Frame rate", settings.screen_fps, &SCREEN_RATES, rate_name, Some(format!("Server's choice ({})", rate_name(suggested.fps))), limit(shown.max_fps), set(&self.voice, Rc::new(|settings, value| settings.screen_fps = value)), cx));
@@ -453,7 +458,7 @@ impl Render for ScreenSettingsPage {
         parts.push(number_select("screen-bitrate-setting", "Most it may send", settings.screen_bitrate, &SCREEN_BITRATES, bitrate_name, Some(format!("Server's choice ({})", bitrate_name(suggested.kbps))), limit(shown.max_kbps), set(&self.voice, Rc::new(|settings, value| settings.screen_bitrate = value)), cx));
         parts.push(hint_text(if terms.held.contains(&Held::Kbps) { format!("Sent at up to {}, which is this server's limit.", bitrate_name(terms.kbps)) } else { "It sends less when your connection or the screen doesn't need that much.".into() }));
         let _ = SCREEN_HEIGHTS;
-        parts.push(SettingsView::subheading("Sound"));
+        parts.push(subhead("Sound"));
         if shown.sound {
             let on = settings.screen_sound_by_default;
             let voice = self.voice.clone();
@@ -462,7 +467,7 @@ impl Render for ScreenSettingsPage {
         } else {
             parts.push(held_note("This server doesn't let sound go with a share."));
         }
-        parts.push(SettingsView::subheading("On your graphics card"));
+        parts.push(subhead("On your graphics card"));
         let cursor = settings.screen_cursor;
         let cursor_voice = self.voice.clone();
         parts.push(SettingsView::row("Show your pointer", None, switch("screen-cursor", cursor, cx).on_click(move |_, _, cx| cursor_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_cursor = !cursor, cx))), &theme));
@@ -492,7 +497,7 @@ impl Render for ScreenSettingsPage {
             Some("Sooner helps anyone who joins or loses packets, and costs some sharpness."),
             cx,
         ));
-        parts.push(SettingsView::subheading("Watching"));
+        parts.push(subhead("Watching"));
         let focus = settings.screen_focus;
         let focus_voice = self.voice.clone();
         parts.push(SettingsView::row("Open a share when it starts", Some("A screen someone starts sharing fills the stage, unless you're already looking at something."), switch("screen-focus", focus, cx).on_click(move |_, _, cx| focus_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_focus = !focus, cx))), &theme));

@@ -14,6 +14,7 @@ pub mod media_views;
 pub mod picker;
 pub mod screen_picker;
 pub mod server_settings;
+pub mod server_voice;
 pub mod settings;
 pub mod shared_media;
 pub mod side_panel;
