@@ -118,6 +118,7 @@ impl SidePanel {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .child(label)
@@ -140,7 +141,7 @@ impl SidePanel {
                 .min_h(px(36.))
                 .text_size(px(13.5))
                 .child(icon(if muted { "bell-off" } else { "bell" }, 17., theme.text2))
-                .child(div().flex_1().child("Notifications"))
+                .child(div().flex_1().min_w_0().child("Notifications"))
                 .child(switch("notifications", !muted, cx).on_click(move |event, _, cx| {
                     if muted {
                         state.update(cx, |state, cx| state.act("unmute", vec![json!(key)], cx));
@@ -162,7 +163,7 @@ impl SidePanel {
                     .py(px(7.))
                     .text_size(px(13.5))
                     .child(icon("at-sign", 17., theme.text2))
-                    .child(div().flex_1().flex().flex_col().child("Only mentions").child(div().text_size(px(12.)).text_color(theme.text3).child("Notify only when someone mentions you or replies to you")))
+                    .child(div().flex_1().min_w_0().flex().flex_col().child("Only mentions").child(div().text_size(px(12.)).text_color(theme.text3).child("Notify only when someone mentions you or replies to you")))
                     .child(switch("mentions-only", on, cx).on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("setMentionsOnly", vec![json!(key), json!(!on)], cx)))),
             );
         }
@@ -260,7 +261,7 @@ impl SidePanel {
                             .hover(move |style| style.bg(theme.hover))
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: user_id.clone() }), cx)))
                             .child(icon(icon_name, 20., color))
-                            .child(div().flex_1().flex().flex_col().child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(title)).child(div().text_size(px(12.5)).text_color(theme.text2).child(text))),
+                            .child(div().flex_1().min_w_0().flex().flex_col().child(div().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(title)).child(div().text_size(px(12.5)).text_color(theme.text2).child(text))),
                     )
                     .into_any_element(),
             );
@@ -467,7 +468,7 @@ impl Render for SidePanel {
                         .px(px(11.))
                         .h(px(38.))
                         .child(icon("search", 14., theme.text3))
-                        .child(div().flex_1().child(self.search.clone()))
+                        .child(div().flex_1().min_w_0().child(self.search.clone()))
                         .into_any_element(),
                 ];
                 let results = self.results.clone();

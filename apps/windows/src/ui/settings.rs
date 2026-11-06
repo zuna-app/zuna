@@ -152,6 +152,7 @@ impl SettingsView {
             .child(
                 div()
                     .flex_1()
+                    .min_w_0()
                     .flex()
                     .flex_col()
                     .child(div().font_weight(FontWeight::MEDIUM).child(title.to_string()))

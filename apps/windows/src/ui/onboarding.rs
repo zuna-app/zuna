@@ -46,6 +46,8 @@ pub struct Onboarding {
     copied: bool,
     strength: (u8, String),
     rating: Option<Task<()>>,
+    /// A field to focus on the next frame, after a step changes outside `go`.
+    pending_focus: Option<Entity<TextInput>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -128,6 +130,7 @@ impl Onboarding {
             copied: false,
             strength: (0, String::new()),
             rating: None,
+            pending_focus: None,
             _subscriptions: subscriptions,
         };
         if let Some(url) = sign_in_url {
@@ -212,6 +215,7 @@ impl Onboarding {
                 match result {
                     Ok(value) => {
                         view.step = Step::Invite(from_value(value));
+                        view.pending_focus = Some(view.display_name.clone());
                     }
                     Err(error) => view.error = Some(describe_error(&error.message)),
                 }
@@ -480,6 +484,15 @@ impl Onboarding {
     }
 }
 
+/// A form's error, which takes a place only when there is one: without it, an empty row
+/// pulls the next one up by the gap it would have added.
+fn error_slot(error: Option<String>, theme: &crate::theme::Theme) -> AnyElement {
+    match error {
+        Some(error) => div().text_size(px(12.5)).text_color(theme.red).child(error).into_any_element(),
+        None => div().mt(px(-14.)).into_any_element(),
+    }
+}
+
 trait SpawnDetached {
     fn spawn_in_window_or_detached<F>(&mut self, f: F)
     where
@@ -496,8 +509,11 @@ impl SpawnDetached for Context<'_, Onboarding> {
 }
 
 impl Render for Onboarding {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
+        if let Some(input) = self.pending_focus.take() {
+            input.read(cx).focus(window);
+        }
         let error = self.error.clone();
         let step = self.step.clone();
         let mut gap = 14.;
@@ -540,11 +556,14 @@ impl Render for Onboarding {
                 let username = self.username.read(cx).text().to_string();
                 let password = self.password.read(cx).text().to_string();
                 let confirm = self.confirm.read(cx).text().to_string();
-                let username_error = if !username.is_empty() && !valid_username(&username) {
-                    Some("2 to 32 letters, numbers, dots, dashes or underscores, not starting with a dot or dash.".to_string())
+                let username_error = if error.as_ref().is_some_and(|e| e.to_lowercase().contains("username")) {
+                    error.clone()
+                } else if !username.is_empty() && !valid_username(&username) {
+                    Some("Usernames need at least 2 valid characters.".to_string())
                 } else {
                     None
                 };
+                let error = error.filter(|e| !e.to_lowercase().contains("username"));
                 let confirm_error = if !confirm.is_empty() && !password.starts_with(&confirm) { Some("The passwords don't match.".to_string()) } else { None };
                 let can_submit = !display_name.is_empty() && valid_username(&username) && password.chars().count() >= MIN_PASSWORD && self.strength.0 >= 2 && confirm == password;
                 let members = server.user_count as u64;
@@ -556,6 +575,8 @@ impl Render for Onboarding {
                     div().child("Open sign-ups").into_any_element()
                 };
                 let suffix = self.password_suffix(cx);
+                let confirm_suffix = self.password_suffix(cx);
+                let busy = self.busy;
                 vec![
                     div()
                         .relative()
@@ -571,11 +592,28 @@ impl Render for Onboarding {
                         .child(div().text_color(theme.text2).child(subtitle))
                         .into_any_element(),
                     self.input_field(1, &self.display_name.clone(), Some("Your name"), None, None, None, cx),
-                    self.input_field(2, &self.username.clone(), Some("Username"), Some("How people find and mention you."), username_error, None, cx),
+                    self.input_field(2, &self.username.clone(), Some("Username"), Some("Letters, numbers, dots, dashes and underscores."), username_error, None, cx),
                     div().flex().flex_col().child(self.input_field(3, &self.password.clone(), Some("Password"), None, None, Some(suffix), cx)).child(self.strength_meter(cx)).into_any_element(),
-                    self.input_field(4, &self.confirm.clone(), Some("Confirm password"), None, confirm_error, None, cx),
-                    error.map(|error| div().text_size(px(12.5)).text_color(theme.red).child(error).into_any_element()).unwrap_or_else(|| div().into_any_element()),
-                    self.primary("create", if preview.setup { "Create the owner account" } else { "Create account" }, can_submit, cx),
+                    self.input_field(4, &self.confirm.clone(), Some("Confirm password"), None, confirm_error, Some(confirm_suffix), cx),
+                    div()
+                        .flex()
+                        .gap(px(10.))
+                        .px(px(12.))
+                        .py(px(10.))
+                        .rounded(RADIUS_M)
+                        .bg(theme.bg2)
+                        .text_size(px(13.))
+                        .text_color(theme.text2)
+                        .child(div().mt(px(1.)).child(icon("lock", 15., theme.text2)))
+                        .child(div().flex_1().min_w_0().child("Your password unlocks your encryption keys. It never leaves this device, and your server can't reset it."))
+                        .into_any_element(),
+                    error_slot(error.clone(), &theme),
+                    button("create", ButtonKind::Primary, ButtonSize::Large, !can_submit || busy, cx)
+                        .w_full()
+                        .when(busy, |el| el.child(spinner(18., theme.text3)).child("Securing your account"))
+                        .when(!busy, |el| el.child("Create account"))
+                        .when(can_submit && !busy, |el| el.on_click(cx.listener(|view, _, window, cx| view.submit(window, cx))))
+                        .into_any_element(),
                 ]
             }
             Step::RecoveryKey { recovery_key, .. } => {
@@ -687,7 +725,7 @@ impl Render for Onboarding {
                     self.input_field(5, &self.server.clone(), Some("Server address"), Some("Or paste any link to the server."), None, None, cx),
                     self.input_field(2, &self.username.clone(), Some("Username"), None, None, None, cx),
                     self.input_field(3, &self.password.clone(), Some("Password"), None, None, Some(suffix), cx),
-                    error.map(|error| div().text_size(px(12.5)).text_color(theme.red).child(error).into_any_element()).unwrap_or_else(|| div().into_any_element()),
+                    error_slot(error.clone(), &theme),
                     button("sign-in-submit", ButtonKind::Primary, ButtonSize::Large, !enabled || busy, cx)
                         .w_full()
                         .when(busy, |el| el.child(spinner(18., theme.text3)).child("Unlocking your keys"))
@@ -725,7 +763,7 @@ impl Render for Onboarding {
                     self.input_field(6, &self.recovery.clone(), Some("Recovery key"), None, None, None, cx),
                     div().flex().flex_col().child(self.input_field(3, &self.password.clone(), Some("New password"), None, None, Some(suffix), cx)).child(self.strength_meter(cx)).into_any_element(),
                     self.input_field(4, &self.confirm.clone(), Some("Confirm new password"), None, confirm_error, None, cx),
-                    error.map(|error| div().text_size(px(12.5)).text_color(theme.red).child(error).into_any_element()).unwrap_or_else(|| div().into_any_element()),
+                    error_slot(error.clone(), &theme),
                     self.primary("recover", "Set new password and sign in", enabled, cx),
                 ]
             }
@@ -743,7 +781,8 @@ impl Render for Onboarding {
             .justify_center()
             .px(px(24.))
             .py(px(32.))
-            .child(div().flex_none().w_full().max_w(px(360.)).flex().flex_col().gap(px(gap)).children(children))
+            // A width of its own, so wrapping text is measured at it when centering.
+            .child(div().flex_none().w(px(360.)).max_w_full().flex().flex_col().gap(px(gap)).children(children))
     }
 }
 

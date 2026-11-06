@@ -251,7 +251,7 @@ impl Dialog {
                         .h(px(34.))
                         .text_size(px(13.5))
                         .child(icon("search", 14., theme.text3))
-                        .child(div().flex_1().child(self.people_search.clone())),
+                        .child(div().flex_1().min_w_0().child(self.people_search.clone())),
                 )
                 .child(people)
                 .into_any_element(),
@@ -406,7 +406,7 @@ impl Dialog {
         let trust = self.check.as_ref().map(|check| check.trust.clone()).unwrap_or(user.trust.clone());
         let title = if is_self { "Your security key".to_string() } else { format!("Verify {} (@{})", user.display_name, user.username) };
         let notice = |icon_name: &str, color: gpui::Hsla, bg: gpui::Hsla, text_color: gpui::Hsla, text: String| {
-            div().flex().gap(px(10.)).px(px(12.)).py(px(10.)).rounded(RADIUS_M).bg(bg).text_size(px(13.)).text_color(text_color).child(icon(icon_name, 16., color)).child(div().flex_1().child(text)).into_any_element()
+            div().flex().gap(px(10.)).px(px(12.)).py(px(10.)).rounded(RADIUS_M).bg(bg).text_size(px(13.)).text_color(text_color).child(icon(icon_name, 16., color)).child(div().flex_1().min_w_0().child(text)).into_any_element()
         };
         let mut body = Vec::new();
         match trust.as_str() {

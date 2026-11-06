@@ -913,7 +913,7 @@ impl Render for ChatView {
                                     .text_size(px(13.))
                                     .text_color(theme::color(theme::hex(0xe8d3a2)))
                                     .child(icon("shield-alert", 16., theme.amber))
-                                    .child(div().flex_1().child(format!(
+                                    .child(div().flex_1().min_w_0().child(format!(
                                         "{}'s security key changed. This can mean someone is intercepting this chat. Compare keys before sharing anything private.",
                                         conversation.title
                                     )))

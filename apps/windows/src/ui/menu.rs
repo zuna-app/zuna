@@ -171,7 +171,7 @@ impl Render for MenuLayer {
             if let Some(name) = entry.icon {
                 row = row.child(icon(name, 15., icon_color));
             }
-            row = row.child(div().flex_1().child(entry.label.clone()));
+            row = row.child(div().flex_1().min_w_0().child(entry.label.clone()));
             if entry.submenu.is_some() {
                 row = row.child(icon("chevron-right", 14., theme.text3));
             }
