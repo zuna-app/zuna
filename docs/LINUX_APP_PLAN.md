@@ -1,6 +1,6 @@
 # The native app on Linux: plan
 
-Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L0 to L5 built: sound through PipeWire, a voice channel, calls, cameras, push to talk, sharing a screen and a window with its sound, and voice and video messages both ways, checked with the Electron app, and the five packages, of which the AppImage and the .tar.gz are checked running. Waiting on the checks in the real Plasma session, and on installing a package (2026-11-07).
+Status: L0 to L5 built: sound through PipeWire, a voice channel, calls, cameras, push to talk, sharing a screen and a window with its sound, and voice and video messages both ways, checked with the Electron app in a nested KWin, and the five packages, of which the AppImage and the .tar.gz are checked running. The pacman package is installed and checked in the real Plasma session: starting it, its icon and badge, the tray, notifications and their click, a `zuna://` link and push to talk. Screen sharing and location from the installed copy are still to check there (2026-11-07).
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
 
