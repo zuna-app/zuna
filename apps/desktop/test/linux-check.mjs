@@ -330,6 +330,21 @@ try {
   await sleep(2500);
   await shot("10-chat");
 
+  // --- A file copied in a file manager, pasted into the message box ---
+  const copied = join(work, "copied-notes.txt");
+  writeFileSync(copied, "Copied in a file manager.\n");
+  const copying = spawn("wl-copy", ["--type", "text/uri-list"], { env: session, stdio: ["pipe", "ignore", "ignore"] });
+  copying.stdin.end(`file://${copied}\r\n`);
+  await sleep(800);
+  await drive({ do: "click", x: 860, y: 875 });
+  await drive({ do: "press", keys: ["ctrl", "v"] });
+  await sleep(800);
+  await shot("10b-pasted-file");
+  const before = heard.length;
+  await drive({ do: "key", key: "enter" });
+  check("a file copied in a file manager pastes into the message box and goes", !!(await until(() => heard.length > before, "the file to arrive", 20_000).catch(() => null)));
+  await sleep(1500);
+
   // --- Notifications and the badge, with another chat open ---
   await drive({ do: "click", x: 237, y: 311 });
   await sleep(800);

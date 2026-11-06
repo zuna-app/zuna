@@ -1061,6 +1061,13 @@ impl App {
         self.platform.read_from_clipboard()
     }
 
+    /// Zuna: the files a file manager copied to the clipboard, which it offers as a list of
+    /// their addresses rather than as text or a picture.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    pub fn read_paths_from_clipboard(&self) -> Vec<std::path::PathBuf> {
+        self.platform.read_paths_from_clipboard()
+    }
+
     /// Writes credentials to the platform keychain.
     pub fn write_credentials(
         &self,

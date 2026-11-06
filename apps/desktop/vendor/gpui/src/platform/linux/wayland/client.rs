@@ -847,6 +847,10 @@ impl LinuxClient for WaylandClient {
         self.0.borrow_mut().clipboard.read()
     }
 
+    fn read_paths_from_clipboard(&self) -> Vec<std::path::PathBuf> {
+        self.0.borrow_mut().clipboard.read_paths()
+    }
+
     fn active_window(&self) -> Option<AnyWindowHandle> {
         self.0
             .borrow_mut()

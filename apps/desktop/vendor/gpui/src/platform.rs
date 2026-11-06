@@ -276,6 +276,11 @@ pub(crate) trait Platform: 'static {
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     fn read_from_primary(&self) -> Option<ClipboardItem>;
     fn read_from_clipboard(&self) -> Option<ClipboardItem>;
+    /// Zuna: the files a file manager copied, which the clipboard offers as `text/uri-list`.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    fn read_paths_from_clipboard(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
 
     fn write_credentials(&self, url: &str, username: &str, password: &[u8]) -> Task<Result<()>>;
     fn read_credentials(&self, url: &str) -> Task<Result<Option<(String, Vec<u8>)>>>;

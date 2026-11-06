@@ -16,7 +16,6 @@ mod sound;
 pub mod tray;
 pub mod updates;
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -176,10 +175,6 @@ pub fn notification_state() -> super::NotificationState {
     super::NotificationState { show: true, sound: !notifications::inhibited(), wait_for_input: true }
 }
 
-/// The files copied in a file manager, if that's what the clipboard holds.
-pub fn clipboard_files() -> Vec<PathBuf> {
-    Vec::new()
-}
 
 /// Whether there's a Wayland session to open the window in.
 pub fn wayland_session() -> bool {

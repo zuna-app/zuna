@@ -511,7 +511,7 @@ impl TextInput {
 
     pub fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         if self.accepts_files {
-            let files = crate::platform::clipboard_files();
+            let files = crate::platform::files_on_clipboard(cx);
             if !files.is_empty() {
                 cx.emit(InputEvent::Files(files));
                 return;

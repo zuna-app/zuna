@@ -195,6 +195,23 @@ impl Clipboard {
         }
     }
 
+    /// Zuna: the files a file manager copied, from the `text/uri-list` it offers, read as a
+    /// drop's are.
+    pub fn read_paths(&mut self) -> Vec<std::path::PathBuf> {
+        let Some(offer) = self.current_offer.as_ref() else { return Vec::new() };
+        if !offer.has_mime_type(FILE_LIST_MIME_TYPE) {
+            return Vec::new();
+        }
+        let Some(bytes) = offer.read_bytes(&self.connection, FILE_LIST_MIME_TYPE) else { return Vec::new() };
+        String::from_utf8_lossy(&bytes)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .filter_map(|line| http_client::Url::parse(line).ok())
+            .filter_map(|url| url.to_file_path().ok())
+            .collect()
+    }
+
     pub fn read(&mut self) -> Option<ClipboardItem> {
         let offer = self.current_offer.as_ref()?;
         if let Some(cached) = self.cached_read.clone() {

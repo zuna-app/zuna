@@ -40,6 +40,15 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   earlier in the frame left itself out. Once its drawing was reused, the window stopped
   listening for it, and notifying it drew nothing: a chat opened before its first message never
   showed it. It now counts what the draw touched (`app.rs`).
+- **Activating a window with a given token on Wayland.** `Window::activate_window_with_token`
+  hands `xdg_activation_v1` a token another program was given, such as a launcher's for a second
+  start, or the tray's for a click, as Wayland only brings a window forward with one. GPUI's own
+  `activate` asks for a token without a serial, which compositors refuse (`window.rs`,
+  `platform.rs`, `platform/linux/wayland/window.rs`).
+- **Files copied in a file manager.** `App::read_paths_from_clipboard` reads the `text/uri-list`
+  a file manager offers, as a drop's is read, as GPUI's Wayland clipboard only read text and
+  pictures (`app.rs`, `platform.rs`, `platform/linux/platform.rs`,
+  `platform/linux/wayland/clipboard.rs`).
 
 Beside GPUI, `vendor/xattr` is xattr 0.2.3, which GPUI's HTTP client takes in through
 zed-async-tar on Unix. It named `libc::ENOATTR`, which libc no longer has on Linux, where it's

@@ -49,6 +49,16 @@ pub const KEY_WARNING: &str = "Windows couldn't protect this device's key, so it
 #[cfg(target_os = "linux")]
 pub const KEY_WARNING: &str = "Your system has no keychain available, so Zuna can't lock its local data to your login. Installing a secret service such as GNOME Keyring fixes this.";
 
+/// The files copied in a file manager, if that's what the clipboard holds: through Win32 on
+/// Windows, as GPUI reads them there as one run of names, and on Linux through GPUI's own
+/// reading of the `text/uri-list` a file manager offers.
+pub fn files_on_clipboard(#[allow(unused_variables)] cx: &gpui::App) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    return clipboard_files();
+    #[cfg(target_os = "linux")]
+    return cx.read_paths_from_clipboard();
+}
+
 /// Writes a pasted picture where it can be sent from, named as a browser names one.
 pub fn save_pasted_image(image: &gpui::Image) -> Option<PathBuf> {
     use gpui::ImageFormat;

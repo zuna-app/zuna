@@ -70,6 +70,10 @@ pub trait LinuxClient {
     fn write_to_clipboard(&self, item: ClipboardItem);
     fn read_from_primary(&self) -> Option<ClipboardItem>;
     fn read_from_clipboard(&self) -> Option<ClipboardItem>;
+    /// Zuna: the files a file manager copied.
+    fn read_paths_from_clipboard(&self) -> Vec<PathBuf> {
+        Vec::new()
+    }
     fn active_window(&self) -> Option<AnyWindowHandle>;
     fn window_stack(&self) -> Option<Vec<AnyWindowHandle>>;
     fn run(&self);
@@ -587,6 +591,10 @@ impl<P: LinuxClient + 'static> Platform for P {
 
     fn read_from_clipboard(&self) -> Option<ClipboardItem> {
         self.read_from_clipboard()
+    }
+
+    fn read_paths_from_clipboard(&self) -> Vec<PathBuf> {
+        LinuxClient::read_paths_from_clipboard(self)
     }
 
     fn add_recent_document(&self, _path: &Path) {}

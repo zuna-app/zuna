@@ -58,12 +58,14 @@ cpal = "0.16"
 nnnoiseless = { version = "0.5", default-features = false }
 
 # What the app asks of Linux: D-Bus for notifications and the badge, the Secret Service for the
-# device key (as GPUI's own credentials use it), the tray's StatusNotifierItem, and Wayland's
-# idle notifications, on a connection apart from GPUI's.
+# device key (as GPUI's own credentials use it), the tray's StatusNotifierItem, the location
+# portal (ashpd, as GPUI's own portals), and Wayland's idle notifications, on a connection apart
+# from GPUI's.
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
 oo7 = { version = "0.5", default-features = false, features = ["async-std", "native_crypto"] }
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
+ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 libc = "0.2"
