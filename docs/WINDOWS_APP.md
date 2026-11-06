@@ -35,4 +35,4 @@ For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` 
 
 ## What's missing
 
-Stream stats show the connection, the microphone and this device's share, without each stream's own numbers that the desktop's show, and the panel stays where it opens. A share has no browser to fall back on when the native program can't start one, so it says why instead, and the settings for sharing through a browser aren't there. The installer's uninstaller isn't signed, as electron-builder signs the desktop's.
+A share has no browser to fall back on when the native program can't start one, so it says why instead, and the settings for sharing through a browser aren't there. The installer's uninstaller isn't signed, as electron-builder signs the desktop's.

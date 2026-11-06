@@ -43,7 +43,7 @@ pub struct VoiceStage {
     /// A voice channel's chat, beside it.
     chat: Option<Entity<super::chat::ChatView>>,
     chat_open: bool,
-    stats_open: bool,
+    stats: Option<Entity<super::stream_stats::StreamStatsPanel>>,
     /// A call's stage takes the whole of its conversation, without the chat.
     pub expanded: bool,
     /// Each video's picture as last drawn, by its key: (serial, image).
@@ -66,7 +66,7 @@ impl VoiceStage {
                 break;
             }
         });
-        VoiceStage { state, voice, room, chat: None, chat_open: false, stats_open: false, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), _tick: tick }
+        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), _tick: tick }
     }
 
     /// A video's newest picture, made into an image once per frame.
@@ -586,10 +586,14 @@ impl VoiceStage {
                 .child(icon("lock", 12., theme.text2))
                 .child("Encrypted")
         };
-        let stats = icon_button("voice-stats", "activity", 15., true, self.stats_open, cx).tooltip(tooltip("Stream stats")).on_click(cx.listener(|stage, _, _, cx| {
-            stage.stats_open = !stage.stats_open;
-            cx.notify();
-        }));
+        let stats_open = self.voice.read(cx).stats_open;
+        let stats_voice = self.voice.clone();
+        let stats = icon_button("voice-stats", "activity", 15., true, stats_open, cx).tooltip(tooltip("Stream stats")).on_click(move |_, _, cx| {
+            stats_voice.update(cx, |voice, cx| {
+                voice.stats_open = !voice.stats_open;
+                cx.notify();
+            })
+        });
         if self.room.call {
             let voice = self.voice.clone();
             let expanded = self.expanded;
@@ -792,7 +796,13 @@ impl Render for VoiceStage {
                 .into_any_element()
         };
 
-        let stats = self.stats_open.then(|| super::stream_stats::panel(&self.state, &self.voice, cx));
+        let stats = if self.voice.read(cx).stats_open {
+            let (state, voice) = (self.state.clone(), self.voice.clone());
+            Some(self.stats.get_or_insert_with(|| cx.new(|cx| super::stream_stats::StreamStatsPanel::new(state, voice, cx))).clone())
+        } else {
+            self.stats = None;
+            None
+        };
         let stage = div()
             .flex_1()
             .min_w_0()

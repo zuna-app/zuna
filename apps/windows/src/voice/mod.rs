@@ -10,6 +10,7 @@ pub mod rules;
 pub mod screen;
 pub mod settings;
 pub mod sounds;
+pub mod stats;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -106,6 +107,8 @@ pub struct Voice {
     pub sounding: HashMap<String, String>,
     /// The soundboard's panel is open over the controls.
     pub soundboard_open: bool,
+    /// Stream stats are open over the stage.
+    pub stats_open: bool,
 
     room: Option<Arc<VoiceRoom>>,
     mic: Option<Microphone>,
@@ -168,6 +171,7 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         local_mutes: HashSet::new(),
         sounding: HashMap::new(),
         soundboard_open: false,
+        stats_open: false,
         room: None,
         mic: None,
         mic_source: None,
@@ -410,6 +414,7 @@ impl Voice {
         self.focus = None;
         self.sounding.clear();
         self.soundboard_open = false;
+        self.stats_open = false;
     }
 
     /// Tells everyone on the server what this device is doing, or the conversation's members in a call.

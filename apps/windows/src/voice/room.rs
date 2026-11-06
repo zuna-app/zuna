@@ -230,6 +230,11 @@ impl VoiceRoom {
         Ok((VoiceRoom { room, shared, mic: Mutex::new(None), camera: Mutex::new(None), share_sound: Mutex::new(None), server_muted: AtomicBool::new(false), url }, receiver))
     }
 
+    /// LiveKit's room, for reading its statistics.
+    pub fn room_handle(&self) -> &Room {
+        &self.room
+    }
+
     pub fn identity(&self) -> &str {
         &self.shared.identity
     }
@@ -244,6 +249,7 @@ impl VoiceRoom {
 
     /// A new epoch's key: everyone else is listened to under it at once, and this device sends under it a moment later.
     pub fn update_keys(&self, epoch: u64, room_key: Vec<u8>, first: bool) {
+        let _runtime = crate::host::tokio().enter();
         let shared = self.shared.clone();
         {
             let mut keys = shared.keys.lock();
@@ -335,6 +341,8 @@ impl VoiceRoom {
     }
 
     pub fn set_muted(&self, muted: bool) {
+        // LiveKit tells the media server from a task of its own, which needs the runtime.
+        let _runtime = crate::host::tokio().enter();
         if let Some((_, publication)) = self.mic.lock().as_ref() {
             if muted { publication.mute() } else { publication.unmute() }
         }
