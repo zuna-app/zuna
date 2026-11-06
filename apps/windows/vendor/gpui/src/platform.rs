@@ -82,6 +82,14 @@ pub(crate) use test::*;
 #[cfg(target_os = "windows")]
 pub(crate) use windows::*;
 
+/// Zuna: tells the platform a window wants a frame drawn or presented. On Windows the
+/// vsync thread sleeps until something does.
+#[inline]
+pub(crate) fn frame_wanted() {
+    #[cfg(target_os = "windows")]
+    windows::want_frame();
+}
+
 #[cfg(any(test, feature = "test-support"))]
 pub use test::{TestDispatcher, TestScreenCaptureSource, TestScreenCaptureStream};
 

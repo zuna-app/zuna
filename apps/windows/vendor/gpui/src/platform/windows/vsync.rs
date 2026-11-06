@@ -1,7 +1,45 @@
 use std::{
-    sync::LazyLock,
+    sync::{
+        Condvar, LazyLock, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
+
+// Zuna: whether any window wants a frame drawn or presented. The vsync thread sleeps while
+// none does, instead of waking every window at the display's refresh rate to find nothing
+// to draw, which kept the UI thread busy for as long as the app ran.
+static FRAME_WANTED: AtomicBool = AtomicBool::new(true);
+static FRAME_LOCK: Mutex<()> = Mutex::new(());
+static FRAME_WAKE: Condvar = Condvar::new();
+
+/// Wakes the vsync thread for a frame, from any thread.
+pub(crate) fn want_frame() {
+    if !FRAME_WANTED.swap(true, Ordering::AcqRel) {
+        // Taken after the flag is set, so a thread that saw it unset is already waiting.
+        let _guard = FRAME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        FRAME_WAKE.notify_one();
+    }
+}
+
+/// Waits until a frame is wanted or the time is up, and says whether one is.
+pub(crate) fn wait_for_wanted_frame(timeout: Duration) -> bool {
+    let mut guard = FRAME_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let until = Instant::now() + timeout;
+    while !FRAME_WANTED.load(Ordering::Acquire) {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        guard = FRAME_WAKE.wait_timeout(guard, left).unwrap_or_else(|poisoned| poisoned.into_inner()).0;
+    }
+    true
+}
+
+/// Takes the wish for a frame, just before the windows are told to draw one.
+pub(crate) fn take_wanted_frame() {
+    FRAME_WANTED.store(false, Ordering::Release);
+}
 
 use anyhow::{Context, Result};
 use util::ResultExt;
@@ -23,7 +61,7 @@ const VSYNC_INTERVAL_THRESHOLD: Duration = Duration::from_millis(1);
 const DEFAULT_VSYNC_INTERVAL: Duration = Duration::from_micros(16_666); // ~60Hz
 
 pub(crate) struct VSyncProvider {
-    interval: Duration,
+    pub(crate) interval: Duration,
     f: Box<dyn Fn() -> bool>,
 }
 

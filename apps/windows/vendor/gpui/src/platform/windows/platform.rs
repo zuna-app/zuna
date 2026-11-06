@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
     rc::{Rc, Weak},
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use ::util::{ResultExt, paths::SanitizedPath};
@@ -247,8 +248,15 @@ impl WindowsPlatform {
             .name("VSyncProvider".to_owned())
             .spawn(move || {
                 let vsync_provider = VSyncProvider::new();
+                let mut last_redraw: Option<Instant> = None;
                 loop {
-                    vsync_provider.wait_for_vsync();
+                    // Zuna: asleep until a window wants a frame, waking each second to check
+                    // the device. The first frame after a rest is drawn at once, so what input
+                    // changed shows a vblank sooner; the frames after it keep to vsync.
+                    let wanted = wait_for_wanted_frame(Duration::from_secs(1));
+                    if wanted && last_redraw.is_some_and(|at| at.elapsed() < vsync_provider.interval) {
+                        vsync_provider.wait_for_vsync();
+                    }
                     if check_device_lost(&directx_device.device) {
                         handle_gpu_device_lost(
                             &mut directx_device,
@@ -261,6 +269,11 @@ impl WindowsPlatform {
                     let Some(all_windows) = all_windows.upgrade() else {
                         break;
                     };
+                    if !wanted {
+                        continue;
+                    }
+                    take_wanted_frame();
+                    last_redraw = Some(Instant::now());
                     for hwnd in all_windows.read().iter() {
                         unsafe {
                             let _ = RedrawWindow(Some(hwnd.as_raw()), None, None, RDW_INVALIDATE);

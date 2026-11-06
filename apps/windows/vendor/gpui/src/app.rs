@@ -962,6 +962,8 @@ impl App {
                     // where DispatchTree::root_node_id asserts on empty nodes
                     let clear = window.draw(cx);
                     clear.clear();
+                    // Zuna: presented on the first frame request.
+                    crate::platform::frame_wanted();
 
                     cx.window_handles.insert(id, window.handle);
                     cx.windows.get_mut(id).unwrap().replace(Box::new(window));

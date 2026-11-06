@@ -118,6 +118,7 @@ impl WindowInvalidator {
         inner.dirty_views.insert(entity);
         if inner.draw_phase == DrawPhase::None {
             inner.dirty = true;
+            crate::platform::frame_wanted();
             cx.push_effect(Effect::Notify { emitter: entity });
             true
         } else {
@@ -130,7 +131,10 @@ impl WindowInvalidator {
     }
 
     pub fn set_dirty(&self, dirty: bool) {
-        self.inner.borrow_mut().dirty = dirty
+        self.inner.borrow_mut().dirty = dirty;
+        if dirty {
+            crate::platform::frame_wanted();
+        }
     }
 
     pub fn set_phase(&self, phase: DrawPhase) {
@@ -1036,9 +1040,12 @@ impl Window {
 
                 // Keep presenting the current scene for 1 extra second since the
                 // last input to prevent the display from underclocking the refresh rate.
+                // Zuna: not on Windows, whose vsync thread now only wakes for a frame that's
+                // wanted, so this would only present the same scene again.
                 let needs_present = request_frame_options.require_presentation
                     || needs_present.get()
-                    || (active.get()
+                    || (!cfg!(target_os = "windows")
+                        && active.get()
                         && last_input_timestamp.get().elapsed() < Duration::from_secs(1));
 
                 if invalidator.is_dirty() || request_frame_options.force_render {
@@ -1643,6 +1650,7 @@ impl Window {
     /// Schedule the given closure to be run directly after the current frame is rendered.
     pub fn on_next_frame(&self, callback: impl FnOnce(&mut Window, &mut App) + 'static) {
         RefCell::borrow_mut(&self.next_frame_callbacks).push(Box::new(callback));
+        crate::platform::frame_wanted();
     }
 
     /// Schedule a frame to be drawn on the next animation frame.
@@ -3730,6 +3738,8 @@ impl Window {
     fn dispatch_key_event(&mut self, event: &dyn Any, cx: &mut App) {
         if self.invalidator.is_dirty() {
             self.draw(cx).clear();
+            // Zuna: drawn outside a frame request, so presented on the next one.
+            crate::platform::frame_wanted();
         }
 
         let node_id = self.focus_node_id_in_rendered_frame(self.focus);
