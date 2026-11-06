@@ -7,23 +7,63 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::Arc;
 
+use std::path::PathBuf;
+use std::sync::LazyLock;
+
 use gpui::{
-    AnyElement, Context, Entity, FontWeight, Image, IntoElement, ListAlignment, ListState, ParentElement, Render, SharedString, Styled, Subscription,
-    Window, div, list, prelude::*, px,
+    AnyElement, Context, Entity, ExternalPaths, FontWeight, Image, IntoElement, ListAlignment, ListState, MouseButton, ParentElement, Render, SharedString,
+    Styled, Subscription, Task, Window, div, img, prelude::*, px,
 };
+use regex::Regex;
 use serde_json::json;
 
 use super::components::*;
 use super::message::{ChatContext, render_row};
 use super::side_panel::SidePanel;
 use super::text_input::{InputEvent, TextInput};
-use crate::format::{format_last_seen, now_ms, timer_text};
-use crate::markup::{mentions_in, plain_text};
-use crate::models::{ConversationView, MessageView};
+use crate::format::{format_bytes, format_last_seen, now_ms, timer_text, wait_text};
+use crate::markup::{find_link, mentions_in, plain_text};
+use crate::models::{ConversationView, Emote, LinkPreview, MessageView, UserView};
 use crate::state::{AppState, Panel, Picture, ToastKind, is_unread};
-use crate::theme::{self, RADIUS_M};
+use crate::theme::{self, RADIUS_M, RADIUS_S};
 
 const MAX_TEXT_LENGTH: usize = 4000;
+const MAX_FILES: usize = 10;
+const MAX_SUGGESTIONS: usize = 8;
+/// How long typing pauses before a link's page is fetched.
+const PREVIEW_DELAY_MS: u64 = 400;
+
+/// A file waiting to go with the next message: what the core is given, and its chip.
+#[derive(Clone)]
+struct StagedFile {
+    file: serde_json::Value,
+    name: String,
+    size: u64,
+    preview: Option<Arc<Image>>,
+}
+
+#[derive(Clone)]
+enum Suggested {
+    Emote(Emote),
+    Person(UserView),
+}
+
+/// One line of autocomplete: ":name" for the server's emotes, "@name" for people.
+#[derive(Clone)]
+struct Suggestion {
+    key: String,
+    label: String,
+    hint: Option<String>,
+    insert: String,
+    what: Suggested,
+}
+
+/// The first link's preview, made on this device once typing pauses.
+struct LinkDraft {
+    url: String,
+    preview: Option<LinkPreview>,
+    loading: bool,
+}
 
 pub struct ChatView {
     state: Entity<AppState>,
@@ -42,6 +82,20 @@ pub struct ChatView {
     revealed: Rc<RefCell<HashSet<String>>>,
     side_panel: Option<Entity<SidePanel>>,
     last_list_id: String,
+    files: Vec<StagedFile>,
+    /// What's being completed: ':' or '@', what's typed after it, and where it starts.
+    trigger: Option<(char, String, usize)>,
+    suggestions: Vec<Suggestion>,
+    /// The suggestion Enter would pick, or none until two letters follow a ':', as in ":D".
+    selected: Option<usize>,
+    link_draft: Option<LinkDraft>,
+    /// The link whose preview is being made or shown.
+    link_wanted: Option<String>,
+    dismissed_link: Option<String>,
+    link_task: Option<Task<()>>,
+    /// When the message just sent here lets the next go in slow mode, before the core says.
+    sent_until: f64,
+    slow_tick: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -67,7 +121,7 @@ fn fingerprint(message: &MessageView) -> u64 {
 impl ChatView {
     pub fn new(state: Entity<AppState>, server_id: String, key: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let composer = cx.new(|cx| {
-            let mut input = TextInput::new(cx, "Message").multiline();
+            let mut input = TextInput::new(cx, "Message").multiline().accepts_files();
             input.set_newline_on_enter(false);
             input
         });
@@ -103,6 +157,16 @@ impl ChatView {
             revealed: Rc::new(RefCell::new(HashSet::new())),
             side_panel: None,
             last_list_id: String::new(),
+            files: Vec::new(),
+            trigger: None,
+            suggestions: Vec::new(),
+            selected: None,
+            link_draft: None,
+            link_wanted: None,
+            dismissed_link: None,
+            link_task: None,
+            sent_until: 0.,
+            slow_tick: None,
             _subscriptions: subscriptions,
         };
         view.open(window, cx);
@@ -124,9 +188,13 @@ impl ChatView {
         let enter = self.state.read(cx).settings.enter_to_send;
         let is_saved = conversation.peer_id.as_deref() == self.state.read(cx).servers.get(&self.server_id).map(|s| s.self_id());
         let placeholder = if is_saved { "Write a note to yourself".to_string() } else if conversation.kind == "channel" { format!("Message #{}", conversation.title) } else { format!("Message {}", conversation.title) };
+        let draft = self.state.read(cx).drafts.get(&conversation.key).cloned().unwrap_or_default();
         self.composer.update(cx, |input, cx| {
             input.set_newline_on_enter(!enter);
             input.set_placeholder(placeholder, cx);
+            if !draft.is_empty() {
+                input.set_text(draft, cx);
+            }
         });
         self.state.update(cx, |state, cx| state.load_list(&list_id, conversation.group_id.clone(), cx));
         self.sync_rows(cx);
@@ -249,31 +317,69 @@ impl ChatView {
 
     fn on_composer(&mut self, event: &InputEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
-            InputEvent::Submit => self.send(window, cx),
+            InputEvent::Submit => {
+                if let Some(index) = self.selected.filter(|_| !self.suggestions.is_empty()) {
+                    self.apply_suggestion(index, cx);
+                } else if !self.suggestions.is_empty() && !self.state.read(cx).settings.enter_to_send {
+                    // Suggestions take Enter, but with none picked it still makes a new line.
+                    self.composer.update(cx, |input, cx| input.insert("\n", window, cx));
+                } else {
+                    self.send(window, cx);
+                }
+            }
             InputEvent::Changed => {
                 let Some(conversation) = self.conversation(cx) else { return };
-                if let Some(group) = conversation.group_id {
+                let text = self.composer.read(cx).text().to_string();
+                let key = conversation.key.clone();
+                self.state.update(cx, |state, _| {
+                    if text.is_empty() {
+                        state.drafts.remove(&key);
+                    } else {
+                        state.drafts.insert(key, text.clone());
+                    }
+                });
+                if let Some(group) = conversation.group_id.clone() {
                     let now = now_ms();
-                    if !self.composer.read(cx).text().is_empty() && now - self.last_typing > 3000. {
+                    if !text.is_empty() && now - self.last_typing > 3000. {
                         self.last_typing = now;
                         self.state.update(cx, |state, cx| state.act("sendTyping", vec![json!(group)], cx));
                     }
                 }
+                self.update_suggestions(&conversation, cx);
+                self.update_link(&text, cx);
                 cx.notify();
             }
             InputEvent::Escape => {
                 let list_id = self.last_list_id.clone();
+                let editing = self.state.read(cx).editing.contains_key(&list_id);
                 self.state.update(cx, |state, cx| {
-                    if state.editing.contains_key(&list_id) {
+                    if editing {
                         state.set_editing(&list_id, None, cx);
-                    } else {
+                    } else if state.reply_to.contains_key(&list_id) {
                         state.set_reply(&list_id, None, cx);
+                    } else if state.panel.is_some() {
+                        state.panel = None;
+                        cx.notify();
                     }
                 });
-                if self.state.read(cx).editing.get(&list_id).is_none() {
-                    // Editing ended: what was being edited leaves the box.
+                if editing {
+                    self.composer.update(cx, |input, cx| input.set_text("", cx));
                 }
             }
+            InputEvent::Tab if !self.suggestions.is_empty() => {
+                self.apply_suggestion(self.selected.unwrap_or(0), cx);
+            }
+            InputEvent::Down if !self.suggestions.is_empty() => {
+                let count = self.suggestions.len();
+                self.selected = Some(self.selected.map_or(0, |index| (index + 1) % count));
+                cx.notify();
+            }
+            InputEvent::Up if !self.suggestions.is_empty() => {
+                let count = self.suggestions.len();
+                self.selected = Some(self.selected.map_or(count - 1, |index| (index + count - 1) % count));
+                cx.notify();
+            }
+            InputEvent::Files(paths) => self.add_files(paths.clone(), cx),
             InputEvent::Up => {
                 // Up in an empty box edits your last message, as in Telegram.
                 if !self.composer.read(cx).text().is_empty() {
@@ -304,15 +410,186 @@ impl ChatView {
         let _ = window;
     }
 
+    // --- Suggestions, link previews and files ---
+
+    /// What ":" or "@" just before the caret asks to complete, and what fits it.
+    fn update_suggestions(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
+        static TRIGGER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?:^|\s)([:@])([\p{L}\p{N}_.-]{0,32})$").unwrap());
+        let input = self.composer.read(cx);
+        let text = input.text().to_string();
+        let caret = input.cursor().min(text.len());
+        let trigger = TRIGGER.captures(&text[..caret]).and_then(|found| {
+            let kind = found[1].chars().next()?;
+            let query = found[2].to_lowercase();
+            (kind == ':' || !query.is_empty()).then(|| (kind, query, caret - found[2].len() - 1))
+        });
+        let changed = trigger.as_ref().map(|(kind, query, _)| (*kind, query.clone())) != self.trigger.as_ref().map(|(kind, query, _)| (*kind, query.clone()));
+        self.trigger = trigger.clone();
+        let state = self.state.read(cx);
+        let Some(server) = state.servers.get(&self.server_id) else { return };
+        self.suggestions = match &trigger {
+            None => Vec::new(),
+            Some((':', query, _)) => {
+                let emotes = &server.emotes.emotes;
+                let picked: Vec<&Emote> = if query.is_empty() {
+                    emotes.iter().take(MAX_SUGGESTIONS).collect()
+                } else {
+                    let mut starts = Vec::new();
+                    let mut contains = Vec::new();
+                    for emote in emotes {
+                        let lower = emote.name.to_lowercase();
+                        if lower.starts_with(query.as_str()) {
+                            starts.push(emote);
+                        } else if lower.contains(query.as_str()) {
+                            contains.push(emote);
+                        }
+                        if starts.len() >= MAX_SUGGESTIONS {
+                            break;
+                        }
+                    }
+                    starts.into_iter().chain(contains).take(MAX_SUGGESTIONS).collect()
+                };
+                picked
+                    .into_iter()
+                    .map(|emote| Suggestion {
+                        key: emote.id.clone(),
+                        label: emote.name.clone(),
+                        hint: (!emote.owner.is_empty()).then(|| format!("by {}", emote.owner)),
+                        insert: format!("{} ", emote.name),
+                        what: Suggested::Emote(emote.clone()),
+                    })
+                    .collect()
+            }
+            Some((_, query, _)) => {
+                // Anyone on the server can be mentioned in a channel, even someone whose device hasn't come in yet.
+                let mut people: Vec<&UserView> = if conversation.kind == "group" {
+                    conversation.members.iter().filter_map(|member| server.users.get(&member.user_id)).collect()
+                } else {
+                    let mut all: Vec<&UserView> = server.users.values().collect();
+                    all.sort_by_key(|user| user.display_name.to_lowercase());
+                    all
+                };
+                people.retain(|user| !user.banned && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str())));
+                people
+                    .into_iter()
+                    .take(MAX_SUGGESTIONS)
+                    .map(|user| Suggestion {
+                        key: user.id.clone(),
+                        label: user.display_name.clone(),
+                        hint: Some(format!("@{}", user.username)),
+                        insert: format!("@{} ", user.username),
+                        what: Suggested::Person(user.clone()),
+                    })
+                    .collect()
+            }
+        };
+        if changed {
+            let tentative = matches!(&self.trigger, Some((':', query, _)) if query.chars().count() < 2);
+            self.selected = if tentative { None } else { Some(0) };
+        }
+        let suggesting = !self.suggestions.is_empty();
+        self.composer.update(cx, |input, _| input.set_suggesting(suggesting));
+    }
+
+    fn apply_suggestion(&mut self, index: usize, cx: &mut Context<Self>) {
+        let (Some((_, _, start)), Some(suggestion)) = (self.trigger.clone(), self.suggestions.get(index).cloned()) else { return };
+        let caret = self.composer.read(cx).cursor();
+        self.composer.update(cx, |input, cx| input.replace_range(start..caret, &suggestion.insert, cx));
+    }
+
+    /// Makes the first link's preview once typing pauses, unless it was taken away.
+    fn update_link(&mut self, text: &str, cx: &mut Context<Self>) {
+        let state = self.state.read(cx);
+        let editing = state.editing.contains_key(&self.last_list_id);
+        let link = if state.settings.link_previews && !editing { find_link(text) } else { None };
+        let link = link.filter(|link| Some(link) != self.dismissed_link.as_ref());
+        if link == self.link_wanted {
+            return;
+        }
+        self.link_wanted = link.clone();
+        self.link_draft = None;
+        self.link_task = None;
+        let Some(url) = link else { return };
+        let core = self.state.read(cx).core.clone();
+        self.link_task = Some(cx.spawn(async move |view, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(PREVIEW_DELAY_MS)).await;
+            view.update(cx, |view, cx| {
+                view.link_draft = Some(LinkDraft { url: url.clone(), preview: None, loading: true });
+                cx.notify();
+            })
+            .ok();
+            let result = core.call(None, "linkPreview", vec![json!(url)]).await;
+            view.update(cx, |view, cx| {
+                if view.link_wanted.as_ref() != Some(&url) {
+                    return;
+                }
+                view.link_draft = match result {
+                    Ok(value) => Some(LinkDraft { url: url.clone(), preview: serde_json::from_value(value).ok(), loading: false }),
+                    Err(_) => None,
+                };
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
+    /// Adds files to go with the next message, up to ten, read for their chips away from the window.
+    fn add_files(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let room = MAX_FILES.saturating_sub(self.files.len());
+        let paths: Vec<PathBuf> = paths.into_iter().filter(|path| path.is_file()).take(room).collect();
+        if paths.is_empty() {
+            return;
+        }
+        cx.spawn(async move |view, cx| {
+            let staged = cx.background_executor().spawn(async move { paths.iter().map(|path| stage_file(path)).collect::<Vec<_>>() }).await;
+            view.update(cx, |view, cx| {
+                view.files.extend(staged);
+                view.files.truncate(MAX_FILES);
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Seconds until slow mode lets a new message go here, counting down while it holds.
+    fn slow_wait(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) -> u64 {
+        if conversation.slow_mode <= 0. {
+            return 0;
+        }
+        let until = conversation.slow_until.max(self.sent_until);
+        let left = ((until - now_ms()) / 1000.).ceil().max(0.) as u64;
+        if left > 0 && self.slow_tick.is_none() {
+            self.slow_tick = Some(cx.spawn(async move |view, cx| {
+                loop {
+                    cx.background_executor().timer(std::time::Duration::from_millis(250)).await;
+                    let done = view
+                        .update(cx, |view, cx| {
+                            cx.notify();
+                            let until = view.conversation(cx).map(|c| c.slow_until).unwrap_or(0.).max(view.sent_until);
+                            until <= now_ms()
+                        })
+                        .unwrap_or(true);
+                    if done {
+                        break;
+                    }
+                }
+                view.update(cx, |view, _| view.slow_tick = None).ok();
+            }));
+        }
+        left
+    }
+
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(conversation) = self.conversation(cx) else { return };
         let value = self.composer.read(cx).text().trim().to_string();
         let list_id = conversation.list_id();
+        let waiting = self.slow_wait(&conversation, cx) > 0;
         let state = self.state.read(cx);
         let Some(server) = state.servers.get(&self.server_id) else { return };
         let editing = state.editing.get(&list_id).cloned();
         let reply = state.reply_to.get(&list_id).cloned();
-        if value.is_empty() {
+        if value.is_empty() && (self.files.is_empty() || editing.is_some()) {
             return;
         }
         if value.chars().count() > MAX_TEXT_LENGTH {
@@ -337,51 +614,70 @@ impl ChatView {
             self.composer.update(cx, |input, cx| input.set_text("", cx));
             return;
         }
-        let mut body = json!({ "text": value, "emotes": emotes, "mentions": mentions });
+        // What's written stays until it may go.
+        if waiting {
+            return;
+        }
+        let mut body = json!({ "emotes": emotes, "mentions": mentions });
+        if !value.is_empty() {
+            body["text"] = json!(value);
+        }
         if let Some(reply) = reply {
             body["replyTo"] = json!(reply.id);
         }
+        // A preview that isn't ready yet, as when a link is pasted and sent at once, goes with
+        // the message if it's ready within a few seconds; the message shows straight away.
+        let link = self.link_wanted.clone();
+        let ready = self.link_draft.as_ref().filter(|draft| Some(&draft.url) == link.as_ref());
+        if let Some(preview) = ready.and_then(|draft| draft.preview.as_ref()).filter(|preview| value.contains(&preview.url)) {
+            body["preview"] = serde_json::to_value(preview).unwrap_or_default();
+        }
+        let settled = ready.is_some_and(|draft| !draft.loading);
+        let mut options = json!({});
+        if let (Some(link), true, false) = (&link, body.get("preview").is_none(), settled) {
+            options["previewUrl"] = json!(link);
+        }
         let key = conversation.key.clone();
+        let files: Vec<serde_json::Value> = std::mem::take(&mut self.files).into_iter().map(|staged| staged.file).collect();
+        let keep_metadata = !state.settings.remove_metadata;
+        let is_admin = conversation.members.iter().any(|member| member.user_id == server.self_id() && member.role == "admin");
+        let server_id = self.server_id.clone();
         self.state.update(cx, |state, cx| {
-            state.act("sendMessage", vec![json!(key), body], cx);
+            if files.is_empty() {
+                state.act("sendMessage", vec![json!(key), body, options], cx);
+            } else {
+                options["keepMetadata"] = json!(keep_metadata);
+                state.call(Some(&server_id), "sendWithAttachments", vec![json!(key), json!(files), body, options], cx, |state, result, cx| {
+                    if let Err(error) = result {
+                        state.toast(error.message, ToastKind::Error, cx);
+                    }
+                });
+            }
             state.set_reply(&list_id, None, cx);
+            state.drafts.remove(&key);
             if state.lists.get(&list_id).is_some_and(|list| list.detached) {
                 state.return_to_latest(&list_id, cx);
             }
         });
+        // In slow mode the next one waits from now, unless you're an admin.
+        if conversation.slow_mode > 0. && !is_admin {
+            self.sent_until = now_ms() + conversation.slow_mode * 1000.;
+        }
+        self.link_wanted = None;
+        self.link_draft = None;
+        self.link_task = None;
+        self.dismissed_link = None;
         self.composer.update(cx, |input, cx| input.set_text("", cx));
         self.list.scroll_to(gpui::ListOffset { item_ix: self.rows.len(), offset_in_item: px(0.) });
         self.composer.read(cx).focus(window);
     }
 
-    /// Picks files and sends them, as the desktop's attach button does.
+    /// Picks files to go with the next message, as the desktop's attach button does.
     fn attach(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        let Some(conversation) = self.conversation(cx) else { return };
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: true, prompt: None });
-        let state = self.state.clone();
-        let server_id = self.server_id.clone();
-        let key = conversation.key.clone();
-        let remove_metadata = self.state.read(cx).settings.remove_metadata;
-        let list_id = conversation.list_id();
-        let reply = self.state.read(cx).reply_to.get(&list_id).map(|m| m.id.clone());
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |view, cx| {
             let Ok(Ok(Some(paths))) = paths.await else { return };
-            let files: Vec<serde_json::Value> = paths.iter().map(|path| file_for_sending(path)).collect();
-            let mut body = json!({});
-            if let Some(reply) = reply {
-                body["replyTo"] = json!(reply);
-            }
-            let options = json!({ "keepMetadata": !remove_metadata });
-            state
-                .update(cx, |state, cx| {
-                    state.call(Some(&server_id), "sendWithAttachments", vec![json!(key), json!(files), body, options], cx, |state, result, cx| {
-                        if let Err(error) = result {
-                            state.toast(error.message, ToastKind::Error, cx);
-                        }
-                    });
-                    state.set_reply(&list_id, None, cx);
-                })
-                .ok();
+            view.update(cx, |view, cx| view.add_files(paths, cx)).ok();
         })
         .detach();
     }
@@ -497,7 +793,7 @@ impl ChatView {
             .into_any_element()
     }
 
-    fn composer_area(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
+    fn composer_area(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let state = self.state.read(cx);
         let Some(server) = state.servers.get(&self.server_id) else { return div().into_any_element() };
@@ -555,7 +851,8 @@ impl ChatView {
         }
         let editing = state.editing.get(&list_id).cloned();
         let reply = state.reply_to.get(&list_id).cloned();
-        let can_send = !self.composer.read(cx).text().trim().is_empty();
+        let can_send = !self.composer.read(cx).text().trim().is_empty() || (!self.files.is_empty() && editing.is_none());
+        let server_url = server.entry.url.clone();
         let mut area = div().flex_none().relative().bg(theme.bg1).border_t_1().border_color(theme.line);
         if editing.is_some() || reply.is_some() {
             let context = editing.clone().or(reply.clone()).unwrap();
@@ -604,6 +901,105 @@ impl ChatView {
                 ),
             );
         }
+        if let Some(draft) = self.link_draft.as_ref().filter(|draft| draft.loading || draft.preview.is_some()) {
+            let title = draft
+                .preview
+                .as_ref()
+                .and_then(|preview| preview.title.clone().or_else(|| preview.site_name.clone()))
+                .unwrap_or_else(|| "Loading the link's preview…".into());
+            let text = draft.preview.as_ref().and_then(|preview| preview.description.clone()).unwrap_or_else(|| draft.url.clone());
+            let picture = draft.preview.as_ref().and_then(|preview| preview.image.as_ref()).and_then(|image| super::message::data_url_image(&image.data));
+            let url = draft.url.clone();
+            area = area.child(
+                div().pt(px(8.)).pl(px(16.)).pr(px(10.)).child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .pl(px(10.))
+                        .border_l_2()
+                        .border_color(theme.text3)
+                        .text_color(theme.text2)
+                        .child(icon("link", 15., theme.text2))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .child(div().one_line().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text1).child(title))
+                                .child(div().one_line().text_size(px(12.5)).text_color(theme.text2).child(text)),
+                        )
+                        .when_some(picture, |el, picture| el.child(cover_image(picture, 36., 36., RADIUS_S)))
+                        .child(icon_button("remove-link", "x", 15., true, false, cx).tooltip(tooltip("Remove the link's preview")).on_click(cx.listener(move |view, _, _, cx| {
+                            view.dismissed_link = Some(url.clone());
+                            view.link_wanted = None;
+                            view.link_draft = None;
+                            view.link_task = None;
+                            cx.notify();
+                        }))),
+                ),
+            );
+        }
+        if !self.files.is_empty() && editing.is_none() {
+            let mut chips = div().id("composer-files").flex().gap(px(6.)).pt(px(8.)).px(px(12.)).overflow_x_scroll();
+            for (index, staged) in self.files.iter().enumerate() {
+                let picture: AnyElement = match &staged.preview {
+                    Some(image) => cover_image(image.clone(), 36., 36., RADIUS_S).into_any_element(),
+                    None => div().size(px(36.)).flex_none().rounded(RADIUS_S).bg(theme.bg4).flex().items_center().justify_center().child(icon("file", 16., theme.text2)).into_any_element(),
+                };
+                chips = chips.child(
+                    div()
+                        .relative()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .w(px(180.))
+                        .p(px(5.))
+                        .rounded(RADIUS_M)
+                        .bg(theme.bg3)
+                        .child(picture)
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .text_size(px(12.5))
+                                .child(div().one_line().child(staged.name.clone()))
+                                .child(div().text_size(px(11.5)).text_color(theme.text3).child(format_bytes(staged.size as f64))),
+                        )
+                        .child(
+                            div()
+                                .id(("remove-file", index))
+                                .absolute()
+                                .top(px(3.))
+                                .right(px(3.))
+                                .size(px(16.))
+                                .rounded_full()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(theme.bg5)
+                                .cursor_pointer()
+                                .tooltip(tooltip(format!("Remove {}", staged.name)))
+                                .on_click(cx.listener(move |view, _, _, cx| {
+                                    if index < view.files.len() {
+                                        view.files.remove(index);
+                                    }
+                                    cx.notify();
+                                }))
+                                .child(icon("x", 11., theme.text1)),
+                        ),
+                );
+            }
+            area = area.child(chips);
+        }
+        if !self.suggestions.is_empty() {
+            area = area.child(self.suggestion_list(&server_url, cx));
+        }
+        let wait = if editing.is_none() { self.slow_wait(conversation, cx) } else { 0 };
         let send_ready = can_send;
         let send_color = if send_ready { theme.text1 } else { theme.text3 };
         area = area.child(
@@ -652,22 +1048,107 @@ impl ChatView {
                         cx,
                     );
                 })))
-                .child(
-                    div()
-                        .id("send")
-                        .size(px(32.))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded(RADIUS_M)
-                        .when(send_ready, |el| el.cursor_pointer().hover(move |style| style.bg(theme.hover_strong)))
-                        .tooltip(tooltip(if editing.is_some() { "Save edit" } else { "Send" }))
-                        .on_click(cx.listener(|view, _, window, cx| view.send(window, cx)))
-                        .child(icon(if editing.is_some() { "check" } else { "send-horizontal" }, if send_ready { 18. } else { 16.2 }, send_color)),
-                ),
+                .when(wait > 0, |el| {
+                    // Slow mode: what's written waits, with the time until it may go.
+                    el.child(
+                        div()
+                            .h(px(32.))
+                            .min_w(px(36.))
+                            .px(px(6.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(theme.text2)
+                            .child(wait_text(wait)),
+                    )
+                })
+                .when(wait == 0, |el| {
+                    el.child(
+                        div()
+                            .id("send")
+                            .size(px(32.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded(RADIUS_M)
+                            .when(send_ready, |el| el.cursor_pointer().hover(move |style| style.bg(theme.hover_strong)))
+                            .tooltip(tooltip(if editing.is_some() { "Save edit" } else { "Send" }))
+                            .on_click(cx.listener(|view, _, window, cx| view.send(window, cx)))
+                            .child(icon(if editing.is_some() { "check" } else { "send-horizontal" }, if send_ready { 18. } else { 16.2 }, send_color)),
+                    )
+                }),
         );
         area.into_any_element()
+    }
+
+    /// The autocomplete list over the message box (`.suggestions`).
+    fn suggestion_list(&self, server_url: &str, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        let mut list = div()
+            .id("suggestions")
+            .occlude()
+            .w(px(320.))
+            .max_w(gpui::relative(0.9))
+            .max_h(px(300.))
+            .overflow_y_scroll()
+            .p(px(4.))
+            .bg(theme.bg3)
+            .border_1()
+            .border_color(theme.line_strong)
+            .rounded(theme::RADIUS_L)
+            .shadow(shadow_m());
+        for (index, suggestion) in self.suggestions.iter().enumerate() {
+            let picture: AnyElement = match &suggestion.what {
+                Suggested::Emote(emote) => {
+                    let url = format!("{server_url}/api/emotes/{}/2x.webp", emote.id);
+                    let image = self.state.update(cx, |state, cx| state.remote_picture(&url, cx));
+                    match image {
+                        Some(image) => img(image).size(px(24.)).flex_none().object_fit(gpui::ObjectFit::Contain).into_any_element(),
+                        None => div().size(px(24.)).flex_none().into_any_element(),
+                    }
+                }
+                Suggested::Person(user) => {
+                    let image = user.avatar.as_ref().and_then(|avatar| match self.state.read(cx).pictures.get(&format!("file:{}", avatar.file_id)) {
+                        Some(Picture::Ready(image)) => Some(image.clone()),
+                        _ => None,
+                    });
+                    avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 24., online: false, rounded: false, dot_border: theme.bg3 }, cx).into_any_element()
+                }
+            };
+            let chosen = self.selected == Some(index);
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("suggestion-{}", suggestion.key)))
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap(px(9.))
+                    .px(px(8.))
+                    .py(px(5.))
+                    .rounded(RADIUS_S)
+                    .text_size(px(13.5))
+                    .cursor_pointer()
+                    .when(chosen, |el| el.bg(theme.hover_strong))
+                    .on_hover(cx.listener(move |view, hovered: &bool, _, cx| {
+                        if *hovered && view.selected != Some(index) {
+                            view.selected = Some(index);
+                            cx.notify();
+                        }
+                    }))
+                    .on_mouse_down(MouseButton::Left, cx.listener(move |view, _, window, cx| {
+                        view.apply_suggestion(index, cx);
+                        view.composer.read(cx).focus(window);
+                    }))
+                    .child(picture)
+                    .child(div().min_w_0().one_line().child(suggestion.label.clone()))
+                    .when_some(suggestion.hint.clone(), |el, hint| el.child(div().min_w_0().one_line().text_color(theme.text3).child(hint))),
+            );
+        }
+        div().absolute().left(px(14.)).right(px(14.)).bottom(gpui::relative(1.)).pb(px(6.)).child(list).into_any_element()
     }
 
     fn chat_context(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> Option<(Rc<Vec<MessageView>>, ChatContext)> {
@@ -772,6 +1253,24 @@ impl ChatView {
             )
             .into_any_element()
     }
+}
+
+/// A file to go with the next message, with its size and, for a picture, a small preview for its chip.
+fn stage_file(path: &std::path::Path) -> StagedFile {
+    let file = file_for_sending(path);
+    let name = file["name"].as_str().unwrap_or("file").to_string();
+    let mime = file["mime"].as_str().unwrap_or("").to_string();
+    let size = std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0);
+    let preview = (mime.starts_with("image/") && mime != "image/svg+xml")
+        .then(|| std::fs::read(path).ok())
+        .flatten()
+        .and_then(|bytes| image::load_from_memory(&bytes).ok())
+        .and_then(|picture| {
+            let mut png = Vec::new();
+            picture.thumbnail(72, 72).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+            Some(Arc::new(Image::from_bytes(gpui::ImageFormat::Png, png)))
+        });
+    StagedFile { file, name, size, preview }
 }
 
 /// A file picked to send, by path, which the core reads a chunk at a time.
@@ -955,6 +1454,38 @@ impl Render for ChatView {
                     .child(composer),
             )
             .when_some(side_panel, |el, panel| el.child(panel))
+            .relative()
+            .group("chat-drop")
+            .on_drop(cx.listener(|view, paths: &ExternalPaths, _, cx| view.add_files(paths.paths().to_vec(), cx)))
+            .child(
+                // Shown only while files are dragged over the chat (`.drop-overlay`).
+                div()
+                    .absolute()
+                    .inset_0()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(theme::color(theme::rgba(0, 0, 0, 0.7)))
+                    .opacity(0.)
+                    .group_drag_over::<ExternalPaths>("chat-drop", |style| style.opacity(1.))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(4.))
+                            .px(px(40.))
+                            .py(px(26.))
+                            .rounded(theme::RADIUS_L)
+                            .border_1()
+                            .border_dashed()
+                            .border_color(theme.line_strong)
+                            .text_color(theme.text1)
+                            .child(div().mb(px(4.)).child(icon("upload", 26., theme.text2)))
+                            .child(div().font_weight(FontWeight::MEDIUM).child("Drop to send"))
+                            .child(div().text_size(px(13.)).text_color(theme.text2).child("Files are encrypted before they leave this device")),
+                    ),
+            )
             .into_any_element()
     }
 }

@@ -90,7 +90,7 @@ pub fn avatar(props: AvatarProps, cx: &App) -> Div {
         .line_height(px(size * 0.38 * 1.2));
     match props.image {
         Some(image) => {
-            el = el.bg(theme.bg3).child(img(image).size(px(size)).rounded(radius).object_fit(gpui::ObjectFit::Cover));
+            el = el.bg(theme.bg3).child(cover_image(image, size, size, radius));
         }
         None => {
             el = el.bg(theme::css(avatar_color(&props.seed))).child(initials_of(&props.name));
@@ -303,3 +303,9 @@ pub trait OneLine: Styled + Sized {
 }
 
 impl<T: Styled> OneLine for T {}
+
+/// A picture filling a box of this size, cropped to it: GPUI draws a covering picture
+/// past its bounds unless something around it clips.
+pub fn cover_image(image: Arc<Image>, width: f32, height: f32, radius: Pixels) -> Div {
+    div().w(px(width)).h(px(height)).flex_none().rounded(radius).overflow_hidden().child(gpui::img(image).size_full().object_fit(gpui::ObjectFit::Cover))
+}

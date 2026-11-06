@@ -100,6 +100,8 @@ pub enum InputEvent {
     Down,
     Focused,
     Blurred,
+    /// Files pasted into a field that takes them: copied files, or a picture saved for sending.
+    Files(Vec<std::path::PathBuf>),
 }
 
 pub struct TextInput {
@@ -123,6 +125,10 @@ pub struct TextInput {
     caret_visible: bool,
     blink: Option<Task<()>>,
     was_focused: bool,
+    /// Pasted files and pictures go to whoever holds the field, as the message box's do.
+    accepts_files: bool,
+    /// While suggestions show, the arrows and Enter pick among them instead of moving or sending.
+    suggesting: bool,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -148,7 +154,18 @@ impl TextInput {
             caret_visible: true,
             blink: None,
             was_focused: false,
+            accepts_files: false,
+            suggesting: false,
         }
+    }
+
+    pub fn accepts_files(mut self) -> Self {
+        self.accepts_files = true;
+        self
+    }
+
+    pub fn set_suggesting(&mut self, suggesting: bool) {
+        self.suggesting = suggesting;
     }
 
     pub fn multiline(mut self) -> Self {
@@ -372,13 +389,13 @@ impl TextInput {
     }
 
     fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.multiline || !self.vertical(-1., false, cx) {
+        if self.suggesting || !self.multiline || !self.vertical(-1., false, cx) {
             cx.emit(InputEvent::Up);
         }
     }
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.multiline || !self.vertical(1., false, cx) {
+        if self.suggesting || !self.multiline || !self.vertical(1., false, cx) {
             cx.emit(InputEvent::Down);
         }
     }
@@ -477,6 +494,27 @@ impl TextInput {
     }
 
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
+        if self.accepts_files {
+            let files = crate::platform::clipboard_files();
+            if !files.is_empty() {
+                cx.emit(InputEvent::Files(files));
+                return;
+            }
+            // A picture alone, as a screenshot is, goes as a file; one with text pastes the text.
+            if let Some(item) = cx.read_from_clipboard() {
+                let has_text = item.entries().iter().any(|entry| matches!(entry, gpui::ClipboardEntry::String(_)));
+                let image = item.entries().iter().find_map(|entry| match entry {
+                    gpui::ClipboardEntry::Image(image) => Some(image.clone()),
+                    _ => None,
+                });
+                if let (false, Some(image)) = (has_text, image) {
+                    if let Some(path) = crate::platform::save_pasted_image(&image) {
+                        cx.emit(InputEvent::Files(vec![path]));
+                    }
+                    return;
+                }
+            }
+        }
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             let text = text.replace("\r\n", "\n");
             let text = if self.multiline { text } else { text.replace('\n', " ") };
@@ -498,7 +536,7 @@ impl TextInput {
     }
 
     fn enter(&mut self, _: &Enter, window: &mut Window, cx: &mut Context<Self>) {
-        if self.multiline && self.newline_on_enter {
+        if self.multiline && self.newline_on_enter && !self.suggesting {
             self.replace_text_in_range(None, "\n", window, cx);
         } else {
             cx.emit(InputEvent::Submit);
@@ -940,5 +978,7 @@ fn clone_for_probe(input: &TextInput) -> TextInput {
         caret_visible: true,
         blink: None,
         was_focused: false,
+        accepts_files: input.accepts_files,
+        suggesting: input.suggesting,
     }
 }

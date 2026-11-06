@@ -52,6 +52,8 @@ struct Host {
     tasks: Sender<Task>,
     tokio: Handle,
     http: reqwest::Client,
+    /// For link previews alone, under their address rules (web.rs).
+    web: reqwest::Client,
     timers: HashMap<u32, (AbortHandle, bool)>,
     requests: HashMap<u32, AbortHandle>,
     sockets: HashMap<u32, UnboundedSender<SocketCommand>>,
@@ -96,6 +98,7 @@ pub fn run(tasks: Sender<Task>, inbox: Receiver<Task>, options: Options) {
         tasks: tasks.clone(),
         tokio: options.tokio.clone(),
         http,
+        web: super::web::client(tls::client_config(&[b"h2", b"http/1.1"])),
         timers: HashMap::new(),
         requests: HashMap::new(),
         sockets: HashMap::new(),
@@ -538,15 +541,22 @@ fn install_host<'js>(ctx: &Ctx<'js>, host: Rc<RefCell<Host>>, test_hooks: bool) 
         string(&c, &path.to_string_lossy())
     });
 
-    // Link previews need the same address rules as the desktop's proxy (preview-proxy.ts),
-    // which this app doesn't have yet, so links go without previews here for now.
+    // Link previews' pages and pictures, under the desktop's address rules (web.rs).
     host_fn!(object, ctx, host, "webFetch", |c, h, a| {
         let id = number_arg(&a, 0) as u32;
         let url = string_arg(&a, 1);
-        h.borrow()
-            .tasks
-            .send(Task::WebDone { id, url, mime: String::new(), body: None, error: Some("Link previews aren't available in this app yet.".into()) })
-            .ok();
+        let max_bytes = (number_arg(&a, 2) as usize).clamp(1, 5 << 20);
+        let (tasks, web, tokio) = {
+            let host = h.borrow();
+            (host.tasks.clone(), host.web.clone(), host.tokio.clone())
+        };
+        tokio.spawn(async move {
+            let task = match super::web::fetch(&web, &url, max_bytes).await {
+                Ok((url, mime, body)) => Task::WebDone { id, url, mime, body: Some(body), error: None },
+                Err(error) => Task::WebDone { id, url, mime: String::new(), body: None, error: Some(error) },
+            };
+            tasks.send(task).ok();
+        });
         Ok(Value::new_undefined(c))
     });
 
@@ -567,7 +577,7 @@ fn object_value<'js>(ctx: &Ctx<'js>, data: String, width: u32, height: u32) -> R
     object(ctx, vec![("data", string(ctx, &data)?), ("width", number(ctx, width as f64)), ("height", number(ctx, height as f64))])
 }
 
-fn describe_request_error(error: &reqwest::Error) -> String {
+pub(super) fn describe_request_error(error: &reqwest::Error) -> String {
     use std::error::Error;
     let mut text = error.to_string();
     let mut source = error.source();

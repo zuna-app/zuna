@@ -2,6 +2,7 @@
 //! unread count on the taskbar, idle time, the notification sound, and whether
 //! Windows wants quiet right now. The desktop gets these from Electron.
 
+mod clipboard;
 pub mod icons;
 mod quiet;
 pub mod tray;
@@ -18,6 +19,7 @@ use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
+pub use clipboard::{clipboard_files, save_pasted_image};
 pub use quiet::notification_state;
 
 /// A window's handle, as Windows knows it.

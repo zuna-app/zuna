@@ -8,6 +8,7 @@ pub mod device_key;
 mod js;
 mod runtime;
 mod tls;
+pub mod web;
 
 use std::collections::HashMap;
 use std::path::PathBuf;

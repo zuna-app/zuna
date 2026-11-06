@@ -175,3 +175,11 @@ pub fn timer_change_text(who: &str, seconds: f64) -> String {
 
 /// The shortest password allowed when signing up or changing it.
 pub const MIN_PASSWORD: usize = 8;
+
+/// A wait as a clock shows it: "0:24", "4:59" or "1:59:59" (slow-mode.ts's waitText).
+pub fn wait_text(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let rest = seconds % 60;
+    if hours > 0 { format!("{hours}:{minutes:02}:{rest:02}") } else { format!("{minutes}:{rest:02}") }
+}

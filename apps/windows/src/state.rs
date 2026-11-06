@@ -162,6 +162,8 @@ pub struct AppState {
     pub settings: Settings,
     pub window_focused: bool,
     pub reply_to: HashMap<String, MessageView>,
+    /// What was written in each chat and not sent, by its key, for as long as the app runs.
+    pub drafts: HashMap<String, String>,
     pub editing: HashMap<String, MessageView>,
     /// A message to scroll to and highlight: (groupId, messageId, nonce).
     pub jump_target: Option<(String, String, u64)>,
@@ -246,6 +248,7 @@ impl AppState {
             settings,
             window_focused: true,
             reply_to: HashMap::new(),
+            drafts: HashMap::new(),
             editing: HashMap::new(),
             jump_target: None,
             pictures: HashMap::new(),

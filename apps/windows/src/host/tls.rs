@@ -113,9 +113,9 @@ fn roots() -> RootCertStore {
     for certificate in native.certs {
         roots.add(certificate).ok();
     }
-    if roots.is_empty() {
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    }
+    // And Mozilla's, as Windows only keeps the public roots it has needed so far and
+    // fetches the rest while building a chain, which rustls doesn't ask it to.
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     roots
 }
 

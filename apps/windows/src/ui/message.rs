@@ -1070,7 +1070,7 @@ fn save_attachment(state: Entity<AppState>, server_id: String, reference: serde_
 }
 
 /// A tiny picture inside a message, as a data URL.
-fn data_url_image(data: &str) -> Option<Arc<Image>> {
+pub fn data_url_image(data: &str) -> Option<Arc<Image>> {
     use base64::Engine;
     let (header, encoded) = data.split_once(',')?;
     let mime = header.trim_start_matches("data:").split(';').next().unwrap_or("image/jpeg");
@@ -1114,7 +1114,7 @@ fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, _cx
         .on_click(move |_, _, cx| cx.open_url(&url))
         .child(text);
     if let Some(image) = preview.image.as_ref().and_then(|image| data_url_image(&image.data)) {
-        card = card.child(img(image).size(px(56.)).flex_none().rounded(RADIUS_S).object_fit(gpui::ObjectFit::Cover));
+        card = card.child(cover_image(image, 56., 56., RADIUS_S));
     }
     card.into_any_element()
 }
