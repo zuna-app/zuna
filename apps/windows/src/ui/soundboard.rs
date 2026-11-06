@@ -44,7 +44,7 @@ pub fn soundboard_button(state: &Entity<AppState>, voice_entity: &Entity<Voice>,
         .bg(if open { theme.accent } else { theme.bg3 })
         .cursor_pointer()
         .hover(move |style| if open { style } else { style.bg(theme.bg4) })
-        .tooltip(tooltip("Soundboard"))
+        .tip("Soundboard", Side::Top)
         .on_click(move |_, _, cx| {
             toggle.update(cx, |voice, cx| {
                 voice.soundboard_open = !voice.soundboard_open;
@@ -135,7 +135,7 @@ fn panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, room_sounds: bo
                 .text_color(theme.text1)
                 .child(icon("audio-lines", 15., theme.text2))
                 .child(div().flex_1().child("Soundboard"))
-                .when(is_admin, |el| el.child(icon_button("soundboard-manage", "settings", 15., true, false, cx).tooltip(tooltip("Add and change sounds")).on_click(move |_, _, cx| manage(cx)))),
+                .when(is_admin, |el| el.child(icon_button("soundboard-manage", "settings", 15., true, false, cx).tip("Add and change sounds", Side::Bottom).on_click(move |_, _, cx| manage(cx)))),
         )
         .when(refusal.is_some() && !sounds.is_empty(), |el| el.child(div().text_size(px(12.5)).text_color(theme.text2).bg(theme.bg2).rounded(RADIUS_S).px(px(9.)).py(px(6.)).child(refusal.unwrap_or_default())))
         .child(if sounds.is_empty() {

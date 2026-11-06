@@ -272,14 +272,14 @@ impl ServerSoundboard {
             .child(div().w(px(22.)).flex_none().text_center().text_size(px(17.)).child(if sound.emoji.is_empty() { "🔊".to_string() } else { sound.emoji.clone() }))
             .child(div().flex_1().min_w_0().one_line().child(sound.name.clone()))
             .child(div().text_size(px(12.5)).text_color(theme.text3).child(format!("{:.1} s", sound.duration_ms / 1000.)))
-            .child(icon_button(SharedString::from(format!("listen-{}", sound.id)), "play", 15., true, false, cx).tooltip(tooltip("Listen")).on_click(move |_, _, cx| {
+            .child(icon_button(SharedString::from(format!("listen-{}", sound.id)), "play", 15., true, false, cx).tip("Listen", Side::Bottom).on_click(move |_, _, cx| {
                 if let Some(voice) = crate::voice::get(cx) {
                     let (server_id, id) = (server_id.clone(), listen.id.clone());
                     voice.update(cx, |voice, cx| voice.preview_sound(server_id, id, cx));
                 }
             }))
-            .child(icon_button(SharedString::from(format!("rename-{}", sound.id)), "pencil", 15., true, false, cx).tooltip(tooltip("Rename")).on_click(cx.listener(move |view, _, _, cx| view.start_editing(&rename, cx))))
-            .child(icon_button(SharedString::from(format!("remove-{}", sound.id)), "trash", 15., true, false, cx).tooltip(tooltip("Delete")).on_click(cx.listener(move |view, _, _, cx| {
+            .child(icon_button(SharedString::from(format!("rename-{}", sound.id)), "pencil", 15., true, false, cx).tip("Rename", Side::Bottom).on_click(cx.listener(move |view, _, _, cx| view.start_editing(&rename, cx))))
+            .child(icon_button(SharedString::from(format!("remove-{}", sound.id)), "trash", 15., true, false, cx).tip("Delete", Side::Bottom).on_click(cx.listener(move |view, _, _, cx| {
                 view.deleting = Some(delete.clone());
                 cx.notify();
             })))

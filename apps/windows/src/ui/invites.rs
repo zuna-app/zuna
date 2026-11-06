@@ -172,7 +172,7 @@ impl Render for InvitePanel {
                     .border_color(theme.line)
                     .text_size(px(12.))
                     .child(div().flex_1().min_w_0().one_line().font_family(FONT_MONO).child(link))
-                    .child(icon_button("copy-invite", "copy", 14., true, false, cx).tooltip(tooltip("Copy link")).on_click(cx.listener(move |panel, _, _, cx| panel.copy(copied.clone(), cx)))),
+                    .child(icon_button("copy-invite", "copy", 14., true, false, cx).on_click(cx.listener(move |panel, _, _, cx| panel.copy(copied.clone(), cx)))),
             );
         }
         if let Some(invites) = self.invites.clone().filter(|invites| !invites.is_empty()) {
@@ -203,8 +203,8 @@ impl Render for InvitePanel {
                         .rounded(RADIUS_M)
                         .bg(theme.bg2)
                         .child(div().flex_1().min_w_0().flex().flex_col().child(div().font_family(FONT_MONO).text_size(px(12.5)).child(invite.code.clone())).child(div().text_size(px(11.5)).text_color(theme.text3).child(detail)))
-                        .child(icon_button(SharedString::from(format!("copy-{}", invite.code)), "copy", 14., true, false, cx).tooltip(tooltip("Copy link")).on_click(cx.listener(move |panel, _, _, cx| panel.act("linkForInvite", copy_code.clone(), cx))))
-                        .child(icon_button(SharedString::from(format!("revoke-{}", invite.code)), "trash", 14., true, false, cx).tooltip(tooltip("Revoke link")).on_click(cx.listener(move |panel, _, _, cx| panel.act("revokeInvite", revoke_code.clone(), cx)))),
+                        .child(icon_button(SharedString::from(format!("copy-{}", invite.code)), "copy", 14., true, false, cx).on_click(cx.listener(move |panel, _, _, cx| panel.act("linkForInvite", copy_code.clone(), cx))))
+                        .child(icon_button(SharedString::from(format!("revoke-{}", invite.code)), "trash", 14., true, false, cx).on_click(cx.listener(move |panel, _, _, cx| panel.act("revokeInvite", revoke_code.clone(), cx)))),
                 );
             }
             column = column.child(div().flex().flex_col().gap(px(5.)).child(div().text_size(px(12.5)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child("Active links")).child(list));

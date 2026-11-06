@@ -324,7 +324,7 @@ impl VoiceStage {
                             .justify_center()
                             .rounded(RADIUS_S)
                             .bg(theme::color(theme::black_a(0.62)))
-                            .tooltip(tooltip(if focused { "Back to everyone" } else { "Fill the stage" }))
+                            .tip(if focused { "Back to everyone" } else { "Fill the stage" }, Side::Bottom)
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
                                 toggle_focus(cx);
@@ -340,7 +340,7 @@ impl VoiceStage {
                             .justify_center()
                             .rounded(RADIUS_S)
                             .bg(theme::color(theme::black_a(0.62)))
-                            .tooltip(tooltip("Full screen"))
+                            .tip("Full screen", Side::Bottom)
                             .on_click(|_, window, cx| {
                                 cx.stop_propagation();
                                 window.toggle_fullscreen();
@@ -465,10 +465,10 @@ impl VoiceStage {
                 .bg(bg)
                 .when(!disabled, |el| el.cursor_pointer().hover(move |style| style.bg(if bg == theme.bg3 { theme.bg4 } else { bg })))
                 .when(disabled, |el| el.opacity(0.55))
-                .tooltip(tooltip(label))
+                .tip(label, Side::Top)
                 .child(icon(icon_name, 20., color))
         };
-        let group = |id: &'static str, more: &'static str, off: bool, main: gpui::Stateful<gpui::Div>, more_label: &'static str, input: bool, voice: Entity<Voice>, state: Entity<AppState>| {
+        let group = |id: &'static str, more: &'static str, off: bool, main: gpui::Stateful<gpui::Div>, input: bool, voice: Entity<Voice>, state: Entity<AppState>| {
             div()
                 .id(id)
                 .flex()
@@ -487,9 +487,10 @@ impl VoiceStage {
                         .pl(px(5.))
                         .pr(px(15.))
                         .h_full()
+                        // GPUI clips to a rectangle, not the pill's rounding, so each half rounds its own end.
+                        .rounded_r(px(22.))
                         .cursor_pointer()
                         .hover(move |style| style.bg(theme.hover_strong))
-                        .tooltip(tooltip(more_label))
                         .on_click(move |event, _, cx| device_menu(&voice, &state, input, event.position(), cx))
                         .child(icon("chevron-up", 14., theme.text2)),
                 )
@@ -502,17 +503,18 @@ impl VoiceStage {
                 .h_full()
                 .pl(px(15.))
                 .pr(px(5.))
+                .rounded_l(px(22.))
                 .when(!disabled, |el| el.cursor_pointer().hover(move |style| style.bg(theme.hover_strong)))
                 .when(disabled, |el| el.opacity(0.55))
-                .tooltip(tooltip(label))
+                .tip(label, Side::Top)
                 .child(icon(icon_name, 20., color))
         };
         let mic_label = if server_muted { "An admin muted you" } else if no_mic { "No microphone" } else if mic_off { "Unmute" } else { "Mute" };
         let mic_color = if mic_off { theme.red } else if open { theme.green } else { theme.text1 };
         let (mute, deafen, cam, share, leave) = (self.voice.clone(), self.voice.clone(), self.voice.clone(), self.voice.clone(), self.voice.clone());
         let picker = self.state.clone();
-        let mic_group = group("mic-group", "mic-more", mic_off, pill("mic-control", if mic_off { "mic-off" } else { "mic" }, mic_color, mic_label.into(), server_muted || no_mic).on_click(move |_, _, cx| mute.update(cx, |voice, cx| voice.toggle_mute(cx))), "Choose a microphone", true, self.voice.clone(), self.state.clone());
-        let deafen_group = group("deafen-group", "deafen-more", deafened, pill("deafen-control", if deafened { "headphone-off" } else { "headphones" }, if deafened { theme.red } else { theme.text1 }, if deafened { "Undeafen".into() } else { "Deafen".into() }, false).on_click(move |_, _, cx| deafen.update(cx, |voice, cx| voice.toggle_deafen(cx))), "Choose where sound plays", false, self.voice.clone(), self.state.clone());
+        let mic_group = group("mic-group", "mic-more", mic_off, pill("mic-control", if mic_off { "mic-off" } else { "mic" }, mic_color, mic_label.into(), server_muted || no_mic).on_click(move |_, _, cx| mute.update(cx, |voice, cx| voice.toggle_mute(cx))), true, self.voice.clone(), self.state.clone());
+        let deafen_group = group("deafen-group", "deafen-more", deafened, pill("deafen-control", if deafened { "headphone-off" } else { "headphones" }, if deafened { theme.red } else { theme.text1 }, if deafened { "Undeafen".into() } else { "Deafen".into() }, false).on_click(move |_, _, cx| deafen.update(cx, |voice, cx| voice.toggle_deafen(cx))), false, self.voice.clone(), self.state.clone());
         let mut bar = div()
             .flex_none()
             .flex()
@@ -561,7 +563,7 @@ impl VoiceStage {
                 .bg(theme.red)
                 .cursor_pointer()
                 .hover(|style| style.bg(theme::color(theme::hex(0xd9444a))))
-                .tooltip(tooltip("Disconnect"))
+                .tip("Disconnect", Side::Top)
                 .on_click(move |_, _, cx| leave.update(cx, |voice, cx| voice.leave(cx)))
                 .child(icon("phone-off", 20., gpui::white())),
         )
@@ -582,13 +584,13 @@ impl VoiceStage {
                 .bg(theme.bg2)
                 .text_size(px(12.))
                 .text_color(theme.text2)
-                .tooltip(tooltip(text))
+                .tip(text, Side::Bottom)
                 .child(icon("lock", 12., theme.text2))
                 .child("Encrypted")
         };
         let stats_open = self.voice.read(cx).stats_open;
         let stats_voice = self.voice.clone();
-        let stats = icon_button("voice-stats", "activity", 15., true, stats_open, cx).tooltip(tooltip("Stream stats")).on_click(move |_, _, cx| {
+        let stats = icon_button("voice-stats", "activity", 15., true, stats_open, cx).tip("Stream stats", Side::Bottom).on_click(move |_, _, cx| {
             stats_voice.update(cx, |voice, cx| {
                 voice.stats_open = !voice.stats_open;
                 cx.notify();
@@ -611,9 +613,9 @@ impl VoiceStage {
                     el.child(div().text_size(px(12.)).text_color(theme.text3).child(if hours > 0 { format!("{hours}:{minutes:02}:{seconds:02}") } else { format!("{minutes}:{seconds:02}") }))
                 })
                 .child(div().flex_1())
-                .when(ring_again, |el| el.child(icon_button("ring-again", "bell-ring", 15., true, false, cx).tooltip(tooltip("Ring everyone who isn't here")).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.ring_again(cx)))))
+                .when(ring_again, |el| el.child(icon_button("ring-again", "bell-ring", 15., true, false, cx).tip("Ring everyone who isn't here", Side::Bottom).on_click(move |_, _, cx| voice.update(cx, |voice, cx| voice.ring_again(cx)))))
                 .child(stats)
-                .child(icon_button("call-expand", if expanded { "chevrons-down-up" } else { "chevrons-up-down" }, 15., true, false, cx).tooltip(tooltip(if expanded { "Show the chat" } else { "Hide the chat" })).on_click(cx.listener(|stage, _, _, cx| {
+                .child(icon_button("call-expand", if expanded { "chevrons-down-up" } else { "chevrons-up-down" }, 15., true, false, cx).tip(if expanded { "Show the chat" } else { "Hide the chat" }, Side::Bottom).on_click(cx.listener(|stage, _, _, cx| {
                     stage.expanded = !stage.expanded;
                     cx.notify();
                 })))

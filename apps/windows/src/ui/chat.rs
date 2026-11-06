@@ -638,7 +638,7 @@ impl ChatView {
                 .px(px(10.))
                 .when(is_channel, |el| el.pl(px(8.)).min_h(px(44.)))
                 .when(!is_channel, |el| el.py(px(8.)))
-                .child(icon_button("delete-recording", "trash", 18., false, false, cx).tooltip(tooltip("Delete recording")).on_click(cx.listener(|view, _, window, cx| view.cancel_recording(window, cx))))
+                .child(icon_button("delete-recording", "trash", 18., false, false, cx).tip("Delete recording", Side::Top).on_click(cx.listener(|view, _, window, cx| view.cancel_recording(window, cx))))
                 .child(div().size(px(8.)).rounded_full().bg(theme.red))
                 .child(div().text_size(px(13.)).text_color(theme.text1).child(crate::format::format_duration(elapsed)))
                 .when(round, |el| el.child(div().flex_1().text_size(px(13.5)).text_color(theme.text2).child("Recording a video message")))
@@ -654,7 +654,7 @@ impl ChatView {
                         .rounded(RADIUS_M)
                         .cursor_pointer()
                         .hover(move |style| style.bg(theme.hover_strong))
-                        .tooltip(tooltip(if round { "Send video message" } else { "Send voice message" }))
+                        
                         .on_click(cx.listener(|view, _, _, cx| view.send_recording(cx)))
                         .child(icon("send-horizontal", 18., theme.text1)),
                 )
@@ -1157,7 +1157,7 @@ impl ChatView {
             title = title.child(icon("badge-check", 14., theme.text2));
         }
         if conversation.disappear_after > 0. {
-            title = title.child(div().id("timer-icon").tooltip(tooltip(format!("Messages disappear after {}", timer_text(conversation.disappear_after)))).child(icon("timer", 14., theme.text2)));
+            title = title.child(div().id("timer-icon").tip(format!("Messages disappear after {}", timer_text(conversation.disappear_after)), Side::Bottom).child(icon("timer", 14., theme.text2)));
         }
         let toggle = |panel_kind: Panel, state: Entity<AppState>| move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| state.update(cx, |state, cx| state.toggle_panel(panel_kind, cx));
         let has_group = conversation.group_id.is_some();
@@ -1195,17 +1195,17 @@ impl ChatView {
                     .children(call_buttons)
                     .child(
                         icon_button("chat-search", "search", 17., false, panel == Some(Panel::Search), cx)
-                            .tooltip(tooltip("Search this chat"))
+                            .tip("Search this chat", Side::Bottom)
                             .when(has_group, |el| el.on_click(toggle(Panel::Search, self.state.clone())))
                             .when(!has_group, |el| el.opacity(0.35)),
                     )
                     .child(
                         icon_button("chat-pins", "pin", 17., false, panel == Some(Panel::Pins), cx)
-                            .tooltip(tooltip("Pinned messages"))
+                            .tip("Pinned messages", Side::Bottom)
                             .when(has_group, |el| el.on_click(toggle(Panel::Pins, self.state.clone())))
                             .when(!has_group, |el| el.opacity(0.35)),
                     )
-                    .child(icon_button("chat-details", "panel-right", 17., false, panel == Some(Panel::Info), cx).tooltip(tooltip("Details")).on_click(toggle(Panel::Info, self.state.clone()))),
+                    .child(icon_button("chat-details", "panel-right", 17., false, panel == Some(Panel::Info), cx).tip("Details", Side::Bottom).on_click(toggle(Panel::Info, self.state.clone()))),
             )
             .into_any_element()
     }
@@ -1403,7 +1403,7 @@ impl ChatView {
                                 .child(div().one_line().text_size(px(12.5)).text_color(theme.text2).child(text)),
                         )
                         .when_some(picture, |el, picture| el.child(cover_image(picture, 36., 36., RADIUS_S)))
-                        .child(icon_button("remove-link", "x", 15., true, false, cx).tooltip(tooltip("Remove the link's preview")).on_click(cx.listener(move |view, _, _, cx| {
+                        .child(icon_button("remove-link", "x", 15., true, false, cx).on_click(cx.listener(move |view, _, _, cx| {
                             view.dismissed_link = Some(url.clone());
                             view.link_wanted = None;
                             view.link_draft = None;
@@ -1455,7 +1455,7 @@ impl ChatView {
                                 .justify_center()
                                 .bg(theme.bg5)
                                 .cursor_pointer()
-                                .tooltip(tooltip(format!("Remove {}", staged.name)))
+                                
                                 .on_click(cx.listener(move |view, _, _, cx| {
                                     if index < view.files.len() {
                                         view.files.remove(index);
@@ -1502,13 +1502,13 @@ impl ChatView {
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
-                        .tooltip(tooltip("Attach"))
+                        .tip("Attach", Side::Top)
                         .on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx)))
                         .child(icon("plus-circle-filled", 22., theme.text2)),
                 )
         } else {
             div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
-                el.child(icon_button("attach", "paperclip", 18., false, false, cx).tooltip(tooltip("Attach")).on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx))))
+                el.child(icon_button("attach", "paperclip", 18., false, false, cx).tip("Attach", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx))))
             })
         };
         let message_size = if is_channel { theme.message_size + px(1.5) } else { theme.message_size };
@@ -1526,7 +1526,7 @@ impl ChatView {
                         .text_size(message_size)
                         .child(self.composer.clone()),
                 )
-                .child(icon_button("emoji", "face-slightly-smiling", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tooltip(tooltip("Emoji and emotes")).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
+                .child(icon_button("emoji", "face-slightly-smiling", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tip("Emoji and emotes", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
                     let composer = view.composer.clone();
                     let position = gpui::point(event.position().x - px(314.), event.position().y - px(10.));
                     super::picker::open_picker(
@@ -1568,7 +1568,7 @@ impl ChatView {
                     )
                 })
                 .when(show_record, |el| {
-                    el.child(icon_button("record-round", "video", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tooltip(tooltip("Record a video message")).on_click(cx.listener(|view, _, _, cx| view.start_round(cx))))
+                    el.child(icon_button("record-round", "video", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tip("Record a video message", Side::Top).on_click(cx.listener(|view, _, _, cx| view.start_round(cx))))
                         .child(
                             div()
                                 .id("record-voice")
@@ -1581,7 +1581,7 @@ impl ChatView {
                                 .rounded(RADIUS_M)
                                 .cursor_pointer()
                                 .hover(move |style| style.bg(theme.hover_strong))
-                                .tooltip(tooltip("Record a voice message"))
+                                .tip("Record a voice message", Side::Top)
                                 .on_click(cx.listener(|view, _, _, cx| view.start_voice(cx)))
                                 .child(icon("mic", 18., theme.text1)),
                         )
@@ -1598,7 +1598,7 @@ impl ChatView {
                             .justify_center()
                             .rounded(RADIUS_M)
                             .when(send_ready, |el| el.cursor_pointer().hover(move |style| style.bg(theme.hover_strong)))
-                            .tooltip(tooltip(if editing.is_some() { "Save edit" } else { "Send" }))
+                            
                             .on_click(cx.listener(|view, _, window, cx| view.send(window, cx)))
                             .child(icon(if editing.is_some() { "check" } else { "send-horizontal" }, if send_ready { 18. } else { 16.2 }, send_color)),
                     )
@@ -1670,7 +1670,7 @@ impl ChatView {
             .child(div().flex_1())
             .child(
                 action("channel-mute", if muted { "bell-off" } else { "bell" }, false)
-                    .tooltip(tooltip(if muted { "Unmute channel" } else { "Notification settings" }))
+                    .tip(if muted { "Unmute channel" } else { "Notification settings" }, Side::Bottom)
                     .on_click(move |event, _, cx| {
                         if muted {
                             mute_state.update(cx, |state, cx| state.act("unmute", vec![json!(mute_key)], cx));
@@ -1679,10 +1679,10 @@ impl ChatView {
                         }
                     }),
             )
-            .child(action("channel-pins", "pin", panel == Some(Panel::Pins)).tooltip(tooltip("Pinned messages")).on_click(move |_, _, cx| pins_state.update(cx, |state, cx| state.toggle_panel(Panel::Pins, cx))))
+            .child(action("channel-pins", "pin", panel == Some(Panel::Pins)).tip("Pinned messages", Side::Bottom).on_click(move |_, _, cx| pins_state.update(cx, |state, cx| state.toggle_panel(Panel::Pins, cx))))
             .child(
                 action("channel-members", "users", show_members && panel.is_none())
-                    .tooltip(tooltip(if show_members { "Hide member list" } else { "Show member list" }))
+                    .tip(if show_members { "Hide member list" } else { "Show member list" }, Side::Bottom)
                     .on_click(move |_, _, cx| {
                         members_state.update(cx, |state, cx| {
                             // It takes the place of whatever panel was open.
@@ -1772,7 +1772,7 @@ impl ChatView {
                         })
                         .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: here && !user.is_self || user.online, rounded: false, dot_border: theme.bg1 }, cx))
                         .child(div().flex_none().max_w(px(if user.role == "owner" { 140. } else { 164. })).one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).text_color(theme::css(crate::format::name_color(&user.id))).child(user.display_name.clone()))
-                        .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tooltip(tooltip("Server owner")).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
+                        .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tip("Server owner", Side::Bottom).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
                 );
             }
         }
@@ -1822,7 +1822,7 @@ impl ChatView {
                         .gap(px(4.))
                         .text_size(px(13.))
                         .text_color(theme.text2)
-                        .tooltip(tooltip(format!("One message every {} for each person, except admins", crate::format::timer_text(conversation.slow_mode))))
+                        .tip(format!("One message every {} for each person, except admins", crate::format::timer_text(conversation.slow_mode)), Side::Top)
                         .child(icon("timer", 14., theme.text2))
                         .child("Slow mode is on"),
                 )
@@ -2084,7 +2084,7 @@ impl ChatView {
                     .pr(px(12.))
                     .pb(px(12.))
                     .pl(px(8.))
-                    .child(icon_button("cancel-selection", "x", 18., false, false, cx).tooltip(tooltip("Cancel")).on_click(stop))
+                    .child(icon_button("cancel-selection", "x", 18., false, false, cx).tip("Cancel", Side::Top).on_click(stop))
                     .child(div().flex_1().text_size(px(13.5)).font_weight(FontWeight::MEDIUM).child(format!("{count} {} selected", if count == 1 { "message" } else { "messages" })))
                     .child(button("copy-selection", ButtonKind::Default, ButtonSize::Normal, count == 0, cx).child(icon("copy", 15., theme.text1)).child("Copy").on_click(copy))
                     .child(button("forward-selection", ButtonKind::Default, ButtonSize::Normal, count == 0 || group.is_none(), cx).child(icon("forward", 15., theme.text1)).child("Forward").on_click(forward))

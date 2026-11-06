@@ -483,7 +483,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                 .opacity(0.)
                 .group_hover(group, |style| style.opacity(1.))
                 .when(own, |el| el.flex_row_reverse())
-                .child(icon_button(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, cx).tooltip(tooltip("React")).on_click(move |event, window, cx| {
+                .child(icon_button(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, cx).tip("React", Side::Top).on_click(move |event, window, cx| {
                     let state = picker_state.clone();
                     let (group, id) = (picker_group.clone(), picker_id.clone());
                     super::picker::open_picker(
@@ -507,10 +507,10 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                 }))
                 .child(
                     icon_button(SharedString::from(format!("reply-btn-{id}")), "corner-up-left", 15., true, false, cx)
-                        .tooltip(tooltip("Reply"))
+                        .tip("Reply", Side::Top)
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(reply_message.clone()), cx))),
                 )
-                .child(icon_button(SharedString::from(format!("more-{id}")), "ellipsis", 15., true, false, cx).tooltip(tooltip("More")).on_click(move |event, _, cx| {
+                .child(icon_button(SharedString::from(format!("more-{id}")), "ellipsis", 15., true, false, cx).tip("More", Side::Top).on_click(move |event, _, cx| {
                     let state = more_state.clone();
                     let (group, id) = (more_group.clone(), more_id.clone());
                     open_menu_with_reactions(
@@ -919,7 +919,7 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
-        .tooltip(tooltip(names))
+        .tip(names, Side::Top)
         .on_click(move |_, _, cx| {
             let mut args = vec![json!(group), json!(id), json!(key)];
             if let Some(emote) = &emote {
@@ -1001,9 +1001,16 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                 .id(SharedString::from(format!("tile-{}-{}", message.id, attachment.file_id)))
                 .relative()
                 .w(px(w as f32))
-                .h(px(h as f32))
                 .when(image.is_none(), |el| el.bg(theme.bg3))
                 .overflow_hidden();
+            if single {
+                // As `.media-tile.is-single`: its own width sizes the bubble, then it fills the
+                // bubble's width, as wide as text or a link preview made it, keeping its shape.
+                tile = tile.min_w(relative(1.)).max_w(relative(1.));
+                tile.style().aspect_ratio = Some((width / height) as f32);
+            } else {
+                tile = tile.h(px(h as f32));
+            }
             if let Some(image) = image {
                 let state = context.state.clone();
                 let (file_id, name) = (attachment.file_id.clone(), attachment.name.clone());
@@ -1180,10 +1187,10 @@ fn link_card(preview: &crate::models::LinkPreview, own: bool, theme: &Theme, _cx
         div().one_line().text_size(px(12.5)).line_height(px(17.)).font_weight(FontWeight::SEMIBOLD).text_color(if own { theme.bubble_own_text } else { theme.text1 }).child(site),
     );
     if let Some(title) = &preview.title {
-        text = text.child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).line_clamp(2).child(title.clone()));
+        text = text.child(div().text_size(px(13.)).line_height(px(18.)).font_weight(FontWeight::SEMIBOLD).overflow_hidden().line_clamp(2).text_ellipsis().child(title.clone()));
     }
     if let Some(description) = &preview.description {
-        text = text.child(div().text_size(px(12.5)).line_height(px(17.)).line_clamp(3).text_color(if own { theme.bubble_own_faint } else { theme.text2 }).child(description.clone()));
+        text = text.child(div().text_size(px(12.5)).line_height(px(17.)).overflow_hidden().line_clamp(3).text_ellipsis().text_color(if own { theme.bubble_own_faint } else { theme.text2 }).child(description.clone()));
     }
     let mut card = div()
         .id(SharedString::from(format!("link-{}", preview.url)))

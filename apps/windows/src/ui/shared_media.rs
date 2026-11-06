@@ -329,7 +329,7 @@ fn link_row(state: &Entity<AppState>, server: &ServerState, message: &MessageVie
         .gap(px(1.))
         .child(div().one_line().text_size(px(13.5)).font_weight(FontWeight::SEMIBOLD).child(title));
     if !description.is_empty() {
-        body = body.child(div().text_size(px(12.5)).text_color(theme.text2).line_clamp(3).child(description));
+        body = body.child(div().text_size(px(12.5)).text_color(theme.text2).overflow_hidden().line_clamp(3).text_ellipsis().child(description));
     }
     for (index, link) in links.iter().enumerate() {
         let url = link.clone();

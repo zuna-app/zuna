@@ -205,31 +205,99 @@ pub fn switch(id: impl Into<ElementId>, on: bool, cx: &App) -> Stateful<Div> {
         )
 }
 
+/// `.tooltip`'s look: 12 px text at the body's 1.45, 8 px across and 4 px down.
+const TIP_LINE: f32 = 17.4;
+const TIP_PAD_X: f32 = 8.;
+const TIP_PAD_Y: f32 = 4.;
+
+fn tooltip_box(text: SharedString, theme: &Theme) -> Div {
+    div()
+        .px(px(TIP_PAD_X))
+        .py(px(TIP_PAD_Y))
+        .rounded(RADIUS_S)
+        .bg(theme.bg5)
+        .shadow(shadow_s())
+        .font_family(theme::FONT_UI)
+        .text_size(px(12.))
+        .line_height(px(TIP_LINE))
+        .text_color(theme.text1)
+        .whitespace_nowrap()
+        .child(text)
+}
+
+/// A tooltip at the pointer, as Chromium draws an element's `title`.
 pub struct TooltipView {
     text: SharedString,
 }
 
 impl Render for TooltipView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = theme(cx);
-        div()
-            .px(px(8.))
-            .py(px(4.))
-            .rounded(RADIUS_S)
-            .bg(theme.bg5)
-            .shadow(shadow_s())
-            .text_size(px(12.))
-            .text_color(theme.text1)
-            .whitespace_nowrap()
-            .child(self.text.clone())
+        tooltip_box(self.text.clone(), &theme(cx))
     }
 }
 
-/// A tooltip, for `.tooltip(tooltip("..."))`.
+/// A tooltip at the pointer, for `.tooltip(tooltip("..."))`: where the desktop has a `title`.
 pub fn tooltip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let text = text.into();
     move |_window, cx| cx.new(|_| TooltipView { text: text.clone() }).into()
 }
+
+/// Which side of its element the desktop's `Tooltip` puts itself on.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Side {
+    Top,
+    Bottom,
+    Right,
+}
+
+/// A tooltip beside its element, as the desktop's `Tooltip` places it: centered 6 px above or
+/// below, or 8 px to the right.
+pub struct AnchoredTooltip {
+    text: SharedString,
+    side: Side,
+    target: Option<gpui::Bounds<Pixels>>,
+    /// GPUI lays a tooltip out from the pointer, as it was when it was built.
+    from: gpui::Point<Pixels>,
+}
+
+impl Render for AnchoredTooltip {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let theme = theme(cx);
+        let tip = tooltip_box(self.text.clone(), &theme);
+        let Some(target) = self.target else { return div().child(tip) };
+        let run = gpui::TextRun { len: self.text.len(), font: gpui::font(theme::FONT_UI), color: theme.text1, background_color: None, underline: None, strikethrough: None };
+        let width = window.text_system().shape_line(self.text.clone(), px(12.), &[run], None).width + px(TIP_PAD_X * 2.);
+        let height = px(TIP_LINE + TIP_PAD_Y * 2.);
+        let center = target.center();
+        let (mut left, mut top) = match self.side {
+            Side::Top => (center.x - width / 2., target.top() - px(6.) - height),
+            Side::Bottom => (center.x - width / 2., target.bottom() + px(6.)),
+            Side::Right => (target.right() + px(8.), center.y - height / 2.),
+        };
+        // Kept inside the window, where the desktop's would be cut off at its edge.
+        let viewport = window.viewport_size();
+        left = left.min(viewport.width - width - px(4.)).max(px(4.));
+        top = top.min(viewport.height - height - px(4.)).max(px(4.));
+        // Nothing of its own size, so GPUI never moves it, and the box placed from the pointer.
+        let origin = self.from + point(px(1.), px(1.));
+        div().size_0().child(tip.absolute().left(left - origin.x).top(top - origin.y))
+    }
+}
+
+pub trait Tip: StatefulInteractiveElement + ParentElement + Sized {
+    /// A tooltip on one side of this element, for where the desktop has a `Tooltip`.
+    fn tip(self, text: impl Into<SharedString>, side: Side) -> Self {
+        let text = text.into();
+        let bounds = std::rc::Rc::new(std::cell::Cell::new(None));
+        let seen = bounds.clone();
+        self.child(gpui::canvas(move |area, _, _| seen.set(Some(area)), |_, _, _, _| {}).absolute().inset_0()).tooltip(move |window, cx| {
+            let (text, target, from) = (text.clone(), bounds.get(), window.mouse_position());
+            cx.new(|_| AnchoredTooltip { text, side, target, from }).into()
+        })
+    }
+}
+
+impl<E: StatefulInteractiveElement + ParentElement + Sized> Tip for E {}
 
 /// `.field-label`, `.field-hint` and `.field-error` around an input.
 pub fn field(label: Option<&str>, input: impl IntoElement, error: Option<String>, hint: Option<String>, focused: bool, suffix: Option<AnyElement>, cx: &App) -> Div {

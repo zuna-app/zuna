@@ -629,7 +629,7 @@ impl SidePanel {
                         .border_color(theme.bg1)
                         .cursor_pointer()
                         .hover(move |style| style.bg(theme.bg5))
-                        .tooltip(tooltip("Change group picture"))
+                        
                         .on_click(move |_, _, cx| {
                             let picked = crate::media::pick_avatar(cx);
                             let (state, server_id, group) = (state.clone(), server_id.clone(), group.clone());
@@ -706,7 +706,7 @@ impl SidePanel {
                     .gap(px(6.))
                     .child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(conversation.title.clone()))
                     .when(is_admin, |el| {
-                        el.child(icon_button("edit-group", "pencil", 14., true, false, cx).tooltip(tooltip("Edit group details")).on_click(cx.listener(move |panel, _, window, cx| {
+                        el.child(icon_button("edit-group", "pencil", 14., true, false, cx).on_click(cx.listener(move |panel, _, window, cx| {
                             panel.edit_name.update(cx, |input, cx| input.set_text(title.clone(), cx));
                             panel.edit_description.update(cx, |input, cx| input.set_text(description.clone(), cx));
                             panel.editing = true;
@@ -746,7 +746,7 @@ impl SidePanel {
                 .child(format!("{count} {}", if count == 1 { "member" } else { "members" }))
                 .when(is_admin, |el| {
                     let (state, group) = (self.state.clone(), group.clone());
-                    el.child(icon_button("add-people", "user-plus", 15., true, false, cx).tooltip(tooltip("Add people")).on_click(move |_, _, cx| {
+                    el.child(icon_button("add-people", "user-plus", 15., true, false, cx).tip("Add people", Side::Bottom).on_click(move |_, _, cx| {
                         state.update(cx, |state, cx| state.set_overlay(Some(Overlay::AddMembers { group_id: group.clone() }), cx))
                     }))
                 }),
@@ -955,7 +955,7 @@ impl SidePanel {
                             .child(div().flex_1().one_line().text_size(px(13.)).font_weight(FontWeight::MEDIUM).child(name))
                             .child(div().text_size(px(11.5)).text_color(theme.text3).child(format_list_time(message.created_at))),
                     )
-                    .child(div().text_size(px(13.)).text_color(theme.text2).line_clamp(3).child(plain_text(&message.text))),
+                    .child(div().text_size(px(13.)).text_color(theme.text2).overflow_hidden().line_clamp(3).text_ellipsis().child(plain_text(&message.text))),
             )
             .into_any_element()
     }
@@ -1058,7 +1058,7 @@ impl Render for SidePanel {
                             .items_center()
                             .gap(px(4.))
                             .when(in_media, |el| {
-                                el.child(icon_button("back-to-details", "chevron-left", 17., true, false, cx).tooltip(tooltip("Back to details")).on_click(move |_, _, cx| {
+                                el.child(icon_button("back-to-details", "chevron-left", 17., true, false, cx).on_click(move |_, _, cx| {
                                     back_state.update(cx, |state, cx| {
                                         state.panel = Some(Panel::Info);
                                         cx.notify();

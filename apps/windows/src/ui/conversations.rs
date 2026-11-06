@@ -35,6 +35,9 @@ pub struct ConversationList {
     hits: Vec<SearchResult>,
     searching: Option<Task<()>>,
     search_focused: bool,
+    /// The channel row under the pointer, whose edit button shows. It takes no room otherwise,
+    /// as the desktop's is `display: none`, so a voice channel's limit sits at the row's end.
+    hovered_channel: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -111,7 +114,7 @@ impl ConversationList {
         if let Some(voice) = crate::voice::get(cx) {
             subscriptions.push(cx.observe(&voice, |_, _, cx| cx.notify()));
         }
-        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, _subscriptions: subscriptions }
+        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, hovered_channel: None, _subscriptions: subscriptions }
     }
 
     pub fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -429,7 +432,7 @@ impl Render for ConversationList {
             .child({
                 let state = self.state.clone();
                 icon_button("new-group", "square-pen", 17., false, false, cx)
-                    .tooltip(tooltip("New group"))
+                    .tip("New group", Side::Bottom)
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::NewGroup), cx)))
             });
 
@@ -697,7 +700,7 @@ impl ConversationList {
                 head = head.child(
                     div().opacity(0.).group_hover(group.clone(), |style| style.opacity(1.)).child(
                         icon_button(SharedString::from(format!("new-in-{name}")), "plus", 14., true, false, cx)
-                            .tooltip(tooltip("New channel"))
+                            .tip("New channel", Side::Bottom)
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: None, category: Some(kind.clone()) }), cx))),
                     ),
                 );
@@ -782,6 +785,17 @@ impl ConversationList {
                     open_menu(event.position, menu.clone(), false, cx);
                 }
             })
+            .when(is_admin, |el| {
+                let id = channel.id.clone();
+                el.on_hover(cx.listener(move |list, hovered: &bool, _, cx| {
+                    if *hovered {
+                        list.hovered_channel = Some(id.clone());
+                    } else if list.hovered_channel.as_ref() == Some(&id) {
+                        list.hovered_channel = None;
+                    }
+                    cx.notify();
+                }))
+            })
             .when(unread, |el| el.child(div().absolute().left(px(-8.)).top(px(13.)).w(px(4.)).h(px(8.)).rounded_r(px(4.)).bg(theme.text1)))
             .child(icon(if channel.kind == "voice" { "volume-2" } else { "hash" }, 20., if connected { theme.green } else { theme.text3 }))
             .child(div().flex_1().min_w_0().one_line().when(unread, |el| el.font_weight(FontWeight::SEMIBOLD)).child(title.clone()))
@@ -800,15 +814,14 @@ impl ConversationList {
                         .child(format!("{}/{}", occupants.len(), channel.user_limit as u32)),
                 )
             })
-            .when(is_admin, |el| {
+            .when(is_admin && (active || self.hovered_channel.as_ref() == Some(&channel.id)), |el| {
                 let (state, id) = (self.state.clone(), channel.id.clone());
                 el.child(
                     div()
                         .id(SharedString::from(format!("edit-{}", channel.id)))
                         .flex_none()
                         .flex()
-                        .when(!active, |el| el.invisible().group_hover(group.clone(), |style| style.visible()))
-                        .tooltip(tooltip("Edit channel"))
+                        .tip("Edit channel", Side::Bottom)
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
                             state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(id.clone()), category: None }), cx))

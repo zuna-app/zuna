@@ -228,7 +228,7 @@ impl SettingsView {
                                 .border_color(theme.bg1)
                                 .cursor_pointer()
                                 .hover(move |style| style.bg(theme.bg5))
-                                .tooltip(tooltip("Change profile picture"))
+                                
                                 .on_click(cx.listener(|view, _, _, cx| view.change_avatar(cx)))
                                 .child(icon("camera", 17., theme.text1)),
                         ),
@@ -481,7 +481,7 @@ impl SettingsView {
                 .border_1()
                 .border_color(theme::color(theme::white_a(0.1)))
                 .when(active, |el| el.child(div().absolute().top(px(-5.)).left(px(-5.)).size(px(40.)).rounded_full().border_2().border_color(theme.text1)))
-                .tooltip(tooltip(accent.label()))
+                
                 .on_click(move |_, _, cx| state.update(cx, |state, cx| state.update_settings(|s| s.accent = accent, cx)))
                 .when(active, |el| el.child(icon("check", 15., check)))
         }));

@@ -532,7 +532,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
             .justify_center()
             .cursor_pointer()
             .hover(move |style| style.bg(theme.hover_strong))
-            .tooltip(tooltip(label))
+            .tip(label, Side::Top)
             .child(icon(icon_name, size, theme.text2))
     };
     let mut bar = div()
@@ -645,7 +645,7 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
         .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
         .when(!mine, |el| el.hover(move |style| style.bg(theme.bg3).border_color(theme.line_strong)))
-        .tooltip(tooltip(names))
+        .tip(names, Side::Top)
         .on_click(move |_, _, cx| {
             let mut args = vec![json!(group), json!(id), json!(key)];
             if let Some(emote) = &emote {
@@ -680,7 +680,7 @@ fn channel_link_card(preview: &crate::models::LinkPreview, theme: &Theme) -> Any
         text = text.child(div().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.link).child(title.clone()));
     }
     if let Some(description) = &preview.description {
-        text = text.child(div().mt(px(4.)).text_size(px(14.)).text_color(theme.text1).line_clamp(4).child(description.clone()));
+        text = text.child(div().mt(px(4.)).text_size(px(14.)).text_color(theme.text1).overflow_hidden().line_clamp(4).text_ellipsis().child(description.clone()));
     }
     let mut card = div()
         .id(SharedString::from(format!("clink-{}", preview.url)))

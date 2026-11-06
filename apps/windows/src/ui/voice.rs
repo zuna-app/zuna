@@ -32,7 +32,7 @@ fn quality_icon(voice: &Voice, cx: &App) -> AnyElement {
         Some(rtt) => format!("{words}, {rtt} ms"),
         None => words.to_string(),
     };
-    div().id("voice-quality").flex().tooltip(tooltip(text)).child(icon(name, 14., color)).into_any_element()
+    div().id("voice-quality").flex().tip(text, Side::Top).child(icon(name, 14., color)).into_any_element()
 }
 
 /// Stays at the bottom of the sidebar while in a voice channel or a call, wherever else the person is.
@@ -94,7 +94,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
             .bg(if on { theme.accent_soft } else { theme.bg3 })
             .when(!disabled, |el| el.cursor_pointer().hover(move |style| if on { style } else { style.bg(theme.bg4) }))
             .when(disabled, |el| el.opacity(0.55))
-            .tooltip(tooltip(label))
+            .tip(label, Side::Top)
             .child(icon(icon_name, 16., if on { theme.green } else { theme.text1 }))
     };
     let (voice_for_camera, voice_for_share, voice_for_leave, voice_for_mute, voice_for_deafen) = (voice_entity.clone(), voice_entity.clone(), voice_entity.clone(), voice_entity.clone(), voice_entity.clone());
@@ -140,7 +140,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                                     .text_color(status_color)
                                     .child(status_icon)
                                     .child(status_text)
-                                    .child(div().id("voice-panel-lock").tooltip(tooltip("End-to-end encrypted: the server can't listen in")).child(icon("lock", 11., theme.text3))),
+                                    .child(div().id("voice-panel-lock").tip("End-to-end encrypted: the server can't listen in", Side::Top).child(icon("lock", 11., theme.text3))),
                             )
                             .child(div().one_line().text_size(px(12.)).text_color(theme.text3).child(format!("{where_text} / {}", server.entry.name))),
                     )
@@ -156,7 +156,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                             .cursor_pointer()
                             .text_color(theme.text1)
                             .hover(move |style| style.bg(theme.red_soft))
-                            .tooltip(tooltip("Disconnect"))
+                            .tip("Disconnect", Side::Top)
                             .on_click(move |_, _, cx| voice_for_leave.update(cx, |voice, cx| voice.leave(cx)))
                             .child(icon("phone-off", 17., theme.text1)),
                     ),
@@ -214,7 +214,7 @@ fn small_toggle(id: &'static str, icon_name: &'static str, color: Option<gpui::H
         .rounded(RADIUS_S)
         .when(!disabled, |el| el.cursor_pointer().hover(move |style| style.bg(if red { theme.red_soft } else { theme.hover_strong })))
         .when(disabled, |el| el.opacity(0.55))
-        .tooltip(tooltip(label))
+        .tip(label, Side::Top)
         .child(icon(icon_name, 16., color.unwrap_or(theme.text2)))
 }
 
@@ -263,7 +263,7 @@ pub fn incoming_calls(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx
                 .bg(bg)
                 .cursor_pointer()
                 .hover(move |style| style.opacity(0.9))
-                .tooltip(tooltip(label))
+                .tip(label, Side::Top)
                 .child(icon(icon_name, 18., fg))
         };
         column = column.child(
@@ -340,7 +340,7 @@ pub fn call_buttons(state: &Entity<AppState>, server_id: &str, conversation: &Co
         return Some(
             button("call-join", ButtonKind::Default, ButtonSize::Small, false, cx)
                 .text_color(theme.green)
-                .tooltip(tooltip("Join the call"))
+                .tip("Join the call", Side::Bottom)
                 .child(div().flex().items_center().gap(px(5.)).child(icon("phone", 15., theme.green)).child("Join"))
                 .on_click(move |_, _, cx| voice_entity.update(cx, |voice, cx| voice.join(server_id.clone(), group.clone(), None, JoinHow::default(), cx)))
                 .into_any_element(),
@@ -354,8 +354,8 @@ pub fn call_buttons(state: &Entity<AppState>, server_id: &str, conversation: &Co
             .flex()
             .items_center()
             .gap(px(2.))
-            .child(icon_button("call-voice", "phone", 17., false, false, cx).tooltip(tooltip("Start a voice call")).on_click(move |_, _, cx| voice_call.update(cx, |voice, cx| voice.start_call(server_call.clone(), key_call.clone(), false, cx))))
-            .child(icon_button("call-video", "video", 18., false, false, cx).tooltip(tooltip("Start a video call")).on_click(move |_, _, cx| voice_video.update(cx, |voice, cx| voice.start_call(server_video.clone(), key_video.clone(), true, cx))))
+            .child(icon_button("call-voice", "phone", 17., false, false, cx).tip("Start a voice call", Side::Bottom).on_click(move |_, _, cx| voice_call.update(cx, |voice, cx| voice.start_call(server_call.clone(), key_call.clone(), false, cx))))
+            .child(icon_button("call-video", "video", 18., false, false, cx).tip("Start a video call", Side::Bottom).on_click(move |_, _, cx| voice_video.update(cx, |voice, cx| voice.start_call(server_video.clone(), key_video.clone(), true, cx))))
             .into_any_element(),
     )
 }

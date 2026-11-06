@@ -210,7 +210,7 @@ impl Root {
                             .rounded(RADIUS_L)
                             .cursor_pointer()
                             .when(!active, |el| el.opacity(0.72).hover(|style| style.opacity(1.)))
-                            .tooltip(tooltip(server.entry.name.clone()))
+                            .tip(server.entry.name.clone(), Side::Right)
                             .on_click(move |_, _, cx| select_state.update(cx, |state, cx| state.select_server(&select_id, cx)))
                             .child(avatar(
                                 AvatarProps {
@@ -261,7 +261,7 @@ impl Root {
                 .text_color(theme.text3)
                 .cursor_pointer()
                 .hover(move |style| style.bg(theme.hover_strong).text_color(theme.text1))
-                .tooltip(tooltip("Join a server"))
+                .tip("Join a server", Side::Right)
                 .on_click(move |_, _, cx| {
                     add_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx))
                 })
@@ -271,7 +271,7 @@ impl Root {
         let profile_state = state_entity.clone();
         let mut footer = div().flex().flex_col().items_center().gap(px(8.)).pt(px(8.)).child(
             icon_button("rail-settings", "settings", 19., false, false, cx)
-                .tooltip(tooltip("Settings"))
+                .tip("Settings", Side::Right)
                 .on_click(move |_, _, cx| settings_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Settings { section: None }), cx))),
         );
         if let Some(me) = me {
@@ -282,7 +282,7 @@ impl Root {
                     .id("rail-self")
                     .rounded_full()
                     .cursor_pointer()
-                    .tooltip(tooltip(me.display_name.clone()))
+                    .tip(me.display_name.clone(), Side::Right)
                     .on_click(move |_, _, cx| {
                         profile_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Settings { section: Some("profile".into()) }), cx))
                     })
