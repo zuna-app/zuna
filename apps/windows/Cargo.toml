@@ -29,6 +29,7 @@ webpki-roots = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2", "stream"] }
 x509-parser = "0.18"
 sha2 = "0.10"
+hkdf = "0.12"
 futures = "0.3"
 url = "2"
 
@@ -48,6 +49,12 @@ smallvec = "1"
 dirs = "6"
 open = "5"
 raw-window-handle = "0.6"
+
+# Voice channels and calls: LiveKit, as the native screen share uses it, whose frame
+# encryption opens the desktop's; the sound devices; and RNNoise for the microphone.
+livekit = { version = "=0.10.0", features = ["rustls-tls-native-roots"] }
+cpal = "0.16"
+nnnoiseless = { version = "0.5", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 # What windows's macro for declaring a COM interface expands to.

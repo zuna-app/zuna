@@ -100,6 +100,8 @@ pub struct ChatView {
     last_typing: f64,
     revealed: Rc<RefCell<HashSet<String>>>,
     side_panel: Option<Entity<SidePanel>>,
+    /// The call this device is in, above the chat of its conversation.
+    call_stage: Option<Entity<super::voice_stage::VoiceStage>>,
     last_list_id: String,
     files: Vec<StagedFile>,
     /// What's being completed: ':' or '@', what's typed after it, and where it starts.
@@ -196,6 +198,7 @@ impl ChatView {
             last_typing: 0.,
             revealed: Rc::new(RefCell::new(HashSet::new())),
             side_panel: None,
+            call_stage: None,
             last_list_id: String::new(),
             files: Vec::new(),
             trigger: None,
@@ -1158,6 +1161,7 @@ impl ChatView {
         }
         let toggle = |panel_kind: Panel, state: Entity<AppState>| move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| state.update(cx, |state, cx| state.toggle_panel(panel_kind, cx));
         let has_group = conversation.group_id.is_some();
+        let call_buttons = super::voice::call_buttons(&self.state, &self.server_id, conversation, cx);
         div()
             .flex()
             .flex_none()
@@ -1188,6 +1192,7 @@ impl ChatView {
                     .flex_none()
                     .items_center()
                     .gap(px(2.))
+                    .children(call_buttons)
                     .child(
                         icon_button("chat-search", "search", 17., false, panel == Some(Panel::Search), cx)
                             .tooltip(tooltip("Search this chat"))
@@ -1203,6 +1208,28 @@ impl ChatView {
                     .child(icon_button("chat-details", "panel-right", 17., false, panel == Some(Panel::Info), cx).tooltip(tooltip("Details")).on_click(toggle(Panel::Info, self.state.clone()))),
             )
             .into_any_element()
+    }
+
+    /// The call above this chat while this device is in it, or the banner for one going on.
+    fn call_area(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) -> (Option<AnyElement>, bool) {
+        let in_call = conversation.group_id.is_some() && crate::voice::connected_channel(cx).is_some_and(|(server_id, channel_id)| server_id == self.server_id && Some(&channel_id) == conversation.group_id.as_ref());
+        if !in_call {
+            self.call_stage = None;
+            return (super::voice::call_banner(&self.state, &self.server_id, conversation, cx), false);
+        }
+        let stage = match &self.call_stage {
+            Some(stage) => stage.clone(),
+            None => {
+                let room = super::voice_stage::StageRoom { server_id: self.server_id.clone(), id: conversation.group_id.clone().unwrap_or_default(), call: true };
+                let state = self.state.clone();
+                let stage = cx.new(|cx| super::voice_stage::VoiceStage::new(state, room, cx));
+                cx.observe(&stage, |_, _, cx| cx.notify()).detach();
+                self.call_stage = Some(stage.clone());
+                stage
+            }
+        };
+        let expanded = stage.read(cx).expanded;
+        (Some(stage.into_any_element()), expanded)
     }
 
     fn composer_area(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
@@ -2358,6 +2385,7 @@ impl Render for ChatView {
         }
         self.sync_inline_editor(&conversation, window, cx);
         let header = if is_channel { self.channel_header(&conversation, cx) } else { self.header(&conversation, cx) };
+        let (call, call_expanded) = if is_channel { (None, false) } else { self.call_area(&conversation, cx) };
         let state = self.state.read(cx);
         let list = state.lists.get(&conversation.list_id()).cloned();
         let panel = state.panel;
@@ -2531,8 +2559,8 @@ impl Render for ChatView {
                             ),
                         )
                     })
-                    .child(body)
-                    .child(composer)
+                    .when_some(call, |el, call| el.child(call))
+                    .when(!call_expanded, |el| el.child(body).child(composer))
                     .when_some(typing_line, |el, line| el.child(line)),
             )
             .when_some(side_panel, |el, panel| el.child(panel))

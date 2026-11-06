@@ -63,7 +63,7 @@ static TOKIO: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 pub fn tokio() -> &'static tokio::runtime::Runtime {
     TOKIO.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
+            .worker_threads(4)
             .thread_name("zuna-net")
             .enable_all()
             .build()

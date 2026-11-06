@@ -24,6 +24,8 @@ pub struct ServerState {
     pub channels: Vec<ChannelView>,
     pub voice: HashMap<String, VoiceMember>,
     pub calls: HashMap<String, CallView>,
+    /// The soundboard, oldest first.
+    pub sounds: Vec<SoundView>,
     pub users: HashMap<String, UserView>,
     /// username (lowercase) -> user ID.
     pub mentionable: HashMap<String, String>,
@@ -117,6 +119,8 @@ pub struct Toast {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Overlay {
     AddServer { link: Option<String>, sign_in_url: Option<String> },
+    /// Choosing what to share from a voice channel or a call.
+    ScreenPicker,
     Settings { section: Option<String> },
     NewGroup,
     Invite,
@@ -639,6 +643,16 @@ impl AppState {
                 }
             }
             "emotes" => self.refresh_field(&server_id, "getEmotes", cx, |server, value| server.emotes = from_value(value)),
+            "sounds" => self.refresh_field(&server_id, "getSounds", cx, |server, value| server.sounds = from_value(value)),
+            "calls" => {
+                let server = server_id.clone();
+                self.refresh_field(&server_id, "getCalls", cx, |state_server, value| {
+                    state_server.calls = from_value::<Vec<CallView>>(value).into_iter().map(|call| (call.group_id.clone(), call)).collect();
+                });
+                self.refresh_field(&server, "getVoiceMembers", cx, |state_server, value| {
+                    state_server.voice = from_value::<Vec<VoiceMember>>(value).into_iter().map(|member| (member.device_id.clone(), member)).collect();
+                });
+            }
             "preferences" => self.refresh_field(&server_id, "getPreferences", cx, |server, value| server.prefs = from_value(value)),
             "voice" => {
                 if let Some(server) = self.servers.get_mut(&server_id) {
@@ -654,17 +668,20 @@ impl AppState {
                 }
             }
             "call" => {
+                let group = text("groupId");
+                let call: Option<CallView> = event.get("call").filter(|call| !call.is_null()).map(|call| from_value(call.clone()));
+                let before = self.servers.get(&server_id).and_then(|server| server.calls.get(&group).cloned());
                 if let Some(server) = self.servers.get_mut(&server_id) {
-                    let group = text("groupId");
-                    match event.get("call").filter(|call| !call.is_null()) {
+                    match &call {
                         Some(call) => {
-                            server.calls.insert(group, from_value(call.clone()));
+                            server.calls.insert(group.clone(), call.clone());
                         }
                         None => {
                             server.calls.remove(&group);
                         }
                     }
                 }
+                self.notice_call(&server_id, &group, before, call, cx);
             }
             "signed_out" => {
                 let reason = text("reason");
@@ -684,6 +701,10 @@ impl AppState {
             "security" => self.toast(text("message"), ToastKind::Security, cx),
             "notify" => self.notify(&event, cx),
             _ => {}
+        }
+        // Voice reads this state, so it hears of its events once this update is over.
+        if matches!(kind.as_str(), "voice" | "voice_key" | "voice_ended" | "screen_ended" | "call" | "calls" | "sound" | "signed_out") {
+            cx.defer(move |cx| crate::voice::on_event(&event, cx));
         }
         cx.notify();
     }
@@ -1009,6 +1030,83 @@ impl AppState {
         }
     }
 
+    /// A call starting to ring this person, or one they missed: a card while the app isn't in front,
+    /// and for a missed one a toast while it is (noticeCall in store.ts).
+    fn notice_call(&mut self, server_id: &str, group_id: &str, before: Option<CallView>, call: Option<CallView>, cx: &mut Context<Self>) {
+        let Some(server) = self.servers.get(server_id) else { return };
+        let self_id = server.self_id().to_string();
+        if self_id.is_empty() {
+            return;
+        }
+        let was_ringing = before.as_ref().is_some_and(|call| call.ringing.contains(&self_id));
+        let ringing = call.as_ref().is_some_and(|call| call.ringing.contains(&self_id));
+        if was_ringing == ringing {
+            return;
+        }
+        let message_id = format!("call:{group_id}");
+        if was_ringing {
+            clear_notifications(Some(server_id), None, Some(&message_id), cx);
+        }
+        let Some(conversation) = crate::voice::conversation_of_group(server, group_id).cloned() else { return };
+        let caller = call.as_ref().or(before.as_ref()).map(|call| call.started_by.clone()).unwrap_or_default();
+        if conversation.muted || conversation.blocked || server.prefs.blocked().contains(&caller) {
+            return;
+        }
+        // Answered on another device, or declined, isn't missed.
+        let answered = server.voice.values().any(|member| member.channel_id == group_id && member.user_id == self_id);
+        let missed = was_ringing && !answered && !call.as_ref().is_some_and(|call| call.declined.contains(&self_id));
+        if !ringing && !missed {
+            return;
+        }
+        let name = server.users.get(&caller).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
+        let dm = conversation.kind == "dm";
+        let body = match (ringing, dm) {
+            (true, true) => "Calling you".to_string(),
+            (true, false) => format!("{name} started a call"),
+            (false, true) => "Missed call".to_string(),
+            (false, false) => format!("Missed call from {name}"),
+        };
+        if self.window_focused {
+            if missed {
+                let message = if dm { format!("Missed call from {name}.") } else { format!("Missed call from {name} in {}.", conversation.title) };
+                self.toast(message, ToastKind::Info, cx);
+            }
+            return;
+        }
+        if !self.settings.notifications {
+            return;
+        }
+        crate::platform::later(cx, crate::platform::flash_main);
+        let system = crate::platform::notification_state();
+        if !system.show {
+            return;
+        }
+        // A call's ringing has its own sound, so the notification makes none.
+        let preview = self.settings.notification_preview.clone();
+        let picture = (preview != "none").then(|| {
+            let image = conversation.avatar.as_ref().and_then(|avatar| match self.pictures.get(&format!("file:{}", avatar.file_id)) {
+                Some(Picture::Ready(image)) => Some(image.clone()),
+                _ => None,
+            });
+            crate::ui::notifications::Picture { image, initials: crate::format::initials_of(&conversation.title), seed: conversation.peer_id.clone().or(conversation.group_id.clone()).unwrap_or_default() }
+        });
+        let payload = crate::ui::notifications::Payload {
+            title: if preview == "none" { "Zuna".to_string() } else { conversation.title.clone() },
+            body: if preview == "none" { (if ringing { "Incoming call" } else { "Missed call" }).to_string() } else { body },
+            server_id: server_id.to_string(),
+            key: conversation.key.clone(),
+            message_id,
+            kind: conversation.kind.clone(),
+            picture,
+            can_reply: false,
+            wait_for_input: system.wait_for_input,
+        };
+        let reduce_motion = self.settings.reduce_motion;
+        if let Some(center) = crate::ui::notifications::center(cx) {
+            center.update(cx, |center, cx| center.show(payload, reduce_motion, cx));
+        }
+    }
+
     /// A reply typed into a notification: it reads the chat, and answers the message in a group (sendNotificationReply).
     pub fn send_notification_reply(&mut self, server_id: &str, key: &str, message_id: &str, text: &str, cx: &mut Context<Self>) {
         let Some(server) = self.servers.get(server_id) else { return };
@@ -1287,7 +1385,7 @@ fn clear_notifications(server_id: Option<&str>, keys: Option<&[String]>, message
 async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
     let id = entry.id.clone();
     let get = |method: &'static str| core.call(Some(&id), method, vec![]);
-    let (conversations, users, emotes, prefs, me, connection, info, channels, voice, calls) = futures::join!(
+    let (conversations, users, emotes, prefs, me, connection, info, channels, voice, calls, sounds) = futures::join!(
         get("getConversations"),
         get("getUsers"),
         get("getEmotes"),
@@ -1298,6 +1396,7 @@ async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
         get("getChannels"),
         get("getVoiceMembers"),
         get("getCalls"),
+        get("getSounds"),
     );
     let mut server = ServerState {
         entry,
@@ -1313,6 +1412,7 @@ async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
             .map(|member| (member.device_id.clone(), member))
             .collect(),
         calls: calls.map(from_value::<Vec<CallView>>).unwrap_or_default().into_iter().map(|call| (call.group_id.clone(), call)).collect(),
+        sounds: sounds.map(from_value).unwrap_or_default(),
         users: HashMap::new(),
         mentionable: HashMap::new(),
         emotes: emotes.map(from_value).unwrap_or_default(),

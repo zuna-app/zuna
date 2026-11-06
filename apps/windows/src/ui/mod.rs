@@ -16,7 +16,11 @@ pub mod server_settings;
 pub mod settings;
 pub mod shared_media;
 pub mod side_panel;
+pub mod soundboard;
+pub mod stream_stats;
 pub mod text_input;
+pub mod voice;
+pub mod voice_stage;
 
 use gpui::{
     AnyElement, App, Context, Entity, FontWeight, IntoElement, MouseButton, MouseMoveEvent, MouseUpEvent, ParentElement, Render, Styled,
@@ -43,6 +47,9 @@ pub struct Root {
     onboarding: Entity<onboarding::Onboarding>,
     conversations: Entity<conversations::ConversationList>,
     chat: Option<(String, Entity<chat::ChatView>)>,
+    /// A voice channel's stage, while this device is in the channel that's open.
+    stage: Option<(String, Entity<voice_stage::VoiceStage>)>,
+    voice: Entity<crate::voice::Voice>,
     /// Settings, or a server's settings, over everything below the title bar, and which.
     settings: Option<(crate::state::Overlay, gpui::AnyView)>,
     overlay: Option<(crate::state::Overlay, gpui::AnyView)>,
@@ -74,7 +81,9 @@ impl Root {
         cx.observe(&picker, |_, _, cx| cx.notify()).detach();
         let focus = cx.focus_handle();
         window.focus(&focus);
-        Root { state, onboarding, conversations, chat: None, settings: None, overlay: None, resizing: None, menu, picker, focus, covered: false }
+        let voice = crate::voice::get(cx).expect("voice starts with the app");
+        cx.observe(&voice, |_, _, cx| cx.notify()).detach();
+        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, resizing: None, menu, picker, focus, covered: false }
     }
 
     fn title_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -304,6 +313,18 @@ impl Root {
         }
         let conversation = server.active_conversation().cloned();
         let channel = server.active_channel().cloned();
+        // A voice channel this device is in shows its stage, as in Discord.
+        let in_this_voice = channel.as_ref().is_some_and(|channel| channel.kind == "voice" && crate::voice::connected_channel(cx).is_some_and(|(server_id, channel_id)| server_id == server.entry.id && channel_id == channel.id));
+        if let (true, Some(channel)) = (in_this_voice, &channel) {
+            let key = format!("{}:{}", server.entry.id, channel.id);
+            if self.stage.as_ref().map(|(current, _)| current != &key).unwrap_or(true) {
+                let state = self.state.clone();
+                let room = voice_stage::StageRoom { server_id: server.entry.id.clone(), id: channel.id.clone(), call: false };
+                self.stage = Some((key, cx.new(|cx| voice_stage::VoiceStage::new(state, room, cx))));
+            }
+            return self.stage.as_ref().unwrap().1.clone().into_any_element();
+        }
+        self.stage = None;
         match conversation {
             Some(conversation) => {
                 let key = format!("{}:{}", server.entry.id, conversation.key);
@@ -536,7 +557,7 @@ impl Render for Root {
                             .flex_none()
                             .w(px(list_width))
                             .bg(theme.bg1)
-                            .child(div().flex_1().min_w_0().min_h_0().flex().flex_col().child(self.conversations.clone()))
+                            .child(div().flex_1().min_w_0().min_h_0().flex().flex_col().child(div().flex_1().min_h_0().flex().flex_col().child(self.conversations.clone())).children(voice::voice_panel(&self.state, &self.voice, cx)))
                             .child(
                                 div()
                                     .id("sidebar-resizer")
@@ -599,6 +620,7 @@ impl Render for Root {
             }
         }
         self.covered = covered;
+        let calls = if matches!(self.state.read(cx).phase, Phase::Ready) && has_servers { voice::incoming_calls(&self.state, &self.voice, cx) } else { None };
         div()
             .size_full()
             .track_focus(&self.focus)
@@ -623,7 +645,8 @@ impl Render for Root {
                     .min_h_0()
                     .flex()
                     .child(body)
-                    .when_some(settings, |el, settings| el.child(div().absolute().inset_0().child(settings))),
+                    .when_some(settings, |el, settings| el.child(div().absolute().inset_0().child(settings)))
+                    .when_some(calls, |el, calls| el.child(calls)),
             )
             .when_some(overlay, |el, overlay| el.child(overlay))
             .child(self.toasts(cx))

@@ -28,6 +28,7 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
         Overlay::AddMembers { group_id } => cx.new(|cx| Dialog::new(state, DialogKind::AddMembers(group_id), window, cx)).into(),
         Overlay::Channel { channel_id, category } => cx.new(|cx| Dialog::new(state, DialogKind::Channel { channel_id, kind: category }, window, cx)).into(),
         Overlay::Settings { .. } | Overlay::ServerSettings { .. } => return None,
+        Overlay::ScreenPicker => return None,
         Overlay::Image { file_id, name } => cx.new(|cx| ImageViewer::new(state, file_id, name, window, cx)).into(),
     })
 }

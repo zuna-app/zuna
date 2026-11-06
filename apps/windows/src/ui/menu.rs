@@ -61,7 +61,13 @@ struct OpenMenu {
     /// Quick reactions above the entries, as on a message.
     reactions: Option<(Vec<&'static str>, Rc<dyn Fn(&'static str, &mut Window, &mut App)>)>,
     align_right: bool,
+    /// Drawn above the entries each frame, such as a person's volume.
+    header: Option<Header>,
+    /// Opens upwards from the point, as from a button at the bottom of the window.
+    above: bool,
 }
+
+pub type Header = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 pub struct MenuLayer {
     open: Option<OpenMenu>,
@@ -88,7 +94,16 @@ pub fn menu_layer(cx: &mut App) -> Entity<MenuLayer> {
 pub fn open_menu(position: Point<Pixels>, entries: Vec<MenuEntry>, align_right: bool, cx: &mut App) {
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
-        layer.open = Some(OpenMenu { position, entries, reactions: None, align_right });
+        layer.open = Some(OpenMenu { position, entries, reactions: None, align_right, header: None, above: false });
+        cx.notify();
+    });
+}
+
+/// Opens a menu with something drawn above its entries, upwards from the point if `above`.
+pub fn open_menu_with_header(position: Point<Pixels>, header: Option<Header>, entries: Vec<MenuEntry>, above: bool, cx: &mut App) {
+    let layer = menu_layer(cx);
+    layer.update(cx, |layer, cx| {
+        layer.open = Some(OpenMenu { position, entries, reactions: None, align_right: false, header, above });
         cx.notify();
     });
 }
@@ -104,7 +119,7 @@ pub fn open_menu_with_reactions(
 ) {
     let layer = menu_layer(cx);
     layer.update(cx, |layer, cx| {
-        layer.open = Some(OpenMenu { position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right });
+        layer.open = Some(OpenMenu { position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right, header: None, above: false });
         cx.notify();
     });
 }
@@ -156,6 +171,9 @@ impl Render for MenuLayer {
                 layer.open = None;
                 cx.notify();
             }));
+        if let Some(header) = open.header.clone() {
+            menu = menu.child(div().pb(px(4.)).mb(px(4.)).border_b_1().border_color(theme.line).child(header(window, cx)));
+        }
         if let Some((reactions, on_react)) = &open.reactions {
             let mut row = div().flex().gap(px(1.)).p(px(1.)).pb(px(5.)).mb(px(4.)).border_b_1().border_color(theme.line);
             for emoji in reactions.iter().copied() {
@@ -229,7 +247,12 @@ impl Render for MenuLayer {
                 }
             })));
         }
-        let corner = if open.align_right { Corner::TopRight } else { Corner::TopLeft };
+        let corner = match (open.align_right, open.above) {
+            (true, true) => Corner::BottomRight,
+            (false, true) => Corner::BottomLeft,
+            (true, false) => Corner::TopRight,
+            (false, false) => Corner::TopLeft,
+        };
         deferred(anchored().position(open.position).anchor(corner).snap_to_window_with_margin(px(8.)).child(menu))
             .with_priority(2)
             .into_any_element()

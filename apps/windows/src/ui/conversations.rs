@@ -88,7 +88,7 @@ pub fn preview_for(message: Option<&MessageView>, users: &std::collections::Hash
 impl ConversationList {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| TextInput::new(cx, "Search"));
-        let subscriptions = vec![
+        let mut subscriptions = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
             cx.subscribe_in(&search, window, |list, input, event, window, cx| match event {
                 InputEvent::Changed => list.run_search(cx),
@@ -107,6 +107,10 @@ impl ConversationList {
                 _ => {}
             }),
         ];
+        // Who's speaking in a voice channel shows in the list.
+        if let Some(voice) = crate::voice::get(cx) {
+            subscriptions.push(cx.observe(&voice, |_, _, cx| cx.notify()));
+        }
         ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, _subscriptions: subscriptions }
     }
 

@@ -52,6 +52,7 @@ fn main() {
         let (core, events) = host::Core::start(dir);
         let state = cx.new(|cx| AppState::new(core, events, cx));
         cx.set_global(Store(state.clone()));
+        voice::init(&state, cx);
         ui::notifications::install(state.downgrade(), cx);
 
         // The tray's icon, and what's picked from it.

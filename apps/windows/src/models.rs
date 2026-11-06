@@ -23,6 +23,44 @@ pub struct ServerInfo {
     pub community_key: Option<String>,
     pub voice: Option<f64>,
     pub calls: Option<f64>,
+    /// What its admins say about sharing a screen. Absent for anyone not signed in.
+    pub screen_share: Option<ScreenRules>,
+}
+
+/// What a server's admins say about sharing a screen. Who may share, with sound, and how
+/// many at once hold whatever an app does. The rest is about media the server can't see,
+/// so apps keep to it themselves.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct ScreenRules {
+    pub who: String,
+    pub sound: bool,
+    pub admins_exempt: bool,
+    pub max_per_channel: u32,
+    pub max_per_server: u32,
+    pub max_height: u32,
+    pub max_fps: u32,
+    pub max_kbps: u32,
+    pub max_sound_kbps: u32,
+    pub default_height: u32,
+    pub default_fps: u32,
+    pub default_kbps: u32,
+}
+
+impl Default for ScreenRules {
+    fn default() -> Self {
+        ScreenRules { who: "everyone".into(), sound: true, admins_exempt: false, max_per_channel: 0, max_per_server: 0, max_height: 0, max_fps: 0, max_kbps: 0, max_sound_kbps: 0, default_height: 0, default_fps: 60, default_kbps: 20_000 }
+    }
+}
+
+/// A sound on the server's soundboard.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SoundView {
+    pub id: String,
+    pub name: String,
+    pub emoji: String,
+    pub duration_ms: f64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]

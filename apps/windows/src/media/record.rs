@@ -135,6 +135,125 @@ pub fn encode_waveform(levels: &[f32]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bars)
 }
 
+/// A camera the person can choose, by the name Windows gives it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CameraDevice {
+    pub id: String,
+    pub name: String,
+}
+
+/// The cameras, by name, each with its activation object.
+unsafe fn camera_list() -> Result<Vec<(String, IMFActivate)>, String> {
+    let none = || "There's no camera Zuna can use.".to_string();
+    super::mf::start();
+    let mut attributes = None;
+    unsafe { MFCreateAttributes(&mut attributes, 1) }.map_err(|_| none())?;
+    let attributes = attributes.ok_or_else(none)?;
+    unsafe { attributes.SetGUID(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID) }.map_err(|_| none())?;
+    let mut devices = std::ptr::null_mut();
+    let mut count = 0u32;
+    unsafe { MFEnumDeviceSources(&attributes, &mut devices, &mut count) }.map_err(|_| none())?;
+    if devices.is_null() {
+        return Ok(Vec::new());
+    }
+    // The list is the caller's to free, with a reference to each camera in it.
+    let list = unsafe { std::slice::from_raw_parts_mut(devices, count as usize) };
+    let mut found = Vec::new();
+    for device in list.iter_mut() {
+        if let Some(device) = device.take() {
+            let mut name = windows::core::PWSTR::null();
+            let mut length = 0u32;
+            let label = if unsafe { device.GetAllocatedString(&MF_DEVSOURCE_ATTRIBUTE_FRIENDLY_NAME, &mut name, &mut length) }.is_ok() {
+                let text = unsafe { name.to_string() }.unwrap_or_default();
+                unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(name.0 as *const _)) };
+                text
+            } else {
+                "Camera".to_string()
+            };
+            found.push((label, device));
+        }
+    }
+    unsafe { windows::Win32::System::Com::CoTaskMemFree(Some(devices as *const _)) };
+    Ok(found)
+}
+
+/// The cameras, with the default first.
+pub fn cameras() -> Vec<CameraDevice> {
+    let mut list = vec![CameraDevice { id: "default".into(), name: "Default".into() }];
+    if let Ok(found) = unsafe { camera_list() } {
+        list.extend(found.into_iter().map(|(name, _)| CameraDevice { id: name.clone(), name }));
+    }
+    list
+}
+
+/// Opens a camera by its name, or the first one.
+fn open_camera(device: &str) -> Result<IMFMediaSource, String> {
+    let none = || "There's no camera Zuna can use.".to_string();
+    let found = unsafe { camera_list() }?;
+    let chosen = found.iter().position(|(name, _)| name == device).unwrap_or(0);
+    let (_, activate) = found.into_iter().nth(chosen).ok_or_else(none)?;
+    unsafe { activate.ActivateObject() }.map_err(|_| "Zuna can't use the camera. Allow it in your system's privacy settings.".to_string())
+}
+
+/// Reads frames from a camera until stopped, each as its width, height and BGRA, top row first.
+fn read_camera(source: SendSource, stopping: Arc<AtomicBool>, mut on_frame: impl FnMut(u32, u32, Vec<u8>)) {
+    let source = source;
+    super::mf::start();
+    let Ok(reader) = (unsafe {
+        let mut attributes = None;
+        let _ = MFCreateAttributes(&mut attributes, 1);
+        let attributes = attributes.unwrap();
+        let _ = attributes.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1);
+        MFCreateSourceReaderFromMediaSource(&source.0, &attributes)
+    }) else {
+        return;
+    };
+    unsafe {
+        let first = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
+        let Ok(wanted) = MFCreateMediaType() else { return };
+        let _ = wanted.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video);
+        let _ = wanted.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32);
+        if reader.SetCurrentMediaType(first, None, &wanted).is_err() {
+            return;
+        }
+        let Ok(current) = reader.GetCurrentMediaType(first) else { return };
+        let Ok(size) = current.GetUINT64(&MF_MT_FRAME_SIZE) else { return };
+        let (width, height) = ((size >> 32) as u32, size as u32);
+        let stride = current.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|stride| stride as i32).unwrap_or(width as i32 * 4);
+        while !stopping.load(Ordering::Relaxed) {
+            let mut flags = 0u32;
+            let mut sample = None;
+            if reader.ReadSample(first, 0, None, Some(&mut flags), None, Some(&mut sample)).is_err() {
+                break;
+            }
+            let Some(sample) = sample else { continue };
+            let Ok(buffer) = sample.ConvertToContiguousBuffer() else { continue };
+            let mut data = std::ptr::null_mut();
+            let mut length = 0u32;
+            if buffer.Lock(&mut data, None, Some(&mut length)).is_err() {
+                continue;
+            }
+            let bytes = std::slice::from_raw_parts(data, length as usize);
+            let row = width as usize * 4;
+            let row_stride = stride.unsigned_abs() as usize;
+            let mut frame = vec![0u8; row * height as usize];
+            for y in 0..height as usize {
+                let source_row = if stride < 0 { height as usize - 1 - y } else { y };
+                if let Some(line) = bytes.get(source_row * row_stride..source_row * row_stride + row) {
+                    frame[y * row..(y + 1) * row].copy_from_slice(line);
+                }
+            }
+            let _ = buffer.Unlock();
+            // RGB32 leaves the fourth byte unset.
+            for pixel in frame.chunks_mut(4) {
+                pixel[3] = 255;
+            }
+            on_frame(width, height, frame);
+        }
+        let _ = source.0.Shutdown();
+    }
+}
+
 /// The camera, giving square frames of ROUND_SIZE, BGRA, top row first, as the person sees
 /// themselves: mirrored for the preview, as recorded for the message.
 pub struct Camera {
@@ -145,94 +264,41 @@ pub struct Camera {
 
 impl Camera {
     pub fn start() -> Result<Camera, String> {
-        let none = || "There's no camera Zuna can use.".to_string();
-        super::mf::start();
-        let source = unsafe {
-            let mut attributes = None;
-            MFCreateAttributes(&mut attributes, 1).map_err(|_| none())?;
-            let attributes = attributes.ok_or_else(none)?;
-            attributes.SetGUID(&MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, &MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID).map_err(|_| none())?;
-            let mut devices = std::ptr::null_mut();
-            let mut count = 0u32;
-            MFEnumDeviceSources(&attributes, &mut devices, &mut count).map_err(|_| none())?;
-            if devices.is_null() {
-                return Err(none());
-            }
-            // The list is the caller's to free, with a reference to each camera in it.
-            let list = std::slice::from_raw_parts_mut(devices, count as usize);
-            let first = list.first_mut().and_then(|device| device.take());
-            for device in list.iter_mut() {
-                drop(device.take());
-            }
-            windows::Win32::System::Com::CoTaskMemFree(Some(devices as *const _));
-            let first = first.ok_or_else(none)?;
-            let source: IMFMediaSource = first.ActivateObject().map_err(|_| "Zuna can't use the camera. Allow it in your system's privacy settings.".to_string())?;
-            source
-        };
+        let source = SendSource(open_camera("default")?);
         let latest = Arc::new(Mutex::new(None));
         let stop = Arc::new(AtomicBool::new(false));
         let (shared, stopping) = (latest.clone(), stop.clone());
-        let source = SendSource(source);
         let thread = std::thread::spawn(move || {
-            let source = source;
-            super::mf::start();
-            let Ok(reader) = (unsafe {
-                let mut attributes = None;
-                let _ = MFCreateAttributes(&mut attributes, 1);
-                let attributes = attributes.unwrap();
-                let _ = attributes.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1);
-                MFCreateSourceReaderFromMediaSource(&source.0, &attributes)
-            }) else {
-                return;
-            };
-            unsafe {
-                let first = MF_SOURCE_READER_FIRST_VIDEO_STREAM.0 as u32;
-                let Ok(wanted) = MFCreateMediaType() else { return };
-                let _ = wanted.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-                let _ = wanted.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_RGB32);
-                if reader.SetCurrentMediaType(first, None, &wanted).is_err() {
-                    return;
-                }
-                let Ok(current) = reader.GetCurrentMediaType(first) else { return };
-                let Ok(size) = current.GetUINT64(&MF_MT_FRAME_SIZE) else { return };
-                let (width, height) = ((size >> 32) as u32, size as u32);
-                let stride = current.GetUINT32(&MF_MT_DEFAULT_STRIDE).map(|stride| stride as i32).unwrap_or(width as i32 * 4);
-                while !stopping.load(Ordering::Relaxed) {
-                    let mut flags = 0u32;
-                    let mut sample = None;
-                    if reader.ReadSample(first, 0, None, Some(&mut flags), None, Some(&mut sample)).is_err() {
-                        break;
-                    }
-                    let Some(sample) = sample else { continue };
-                    let Ok(buffer) = sample.ConvertToContiguousBuffer() else { continue };
-                    let mut data = std::ptr::null_mut();
-                    let mut length = 0u32;
-                    if buffer.Lock(&mut data, None, Some(&mut length)).is_err() {
-                        continue;
-                    }
-                    let bytes = std::slice::from_raw_parts(data, length as usize);
-                    // The middle square, scaled to ROUND_SIZE.
-                    let side = width.min(height);
-                    let (left, top) = ((width - side) / 2, (height - side) / 2);
-                    let mut square = image::RgbaImage::new(side, side);
-                    let row_stride = stride.unsigned_abs() as usize;
-                    for y in 0..side {
-                        let source_row = if stride < 0 { (height - 1 - (top + y)) as usize } else { (top + y) as usize };
-                        let start = source_row * row_stride + left as usize * 4;
-                        if let Some(row) = bytes.get(start..start + side as usize * 4) {
-                            for (x, pixel) in row.chunks(4).enumerate() {
-                                square.put_pixel(x as u32, y, image::Rgba([pixel[0], pixel[1], pixel[2], 255]));
-                            }
-                        }
-                    }
-                    let _ = buffer.Unlock();
-                    let scaled = image::imageops::resize(&square, ROUND_SIZE, ROUND_SIZE, image::imageops::FilterType::Triangle);
-                    *shared.lock() = Some(scaled.into_raw());
-                }
-                let _ = source.0.Shutdown();
-            }
+            read_camera(source, stopping, |width, height, frame| {
+                // The middle square, scaled to ROUND_SIZE.
+                let side = width.min(height);
+                let Some(full) = image::RgbaImage::from_raw(width, height, frame) else { return };
+                let square = image::imageops::crop_imm(&full, (width - side) / 2, (height - side) / 2, side, side).to_image();
+                let scaled = image::imageops::resize(&square, ROUND_SIZE, ROUND_SIZE, image::imageops::FilterType::Triangle);
+                *shared.lock() = Some(scaled.into_raw());
+            });
         });
         Ok(Camera { latest, stop, thread: Some(thread) })
+    }
+
+    /// A camera for a call, by its name: each frame, no taller than `max_height`, to `on_frame`.
+    pub fn start_feed(device: &str, max_height: u32, mut on_frame: impl FnMut(u32, u32, Vec<u8>) + Send + 'static) -> Result<Camera, String> {
+        let source = SendSource(open_camera(device)?);
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = stop.clone();
+        let thread = std::thread::spawn(move || {
+            read_camera(source, stopping, |width, height, frame| {
+                if height <= max_height {
+                    return on_frame(width, height, frame);
+                }
+                // Even sizes, as I420 halves each side for colour.
+                let scaled_width = ((width as u64 * max_height as u64 / height as u64) as u32) & !1;
+                let Some(full) = image::RgbaImage::from_raw(width, height, frame) else { return };
+                let scaled = image::imageops::resize(&full, scaled_width, max_height, image::imageops::FilterType::Triangle);
+                on_frame(scaled_width, max_height, scaled.into_raw());
+            });
+        });
+        Ok(Camera { latest: Arc::new(Mutex::new(None)), stop, thread: Some(thread) })
     }
 
     /// The newest frame, BGRA, as recorded.
