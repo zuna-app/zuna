@@ -1,0 +1,63 @@
+[package]
+name = "zuna-windows"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "Zuna's native Windows app, drawn with GPUI."
+publish = false
+
+[[bin]]
+name = "zuna"
+path = "src/main.rs"
+
+[dependencies]
+# Zed's own release on crates.io, published by the Zed team.
+gpui = "=0.2.2"
+
+# The client core runs in QuickJS, as it runs in JavaScriptCore on iOS, and its
+# cryptography is the same Rust crate the other apps use.
+rquickjs = { version = "0.14", features = ["classes", "properties"] }
+zuna-crypto = { path = "../../crypto" }
+
+rusqlite = { version = "0.41", features = ["bundled"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "macros", "io-util"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "__rustls-tls"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-native-certs = "0.8"
+webpki-roots = "1"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2", "stream"] }
+x509-parser = "0.18"
+sha2 = "0.10"
+futures = "0.3"
+url = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+anyhow = "1"
+parking_lot = "0.12"
+log = "0.4"
+env_logger = { version = "0.11", default-features = false, features = ["auto-color", "humantime"] }
+unicode-segmentation = "1"
+smallvec = "1"
+dirs = "6"
+open = "5"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.61"
+features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_System_Memory",
+]
+
+[profile.dev]
+# The core's argon2 and MLS are far too slow unoptimized.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+strip = "debuginfo"

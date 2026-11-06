@@ -45,3 +45,7 @@ apps/ios/.e2e/
 # zuna-web: scripts/build-web.mjs copies the built app here to build it in
 server/cmd/zuna-web/site/*
 !server/cmd/zuna-web/site/.gitkeep
+
+# Windows app (apps/windows): its build, and the core bundle core-bundle/build.mjs writes
+apps/windows/target/
+apps/windows/assets/core/
