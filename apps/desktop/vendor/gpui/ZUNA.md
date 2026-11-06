@@ -10,6 +10,14 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   frame or has a scene to present (`platform/windows/vsync.rs`, `platform.rs`, and the calls
   to `frame_wanted` in `window.rs` and `app.rs`). The scene is no longer presented again for
   a second after input on Windows, which only repeated the same frame.
+- **Frames only when one is wanted on Wayland, too.** A Wayland window asked for the next frame
+  callback on every frame and committed its surface, so while it was on screen the compositor
+  woke the app at the display's refresh rate to find nothing to draw, and after input it
+  presented the same scene again for a second. A window now asks for a callback only while
+  something wants a frame, through the same `frame_wanted` (`want_frame`, `frame` and
+  `completed_frame` in `platform/linux/wayland/window.rs`), and the second of presenting again
+  is off on Linux too (`window.rs`). Measured with a chat open in a nested KWin at 60 Hz: 65 to
+  71 wakeups of the main thread a second before, 8 after (`apps/desktop/test/linux-check.mjs`).
 - **The first frame after a rest is drawn at once,** rather than at the next vblank, so what
   input changes shows sooner. Frames after it keep to vsync (`platform/windows/platform.rs`).
 - **One Direct3D device at startup.** GPUI made a device to check an adapter worked, threw

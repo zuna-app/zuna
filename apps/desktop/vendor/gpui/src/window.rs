@@ -1040,11 +1040,11 @@ impl Window {
 
                 // Keep presenting the current scene for 1 extra second since the
                 // last input to prevent the display from underclocking the refresh rate.
-                // Zuna: not on Windows, whose vsync thread now only wakes for a frame that's
+                // Zuna: not on Windows or Linux, whose frames now only come when one is
                 // wanted, so this would only present the same scene again.
                 let needs_present = request_frame_options.require_presentation
                     || needs_present.get()
-                    || (!cfg!(target_os = "windows")
+                    || (!cfg!(any(target_os = "windows", target_os = "linux"))
                         && active.get()
                         && last_input_timestamp.get().elapsed() < Duration::from_secs(1));
 

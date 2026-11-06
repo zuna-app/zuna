@@ -83,11 +83,14 @@ pub(crate) use test::*;
 pub(crate) use windows::*;
 
 /// Zuna: tells the platform a window wants a frame drawn or presented. On Windows the
-/// vsync thread sleeps until something does.
+/// vsync thread sleeps until something does, and on Wayland a window only asks for a frame
+/// callback then.
 #[inline]
 pub(crate) fn frame_wanted() {
     #[cfg(target_os = "windows")]
     windows::want_frame();
+    #[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "wayland"))]
+    linux::want_frame();
 }
 
 #[cfg(any(test, feature = "test-support"))]

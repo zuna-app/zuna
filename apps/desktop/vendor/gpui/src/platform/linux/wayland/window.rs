@@ -2,7 +2,7 @@ use std::{
     cell::{Ref, RefCell, RefMut},
     ffi::c_void,
     ptr::NonNull,
-    rc::Rc,
+    rc::{Rc, Weak},
     sync::Arc,
 };
 
@@ -114,6 +114,33 @@ pub struct WaylandWindowState {
     in_progress_window_controls: Option<WindowControls>,
     window_controls: WindowControls,
     client_inset: Option<Pixels>,
+    // Zuna: a frame callback asked for and not yet come, a frame being drawn, and another
+    // wanted after it (`want_frame`).
+    frame_requested: bool,
+    in_frame: bool,
+    frame_again: bool,
+}
+
+thread_local! {
+    // Zuna: each window, so that a wish for a frame reaches them all.
+    static FRAME_WINDOWS: RefCell<Vec<Weak<RefCell<WaylandWindowState>>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Zuna: asks each window not already waiting for one for a frame callback. A window used
+/// to ask for the next on every frame, and commit, so the compositor woke the app at the
+/// display's refresh rate for as long as a window was on screen, to find nothing to draw.
+/// Now one is asked for only while something wants a frame (`crate::platform::frame_wanted`).
+pub(crate) fn want_frame() {
+    FRAME_WINDOWS.with(|windows| {
+        windows.borrow_mut().retain(|window| {
+            let Some(window) = window.upgrade() else { return false };
+            match window.try_borrow_mut() {
+                Ok(mut state) => state.want_frame(),
+                Err(_) => log::warn!("a window was busy when a frame was wanted"),
+            }
+            true
+        });
+    });
 }
 
 #[derive(Clone)]
@@ -123,6 +150,24 @@ pub struct WaylandWindowStatePtr {
 }
 
 impl WaylandWindowState {
+    /// Zuna: asks for a frame callback, now or once the frame being drawn is done.
+    fn want_frame(&mut self) {
+        if self.frame_requested || !self.acknowledged_first_configure {
+            return;
+        }
+        if self.in_frame {
+            self.frame_again = true;
+            return;
+        }
+        self.request_frame_callback();
+        self.surface.commit();
+    }
+
+    fn request_frame_callback(&mut self) {
+        self.frame_requested = true;
+        self.surface.frame(&self.globals.qh, self.surface.id());
+    }
+
     pub(crate) fn new(
         handle: AnyWindowHandle,
         surface: wl_surface::WlSurface,
@@ -181,6 +226,9 @@ impl WaylandWindowState {
             window_bounds: options.bounds,
             in_progress_configure: None,
             resize_throttle: false,
+            frame_requested: false,
+            in_frame: false,
+            frame_again: false,
             client,
             appearance,
             handle,
@@ -331,6 +379,7 @@ impl WaylandWindow {
 
         // Kick things off
         surface.commit();
+        FRAME_WINDOWS.with(|windows| windows.borrow_mut().push(Rc::downgrade(&this.0.state)));
 
         Ok((this, surface.id()))
     }
@@ -355,13 +404,23 @@ impl WaylandWindowStatePtr {
 
     pub fn frame(&self) {
         let mut state = self.state.borrow_mut();
-        state.surface.frame(&state.globals.qh, state.surface.id());
+        // Zuna: the next callback is asked for only if something wants another frame.
+        state.frame_requested = false;
+        state.in_frame = true;
         state.resize_throttle = false;
         drop(state);
 
         let mut cb = self.callbacks.borrow_mut();
         if let Some(fun) = cb.request_frame.as_mut() {
             fun(Default::default());
+        }
+        drop(cb);
+
+        let mut state = self.state.borrow_mut();
+        state.in_frame = false;
+        if std::mem::take(&mut state.frame_again) {
+            state.request_frame_callback();
+            state.surface.commit();
         }
     }
 
@@ -1023,7 +1082,11 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn completed_frame(&self) {
-        let state = self.borrow();
+        let mut state = self.borrow_mut();
+        // Zuna: asked for in the same commit as the frame, when another is wanted after it.
+        if std::mem::take(&mut state.frame_again) {
+            state.request_frame_callback();
+        }
         state.surface.commit();
     }
 

@@ -297,7 +297,8 @@ try {
   await drive({ do: "move", x: 900, y: 300 });
   await sleep(2000);
   const rest = await idleCost(app.pid, 5);
-  console.log(`INFO  at rest with a chat open: ${rest.wakeups} main-thread wakeups a second, ${rest.cpu.toFixed(1)}% of a core (KWin at 60 Hz)`);
+  // Not at the display's refresh rate, as GPUI's Wayland window woke it (vendor/gpui/ZUNA.md).
+  check("at rest it hardly wakes", rest.wakeups < 20, `${rest.wakeups} main-thread wakeups a second, ${rest.cpu.toFixed(1)}% of a core, with KWin at 60 Hz`);
 } catch (error) {
   failures.push(String(error));
   console.error(error);
