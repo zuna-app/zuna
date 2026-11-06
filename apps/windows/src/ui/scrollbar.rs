@@ -47,6 +47,9 @@ impl Scrolls {
     }
 }
 
+/// Overflowing by less than this is rounding in the layout, not something to scroll to.
+const OVERFLOW: Pixels = px(1.);
+
 thread_local! {
     /// The handle kept for each scrolling area, by its name, so it scrolls on across frames.
     static HANDLES: RefCell<HashMap<&'static str, ScrollHandle>> = RefCell::new(HashMap::new());
@@ -62,7 +65,7 @@ pub fn scroll_handle(name: &'static str) -> ScrollHandle {
 /// Whether this ran past its height when it was last drawn: then a classic scrollbar takes
 /// 8 px of its width, which this much more padding on the right gives it.
 pub fn gutter(handle: &ScrollHandle) -> Pixels {
-    if handle.max_offset().height > px(0.) { px(8.) } else { px(0.) }
+    if handle.max_offset().height > OVERFLOW { px(8.) } else { px(0.) }
 }
 
 /// A scrollbar for what scrolls, drawn over its right edge wherever it's put in the tree.
@@ -87,7 +90,7 @@ impl Scrollbar {
     fn geometry(&self) -> Option<(Bounds<Pixels>, Bounds<Pixels>, Pixels, Pixels)> {
         let viewport = self.scrolls.viewport();
         let (most, down) = self.scrolls.extent();
-        if most <= px(0.) || viewport.size.height <= px(0.) {
+        if most <= OVERFLOW || viewport.size.height <= px(0.) {
             return None;
         }
         let width = if self.thin { px(4.) } else { px(8.) };

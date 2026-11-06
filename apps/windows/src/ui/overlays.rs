@@ -216,8 +216,10 @@ impl Dialog {
         let theme = theme(cx);
         let mut card = div()
             .id("modal")
-            .w_full()
-            .max_w(px(width))
+            // Its own width, capped by the window: as a share of the window, GPUI measured its
+            // text unwrapped, and the dialog came out short of it.
+            .w(px(width))
+            .max_w_full()
             .max_h_full()
             .flex()
             .flex_col()
@@ -471,24 +473,31 @@ impl Dialog {
             _ => {}
         }
         let emoji = self.check.as_ref().map(|check| check.emoji.clone()).unwrap_or_default();
+        // Four to a row, as `.verify-grid`'s columns. Rows of their own, as GPUI's grid measured
+        // itself far taller than it drew, and the dialog with it.
+        let cells: Vec<_> = emoji.into_iter().collect();
         body.push(
             div()
-                .grid()
-                .grid_cols(4)
+                .flex()
+                .flex_col()
                 .gap(px(6.))
                 .p(px(12.))
                 .rounded(RADIUS_L)
                 .bg(theme.bg2)
-                .children(emoji.into_iter().map(|item| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .items_center()
-                        .gap(px(2.))
-                        .px(px(2.))
-                        .py(px(6.))
-                        .child(div().text_size(px(30.)).line_height(gpui::relative(1.1)).child(item.emoji))
-                        .child(div().text_size(px(11.)).text_color(theme.text2).text_center().child(item.name))
+                .children(cells.chunks(4).map(|row| {
+                    div().flex().gap(px(6.)).children(row.iter().map(|item| {
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .items_center()
+                            .gap(px(2.))
+                            .px(px(2.))
+                            .py(px(6.))
+                            .child(div().text_size(px(30.)).line_height(gpui::relative(1.1)).child(item.emoji.clone()))
+                            .child(div().text_size(px(11.)).text_color(theme.text2).text_center().child(item.name.clone()))
+                    }))
                 }))
                 .into_any_element(),
         );
