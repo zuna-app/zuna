@@ -129,6 +129,11 @@ pub struct Voice {
     events_task: Option<Task<()>>,
     tick_task: Option<Task<()>>,
     pub(crate) share: screen::ShareHandles,
+    /// The push to talk key being watched for, and what hears it.
+    ptt_watching: Option<String>,
+    ptt_task: Option<Task<()>>,
+    /// Trying the microphone outside a call: it, and where it plays back.
+    mic_test: Option<(Microphone, u64)>,
 }
 
 struct GlobalVoice(Entity<Voice>);
@@ -181,6 +186,9 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         events_task: None,
         tick_task: None,
         share: screen::ShareHandles::default(),
+        ptt_watching: None,
+        ptt_task: None,
+        mic_test: None,
     });
     cx.set_global(GlobalVoice(voice.clone()));
     voice
@@ -298,9 +306,70 @@ impl Voice {
         self.muted || self.deafened || self.server_muted || self.no_mic
     }
 
-    /// How loud the microphone is right now, for the meter in Voice settings.
+    /// How loud the microphone is right now, for the meter in Voice settings: in a call, or while it's tried.
     pub fn reading(&self) -> Option<mic::Reading> {
-        self.mic.as_ref().map(|mic| *mic.reading.lock())
+        self.mic.as_ref().or(self.mic_test.as_ref().map(|(mic, _)| mic)).map(|mic| *mic.reading.lock())
+    }
+
+    pub fn testing_mic(&self) -> bool {
+        self.mic_test.is_some()
+    }
+
+    /// Tries the microphone without being in a channel, with the same processing a call gets,
+    /// playing back what others would hear. Or stops trying it.
+    pub fn toggle_mic_test(&mut self, cx: &mut Context<Self>) {
+        if self.mic_test.is_some() || self.status != VoiceStatus::Idle {
+            self.stop_mic_test(cx);
+            return;
+        }
+        let settings = &self.settings;
+        let processing = livekit::webrtc::native::apm::AudioProcessingModule::new(settings.echo_cancellation, settings.auto_gain, true, settings.noise_suppression == "standard");
+        *self.processing.lock() = Some(Processing(processing));
+        self.mixer.open(&self.settings.output_device);
+        let back = self.mixer.live(1.);
+        let mixer = self.mixer.clone();
+        match Microphone::open(&self.settings, false, self.processing.clone(), move |frame| mixer.push(back, &frame, 1)) {
+            Ok(mic) => self.mic_test = Some((mic, back)),
+            Err(problem) => {
+                self.mixer.remove(back);
+                *self.processing.lock() = None;
+                self.toast(problem, ToastKind::Error, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn stop_mic_test(&mut self, cx: &mut Context<Self>) {
+        if let Some((_, back)) = self.mic_test.take() {
+            self.mixer.remove(back);
+            if self.status == VoiceStatus::Idle {
+                *self.processing.lock() = None;
+            }
+            cx.notify();
+        }
+    }
+
+    /// Watches for the push to talk key while in a channel with it set, anywhere on the computer.
+    fn update_ptt(&mut self, cx: &mut Context<Self>) {
+        let wanted = (self.settings.input_mode == "ptt" && self.status != VoiceStatus::Idle && !self.settings.ptt_key.is_empty()).then(|| self.settings.ptt_key.clone());
+        if wanted == self.ptt_watching {
+            return;
+        }
+        self.ptt_watching = wanted.clone();
+        self.ptt_task = None;
+        let (sender, mut receiver) = futures::channel::mpsc::unbounded::<bool>();
+        crate::platform::ptt::watch(wanted.clone(), move |down| {
+            sender.unbounded_send(down).ok();
+        });
+        if wanted.is_some() {
+            self.ptt_task = Some(cx.spawn(async move |this, cx| {
+                while let Some(down) = receiver.next().await {
+                    if this.update(cx, |voice, cx| voice.set_key_held(down, cx)).is_err() {
+                        break;
+                    }
+                }
+            }));
+        }
     }
 
     pub fn room(&self) -> Option<Arc<VoiceRoom>> {
@@ -449,6 +518,7 @@ impl Voice {
         let mine = self.attempt;
         self.reconnects = 0;
         let call = !self.state.read(cx).servers.get(&server_id).is_some_and(|server| server.channels.iter().any(|channel| channel.id == channel_id));
+        self.stop_mic_test(cx);
         self.reset();
         self.status = VoiceStatus::Connecting;
         self.server_id = Some(server_id.clone());
@@ -458,6 +528,7 @@ impl Voice {
         cx.notify();
         self.connect(server_id, channel_id, mine, how, cx);
         self.update_ringing(cx);
+        self.update_ptt(cx);
     }
 
     fn open_microphone(&mut self) -> Option<String> {
@@ -560,6 +631,7 @@ impl Voice {
                 self.close_room();
                 self.reset();
                 self.close_stage(Some(server_id.clone()), Some(channel_id), cx);
+                self.update_ptt(cx);
                 let call = self.core(cx).call(Some(&server_id), "setVoiceState", vec![Value::Null, Value::Null]);
                 cx.background_executor().spawn(async move { call.await.ok() }).detach();
                 self.update_ringing(cx);
@@ -754,6 +826,7 @@ impl Voice {
         self.close_stage(server_id, channel_id, cx);
         self.sound(VoiceSound::SelfLeave);
         self.update_ringing(cx);
+        self.update_ptt(cx);
         cx.notify();
     }
 
@@ -849,7 +922,11 @@ impl Voice {
                 mic.apply(&self.settings);
             }
         }
+        if let Some((mic, _)) = &self.mic_test {
+            mic.apply(&self.settings);
+        }
         self.apply_volumes();
+        self.update_ptt(cx);
         cx.notify();
     }
 
@@ -1021,6 +1098,7 @@ impl Voice {
         self.toast(message, ToastKind::Info, cx);
         self.sound(VoiceSound::SelfLeave);
         self.update_ringing(cx);
+        self.update_ptt(cx);
         cx.notify();
     }
 

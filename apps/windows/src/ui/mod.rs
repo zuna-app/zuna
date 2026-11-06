@@ -21,6 +21,7 @@ pub mod soundboard;
 pub mod stream_stats;
 pub mod text_input;
 pub mod voice;
+pub mod voice_settings;
 pub mod voice_stage;
 
 use gpui::{

@@ -39,6 +39,8 @@ pub struct SettingsView {
     busy: bool,
     /// Holds focus while nothing in it does, so Escape closes it.
     focus: gpui::FocusHandle,
+    voice_page: Option<Entity<super::voice_settings::VoiceSettingsPage>>,
+    screen_page: Option<Entity<super::voice_settings::ScreenSettingsPage>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -92,6 +94,8 @@ impl SettingsView {
             confirming_keep: false,
             busy: false,
             focus,
+            voice_page: None,
+            screen_page: None,
             _subscriptions: subscriptions,
         };
         view.reset_profile(cx);
@@ -147,7 +151,7 @@ impl SettingsView {
         self.state.update(cx, |state, cx| state.set_overlay(None, cx));
     }
 
-    fn row(title: &str, hint: Option<&str>, control: impl IntoElement, theme: &Theme) -> AnyElement {
+    pub(super) fn row(title: &str, hint: Option<&str>, control: impl IntoElement, theme: &Theme) -> AnyElement {
         div()
             .flex()
             .items_center()
@@ -167,12 +171,12 @@ impl SettingsView {
             .into_any_element()
     }
 
-    fn heading(text: &str, theme: &Theme) -> AnyElement {
+    pub(super) fn heading(text: &str, theme: &Theme) -> AnyElement {
         let _ = theme;
         div().text_size(px(20.)).font_weight(FontWeight::SEMIBOLD).child(text.to_string()).into_any_element()
     }
 
-    fn lead(text: String, theme: &Theme) -> AnyElement {
+    pub(super) fn lead(text: String, theme: &Theme) -> AnyElement {
         div().mt(px(-8.)).text_size(px(13.5)).text_color(theme.text2).child(text).into_any_element()
     }
 
@@ -180,7 +184,7 @@ impl SettingsView {
         div().h(px(1.)).bg(theme.line).my(px(8.)).into_any_element()
     }
 
-    fn subheading(text: &str) -> AnyElement {
+    pub(super) fn subheading(text: &str) -> AnyElement {
         div().text_size(px(14.5)).font_weight(FontWeight::SEMIBOLD).child(text.to_string()).into_any_element()
     }
 
@@ -742,25 +746,6 @@ impl SettingsView {
         parts
     }
 
-    fn not_here(&self, title: &str, text: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
-        let theme = theme(cx);
-        vec![
-            Self::heading(title, &theme),
-            div()
-                .flex()
-                .gap(px(10.))
-                .px(px(12.))
-                .py(px(10.))
-                .rounded(RADIUS_M)
-                .bg(theme.bg2)
-                .text_size(px(13.))
-                .text_color(theme.text2)
-                .child(icon("info", 15., theme.text2))
-                .child(text.to_string())
-                .into_any_element(),
-        ]
-    }
-
     fn keep_metadata_confirm(&self, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let state = self.state.clone();
@@ -825,8 +810,16 @@ impl Render for SettingsView {
         let page = match self.section.as_str() {
             "privacy" => self.privacy(cx),
             "notifications" => self.notifications(cx),
-            "voice" => self.not_here("Voice and video", "Voice channels and calls aren't in the Windows app yet. Use the desktop app for them for now.", cx),
-            "screen" => self.not_here("Screen sharing", "Screen sharing isn't in the Windows app yet. Use the desktop app for it for now.", cx),
+            "voice" => {
+                let state = self.state.clone();
+                let page = self.voice_page.get_or_insert_with(|| cx.new(|cx| super::voice_settings::VoiceSettingsPage::new(state, cx)));
+                vec![page.clone().into_any_element()]
+            }
+            "screen" => {
+                let state = self.state.clone();
+                let page = self.screen_page.get_or_insert_with(|| cx.new(|cx| super::voice_settings::ScreenSettingsPage::new(state, cx)));
+                vec![page.clone().into_any_element()]
+            }
             "appearance" => self.appearance(cx),
             "security" => self.security(cx),
             "about" => self.about(cx),

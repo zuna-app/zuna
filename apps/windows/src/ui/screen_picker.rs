@@ -59,7 +59,6 @@ pub fn number_select(id: &'static str, label: &str, value: Option<u32>, options:
         .flex()
         .flex_col()
         .gap(px(6.))
-        .min_w_0()
         .child(div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(label.to_string()))
         .child(select_box(id, current, choices, cx))
         .into_any_element()

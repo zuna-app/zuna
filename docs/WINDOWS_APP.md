@@ -31,4 +31,4 @@ For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` 
 
 ## What's missing
 
-Push to talk, the voice settings pages, installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.
+Installers and updates, `zuna://` links, and a server's soundboard and screen sharing rules in its settings. `.agents/FEATURE_PARITY.md` keeps the full list.
