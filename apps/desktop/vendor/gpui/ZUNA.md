@@ -32,3 +32,7 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   earlier in the frame left itself out. Once its drawing was reused, the window stopped
   listening for it, and notifying it drew nothing: a chat opened before its first message never
   showed it. It now counts what the draw touched (`app.rs`).
+
+Beside GPUI, `vendor/xattr` is xattr 0.2.3, which GPUI's HTTP client takes in through
+zed-async-tar on Unix. It named `libc::ENOATTR`, which libc no longer has on Linux, where it's
+`ENODATA`, so it didn't build there (`src/sys/mod.rs`). Windows never builds it.

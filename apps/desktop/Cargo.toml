@@ -11,8 +11,9 @@ name = "zuna"
 path = "src/main.rs"
 
 [dependencies]
-# Zed's own release on crates.io, published by the Zed team.
-gpui = "=0.2.2"
+# Zed's own release on crates.io, published by the Zed team. Its defaults without X11, as the
+# app only runs under Wayland on Linux. X11 means nothing on Windows, which builds as before.
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "wayland", "windows-manifest"] }
 
 # The client core runs in QuickJS, as it runs in JavaScriptCore on iOS, and its
 # cryptography is the same Rust crate the other apps use.
@@ -95,6 +96,9 @@ features = [
 [patch.crates-io]
 # GPUI 0.2.2, carried here to change how it draws on Windows: vendor/gpui/ZUNA.md lists how.
 gpui = { path = "vendor/gpui" }
+# xattr 0.2.3, which GPUI's HTTP client takes in through zed-async-tar on Unix, with the one
+# line that no longer builds against libc on Linux changed (vendor/gpui/ZUNA.md).
+xattr = { path = "vendor/xattr" }
 
 [build-dependencies]
 # The app's icon, compiled into the exe as Windows expects.
