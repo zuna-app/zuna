@@ -309,7 +309,7 @@ struct ConversationDetails: View {
     /// profile pages have it: a person's bio and username, or a group's description.
     @ViewBuilder
     private func about(_ conversation: ConversationView, peer: UserView?, isSelf: Bool) -> some View {
-        if let peer, !isSelf {
+        if let peer, !isSelf, !peer.deleted {
             Section {
                 if !peer.bio.isEmpty {
                     aboutRow("bio", peer.bio).accessibilityIdentifier(A11y.Details.bio)

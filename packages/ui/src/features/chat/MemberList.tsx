@@ -47,7 +47,7 @@ export function MemberList() {
   const users = useApp(
     useShallow((state) => {
       const server = state.activeServerId ? state.servers[state.activeServerId] : undefined;
-      return Object.values(server?.users ?? {}).filter((user) => !user.banned);
+      return Object.values(server?.users ?? {}).filter((user) => !user.banned && !user.deleted);
     }),
   );
   const [online, offline] = useMemo(() => {

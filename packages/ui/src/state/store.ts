@@ -536,7 +536,9 @@ export const useApp = create<AppState>((set, get) => {
         get().toast(
           event.reason === "banned"
             ? "You were removed from a server by its admins."
-            : "You've been signed out of a server.",
+            : event.reason === "account_deleted"
+              ? "Your account on a server was deleted from another device."
+              : "You've been signed out of a server.",
           "info",
         );
         break;

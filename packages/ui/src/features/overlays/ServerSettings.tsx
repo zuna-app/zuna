@@ -1,7 +1,7 @@
-import { AudioLines, Ban, Crown, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, UserRound, Users } from "lucide-react";
+import { AudioLines, Ban, Crown, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, Trash2, UserRound, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
-import { Avatar, Field, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
+import { Avatar, Field, PasswordField, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
 import { prepareAvatar } from "@/lib/media";
 import { ServerScreenSection } from "@/features/voice/ScreenSettings";
 import { ServerSoundboardSection } from "@/features/voice/Soundboard";
@@ -101,7 +101,9 @@ function MembersSection() {
   if (!server) return null;
   const selfRole = server.self?.role;
   const needle = query.trim().toLowerCase();
-  const users = Object.values(server.users)
+  // Nothing can be done about an account that's gone.
+  const members = Object.values(server.users).filter((user) => !user.deleted);
+  const users = members
     .filter((user) => !needle || user.displayName.toLowerCase().includes(needle) || user.username.toLowerCase().includes(needle))
     .sort((a, b) => Number(a.banned) - Number(b.banned) || a.displayName.localeCompare(b.displayName));
   const target = menu ? server.users[menu.userId] : null;
@@ -111,7 +113,7 @@ function MembersSection() {
       <h1>Members</h1>
       <div className="input-wrap search-wrap">
         <Search size={15} className="faint" />
-        <input className="input" placeholder={`Search ${Object.keys(server.users).length} members`} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search members" />
+        <input className="input" placeholder={`Search ${members.length} members`} value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Search members" />
       </div>
       <div className="device-list">
         {users.map((user) => (
@@ -308,6 +310,56 @@ function LeaveSection({ onClose }: { onClose: () => void }) {
   );
 }
 
+/**
+ * Deleting the account on this server, once the password is typed. What was sent
+ * stays with everyone who has it, from "Deleted account".
+ */
+function DeleteAccountSection({ onClose }: { onClose: () => void }) {
+  const server = useActiveServer();
+  const core = useApp((state) => state.core);
+  const removeServer = useApp((state) => state.removeServer);
+  const [password, setPassword] = useState("");
+  const { busy, run } = useAction();
+  if (!server) return null;
+  const name = server.entry.name;
+  if (server.self?.role === "owner") {
+    return (
+      <>
+        <h1>Delete account</h1>
+        <p className="settings-lead">
+          You own <b>{name}</b>, and a server can't be without its owner, so your account there can't be deleted. Stopping the server and deleting its data removes everything on it.
+        </p>
+      </>
+    );
+  }
+  return (
+    <>
+      <h1>Delete account</h1>
+      <p className="settings-lead">
+        This deletes your account on <b>{name}</b>, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. What you sent stays with the people you sent it to, from "Deleted account". Your username becomes free for someone else. It can't be undone.
+      </p>
+      <PasswordField label="Password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
+      <div>
+        <button
+          className="btn btn-danger"
+          disabled={!password || busy}
+          onClick={() =>
+            window.confirm(`Delete your account on ${name}? This can't be undone.`) &&
+            run(async () => {
+              const id = server.entry.id;
+              await core!.client.deleteAccount(id, password);
+              onClose();
+              removeServer(id);
+            })
+          }
+        >
+          {busy ? <Spinner /> : <><Trash2 size={15} /> Delete my account</>}
+        </button>
+      </div>
+    </>
+  );
+}
+
 export function ServerSettings({ initialSection, onClose }: { initialSection?: string; onClose: () => void }) {
   const server = useActiveServer();
   const isAdmin = server?.self?.role === "owner" || server?.self?.role === "admin";
@@ -325,6 +377,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
         ]
       : []),
     { id: "leave", label: "Sign out", icon: LogOut, danger: true },
+    { id: "delete", label: "Delete account", icon: Trash2, danger: true },
   ];
   return (
     <SettingsFrame title={server?.entry.name ?? "Server"} sections={sections} section={section} onSection={setSection} onClose={onClose}>
@@ -336,6 +389,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
       {section === "storage" && <StorageSection />}
       {section === "screen" && <ServerScreenSection />}
       {section === "leave" && <LeaveSection onClose={onClose} />}
+      {section === "delete" && <DeleteAccountSection onClose={onClose} />}
     </SettingsFrame>
   );
 }

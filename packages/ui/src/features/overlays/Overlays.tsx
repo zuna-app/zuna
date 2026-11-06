@@ -323,7 +323,7 @@ function NewGroup({ onClose }: { onClose: () => void }) {
   const { busy, run } = useAction();
   const selfId = server?.self?.userId;
   const users = Object.values(server?.users ?? {})
-    .filter((user) => user.id !== selfId && !user.banned)
+    .filter((user) => user.id !== selfId && !user.banned && !user.deleted)
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   const create = () =>
@@ -379,7 +379,7 @@ function AddMembers({ groupId, onClose }: { groupId: string; onClose: () => void
   const conversation = server?.conversations.find((item) => item.groupId === groupId);
   const memberIds = new Set(conversation?.members.map((member) => member.userId));
   const users = Object.values(server?.users ?? {})
-    .filter((user) => !memberIds.has(user.id) && !user.banned)
+    .filter((user) => !memberIds.has(user.id) && !user.banned && !user.deleted)
     .sort((a, b) => a.displayName.localeCompare(b.displayName));
 
   return (

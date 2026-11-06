@@ -416,43 +416,39 @@ export function recover(
   });
 }
 
-/** What a rotation has to do to change the password, which proves the current one. */
-export async function planPasswordChange(api: Api, username: string, current: string, next: string, core: VaultCore): Promise<RotationPlan> {
-  const target = { serverUrl: api.baseUrl, username };
+/** The sign-in key of the password typed now, which proves it to the server. */
+export async function currentAuthKey(api: Api, username: string, password: string): Promise<Uint8Array> {
   const params = await api.prelogin(username);
   const keys = derivePasswordKeys(
-    current,
+    password,
     {
       salt: fromBase64(params.salt),
       memory: params.memory,
       iterations: params.iterations,
       parallelism: params.parallelism,
     },
-    target,
+    { serverUrl: api.baseUrl, username },
   );
+  return keys.authKey;
+}
+
+/** What a rotation has to do to change the password, which proves the current one. */
+export async function planPasswordChange(api: Api, username: string, current: string, next: string, core: VaultCore): Promise<RotationPlan> {
+  const target = { serverUrl: api.baseUrl, username };
+  const currentKey = await currentAuthKey(api, username, current);
   const kdf: KdfParams = { salt: wasm.randomBytes(16), ...DEFAULT_KDF };
   const nextKeys = derivePasswordKeys(next, kdf, target);
-  return { slots: [createSlot("password", nextKeys.slotKey, core.rootPublic).slot], password: { current_auth_key: keys.authKey, kdf: { ...kdf }, auth_key: nextKeys.authKey } };
+  return { slots: [createSlot("password", nextKeys.slotKey, core.rootPublic).slot], password: { current_auth_key: currentKey, kdf: { ...kdf }, auth_key: nextKeys.authKey } };
 }
 
 /** What a rotation has to do to replace the recovery key, which is shown once. */
 export async function planRecoveryChange(api: Api, username: string, current: string, core: VaultCore): Promise<{ plan: RotationPlan; recoveryKey: string }> {
   const target = { serverUrl: api.baseUrl, username };
-  const params = await api.prelogin(username);
-  const keys = derivePasswordKeys(
-    current,
-    {
-      salt: fromBase64(params.salt),
-      memory: params.memory,
-      iterations: params.iterations,
-      parallelism: params.parallelism,
-    },
-    target,
-  );
+  const currentKey = await currentAuthKey(api, username, current);
   const recoveryKey = wasm.randomBytes(RECOVERY_KEY_BYTES);
   const recovery = deriveRecoveryKeys(recoveryKey, target);
   return {
-    plan: { slots: [createSlot("recovery", recovery.slotKey, core.rootPublic).slot], recovery: { current_auth_key: keys.authKey, recovery_auth_key: recovery.authKey }, once: true },
+    plan: { slots: [createSlot("recovery", recovery.slotKey, core.rootPublic).slot], recovery: { current_auth_key: currentKey, recovery_auth_key: recovery.authKey }, once: true },
     recoveryKey: toRecoveryText(recoveryKey),
   };
 }

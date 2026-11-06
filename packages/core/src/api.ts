@@ -43,6 +43,7 @@ export interface ApiUser {
   last_seen_at: number | null;
   hide_last_seen: boolean;
   banned: boolean;
+  deleted: boolean;
   created_at: number;
   updated_at: number;
   devices: ApiDevice[];
@@ -420,6 +421,7 @@ export class Api {
   // Generations of an account's keys
   account = () => this.request<ApiAccount>("GET", "/api/account");
   rotate = (body: unknown) => this.request("POST", "/api/account/rotate", body);
+  deleteAccount = (authKey: Uint8Array) => this.request("DELETE", "/api/account", { auth_key: authKey });
   putBundles = (generation: number, bundles: { device_id: string; data: Uint8Array }[]) =>
     this.request("POST", "/api/account/bundles", { generation, bundles });
   closeGeneration = (generation: number, vaultCore: Uint8Array) =>

@@ -25,6 +25,7 @@ type PublicUser struct {
 	LastSeenAt    *int64   `json:"last_seen_at"`
 	HideLastSeen  bool     `json:"hide_last_seen"`
 	Banned        bool     `json:"banned"`
+	Deleted       bool     `json:"deleted"`
 	CreatedAt     int64    `json:"created_at"`
 	UpdatedAt     int64    `json:"updated_at"`
 	Devices       []Device `json:"devices"`
@@ -162,7 +163,7 @@ func (d *DB) CredentialsByUsername(ctx context.Context, username string) (*Crede
 }
 
 const publicUserColumns = `id, username, role, identity_key, key_generation, identity_head, hpke_key, hpke_key_sig, profile, profile_sig,
-	last_seen_at, hide_last_seen, banned_at, created_at, updated_at`
+	last_seen_at, hide_last_seen, banned_at, deleted_at, created_at, updated_at`
 
 const deviceColumns = `id, user_id, certificate, signature_key, created_at, last_seen_at, revoked_at, seal_key, enroll_proof, seal_generation, seal_proof`
 
@@ -176,10 +177,10 @@ func scanDevice(row interface{ Scan(...any) error }) (Device, error) {
 
 func scanPublicUser(row interface{ Scan(...any) error }) (*PublicUser, error) {
 	var u PublicUser
-	var lastSeen, banned sql.NullInt64
+	var lastSeen, banned, deleted sql.NullInt64
 	var hide int
 	if err := row.Scan(&u.ID, &u.Username, &u.Role, &u.IdentityKey, &u.KeyGeneration, &u.IdentityHead, &u.HpkeKey, &u.HpkeKeySig, &u.Profile, &u.ProfileSig,
-		&lastSeen, &hide, &banned, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		&lastSeen, &hide, &banned, &deleted, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, err
 	}
 	u.HideLastSeen = hide != 0
@@ -187,6 +188,7 @@ func scanPublicUser(row interface{ Scan(...any) error }) (*PublicUser, error) {
 		u.LastSeenAt = nullableInt(lastSeen)
 	}
 	u.Banned = banned.Valid
+	u.Deleted = deleted.Valid
 	u.Devices = []Device{}
 	return &u, nil
 }
@@ -254,7 +256,7 @@ func (d *DB) User(ctx context.Context, id string) (*PublicUser, error) {
 
 func (d *DB) UserCount(ctx context.Context) (int, error) {
 	var n int
-	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE banned_at IS NULL`).Scan(&n)
+	err := d.sql.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE banned_at IS NULL AND deleted_at IS NULL`).Scan(&n)
 	return n, err
 }
 
@@ -367,6 +369,68 @@ func (d *DB) BanUser(ctx context.Context, userID string) error {
 func (d *DB) UnbanUser(ctx context.Context, userID string) error {
 	_, err := d.sql.ExecContext(ctx, `UPDATE users SET banned_at = NULL, updated_at = ? WHERE id = ?`, Now(), userID)
 	return err
+}
+
+// DeleteAccount erases what an account keeps here, as its owner asked, and frees
+// its username. What stays is what others need to go on reading what it sent: its
+// ID, its public keys and its devices' certificates, all revoked. It returns its
+// avatar, if nothing else uses it, so it can be deleted.
+func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
+	var orphaned []string
+	err := d.tx(ctx, func(tx handle) error {
+		orphaned = nil
+		var name string
+		var avatar sql.NullString
+		err := tx.QueryRowContext(ctx, `SELECT username_key, avatar_file FROM users WHERE id = ? AND deleted_at IS NULL`, userID).Scan(&name, &avatar)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		now := Now()
+		// No username has a colon, so nobody can sign up as what this one is now.
+		empty := []byte{}
+		if _, err := tx.ExecContext(ctx, `UPDATE users SET username = '', username_key = ?, role = 'member',
+			kdf_salt = ?, auth_hash = ?, auth_salt = ?, recovery_hash = ?, recovery_salt = ?, vault_core = ?,
+			profile = NULL, profile_sig = NULL, avatar_file = NULL, last_seen_at = NULL, deleted_at = ?, updated_at = ?
+			WHERE id = ?`, "deleted:"+userID, empty, empty, empty, empty, empty, empty, now, now, userID); err != nil {
+			return err
+		}
+		for _, statement := range []string{
+			`DELETE FROM sessions WHERE user_id = ?`,
+			`DELETE FROM key_packages WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)`,
+			`DELETE FROM welcomes WHERE device_id IN (SELECT id FROM devices WHERE user_id = ?)`,
+			`DELETE FROM account_bundles WHERE user_id = ?`,
+			`DELETE FROM account_slots WHERE user_id = ?`,
+			`DELETE FROM vault_items WHERE user_id = ?`,
+			`DELETE FROM history_grants WHERE user_id = ?`,
+			`DELETE FROM push_registrations WHERE user_id = ?`,
+			`DELETE FROM group_members WHERE user_id = ?`,
+			`DELETE FROM channel_sends WHERE user_id = ?`,
+		} {
+			if _, err := tx.ExecContext(ctx, statement, userID); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE devices SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`, now, userID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE invites SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL`, now, userID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM sign_in_attempts WHERE account = ?`, name); err != nil {
+			return err
+		}
+		if avatar.Valid {
+			orphaned, err = unreferenced(ctx, tx, []string{avatar.String})
+		}
+		return err
+	})
+	if err != nil || len(orphaned) == 0 {
+		return "", err
+	}
+	return orphaned[0], nil
 }
 
 // --- Sessions ---

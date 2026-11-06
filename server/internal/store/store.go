@@ -606,6 +606,10 @@ DELETE FROM settings WHERE key = 'account_protocol_since';
 -- The number an item's own content carries, such as the manifest's, which a write
 -- has to raise, so that two devices writing at once can't undo one another.
 ALTER TABLE vault_items ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+`, `
+-- When someone deleted their account. What stays of it is what others need to go
+-- on reading what they sent: its ID, its public keys and its devices' certificates.
+ALTER TABLE users ADD COLUMN deleted_at INTEGER;
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

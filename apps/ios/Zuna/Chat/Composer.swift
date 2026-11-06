@@ -677,7 +677,7 @@ struct Composer: View {
         }
         let ids = conversation.kind == .group ? conversation.members.map(\.userId) : Array(server.users.keys)
         return ids.compactMap { server.users[$0] }
-            .filter { !$0.banned && ($0.username.lowercased().contains(trigger.query) || $0.displayName.lowercased().contains(trigger.query)) }
+            .filter { !$0.banned && !$0.deleted && ($0.username.lowercased().contains(trigger.query) || $0.displayName.lowercased().contains(trigger.query)) }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
             .prefix(Self.maxSuggestions)
             .map { Suggestion(id: $0.id, label: $0.displayName, hint: "@\($0.username)", insert: "@\($0.username) ", emote: nil, user: $0) }

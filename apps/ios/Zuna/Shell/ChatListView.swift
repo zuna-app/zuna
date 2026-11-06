@@ -10,15 +10,17 @@ struct SignedOutView: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Text(reason == "banned" ? "You were removed from \(server.entry.name)" : "You're signed out of \(server.entry.name)")
+            Text(title)
                 .font(.headline)
                 .foregroundStyle(Theme.text1)
                 .multilineTextAlignment(.center)
-            Text("\(explanation) What's on this device stays here for 30 days, or until you sign in again or remove it.")
+            Text(reason == "account_deleted"
+                ? "\(explanation) What's on this device stays here for 30 days, or until you remove it."
+                : "\(explanation) What's on this device stays here for 30 days, or until you sign in again or remove it.")
                 .font(.subheadline)
                 .foregroundStyle(Theme.text2)
                 .multilineTextAlignment(.center)
-            if reason != "banned" {
+            if reason != "banned" && reason != "account_deleted" {
                 Button("Sign in again") {
                     model.signInAgain = server.entry.address
                     model.joining = true
@@ -33,10 +35,19 @@ struct SignedOutView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var title: String {
+        switch reason {
+        case "banned": "You were removed from \(server.entry.name)"
+        case "account_deleted": "Your account on \(server.entry.name) was deleted"
+        default: "You're signed out of \(server.entry.name)"
+        }
+    }
+
     private var explanation: String {
         switch reason {
         case "device_revoked": "This device was removed from your account."
         case "banned": "Its admins ended your access."
+        case "account_deleted": "It was deleted from another of your devices."
         default: "The server ended this device's session."
         }
     }

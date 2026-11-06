@@ -25,6 +25,8 @@ extension CoreConnection {
 
     public func reorderServers(_ ids: [String]) async throws { try await call("reorderServers", [ids]) }
     public func leaveServer(_ serverId: String) async throws { try await call("leaveServer", [serverId]) }
+    /// Deletes the account on a server, once the password proves it, and then this device's copy of it.
+    public func deleteAccount(_ serverId: String, password: String) async throws { try await call("deleteAccount", [serverId, password]) }
     public func nudge() async throws { try await call("nudge") }
     /// Closes every connection while the app is in the background, and writes nothing until `resume()` or `reload()`.
     public func suspend() async throws { try await call("suspend") }

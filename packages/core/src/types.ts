@@ -98,6 +98,7 @@ export interface UserView {
   lastSeenAt: number | null;
   hidesLastSeen: boolean;
   banned: boolean;
+  deleted: boolean;
   trust: TrustState;
   isSelf: boolean;
 }

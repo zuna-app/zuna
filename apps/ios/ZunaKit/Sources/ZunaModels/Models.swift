@@ -183,6 +183,7 @@ public struct UserView: Codable, Sendable, Equatable, Identifiable {
     public var lastSeenAt: Int?
     public var hidesLastSeen: Bool
     public var banned: Bool
+    public var deleted: Bool
     public var trust: TrustState
     public var isSelf: Bool
 }

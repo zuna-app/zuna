@@ -1031,6 +1031,55 @@ describe("administration", () => {
   });
 });
 
+describe("deleting an account", () => {
+  it("erases it, signs out its other devices, and leaves what it sent readable", async () => {
+    const zoe = await new TestApp("zoe-laptop").open();
+    await zoe.register(invite, "zoe");
+    const zoeId = zoe.userId;
+    const zoePhone = await new TestApp("zoe-phone").open();
+    await zoePhone.login(server.url, "zoe");
+    const yara = await new TestApp("yara-laptop").open();
+    await yara.register(invite, "yara");
+    await waitFor(() => yara.session.getUsers().some((user) => user.id === zoeId), "yara to see zoe");
+    zoe.session.sendMessage(`user:${yara.userId}`, { text: "keep this" });
+    const key = `user:${zoeId}`;
+    await waitFor(() => yara.texts(key).includes("keep this"), "zoe's message");
+    await waitFor(() => zoePhone.texts(`user:${yara.userId}`).includes("keep this"), "zoe's message on her phone");
+    const groupId = yara.session.getConversations().find((item) => item.key === key)!.groupId!;
+
+    await expect(zoe.client.deleteAccount(zoe.serverId, "not my password")).rejects.toThrow();
+    expect(zoe.client.listServers()).toHaveLength(1);
+
+    zoe.events.length = 0;
+    await zoe.client.deleteAccount(zoe.serverId, "correct horse battery");
+    expect(zoe.client.listServers()).toEqual([]);
+    expect(zoe.events.some((event) => event.type === "signed_out")).toBe(false);
+
+    // Nothing is erased on the server's word: the phone is signed out, and keeps what it has.
+    await waitFor(() => zoePhone.events.some((event) => event.type === "signed_out" && event.reason === "account_deleted"), "the phone to be signed out");
+    expect(zoePhone.texts(`user:${yara.userId}`)).toContain("keep this");
+
+    await waitFor(() => yara.session.getUsers().find((user) => user.id === zoeId)?.deleted === true, "yara to see the account go");
+    expect(yara.session.getUsers().find((user) => user.id === zoeId)).toMatchObject({ displayName: "Deleted account", username: "", avatar: null, bio: "" });
+    expect(yara.session.getConversations().find((item) => item.key === key)?.title).toBe("Deleted account");
+    expect(yara.texts(key)).toEqual(["keep this"]);
+    await waitFor(() => !((yara.session as any).treeUsers(groupId) as string[]).includes(zoeId), "zoe's leaves to be removed");
+
+    // A device that comes later still reads it, checked against the devices the account had.
+    const yaraPhone = await new TestApp("yara-phone").open();
+    await yaraPhone.login(server.url, "yara");
+    await waitFor(() => yaraPhone.texts(key).includes("keep this"), "zoe's message on a new device", 30_000);
+    expect(yaraPhone.session.getConversations().find((item) => item.key === key)?.title).toBe("Deleted account");
+
+    // Nobody can sign in to it, and its name is free for someone else.
+    const again = await new TestApp("zoe-again").open();
+    await expect(again.login(server.url, "zoe")).rejects.toThrow();
+    await again.register(invite, "zoe");
+    expect(again.userId).not.toBe(zoeId);
+    for (const app of [zoe, zoePhone, yara, yaraPhone, again]) app.client.stop();
+  });
+});
+
 describe("sessions end cleanly", () => {
   it("erases local data when signing out of a server", async () => {
     const temp = await new TestApp("temp").open();

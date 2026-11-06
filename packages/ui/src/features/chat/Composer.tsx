@@ -230,7 +230,7 @@ export const Composer = forwardRef<ComposerHandle, { conversation: ConversationV
     const members = conversation.kind === "group" ? conversation.members.map((member) => member.userId) : Object.keys(users);
     return members
       .map((id) => users[id])
-      .filter((user): user is NonNullable<typeof user> => !!user && !user.banned)
+      .filter((user): user is NonNullable<typeof user> => !!user && !user.banned && !user.deleted)
       .filter((user) => user.username.toLowerCase().includes(trigger.query) || user.displayName.toLowerCase().includes(trigger.query))
       .slice(0, MAX_SUGGESTIONS)
       .map((user) => ({

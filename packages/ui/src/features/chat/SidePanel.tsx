@@ -192,15 +192,15 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
       <div className="profile-card">
         <Avatar name={conversation.title} seed={conversation.peerId ?? ""} avatar={conversation.avatar} size={80} online={peer?.online} />
         <h2>{isSelf ? peer?.displayName : conversation.title}</h2>
-        {peer && <p className="muted">@{peer.username}</p>}
+        {peer && !peer.deleted && <p className="muted">@{peer.username}</p>}
         {peer && !isSelf && (
           <p className={peer.online ? "profile-online" : "faint"} style={{ fontSize: 12.5 }}>
-            {peer.online ? "online" : formatLastSeen(peer.lastSeenAt, peer.hidesLastSeen)}
+            {peer.deleted ? "Deleted their account" : peer.online ? "online" : formatLastSeen(peer.lastSeenAt, peer.hidesLastSeen)}
           </p>
         )}
         {peer?.bio && <p className="profile-bio selectable">{peer.bio}</p>}
       </div>
-      {peer && !isSelf && (
+      {peer && !isSelf && !peer.deleted && (
         <div className="side-section">
           <h4>Encryption</h4>
           <button className={`trust-card trust-${peer.trust}`} onClick={() => setOverlay({ type: "verify", userId: peer.id })}>
@@ -215,7 +215,7 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
       <SharedMediaRows conversation={conversation} />
       <DisappearingRow conversation={conversation} canChange />
       <PreferenceRows conversation={conversation} />
-      {peer && !isSelf && (
+      {peer && !isSelf && !peer.deleted && (
         <div className="side-section">
           <BlockRow userId={peer.id} name={peer.displayName} />
         </div>

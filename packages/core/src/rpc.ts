@@ -50,12 +50,12 @@ type MethodName<T> = { [K in keyof T]: T[K] extends (...args: never[]) => unknow
 // core's private methods, such as those that save keys, out of reach of a page
 // someone has taken over. TypeScript checks that each is exactly the public methods.
 const CLIENT_METHODS: Record<MethodName<ZunaClient>, true> = {
-  findLink: true, forwardMessages: true, leaveServer: true, linkPreview: true, listServers: true, login: true, nudge: true, open: true,
+  deleteAccount: true, findLink: true, forwardMessages: true, leaveServer: true, linkPreview: true, listServers: true, login: true, nudge: true, open: true,
   previewInvite: true, recover: true, register: true, reload: true, reorderServers: true, resume: true, serverInfo: true, session: true, setActive: true,
   stop: true, suspend: true
 };
 const SESSION_METHODS: Record<MethodName<ServerSession>, true> = {
-  addMembers: true, addSound: true, banUser: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteChannel: true, deleteGroup: true,
+  addMembers: true, addSound: true, banUser: true, changePassword: true, clearVerification: true, createChannel: true, createGroup: true, createInvite: true, deleteAccount: true, deleteChannel: true, deleteGroup: true,
   declineCall: true, deleteMessage: true, deleteMessages: true, deleteSound: true, discardMessage: true, downloadFile: true, editMessage: true, emoteUrl: true, emotesIn: true,
   flushOutbox: true, forgetConversation: true, forwardMessage: true, forwardable: true, getCalls: true, getChannels: true, getConnectionState: true, getConversations: true,
   getDevices: true, getEmotes: true, getInfo: true, getPreferences: true, getSelf: true, getSounds: true, getUsers: true, getVoiceMembers: true, invites: true,

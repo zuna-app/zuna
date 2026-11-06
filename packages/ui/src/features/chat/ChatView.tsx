@@ -45,14 +45,15 @@ function HeaderStatus({ conversation }: { conversation: ConversationView }) {
     );
   }
   if (conversation.peerId === server?.self?.userId) return <span key="status" className={statusClass}>Notes to yourself</span>;
+  if (peer?.deleted) return <span key="status" className={statusClass}>Deleted their account</span>;
   if (peer?.banned) return <span key="status" className={statusClass}>Removed from this server</span>;
   if (peer?.online) return <span key="status" className={`${statusClass} is-online`}>online</span>;
   return <span key="status" className={statusClass}>{formatLastSeen(peer?.lastSeenAt ?? null, peer?.hidesLastSeen ?? false)}</span>;
 }
 
 /** Whether a call can be started here: a direct message with someone else, or a group still had. */
-function canCall(conversation: ConversationView, selfId: string | undefined, peerBanned: boolean): boolean {
-  if (conversation.kind === "dm") return !!conversation.peerId && conversation.peerId !== selfId && !conversation.blocked && !peerBanned && !conversation.removed;
+function canCall(conversation: ConversationView, selfId: string | undefined, peerGone: boolean): boolean {
+  if (conversation.kind === "dm") return !!conversation.peerId && conversation.peerId !== selfId && !conversation.blocked && !peerGone && !conversation.removed;
   return conversation.kind === "group" && !conversation.removed;
 }
 
@@ -338,7 +339,7 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
   const isSaved = conversation.peerId === server?.self?.userId;
   const selecting = useApp((state) => state.selection?.listId === listId);
   const isChannel = conversation.kind === "channel";
-  const callsHere = !isChannel && !!server?.info?.calls && !isSaved && canCall(conversation, server?.self?.userId, !!peer?.banned);
+  const callsHere = !isChannel && !!server?.info?.calls && !isSaved && canCall(conversation, server?.self?.userId, !!peer?.banned || !!peer?.deleted);
   // Who's in this conversation's call, and whether it's this device.
   const inCall = useVoice((state) => !!conversation.groupId && state.status !== "idle" && state.serverId === server?.entry.id && state.channelId === conversation.groupId);
   const callPeople = useMemo(
@@ -473,9 +474,9 @@ export function ChatView({ conversation, voice, onClose }: { conversation: Conve
           <SelectionBar conversation={conversation} listId={listId} />
         ) : conversation.removed ? (
           <RemovedFromChat conversation={conversation} />
-        ) : peer?.banned && !isSaved ? (
+        ) : (peer?.banned || peer?.deleted) && !isSaved ? (
           <div className="composer-disabled">
-            <X size={15} /> This person was removed from the server.
+            <X size={15} /> {peer.deleted ? "This account was deleted." : "This person was removed from the server."}
           </div>
         ) : conversation.blocked && peer ? (
           <div className="composer-disabled">

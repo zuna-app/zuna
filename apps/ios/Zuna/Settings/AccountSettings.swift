@@ -374,6 +374,65 @@ struct SecurityView: View {
     }
 }
 
+/// Deleting the account on a server, once its password is typed, as the desktop's
+/// "Delete account" does. What was sent stays with everyone who has it, from
+/// "Deleted account".
+struct DeleteAccountView: View {
+    let serverId: String
+
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var password = ""
+    @State private var confirming = false
+    @State private var busy = false
+
+    var body: some View {
+        let server = model.servers[serverId]
+        let name = server?.entry.name ?? "this server"
+        List {
+            if server?.me?.role == .owner {
+                Section {
+                    Text("You own \(name), and a server can't be without its owner, so your account there can't be deleted. Stopping the server and deleting its data removes everything on it.")
+                        .foregroundStyle(Theme.text2)
+                }
+            } else {
+                Section {
+                    SecureField("Password", text: $password)
+                        .textContentType(.password)
+                        .accessibilityIdentifier(A11y.Settings.deleteAccountPassword)
+                    Button("Delete my account", role: .destructive) { confirming = true }
+                        .disabled(password.isEmpty || busy)
+                        .accessibilityIdentifier(A11y.Settings.deleteAccountButton)
+                } footer: {
+                    Text("This deletes your account on \(name), with your profile and keys, signs out your other devices, and erases this device's copy of your messages. What you sent stays with the people you sent it to, from \u{201C}Deleted account\u{201D}. Your username becomes free for someone else. It can't be undone.")
+                }
+            }
+        }
+        .listRowBackground(Theme.bg2)
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg0)
+        .navigationTitle("Delete account")
+        .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Delete your account on \(name)? This can't be undone.", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Delete account", role: .destructive) { delete() }
+        }
+    }
+
+    private func delete() {
+        let password = password
+        busy = true
+        Task {
+            do {
+                try await model.deleteAccount(serverId, password: password)
+                dismiss()
+            } catch {
+                model.toast(OnboardingText.describe(error), .error)
+            }
+            busy = false
+        }
+    }
+}
+
 /// Face ID, Touch ID or the passcode each time the app opens. New on iOS.
 struct AppLockView: View {
     @Environment(AppModel.self) private var model

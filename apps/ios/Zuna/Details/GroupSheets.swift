@@ -59,7 +59,7 @@ struct NewGroupSheet: View {
     var body: some View {
         let server = model.servers[serverId]
         let users = (server?.users.values.map { $0 } ?? [])
-            .filter { $0.id != server?.me?.userId && !$0.banned }
+            .filter { $0.id != server?.me?.userId && !$0.banned && !$0.deleted }
             .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
         NavigationStack {
             List {
@@ -125,7 +125,7 @@ struct AddMembersSheet: View {
         let server = model.servers[serverId]
         let memberIds = Set(conversation.members.map(\.userId))
         let users = (server?.users.values.map { $0 } ?? [])
-            .filter { !memberIds.contains($0.id) && !$0.banned }
+            .filter { !memberIds.contains($0.id) && !$0.banned && !$0.deleted }
             .sorted { $0.displayName.localizedCompare($1.displayName) == .orderedAscending }
         NavigationStack {
             List {

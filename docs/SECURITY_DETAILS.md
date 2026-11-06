@@ -59,6 +59,14 @@ The server keeps a list of who's in each conversation, for what it does itself. 
 
 The server can say you're out of a conversation or signed out, but your messages stay on your device until you clear them, sign in again, or 30 days pass. It can say a message was deleted, too, but your app only erases its copy if the deletion was signed by the device of whoever wrote it or, in a group, of an admin. Otherwise the message is hidden as deleted and kept for 30 days. That includes a device you removed from your account in Settings, so a lost device isn't wiped if it comes back online: removing it cuts off its access, not what it already holds. Nor can it pin a message on its own: a pin only shows if a member's device signed it, and only a later pin or unpin, also signed, replaces one your app has seen.
 
+## Deleting an account
+
+Deleting an account takes its password, checked as a sign-in is and counted with the account's sign-in attempts, and a request signed by the device. The server takes the account out of every group, then erases its sign-in and recovery data and their salts, its sealed vault core and vault items, the slots and bundles that carry its account key, history grants, key packages, welcomes, sessions and push registrations, its profile and avatar, and revokes the invites it made. It frees the username, and the account's role becomes member. Its ID, identity key, chain of identity links, HPKE key and devices' certificates stay, with every device revoked: a device that comes later still checks what the account sent against them. Messages, reactions and files it sent stay on the server, and a direct message with it stays with it, as the server says who each one is between.
+
+Other devices of the account are signed out, with `account_deleted` as the reason, and keep their data as after any sign-out. The device that asked erases its copy once the server agrees. Everyone else's apps take the account's devices out of the trees of their conversations, as after a ban, and show it as "Deleted account", with no picture, in place of what they knew of it.
+
+The server could say an account was deleted when it wasn't. As with a ban, that only hides someone: their name and picture aren't shown, and they're taken out of conversations.
+
 ## Profiles and the community key
 
 Display names and avatars are encrypted under a **community key**, carried in the fragment of invite links (`#k=...`), with a key derived from it for profiles alone, as channels and sounds have theirs. Browsers don't send fragments to servers. Profiles are also signed by their owners.

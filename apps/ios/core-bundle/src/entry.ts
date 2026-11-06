@@ -35,7 +35,7 @@ interface Account {
 
 const accounts = new Map<string, Account>();
 const accountCalls = new Map<number, { method: string; serverId: string | null; args: unknown[] }>();
-const ACCOUNT_METHODS = new Set(["register", "login", "recover", "leaveServer"]);
+const ACCOUNT_METHODS = new Set(["register", "login", "recover", "leaveServer", "deleteAccount"]);
 
 function rememberAccounts(): void {
   for (const server of client?.listServers() ?? []) {
@@ -51,7 +51,7 @@ function reportAccount(type: "signedIn" | "passwordChanged" | "signedOut", accou
 }
 
 function afterAccountCall(call: { method: string; serverId: string | null; args: unknown[] }, value: any): void {
-  if (call.method === "leaveServer") {
+  if (call.method === "leaveServer" || call.method === "deleteAccount") {
     const serverId = call.args[0] as string;
     reportAccount("signedOut", accounts.get(serverId));
     accounts.delete(serverId);

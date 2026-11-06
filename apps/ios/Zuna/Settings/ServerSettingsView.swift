@@ -140,7 +140,9 @@ struct ServerMembersView: View {
         let server = model.servers[serverId]
         let selfRole = server?.me?.role
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let users = (server?.users.values.map { $0 } ?? [])
+        // Nothing can be done about an account that's gone.
+        let members = (server?.users.values.map { $0 } ?? []).filter { !$0.deleted }
+        let users = members
             .filter { needle.isEmpty || $0.displayName.lowercased().contains(needle) || $0.username.lowercased().contains(needle) }
             .sorted { ($0.banned ? 1 : 0, $0.displayName.lowercased()) < ($1.banned ? 1 : 0, $1.displayName.lowercased()) }
         List(users) { user in
@@ -171,7 +173,7 @@ struct ServerMembersView: View {
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg0)
-        .searchable(text: $query, prompt: "Search \(server?.users.count ?? 0) members")
+        .searchable(text: $query, prompt: "Search \(members.count) members")
         .navigationTitle("Members")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(target?.displayName ?? "", isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } }), presenting: target) { user in

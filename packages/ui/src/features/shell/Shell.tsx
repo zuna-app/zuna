@@ -66,17 +66,27 @@ function SignedOut({ server }: { server: NonNullable<ReturnType<typeof useActive
     <div className="no-chat">
       <div className="empty-state" style={{ maxWidth: 460 }}>
         <LogOut size={28} className="empty-icon" />
-        <h3>{reason === "banned" ? `You were removed from ${server.entry.name}` : `You're signed out of ${server.entry.name}`}</h3>
+        <h3>
+          {reason === "banned"
+            ? `You were removed from ${server.entry.name}`
+            : reason === "account_deleted"
+              ? `Your account on ${server.entry.name} was deleted`
+              : `You're signed out of ${server.entry.name}`}
+        </h3>
         <p>
           {reason === "device_revoked"
             ? "This device was removed from your account."
             : reason === "banned"
               ? "Its admins ended your access."
-              : "The server ended this device's session."}{" "}
-          What's on this device stays here for 30 days, or until you sign in again or remove it.
+              : reason === "account_deleted"
+                ? "It was deleted from another of your devices."
+                : "The server ended this device's session."}{" "}
+          {reason === "account_deleted"
+            ? "What's on this device stays here for 30 days, or until you remove it."
+            : "What's on this device stays here for 30 days, or until you sign in again or remove it."}
         </p>
         <div className="row" style={{ gap: 8, justifyContent: "center" }}>
-          {reason !== "banned" && (
+          {reason !== "banned" && reason !== "account_deleted" && (
             <button className="btn btn-primary" onClick={() => setOverlay({ type: "add-server", signInUrl: server.entry.address })}>
               Sign in again
             </button>

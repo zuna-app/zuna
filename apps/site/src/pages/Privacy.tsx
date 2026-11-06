@@ -32,6 +32,10 @@ export function Privacy() {
           has. It does see some things: your username, who is in each conversation, who sent a message to which conversation, when, and roughly how big, your IP
           address and your online status. The <a href={doc("SECURITY.md")}>security model</a> lists exactly what it can and can't see.
         </p>
+        <p>
+          You can delete your account on a server in the app's settings, with your password. The server then erases your profile, your keys and what it kept
+          to sign you in, and frees your username. What you sent stays with the people you sent it to, shown as from a deleted account.
+        </p>
         <p>How long a server keeps its logs and backups is up to its admins. For anything about your account, ask them.</p>
 
         <h2 id="push">zuna-push, the push relay</h2>

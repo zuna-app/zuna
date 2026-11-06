@@ -20,7 +20,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 
 | | Server can see | Server can't see |
 |---|---|---|
-| **Accounts** | Username, role, sign-up date, which devices exist | Password, display name, avatar, bio |
+| **Accounts** | Username, role, sign-up date, which devices exist, when an account was deleted | Password, display name, avatar, bio |
 | **Conversations** | Who is in each conversation | Group names, pictures and descriptions |
 | **Messages** | Who sent one, when, to which conversation, and roughly how big it is | Text, replies, mentions, formatting, emotes used (with the exception under "Limits"), links and their previews, shared locations, whether and from whom it was forwarded |
 | **Reactions** | Who reacted to which message | Which reaction it was (with the exception under "Limits") |
@@ -123,6 +123,10 @@ How long a chat's messages last is set by an admin in a group, or by either pers
 ### Data on your device
 
 Sensitive data the app keeps is encrypted with a key held in your system's keychain. Search runs on your device, and its index keeps no readable text. If Linux has no keychain, Settings warns you. The web app has no keychain, so anyone who can copy your browser's profile can read its data, and Settings says so.
+
+### Deleting your account
+
+You can delete your account on a server in Settings, with your password. The server erases what it kept to sign you in and to give your devices your keys, your profile and picture, your devices' sessions and anything waiting for them, and frees your username. It keeps your account's ID, its public keys and its devices' certificates, so that whoever you wrote to can still check what you sent. What you sent stays with them, from "Deleted account", as the server couldn't take it off their devices anyway. The device you delete it from erases its copy. Your other devices are signed out and keep theirs, as with any sign-out, until you remove it or 30 days pass. A server's owner can't delete their account there.
 
 ## Limits
 

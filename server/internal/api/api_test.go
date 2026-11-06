@@ -799,6 +799,91 @@ func TestBanSaysWhyBeforeTakingThemOutOfTheirGroups(t *testing.T) {
 	}
 }
 
+func TestDeletingAnAccountErasesItAndKeepsWhatItSent(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	phone := bob.anotherDevice()
+	dm := bob.dm(owner.userID)
+	bob.commit(dm.ID, 0, nil)
+	sent := bob.send(dm.ID, 1, store.NewID())
+	avatar := bob.upload([]byte("avatar"))
+	h.mustDo("PATCH", "/api/me", bob.token, map[string]any{"profile": []byte("p"), "avatar_file": avatar}, nil)
+	ws := phone.connect()
+
+	if status, resp := h.do("DELETE", "/api/account", owner.token, map[string]any{"auth_key": bytesOf(32, 'o')}, nil); status != http.StatusForbidden || resp["error"] != "owner" {
+		t.Fatalf("the owner deleting their account gave %d %v", status, resp)
+	}
+	if status, resp := h.do("DELETE", "/api/account", bob.token, map[string]any{"auth_key": bytesOf(32, 'x')}, nil); status != http.StatusForbidden || resp["error"] != "invalid_credentials" {
+		t.Fatalf("a wrong password gave %d %v", status, resp)
+	}
+	h.mustDo("DELETE", "/api/account", bob.token, map[string]any{"auth_key": bytesOf(32, 'b')}, nil)
+	if reason := ws.waitFor("force_logout")["reason"]; reason != "account_deleted" {
+		t.Fatalf("force_logout said %v", reason)
+	}
+	for _, token := range []string{bob.token, phone.token} {
+		if status, _ := h.do("GET", "/api/users", token, nil, nil); status != http.StatusUnauthorized {
+			t.Fatalf("a deleted account's session gave %d", status)
+		}
+	}
+	if status, _ := h.do("POST", "/api/auth/login", "", map[string]any{"username": "bob", "auth_key": bytesOf(32, 'b')}, nil); status != http.StatusUnauthorized {
+		t.Fatalf("signing in to a deleted account gave %d", status)
+	}
+
+	var gone store.PublicUser
+	h.mustDo("GET", "/api/users/"+bob.userID, owner.token, nil, &gone)
+	if !gone.Deleted || gone.Banned || gone.Username != "" || gone.Profile != nil || gone.Role != "member" {
+		t.Fatalf("what's left of the account: %+v", gone)
+	}
+	// Others still check what it sent against its keys and devices.
+	if len(gone.IdentityKey) == 0 || len(gone.Devices) != 2 {
+		t.Fatalf("its keys and devices: %+v", gone)
+	}
+	for _, device := range gone.Devices {
+		if device.RevokedAt == nil || len(device.Certificate) == 0 {
+			t.Fatalf("a device left behind: %+v", device)
+		}
+	}
+	var message store.Message
+	h.mustDo("GET", "/api/groups/"+dm.ID+"/messages/"+sent.ID, owner.token, nil, &message)
+	if message.DeletedAt != nil || len(message.Envelope) == 0 {
+		t.Fatalf("what it sent: %+v", message)
+	}
+	var feed store.Changes
+	h.mustDo("GET", "/api/groups/"+dm.ID+"/changes?after=0", owner.token, nil, &feed)
+	if last := feed.Events[len(feed.Events)-1]; last.Kind != "member_left" || last.TargetUser != bob.userID {
+		t.Fatalf("last event: %+v", last)
+	}
+	if status := owner.readFile(avatar); status != http.StatusNotFound {
+		t.Fatalf("its avatar: %d", status)
+	}
+
+	// Nothing can be done with it, and its name is anyone's again.
+	if status, _ := h.do("POST", "/api/admin/users/"+bob.userID+"/ban", owner.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("banning a deleted account gave %d", status)
+	}
+	carol := h.register("carol", owner.newInvite())
+	if status, _ := h.do("POST", "/api/groups", carol.token, map[string]any{"kind": "dm", "peer_id": bob.userID}, nil); status != http.StatusForbidden {
+		t.Fatalf("messaging a deleted account gave %d", status)
+	}
+	if again := h.register("bob", owner.newInvite()); again.userID == bob.userID {
+		t.Fatal("a new account took the deleted one's ID")
+	}
+}
+
+// Deleting an account is no faster a way to guess its password than signing in.
+func TestDeletingAnAccountIsNoFasterAWayToGuessItsPassword(t *testing.T) {
+	h := newHarness(t, func(cfg *api.Config) { cfg.AuthBurst = 100_000 })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	for attempt := 1; attempt <= 20; attempt++ {
+		if status, _ := h.do("DELETE", "/api/account", bob.token, map[string]any{"auth_key": bytesOf(32, 'x')}, nil); status == http.StatusTooManyRequests {
+			return
+		}
+	}
+	t.Fatal("wrong passwords deleting an account never slowed down")
+}
+
 // --- WebSocket ---
 
 type socket struct {

@@ -168,7 +168,7 @@ func (d *DB) JoinChannel(ctx context.Context, id, userID, role string, proof []b
 			return ErrNotFound
 		}
 		var banned sql.NullInt64
-		if err := tx.QueryRowContext(ctx, `SELECT banned_at FROM users WHERE id = ?`, userID).Scan(&banned); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(banned_at, deleted_at) FROM users WHERE id = ?`, userID).Scan(&banned); err != nil {
 			return err
 		}
 		if banned.Valid {

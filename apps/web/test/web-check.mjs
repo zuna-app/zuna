@@ -195,6 +195,7 @@ async function runIn(name) {
   const appUrl = `http://localhost:${webPort}/`;
   let context;
   let fresh;
+  let leaver;
   let bots;
   const errors = [];
   try {
@@ -582,6 +583,38 @@ async function runIn(name) {
     await again.getByRole("button", { name: "Disconnect from voice" }).click();
     await again.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
 
+    // Someone deletes their account, and the app lets go of the server.
+    leaver = await profile();
+    const gone = leaver.pages()[0] ?? (await leaver.newPage());
+    watch(gone, "deleting browser");
+    await gone.goto(appUrl);
+    await gone.getByRole("button", { name: "Join with an invite" }).click({ timeout: 30_000 });
+    await fill(gone.getByLabel("Invite link"), invite);
+    await gone.getByRole("button", { name: "Continue" }).click();
+    await fill(gone.getByPlaceholder("How people will see you"), "Lee Leaving", { timeout: 15_000 });
+    await fill(gone.getByLabel("Username"), "leaving.check");
+    await fill(gone.locator('input[type="password"]').first(), "web-check-only-Pass-5531");
+    await fill(gone.getByLabel("Confirm password"), "web-check-only-Pass-5531");
+    await gone.getByRole("button", { name: "Create account" }).click();
+    await gone.getByText("Save your recovery key").waitFor({ timeout: 30_000 });
+    await gone.getByText("I've stored it somewhere safe").click();
+    await gone.getByRole("button", { name: "Continue" }).click();
+    await gone.locator(".conv-row").first().waitFor({ timeout: 20_000 });
+    await again.locator(".conv-row", { hasText: "Lee Leaving" }).waitFor({ timeout: 20_000 });
+    await gone.getByLabel("Settings", { exact: true }).click();
+    await gone.getByRole("button", { name: "Delete account" }).click();
+    await gone.getByRole("button", { name: "Delete my account" }).waitFor({ timeout: 10_000 });
+    await fill(gone.getByLabel("Password", { exact: true }), "web-check-only-Pass-5531");
+    await sleep(300);
+    await gone.screenshot({ path: prefix("08b-delete-account") });
+    gone.once("dialog", (dialog) => void dialog.accept());
+    leaving.add(gone);
+    await gone.getByRole("button", { name: "Delete my account" }).click();
+    await gone.getByRole("button", { name: "Join with an invite" }).waitFor({ timeout: 20_000 });
+    check("deleting an account leaves the app with no server", true);
+    await again.locator(".conv-row", { hasText: "Lee Leaving" }).waitFor({ state: "detached", timeout: 20_000 });
+    check("a deleted account leaves everyone's list", true);
+
     // Where the browser keeps nothing, the app says why it can't run
     if (name === "webkit") {
       const privateBrowser = await webkit.launch();
@@ -598,13 +631,14 @@ async function runIn(name) {
   } catch (error) {
     check("the run finished", false, error.message.split("\n")[0]);
     console.error(error);
-    for (const [index, open] of [...(context?.pages() ?? []), ...(fresh?.pages() ?? [])].entries()) {
+    for (const [index, open] of [...(context?.pages() ?? []), ...(fresh?.pages() ?? []), ...(leaver?.pages() ?? [])].entries()) {
       await open.screenshot({ path: prefix(`crash-${index}`) }).catch(() => undefined);
     }
     if (errors.length) console.error("Page errors:", errors);
   } finally {
     await context?.close().catch(() => undefined);
     await fresh?.close().catch(() => undefined);
+    await leaver?.close().catch(() => undefined);
     stop(bots);
     stop(web);
     stop(server);

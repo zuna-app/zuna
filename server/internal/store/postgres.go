@@ -489,4 +489,8 @@ CREATE TABLE sounds (
 	created_by TEXT COLLATE "C" NOT NULL,
 	created_at BIGINT NOT NULL
 );
+`, `
+-- When someone deleted their account. What stays of it is what others need to go
+-- on reading what they sent: its ID, its public keys and its devices' certificates.
+ALTER TABLE users ADD COLUMN deleted_at BIGINT;
 `}

@@ -6,7 +6,7 @@ extension AppModel.ServerState {
     /// them: those online, and you, first, then the rest, each by name.
     var channelMembers: (online: [UserView], offline: [UserView]) {
         let people = users.values
-            .filter { !$0.banned }
+            .filter { !$0.banned && !$0.deleted }
             .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         let here = people.filter { $0.online || $0.isSelf }
         return (here, people.filter { !$0.online && !$0.isSelf })

@@ -396,6 +396,64 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request, sess *stor
 	writeOK(w)
 }
 
+// handleDeleteAccount erases the account, once its password is proven. What it
+// sent stays with everyone who has it, as the server couldn't take it from their
+// devices anyway, and others go on seeing it as a deleted account's.
+func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request, sess *store.Session) {
+	var body struct {
+		AuthKey []byte `json:"auth_key"`
+	}
+	if !readJSON(w, r, &body) {
+		return
+	}
+	// Nobody else can be made the owner, and a server needs one.
+	if sess.Role == "owner" {
+		writeError(w, http.StatusForbidden, "owner", "The server's owner can't delete their account.")
+		return
+	}
+	creds, err := s.credentialsOf(r, sess)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	// Checking the password counts as a sign-in does, or a session token would be
+	// a faster way to guess it.
+	if !s.trySignIn(w, r, sess.Username) {
+		return
+	}
+	if subtle.ConstantTimeCompare(saltedHash(creds.AuthSalt, body.AuthKey), creds.AuthHash) != 1 {
+		writeError(w, http.StatusForbidden, "invalid_credentials", "Your password isn't correct.")
+		return
+	}
+	s.signInSucceeded(r, sess.Username)
+	groups, err := s.db.UserGroups(r.Context(), sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	// Said before taking them out of their groups, as a ban does. The device that
+	// asked has its answer already.
+	s.hub.ToUsersExcept([]string{sess.UserID}, sess.DeviceID, Event{Type: "force_logout", Data: map[string]string{"reason": "account_deleted"}})
+	for _, group := range groups {
+		if err := s.removeFromRoster(r, group.ID, sess.UserID, sess.UserID); err != nil && !errors.Is(err, store.ErrNotFound) {
+			writeFailure(w, err)
+			return
+		}
+	}
+	avatar, err := s.db.DeleteAccount(r.Context(), sess.UserID)
+	if err != nil {
+		writeFailure(w, err)
+		return
+	}
+	if avatar != "" {
+		s.removeFiles(r.Context(), []string{avatar})
+	}
+	s.endVoiceFor(r.Context(), sess.UserID, "account_deleted", true)
+	s.hub.Disconnect(sess.UserID, "")
+	s.broadcastUser(r, sess.UserID)
+	writeOK(w)
+}
+
 func (s *Server) broadcastUser(r *http.Request, userID string) {
 	user, err := s.db.User(r.Context(), userID)
 	if err != nil {

@@ -111,7 +111,7 @@ func (d *DB) GetOrCreateDM(ctx context.Context, creator, peer string) (*Group, b
 			return err
 		}
 		var banned sql.NullInt64
-		if err := tx.QueryRowContext(ctx, `SELECT banned_at FROM users WHERE id = ?`, peer).Scan(&banned); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(banned_at, deleted_at) FROM users WHERE id = ?`, peer).Scan(&banned); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
@@ -352,7 +352,7 @@ func (d *DB) ApplyCommit(ctx context.Context, c Commit) (*GroupEvent, error) {
 		var visibleFrom int64 = seq
 		for _, user := range c.AddUsers {
 			var banned sql.NullInt64
-			if err := tx.QueryRowContext(ctx, `SELECT banned_at FROM users WHERE id = ?`, user).Scan(&banned); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(banned_at, deleted_at) FROM users WHERE id = ?`, user).Scan(&banned); err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					return ErrNotFound
 				}

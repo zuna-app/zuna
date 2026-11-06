@@ -25,7 +25,7 @@ import {
   type ApiVoiceState,
 } from "./api";
 import { channelProof, openChannelDetails, sealChannelDetails } from "./channels";
-import { inviteLink, planPasswordChange, planRecoveryChange, type AccountState } from "./account";
+import { currentAuthKey, inviteLink, planPasswordChange, planRecoveryChange, type AccountState } from "./account";
 import {
   CONTENT_LABEL,
   coreFromJson,
@@ -296,6 +296,7 @@ interface CachedUser {
   lastSeenAt: number | null;
   hidesLastSeen: boolean;
   banned: boolean;
+  deleted: boolean;
   trust: TrustState;
   devices: Map<string, CachedDevice>;
 }
@@ -408,6 +409,8 @@ type OutboxEntry =
 type Mutex = Promise<unknown>;
 
 const emptyProfile = (username: string): Profile => ({ displayName: username });
+// What's shown of someone who deleted their account, in place of all that was known of them.
+const DELETED_PROFILE: Profile = { displayName: "Deleted account" };
 
 const MESSAGE_ID = /^[0-9a-f]{32}$/;
 /** The longest slow mode a server allows, in seconds. */
@@ -542,6 +545,7 @@ export class ServerSession {
   private stopped = false;
   /** Why the server says this session is over, if it has. */
   private signedOutReason: string | null = null;
+  private deletingAccount = false;
   private signedOutRetry: ReturnType<typeof setTimeout> | undefined;
   /** The epoch each group's key was last checked against MLS at. */
   private confirmedEpochs = new Map<string, number>();
@@ -729,6 +733,8 @@ export class ServerSession {
   private signedOut(reason: string): void {
     this.stop();
     this.setConnection("offline");
+    // This device asked for its account to go, and finishes that itself.
+    if (this.deletingAccount) return;
     if (this.signedOutReason !== reason) {
       this.signedOutReason = reason;
       this.emit({ type: "signed_out", serverId: this.serverId, reason });
@@ -872,6 +878,7 @@ export class ServerSession {
       const stored = this.openJson<any>("user", row.id, row.data);
       this.users.set(stored.id, {
         ...stored,
+        deleted: stored.deleted === true,
         identityKey: fromBase64(stored.identityKey),
         hpkeKey: fromBase64(stored.hpkeKey),
         devices: new Map(
@@ -1076,10 +1083,11 @@ export class ServerSession {
       role: api.role,
       identityKey,
       hpkeKey: head?.hpke ?? decode(api.hpke_key),
-      profile: opened ?? previous?.profile ?? emptyProfile(api.username),
+      profile: api.deleted ? DELETED_PROFILE : (opened ?? previous?.profile ?? emptyProfile(api.username)),
       lastSeenAt: api.last_seen_at,
       hidesLastSeen: api.hide_last_seen,
       banned: api.banned,
+      deleted: api.deleted,
       trust: this.trustOf(api.id, identityKey),
       devices,
     };
@@ -1134,6 +1142,7 @@ export class ServerSession {
       lastSeenAt: user.lastSeenAt,
       hidesLastSeen: user.hidesLastSeen,
       banned: user.banned,
+      deleted: user.deleted,
       trust: user.trust,
       isSelf: user.id === this.account.userId,
     };
@@ -4789,7 +4798,7 @@ export class ServerSession {
 
     // Everyone on the server is a conversation from the start.
     for (const user of this.users.values()) {
-      if (usersWithDm.has(user.id) || user.banned) continue;
+      if (usersWithDm.has(user.id) || user.banned || user.deleted) continue;
       const key = `user:${user.id}`;
       out.push({
         key,
@@ -5897,6 +5906,23 @@ export class ServerSession {
 
   async signOut(): Promise<void> {
     await this.api.logout().catch((error) => console.warn("[zuna] logout", error));
+    this.stop();
+  }
+
+  /**
+   * Deletes this account on the server, once the password proves it's the person
+   * asking. What they sent stays with everyone who has it, under "Deleted account".
+   * ZunaClient.deleteAccount also erases this device's copy.
+   */
+  async deleteAccount(password: string): Promise<void> {
+    const authKey = await currentAuthKey(this.api, this.account.username, password);
+    this.deletingAccount = true;
+    try {
+      await this.api.deleteAccount(authKey);
+    } catch (error) {
+      this.deletingAccount = false;
+      throw error;
+    }
     this.stop();
   }
 

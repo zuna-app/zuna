@@ -82,6 +82,10 @@ struct SettingsView: View {
                             SettingsLabel("Sign out of \(server.entry.name)", systemImage: "rectangle.portrait.and.arrow.right", color: Theme.red)
                         }
                         .accessibilityIdentifier(A11y.Settings.signOut)
+                        NavigationLink { DeleteAccountView(serverId: server.entry.id) } label: {
+                            SettingsLabel("Delete account", systemImage: "trash.fill", color: Theme.red)
+                        }
+                        .accessibilityIdentifier(A11y.Settings.deleteAccount)
                     }
                     .listRowBackground(Theme.bg2)
                     .confirmationDialog(

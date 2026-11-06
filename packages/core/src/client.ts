@@ -417,6 +417,12 @@ export class ZunaClient {
     await this.forgetServer(serverId);
   }
 
+  /** Deletes the account on a server, and then everything stored for it on this device. */
+  async deleteAccount(serverId: string, password: string): Promise<void> {
+    await this.session(serverId).deleteAccount(password);
+    await this.forgetServer(serverId);
+  }
+
   private async forgetServer(serverId: string): Promise<void> {
     const session = this.sessions.get(serverId);
     session?.stop();

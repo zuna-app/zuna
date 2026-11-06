@@ -206,7 +206,7 @@ function PrivacySection() {
           <Avatar name={user.displayName} seed={user.id} avatar={user.avatar} size={32} />
           <span className="grow">
             <b>{user.displayName}</b>
-            <span className="setting-hint">@{user.username}</span>
+            {!user.deleted && <span className="setting-hint">@{user.username}</span>}
           </span>
           <button className="btn btn-small" onClick={() => void run(() => session().setBlocked(user.id, false))}>
             Unblock
@@ -538,9 +538,14 @@ export function Settings({ initialSection, onClose }: { initialSection?: string;
       {section === "profile" && (
         <>
           <div className="settings-divider" />
-          <button className="btn btn-danger" style={{ alignSelf: "flex-start" }} onClick={() => setOverlay({ type: "server-settings", section: "leave" })}>
-            <LogOut size={15} /> Sign out of this server
-          </button>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn-danger" onClick={() => setOverlay({ type: "server-settings", section: "leave" })}>
+              <LogOut size={15} /> Sign out of this server
+            </button>
+            <button className="btn" onClick={() => setOverlay({ type: "server-settings", section: "delete" })}>
+              <Trash2 size={15} /> Delete account
+            </button>
+          </div>
         </>
       )}
     </SettingsFrame>

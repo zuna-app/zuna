@@ -145,7 +145,7 @@ struct ChatScreen: View {
         }
         // Files dragged onto the chat go into the composer, as on the desktop.
         .dropDestination(for: DroppedFile.self) { files, _ in
-            guard !(peer?.banned == true && !isSaved), !conversation.removed, !conversation.blocked else { return false }
+            guard !((peer?.banned == true || peer?.deleted == true) && !isSaved), !conversation.removed, !conversation.blocked else { return false }
             model.pendingAttachments += files.map(\.url)
             return true
         }
@@ -196,7 +196,7 @@ struct ChatScreen: View {
     /// Whether a call can be started here: a direct message with someone else, or a group still had, on a server with calls.
     static func canCall(_ server: AppModel.ServerState, _ conversation: ConversationView, peer: UserView?, isSaved: Bool) -> Bool {
         guard server.hasCalls, !conversation.removed else { return false }
-        if conversation.kind == .dm { return !isSaved && conversation.peerId != nil && !conversation.blocked && peer?.banned != true }
+        if conversation.kind == .dm { return !isSaved && conversation.peerId != nil && !conversation.blocked && peer?.banned != true && peer?.deleted != true }
         return conversation.kind == .group
     }
 
@@ -280,8 +280,8 @@ struct ChatScreen: View {
                 .padding(14)
                 .background(Theme.bg0)
                 .accessibilityIdentifier(A11y.Composer.disabled)
-            } else if peer?.banned == true, !isSaved {
-                Label("This person was removed from the server.", systemImage: "xmark")
+            } else if peer?.banned == true || peer?.deleted == true, !isSaved {
+                Label(peer?.deleted == true ? "This account was deleted." : "This person was removed from the server.", systemImage: "xmark")
                     .font(.subheadline)
                     .foregroundStyle(Theme.text2)
                     .frame(maxWidth: .infinity)
@@ -694,7 +694,7 @@ private struct ChatHeader: View {
     }
 
     private var online: Bool {
-        typingNames.isEmpty && conversation.kind == .dm && !isSaved && peer?.online == true && peer?.banned != true
+        typingNames.isEmpty && conversation.kind == .dm && !isSaved && peer?.online == true && peer?.banned != true && peer?.deleted != true
     }
 
     private var status: String {
@@ -709,6 +709,7 @@ private struct ChatHeader: View {
             return "\(count) \(count == 1 ? "member" : "members")" + (online > 0 ? ", \(online) online" : "")
         }
         if isSaved { return "Notes to yourself" }
+        if peer?.deleted == true { return "Deleted their account" }
         if peer?.banned == true { return "Removed from this server" }
         if peer?.online == true { return "online" }
         return Format.lastSeen(peer?.lastSeenAt, hidden: peer?.hidesLastSeen ?? false)

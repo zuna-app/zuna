@@ -346,6 +346,12 @@ final class AppModel {
         }
     }
 
+    /// Deletes the account on a server, and then this device's copy of it, as the desktop's "Delete account" does.
+    func deleteAccount(_ serverId: String, password: String) async throws {
+        try await core.deleteAccount(serverId, password: password)
+        removeServer(serverId)
+    }
+
     /// Fewer animations: the app's own setting, or the system's.
     var reduceMotion: Bool {
         settings.reduceMotion || UIAccessibility.isReduceMotionEnabled
@@ -455,7 +461,11 @@ final class AppModel {
             voice.serverGone(serverId)
             // Nothing is erased on the server's word: what's here stays until the person decides.
             servers[serverId]?.entry.signedOut = reason
-            toast(reason == "banned" ? "You were removed from a server by its admins." : "You've been signed out of a server.")
+            toast(
+                reason == "banned" ? "You were removed from a server by its admins."
+                    : reason == "account_deleted" ? "Your account on a server was deleted from another device."
+                    : "You've been signed out of a server."
+            )
         case let .signedIn(serverId):
             servers[serverId]?.entry.signedOut = nil
         case let .security(_, _, message):

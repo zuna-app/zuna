@@ -371,7 +371,7 @@ func (s *Server) canModerate(r *http.Request, sess *store.Session, targetID stri
 	if err != nil {
 		return nil, false, err
 	}
-	if targetID == sess.UserID || target.Role == "owner" {
+	if targetID == sess.UserID || target.Role == "owner" || target.Deleted {
 		return target, false, nil
 	}
 	return target, sess.Role == "owner" || target.Role == "member", nil
