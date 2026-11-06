@@ -305,6 +305,7 @@ enum A11y {
         static let screen = "settings.screen"
         static let serverPicker = "settings.serverPicker"
         static let appearance = "settings.appearance"
+        static func appIcon(_ name: String) -> String { "settings.appIcon.\(name)" }
         static let profile = "settings.profile"
         static let privacy = "settings.privacy"
         static let security = "settings.security"

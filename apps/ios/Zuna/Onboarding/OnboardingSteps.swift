@@ -598,16 +598,18 @@ struct RecoverStep: View {
     }
 }
 
-/// The desktop's logo: a Z on a light rounded square.
+/// The desktop's logo: a Z on a light rounded square, or a light Z on a dark one
+/// (`icon-dark.svg`), as the app icons are.
 struct ZunaLogo: View {
     var size: CGFloat = 52
+    var dark = false
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 15 / 64, style: .continuous)
-                .fill(Color(hex: 0xECECEE))
+                .fill(Color(hex: dark ? 0x111113 : 0xECECEE))
             LogoZ()
-                .fill(Color(hex: 0x111113))
+                .fill(Color(hex: dark ? 0xECECEE : 0x111113))
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)

@@ -87,4 +87,46 @@ final class ShellTests: XCTestCase {
         XCTAssertTrue(zuna.element(A11y.Settings.accent("blue")).waitForExistence(timeout: 5))
         XCTAssertTrue(zuna.element(A11y.Settings.accent("blue")).isSelected)
     }
+
+    func testPicksTheDarkAppIconAndKeepsIt() throws {
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        let light = zuna.element(A11y.Settings.appIcon("light"))
+        let dark = zuna.element(A11y.Settings.appIcon("dark"))
+
+        zuna.tab("Settings").tap()
+        zuna.element(A11y.Settings.appearance).tap()
+        XCTAssertTrue(light.waitForExistence(timeout: 5))
+        XCTAssertTrue(light.isSelected)
+        dark.tap()
+        try dismissIconChanged()
+        XCTAssertTrue(dark.isSelected)
+        zuna.screenshot("32-appearance-dark-icon")
+
+        // iOS keeps the icon, not the app, so it outlasts the app and its data.
+        zuna.app.terminate()
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        zuna.tab("Settings").tap()
+        zuna.element(A11y.Settings.appearance).tap()
+        XCTAssertTrue(dark.waitForExistence(timeout: 5))
+        XCTAssertTrue(dark.isSelected)
+
+        // Back to the light one, which the other tests and the next run expect.
+        light.tap()
+        try dismissIconChanged()
+        XCTAssertTrue(light.isSelected)
+    }
+
+    /// iOS says each time that the icon changed, showing the new one: SpringBoard's
+    /// alert, in the system's language, with only OK.
+    private func dismissIconChanged() throws {
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10))
+        zuna.screenshotScreen("33-app-icon-changed")
+        alert.buttons.firstMatch.tap()
+        try waitFor("the alert to close") { !alert.exists }
+    }
 }

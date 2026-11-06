@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ZunaModels
 
 /// Settings, laid out like Telegram's: your profile on the active server at
@@ -169,9 +170,23 @@ struct SettingsLabel: View {
     }
 }
 
-/// The accent, message size and motion, kept on this device as on the desktop.
+/// The home screen's icon: the desktop's Z on a light tile, or a light Z on a dark
+/// one. iOS keeps which, so it isn't in AppSettings.
+enum AppIcon: String, CaseIterable {
+    case light, dark
+
+    /// Its icon set in Assets.xcassets, or nil for the app's own, AppIcon.
+    var alternateName: String? { self == .dark ? "AppIcon-Dark" : nil }
+
+    @MainActor static var current: AppIcon {
+        UIApplication.shared.alternateIconName == AppIcon.dark.alternateName ? .dark : .light
+    }
+}
+
+/// The accent, app icon, message size and motion, kept on this device as on the desktop.
 struct AppearanceView: View {
     @Environment(AppModel.self) private var model
+    @State private var appIcon = AppIcon.current
 
     var body: some View {
         @Bindable var model = model
@@ -202,6 +217,16 @@ struct AppearanceView: View {
                 }
                 .padding(.vertical, 6)
             }
+            if UIApplication.shared.supportsAlternateIcons {
+                Section("App icon") {
+                    HStack(spacing: 20) {
+                        ForEach(AppIcon.allCases, id: \.self) { icon in
+                            iconChoice(icon)
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
             Section("Message size") {
                 Picker("Message size", selection: $model.settings.messageSize) {
                     Text("Small").tag(MessageSize.small)
@@ -230,5 +255,49 @@ struct AppearanceView: View {
         .background(Theme.bg0)
         .navigationTitle("Appearance")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// An icon as the home screen shows it, ringed in the accent while it's the one there.
+    private func iconChoice(_ icon: AppIcon) -> some View {
+        let size: CGFloat = 60
+        let chosen = appIcon == icon
+        return Button {
+            choose(icon)
+        } label: {
+            VStack(spacing: 8) {
+                ZunaLogo(size: size, dark: icon == .dark)
+                    // The dark tile's edge, which the list's own dark gray would hide.
+                    .overlay {
+                        RoundedRectangle(cornerRadius: size * 15 / 64, style: .continuous)
+                            .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                    }
+                    .padding(4)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: size * 15 / 64 + 4, style: .continuous)
+                            .strokeBorder(chosen ? model.settings.accent.color : .clear, lineWidth: 2)
+                    }
+                Text(icon.rawValue.capitalized)
+                    .font(.footnote)
+                    .foregroundStyle(chosen ? Theme.text1 : Theme.text2)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(icon.rawValue.capitalized) icon")
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+        .accessibilityIdentifier(A11y.Settings.appIcon(icon.rawValue))
+    }
+
+    /// iOS changes the icon and says so in an alert of its own. Should it refuse, the
+    /// choice goes back to what the home screen still shows.
+    private func choose(_ icon: AppIcon) {
+        guard icon != appIcon else { return }
+        appIcon = icon
+        Task {
+            do {
+                try await UIApplication.shared.setAlternateIconName(icon.alternateName)
+            } catch {
+                appIcon = AppIcon.current
+            }
+        }
     }
 }
