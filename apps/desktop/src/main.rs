@@ -146,6 +146,9 @@ fn main() {
             },
             |window, cx| {
                 platform::set_main_window(window);
+                // GPUI only names a window from its title bar's options on Windows.
+                #[cfg(target_os = "linux")]
+                window.set_window_title("Zuna");
                 // Closing keeps it running in the tray, so messages still arrive, unless that's turned off.
                 let closing = state.clone();
                 window.on_window_should_close(cx, move |_, cx| {
