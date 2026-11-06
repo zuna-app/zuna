@@ -1,5 +1,10 @@
 //! Pictures made on this device before they're sent: profile and group pictures.
 
+pub mod encode;
+pub mod mf;
+pub mod player;
+pub mod record;
+
 use std::path::{Path, PathBuf};
 
 /// The middle square of an image, 256 pixels across, as the desktop's `prepareAvatar`

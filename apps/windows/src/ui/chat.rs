@@ -68,6 +68,15 @@ struct DragPick {
     y: gpui::Pixels,
 }
 
+/// A voice or video message being recorded.
+enum Recording {
+    Voice(crate::media::record::Microphone),
+    Round(crate::media::record::RoundRecorder),
+}
+
+/// Voice messages longer than this are sent when they reach it.
+const MAX_VOICE_SECONDS: f64 = 15. * 60.;
+
 /// The first link's preview, made on this device once typing pauses.
 struct LinkDraft {
     url: String,
@@ -118,6 +127,10 @@ pub struct ChatView {
     row_bounds: Rc<RefCell<HashMap<usize, gpui::Bounds<gpui::Pixels>>>>,
     drag: Option<DragPick>,
     drag_tick: Option<Task<()>>,
+    recording: Option<Recording>,
+    recording_tick: Option<Task<()>>,
+    preview_frame: Option<Arc<gpui::RenderImage>>,
+    retired_frames: Vec<Arc<gpui::RenderImage>>,
     /// Unread messages here that mention you or reply to you, oldest first, and what they were asked for.
     mentions: Vec<(String, f64)>,
     mentions_asked: Option<(f64, f64)>,
@@ -202,6 +215,10 @@ impl ChatView {
             row_bounds: Rc::new(RefCell::new(HashMap::new())),
             drag: None,
             drag_tick: None,
+            recording: None,
+            recording_tick: None,
+            preview_frame: None,
+            retired_frames: Vec::new(),
             mentions: Vec::new(),
             mentions_asked: None,
             _subscriptions: subscriptions,
@@ -355,6 +372,8 @@ impl ChatView {
 
     fn on_composer(&mut self, event: &InputEvent, window: &mut Window, cx: &mut Context<Self>) {
         match event {
+            InputEvent::Submit if self.recording.is_some() => self.send_recording(cx),
+            InputEvent::Escape if self.recording.is_some() => self.cancel_recording(window, cx),
             InputEvent::Submit => {
                 if let Some(index) = self.selected.filter(|_| !self.suggestions.is_empty()) {
                     self.apply_suggestion(index, cx);
@@ -449,6 +468,247 @@ impl ChatView {
             _ => {}
         }
         let _ = window;
+    }
+
+    // --- Voice and video messages ---
+
+    fn start_voice(&mut self, cx: &mut Context<Self>) {
+        match crate::media::record::Microphone::start() {
+            Ok(microphone) => {
+                self.recording = Some(Recording::Voice(microphone));
+                self.tick_recording(cx);
+            }
+            Err(error) => self.state.update(cx, |state, cx| state.toast(error, ToastKind::Error, cx)),
+        }
+        cx.notify();
+    }
+
+    fn start_round(&mut self, cx: &mut Context<Self>) {
+        let path = std::env::temp_dir().join("Zuna").join("media").join(format!("round-{}.mp4", now_ms() as u64));
+        std::fs::create_dir_all(path.parent().unwrap()).ok();
+        match crate::media::record::RoundRecorder::start(path) {
+            Ok(recorder) => {
+                self.recording = Some(Recording::Round(recorder));
+                self.tick_recording(cx);
+            }
+            Err(error) => self.state.update(cx, |state, cx| state.toast(error, ToastKind::Error, cx)),
+        }
+        cx.notify();
+    }
+
+    /// Draws the time and the bars as it records, and sends what reaches its limit.
+    fn tick_recording(&mut self, cx: &mut Context<Self>) {
+        self.recording_tick = Some(cx.spawn(async move |view, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+            let going = view
+                .update(cx, |view, cx| {
+                    let over = match &view.recording {
+                        Some(Recording::Voice(microphone)) => microphone.elapsed() >= MAX_VOICE_SECONDS,
+                        Some(Recording::Round(recorder)) => recorder.elapsed() >= crate::media::record::MAX_ROUND_SECONDS,
+                        None => return false,
+                    };
+                    if over {
+                        view.send_recording(cx);
+                        return false;
+                    }
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false);
+            if !going {
+                break;
+            }
+        }));
+    }
+
+    fn cancel_recording(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.recording = None;
+        self.recording_tick = None;
+        self.composer.read(cx).focus(window);
+        cx.notify();
+    }
+
+    /// Sends what was recorded, written away from the window. A click straight back isn't a message.
+    fn send_recording(&mut self, cx: &mut Context<Self>) {
+        let Some(recording) = self.recording.take() else { return };
+        self.recording_tick = None;
+        let Some(conversation) = self.conversation(cx) else { return };
+        let key = conversation.key.clone();
+        let list_id = conversation.list_id();
+        let reply = self.state.read(cx).reply_to.get(&list_id).map(|message| message.id.clone());
+        let server_id = self.server_id.clone();
+        let is_admin = conversation.members.iter().any(|member| member.role == "admin" && self.state.read(cx).servers.get(&self.server_id).is_some_and(|server| server.self_id() == member.user_id));
+        if conversation.slow_mode > 0. && !is_admin {
+            self.sent_until = now_ms() + conversation.slow_mode * 1000.;
+        }
+        self.state.update(cx, |state, cx| state.set_reply(&list_id, None, cx));
+        cx.spawn(async move |view, cx| {
+            let prepared: Result<Option<serde_json::Value>, String> = cx
+                .background_executor()
+                .spawn(async move {
+                    match recording {
+                        Recording::Voice(microphone) => {
+                            let (samples, levels) = microphone.stop();
+                            let duration = samples.len() as f64 / crate::media::encode::RATE as f64;
+                            if duration < 0.5 {
+                                return Ok(None);
+                            }
+                            let path = std::env::temp_dir().join("Zuna").join("media").join(format!("voice-{}.m4a", now_ms() as u64));
+                            std::fs::create_dir_all(path.parent().unwrap()).ok();
+                            crate::media::encode::write_voice(&path, &samples).map_err(|_| "The voice message couldn't be recorded.".to_string())?;
+                            Ok(Some(json!({
+                                "blob": crate::host::file(&path.to_string_lossy(), "audio/mp4"),
+                                "name": "Voice message.m4a",
+                                "mime": "audio/mp4",
+                                "duration": duration,
+                                "voice": true,
+                                "waveform": crate::media::record::encode_waveform(&levels),
+                            })))
+                        }
+                        Recording::Round(recorder) => {
+                            let path = recorder.path.clone();
+                            let duration = recorder.stop()?;
+                            if duration < 0.5 {
+                                return Ok(None);
+                            }
+                            let thumb = crate::media::mf::poster(&path, 0., 160, 50).map(|(jpeg, _, _)| {
+                                use base64::Engine;
+                                format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg))
+                            });
+                            let size = crate::media::encode::ROUND_SIZE;
+                            Ok(Some(json!({
+                                "blob": crate::host::file(&path.to_string_lossy(), "video/mp4"),
+                                "name": "Video message.mp4",
+                                "mime": "video/mp4",
+                                "width": size,
+                                "height": size,
+                                "duration": duration,
+                                "thumb": thumb,
+                                "round": true,
+                            })))
+                        }
+                    }
+                })
+                .await;
+            view.update(cx, |view, cx| {
+                match prepared {
+                    Ok(Some(file)) => {
+                        let mut body = json!({});
+                        if let Some(reply) = reply {
+                            body["replyTo"] = json!(reply);
+                        }
+                        view.state.update(cx, |state, cx| {
+                            state.call(Some(&server_id), "sendWithAttachments", vec![json!(key), json!([file]), body], cx, |state, result, cx| {
+                                if let Err(error) = result {
+                                    state.toast(error.message, ToastKind::Error, cx);
+                                }
+                            })
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(error) => view.state.update(cx, |state, cx| state.toast(error, ToastKind::Error, cx)),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// The row in place of the message box while recording: delete, the time, the bars, send.
+    fn recording_row(&mut self, is_channel: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let theme = theme(cx);
+        let recording = self.recording.as_ref()?;
+        let (elapsed, levels, round) = match recording {
+            Recording::Voice(microphone) => (microphone.elapsed(), microphone.levels(60), false),
+            Recording::Round(recorder) => (recorder.elapsed(), Vec::new(), true),
+        };
+        let mut bars = div().flex_1().h(px(24.)).flex().items_center().gap(px(2.)).overflow_hidden();
+        for level in &levels {
+            bars = bars.child(div().w(px(3.)).flex_none().h(gpui::relative((level * 1.).max(0.08))).rounded(px(2.)).bg(theme.text2));
+        }
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(10.))
+                .when(is_channel, |el| el.pl(px(8.)).min_h(px(44.)))
+                .when(!is_channel, |el| el.py(px(8.)))
+                .child(icon_button("delete-recording", "trash", 18., false, false, cx).tooltip(tooltip("Delete recording")).on_click(cx.listener(|view, _, window, cx| view.cancel_recording(window, cx))))
+                .child(div().size(px(8.)).rounded_full().bg(theme.red))
+                .child(div().text_size(px(13.)).text_color(theme.text1).child(crate::format::format_duration(elapsed)))
+                .when(round, |el| el.child(div().flex_1().text_size(px(13.5)).text_color(theme.text2).child("Recording a video message")))
+                .when(!round, |el| el.child(bars))
+                .child(
+                    div()
+                        .id("send-recording")
+                        .size(px(32.))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(RADIUS_M)
+                        .cursor_pointer()
+                        .hover(move |style| style.bg(theme.hover_strong))
+                        .tooltip(tooltip(if round { "Send video message" } else { "Send voice message" }))
+                        .on_click(cx.listener(|view, _, _, cx| view.send_recording(cx)))
+                        .child(icon("send-horizontal", 18., theme.text1)),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// The camera while a video message is recorded, mirrored, with the minute going round.
+    fn round_preview(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let theme = theme(cx);
+        let Some(Recording::Round(recorder)) = &self.recording else { return None };
+        let progress = (recorder.elapsed() / crate::media::record::MAX_ROUND_SECONDS).min(1.) as f32;
+        if let Some(frame) = recorder.preview() {
+            let size = crate::media::encode::ROUND_SIZE;
+            if let Some(buffer) = image::RgbaImage::from_raw(size, size, frame) {
+                let image = Arc::new(gpui::RenderImage::new(smallvec::smallvec![image::Frame::new(buffer)]));
+                if let Some(old) = self.preview_frame.replace(image) {
+                    self.retired_frames.push(old);
+                }
+            }
+        }
+        let accent = theme.accent;
+        Some(
+            div()
+                .absolute()
+                .right(px(18.))
+                .bottom(gpui::relative(1.))
+                .mb(px(14.))
+                .size(px(240.))
+                .rounded_full()
+                .overflow_hidden()
+                .bg(gpui::black())
+                .shadow(shadow_m())
+                .when_some(self.preview_frame.clone(), |el, frame| el.child(img(frame).size_full().object_fit(gpui::ObjectFit::Cover)))
+                .child(
+                    gpui::canvas(
+                        |_, _, _| {},
+                        move |bounds, _, window, _| {
+                            let center = bounds.center();
+                            let radius = bounds.size.width / 2. - px(2.5);
+                            let mut path = gpui::PathBuilder::stroke(px(3.));
+                            let steps = (progress * 120.).ceil().max(2.) as usize;
+                            for step in 0..=steps {
+                                let angle = -std::f32::consts::FRAC_PI_2 + progress * std::f32::consts::TAU * step as f32 / steps as f32;
+                                let at = gpui::point(center.x + radius * angle.cos(), center.y + radius * angle.sin());
+                                if step == 0 { path.move_to(at) } else { path.line_to(at) }
+                            }
+                            if let Ok(path) = path.build() {
+                                window.paint_path(path, accent);
+                            }
+                        },
+                    )
+                    .absolute()
+                    .inset_0(),
+                )
+                .into_any_element(),
+        )
     }
 
     // --- Picking by dragging ---
@@ -1184,7 +1444,19 @@ impl ChatView {
         if !self.suggestions.is_empty() {
             area = area.child(self.suggestion_list(&server_url, cx));
         }
+        if let Some(row) = self.recording_row(is_channel, cx) {
+            area = area.child(row);
+            if let Some(preview) = self.round_preview(cx) {
+                area = area.child(preview);
+            }
+            if is_channel {
+                return div().flex_none().px(px(16.)).bg(theme.bg_chat).child(area).into_any_element();
+            }
+            return area.into_any_element();
+        }
         let wait = if editing.is_none() { self.slow_wait(conversation, cx) } else { 0 };
+        // With nothing written, the camera and the microphone are where the send button was.
+        let show_record = !can_send && editing.is_none() && wait == 0;
         let send_ready = can_send;
         let send_color = if send_ready { theme.text1 } else { theme.text3 };
         let row = if is_channel {
@@ -1268,7 +1540,26 @@ impl ChatView {
                             .child(wait_text(wait)),
                     )
                 })
-                .when(wait == 0, |el| {
+                .when(show_record, |el| {
+                    el.child(icon_button("record-round", "video", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tooltip(tooltip("Record a video message")).on_click(cx.listener(|view, _, _, cx| view.start_round(cx))))
+                        .child(
+                            div()
+                                .id("record-voice")
+                                .when(is_channel, |el| el.mt(px(6.)))
+                                .size(px(32.))
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(RADIUS_M)
+                                .cursor_pointer()
+                                .hover(move |style| style.bg(theme.hover_strong))
+                                .tooltip(tooltip("Record a voice message"))
+                                .on_click(cx.listener(|view, _, _, cx| view.start_voice(cx)))
+                                .child(icon("mic", 18., theme.text1)),
+                        )
+                })
+                .when(wait == 0 && !show_record, |el| {
                     el.child(
                         div()
                             .id("send")
@@ -1987,23 +2278,68 @@ fn file_for_sending(path: &std::path::Path) -> serde_json::Value {
         "mp4" => "video/mp4",
         "mov" => "video/quicktime",
         "webm" => "video/webm",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        "heic" => "image/heic",
+        "svg" => "image/svg+xml",
+        "mkv" => "video/x-matroska",
+        "avi" => "video/x-msvideo",
         "mp3" => "audio/mpeg",
         "m4a" => "audio/mp4",
-        "ogg" => "audio/ogg",
+        "aac" => "audio/aac",
+        "ogg" | "oga" => "audio/ogg",
+        "opus" => "audio/opus",
+        "wav" => "audio/wav",
+        "flac" => "audio/flac",
         "pdf" => "application/pdf",
-        "txt" => "text/plain",
+        "txt" | "log" => "text/plain",
+        "md" => "text/markdown",
+        "csv" => "text/csv",
+        "json" => "application/json",
         "zip" => "application/zip",
+        "7z" => "application/x-7z-compressed",
+        "gz" => "application/gzip",
+        "tar" => "application/x-tar",
+        "doc" => "application/msword",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xls" => "application/vnd.ms-excel",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         _ => "application/octet-stream",
     };
     let path_text = path.to_string_lossy().into_owned();
     let mut file = json!({ "blob": crate::host::file(&path_text, mime), "name": name, "mime": mime });
-    if mime.starts_with("image/") && mime != "image/gif" {
+    // Dimensions and a tiny blurred preview, as the desktop's prepareFile makes them.
+    if mime.starts_with("image/") {
         if let Ok(bytes) = std::fs::read(path) {
             if let Ok(image) = image::load_from_memory(&bytes) {
                 file["width"] = json!(image.width());
                 file["height"] = json!(image.height());
-                if let Some((thumb, _, _)) = crate::host::shrink_image(&bytes, 24) {
+                if let Some((thumb, _, _)) = crate::host::shrink_image(&bytes, 48) {
                     file["thumb"] = json!(thumb);
+                }
+            }
+        }
+    } else if mime.starts_with("video/") || mime.starts_with("audio/") {
+        // A video's length and size, and its picture from a moment in, at most 22 KB of it.
+        if let Some(details) = crate::media::mf::details(path) {
+            if let Some(duration) = details.duration {
+                file["duration"] = json!(duration);
+            }
+            if let (Some(width), Some(height)) = (details.width, details.height) {
+                file["width"] = json!(width);
+                file["height"] = json!(height);
+                let moment = (details.duration.unwrap_or(0.) / 3.).min(0.5);
+                for (size, quality) in [(320, 65), (240, 55), (160, 50)] {
+                    if let Some((jpeg, _, _)) = crate::media::mf::poster(path, moment, size, quality) {
+                        use base64::Engine;
+                        let data = format!("data:image/jpeg;base64,{}", base64::engine::general_purpose::STANDARD.encode(jpeg));
+                        if data.len() <= 22 << 10 {
+                            file["thumb"] = json!(data);
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -2017,6 +2353,9 @@ impl Render for ChatView {
         let Some(conversation) = self.conversation(cx) else { return div().into_any_element() };
         self.mark_read(&conversation, cx);
         let is_channel = conversation.kind == "channel";
+        for old in self.retired_frames.drain(..) {
+            window.drop_image(old).ok();
+        }
         self.sync_inline_editor(&conversation, window, cx);
         let header = if is_channel { self.channel_header(&conversation, cx) } else { self.header(&conversation, cx) };
         let state = self.state.read(cx);

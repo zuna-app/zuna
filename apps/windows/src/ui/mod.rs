@@ -10,6 +10,7 @@ pub mod message;
 pub mod onboarding;
 pub mod overlays;
 pub mod invites;
+pub mod media_views;
 pub mod picker;
 pub mod server_settings;
 pub mod settings;

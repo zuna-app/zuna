@@ -140,7 +140,9 @@ fn checks(args: &[String]) -> Option<i32> {
                 core.boot(key.key, "Windows PC".into()).await?;
                 let method = args.get(2).cloned().unwrap_or_else(|| "listServers".into());
                 let call_args: Vec<serde_json::Value> = args[3.min(args.len())..].iter().map(|arg| serde_json::from_str(arg).unwrap_or(serde_json::Value::String(arg.clone()))).collect();
-                core.call(None, &method, call_args).await.map_err(|error| error.message)
+                // ZUNA_CHECK_SERVER asks a server's session rather than the client.
+                let server = std::env::var("ZUNA_CHECK_SERVER").ok();
+                core.call(server.as_deref(), &method, call_args).await.map_err(|error| error.message)
             });
             match result {
                 Ok(value) => {

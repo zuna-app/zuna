@@ -25,8 +25,8 @@ npm run dev:windows
 
 That bundles the core and starts a debug build. `npm run build:windows` writes a release build to `dist/windows/Zuna.exe`.
 
-For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` calls the core and prints the result, and `--core-eval` runs script inside it.
+For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` calls the core and prints the result (a server's session instead with `ZUNA_CHECK_SERVER` set to its ID), and `--core-eval` runs script inside it.
 
 ## What's missing
 
-Voice channels, calls and screen sharing; voice and video messages; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.
+Voice channels, calls and screen sharing; installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.

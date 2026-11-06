@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui::{App, Context, Entity, Image, ImageFormat, Task};
+use gpui::{App, AppContext, Context, Entity, Image, ImageFormat, Task};
 use serde_json::{Value, json};
 
 use crate::format::now_ms;
@@ -136,6 +136,22 @@ pub enum Overlay {
     Channel { channel_id: Option<String>, category: Option<String> },
 }
 
+/// A media file decrypted to disk for playing.
+#[derive(Clone)]
+pub enum MediaFile {
+    Loading,
+    Ready(std::path::PathBuf),
+    Failed,
+}
+
+/// A media file's sound, decoded.
+#[derive(Clone)]
+pub enum ClipState {
+    Loading,
+    Ready(crate::media::player::Clip),
+    Failed,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Panel {
     Info,
@@ -190,6 +206,14 @@ pub struct AppState {
     pub drafts: HashMap<String, String>,
     /// Messages picked in one chat, by its list, in the order they were picked.
     pub selection: Option<(String, Vec<String>)>,
+    /// Voice messages, sound files and videos: their files, sound, players, and where each was paused.
+    pub media_files: HashMap<String, MediaFile>,
+    pub clips: HashMap<String, ClipState>,
+    pub videos: HashMap<String, Entity<crate::ui::media_views::VideoPlayer>>,
+    videos_wanted: HashMap<String, bool>,
+    pub paused_at: HashMap<String, f64>,
+    pub play_when_ready: Option<(String, f64)>,
+    media_tick: Option<Task<()>>,
     pub editing: HashMap<String, MessageView>,
     /// A message to scroll to and highlight: (groupId, messageId, nonce).
     pub jump_target: Option<(String, String, u64)>,
@@ -276,6 +300,13 @@ impl AppState {
             reply_to: HashMap::new(),
             drafts: HashMap::new(),
             selection: None,
+            media_files: HashMap::new(),
+            clips: HashMap::new(),
+            videos: HashMap::new(),
+            videos_wanted: HashMap::new(),
+            paused_at: HashMap::new(),
+            play_when_ready: None,
+            media_tick: None,
             editing: HashMap::new(),
             jump_target: None,
             pictures: HashMap::new(),
@@ -1090,9 +1121,160 @@ impl AppState {
         None
     }
 
+    // --- Sound and video ---
+
+    /// A media file decrypted to disk, with the extension Media Foundation needs, asked for once.
+    pub fn media_file(&mut self, server_id: &str, attachment: &crate::models::Attachment, cx: &mut Context<Self>) -> MediaFile {
+        if let Some(file) = self.media_files.get(&attachment.file_id) {
+            return file.clone();
+        }
+        self.media_files.insert(attachment.file_id.clone(), MediaFile::Loading);
+        let reference = serde_json::json!({ "fileId": attachment.file_id, "key": attachment.key, "prefix": attachment.prefix, "chunks": attachment.chunks, "mime": attachment.mime });
+        let id = attachment.file_id.clone();
+        let extension = media_extension(&attachment.mime, &attachment.name);
+        self.call(Some(server_id), "downloadFile", vec![reference], cx, move |state, result, cx| {
+            let target = std::env::temp_dir().join("Zuna").join("media").join(format!("{id}.{extension}"));
+            let written = result.map_err(|error| error.message).and_then(|value| {
+                std::fs::create_dir_all(target.parent().unwrap()).map_err(|error| error.to_string())?;
+                match value.get("$file").and_then(|file| file.get("path")).and_then(Value::as_str) {
+                    Some(source) => std::fs::copy(source, &target).map(|_| ()).map_err(|error| error.to_string()),
+                    None => host::read_bytes(&value).ok_or_else(|| "no file".to_string()).and_then(|bytes| std::fs::write(&target, bytes).map_err(|error| error.to_string())),
+                }
+            });
+            let ready = written.is_ok();
+            state.media_files.insert(id.clone(), if ready { MediaFile::Ready(target) } else { MediaFile::Failed });
+            if ready {
+                state.media_arrived(&id, cx);
+            }
+            cx.notify();
+        });
+        MediaFile::Loading
+    }
+
+    /// A file's sound, decoded away from the window once the file is here.
+    pub fn clip(&mut self, server_id: &str, attachment: &crate::models::Attachment, cx: &mut Context<Self>) -> ClipState {
+        if let Some(clip) = self.clips.get(&attachment.file_id) {
+            if !matches!(clip, ClipState::Loading) || self.media_files.contains_key(&attachment.file_id) {
+                return clip.clone();
+            }
+        }
+        self.clips.insert(attachment.file_id.clone(), ClipState::Loading);
+        match self.media_file(server_id, attachment, cx) {
+            MediaFile::Ready(path) => self.decode_clip(attachment.file_id.clone(), path, cx),
+            MediaFile::Failed => {
+                self.clips.insert(attachment.file_id.clone(), ClipState::Failed);
+            }
+            MediaFile::Loading => {}
+        }
+        self.clips.get(&attachment.file_id).cloned().unwrap_or(ClipState::Loading)
+    }
+
+    fn decode_clip(&mut self, id: String, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        self.clips.insert(id.clone(), ClipState::Loading);
+        cx.spawn(async move |state, cx| {
+            let decoded = cx.background_executor().spawn(async move { crate::media::mf::decode_audio(&path).ok().map(|(samples, rate)| crate::media::player::Clip::from_floats(&samples, rate)) }).await;
+            state
+                .update(cx, |state, cx| {
+                    match decoded {
+                        Some(clip) => {
+                            state.clips.insert(id.clone(), ClipState::Ready(clip.clone()));
+                            // Pressed before it was ready: it starts now.
+                            if let Some((key, from)) = state.play_when_ready.clone().filter(|(key, _)| *key == id) {
+                                state.play_when_ready = None;
+                                crate::media::player::play(&key, &clip, from);
+                                state.tick_media(cx);
+                            }
+                            if let Some(player) = state.videos.get(&id).cloned() {
+                                player.update(cx, |player, cx| player.set_clip(clip, cx));
+                            }
+                        }
+                        None => {
+                            state.clips.insert(id.clone(), ClipState::Failed);
+                        }
+                    }
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
+    /// What waits on a media file once it's on disk: its sound, or its player.
+    fn media_arrived(&mut self, id: &str, cx: &mut Context<Self>) {
+        let Some(MediaFile::Ready(path)) = self.media_files.get(id).cloned() else { return };
+        if matches!(self.clips.get(id), Some(ClipState::Loading)) {
+            self.decode_clip(id.to_string(), path.clone(), cx);
+        }
+        if let Some(round) = self.videos_wanted.remove(id) {
+            let clip = match self.clips.get(id) {
+                Some(ClipState::Ready(clip)) => Some(clip.clone()),
+                _ => None,
+            };
+            let key = id.to_string();
+            let player = cx.new(|cx| crate::ui::media_views::VideoPlayer::new(key, path.clone(), round, clip, cx));
+            self.videos.insert(id.to_string(), player);
+            if !matches!(self.clips.get(id), Some(ClipState::Ready(_))) {
+                self.decode_clip(id.to_string(), path, cx);
+            }
+        }
+    }
+
+    /// Starts a video where it's shown, once its file is here.
+    pub fn open_video(&mut self, server_id: &str, attachment: &crate::models::Attachment, round: bool, cx: &mut Context<Self>) {
+        if self.videos.contains_key(&attachment.file_id) {
+            return;
+        }
+        self.videos_wanted.insert(attachment.file_id.clone(), round);
+        if let MediaFile::Ready(_) = self.media_file(server_id, attachment, cx) {
+            self.media_arrived(&attachment.file_id.clone(), cx);
+        }
+    }
+
+    /// Draws again while something plays, so its time and waveform move.
+    pub fn tick_media(&mut self, cx: &mut Context<Self>) {
+        if self.media_tick.is_some() {
+            return;
+        }
+        self.media_tick = Some(cx.spawn(async move |state, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_millis(100)).await;
+            let going = state
+                .update(cx, |state, cx| {
+                    cx.notify();
+                    let going = crate::media::player::current().is_some();
+                    if !going {
+                        state.media_tick = None;
+                    }
+                    going
+                })
+                .unwrap_or(false);
+            if !going {
+                break;
+            }
+        }));
+    }
+
     pub fn emote_url(&self, server_url: &str, id: &str) -> String {
         format!("{server_url}/api/emotes/{id}/2x.webp")
     }
+}
+
+/// The extension a media file needs for Windows to read it.
+fn media_extension(mime: &str, name: &str) -> String {
+    let known = match mime {
+        "audio/mp4" | "audio/x-m4a" | "audio/aac" => "m4a",
+        "video/mp4" => "mp4",
+        "audio/webm" | "video/webm" => "webm",
+        "audio/mpeg" => "mp3",
+        "audio/ogg" => "ogg",
+        "audio/wav" | "audio/x-wav" | "audio/wave" => "wav",
+        "audio/flac" => "flac",
+        "video/quicktime" => "mov",
+        _ => "",
+    };
+    if !known.is_empty() {
+        return known.to_string();
+    }
+    std::path::Path::new(name).extension().map(|extension| extension.to_string_lossy().to_lowercase()).filter(|extension| extension.len() <= 5).unwrap_or_else(|| "bin".into())
 }
 
 /// Takes notifications back: those matching everything given.

@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt, AnyElement, AnyView, App, BoxShadow, Div, ElementId, FontWeight, Hsla, Image, IntoElement, ParentElement, Pixels,
-    Render, SharedString, Stateful, Styled, Svg, Transformation, Window, div, img, percentage, point, prelude::*, px, svg,
+    Render, SharedString, Stateful, Styled, Svg, Transformation, Window, div, percentage, point, prelude::*, px, svg,
 };
 
 use crate::format::{avatar_color, initials_of};

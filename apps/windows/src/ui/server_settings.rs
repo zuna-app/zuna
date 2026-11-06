@@ -140,7 +140,7 @@ impl ServerSettings {
             .overflow_hidden()
             .group("server-icon")
             .cursor_pointer()
-            .on_click(cx.listener(|view, _, _, cx| {
+            .on_click(cx.listener(|_, _, _, cx| {
                 let picked = crate::media::pick_avatar(cx);
                 cx.spawn(async move |view, cx| {
                     let Some(prepared) = picked.await else { return };

@@ -1019,7 +1019,7 @@ impl Dialog {
             .w_full()
             .gap(px(8.))
             .when_some(delete_channel, |el, channel| {
-                el.child(button("delete-channel", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("trash", 14., theme.red)).child("Delete").on_click(cx.listener(move |dialog, _, window, cx| {
+                el.child(button("delete-channel", ButtonKind::Danger, ButtonSize::Normal, busy, cx).child(icon("trash", 14., theme.red)).child("Delete").on_click(cx.listener(move |_, _, window, cx| {
                     let answer = window.prompt(gpui::PromptLevel::Warning, &format!("Delete {}?", channel.name), Some("Its messages go for everyone."), &["Delete", "Cancel"], cx);
                     let (id, key) = (channel.id.clone(), channel.key.clone());
                     cx.spawn(async move |dialog, cx| {

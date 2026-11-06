@@ -203,11 +203,14 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
     let meta_in_text = !message.text.is_empty() && jumbo == 0 && message.preview.is_none() && !has_reactions && !placeholder;
     let images: Vec<&Attachment> = message.attachments.iter().filter(|a| a.mime.starts_with("image/") && a.width.is_some()).collect();
     let only_images = message.text.is_empty() && !images.is_empty() && images.len() == message.attachments.len() && !has_reactions;
+    // A video message alone is a circle, without a bubble, as large emoji are.
+    let only_round = message.text.is_empty() && message.attachments.len() == 1 && message.attachments[0].round == Some(true) && message.reply.is_none() && message.forwarded.is_none() && !placeholder;
+    let bare = jumbo > 0 || only_round;
 
-    let bubble_bg = if jumbo > 0 { gpui::transparent_black() } else if own { theme.bubble_own } else { theme.bubble_other };
+    let bubble_bg = if bare { gpui::transparent_black() } else if own { theme.bubble_own } else { theme.bubble_other };
     let text_color = if own { theme.bubble_own_text } else { theme.text1 };
     let faint = if own { theme.bubble_own_faint } else { theme.text2 };
-    let meta_color = if jumbo > 0 { theme.text3 } else { theme.bubble_meta };
+    let meta_color = if bare { theme.text3 } else { theme.bubble_meta };
 
     let meta = meta_element(message, own, is_deleted, context.read_up_to, meta_color, only_images, &theme);
 
@@ -221,7 +224,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         .text_color(text_color)
         .text_size(theme.message_size)
         .line_height(relative(1.38));
-    if jumbo == 0 {
+    if !bare {
         bubble = bubble.px(px(11.)).py(px(7.)).rounded(px(15.));
         bubble = if own { bubble.rounded_br(px(5.)) } else { bubble.rounded_bl(px(5.)) };
         if grouped {
@@ -235,7 +238,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         bubble = bubble.border_1().border_color(theme.red);
     }
 
-    if !own && context.is_group && !grouped && jumbo == 0 {
+    if !own && context.is_group && !grouped && !bare {
         let name = context.users.get(&message.sender_id).map(|u| u.display_name.clone()).unwrap_or_else(|| "Unknown".into());
         bubble = bubble.child(div().text_size(px(13.)).font_weight(FontWeight::SEMIBOLD).mb(px(1.)).line_height(px(18.)).text_color(theme::css(name_color(&message.sender_id))).child(name));
     }
@@ -321,7 +324,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         }
         if !message.attachments.is_empty() {
             // Under the name, a forwarded line or a reply, pictures start below them (`.msg-author + .media-grid`).
-            let after_header = (!own && context.is_group && !grouped && jumbo == 0) || message.forwarded.is_some() || message.reply.is_some();
+            let after_header = (!own && context.is_group && !grouped && !bare) || message.forwarded.is_some() || message.reply.is_some();
             bubble = bubble.child(attachments(message, &images, only_images, own, grouped, after_header, context, &theme, cx));
         }
         if !message.text.is_empty() {
@@ -343,13 +346,13 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
         let total: usize = message.reactions.iter().map(|r| r.user_ids.len()).sum();
         let mut row = div().flex().flex_wrap().items_center().gap(px(4.)).mt(px(5.));
         for reaction in &message.reactions {
-            row = row.child(reaction_chip(reaction, message, own, jumbo > 0, total <= 3, context, &theme, cx));
+            row = row.child(reaction_chip(reaction, message, own, bare, total <= 3, context, &theme, cx));
         }
         row = row.child(div().flex_1().flex().justify_end().pl(px(8.)).child(meta));
         bubble = bubble.child(row);
     } else if !meta_in_text {
-        if jumbo > 0 {
-            bubble = bubble.child(div().flex().justify_end().mt(px(1.)).child(meta));
+        if bare {
+            bubble = bubble.child(div().flex().justify_end().mt(px(if only_round { 3. } else { 1. })).child(meta));
         } else if only_images {
             bubble = bubble.child(div().absolute().right(px(7.)).bottom(px(7.)).child(meta));
         } else {
@@ -360,7 +363,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
     }
 
     // The tail on the last message of a run, reaching over the bubble's corner.
-    if last_in_group && jumbo == 0 && message.status != "failed" && !only_images {
+    if last_in_group && !bare && message.status != "failed" && !only_images {
         let tail = gpui::svg().path(if own { "icons/bubble-tail-right.svg" } else { "icons/bubble-tail-left.svg" }).w(px(11.)).h(px(10.)).text_color(bubble_bg);
         bubble = bubble.child(if own { div().absolute().bottom_0().right(px(-6.)).child(tail) } else { div().absolute().bottom_0().left(px(-6.)).child(tail) });
     }
@@ -1048,6 +1051,22 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
         column = column.child(grid);
     }
     for attachment in message.attachments.iter().filter(|a| !images.iter().any(|image| std::ptr::eq(*image, *a))) {
+        if attachment.voice == Some(true) {
+            column = column.child(super::media_views::voice(attachment, own && !context.is_channel, context, cx));
+            continue;
+        }
+        if attachment.round == Some(true) && attachment.mime.starts_with("video/") {
+            column = column.child(super::media_views::round(attachment, context, cx));
+            continue;
+        }
+        if attachment.mime.starts_with("video/") {
+            column = column.child(super::media_views::video(attachment, context, cx));
+            continue;
+        }
+        if attachment.mime.starts_with("audio/") {
+            column = column.child(super::media_views::audio(attachment, own && !context.is_channel, context, cx));
+            continue;
+        }
         let size_color = if own { theme.bubble_own_faint } else { theme.text2 };
         let label = if attachment.voice == Some(true) {
             "Voice message".to_string()

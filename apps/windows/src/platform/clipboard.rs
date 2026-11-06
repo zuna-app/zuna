@@ -45,7 +45,6 @@ pub fn save_pasted_image(image: &gpui::Image) -> Option<PathBuf> {
         ImageFormat::Bmp => "bmp",
         ImageFormat::Tiff => "tiff",
         ImageFormat::Svg => "svg",
-        _ => return None,
     };
     let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let dir = std::env::temp_dir().join("Zuna").join(format!("paste-{stamp}"));

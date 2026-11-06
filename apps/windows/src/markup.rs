@@ -103,7 +103,7 @@ const MAX_INLINE_DEPTH: usize = 8;
 
 fn render_plain(out: &mut Rich, text: &str, style: &SpanStyle, context: &Context) {
     let mut buffer = String::new();
-    let mut flush = |out: &mut Rich, buffer: &mut String| {
+    let flush = |out: &mut Rich, buffer: &mut String| {
         out.push(buffer, style);
         buffer.clear();
     };
@@ -206,7 +206,7 @@ fn inline(text: &str, context: &Context) -> Rich {
 pub fn parse(text: &str, context: &Context) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut last = 0;
-    let mut push_text = |blocks: &mut Vec<Block>, chunk: &str| {
+    let push_text = |blocks: &mut Vec<Block>, chunk: &str| {
         let trimmed = chunk.trim_matches('\n');
         if trimmed.is_empty() && chunk.is_empty() {
             return;
