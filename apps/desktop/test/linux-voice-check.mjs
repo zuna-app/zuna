@@ -1,5 +1,6 @@
-// Checks voice in the native app on Linux: a voice channel with the Electron app as the other
-// person, on a real LiveKit behind TLS, in a KWin of its own. The native app's microphone and
+// Checks voice in the native app on Linux: a voice channel, and calls each way in a direct
+// message, with the Electron app as the other person, on a real LiveKit behind TLS, in a KWin
+// of its own. The native app's microphone and
 // speakers are PipeWire devices of the check's own, which nobody hears: spoken words go into
 // the microphone, and what it plays is recorded. The Electron app's microphone is Chromium's
 // fake device, and what reaches it is measured in its page, as voice-check.mjs does.
@@ -160,6 +161,67 @@ try {
   const played = await loudestOn(speakers, 5);
   check("what the Electron app says plays out of the native app's speakers, through PipeWire", played > 0.01, `peak ${played.toFixed(3)}`);
   await shot("04-both-talking");
+
+  // --- A call in their direct message, from the Electron app ---
+  await drive({ do: "click", x: 360, y: 802 });
+  const left = await page.locator(".voice-occupant", { hasText: "Linux Owner" }).waitFor({ state: "detached", timeout: 15_000 }).then(() => true).catch(() => false);
+  check("leaving the voice channel in the native app takes it out", left);
+  await page.getByRole("button", { name: "Disconnect from voice" }).click();
+  await page.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 });
+  await page.locator(".conv-row", { hasText: "Linux Owner" }).first().click();
+  await page.getByRole("button", { name: "Start a voice call" }).click();
+  await sleep(1500);
+  await shot("05-ringing");
+  const ring = await loudestOn(speakers, 3);
+  check("a call rings out of the native app's speakers", ring > 0.01, `peak ${ring.toFixed(3)}`);
+  // The card's Answer, at the right of a card 380 px wide centered at the top.
+  await drive({ do: "click", x: 858, y: 81 });
+  const answered = await page.locator(".voice-tile.is-ringing").waitFor({ state: "detached", timeout: 20_000 }).then(() => true).catch(() => false);
+  check("answering the call's card in the native app joins the call", answered);
+  await sleep(3000);
+  await shot("06-in-call");
+  start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking in the call");
+  await sleep(2000);
+  const heardInCall = await loudness(page);
+  check("in the call, what's said into the native app reaches the Electron app", heardInCall.peak > 0.01, `peak ${heardInCall.peak.toFixed(3)} from ${heardInCall.receivers} tracks`);
+  const playedInCall = await loudestOn(speakers, 4);
+  check("and what the Electron app says plays out of the native app", playedInCall > 0.01, `peak ${playedInCall.toFixed(3)}`);
+  await drive({ do: "click", x: 360, y: 802 });
+  const hungUp = await page.locator(".voice-panel").waitFor({ state: "detached", timeout: 10_000 }).then(() => true).catch(() => false);
+  check("hanging up in the native app ends the call for both", hungUp);
+  await sleep(1500);
+  await shot("07-after-call");
+
+  // --- A call from the native app, from the call button in its chat's header ---
+  const ringingElectron = page.locator(".incoming-call", { hasText: "Linux Owner" });
+  await drive({ do: "click", x: 1238, y: 58 });
+  check("a call from the native app rings the Electron app", await ringingElectron.waitFor({ timeout: 20_000 }).then(() => true).catch(() => false));
+  const ringingOut = await loudestOn(speakers, 3);
+  check("and rings out of the native app's own speakers while it waits", ringingOut > 0.01, `peak ${ringingOut.toFixed(3)}`);
+  await shot("08-calling");
+  await ringingElectron.getByRole("button", { name: "Answer", exact: true }).click();
+  const connected = await page.locator(".voice-panel-status.is-connected", { hasText: "Call connected" }).waitFor({ timeout: 30_000 }).then(() => true).catch(() => false);
+  check("the Electron app answers it", connected);
+  await sleep(3000);
+  const toNative = await loudestOn(speakers, 3);
+  check("and is heard in the native app", toNative > 0.01, `peak ${toNative.toFixed(3)}`);
+  await page.locator(".voice-controls").getByRole("button", { name: "Disconnect" }).click();
+  // After the tones for the other leaving and for the call ending, the Electron app's speech,
+  // which goes on, is no longer heard.
+  await sleep(5000);
+  await shot("09-other-hung-up");
+  const afterHangUp = await loudestOn(speakers, 3);
+  check("the call ends in the native app when the other hangs up", afterHangUp < 0.005, `peak ${afterHangUp.toFixed(3)}`);
+
+  // Declined: the native app stops ringing.
+  await drive({ do: "click", x: 1238, y: 58 });
+  await ringingElectron.waitFor({ timeout: 20_000 });
+  await sleep(1000);
+  await ringingElectron.getByRole("button", { name: "Decline" }).click();
+  await sleep(1500);
+  await shot("10-declined");
+  const afterDecline = await loudestOn(speakers, 3);
+  check("declining in the Electron app stops the native app ringing", afterDecline < 0.005, `peak ${afterDecline.toFixed(3)}`);
 } catch (caught) {
   failed = caught;
 }
