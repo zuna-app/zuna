@@ -65,6 +65,21 @@ pub struct ChatContext {
 
 const GROUP_WINDOW_MS: f64 = 5. * 60. * 1000.;
 
+/// A double click replies, as in Telegram, except on something clickable, such as a link, a
+/// button, a picture or a player, which all show the hand (`repliesOnDoubleClick`).
+pub(super) fn reply_on_double_click(message: &MessageView, context: &ChatContext) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static {
+    let (state, list_id, id) = (context.state.clone(), context.list_id.clone(), message.id.clone());
+    move |event, window, cx| {
+        if event.click_count() != 2 || window.cursor_style_under_mouse() == gpui::CursorStyle::PointingHand {
+            return;
+        }
+        let found = state.read(cx).lists.get(&list_id).and_then(|list| list.items.iter().find(|item| item.id == id).cloned());
+        if let Some(message) = found {
+            state.update(cx, |state, cx| state.set_reply(&list_id, Some(message), cx));
+        }
+    }
+}
+
 /// Whether `b` carries on `a`'s run: the same person, within five minutes, on the same day.
 pub fn continues(a: Option<&MessageView>, b: Option<&MessageView>) -> bool {
     match (a, b) {
@@ -410,6 +425,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
     let mut row = div()
         .id(SharedString::from(format!("msg-row-{id}")))
         .group(group.clone())
+        .when(can_act && !selecting, |el| el.on_click(reply_on_double_click(message, context)))
         .relative()
         .flex()
         .items_end()

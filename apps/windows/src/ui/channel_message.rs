@@ -214,6 +214,7 @@ fn render_message(message: &MessageView, grouped: bool, after_line: bool, contex
     let mut row = div()
         .id(SharedString::from(format!("cmsg-row-{}", message.id)))
         .group(group.clone())
+        .when(can_act && !selecting && !editing_here, |el| el.on_click(super::message::reply_on_double_click(message, context)))
         .relative()
         .mt(px(top))
         .pl(px(if selecting { 104. } else { 72. }))

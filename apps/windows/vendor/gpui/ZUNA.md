@@ -15,6 +15,8 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
 - **One Direct3D device at startup.** GPUI made a device to check an adapter worked, threw
   it away and made another. The first is kept, which takes about 110 ms off starting on an
   NVIDIA card, where the first device loads the driver (`platform/windows/directx_devices.rs`).
+- **`Window::cursor_style_under_mouse`,** the cursor what's under the pointer asks for, so the
+  app can leave a double-click on something clickable alone, as the desktop does (`window.rs`).
 - **Animated WebP from bytes.** `Image::to_image_data` decoded a WebP's first frame only, so
   an animated 7TV emote the app fetched itself stood still, or failed to draw at all. It now
   decodes every frame, as `img` does for a picture it loads (`platform.rs`).

@@ -3532,6 +3532,12 @@ impl Window {
         subscription
     }
 
+    /// Zuna: the cursor what's under the pointer asks for, such as the hand over something
+    /// clickable, so a handler can tell whether a click landed on such a thing.
+    pub fn cursor_style_under_mouse(&self) -> CursorStyle {
+        self.rendered_frame.cursor_style(self).unwrap_or(CursorStyle::Arrow)
+    }
+
     fn reset_cursor_style(&self, cx: &mut App) {
         // Set the cursor only if we're the active window.
         if self.is_window_hovered() {
