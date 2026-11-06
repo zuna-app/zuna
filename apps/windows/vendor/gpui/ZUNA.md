@@ -12,3 +12,6 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   a second after input on Windows, which only repeated the same frame.
 - **The first frame after a rest is drawn at once,** rather than at the next vblank, so what
   input changes shows sooner. Frames after it keep to vsync (`platform/windows/platform.rs`).
+- **One Direct3D device at startup.** GPUI made a device to check an adapter worked, threw
+  it away and made another. The first is kept, which takes about 110 ms off starting on an
+  NVIDIA card, where the first device loads the driver (`platform/windows/directx_devices.rs`).
