@@ -22,7 +22,7 @@ Nothing one caller does holds up anyone else's pushes or registrations, so it do
 
 ## Running it
 
-**Without Docker,** on Linux with systemd, `deploy/install-relay.sh` sets up the relay alone, for your own reverse proxy to put HTTPS in front. It asks for the relay's domain, the `.p8` file, whose Key ID it takes from its name when Apple's is kept, and the address to listen on, where the proxy reaches it, and installs nothing else:
+**Without Docker,** on Linux with systemd, `deploy/install-relay.sh` sets up the relay alone, for your own reverse proxy to put HTTPS in front. It asks for the relay's domain, the `.p8` file, whose Key ID it takes from its name when Apple's is kept, the address to listen on, where the proxy reaches it, and the proxy's address, the only one it takes callers' addresses from, and installs nothing else:
 
 ```bash
 sudo /opt/zuna/deploy/install-relay.sh

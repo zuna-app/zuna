@@ -49,7 +49,7 @@ Running it again on a machine that has Zuna offers to update it or to go through
 
 ### The push relay alone
 
-For a machine with the relay and nothing else, `deploy/install-relay.sh` asks for its domain, the APNs key and the address to listen on, for a proxy on another machine, and runs this script with them:
+For a machine with the relay and nothing else, `deploy/install-relay.sh` asks for its domain, the APNs key, the address to listen on, for a proxy on another machine, and that proxy's address, and runs this script with them:
 
 ```bash
 sudo /opt/zuna/deploy/install-relay.sh
@@ -183,7 +183,7 @@ server {
   sudo ufw allow from 10.0.0.2 to any port 9660,8090,8081 proto tcp
   ```
 
-- **Only a trusted proxy can name a caller's address.** That's this machine and private networks by default. A connection from anywhere else is taken at face value, so a public proxy needs `--trusted-proxies 203.0.113.7`, or its callers all count as one address for rate limits. A list replaces the default, so it's also how to narrow it down to exactly your proxy. Cloudflare's addresses never count: behind Cloudflare, `--behind-cloudflare on` takes the caller from what Cloudflare says instead, which `deploy/install.sh` and `deploy/install-relay.sh` set when the domain is behind it.
+- **Only a trusted proxy can name a caller's address.** That's this machine and private networks by default. A connection from anywhere else is taken at face value, so a public proxy needs `--trusted-proxies 203.0.113.7`, or its callers all count as one address for rate limits. A list replaces the default, so it's also how to narrow it down to exactly your proxy. Cloudflare's addresses never count: behind Cloudflare, `--behind-cloudflare on` takes the caller from what Cloudflare says instead, which `deploy/install.sh` and `deploy/install-relay.sh` set when the domain is behind it. When the proxy is on another machine, both installers ask for its address and trust it alone.
 
 ## Voice channels
 
