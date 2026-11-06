@@ -354,6 +354,9 @@ impl Root {
                     let view = cx.new(|cx| chat::ChatView::new(state, server.entry.id.clone(), conversation.key.clone(), window, cx));
                     self.chat = Some((key, view));
                 }
+                // Not cached: GPUI draws every cached view inside a cached view that has to be
+                // drawn again, and this one is on every keystroke, so its message list is cached
+                // instead.
                 self.chat.as_ref().unwrap().1.clone().into_any_element()
             }
             None => {
@@ -590,7 +593,7 @@ impl Render for Root {
                             .flex_none()
                             .w(px(list_width))
                             .bg(theme.bg1)
-                            .child(div().flex_1().min_w_0().min_h_0().flex().flex_col().child(div().flex_1().min_h_0().flex().flex_col().child(self.conversations.clone())).children(voice::voice_panel(&self.state, &self.voice, cx)))
+                            .child(div().flex_1().min_w_0().min_h_0().flex().flex_col().child(gpui::AnyView::from(self.conversations.clone()).cached(gpui::StyleRefinement::default().flex_1().min_h_0())).children(voice::voice_panel(&self.state, &self.voice, cx)))
                             .child(
                                 div()
                                     .id("sidebar-resizer")

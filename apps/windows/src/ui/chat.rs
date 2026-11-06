@@ -147,8 +147,114 @@ pub struct ChatView {
     /// Unread messages here that mention you or reply to you, oldest first, and what they were asked for.
     mentions: Vec<(String, f64)>,
     mentions_asked: Option<(f64, f64)>,
+    /// The messages, drawn as a view of their own that keeps last frame's drawing unless
+    /// `refresh_messages` asks for a new one. So typing, the caret's blink, the message
+    /// box's suggestions and anything else above or below the messages don't draw every
+    /// message on screen again.
+    messages: Entity<MessageList>,
+    /// The messages and what their rows need, from the last time the chat's state changed.
+    context_cache: Option<(Rc<Vec<MessageView>>, Rc<ChatContext>)>,
+    /// A channel's member list, once it's been shown.
+    member_view: Option<Entity<MemberList>>,
     _subscriptions: Vec<Subscription>,
 }
+
+/// What the message body needs to know of the list, without copying its messages.
+struct ListShape {
+    loaded: bool,
+    empty: bool,
+    detached: bool,
+}
+
+/// The chat's messages, which `ChatView` draws for it (`render_body`).
+pub struct MessageList {
+    chat: gpui::WeakEntity<ChatView>,
+}
+
+impl Render for MessageList {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let body = self.chat.upgrade().map(|chat| chat.update(cx, |chat, cx| chat.render_body(window, cx)));
+        // Laid out as a root in the box `ChatView` gives it, so it fills that box itself.
+        div().size_full().flex().flex_col().children(body)
+    }
+}
+
+/// A channel's members beside it: a view of its own, drawn again only when the server's
+/// state changes rather than on every frame of the chat beside it, as it lists everyone.
+pub struct MemberList {
+    state: Entity<AppState>,
+    server_id: String,
+    _observe: Subscription,
+}
+
+impl MemberList {
+    fn new(state: Entity<AppState>, server_id: String, cx: &mut Context<Self>) -> Self {
+        let _observe = cx.observe(&state, |_, _, cx| cx.notify());
+        MemberList { state, server_id, _observe }
+    }
+}
+
+impl Render for MemberList {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        member_list(&self.state, &self.server_id, cx)
+    }
+}
+
+fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::App) -> AnyElement {
+    let theme = theme(cx);
+    let state = state_entity.read(cx);
+    let Some(server) = state.servers.get(server_id) else { return div().into_any_element() };
+    let mut users: Vec<UserView> = server.users.values().filter(|user| !user.banned).cloned().collect();
+    users.sort_by_key(|user| user.display_name.to_lowercase());
+    let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().partition(|user| user.online || user.is_self);
+    let server_id = server_id.to_string();
+    let members_scroll = scroll_handle("member-list");
+    let mut list = div().id("member-list").size_full().overflow_y_scroll().track_scroll(&members_scroll).pr(gutter(&members_scroll)).pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
+    for (title, people, here) in [("Online", online, true), ("Offline", offline, false)] {
+        if people.is_empty() {
+            continue;
+        }
+        list = list.child(div().h(px(40.)).pt(px(24.)).pr(px(8.)).pl(px(16.)).text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme::color(theme::hex(0x8b8b92))).child(format!("{} — {}", title.to_uppercase(), people.len())));
+        for user in people {
+            let image = user.avatar.as_ref().and_then(|avatar| state_entity.update(cx, |state, cx| state.decrypted_picture(&server_id, avatar, cx)));
+            let (open_state, profile_id) = (state_entity.clone(), user.id.clone());
+            let (menu_state, menu_id, is_self) = (state_entity.clone(), user.id.clone(), user.is_self);
+            let group = SharedString::from(format!("member-item-{}", user.id));
+            list = list.child(
+                div()
+                    .id(group.clone())
+                    .group(group.clone())
+                    .mx(px(8.))
+                    .mt(px(1.))
+                    .h(px(42.))
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .px(px(8.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .when(!here, |el| el.opacity(0.35))
+                    .hover(move |style| style.bg(theme.hover_strong).opacity(1.))
+                    .on_click(move |_, _, cx| open_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: profile_id.clone() }), cx)))
+                    .on_mouse_down(MouseButton::Right, move |event, _, cx| {
+                        let mut entries = Vec::new();
+                        let (state, id) = (menu_state.clone(), menu_id.clone());
+                        entries.push(super::menu::MenuEntry::new("Profile", "user-round", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: id.clone() }), cx))));
+                        if !is_self {
+                            let (state, key) = (menu_state.clone(), format!("user:{}", menu_id));
+                            entries.push(super::menu::MenuEntry::new("Message", "message-circle", move |_, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
+                        }
+                        super::menu::open_menu(event.position, entries, false, cx);
+                    })
+                    .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: here && !user.is_self || user.online, rounded: false, dot_border: theme.bg1 }, cx))
+                    .child(div().flex_none().max_w(px(if user.role == "owner" { 140. } else { 164. })).one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).text_color(theme::css(crate::format::name_color(&user.id))).child(user.display_name.clone()))
+                    .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tip("Server owner", Side::Bottom).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
+            );
+        }
+    }
+    list.child(scrollbar("member-list", Scrolls::Div(members_scroll))).into_any_element()
+}
+
 
 fn fingerprint(message: &MessageView) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -179,6 +285,7 @@ impl ChatView {
         let inline_editor = cx.new(|cx| TextInput::new(cx, "").multiline());
         let list = ListState::new(0, ListAlignment::Bottom, px(800.));
         let weak = cx.entity().downgrade();
+        let messages = cx.new(|_| MessageList { chat: weak.clone() });
         list.set_scroll_handler(move |event, _window, cx| {
             let visible = event.visible_range.clone();
             let scrolled = event.is_scrolled;
@@ -188,7 +295,9 @@ impl ChatView {
         });
         let subscriptions = vec![
             cx.observe(&state, |view, _, cx| {
+                view.context_cache = None;
                 view.sync_rows(cx);
+                view.refresh_messages(cx);
                 cx.notify();
             }),
             cx.subscribe_in(&composer, window, |view, _, event, window, cx| view.on_composer(event, window, cx)),
@@ -238,10 +347,19 @@ impl ChatView {
             retired_frames: Vec::new(),
             mentions: Vec::new(),
             mentions_asked: None,
+            messages,
+            context_cache: None,
+            member_view: None,
             _subscriptions: subscriptions,
         };
         view.open(window, cx);
         view
+    }
+
+    /// Has the messages drawn again on the next frame, for a change in what they show.
+    /// Never during a draw, when it would only take effect a frame late.
+    fn refresh_messages(&self, cx: &mut Context<Self>) {
+        self.messages.update(cx, |_, cx| cx.notify());
     }
 
     pub fn focus_composer(&self, window: &mut Window, cx: &gpui::App) {
@@ -360,10 +478,14 @@ impl ChatView {
         if let Some(index) = self.rows.iter().position(|(row, _)| *row == id) {
             self.list.scroll_to_reveal_item(index);
             self.highlight = Some((id, nonce));
+            self.context_cache = None;
+            self.refresh_messages(cx);
             cx.spawn(async move |view, cx| {
                 cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
                 view.update(cx, |view, cx| {
                     view.highlight = None;
+                    view.context_cache = None;
+                    view.refresh_messages(cx);
                     cx.notify();
                 })
                 .ok();
@@ -390,6 +512,7 @@ impl ChatView {
                 .fold(0., f64::max);
             self.visible_newest = newest;
         }
+        self.refresh_messages(cx);
         cx.notify();
     }
 
@@ -796,6 +919,7 @@ impl ChatView {
                         if over != 0. {
                             view.list.scroll_by(px((over / 56.).clamp(-3., 3.) * 12.));
                             view.drag_move(y, cx);
+                            view.refresh_messages(cx);
                             cx.notify();
                         }
                         true
@@ -1801,61 +1925,6 @@ impl ChatView {
     }
 
     /// Everyone on the server, as Discord lists a channel's members: online first, then the rest, faded.
-    fn member_list(&self, cx: &mut Context<Self>) -> AnyElement {
-        let theme = theme(cx);
-        let state = self.state.read(cx);
-        let Some(server) = state.servers.get(&self.server_id) else { return div().into_any_element() };
-        let mut users: Vec<UserView> = server.users.values().filter(|user| !user.banned).cloned().collect();
-        users.sort_by_key(|user| user.display_name.to_lowercase());
-        let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().partition(|user| user.online || user.is_self);
-        let server_id = self.server_id.clone();
-        let members_scroll = scroll_handle("member-list");
-        let mut list = div().id("member-list").flex_none().w(px(240.)).h_full().overflow_y_scroll().track_scroll(&members_scroll).pr(gutter(&members_scroll)).pb(px(20.)).bg(theme.bg1).border_l_1().border_color(theme.line);
-        for (title, people, here) in [("Online", online, true), ("Offline", offline, false)] {
-            if people.is_empty() {
-                continue;
-            }
-            list = list.child(div().h(px(40.)).pt(px(24.)).pr(px(8.)).pl(px(16.)).text_size(px(12.)).line_height(px(16.)).font_weight(FontWeight::SEMIBOLD).text_color(theme::color(theme::hex(0x8b8b92))).child(format!("{} — {}", title.to_uppercase(), people.len())));
-            for user in people {
-                let image = user.avatar.as_ref().and_then(|avatar| self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, avatar, cx)));
-                let (open_state, profile_id) = (self.state.clone(), user.id.clone());
-                let (menu_state, menu_id, is_self) = (self.state.clone(), user.id.clone(), user.is_self);
-                let group = SharedString::from(format!("member-item-{}", user.id));
-                list = list.child(
-                    div()
-                        .id(group.clone())
-                        .group(group.clone())
-                        .mx(px(8.))
-                        .mt(px(1.))
-                        .h(px(42.))
-                        .flex()
-                        .items_center()
-                        .gap(px(12.))
-                        .px(px(8.))
-                        .rounded(px(6.))
-                        .cursor_pointer()
-                        .when(!here, |el| el.opacity(0.35))
-                        .hover(move |style| style.bg(theme.hover_strong).opacity(1.))
-                        .on_click(move |_, _, cx| open_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: profile_id.clone() }), cx)))
-                        .on_mouse_down(MouseButton::Right, move |event, _, cx| {
-                            let mut entries = Vec::new();
-                            let (state, id) = (menu_state.clone(), menu_id.clone());
-                            entries.push(super::menu::MenuEntry::new("Profile", "user-round", move |_, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: id.clone() }), cx))));
-                            if !is_self {
-                                let (state, key) = (menu_state.clone(), format!("user:{}", menu_id));
-                                entries.push(super::menu::MenuEntry::new("Message", "message-circle", move |_, cx| state.update(cx, |state, cx| state.select_conversation(Some(key.clone()), cx))));
-                            }
-                            super::menu::open_menu(event.position, entries, false, cx);
-                        })
-                        .child(avatar(AvatarProps { name: user.display_name.clone(), seed: user.id.clone(), image, size: 32., online: here && !user.is_self || user.online, rounded: false, dot_border: theme.bg1 }, cx))
-                        .child(div().flex_none().max_w(px(if user.role == "owner" { 140. } else { 164. })).one_line().text_size(px(16.)).line_height(px(20.)).font_weight(FontWeight::MEDIUM).text_color(theme::css(crate::format::name_color(&user.id))).child(user.display_name.clone()))
-                        .when(user.role == "owner", |el| el.child(div().id(SharedString::from(format!("crown-{}", user.id))).flex_none().ml(px(-6.)).tip("Server owner", Side::Bottom).child(icon("crown", 14., theme::color(theme::hex(0xf0b232)))))),
-                );
-            }
-        }
-        list.child(scrollbar("member-list", Scrolls::Div(members_scroll))).into_any_element()
-    }
-
     /// Who's typing in a channel, under the message box, with slow mode on the right. Always there, so nothing moves.
     fn channel_typing(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
@@ -2022,6 +2091,7 @@ impl ChatView {
             view.update(cx, |view, cx| {
                 if view.mentions_asked == Some(asked) {
                     view.mentions = found;
+                    view.refresh_messages(cx);
                     cx.notify();
                 }
             })
@@ -2060,6 +2130,7 @@ impl ChatView {
                         state.act("markMentionSeen", vec![json!(group), json!(id)], cx);
                         state.jump_to_message(&group, &id, cx);
                     });
+                    view.refresh_messages(cx);
                     cx.notify();
                 }))
                 .child(icon("at-sign", 21., theme.text1))
@@ -2305,6 +2376,7 @@ impl ChatView {
             selected: selection.map(|(_, ids)| ids.into_iter().collect()).unwrap_or_default(),
             members: conversation.members.iter().map(|member| member.user_id.clone()).collect(),
             read_by: conversation.read_by.clone(),
+            parsed: Default::default(),
         };
         let server_id = self.server_id.clone();
         if !wanted.is_empty() {
@@ -2464,33 +2536,25 @@ fn file_for_sending(path: &std::path::Path) -> serde_json::Value {
     file
 }
 
-impl Render for ChatView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+
+impl ChatView {
+    /// The messages, or the spinner or empty state in their place: what `MessageList` draws.
+    pub fn render_body(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let Some(conversation) = self.conversation(cx) else { return div().into_any_element() };
-        self.mark_read(&conversation, cx);
         let is_channel = conversation.kind == "channel";
-        for old in self.retired_frames.drain(..) {
-            window.drop_image(old).ok();
-        }
-        self.sync_inline_editor(&conversation, window, cx);
-        let header = if is_channel { self.channel_header(&conversation, cx) } else { self.header(&conversation, cx) };
-        let (call, call_expanded) = if is_channel { (None, false) } else { self.call_area(&conversation, cx) };
-        let state = self.state.read(cx);
-        let list = state.lists.get(&conversation.list_id()).cloned();
-        let panel = state.panel;
-        let peer_changed = conversation
-            .peer_id
-            .as_ref()
-            .and_then(|id| state.servers.get(&self.server_id).and_then(|s| s.users.get(id)))
-            .is_some_and(|peer| peer.trust == "changed" && !peer.is_self);
-        let body: AnyElement = match &list {
-            Some(list) if !list.loaded && list.items.is_empty() => div().flex_1().flex().items_center().justify_center().child(spinner(18., theme.text2)).into_any_element(),
-            Some(list) if list.items.is_empty() => self.empty_chat(&conversation, cx),
+        let list = self.state.read(cx).lists.get(&conversation.list_id()).map(|list| ListShape { loaded: list.loaded, empty: list.items.is_empty(), detached: list.detached });
+        match &list {
+            Some(list) if !list.loaded && list.empty => div().flex_1().flex().items_center().justify_center().child(spinner(18., theme.text2)).into_any_element(),
+            Some(list) if list.empty => self.empty_chat(&conversation, cx),
             None => div().flex_1().into_any_element(),
             Some(_) => {
-                let Some((items, context)) = self.chat_context(&conversation, cx) else { return div().into_any_element() };
-                let context = Rc::new(context);
+                // Built again only when the chat's state changed, not each frame: it copies
+                // every message here and every person on the server.
+                if self.context_cache.is_none() {
+                    self.context_cache = self.chat_context(&conversation, cx).map(|(items, context)| (items, Rc::new(context)));
+                }
+                let Some((items, context)) = self.context_cache.clone() else { return div().into_any_element() };
                 let count = items.len();
                 if self.list.item_count() != count {
                     self.list.reset(count);
@@ -2606,7 +2670,30 @@ impl Render for ChatView {
                     })
                     .into_any_element()
             }
-        };
+        }
+    }
+}
+
+impl Render for ChatView {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = theme(cx);
+        let Some(conversation) = self.conversation(cx) else { return div().into_any_element() };
+        self.mark_read(&conversation, cx);
+        let is_channel = conversation.kind == "channel";
+        for old in self.retired_frames.drain(..) {
+            window.drop_image(old).ok();
+        }
+        self.sync_inline_editor(&conversation, window, cx);
+        let header = if is_channel { self.channel_header(&conversation, cx) } else { self.header(&conversation, cx) };
+        let (call, call_expanded) = if is_channel { (None, false) } else { self.call_area(&conversation, cx) };
+        let state = self.state.read(cx);
+        let panel = state.panel;
+        let peer_changed = conversation
+            .peer_id
+            .as_ref()
+            .and_then(|id| state.servers.get(&self.server_id).and_then(|s| s.users.get(id)))
+            .is_some_and(|peer| peer.trust == "changed" && !peer.is_self);
+        let body = gpui::AnyView::from(self.messages.clone()).cached(gpui::StyleRefinement::default().flex_1().min_h_0().min_w_0()).into_any_element();
         let selecting = self.state.read(cx).selection.as_ref().is_some_and(|(list, _)| *list == conversation.list_id());
         if selecting != self.was_selecting {
             // The check circles take room on the left, so every row is measured again.
@@ -2636,8 +2723,13 @@ impl Render for ChatView {
         let state = self.state.clone();
         let user_id = conversation.peer_id.clone().unwrap_or_default();
         let typing_line = is_channel.then(|| self.channel_typing(&conversation, cx));
-        let members = (is_channel && side_panel.is_none() && !self.state.read(cx).settings.hide_member_list).then(|| self.member_list(cx));
+        let members = (is_channel && side_panel.is_none() && !self.state.read(cx).settings.hide_member_list).then(|| {
+            let (state, server_id) = (self.state.clone(), self.server_id.clone());
+            let view = self.member_view.get_or_insert_with(|| cx.new(|cx| MemberList::new(state, server_id, cx))).clone();
+            gpui::AnyView::from(view).cached(gpui::StyleRefinement::default().flex_none().w(px(240.)).h_full()).into_any_element()
+        });
         div()
+            .size_full()
             .flex_1()
             .min_w_0()
             .flex()

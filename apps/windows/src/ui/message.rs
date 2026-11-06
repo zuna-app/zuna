@@ -56,6 +56,9 @@ pub struct ChatContext {
     /// The message being edited where it is, in a channel, and the field it's edited in.
     pub editing_id: Option<String>,
     pub inline_editor: Option<Entity<super::text_input::TextInput>>,
+    /// Each message's text, parsed once while this context lasts: it's built again when
+    /// the chat's state changes, so a message whose text changed is parsed again then.
+    pub parsed: std::cell::RefCell<HashMap<String, Rc<Vec<Block>>>>,
 }
 
 const GROUP_WINDOW_MS: f64 = 5. * 60. * 1000.;
@@ -729,8 +732,13 @@ fn flow_text(
 }
 
 pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, context: &ChatContext, theme: &Theme, window: &mut Window, cx: &mut App) -> AnyElement {
-    let markup_context = markup::Context { emotes: &message.emotes, mentionable: &context.mentionable, self_id: &context.self_id };
-    let blocks = markup::parse(&message.text, &markup_context);
+    let cached = context.parsed.borrow().get(&message.id).cloned();
+    let blocks = cached.unwrap_or_else(|| {
+        let markup_context = markup::Context { emotes: &message.emotes, mentionable: &context.mentionable, self_id: &context.self_id };
+        let blocks = Rc::new(markup::parse(&message.text, &markup_context));
+        context.parsed.borrow_mut().insert(message.id.clone(), blocks.clone());
+        blocks
+    });
     let base = if own { theme.bubble_own_text } else { theme.text1 };
     let revealed = context.revealed.borrow().contains(&message.id);
     let last_text = blocks.iter().rposition(|block| matches!(block, Block::Text(_)));
