@@ -19,6 +19,7 @@
     "build:web": "node scripts/build-web.mjs",
     "build:screenshare": "node scripts/build-screenshare.mjs",
     "build:windows": "node scripts/windows-app.mjs build",
+    "dist:windows": "node scripts/windows-app.mjs dist",
     "dev:windows": "node scripts/windows-app.mjs run",
     "test": "npm run test:crypto && npm run test:server && npm run test:core",
     "test:crypto": "node scripts/test-crypto.mjs",

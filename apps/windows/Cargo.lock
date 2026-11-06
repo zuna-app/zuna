@@ -10578,6 +10578,7 @@ dependencies = [
  "chrono",
  "cpal",
  "dirs 6.0.0",
+ "embed-resource",
  "env_logger",
  "fancy-regex",
  "futures",

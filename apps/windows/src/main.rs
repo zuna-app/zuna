@@ -48,8 +48,9 @@ fn main() {
             return;
         }
     };
-    // As a packaged desktop app registers it. A development build leaves the registry alone.
-    if !cfg!(debug_assertions) {
+    // As a packaged desktop app registers it, once installed. A development build, or a copy run
+    // from where it was built, leaves the registry alone.
+    if !cfg!(debug_assertions) && std::env::current_exe().is_ok_and(|exe| platform::updates::installed(&exe)) {
         platform::single::register_scheme();
     }
 
@@ -147,12 +148,14 @@ fn main() {
         )
         .expect("the window opens");
         cx.activate(true);
+        platform::updates::start();
     });
 }
 
-/// Quits for good, taking the tray's icon with it.
+/// Quits for good, taking the tray's icon with it, and installs a downloaded update.
 fn quit(cx: &mut App) {
     platform::tray::remove();
+    platform::updates::install_on_quit();
     cx.quit();
 }
 

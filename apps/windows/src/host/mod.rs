@@ -182,6 +182,11 @@ impl Core {
     }
 }
 
+/// The certificate rules everything else here reaches the internet with.
+pub fn tls_config() -> rustls::ClientConfig {
+    tls::client_config(&[b"h2", b"http/1.1"])
+}
+
 /// Fetches something a server serves openly, such as its icon or an emote, with the
 /// same certificate rules as the core. It never carries anything of the account.
 pub fn fetch(url: String) -> impl Future<Output = Result<Vec<u8>, String>> {
