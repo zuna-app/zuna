@@ -3,10 +3,16 @@
 ; oneClick, perMachine false, deleteAppDataOnUninstall false). Built by
 ; `npm run dist:windows`, which passes the defines below.
 ;
-;   SOURCE   the folder with Zuna.exe and screenshare\
-;   OUTFILE  the installer to write
-;   VERSION  the version it installs
-;   ICON     the app's icon
+; It's built twice, as electron-builder builds the desktop's, so that the uninstaller can be
+; signed: first with BUILD_UNINSTALLER, as a program that only writes the uninstaller to
+; UNINSTALLER and quits, which the build runs and signs, then as the installer, which carries
+; that signed file.
+;
+;   SOURCE       the folder with Zuna.exe and screenshare\
+;   OUTFILE      the installer to write, or the program that writes the uninstaller
+;   VERSION      the version it installs
+;   ICON         the app's icon
+;   UNINSTALLER  where the uninstaller is written, and taken from
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -30,7 +36,9 @@ VIAddVersionKey "LegalCopyright" "Zuna contributors. Licensed under AGPL-3.0."
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\ZunaNative"
 
 Page instfiles
+!ifdef BUILD_UNINSTALLER
 UninstPage instfiles
+!endif
 
 ; This install's own copy, if it's running, closes first. Others named Zuna.exe, such as the
 ; desktop app, are left alone.
@@ -40,13 +48,40 @@ UninstPage instfiles
   Sleep 500
 !macroend
 
+!ifdef BUILD_UNINSTALLER
+
+Function .onInit
+  SetSilent silent
+  WriteUninstaller "${UNINSTALLER}"
+  SetErrorLevel 0
+  Quit
+FunctionEnd
+
+Section "Zuna"
+SectionEnd
+
+Section "Uninstall"
+  !insertmacro CloseRunning
+  Delete "$SMPROGRAMS\Zuna Native.lnk"
+  Delete "$DESKTOP\Zuna Native.lnk"
+  RMDir /r "$INSTDIR"
+  DeleteRegKey HKCU "${UNINSTALL_KEY}"
+  ; zuna:// stays with whichever app has it now, if that isn't this one.
+  ReadRegStr $0 HKCU "Software\Classes\zuna\shell\open\command" ""
+  StrCmp $0 '"$INSTDIR\Zuna.exe" "%1"' 0 +2
+  DeleteRegKey HKCU "Software\Classes\zuna"
+  ; Messages and keys stay in %APPDATA%\Zuna Native, as the desktop app's stay on uninstalling.
+SectionEnd
+
+!else
+
 ; Called Zuna Native in the Start menu and in Apps, as its data folder is, so it never takes the
 ; desktop app's shortcuts or entry when both are installed.
 Section "Zuna"
   !insertmacro CloseRunning
   SetOutPath "$INSTDIR"
   File /r "${SOURCE}\*.*"
-  WriteUninstaller "$INSTDIR\Uninstall Zuna.exe"
+  File "/oname=Uninstall Zuna.exe" "${UNINSTALLER}"
 
   CreateShortCut "$SMPROGRAMS\Zuna Native.lnk" "$INSTDIR\Zuna.exe"
   IfSilent +2
@@ -75,15 +110,4 @@ Function .onInstSuccess
   done:
 FunctionEnd
 
-Section "Uninstall"
-  !insertmacro CloseRunning
-  Delete "$SMPROGRAMS\Zuna Native.lnk"
-  Delete "$DESKTOP\Zuna Native.lnk"
-  RMDir /r "$INSTDIR"
-  DeleteRegKey HKCU "${UNINSTALL_KEY}"
-  ; zuna:// stays with whichever app has it now, if that isn't this one.
-  ReadRegStr $0 HKCU "Software\Classes\zuna\shell\open\command" ""
-  StrCmp $0 '"$INSTDIR\Zuna.exe" "%1"' 0 +2
-  DeleteRegKey HKCU "Software\Classes\zuna"
-  ; Messages and keys stay in %APPDATA%\Zuna Native, as the desktop app's stay on uninstalling.
-SectionEnd
+!endif

@@ -84,11 +84,28 @@ if (command === "dist") {
   const { getMakeNsisPath } = require("app-builder-lib/out/toolsets/windows");
   const makensis = await getMakeNsisPath(undefined, undefined);
   const out = join(dist, `Zuna-Native-Setup-${version}.exe`);
-  const made = spawnSync(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DOUTFILE=${out}`, `-DVERSION=${version}`, `-DICON=${icon}`, join(crate, "installer", "zuna.nsi")], {
-    stdio: "inherit",
-    env: { ...process.env, ...(makensis.env ?? {}) },
-  });
-  if (made.status !== 0) process.exit(made.status ?? 1);
+  const nsis = (defines) => {
+    const made = spawnSync(makensis.path, ["-V2", `-DSOURCE=${staged}`, `-DVERSION=${version}`, `-DICON=${icon}`, ...defines, join(crate, "installer", "zuna.nsi")], {
+      stdio: "inherit",
+      env: { ...process.env, ...(makensis.env ?? {}) },
+    });
+    if (made.status !== 0) process.exit(made.status ?? 1);
+  };
+  // Built twice, as electron-builder builds the desktop's: first a program that only writes the
+  // uninstaller, which is run and the uninstaller signed, then the installer that carries it.
+  const uninstaller = join(dist, "Uninstall Zuna.exe");
+  const writer = join(dist, "write-uninstaller.exe");
+  rmSync(uninstaller, { force: true });
+  nsis(["-DBUILD_UNINSTALLER", `-DOUTFILE=${writer}`, `-DUNINSTALLER=${uninstaller}`]);
+  spawnSync(writer, [], { stdio: "inherit" });
+  rmSync(writer, { force: true });
+  if (!existsSync(uninstaller)) {
+    console.error("Writing the uninstaller failed.");
+    process.exit(1);
+  }
+  if (signer) signer(uninstaller);
+  nsis([`-DOUTFILE=${out}`, `-DUNINSTALLER=${uninstaller}`]);
+  rmSync(uninstaller, { force: true });
   if (signer) signer(out);
   console.log(`> wrote ${out}${signer ? ", signed" : ""}`);
 }
