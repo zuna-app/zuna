@@ -4,6 +4,7 @@
 
 mod clipboard;
 pub mod location;
+pub mod screens;
 pub mod icons;
 mod quiet;
 pub mod tray;

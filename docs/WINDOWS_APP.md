@@ -1,6 +1,6 @@
 # The native Windows app
 
-A Windows app that draws Zuna's interface with [GPUI](https://gpui.rs/), Zed's GPU-accelerated UI framework, in place of Electron. It's a work in progress on the `wip-gpui` branch: chatting, notifications, voice channels and calls work, while screen sharing and installers are still to come.
+A Windows app that draws Zuna's interface with [GPUI](https://gpui.rs/), Zed's GPU-accelerated UI framework, in place of Electron. It's a work in progress on the `wip-gpui` branch: chatting, notifications, voice channels, calls and screen sharing work, while installers are still to come.
 
 ## How it's built
 
@@ -13,7 +13,7 @@ All of the protocol stays in one place. The app runs the same client core as eve
 
 What the Electron app asks of Windows itself, the GPUI app asks directly, in `apps/windows/src/platform`: the tray's icon and menu, the unread count on the taskbar button, and whether Windows wants quiet for a presentation, a full-screen game or Focus Assist. Notifications are the app's own cards, as the Electron app draws them on Windows, in a window of their own at the bottom right of the screen.
 
-Voice channels and calls go through LiveKit's Rust SDK, which `zuna-screenshare` already publishes with, so frames are encrypted as livekit-client encrypts them and the desktop, the web and the iPhone open them. Its prebuilt libwebrtc uses the static C runtime, so the whole app does (`apps/windows/.cargo/config.toml`). The microphone goes through WebRTC's own processing and RNNoise, and the sound devices through cpal, in `apps/windows/src/voice`.
+Voice channels and calls go through LiveKit's Rust SDK, which `zuna-screenshare` already publishes with, so frames are encrypted as livekit-client encrypts them and the desktop, the web and the iPhone open them. Its prebuilt libwebrtc uses the static C runtime, so the whole app does (`apps/windows/.cargo/config.toml`). The microphone goes through WebRTC's own processing and RNNoise, and the sound devices through cpal, in `apps/windows/src/voice`. A screen share is the desktop's native program, `zuna-screenshare`, started the same way: an installer puts it in `screenshare` beside `Zuna.exe`, and a development build finds the one `npm run build:screenshare` writes.
 
 The interface in `apps/windows/src/ui` follows the desktop's styles in `packages/ui`: the same colors, sizes, spacing, fonts (Inter and JetBrains Mono) and icons (Lucide's, written out by `apps/windows/scripts/icons.mjs`).
 
@@ -31,4 +31,4 @@ For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` 
 
 ## What's missing
 
-Screen sharing, push to talk, the voice settings pages, installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.
+Push to talk, the voice settings pages, installers and updates. `.agents/FEATURE_PARITY.md` keeps the full list.

@@ -714,13 +714,11 @@ impl Render for VoiceStage {
             let people = members.len() + ringing.len() + screens.len() + usize::from(native_self_share.is_some());
             let mut tiles: Vec<AnyElement> = Vec::new();
             let strip = focused.is_some();
-            let size = if strip {
-                (STRIP_WIDTH, STRIP_HEIGHT)
-            } else {
-                let columns = (people.max(1) as f32).sqrt().ceil().min(4.) as usize;
-                let rows = people.max(1).div_ceil(columns);
-                fit((area_width - GAP * (columns as f32 - 1.)) / columns as f32, (area_height - GAP * (rows as f32 - 1.)) / rows as f32)
-            };
+            // As the desktop's grid: columns of equal width, each tile as large as fits its cell, the cells filled row by row.
+            let columns = (people.max(1) as f32).sqrt().ceil().min(4.) as usize;
+            let rows = people.max(1).div_ceil(columns);
+            let cell = ((area_width - GAP * (columns as f32 - 1.)) / columns as f32, (area_height - GAP * (rows as f32 - 1.)) / rows as f32);
+            let size = if strip { (STRIP_WIDTH, STRIP_HEIGHT) } else { fit(cell.0, cell.1) };
             let tile_size = if strip { fit(STRIP_WIDTH, STRIP_HEIGHT) } else { size };
             for tile in screens.iter().filter(|tile| Some(&tile.key) != focused.as_ref().map(|focused| &focused.key)) {
                 tiles.push(self.screen_tile(tile, false, tile_size, cx));
@@ -777,11 +775,10 @@ impl Render for VoiceStage {
                         .flex_wrap()
                         .content_center()
                         .items_center()
-                        .justify_center()
                         .gap(px(GAP))
                         .overflow_hidden()
                         .child(canvas(move |bounds, _, _| measured.set(bounds), |_, _, _, _| {}).absolute().inset_0())
-                        .children(tiles),
+                        .children(tiles.into_iter().map(|tile| div().flex_none().w(px(cell.0.floor())).h(px(cell.1.floor())).flex().items_center().justify_center().child(tile))),
                 );
             }
             div()

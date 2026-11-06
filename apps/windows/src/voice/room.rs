@@ -164,7 +164,11 @@ struct Shared {
     sending: Mutex<i32>,
     /// Bumped with each new key, so a delayed switch that's been overtaken does nothing.
     key_serial: AtomicU64,
+    /// Told each room key this device starts sending under, for a native share to follow.
+    on_send_key: Mutex<Option<SendKeyHook>>,
 }
+
+pub type SendKeyHook = Arc<dyn Fn(&[u8], i32) + Send + Sync>;
 
 pub struct VoiceRoom {
     room: Arc<Room>,
@@ -209,6 +213,7 @@ impl VoiceRoom {
             provider,
             sending: Mutex::new(index),
             key_serial: AtomicU64::new(0),
+            on_send_key: Mutex::new(None),
         });
         let room = Arc::new(room);
         // Those already here, and everything they send.
@@ -263,6 +268,10 @@ impl VoiceRoom {
             shared.provider.set_key(&ParticipantIdentity(shared.identity.clone()), index, sender_key(&room_key, &shared.identity));
             *shared.sending.lock() = index;
             shared.apply_sending_index(&room);
+            let hook = shared.on_send_key.lock().clone();
+            if let Some(hook) = hook {
+                hook(&room_key, index);
+            }
         };
         if first {
             switch();
@@ -272,6 +281,11 @@ impl VoiceRoom {
                 switch();
             });
         }
+    }
+
+    /// Hears each new room key this device sends under, or stops hearing with None.
+    pub fn set_send_key_hook(&self, hook: Option<SendKeyHook>) {
+        *self.shared.on_send_key.lock() = hook;
     }
 
     /// The room's key now, for a native screen share: (index, key).

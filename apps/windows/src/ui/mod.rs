@@ -12,6 +12,7 @@ pub mod overlays;
 pub mod invites;
 pub mod media_views;
 pub mod picker;
+pub mod screen_picker;
 pub mod server_settings;
 pub mod settings;
 pub mod shared_media;
