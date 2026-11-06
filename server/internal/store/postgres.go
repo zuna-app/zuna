@@ -493,4 +493,14 @@ CREATE TABLE sounds (
 -- When someone deleted their account. What stays of it is what others need to go
 -- on reading what they sent: its ID, its public keys and its devices' certificates.
 ALTER TABLE users ADD COLUMN deleted_at BIGINT;
+`, `
+-- Someone reported to the server's admins, why and when. Who reported them isn't
+-- kept, and nothing of what was said ever reaches the server.
+CREATE TABLE reports (
+	id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	user_id TEXT COLLATE "C" NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	reason TEXT COLLATE "C" NOT NULL,
+	created_at BIGINT NOT NULL
+);
+CREATE INDEX reports_user ON reports(user_id);
 `}

@@ -36,6 +36,7 @@ Please report security issues privately through GitHub's "Report a vulnerability
 | **Calls** | Who's in a call in which conversation and when, whom it rings and who declined, and whether they say they're muted, deafened, on camera or sharing | What's said and shown in it |
 | **Network** | IP addresses of connecting devices | |
 | **Search** | Nothing: it runs on your device | Your queries |
+| **Reports** | Whom someone reported and why, and who sends a report as it arrives, which it doesn't keep | What was said |
 
 ## What you can do
 
@@ -127,6 +128,10 @@ Sensitive data the app keeps is encrypted with a key held in your system's keych
 ### Deleting your account
 
 You can delete your account on a server in Settings, with your password. The server erases what it kept to sign you in and to give your devices your keys, your profile and picture, your devices' sessions and anything waiting for them, and frees your username. It keeps your account's ID, its public keys and its devices' certificates, so that whoever you wrote to can still check what you sent. What you sent stays with them, from "Deleted account", as the server couldn't take it off their devices anyway. The device you delete it from erases its copy. Your other devices are signed out and keep theirs, as with any sign-out, until you remove it or 30 days pass. A server's owner can't delete their account there.
+
+### Reporting someone
+
+You can report someone to a server's admins at the bottom of their profile, for one of a few reasons. The admins see whom you reported, why and when, in Server settings, and can dismiss it or ban them. Nobody sees what was said, as it's encrypted, and the server doesn't keep who reported whom: it only knows who's sending a report while it arrives, and remembers in memory, for a day, not to take the same report twice. Your account remembers whom you've reported, encrypted as your other settings are.
 
 ## Limits
 

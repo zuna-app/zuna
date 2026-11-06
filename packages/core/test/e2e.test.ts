@@ -1080,6 +1080,27 @@ describe("deleting an account", () => {
   });
 });
 
+describe("reporting someone", () => {
+  it("tells the admins whom and why, once, and nothing else", async () => {
+    const quinn = await new TestApp("quinn-laptop").open();
+    await quinn.register(invite, "quinn");
+    const rex = await new TestApp("rex-laptop").open();
+    await rex.register(invite, "rex");
+    await waitFor(() => quinn.session.getUsers().some((user) => user.id === rex.userId), "quinn to see rex");
+
+    await quinn.session.reportUser(rex.userId, "harassment");
+    expect(quinn.session.getPreferences().reported).toEqual([rex.userId]);
+    await expect(quinn.session.reportUser(rex.userId, "spam")).rejects.toThrow("already");
+    await expect(quinn.session.getReports()).rejects.toThrow();
+
+    const reports = await alice.session.getReports();
+    expect(reports.find((report) => report.userId === rex.userId)).toMatchObject({ count: 1, reasons: ["harassment"] });
+    await alice.session.dismissReports(rex.userId);
+    expect((await alice.session.getReports()).some((report) => report.userId === rex.userId)).toBe(false);
+    for (const app of [quinn, rex]) app.client.stop();
+  });
+});
+
 describe("sessions end cleanly", () => {
   it("erases local data when signing out of a server", async () => {
     const temp = await new TestApp("temp").open();

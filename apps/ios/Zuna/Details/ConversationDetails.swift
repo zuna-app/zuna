@@ -15,6 +15,7 @@ struct ConversationDetails: View {
     @State private var memberMenu: String?
     @State private var choosingMute = false
     @State private var confirming: Confirmation?
+    @State private var reporting: UserView?
     @State private var photo: PhotosPickerItem?
     @State private var choosingPhoto = false
     @State private var mediaCounts: MediaCounts?
@@ -168,7 +169,7 @@ struct ConversationDetails: View {
             .listRowBackground(Theme.bg2)
 
             // Nobody is told, so it needs no warning.
-            if let peer, !isSelf {
+            if let peer, !isSelf, !peer.deleted {
                 Section {
                     if server.isBlocked(peer.id) {
                         Button { model.setBlocked(peer.id, false, on: serverId) } label: {
@@ -187,6 +188,24 @@ struct ConversationDetails: View {
                 }
                 .listRowBackground(Theme.bg2)
                 .accessibilityIdentifier(A11y.Details.block)
+            }
+
+            if let peer, !isSelf, !peer.deleted, !peer.banned {
+                Section {
+                    if server.prefs.reported?.contains(peer.id) == true {
+                        Label("Reported to the server's admins", systemImage: "flag")
+                            .foregroundStyle(Theme.text3)
+                    } else {
+                        Button { reporting = peer } label: {
+                            Label("Report \(peer.displayName)", systemImage: "flag")
+                        }
+                        .foregroundStyle(Theme.text1)
+                    }
+                } footer: {
+                    Text("The server's admins see whom and why, never what was said or who reported.")
+                }
+                .listRowBackground(Theme.bg2)
+                .accessibilityIdentifier(A11y.Details.report)
             }
 
             if conversation.kind == .group {
@@ -234,6 +253,16 @@ struct ConversationDetails: View {
         }
         .confirmationDialog(confirmTitle(conversation), isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible, presenting: confirming) { confirmation in
             Button(confirmAction(confirmation), role: .destructive) { perform(confirmation, serverId, conversation) }
+        }
+        .confirmationDialog("Report \(reporting?.displayName ?? "them") for", isPresented: Binding(get: { reporting != nil }, set: { if !$0 { reporting = nil } }), titleVisibility: .visible, presenting: reporting) { user in
+            ForEach(ReportReason.allCases, id: \.self) { reason in
+                Button(reason.label) {
+                    run {
+                        try await model.core.session(serverId).reportUser(user.id, reason: reason)
+                        model.toast("Reported to the server's admins")
+                    }
+                }
+            }
         }
         .photosPicker(isPresented: $choosingPhoto, selection: $photo, matching: .images)
         .onChange(of: photo) { _, item in

@@ -1,4 +1,4 @@
-import type { ConversationView, MessageView, SearchResult } from "@zuna/core";
+import type { ConversationView, MessageView, ReportReason, SearchResult } from "@zuna/core";
 import { plainText } from "@zuna/core/plain-text";
 import {
   AtSign,
@@ -11,6 +11,7 @@ import {
   Crown,
   Eye,
   EyeOff,
+  Flag,
   Lock,
   LogOut,
   Pin,
@@ -33,6 +34,7 @@ import { timerEntries, timerText } from "@/lib/disappearing";
 import { formatFull, formatLastSeen, formatListTime, nameColor } from "@/lib/format";
 import { prepareAvatar } from "@/lib/media";
 import { muteEntries, mutedUntilText } from "@/lib/mute";
+import { REPORT_REASON_LABELS } from "@/lib/report";
 import { useActiveServer, useApp } from "@/state/store";
 import { SharedMediaContent, SharedMediaRows, sharedTitle } from "./SharedMedia";
 
@@ -218,9 +220,62 @@ function InfoContent({ conversation }: { conversation: ConversationView }) {
       {peer && !isSelf && !peer.deleted && (
         <div className="side-section">
           <BlockRow userId={peer.id} name={peer.displayName} />
+          {!peer.banned && <ReportRow userId={peer.id} name={peer.displayName} />}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Reporting someone to the server's admins, last in their profile. The admins learn
+ * whom and why, never what was said nor who reported them.
+ */
+function ReportRow({ userId, name }: { userId: string; name: string }) {
+  const session = useApp((state) => state.session);
+  const toast = useApp((state) => state.toast);
+  const reported = useActiveServer()?.prefs.reported?.includes(userId) ?? false;
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const { run } = useAction();
+  if (reported) {
+    return (
+      <div className="side-row">
+        <Flag size={17} />
+        <span className="grow faint">Reported to the server's admins</span>
+      </div>
+    );
+  }
+  return (
+    <>
+      <button
+        className="side-row is-button"
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          setMenu({ x: rect.left, y: rect.bottom + 4 });
+        }}
+      >
+        <Flag size={17} />
+        <span className="grow">
+          Report {name}
+          <span className="side-row-hint">The server's admins see whom and why, never what was said or who reported.</span>
+        </span>
+      </button>
+      {menu && (
+        <PopupMenu
+          x={menu.x}
+          y={menu.y}
+          entries={Object.entries(REPORT_REASON_LABELS).map(([reason, label]) => ({
+            label,
+            onSelect: () =>
+              void run(async () => {
+                await session().reportUser(userId, reason as ReportReason);
+                toast("Reported to the server's admins");
+              }),
+          }))}
+          onClose={() => setMenu(null)}
+        />
+      )}
+    </>
   );
 }
 

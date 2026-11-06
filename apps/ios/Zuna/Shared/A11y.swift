@@ -201,6 +201,7 @@ enum A11y {
         static let notifications = "details.notifications"
         static let mentionsOnly = "details.mentionsOnly"
         static let block = "details.block"
+        static let report = "details.report"
         static let history = "details.history"
         static let disappearing = "details.disappearing"
         static let edit = "details.edit"
@@ -352,6 +353,7 @@ enum A11y {
         static let screenMaxKbps = "settings.screenRules.maxKbps"
         static func device(_ id: String) -> String { "settings.device.\(id)" }
         static func member(_ username: String) -> String { "settings.member.\(username)" }
+        static let reports = "settings.reports"
         static func accent(_ id: String) -> String { "settings.accent.\(id)" }
     }
 }

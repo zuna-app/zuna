@@ -142,6 +142,8 @@ import type {
   PushSettings,
   ReactionView,
   ReplyPreview,
+  ReportReason,
+  ReportView,
   Role,
   SafetyCheck,
   SearchResult,
@@ -155,7 +157,7 @@ import type {
   VoiceMember,
   VoiceUpdate,
 } from "./types";
-import { isMuted, onlyMentionsNotify } from "./types";
+import { isMuted, onlyMentionsNotify, REPORT_REASONS } from "./types";
 
 const CHUNK_SIZE = 1 << 20;
 /** How often a claim of someone's key packages is tried while the server says to slow down, and how far apart: it allows one every 2 seconds then. */
@@ -4976,6 +4978,35 @@ export class ServerSession {
     const current = this.prefs.blocked ?? [];
     if (userId === this.account.userId || current.includes(userId) === blocked) return Promise.resolve();
     return this.updatePreferences({ blocked: blocked ? [...current, userId] : current.filter((other) => other !== userId) });
+  }
+
+  /**
+   * Reports someone to this server's admins, who see whom and why, never what was said
+   * nor who reported them. This account remembers it, so that each person is reported once.
+   */
+  async reportUser(userId: string, reason: ReportReason): Promise<void> {
+    await this.api.report(userId, reason);
+    const reported = this.prefs.reported ?? [];
+    if (!reported.includes(userId)) await this.updatePreferences({ reported: [...reported, userId] });
+  }
+
+  /** What people were reported for, one entry a person, the latest first. For admins. */
+  async getReports(): Promise<ReportView[]> {
+    const { reports } = await this.api.reports();
+    const byUser = new Map<string, ReportView>();
+    for (const report of reports) {
+      const view = byUser.get(report.user_id) ?? { userId: report.user_id, count: 0, reasons: [], lastAt: report.created_at };
+      view.count++;
+      const reason = REPORT_REASONS.find((known) => known === report.reason);
+      if (reason && !view.reasons.includes(reason)) view.reasons.push(reason);
+      byUser.set(report.user_id, view);
+    }
+    return [...byUser.values()];
+  }
+
+  /** Forgets what someone was reported for, as an admin. */
+  async dismissReports(userId: string): Promise<void> {
+    await this.api.dismissReports(userId);
   }
 
   /** Has a chat notify only about messages that mention you or reply to you, or about all of them again. */

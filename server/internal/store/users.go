@@ -357,6 +357,10 @@ func (d *DB) BanUser(ctx context.Context, userID string) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM push_registrations WHERE user_id = ?`, userID); err != nil {
 			return err
 		}
+		// Banning them is the answer to what they were reported for.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM reports WHERE user_id = ?`, userID); err != nil {
+			return err
+		}
 		// An invite they made shouldn't be their way back in.
 		if _, err := tx.ExecContext(ctx, `UPDATE invites SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL`, now, userID); err != nil {
 			return err
@@ -408,6 +412,7 @@ func (d *DB) DeleteAccount(ctx context.Context, userID string) (string, error) {
 			`DELETE FROM push_registrations WHERE user_id = ?`,
 			`DELETE FROM group_members WHERE user_id = ?`,
 			`DELETE FROM channel_sends WHERE user_id = ?`,
+			`DELETE FROM reports WHERE user_id = ?`,
 		} {
 			if _, err := tx.ExecContext(ctx, statement, userID); err != nil {
 				return err

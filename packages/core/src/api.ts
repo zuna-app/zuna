@@ -2,7 +2,7 @@
 
 import * as wasm from "@zuna/crypto";
 import { concat, fromBase64, toBase64, utf8 } from "./encoding";
-import type { Emote, Invite, ServerInfo } from "./types";
+import type { Emote, Invite, ReportReason, ServerInfo } from "./types";
 
 /**
  * A request's path, with whatever goes in it kept to one part of the path, whatever
@@ -47,6 +47,13 @@ export interface ApiUser {
   created_at: number;
   updated_at: number;
   devices: ApiDevice[];
+}
+
+/** Someone reported to the server's admins, why and when. Who reported them isn't kept. */
+export interface ApiReport {
+  user_id: string;
+  reason: string;
+  created_at: number;
 }
 
 export interface ApiDevice {
@@ -422,6 +429,11 @@ export class Api {
   account = () => this.request<ApiAccount>("GET", "/api/account");
   rotate = (body: unknown) => this.request("POST", "/api/account/rotate", body);
   deleteAccount = (authKey: Uint8Array) => this.request("DELETE", "/api/account", { auth_key: authKey });
+
+  // Reports to the server's admins
+  report = (userId: string, reason: ReportReason) => this.request("POST", "/api/reports", { user_id: userId, reason });
+  reports = () => this.request<{ reports: ApiReport[] }>("GET", "/api/admin/reports");
+  dismissReports = (userId: string) => this.request("DELETE", at`/api/admin/reports/${userId}`);
   putBundles = (generation: number, bundles: { device_id: string; data: Uint8Array }[]) =>
     this.request("POST", "/api/account/bundles", { generation, bundles });
   closeGeneration = (generation: number, vaultCore: Uint8Array) =>

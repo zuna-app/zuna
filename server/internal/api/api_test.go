@@ -884,6 +884,65 @@ func TestDeletingAnAccountIsNoFasterAWayToGuessItsPassword(t *testing.T) {
 	t.Fatal("wrong passwords deleting an account never slowed down")
 }
 
+func TestReportsReachAdminsWithoutWhoSentThem(t *testing.T) {
+	h := newHarness(t)
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	carol := h.register("carol", owner.newInvite())
+	h.mustDo("PUT", "/api/admin/users/"+carol.userID+"/role", owner.token, map[string]any{"role": "admin"}, nil)
+
+	for _, body := range []map[string]any{
+		{"user_id": bob.userID, "reason": "being annoying"},
+		{"user_id": carol.userID, "reason": "spam"},
+	} {
+		if status, _ := h.do("POST", "/api/reports", carol.token, body, nil); status != http.StatusBadRequest {
+			t.Fatalf("reporting %v gave %d", body, status)
+		}
+	}
+	h.mustDo("POST", "/api/reports", carol.token, map[string]any{"user_id": bob.userID, "reason": "spam"}, nil)
+	if status, _ := h.do("POST", "/api/reports", carol.token, map[string]any{"user_id": bob.userID, "reason": "harassment"}, nil); status != http.StatusTooManyRequests {
+		t.Fatalf("reporting the same person again gave %d", status)
+	}
+	h.mustDo("POST", "/api/reports", bob.token, map[string]any{"user_id": carol.userID, "reason": "harassment"}, nil)
+
+	if status, _ := h.do("GET", "/api/admin/reports", bob.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("a member listing reports gave %d", status)
+	}
+	status, raw, _ := h.raw("GET", "/api/admin/reports", owner.token, nil, nil)
+	if status != http.StatusOK || !strings.Contains(string(raw), carol.userID) || strings.Count(string(raw), "user_id") != 2 {
+		t.Fatalf("the owner's list: %d %s", status, raw)
+	}
+	// Nothing in it says who reported whom.
+	var listed struct {
+		Reports []map[string]any `json:"reports"`
+	}
+	h.mustDo("GET", "/api/admin/reports", owner.token, nil, &listed)
+	for _, report := range listed.Reports {
+		if len(report) != 3 {
+			t.Fatalf("a report carries more than who, why and when: %v", report)
+		}
+	}
+	// An admin doesn't see what they were reported for, nor dismiss it.
+	h.mustDo("GET", "/api/admin/reports", carol.token, nil, &listed)
+	if len(listed.Reports) != 1 || listed.Reports[0]["user_id"] != bob.userID || listed.Reports[0]["reason"] != "spam" {
+		t.Fatalf("carol's list: %v", listed.Reports)
+	}
+	if status, _ := h.do("DELETE", "/api/admin/reports/"+carol.userID, carol.token, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("dismissing what you were reported for gave %d", status)
+	}
+
+	h.mustDo("DELETE", "/api/admin/reports/"+carol.userID, owner.token, nil, nil)
+	h.mustDo("POST", "/api/admin/users/"+bob.userID+"/ban", owner.token, nil, nil)
+	h.mustDo("GET", "/api/admin/reports", owner.token, nil, &listed)
+	if len(listed.Reports) != 0 {
+		t.Fatalf("after dismissing one and banning the other: %v", listed.Reports)
+	}
+	dave := h.register("dave", owner.newInvite())
+	if status, _ := h.do("POST", "/api/reports", dave.token, map[string]any{"user_id": bob.userID, "reason": "spam"}, nil); status != http.StatusForbidden {
+		t.Fatalf("reporting someone banned gave %d", status)
+	}
+}
+
 // --- WebSocket ---
 
 type socket struct {

@@ -126,6 +126,11 @@ type Server struct {
 	signInFailures  *ratelimit.Backoff
 	accountAttempts *ratelimit.Backoff
 
+	// How many reports each person sends, and whom they've reported today, kept
+	// in memory alone.
+	reportLimiter       *ratelimit.Keyed
+	reportTargetLimiter *ratelimit.Keyed
+
 	commitLimiter     *ratelimit.Keyed
 	userCommitLimiter *ratelimit.Keyed
 	voidLimiter       *ratelimit.Keyed
@@ -200,6 +205,9 @@ func New(cfg Config, db *store.DB) *Server {
 		liveKit:           &http.Client{Timeout: liveKitTimeout},
 		pushClient:        &http.Client{Timeout: pushTimeout},
 		pushQueue:         make(chan pushJob, pushQueueLength),
+
+		reportLimiter:       ratelimit.NewKeyed(rate.Every(time.Hour), 10),
+		reportTargetLimiter: ratelimit.NewKeyed(rate.Every(24*time.Hour), 1),
 	}
 	s.restoreSignInAttempts(context.Background())
 	return s
@@ -507,6 +515,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/admin/users/{id}/role", s.admin(s.handleSetRole))
 	mux.HandleFunc("POST /api/admin/users/{id}/ban", s.admin(s.handleBan))
 	mux.HandleFunc("POST /api/admin/users/{id}/unban", s.admin(s.handleUnban))
+
+	// Reporting someone to the server's admins
+	mux.HandleFunc("POST /api/reports", s.withDevice(s.handleReport))
+	mux.HandleFunc("GET /api/admin/reports", s.admin(s.handleReports))
+	mux.HandleFunc("DELETE /api/admin/reports/{id}", s.admin(s.handleDismissReports))
 
 	return s.withMiddleware(mux)
 }

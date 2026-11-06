@@ -36,6 +36,9 @@ export function Privacy() {
           You can delete your account on a server in the app's settings, with your password. The server then erases your profile, your keys and what it kept
           to sign you in, and frees your username. What you sent stays with the people you sent it to, shown as from a deleted account.
         </p>
+        <p>
+          If you report someone, the server keeps whom and why for its admins, but not who reported them, and nothing of what was said, which it can't read.
+        </p>
         <p>How long a server keeps its logs and backups is up to its admins. For anything about your account, ask them.</p>
 
         <h2 id="push">zuna-push, the push relay</h2>

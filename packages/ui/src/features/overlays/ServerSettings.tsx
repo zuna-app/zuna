@@ -1,8 +1,11 @@
-import { AudioLines, Ban, Crown, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, Trash2, UserRound, Users } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import type { ReportView, UserView } from "@zuna/core";
+import { AudioLines, Ban, Crown, Flag, HardDrive, Image as ImageIcon, Link as LinkIcon, LogOut, MonitorUp, Search, Server as ServerIcon, Smile, Trash2, UserRound, Users } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Emote } from "@/components/Emote";
-import { Avatar, Field, PasswordField, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
+import { Avatar, Confirm, Field, PasswordField, PopupMenu, Spinner, Switch, useAction } from "@/components/ui";
+import { formatFull } from "@/lib/format";
 import { prepareAvatar } from "@/lib/media";
+import { REPORT_REASON_LABELS } from "@/lib/report";
 import { ServerScreenSection } from "@/features/voice/ScreenSettings";
 import { ServerSoundboardSection } from "@/features/voice/Soundboard";
 import { useActiveServer, useApp } from "@/state/store";
@@ -92,12 +95,93 @@ function InvitesSection() {
   );
 }
 
+/** Who was reported, how often and why: never what was said, which nobody here can read, nor who reported them. */
+function ReportsSection() {
+  const server = useActiveServer();
+  const session = useApp((state) => state.session);
+  const [reports, setReports] = useState<ReportView[] | null>(null);
+  const [banning, setBanning] = useState<{ userId: string; name: string } | null>(null);
+  const { run } = useAction();
+  const load = useCallback(() => {
+    void session()
+      .getReports()
+      .then(setReports)
+      .catch(() => setReports([]));
+  }, [session]);
+  useEffect(load, [load]);
+  if (!server) return null;
+  const selfRole = server.self?.role;
+  return (
+    <>
+      <h1>Reports</h1>
+      <p className="settings-lead">
+        People others on <b>{server.entry.name}</b> reported, and why. Messages are encrypted, so nobody here sees what was said, and who reported them isn't kept.
+      </p>
+      {reports === null ? (
+        <Spinner />
+      ) : reports.length === 0 ? (
+        <p className="muted">Nobody has been reported.</p>
+      ) : (
+        <div className="device-list">
+          {reports.map((report) => {
+            const user = server.users[report.userId];
+            const name = user?.displayName ?? "Unknown";
+            const canBan = !!user && !user.banned && !user.deleted && user.role !== "owner" && (selfRole === "owner" || user.role === "member");
+            return (
+              <div key={report.userId} className="device-row">
+                <Avatar name={name} seed={report.userId} avatar={user?.avatar ?? null} size={36} />
+                <span className="grow">
+                  <span style={{ display: "block", fontWeight: 500 }}>{name}</span>
+                  <span className="faint" style={{ fontSize: 12 }}>
+                    {report.count === 1 ? "1 report" : `${report.count} reports`} · {report.reasons.map((reason) => REPORT_REASON_LABELS[reason]).join(", ")} · {formatFull(report.lastAt)}
+                  </span>
+                </span>
+                <button className="btn btn-small" onClick={() => void run(async () => { await session().dismissReports(report.userId); load(); })}>
+                  Dismiss
+                </button>
+                {canBan && (
+                  <button className="btn btn-small btn-danger" onClick={() => setBanning({ userId: report.userId, name })}>
+                    <Ban size={13} /> Ban
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {banning && (
+        <BanConfirm
+          name={banning.name}
+          onCancel={() => setBanning(null)}
+          onConfirm={() => {
+            setBanning(null);
+            void run(async () => {
+              await session().banUser(banning.userId);
+              load();
+            });
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/** What a ban does, asked before it's done, wherever it's done from. */
+function BanConfirm({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <Confirm title={`Ban ${name}?`} action="Ban from server" onCancel={onCancel} onConfirm={onConfirm}>
+      They're signed out everywhere and removed from every group and channel. An admin can unban them later, in Members.
+    </Confirm>
+  );
+}
+
 function MembersSection() {
   const server = useActiveServer();
   const session = useApp((state) => state.session);
   const { run } = useAction();
   const [query, setQuery] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; userId: string } | null>(null);
+  const [banning, setBanning] = useState<UserView | null>(null);
   if (!server) return null;
   const selfRole = server.self?.role;
   const needle = query.trim().toLowerCase();
@@ -154,8 +238,18 @@ function MembersSection() {
               : []),
             target.banned
               ? { label: "Unban", icon: <UserRound size={15} />, onSelect: () => void run(() => session().unbanUser(target.id)) }
-              : { label: "Ban from server", icon: <Ban size={15} />, danger: true, onSelect: () => void run(() => session().banUser(target.id)) },
+              : { label: "Ban from server", icon: <Ban size={15} />, danger: true, onSelect: () => setBanning(target) },
           ]}
+        />
+      )}
+      {banning && (
+        <BanConfirm
+          name={banning.displayName}
+          onCancel={() => setBanning(null)}
+          onConfirm={() => {
+            setBanning(null);
+            void run(() => session().banUser(banning.id));
+          }}
         />
       )}
     </>
@@ -319,6 +413,7 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
   const core = useApp((state) => state.core);
   const removeServer = useApp((state) => state.removeServer);
   const [password, setPassword] = useState("");
+  const [confirming, setConfirming] = useState(false);
   const { busy, run } = useAction();
   if (!server) return null;
   const name = server.entry.name;
@@ -340,22 +435,28 @@ function DeleteAccountSection({ onClose }: { onClose: () => void }) {
       </p>
       <PasswordField label="Password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       <div>
-        <button
-          className="btn btn-danger"
-          disabled={!password || busy}
-          onClick={() =>
-            window.confirm(`Delete your account on ${name}? This can't be undone.`) &&
-            run(async () => {
+        <button className="btn btn-danger" disabled={!password || busy} onClick={() => setConfirming(true)}>
+          {busy ? <Spinner /> : <><Trash2 size={15} /> Delete my account</>}
+        </button>
+      </div>
+      {confirming && (
+        <Confirm
+          title={`Delete your account on ${name}?`}
+          action="Delete account"
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            void run(async () => {
               const id = server.entry.id;
               await core!.client.deleteAccount(id, password);
               onClose();
               removeServer(id);
-            })
-          }
+            });
+          }}
         >
-          {busy ? <Spinner /> : <><Trash2 size={15} /> Delete my account</>}
-        </button>
-      </div>
+          It can't be undone. What you sent stays with the people you sent it to, from "Deleted account".
+        </Confirm>
+      )}
     </>
   );
 }
@@ -370,6 +471,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
           { id: "overview", label: "Overview", icon: ServerIcon },
           { id: "invites", label: "Invites", icon: LinkIcon },
           { id: "members", label: "Members", icon: Users },
+          { id: "reports", label: "Reports", icon: Flag },
           { id: "emotes", label: "Emotes", icon: Smile },
           { id: "soundboard", label: "Soundboard", icon: AudioLines },
           { id: "storage", label: "Storage", icon: HardDrive },
@@ -384,6 +486,7 @@ export function ServerSettings({ initialSection, onClose }: { initialSection?: s
       {section === "overview" && <OverviewSection />}
       {section === "invites" && <InvitesSection />}
       {section === "members" && <MembersSection />}
+      {section === "reports" && <ReportsSection />}
       {section === "emotes" && <EmotesSection />}
       {section === "soundboard" && <ServerSoundboardSection />}
       {section === "storage" && <StorageSection />}

@@ -71,7 +71,9 @@ struct ServerSettingsView: View {
                 }
 
                 Section("Members") {
-                    NavigationLink("\(server.users.count) members") { ServerMembersView(serverId: serverId) }
+                    NavigationLink("\(server.users.values.filter { !$0.deleted }.count) members") { ServerMembersView(serverId: serverId) }
+                    NavigationLink("Reports") { ReportsView(serverId: serverId) }
+                        .accessibilityIdentifier(A11y.Settings.reports)
                 }
                 Section("Channels") {
                     NavigationLink(server.channels.count == 1 ? "1 channel" : "\(server.channels.count) channels") { ChannelsSettingsView(serverId: serverId) }
@@ -196,6 +198,86 @@ struct ServerMembersView: View {
     private func run(_ action: @escaping () async throws -> Void) {
         Task {
             do { try await action() } catch { model.toast(OnboardingText.describe(error), .error) }
+        }
+    }
+}
+
+/// Who was reported, how often and why, as on the desktop: never what was said, which
+/// nobody here can read, nor who reported them.
+struct ReportsView: View {
+    let serverId: String
+
+    @Environment(AppModel.self) private var model
+    @State private var reports: [ReportView]?
+    @State private var banning: UserView?
+
+    var body: some View {
+        let server = model.servers[serverId]
+        let selfRole = server?.me?.role
+        List {
+            Section {
+                if let reports, reports.isEmpty {
+                    Text("Nobody has been reported.").foregroundStyle(Theme.text2)
+                }
+                ForEach(reports ?? []) { report in
+                    let user = server?.users[report.userId]
+                    let name = user?.displayName ?? "Unknown"
+                    let canBan = user.map { !$0.banned && !$0.deleted && $0.role != .owner && (selfRole == .owner || $0.role == .member) } ?? false
+                    HStack(spacing: 12) {
+                        AvatarView(name: name, seed: report.userId, source: user?.avatar.map { .avatar($0, serverId: serverId) } ?? .none, size: 36)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(name).foregroundStyle(Theme.text1)
+                            Text("\(report.count == 1 ? "1 report" : "\(report.count) reports") · \(report.reasons.map(\.label).joined(separator: ", "))")
+                                .font(.caption)
+                                .foregroundStyle(Theme.text3)
+                        }
+                    }
+                    .swipeActions {
+                        Button("Dismiss") { run { try await model.core.session(serverId).dismissReports(report.userId) } }
+                        if canBan, let user {
+                            Button("Ban", role: .destructive) { banning = user }
+                        }
+                    }
+                }
+            } footer: {
+                Text("Swipe to dismiss a report, or to ban. Messages are encrypted, so nobody here sees what was said, and who reported them isn't kept.")
+            }
+            .listRowBackground(Theme.bg2)
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg0)
+        .navigationTitle("Reports")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .confirmationDialog("Ban \(banning?.displayName ?? "them")? They're signed out everywhere and removed from every group.", isPresented: Binding(get: { banning != nil }, set: { if !$0 { banning = nil } }), titleVisibility: .visible, presenting: banning) { user in
+            Button("Ban from server", role: .destructive) { run { try await model.core.session(serverId).banUser(user.id) } }
+        }
+    }
+
+    private func load() async {
+        reports = (try? await model.core.session(serverId).getReports()) ?? []
+    }
+
+    private func run(_ action: @escaping () async throws -> Void) {
+        Task {
+            do {
+                try await action()
+                await load()
+            } catch {
+                model.toast(OnboardingText.describe(error), .error)
+            }
+        }
+    }
+}
+
+extension ReportReason {
+    /// What the reason is called, as on the desktop.
+    var label: String {
+        switch self {
+        case .spam: "Spam"
+        case .harassment: "Harassment"
+        case .inappropriate: "Inappropriate content"
+        case .other: "Something else"
         }
     }
 }

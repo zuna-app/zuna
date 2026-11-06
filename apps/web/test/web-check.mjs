@@ -601,15 +601,47 @@ async function runIn(name) {
     await gone.getByRole("button", { name: "Continue" }).click();
     await gone.locator(".conv-row").first().waitFor({ timeout: 20_000 });
     await again.locator(".conv-row", { hasText: "Lee Leaving" }).waitFor({ timeout: 20_000 });
+
+    // They report someone from the bottom of that person's profile, and the admins see whom and why alone.
+    await gone.locator(".conv-row", { hasText: "Priya Nair" }).click();
+    await gone.locator(".chat-title").click();
+    await gone.locator(".side-row", { hasText: "Report Priya Nair" }).click();
+    await gone.getByRole("menuitem", { name: "Spam" }).click();
+    await gone.locator(".side-row", { hasText: "Reported to the server's admins" }).waitFor({ timeout: 10_000 });
+    check("someone is reported from their profile", true);
+    await sleep(300);
+    await gone.screenshot({ path: prefix("08a-reported") });
+    await again.locator(".server-title").click();
+    await again.getByRole("menuitem", { name: "Server settings" }).click();
+    await again.locator(".settings-nav-item", { hasText: "Reports" }).click();
+    const report = again.locator(".device-row", { hasText: "Priya Nair" });
+    await report.waitFor({ timeout: 10_000 });
+    check("the admins see whom and why", (await report.innerText()).includes("1 report · Spam"), (await report.innerText()).replace(/\n/g, " "));
+    await sleep(300);
+    await again.screenshot({ path: prefix("08a-reports") });
+    // A ban is asked about first, and Escape says no without closing settings.
+    await report.getByRole("button", { name: "Ban" }).click();
+    const askBan = again.locator(".modal", { hasText: "Ban Priya Nair?" });
+    await askBan.waitFor({ timeout: 5_000 });
+    await sleep(300);
+    await again.screenshot({ path: prefix("08a-ban-confirm") });
+    await again.keyboard.press("Escape");
+    await askBan.waitFor({ state: "detached", timeout: 5_000 });
+    check("a ban asks first, and Escape leaves them be", (await again.locator(".settings-layer").count()) === 1 && (await report.count()) === 1);
+    await report.getByRole("button", { name: "Dismiss" }).click();
+    await again.getByText("Nobody has been reported.").waitFor({ timeout: 10_000 });
+    check("dismissing a report takes it off the list", true);
+    await again.keyboard.press("Escape");
+
     await gone.getByLabel("Settings", { exact: true }).click();
     await gone.getByRole("button", { name: "Delete account" }).click();
     await gone.getByRole("button", { name: "Delete my account" }).waitFor({ timeout: 10_000 });
     await fill(gone.getByLabel("Password", { exact: true }), "web-check-only-Pass-5531");
     await sleep(300);
     await gone.screenshot({ path: prefix("08b-delete-account") });
-    gone.once("dialog", (dialog) => void dialog.accept());
     leaving.add(gone);
     await gone.getByRole("button", { name: "Delete my account" }).click();
+    await gone.locator(".modal").getByRole("button", { name: "Delete account" }).click();
     await gone.getByRole("button", { name: "Join with an invite" }).waitFor({ timeout: 20_000 });
     check("deleting an account leaves the app with no server", true);
     await again.locator(".conv-row", { hasText: "Lee Leaving" }).waitFor({ state: "detached", timeout: 20_000 });

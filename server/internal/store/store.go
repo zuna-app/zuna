@@ -610,6 +610,16 @@ ALTER TABLE vault_items ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
 -- When someone deleted their account. What stays of it is what others need to go
 -- on reading what they sent: its ID, its public keys and its devices' certificates.
 ALTER TABLE users ADD COLUMN deleted_at INTEGER;
+`, `
+-- Someone reported to the server's admins, why and when. Who reported them isn't
+-- kept, and nothing of what was said ever reaches the server.
+CREATE TABLE reports (
+	id INTEGER PRIMARY KEY,
+	user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	reason TEXT NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE INDEX reports_user ON reports(user_id);
 `}
 
 // NewID returns a random 128-bit identifier as 32 hex characters.

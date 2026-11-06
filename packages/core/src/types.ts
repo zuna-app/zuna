@@ -471,6 +471,8 @@ export interface Preferences {
   mentionsOnly?: string[];
   /** People whose messages are kept out of sight, unread counts and notifications, by user ID. Nobody else learns of it. */
   blocked?: string[];
+  /** People this account has reported to the server's admins, by user ID, so that each is reported once. */
+  reported?: string[];
   sendReadReceipts: boolean;
 }
 
@@ -482,6 +484,22 @@ export function isMuted(prefs: Partial<Pick<Preferences, "muted" | "mutedUntil">
 /** Whether a chat notifies only about messages that mention you or reply to you: it's muted, or set to mentions only. */
 export function onlyMentionsNotify(prefs: Partial<Pick<Preferences, "muted" | "mutedUntil" | "mentionsOnly">>, key: string, now = Date.now()): boolean {
   return isMuted(prefs, key, now) || (prefs.mentionsOnly ?? []).includes(key);
+}
+
+/** What someone can be reported to a server's admins for. */
+export type ReportReason = "spam" | "harassment" | "inappropriate" | "other";
+
+export const REPORT_REASONS: readonly ReportReason[] = ["spam", "harassment", "inappropriate", "other"];
+
+/**
+ * Someone reported to a server's admins, as the admins see it: how often, what for
+ * and when last. Never what was said, which the server can't read, nor who reported them.
+ */
+export interface ReportView {
+  userId: string;
+  count: number;
+  reasons: ReportReason[];
+  lastAt: number;
 }
 
 export interface DeviceView {

@@ -666,7 +666,22 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var mentionsOnly: [String]?
     /// People whose messages are kept out of sight, unread counts and notifications, by user ID. Nobody else learns of it.
     public var blocked: [String]?
+    /// People this account has reported to the server's admins, by user ID, so that each is reported once.
+    public var reported: [String]?
     public var sendReadReceipts: Bool
+}
+
+/// What someone can be reported to a server's admins for.
+public enum ReportReason: String, Codable, Sendable, CaseIterable { case spam, harassment, inappropriate, other }
+
+/// Someone reported to a server's admins, as the admins see it: how often, what for
+/// and when last. Never what was said, which the server can't read, nor who reported them.
+public struct ReportView: Codable, Sendable, Equatable, Identifiable {
+    public var userId: String
+    public var count: Int
+    public var reasons: [ReportReason]
+    public var lastAt: Int
+    public var id: String { userId }
 }
 
 public struct DeviceView: Codable, Sendable, Equatable, Identifiable {

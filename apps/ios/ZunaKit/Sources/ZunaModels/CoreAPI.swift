@@ -298,6 +298,11 @@ public struct SessionCalls: Sendable {
     public func setServerRole(_ userId: String, role: Role) async throws { try await run("setServerRole", [userId, role]) }
     public func banUser(_ userId: String) async throws { try await run("banUser", [userId]) }
     public func unbanUser(_ userId: String) async throws { try await run("unbanUser", [userId]) }
+    /// Reports someone to the server's admins, who see whom and why, never what was said nor who reported them.
+    public func reportUser(_ userId: String, reason: ReportReason) async throws { try await run("reportUser", [userId, reason]) }
+    /// What people were reported for, one entry a person, the latest first. For admins.
+    public func getReports() async throws -> [ReportView] { try await call("getReports") }
+    public func dismissReports(_ userId: String) async throws { try await run("dismissReports", [userId]) }
 
     /// Changes only the fields that are set.
     public func updateServerSettings(_ changes: ServerSettingsChanges) async throws { try await run("updateServerSettings", [changes]) }

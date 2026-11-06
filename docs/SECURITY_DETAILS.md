@@ -67,6 +67,10 @@ Other devices of the account are signed out, with `account_deleted` as the reaso
 
 The server could say an account was deleted when it wasn't. As with a ban, that only hides someone: their name and picture aren't shown, and they're taken out of conversations.
 
+## Reporting someone
+
+A report says whom and why: a user ID and one of a few reasons. It carries nothing of any message, which the server can't read, and the server stores it without who sent it. While it arrives, the server knows whose session sent it, and holds in memory, for a day, that this person reported that one, to refuse the same report again, and how many reports each person sent this hour. Neither is written anywhere. Whom an account reported is in its encrypted preferences, so that its apps don't offer to report them again. Admins see the reports, apart from those about themselves, which another admin or the owner has to look at. A ban, or the account being deleted, clears what it was reported for.
+
 ## Profiles and the community key
 
 Display names and avatars are encrypted under a **community key**, carried in the fragment of invite links (`#k=...`), with a key derived from it for profiles alone, as channels and sounds have theirs. Browsers don't send fragments to servers. Profiles are also signed by their owners.

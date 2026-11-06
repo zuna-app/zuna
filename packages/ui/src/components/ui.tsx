@@ -218,6 +218,49 @@ export function Modal({
   );
 }
 
+/**
+ * Asks before something that can't be taken back, such as a ban. Cancel, Escape or a
+ * click outside say no, and Escape closes only this, not what's behind it.
+ */
+export function Confirm({
+  title,
+  action,
+  onCancel,
+  onConfirm,
+  children,
+}: {
+  title: string;
+  action: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      onCancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onCancel]);
+  return (
+    <Modal
+      title={title}
+      onClose={onCancel}
+      width={420}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel} autoFocus>Cancel</button>
+          <button className="btn btn-danger" onClick={onConfirm}>{action}</button>
+        </>
+      }
+    >
+      <p style={{ fontSize: 13.5 }}>{children}</p>
+    </Modal>
+  );
+}
+
 export interface MenuEntry {
   label?: string;
   icon?: ReactNode;
