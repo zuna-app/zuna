@@ -26,28 +26,11 @@ impl Microphone {
     }
 }
 
-pub use crate::media::{CameraDevice, MAX_ROUND_SECONDS, encode_waveform};
+pub use crate::media::camera::Camera;
+pub use crate::media::{MAX_ROUND_SECONDS, encode_waveform};
 
-pub fn cameras() -> Vec<CameraDevice> {
-    Vec::new()
-}
-
-/// A camera, giving its frames until it's dropped.
-pub struct Camera;
-
-impl Camera {
-    pub fn start() -> Result<Camera, String> {
-        Err(super::NOT_YET.into())
-    }
-
-    pub fn start_feed(_device: &str, _max_height: u32, _on_frame: impl FnMut(u32, u32, Vec<u8>) + Send + 'static) -> Result<Camera, String> {
-        Err(super::NOT_YET.into())
-    }
-
-    pub fn frame(&self) -> Option<Vec<u8>> {
-        None
-    }
-}
+pub use super::v4l2::cameras;
+pub(crate) use super::v4l2::open;
 
 /// A video message being recorded.
 pub struct RoundRecorder {

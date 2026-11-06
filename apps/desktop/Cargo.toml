@@ -70,6 +70,8 @@ ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
 # played and recorded through it, as ALSA's own list holds hardware that playing takes away
 # from PipeWire.
 pipewire = "0.10"
+# Cameras, read through V4L2 as Chromium reads them.
+v4l = "0.14"
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 libc = "0.2"

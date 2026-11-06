@@ -2,6 +2,7 @@
 //! and video, read, written, recorded and played through the system's own media on Windows,
 //! and through FFmpeg on Linux, each with the same functions.
 
+pub mod camera;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
