@@ -176,7 +176,10 @@ pub fn icon_button(id: impl Into<ElementId>, name: &str, icon_size: f32, small: 
         .text_color(color)
         .cursor_pointer()
         .hover(move |style| style.bg(theme.hover_strong).text_color(theme.text1))
-        .child(svg().path(SharedString::from(format!("icons/{name}.svg"))).size(px(icon_size)).flex_none().text_color(color));
+        .group("icon-btn")
+        // GPUI's icons take no color from around them, so it brightens with the button itself,
+        // as `.icon-btn:hover` does.
+        .child(svg().path(SharedString::from(format!("icons/{name}.svg"))).size(px(icon_size)).flex_none().text_color(color).group_hover("icon-btn", move |style| style.text_color(theme.text1)));
     if active {
         el = el.bg(theme.hover_strong);
     }
