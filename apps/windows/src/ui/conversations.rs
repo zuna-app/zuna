@@ -587,6 +587,7 @@ impl Render for ConversationList {
             rows.push(
                 div()
                     .id("hidden-toggle")
+                    .group("hidden-toggle")
                     .mt(px(4.))
                     .flex()
                     .items_center()
@@ -602,7 +603,7 @@ impl Render for ConversationList {
                         list.show_hidden = !list.show_hidden;
                         cx.notify();
                     }))
-                    .child(icon(if open { "chevron-down" } else { "chevron-right" }, 14., theme.text3))
+                    .child(icon(if open { "chevron-down" } else { "chevron-right" }, 14., theme.text3).group_hover("hidden-toggle", move |style| style.text_color(theme.text2)))
                     .child(format!("Hidden ({})", hidden.len()))
                     .into_any_element(),
             );
@@ -666,6 +667,7 @@ impl ConversationList {
                 .child(
                     div()
                         .id(SharedString::from(format!("section-title-{name}")))
+                        .group(SharedString::from(format!("section-title-{name}")))
                         .flex_1()
                         .min_w_0()
                         .flex()
@@ -692,14 +694,17 @@ impl ConversationList {
                                 )
                             })
                         })
-                        .child(icon(if folded { "chevron-right" } else { "chevron-down" }, 12., theme.text3))
+                        .child(icon(if folded { "chevron-right" } else { "chevron-down" }, 12., theme.text3).group_hover(SharedString::from(format!("section-title-{name}")), move |style| style.text_color(theme.text1)))
                         .child(div().min_w_0().one_line().child(name.to_uppercase())),
                 );
             if is_admin {
                 let (state, kind) = (self.state.clone(), kind.clone());
                 head = head.child(
                     div().opacity(0.).group_hover(group.clone(), |style| style.opacity(1.)).child(
+                        // `.channel-section-head .icon-btn`: 22 by 18, so the heading is no taller for it.
                         icon_button(SharedString::from(format!("new-in-{name}")), "plus", 14., true, false, cx)
+                            .w(px(22.))
+                            .h(px(18.))
                             .tip("New channel", Side::Bottom)
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: None, category: Some(kind.clone()) }), cx))),
                     ),
@@ -819,6 +824,7 @@ impl ConversationList {
                 el.child(
                     div()
                         .id(SharedString::from(format!("edit-{}", channel.id)))
+                        .group("channel-edit")
                         .flex_none()
                         .flex()
                         .tip("Edit channel", Side::Bottom)
@@ -826,7 +832,7 @@ impl ConversationList {
                             cx.stop_propagation();
                             state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Channel { channel_id: Some(id.clone()), category: None }), cx))
                         })
-                        .child(icon("settings", 16., theme.text2)),
+                        .child(icon("settings", 16., theme.text2).group_hover("channel-edit", move |style| style.text_color(theme.text1))),
                 )
             })
             .when(mentions > 0., |el| {

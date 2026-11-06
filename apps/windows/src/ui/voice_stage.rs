@@ -498,6 +498,7 @@ impl VoiceStage {
                 .child(
                     div()
                         .id(more)
+                        .group(more)
                         .flex()
                         .items_center()
                         .justify_center()
@@ -509,7 +510,7 @@ impl VoiceStage {
                         .cursor_pointer()
                         .hover(move |style| style.bg(theme.hover_strong))
                         .on_click(move |event, _, cx| device_menu(&voice, &state, input, event.position(), cx))
-                        .child(icon("chevron-up", 14., theme.text2)),
+                        .child(icon("chevron-up", 14., theme.text2).group_hover(more, move |style| style.text_color(theme.text1))),
                 )
         };
         let pill = |id: &'static str, icon_name: &'static str, color: gpui::Hsla, label: String, disabled: bool| {

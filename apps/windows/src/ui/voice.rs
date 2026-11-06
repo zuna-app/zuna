@@ -153,12 +153,13 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
                             .items_center()
                             .justify_center()
                             .rounded(RADIUS_M)
+                            .group("voice-leave")
                             .cursor_pointer()
-                            .text_color(theme.text1)
                             .hover(move |style| style.bg(theme.red_soft))
                             .tip("Disconnect", Side::Top)
                             .on_click(move |_, _, cx| voice_for_leave.update(cx, |voice, cx| voice.leave(cx)))
-                            .child(icon("phone-off", 17., theme.text1)),
+                            // `.icon-btn.voice-leave`: text-2, and red under the pointer.
+                            .child(icon("phone-off", 17., theme.text2).group_hover("voice-leave", move |style| style.text_color(theme.red))),
                     ),
             )
             .child(
@@ -204,9 +205,11 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
 fn small_toggle(id: &'static str, icon_name: &'static str, color: Option<gpui::Hsla>, label: &'static str, disabled: bool, cx: &App) -> gpui::Stateful<gpui::Div> {
     let theme = theme(cx);
     let red = color == Some(theme.red);
+    // `.icon-btn.is-small`: text-2, or red or green, and text-1 under the pointer unless it's red.
     div()
         .id(id)
-        .size(px(28.))
+        .group(id)
+        .size(px(26.))
         .flex_none()
         .flex()
         .items_center()
@@ -215,7 +218,7 @@ fn small_toggle(id: &'static str, icon_name: &'static str, color: Option<gpui::H
         .when(!disabled, |el| el.cursor_pointer().hover(move |style| style.bg(if red { theme.red_soft } else { theme.hover_strong })))
         .when(disabled, |el| el.opacity(0.55))
         .tip(label, Side::Top)
-        .child(icon(icon_name, 16., color.unwrap_or(theme.text2)))
+        .child(icon(icon_name, 16., color.unwrap_or(theme.text2)).when(!disabled && !red, |el| el.group_hover(id, move |style| style.text_color(theme.text1))))
 }
 
 /// Calls ringing this person, wherever in the app they are.

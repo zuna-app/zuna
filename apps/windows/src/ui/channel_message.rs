@@ -523,8 +523,10 @@ fn channel_reply(message: &MessageView, reply: &crate::models::ReplyPreview, con
 fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::MenuEntry>, context: &ChatContext, theme: &Theme, group: SharedString, cx: &mut App) -> AnyElement {
     let theme = *theme;
     let tool = |id: String, icon_name: &'static str, size: f32, label: &'static str| {
+        let id = SharedString::from(id);
         div()
-            .id(SharedString::from(id))
+            .id(id.clone())
+            .group(id.clone())
             .size(px(32.))
             .rounded(px(6.))
             .flex()
@@ -533,7 +535,7 @@ fn toolbar(message: &MessageView, can_edit: bool, entries: Vec<super::menu::Menu
             .cursor_pointer()
             .hover(move |style| style.bg(theme.hover_strong))
             .tip(label, Side::Top)
-            .child(icon(icon_name, size, theme.text2))
+            .child(icon(icon_name, size, theme.text2).group_hover(id, move |style| style.text_color(theme.text1)))
     };
     let mut bar = div()
         .absolute()

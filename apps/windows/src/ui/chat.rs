@@ -1485,7 +1485,27 @@ impl ChatView {
         // With nothing written, the camera and the microphone are where the send button was.
         let show_record = !can_send && editing.is_none() && wait == 0;
         let send_ready = can_send;
-        let send_color = if send_ready { theme.text1 } else { theme.text3 };
+        // A channel's waiting send button is text-2, a chat's text-3.
+        let send_color = if send_ready { theme.text1 } else if is_channel { theme.text2 } else { theme.text3 };
+        // `.composer-area.is-channel .icon-btn`: 36 by 44, with no background, only a brighter
+        // icon under the pointer; a chat's are plain `.icon-btn`s.
+        let composer_button = |id: &'static str, icon_name: &'static str, cx: &mut Context<Self>| {
+            if is_channel {
+                div()
+                    .id(id)
+                    .group(id)
+                    .w(px(36.))
+                    .h(px(44.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .cursor_pointer()
+                    .child(icon(icon_name, 18., theme.text2).group_hover(id, move |style| style.text_color(theme.text1)))
+            } else {
+                icon_button(id, icon_name, 18., false, false, cx)
+            }
+        };
         let row = if is_channel {
             div()
                 .flex()
@@ -1502,9 +1522,10 @@ impl ChatView {
                         .items_center()
                         .justify_center()
                         .cursor_pointer()
+                        .group("attach")
                         .tip("Attach", Side::Top)
                         .on_click(cx.listener(|view, event: &gpui::ClickEvent, _, cx| view.attach_menu(event.position(), cx)))
-                        .child(icon("plus-circle-filled", 22., theme.text2)),
+                        .child(icon("plus-circle-filled", 22., theme.text2).group_hover("attach", move |style| style.text_color(theme.text1))),
                 )
         } else {
             div().flex().items_end().gap(px(2.)).px(px(10.)).py(px(8.)).when(editing.is_none(), |el| {
@@ -1526,7 +1547,7 @@ impl ChatView {
                         .text_size(message_size)
                         .child(self.composer.clone()),
                 )
-                .child(icon_button("emoji", "face-slightly-smiling", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tip("Emoji and emotes", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
+                .child(composer_button("emoji", "face-slightly-smiling", cx).tip("Emoji and emotes", Side::Top).on_click(cx.listener(|view, event: &gpui::ClickEvent, window, cx| {
                     let composer = view.composer.clone();
                     let position = gpui::point(event.position().x - px(314.), event.position().y - px(10.));
                     super::picker::open_picker(
@@ -1568,19 +1589,17 @@ impl ChatView {
                     )
                 })
                 .when(show_record, |el| {
-                    el.child(icon_button("record-round", "video", 18., false, false, cx).when(is_channel, |el| el.mt(px(6.))).tip("Record a video message", Side::Top).on_click(cx.listener(|view, _, _, cx| view.start_round(cx))))
+                    el.child(composer_button("record-round", "video", cx).tip("Record a video message", Side::Top).on_click(cx.listener(|view, _, _, cx| view.start_round(cx))))
                         .child(
                             div()
                                 .id("record-voice")
-                                .when(is_channel, |el| el.mt(px(6.)))
-                                .size(px(32.))
+                                .when(is_channel, |el| el.w(px(36.)).h(px(44.)))
+                                .when(!is_channel, |el| el.size(px(32.)).rounded(RADIUS_M).hover(move |style| style.bg(theme.hover_strong)))
                                 .flex_none()
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .rounded(RADIUS_M)
                                 .cursor_pointer()
-                                .hover(move |style| style.bg(theme.hover_strong))
                                 .tip("Record a voice message", Side::Top)
                                 .on_click(cx.listener(|view, _, _, cx| view.start_voice(cx)))
                                 .child(icon("mic", 18., theme.text1)),
@@ -1590,15 +1609,13 @@ impl ChatView {
                     el.child(
                         div()
                             .id("send")
-                            .when(is_channel, |el| el.mt(px(6.)))
-                            .size(px(32.))
+                            .when(is_channel, |el| el.w(px(36.)).h(px(44.)))
+                            .when(!is_channel, |el| el.size(px(32.)).rounded(RADIUS_M).when(send_ready, |el| el.hover(move |style| style.bg(theme.hover_strong))))
                             .flex_none()
                             .flex()
                             .items_center()
                             .justify_center()
-                            .rounded(RADIUS_M)
-                            .when(send_ready, |el| el.cursor_pointer().hover(move |style| style.bg(theme.hover_strong)))
-                            
+                            .when(send_ready, |el| el.cursor_pointer())
                             .on_click(cx.listener(|view, _, window, cx| view.send(window, cx)))
                             .child(icon(if editing.is_some() { "check" } else { "send-horizontal" }, if send_ready { 18. } else { 16.2 }, send_color)),
                     )
@@ -1635,7 +1652,9 @@ impl ChatView {
                 .items_center()
                 .justify_center()
                 .cursor_pointer()
-                .child(icon(icon_name, 20., if active { theme.text1 } else { theme.text2 }))
+                .group(id)
+                // `.channel-head .icon-btn`: no background, only a brighter icon under the pointer.
+                .child(icon(icon_name, 20., if active { theme.text1 } else { theme.text2 }).group_hover(id, move |style| style.text_color(theme.text1)))
         };
         let (mute_state, mute_key) = (self.state.clone(), conversation.key.clone());
         let pins_state = self.state.clone();
@@ -2242,16 +2261,16 @@ impl ChatView {
         let server = state.servers.get(&self.server_id);
         let is_saved = server.is_some_and(|s| conversation.peer_id.as_deref() == Some(s.self_id()));
         let peer = conversation.peer_id.as_ref().and_then(|id| server.and_then(|s| s.users.get(id))).cloned();
+        // As `EmptyChat` words it.
         let (title, text) = if is_saved {
             ("Your saved messages".to_string(), "Keep notes, links and files here. They're encrypted and sync across your devices.".to_string())
         } else if conversation.kind == "group" {
-            ("No messages yet".to_string(), "Messages here are end-to-end encrypted for everyone in the group.".to_string())
+            (conversation.title.clone(), "Messages here are end-to-end encrypted. Only members can read them.".to_string())
         } else {
-            (
-                format!("Say hello to {}", peer.as_ref().map(|p| p.display_name.split(' ').next().unwrap_or("").to_string()).unwrap_or_else(|| conversation.title.clone())),
-                "Messages here are end-to-end encrypted. Only the two of you can read them.".to_string(),
-            )
+            (format!("Say hello to {}", conversation.title), "Your messages are end-to-end encrypted. Not even this server can read them.".to_string())
         };
+        // Someone not yet verified can be, from here.
+        let verify = (!is_saved && conversation.kind != "group").then_some(()).and(peer.filter(|peer| peer.trust != "verified"));
         div()
             .flex_1()
             .flex()
@@ -2269,7 +2288,16 @@ impl ChatView {
                     .text_color(theme.text2)
                     .child(div().mb(px(4.)).child(icon("lock", 20., theme.text3)))
                     .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(title))
-                    .child(div().text_size(px(13.5)).child(text)),
+                    .child(div().text_size(px(13.5)).child(text))
+                    .when_some(verify, |el, peer| {
+                        let state = self.state.clone();
+                        el.child(
+                            button("verify-empty", ButtonKind::Default, ButtonSize::Small, false, cx)
+                                .mt(px(8.))
+                                .child("Verify with emoji")
+                                .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::Verify { user_id: peer.id.clone() }), cx))),
+                        )
+                    }),
             )
             .into_any_element()
     }

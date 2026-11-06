@@ -162,9 +162,14 @@ pub fn button(id: impl Into<ElementId>, kind: ButtonKind, size: ButtonSize, disa
 
 /// `.icon-btn`: a square button holding one icon.
 pub fn icon_button(id: impl Into<ElementId>, name: &str, icon_size: f32, small: bool, active: bool, cx: &App) -> Stateful<Div> {
+    icon_button_in(id, name, icon_size, small, active, theme(cx).text2, cx)
+}
+
+/// `.icon-btn` whose icon rests in another color, as `.msg-actions .icon-btn` rests in text-3.
+pub fn icon_button_in(id: impl Into<ElementId>, name: &str, icon_size: f32, small: bool, active: bool, resting: Hsla, cx: &App) -> Stateful<Div> {
     let theme = theme(cx);
     let box_size = if small { 26. } else { 32. };
-    let color = if active { theme.text1 } else { theme.text2 };
+    let color = if active { theme.text1 } else { resting };
     let mut el = div()
         .id(id)
         .flex()

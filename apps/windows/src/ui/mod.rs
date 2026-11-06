@@ -261,11 +261,12 @@ impl Root {
                 .text_color(theme.text3)
                 .cursor_pointer()
                 .hover(move |style| style.bg(theme.hover_strong).text_color(theme.text1))
+                .group("rail-add")
                 .tip("Join a server", Side::Right)
                 .on_click(move |_, _, cx| {
                     add_state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: None }), cx))
                 })
-                .child(gpui::svg().path("icons/plus.svg").size(px(20.)).text_color(theme.text3)),
+                .child(gpui::svg().path("icons/plus.svg").size(px(20.)).text_color(theme.text3).group_hover("rail-add", move |style| style.text_color(theme.text1))),
         );
         let settings_state = state_entity.clone();
         let profile_state = state_entity.clone();

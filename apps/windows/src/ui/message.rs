@@ -483,7 +483,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                 .opacity(0.)
                 .group_hover(group, |style| style.opacity(1.))
                 .when(own, |el| el.flex_row_reverse())
-                .child(icon_button(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, cx).tip("React", Side::Top).on_click(move |event, window, cx| {
+                .child(icon_button_in(SharedString::from(format!("react-{id}")), "face-slightly-smiling-plus", 15., true, false, theme.text3, cx).tip("React", Side::Top).on_click(move |event, window, cx| {
                     let state = picker_state.clone();
                     let (group, id) = (picker_group.clone(), picker_id.clone());
                     super::picker::open_picker(
@@ -506,11 +506,11 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
                     );
                 }))
                 .child(
-                    icon_button(SharedString::from(format!("reply-btn-{id}")), "corner-up-left", 15., true, false, cx)
+                    icon_button_in(SharedString::from(format!("reply-btn-{id}")), "corner-up-left", 15., true, false, theme.text3, cx)
                         .tip("Reply", Side::Top)
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_reply(&list_id, Some(reply_message.clone()), cx))),
                 )
-                .child(icon_button(SharedString::from(format!("more-{id}")), "ellipsis", 15., true, false, cx).tip("More", Side::Top).on_click(move |event, _, cx| {
+                .child(icon_button_in(SharedString::from(format!("more-{id}")), "ellipsis", 15., true, false, theme.text3, cx).tip("More", Side::Top).on_click(move |event, _, cx| {
                     let state = more_state.clone();
                     let (group, id) = (more_group.clone(), more_id.clone());
                     open_menu_with_reactions(
