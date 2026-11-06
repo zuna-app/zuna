@@ -78,7 +78,7 @@ export async function until(condition, what, timeoutMs = 20_000) {
 }
 
 /** Inside: KWin, a keyring, the driver and everything a check needs. */
-export async function inside({ shots: shotsDir, width = 1400, height = 900 } = {}) {
+export async function inside({ shots: shotsDir, width = 1400, height = 900, globalShortcuts = false } = {}) {
   const shots = shotsDir ?? mkdtempSync(join(tmpdir(), "zuna-linux-shots-"));
   mkdirSync(shots, { recursive: true });
   const work = process.env.ZUNA_LINUX_CHECK_WORK;
@@ -118,7 +118,8 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900 } = {
     return child;
   }
 
-  start("kwin_wayland", ["--virtual", "--socket", socket, "--width", String(width), "--height", String(height), "--no-lockscreen", "--no-global-shortcuts"], base, "kwin");
+  // KWin's own shortcuts would take keys the checks type, unless one checks the portal's.
+  start("kwin_wayland", ["--virtual", "--socket", socket, "--width", String(width), "--height", String(height), "--no-lockscreen", ...(globalShortcuts ? [] : ["--no-global-shortcuts"])], base, "kwin");
   await until(() => existsSync(join(process.env.XDG_RUNTIME_DIR, socket)), "KWin's socket");
   const session = { ...base, WAYLAND_DISPLAY: socket };
 

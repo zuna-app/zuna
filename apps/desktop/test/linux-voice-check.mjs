@@ -20,7 +20,8 @@ import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 import { appBinary, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 outside(import.meta.url);
-const { work, session, check, start, shot, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish } = await inside({ shots: process.argv[2] });
+// KWin's own global shortcuts, which the portal's push to talk goes through.
+const { work, session, check, start, shot, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish } = await inside({ shots: process.argv[2], globalShortcuts: true });
 
 /** The first v4l2loopback device, which the person loads once, as it needs root. */
 function loopbackCamera() {
@@ -73,6 +74,25 @@ async function videoIn(page, seconds = 2) {
       spread = Math.max(spread, Math.sqrt(squares / count - (sum / count) ** 2));
     }
     return { fps, spread };
+  }, seconds);
+}
+
+/** How many frames a second of its own video the Electron app sends. */
+async function videoOut(page, seconds = 2) {
+  return page.evaluate(async (seconds) => {
+    const sent = async () => {
+      let frames = 0;
+      for (const connection of window.__connections) {
+        if (connection.connectionState === "closed") continue;
+        (await connection.getStats()).forEach((report) => {
+          if (report.type === "outbound-rtp" && report.kind === "video") frames = Math.max(frames, report.framesSent ?? 0);
+        });
+      }
+      return frames;
+    };
+    const before = await sent();
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    return ((await sent()) - before) / seconds;
   }, seconds);
 }
 
@@ -167,7 +187,7 @@ try {
 
   // --- The Electron app, the other person ---
   electronApp = await electron.launch({
-    args: [join(root, "apps", "desktop-electron-legacy"), `--user-data-dir=${join(work, "electron")}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${electronSpeech}`, "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors", "--mute-audio", "--ozone-platform=wayland"],
+    args: [join(root, "apps", "desktop-electron-legacy"), `--user-data-dir=${join(work, "electron")}`, "--use-fake-device-for-media-stream", `--use-file-for-fake-audio-capture=${electronSpeech}`, "--autoplay-policy=no-user-gesture-required", "--ignore-certificate-errors", "--mute-audio", "--ozone-platform=wayland", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"],
     env: { ...session, ELECTRON_RENDERER_URL: "", ...trust },
   });
   const page = await electronApp.firstWindow();
@@ -238,10 +258,10 @@ try {
   await page.getByRole("button", { name: "Turn on camera" }).first().click();
   await sleep(4000);
   const earlier = await shot("04c-both-cameras");
-  await sleep(1000);
+  const sending = await videoOut(page, 1);
   const moved = changedIn(earlier, await shot("04d-both-cameras-later"), electronTile);
   // Chromium's fake camera only turns a shape and counts, where an avatar's tile doesn't change at all.
-  check("the Electron app's camera plays in the native app", moved > 0.003, `${(moved * 100).toFixed(1)}% of it changed in a second`);
+  check("the Electron app's camera plays in the native app", moved > 0.003, `${(moved * 100).toFixed(1)}% of it changed in a second, while it sent ${sending.toFixed(0)} frames/s`);
   await page.getByRole("button", { name: "Turn off camera" }).first().click();
   if (camera) await drive({ do: "click", x: 146, y: 843 });
   await sleep(1500);
@@ -320,10 +340,55 @@ try {
     await drive({ do: "key", key: "escape" });
     await sleep(400);
   }
+
+  // --- Push to talk, through the global shortcuts portal ---
+  await drive({ do: "click", x: 707, y: 537 });
+  await sleep(800);
+  await shot("14-push-to-talk");
+  // The key, chosen by pressing it in the window.
+  await drive({ do: "click", x: 997, y: 596 });
+  await sleep(400);
+  await drive({ do: "key", key: "f8" });
+  await sleep(800);
+  await shot("15-key-chosen");
+  const chosen = JSON.parse(readFileSync(join(appData, "voice-settings.json"), "utf8"));
+  check("push to talk's key is chosen by pressing it in the window", chosen.inputMode === "ptt" && chosen.pttKey === "F8", `${chosen.inputMode}, ${chosen.pttKey}`);
   // By its scrollbar, as KWin's fake wheel has no steps, which GPUI waits for from a wheel.
   await drive({ do: "drag", from: [1395, 300], to: [1395, 880] });
   await sleep(1000);
-  await shot("14-camera-settings");
+  await shot("16-camera-settings");
+  await drive({ do: "click", x: 1368, y: 64 });
+  await sleep(800);
+
+  // Both back in the voice channel, where the portal binds the key, asking first in KDE's dialog.
+  await page.locator(".channel-row", { hasText: "Lounge" }).click();
+  await page.locator(".voice-panel-status.is-connected").waitFor({ timeout: 30_000 });
+  await drive({ do: "click", x: 134, y: 221 });
+  await page.locator(".voice-occupant", { hasText: "Linux Owner" }).waitFor({ timeout: 30_000 });
+  await sleep(2500);
+  await shot("17-asked-for-the-key");
+  await drive({ do: "click", x: 811, y: 708 });
+  await sleep(1500);
+  await shot("18-key-bound");
+  // The Electron app's window in front, so that the key is held in another window.
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window.restore();
+    window.focus();
+  });
+  await sleep(1000);
+  start("pw-play", ["--target", feed, nativeSpeech], process.env, "speaking with push to talk");
+  await sleep(1500);
+  const unheld = await loudness(page, 2);
+  check("with push to talk, nothing goes out until the key is held", unheld.peak < 0.01, `peak ${unheld.peak.toFixed(3)}`);
+  await drive({ do: "key", key: "f8", state: "down" });
+  const held = await loudness(page, 3);
+  await shot("19-key-held-elsewhere");
+  await drive({ do: "key", key: "f8", state: "up" });
+  check("holding the key while another window is in front sends what's said", held.peak > 0.01, `peak ${held.peak.toFixed(3)}`);
+  await sleep(1500);
+  const released = await loudness(page, 2);
+  check("and letting it go stops it", released.peak < 0.01, `peak ${released.peak.toFixed(3)}`);
 } catch (caught) {
   failed = caught;
 }

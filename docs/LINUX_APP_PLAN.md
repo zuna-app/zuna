@@ -1,6 +1,6 @@
 # The native app on Linux: plan
 
-Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 under way: sound through PipeWire, a voice channel, calls and cameras checked with the Electron app; push to talk to come (2026-11-06).
+Status: L0 done, and L1 built and checked in a nested KWin, waiting on its checks in the real Plasma session. L2 done: sound through PipeWire, a voice channel, calls, cameras and push to talk checked with the Electron app (2026-11-06).
 
 Scope: the native app in `apps/desktop`, drawn with GPUI, running on Linux from the same crate as on Windows. There's no second codebase: what differs between the two is behind `#[cfg(target_os = ...)]` in `src/platform` and `src/media`, and everything else is shared. Three rules hold throughout:
 

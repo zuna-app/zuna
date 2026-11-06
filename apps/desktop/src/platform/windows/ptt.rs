@@ -190,8 +190,9 @@ fn settle() {
     }
 }
 
-/// Watches for a key, by its browser name, telling `listener` as it goes down and up. None stops watching.
-pub fn watch(code: Option<String>, listener: impl Fn(bool) + Send + 'static) {
+/// Watches for a key, by its browser name, telling `listener` as it goes down and up. None
+/// stops watching. Windows binds nothing itself, so `_bound` is never told another key.
+pub fn watch(code: Option<String>, listener: impl Fn(bool) + Send + 'static, _bound: impl FnOnce(String) + Send + 'static) {
     {
         let mut hooks = hooks().lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         hooks.down = false;
@@ -210,6 +211,16 @@ pub fn choose(then: impl FnOnce(String) + Send + 'static) {
 pub fn stop_choosing() {
     hooks().lock().unwrap_or_else(|poisoned| poisoned.into_inner()).choosing = None;
     settle();
+}
+
+/// The hooks hear keys and mouse buttons in any window.
+pub fn support() -> Option<crate::platform::KeyWatchSupport> {
+    Some(crate::platform::KeyWatchSupport { anywhere: true, mouse: true, why: None })
+}
+
+/// There's nothing to ask, so `then` is told at once.
+pub fn check_support(then: impl FnOnce() + Send + 'static) {
+    then();
 }
 
 #[cfg(test)]

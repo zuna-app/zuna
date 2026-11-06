@@ -50,13 +50,14 @@ fn plain_label(text: &str, cx: &App) -> AnyElement {
     div().text_size(px(13.)).font_weight(FontWeight::MEDIUM).text_color(theme.text2).child(text.to_string()).into_any_element()
 }
 
-/// A choice among a few, drawn as `.segmented`.
-fn segmented(id: &'static str, value: &str, options: &[(&'static str, &'static str)], on_change: Rc<dyn Fn(&'static str, &mut App)>, cx: &App) -> AnyElement {
+/// A choice among a few, drawn as `.segmented`, with those in `disabled` greyed out.
+fn segmented(id: &'static str, value: &str, options: &[(&'static str, &'static str)], disabled: &[&str], on_change: Rc<dyn Fn(&'static str, &mut App)>, cx: &App) -> AnyElement {
     let theme = theme(cx);
     let mut row = div().flex().bg(theme.bg3).rounded(RADIUS_M).p(px(2.)).gap(px(1.));
     for (option, label) in options {
         let active = value == *option;
         let (on_change, option) = (on_change.clone(), *option);
+        let off = disabled.contains(&option);
         row = row.child(
             div()
                 .id(SharedString::from(format!("{id}-{option}")))
@@ -66,8 +67,8 @@ fn segmented(id: &'static str, value: &str, options: &[(&'static str, &'static s
                 .text_size(px(13.))
                 .text_color(if active { theme.text1 } else { theme.text2 })
                 .when(active, |el| el.bg(theme.bg5))
-                .cursor_pointer()
-                .on_click(move |_, _, cx| on_change(option, cx))
+                .when(off, |el| el.opacity(0.45).cursor(gpui::CursorStyle::OperationNotAllowed))
+                .when(!off, |el| el.cursor_pointer().on_click(move |_, _, cx| on_change(option, cx)))
                 .child(*label),
         );
     }
@@ -146,6 +147,17 @@ impl VoiceSettingsPage {
                 break;
             }
         });
+        // Whether a key held in another window can be heard, which the system may not allow.
+        let (told, answered) = futures::channel::oneshot::channel::<()>();
+        crate::platform::ptt::check_support(move || {
+            told.send(()).ok();
+        });
+        cx.spawn(async move |this, cx| {
+            if answered.await.is_ok() {
+                this.update(cx, |_, cx| cx.notify()).ok();
+            }
+        })
+        .detach();
         VoiceSettingsPage { state, voice, choosing_key: false, camera: None, camera_image: None, retired: Vec::new(), _tick: tick }
     }
 
@@ -316,10 +328,24 @@ impl Render for VoiceSettingsPage {
             cx,
         ));
         let mode_voice = voice_entity.clone();
+        // Where the system can't hear a key held in another window, push to talk can't work.
+        let support = crate::platform::ptt::support();
+        let no_push_to_talk = support.is_some_and(|support| !support.anywhere);
+        let why_not = support.and_then(|support| support.why).filter(|_| no_push_to_talk).map(|why| match why {
+            crate::platform::NoKeyWatch::Uninstalled => "Push to talk can't work here: your system only gives global shortcuts to installed apps, and it doesn't see this copy of Zuna as one. Start Zuna from your applications menu, or install the package for your distribution.",
+            crate::platform::NoKeyWatch::Compositor => "Your compositor doesn't support push to talk. It has no global shortcuts, so no app can hear a key held while another window is in front.",
+        });
         parts.push(field(
             plain_label("When sound goes out", cx),
-            div().flex().child(segmented("voice-mode", &settings.input_mode, &[("voice", "When you talk"), ("ptt", "Push to talk")], Rc::new(move |mode, cx| mode_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.input_mode = mode.into(), cx))), cx)),
-            None,
+            div().flex().child(segmented(
+                "voice-mode",
+                &settings.input_mode,
+                &[("voice", "When you talk"), ("ptt", "Push to talk")],
+                if no_push_to_talk { &["ptt"] } else { &[] },
+                Rc::new(move |mode, cx| mode_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.input_mode = mode.into(), cx))),
+                cx,
+            )),
+            why_not,
             cx,
         ));
         if settings.input_mode == "voice" {
@@ -342,9 +368,16 @@ impl Render for VoiceSettingsPage {
         } else {
             let label = if self.choosing_key { "Press a key".to_string() } else { key_name(&settings.ptt_key) };
             let choosing = self.choosing_key;
+            // Where the system binds the key itself, it may ask, and give another.
+            let key_hint = if support.is_some_and(|support| !support.mouse) {
+                let bound = self.voice.read(cx).key_bound.as_ref().map(|key| format!(" It's {key} now.")).unwrap_or_default();
+                format!("Works whichever window you're in. Your system asks you to confirm the key, and may let you choose another.{bound}")
+            } else {
+                "Works whichever window you're in.".into()
+            };
             parts.push(SettingsView::row(
                 "Key to hold",
-                Some("Works whichever window you're in."),
+                Some(&key_hint),
                 button("ptt-key", ButtonKind::Default, ButtonSize::Normal, false, cx).min_w(px(150.)).when(choosing, |el| el.border_1().border_color(theme.accent)).child(label).on_click(cx.listener(|page, _, _, cx| page.choose_key(cx))),
                 &theme,
             ));
@@ -486,7 +519,7 @@ impl Render for ScreenSettingsPage {
             .collect();
         parts.push(field(plain_label("Encoder", cx), select_box("screen-encoder", current, choices, cx), Some("If this one can't be used, your share doesn't start, and says why."), cx));
         let effort_voice = self.voice.clone();
-        parts.push(SettingsView::row("Effort per frame", Some("More effort looks better at the same bitrate, and can drop frames at large sizes."), segmented("screen-effort", &settings.screen_effort, &[("speed", "Fastest"), ("balanced", "Balanced"), ("best", "Best picture")], Rc::new(move |effort, cx| effort_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_effort = effort.into(), cx))), cx), &theme));
+        parts.push(SettingsView::row("Effort per frame", Some("More effort looks better at the same bitrate, and can drop frames at large sizes."), segmented("screen-effort", &settings.screen_effort, &[("speed", "Fastest"), ("balanced", "Balanced"), ("best", "Best picture")], &[], Rc::new(move |effort, cx| effort_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_effort = effort.into(), cx))), cx), &theme));
         let key_voice = self.voice.clone();
         parts.push(field(
             label_with("A full picture every", format!("{} s", settings.screen_keyframes), cx),

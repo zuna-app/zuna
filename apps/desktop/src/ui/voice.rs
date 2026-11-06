@@ -65,7 +65,7 @@ pub fn voice_panel(state: &Entity<AppState>, voice_entity: &Entity<Voice>, cx: &
     } else if voice.no_mic {
         "No microphone".to_string()
     } else if voice.settings.input_mode == "ptt" {
-        if voice.settings.ptt_key.is_empty() { "Set a push to talk key".into() } else { format!("Hold {}{}", voice::settings::key_name(&voice.settings.ptt_key), if voice.key_held { "…" } else { "" }) }
+        if voice.settings.ptt_key.is_empty() { "Set a push to talk key".into() } else { format!("Hold {}{}", voice.key_bound.clone().unwrap_or_else(|| voice::settings::key_name(&voice.settings.ptt_key)), if voice.key_held { "…" } else { "" }) }
     } else {
         "Voice activity".to_string()
     };

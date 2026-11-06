@@ -90,6 +90,9 @@ pub struct Voice {
     pub open: bool,
     /// The push to talk key is down.
     pub key_held: bool,
+    /// The push to talk key as the system bound it, where it binds the key itself and may have
+    /// been given another (`keyBound` in voice/store.ts).
+    pub key_bound: Option<String>,
     pub speaking: HashSet<String>,
     pub videos: Vec<VideoTile>,
     pub quality: Quality,
@@ -160,6 +163,7 @@ pub fn init(state: &Entity<AppState>, cx: &mut App) -> Entity<Voice> {
         no_mic: false,
         open: false,
         key_held: false,
+        key_bound: None,
         speaking: HashSet::new(),
         videos: Vec::new(),
         quality: Quality::Unknown,
@@ -363,14 +367,34 @@ impl Voice {
         }
         self.ptt_watching = wanted.clone();
         self.ptt_task = None;
-        let (sender, mut receiver) = futures::channel::mpsc::unbounded::<bool>();
-        crate::platform::ptt::watch(wanted.clone(), move |down| {
-            sender.unbounded_send(down).ok();
-        });
+        self.key_bound = None;
+        enum Heard {
+            Held(bool),
+            /// What the system bound, where it binds the key itself.
+            Bound(String),
+        }
+        let (sender, mut receiver) = futures::channel::mpsc::unbounded::<Heard>();
+        let bound = sender.clone();
+        crate::platform::ptt::watch(
+            wanted.clone(),
+            move |down| {
+                sender.unbounded_send(Heard::Held(down)).ok();
+            },
+            move |trigger| {
+                bound.unbounded_send(Heard::Bound(trigger)).ok();
+            },
+        );
         if wanted.is_some() {
             self.ptt_task = Some(cx.spawn(async move |this, cx| {
-                while let Some(down) = receiver.next().await {
-                    if this.update(cx, |voice, cx| voice.set_key_held(down, cx)).is_err() {
+                while let Some(heard) = receiver.next().await {
+                    let updated = this.update(cx, |voice, cx| match heard {
+                        Heard::Held(down) => voice.set_key_held(down, cx),
+                        Heard::Bound(trigger) => {
+                            voice.key_bound = Some(trigger).filter(|trigger| !trigger.is_empty());
+                            cx.notify();
+                        }
+                    });
+                    if updated.is_err() {
                         break;
                     }
                 }

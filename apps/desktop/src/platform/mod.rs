@@ -91,6 +91,23 @@ pub fn later(cx: &gpui::App, work: impl FnOnce() + 'static) {
     cx.spawn(async move |_| work()).detach();
 }
 
+/// Whether push to talk hears a key held while another window is in front, and a mouse
+/// button too, as `pushToTalk` in platform.ts says it. Where it can't, why.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KeyWatchSupport {
+    pub anywhere: bool,
+    pub mouse: bool,
+    pub why: Option<NoKeyWatch>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NoKeyWatch {
+    /// The compositor has no global shortcuts.
+    Compositor,
+    /// It only gives them to an installed app, which this copy isn't to it.
+    Uninstalled,
+}
+
 /// What the system wants right now (NotificationState in packages/ui/src/platform.ts).
 #[derive(Clone, Copy, Debug)]
 pub struct NotificationState {

@@ -753,9 +753,17 @@ impl Render for Root {
             .child(self.toasts(cx))
             .child(self.menu.clone())
             .child(self.picker.clone());
-        // Wayland leaves resizing to the app, from a margin around the window.
+        // Wayland leaves resizing to the app, from a margin around the window, and only gives
+        // it keys pressed in it, where push to talk's is chosen.
         #[cfg(target_os = "linux")]
-        let root = crate::platform::window_frame(root, window);
+        let root = crate::platform::window_frame(
+            root.capture_key_down(|event: &gpui::KeyDownEvent, _, cx| {
+                if crate::platform::ptt::hear(&event.keystroke) {
+                    cx.stop_propagation();
+                }
+            }),
+            window,
+        );
         root
     }
 }
