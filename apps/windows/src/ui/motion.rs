@@ -156,14 +156,24 @@ pub trait Motion: IntoElement + Styled + Sized + 'static {
         let (delay_ms, ms) = if reduced() { (0, 0) } else { (delay_ms, ms) };
         let total = (delay_ms + ms).max(1) as f32;
         let (delay, length) = (delay_ms as f32 / total, ms as f32 / total);
+        // Started at once, its first frame is drawn a frame in (`ahead`).
+        let head = if delay_ms == 0 { ahead(ms) } else { 0. };
         Moving::new(self).with_animation(id, Animation::new(Duration::from_millis((delay_ms + ms).max(1))), move |moving, t| {
-            let progress = if length > 0. { ((t - delay) / length).clamp(0., 1.) } else { 1. };
+            let progress = if length > 0. { ((t - delay) / length + head).clamp(0., 1.) } else { 1. };
             moving.at(kind, easing(progress))
         })
     }
 }
 
 impl<E: IntoElement + Styled + 'static> Motion for E {}
+
+/// How far into an animation its first frame is drawn, as a part of it. A frame is seen about
+/// one refresh after it's drawn, so one drawn at the very start would show nothing, and what
+/// opens or lights up would show a frame later than it need be.
+fn ahead(ms: u64) -> f32 {
+    const FRAME_MS: f32 = 8.;
+    if ms == 0 { 1. } else { FRAME_MS / ms as f32 }
+}
 
 struct Transition {
     from: f32,
@@ -209,9 +219,12 @@ pub fn transition<E: IntoElement + 'static>(element: E, key: impl Into<String>, 
     match running {
         None => apply(element, target).into_any_element(),
         // Keyed by which change it is, so it runs from the start of each.
-        Some((from, to, generation, length)) => element
-            .with_animation(ElementId::Name(format!("{key}#{generation}").into()), Animation::new(length), move |element, t| apply(element, from + (to - from) * easing(t)))
-            .into_any_element(),
+        Some((from, to, generation, length)) => {
+            let head = ahead(length.as_millis() as u64);
+            element
+                .with_animation(ElementId::Name(format!("{key}#{generation}").into()), Animation::new(length), move |element, t| apply(element, from + (to - from) * easing((t + head).min(1.))))
+                .into_any_element()
+        }
     }
 }
 
