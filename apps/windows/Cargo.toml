@@ -92,6 +92,10 @@ features = [
     "Win32_UI_WindowsAndMessaging",
 ]
 
+[patch.crates-io]
+# GPUI 0.2.2, carried here to change how it draws on Windows: vendor/gpui/ZUNA.md lists how.
+gpui = { path = "vendor/gpui" }
+
 [build-dependencies]
 # The app's icon, compiled into the exe as Windows expects.
 embed-resource = "3"
