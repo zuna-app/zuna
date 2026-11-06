@@ -1303,9 +1303,11 @@ describe("a message the server says was edited (Z-53)", () => {
     const later = await person("xan");
     await owner.session.addMembers(groupId, [later.userId]);
     await waitFor(() => session.mlsEpoch(groupId) > epoch, "the next epoch");
-    const start = session.db.get("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, epoch + 1]).seq as number;
+    const sealed = session.db.get("SELECT seq FROM epoch_starts WHERE group_id = ? AND epoch = ?", [groupId, epoch + 1]).seq;
+    const start = session.openValue("epoch-start", `${groupId}:${epoch + 1}`, sealed, 0) as number;
 
-    const message = { group_id: groupId, sender_device: "d".repeat(32), epoch, seq: start + 5, edited_at: Date.now() };
+    const message = { group_id: groupId, sender_user: owner.userId, sender_device: owner.session.getSelf().deviceId, epoch, seq: start + 5, edited_at: Date.now() };
+    expect(session.couldBeSent({ ...message, seq: start - 1 })).toBe(true);
     expect(session.couldBeSent(message)).toBe(false);
     // An edit keeps its place in the group, from before that epoch ended.
     owner.session.editMessage(groupId, sent.id, "typo here", {}, []);
