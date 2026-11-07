@@ -116,18 +116,18 @@ try {
   await sleep(2000);
   await shot("03-owner");
   const password = `linux-check-${process.pid}-owner`;
-  await drive({ do: "click", x: 700, y: 328 });
+  await drive({ do: "click", x: 700, y: 312 });
   await drive({ do: "type", text: "Linux Owner" });
-  await drive({ do: "click", x: 700, y: 405 });
+  await drive({ do: "click", x: 700, y: 389 });
   await drive({ do: "press", keys: ["ctrl", "a"] });
   await drive({ do: "type", text: "owner" });
-  await drive({ do: "click", x: 680, y: 505 });
+  await drive({ do: "click", x: 680, y: 488 });
   await drive({ do: "type", text: password });
-  await drive({ do: "click", x: 680, y: 603 });
+  await drive({ do: "click", x: 680, y: 586 });
   await drive({ do: "type", text: password });
   await sleep(300);
   await shot("04-owner-filled");
-  await drive({ do: "click", x: 700, y: 749 });
+  await drive({ do: "click", x: 700, y: 732 });
   // The recovery key, copied to Wayland's clipboard once the account is made.
   const recovery = await until(async () => {
     await drive({ do: "click", x: 607, y: 538 });

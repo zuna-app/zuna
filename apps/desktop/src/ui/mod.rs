@@ -53,6 +53,12 @@ use crate::theme::{self, RAIL_WIDTH, RADIUS_L, RADIUS_M, TITLEBAR_HEIGHT};
 use components::*;
 use motion::{Enter, Motion};
 
+/// Where the project lives (lib/links.ts).
+pub const PROJECT_URL: &str = "https://github.com/SocketByte/zuna-chat";
+
+/// The terms of use everyone agrees to when they create an account.
+pub const TERMS_URL: &str = "https://zuna.chat/terms/";
+
 pub struct Root {
     state: Entity<AppState>,
     onboarding: Entity<onboarding::Onboarding>,

@@ -745,6 +745,15 @@ impl SettingsView {
         if let Some(server) = server {
             parts.push(Self::row(&server.entry.name, Some(&server.entry.url), div().text_size(px(12.5)).text_color(theme.text3).child(server.info.map(|info| info.version).unwrap_or_default()), &theme));
         }
+        let links = [("source", "Source code", super::PROJECT_URL.to_string()), ("security-model", "Security model", format!("{}/blob/main/SECURITY.md", super::PROJECT_URL)), ("terms", "Terms of Use", super::TERMS_URL.to_string())];
+        parts.push(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(8.))
+                .children(links.into_iter().map(|(id, label, url)| button(id, ButtonKind::Default, ButtonSize::Normal, false, cx).child(label).on_click(move |_, _, cx| cx.open_url(&url))))
+                .into_any_element(),
+        );
         parts
     }
 

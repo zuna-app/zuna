@@ -614,8 +614,18 @@ impl Render for Onboarding {
                     button("create", ButtonKind::Primary, ButtonSize::Large, !can_submit || busy, cx)
                         .w_full()
                         .when(busy, |el| el.child(spinner(18., theme.text3)).child("Securing your account"))
-                        .when(!busy, |el| el.child("Create account"))
+                        .when(!busy, |el| el.child("Agree and create account"))
                         .when(can_submit && !busy, |el| el.on_click(cx.listener(|view, _, window, cx| view.submit(window, cx))))
+                        .into_any_element(),
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .justify_center()
+                        .text_size(px(12.5))
+                        .text_color(theme.text3)
+                        .child("By creating an account, you agree to the\u{a0}")
+                        .child(div().id("terms").text_color(theme.text2).cursor_pointer().hover(move |style| style.text_color(theme.text1)).on_click(|_, _, cx| cx.open_url(super::TERMS_URL)).child("Terms of Use"))
+                        .child(".")
                         .into_any_element(),
                 ]
             }
