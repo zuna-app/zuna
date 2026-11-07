@@ -49,28 +49,6 @@
 .chip-label { color: var(--text-2); }
 @keyframes float { from { transform: translateY(-6px); } to { transform: translateY(6px); } }
 
-/* The demo */
-
-.demo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin-top: 56px; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 22px; background: var(--bg-1); box-shadow: var(--shadow-l); }
-.demo-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; padding: 28px; }
-.demo-server { border-left: 1px solid var(--line); background: var(--bg-0); }
-.demo-label { margin: 0; font: 500 12.5px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); }
-.demo-chat { display: flex; flex: 1; align-items: flex-end; justify-content: flex-end; min-height: 120px; }
-.demo-bubble { max-width: 86%; padding: 9px 14px; border-radius: 16px 16px 4px 16px; background: var(--bubble-own); color: var(--bubble-own-text); font-size: 15.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.demo-input input {
-  width: 100%; height: 50px; padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 12px;
-  background: var(--bg-2); color: var(--text-1); font: inherit; font-size: 15.5px; outline: none; transition: border-color 0.15s;
-}
-.demo-input input:focus { border-color: var(--text-2); }
-.demo-input input::placeholder { color: var(--text-3); }
-.demo-meta { display: flex; flex-wrap: wrap; gap: 10px 26px; margin: 0; }
-.demo-meta dt { font: 11.5px/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
-.demo-meta dd { margin: 2px 0 0; font: 14px/1.4 var(--font-mono); color: var(--text-1); }
-.demo-cipher {
-  flex: 1; margin: 0; padding: 16px 18px; border: 1px dashed var(--line-strong); border-radius: 12px; background: var(--bg-1);
-  font: 13.5px/1.75 var(--font-mono); color: var(--text-2); overflow-wrap: anywhere;
-}
-
 /* Features */
 
 .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 56px; }
@@ -183,6 +161,46 @@
 .stream-facts b { font-size: 18px; font-weight: 640; letter-spacing: -0.02em; }
 .stream-facts span:not(.stream-fact-icon) { color: var(--text-2); font-size: 14.5px; line-height: 1.5; }
 #streaming .note { margin-top: 32px; }
+
+/* Native apps */
+
+/* The headline figure beside the memory it's worked out from. */
+.native-hero {
+  display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); align-items: center; gap: 56px; margin-top: 56px; padding: 44px 48px;
+  border: 1px solid var(--line-strong); border-radius: 26px;
+  background: radial-gradient(70% 120% at 0% 0%, rgba(255, 255, 255, 0.07), transparent 60%), linear-gradient(180deg, var(--bg-1), var(--bg-0) 140%);
+  box-shadow: var(--shadow-l), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.native-headline { display: flex; flex-direction: column; gap: 8px; }
+.native-times {
+  margin: 0 0 -0.1em; padding-bottom: 0.1em; font-size: clamp(88px, 12vw, 168px); font-weight: 690; letter-spacing: -0.06em; line-height: 0.95;
+  background: linear-gradient(180deg, #ffffff 30%, rgba(255, 255, 255, 0.4)); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.native-claim { max-width: 22ch; color: var(--text-1); font-size: clamp(18px, 1.8vw, 22px); font-weight: 560; letter-spacing: -0.02em; line-height: 1.3; }
+
+/* Zuna's bar beside Electron's, each its share of the larger, grown in as it comes into view. */
+.bars { display: grid; gap: 18px; }
+.bars-row { display: grid; grid-template-columns: 74px minmax(0, 1fr) auto; align-items: center; gap: 14px; }
+.bars-who { color: var(--text-3); font: 500 12.5px/1 var(--font-mono); }
+.is-zuna .bars-who { color: var(--text-1); }
+.bars-track { position: relative; height: 30px; overflow: hidden; border-radius: 9px; background: rgba(255, 255, 255, 0.04); }
+/* Electron's is the whole track and Zuna's its share of it, 137 MB of 614 (MEMORY in NativeApps.tsx). */
+.bars-fill { --w: 100%; position: absolute; inset: 0 auto 0 0; width: var(--w); border-radius: inherit; background: var(--text-3); }
+.is-zuna .bars-fill { --w: 22.3%; background: linear-gradient(90deg, rgba(255, 255, 255, 0.75), #ffffff); box-shadow: 0 0 18px rgba(255, 255, 255, 0.35); }
+.js .reveal .bars-fill { width: 0; }
+.js .reveal.is-in .bars-fill { width: var(--w); transition: width 1.1s var(--ease-out) 0.25s; }
+.bars-value { min-width: 72px; color: var(--text-2); font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.bars-value small { color: var(--text-3); font-size: 0.7em; font-weight: 500; }
+.is-zuna .bars-value { color: var(--text-1); }
+
+/* Three more, quiet, in a row under it. */
+.native-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 48px 0 0; padding: 0; list-style: none; }
+.native-figures li { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 16px; text-align: center; }
+.native-figures li + li { border-left: 1px solid var(--line); }
+.native-figure { font-size: clamp(40px, 4.6vw, 56px); font-weight: 660; letter-spacing: -0.045em; line-height: 1.05; }
+.native-figure-claim { color: var(--text-1); font-size: 16px; font-weight: 540; }
+.native-figure-detail { color: var(--text-3); font: 500 12.5px/1.5 var(--font-mono); }
+#native .note { margin-top: 40px; }
 
 /* Security */
 
@@ -393,6 +411,7 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
   .sec-bento, .platforms { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sec-wide, .sec-bento > :last-child { grid-column: 1 / -1; }
   .chip-float { display: none; }
+  .native-hero { grid-template-columns: minmax(0, 1fr); gap: 28px; padding: 32px; }
   .stream-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .compare { --pad: 20px; }
   .compare-table thead th, .compare-table tbody tr:not(.compare-group) > td { padding-inline: 12px; }
@@ -416,6 +435,10 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
   .sec-wide { grid-template-columns: minmax(0, 1fr); gap: 22px; }
   .sec-wide, .sec-bento > :last-child { grid-column: auto; }
   .tile-wide { flex-direction: column; align-items: stretch; }
+  .native-hero { padding: 26px 20px; }
+  .bars-row { grid-template-columns: 62px minmax(0, 1fr) auto; gap: 10px; }
+  .native-figures { grid-template-columns: minmax(0, 1fr); gap: 28px; margin-top: 36px; }
+  .native-figures li + li { padding-top: 28px; border-top: 1px solid var(--line); border-left: 0; }
   .stream-specs { grid-template-columns: minmax(0, 1fr); gap: 28px; }
   .stream-specs li + li { padding-top: 28px; border-top: 1px solid var(--line-strong); border-left: 0; }
   .race { padding: 12px; }
@@ -426,9 +449,6 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
   .stream-facts { grid-template-columns: minmax(0, 1fr); }
   .tile { min-height: 0; padding: 22px; }
   .mini-sidebar { flex: none; }
-  .demo { grid-template-columns: minmax(0, 1fr); }
-  .demo-side { padding: 20px; }
-  .demo-server { border-top: 1px solid var(--line); border-left: 0; }
   .sees { grid-template-columns: minmax(0, 1fr); }
   .sees-never { border-top: 1px solid var(--line); border-left: 0; }
   .meter-screen { height: 200px; }

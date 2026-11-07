@@ -83,7 +83,6 @@ export function Privacy() {
           its fonts come from here. Like most web servers, the one serving it may log visitors' IP addresses. Downloads come from GitHub's releases, under the{" "}
           <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">GitHub privacy statement</a>.
         </p>
-        <p>The demo on the home page encrypts in your browser, with a key made there. Nothing you type in it leaves the page.</p>
 
         <h2>Changes and questions</h2>
         <p>

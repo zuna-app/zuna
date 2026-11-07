@@ -6,9 +6,10 @@ import { DownloadButton } from "./Download";
 const LINKS = [
   { href: "/#features", label: "Features" },
   { href: "/#streaming", label: "Streaming" },
+  { href: "/#native", label: "Performance" },
   { href: "/#security", label: "Security" },
-  { href: "/#host", label: "Self-host" },
   { href: "/#compare", label: "Compare" },
+  { href: "/#host", label: "Self-host" },
 ];
 
 export function Nav() {

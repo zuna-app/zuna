@@ -112,21 +112,11 @@ async function visit(context, path, width) {
   await page.close();
 }
 
-/** The demo, the ways to host and the download links. */
+/** The ways to host and the download links. */
 async function interactions(browser) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const { outside, problems } = watch(page);
   await page.goto(origin + "/", { waitUntil: "networkidle" });
-
-  const input = page.locator("#demo input");
-  await input.scrollIntoViewIfNeeded();
-  // Typed, as Firefox through WebDriver BiDi fills a field by setting its value, which React doesn't see.
-  await input.fill("");
-  await input.pressSequentially("x".repeat(300));
-  await page.waitForFunction(() => document.querySelector(".demo-meta div:last-child dd")?.textContent === "512 bytes", null, { timeout: 5000 }).catch(() => undefined);
-  const size = await page.locator(".demo-meta div:last-child dd").textContent();
-  check("the demo encrypts what's typed, padded to 256-byte blocks", size === "512 bytes", size ?? "");
-  check("the demo's message shows what was typed", (await page.locator(".demo-bubble").textContent()) === "x".repeat(300));
 
   const terminal = page.locator("#host .terminal");
   await terminal.scrollIntoViewIfNeeded();
@@ -191,8 +181,6 @@ async function lessMotion(browser) {
   await page.waitForTimeout(300);
   const hidden = await page.evaluate(() => [...document.querySelectorAll(".reveal")].filter((element) => getComputedStyle(element).opacity !== "1").length);
   check("with less motion, every section shows without scrolling", hidden === 0, `${hidden} hidden`);
-  const heading = await page.locator("#demo h2 [aria-hidden]").textContent();
-  check("with less motion, the demo's heading doesn't scramble", heading === "Your server only ever sees noise.", heading ?? "");
   await close();
 }
 

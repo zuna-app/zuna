@@ -1,8 +1,8 @@
-import { CipherDemo } from "../sections/CipherDemo";
 import { Compare } from "../sections/Compare";
 import { Faq, FinalCall } from "../sections/Faq";
 import { Features } from "../sections/Features";
 import { Hero } from "../sections/Hero";
+import { NativeApps } from "../sections/NativeApps";
 import { Platforms } from "../sections/Platforms";
 import { Security } from "../sections/Security";
 import { SelfHost } from "../sections/SelfHost";
@@ -13,13 +13,13 @@ export function Home() {
     <>
       <Hero />
       <Features />
-      <CipherDemo />
       <Streaming />
+      <NativeApps />
       <Security />
-      <SelfHost />
       <Compare />
       <Platforms />
       <Faq />
+      <SelfHost />
       <FinalCall />
     </>
   );
