@@ -36,6 +36,9 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   one with fewer frames: the picker's footer, naming the emote under the pointer, crashed the
   app moving from an animated emote to a still one. Another picture now starts from its own
   first frame (`elements/img.rs`).
+- **`TextLayout::closest_index_for_position`,** the character boundary nearest a point, as a
+  selection made with the mouse ends, where `index_for_position` gives the one before the
+  glyph under it (`elements/text.rs`).
 - **Smooth wheel scrolling.** A wheel's notch in a list or a scrolling area glides about 100 px,
   as Chromium's does, eased out over about 150 ms, and notches that come while it moves add to
   where it's going. A touchpad's pixels still move at once (`elements/smooth.rs`, and where

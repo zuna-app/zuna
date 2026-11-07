@@ -13,6 +13,7 @@ use serde_json::json;
 use super::components::*;
 use super::motion::{Enter, Motion};
 use super::menu::{MenuEntry, open_menu_with_reactions};
+use super::selection;
 use crate::format::{format_bytes, format_day_separator, format_full, format_time, name_color, timer_change_text};
 use crate::markup::{self, Block, Rich};
 use crate::models::{Attachment, MessageView, ReactionView, UserView};
@@ -706,7 +707,7 @@ fn flow_text(
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             let zero_width = emote.zero_width == Some(true);
-            row = row.child(match image {
+            let picture = match image {
                 Some(image) => img(image)
                     .h(px(26.))
                     .max_w(px(110.))
@@ -718,7 +719,10 @@ fn flow_text(
                     .id(SharedString::from(format!("emote-{}-{}-{}", message.id, index, range.start)))
                     .into_any_element(),
                 None => div().text_color(theme.text2).child(name.clone()).into_any_element(),
-            });
+            };
+            // Selected whole, and copied as its name.
+            row = row.child(selection::selectable(&message.id, index * 10_000 + piece, index, name.clone(), None, picture));
+            piece += 1;
             continue;
         }
         // Words with their spaces, so lines break between them.
@@ -738,7 +742,8 @@ fn flow_text(
             let mut single = Rich { text: word.to_string(), spans: vec![(0..word.len(), style.clone())] };
             single.spans.retain(|(range, _)| !range.is_empty());
             let runs = runs_for(&single, own, revealed, theme, color);
-            row = row.child(interactive_text(&message.id, index * 10_000 + piece, single, runs, context, cx));
+            let len = single.text.len();
+            row = row.child(interactive_text(&message.id, index * 10_000 + piece, index, single, runs, len, context, cx));
             piece += 1;
         }
     }
@@ -781,6 +786,8 @@ pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, co
                     });
                     continue;
                 }
+                // What can be selected: the text, not the room left for the time.
+                let len = rich.text.len();
                 if meta_in_text && Some(index) == last_text && ends_in_text {
                     let padding = meta_padding(message, own, theme, window);
                     let start = rich.text.len();
@@ -794,7 +801,7 @@ pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, co
                         last.background_color = None;
                     }
                 }
-                let element = interactive_text(&message.id, index, rich, runs, context, cx);
+                let element = interactive_text(&message.id, index * 10_000, index, rich, runs, len, context, cx);
                 column = column.child(if quote {
                     div().pl(px(9.)).my(px(2.)).border_l_2().border_color(if own { theme.bubble_own_faint } else { theme.text3 }).child(element).into_any_element()
                 } else {
@@ -812,7 +819,10 @@ pub(super) fn text_body(message: &MessageView, own: bool, meta_in_text: bool, co
     column.into_any_element()
 }
 
-fn interactive_text(message_id: &str, index: usize, rich: Rich, runs: Vec<TextRun>, context: &ChatContext, _cx: &mut App) -> AnyElement {
+/// A run of a message's text, which can be selected: `order` places it among the message's
+/// pieces, in its `block`, and the first `len` bytes of it are the message's own.
+#[allow(clippy::too_many_arguments)]
+fn interactive_text(message_id: &str, order: usize, block: usize, rich: Rich, runs: Vec<TextRun>, len: usize, context: &ChatContext, _cx: &mut App) -> AnyElement {
     let targets: Vec<(std::ops::Range<usize>, Target)> = rich
         .spans
         .iter()
@@ -829,14 +839,16 @@ fn interactive_text(message_id: &str, index: usize, rich: Rich, runs: Vec<TextRu
         })
         .collect();
     let styled = StyledText::new(SharedString::from(rich.text.clone())).with_runs(runs);
+    let layout = styled.layout().clone();
+    let text = SharedString::from(rich.text[..len].to_string());
     if targets.is_empty() {
-        return div().whitespace_normal().child(styled).into_any_element();
+        return div().whitespace_normal().child(selection::selectable(message_id, order, block, text, Some(layout), styled)).into_any_element();
     }
     let ranges: Vec<_> = targets.iter().map(|(range, _)| range.clone()).collect();
     let state = context.state.clone();
     let revealed = context.revealed.clone();
     let id = message_id.to_string();
-    InteractiveText::new(SharedString::from(format!("text-{message_id}-{index}")), styled)
+    let interactive = InteractiveText::new(SharedString::from(format!("text-{message_id}-{order}")), styled)
         .on_click(ranges, move |clicked, _window, cx| match &targets[clicked].1 {
             Target::Link(url) => cx.open_url(url),
             Target::User(user) => state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Verify { user_id: user.clone() }), cx)),
@@ -844,8 +856,8 @@ fn interactive_text(message_id: &str, index: usize, rich: Rich, runs: Vec<TextRu
                 revealed.borrow_mut().insert(id.clone());
                 state.update(cx, |_, cx| cx.notify());
             }
-        })
-        .into_any_element()
+        });
+    selection::selectable(message_id, order, block, text, Some(layout), interactive).into_any_element()
 }
 
 enum Target {
@@ -906,7 +918,11 @@ fn code_block(text: &str, language: Option<&str>, message_id: &str, index: usize
                 .line_height(relative(1.5))
                 .text_color(theme::color(theme::hex(0xe6edf3)))
                 .whitespace_nowrap()
-                .child(StyledText::new(SharedString::from(text.to_string()))),
+                .child({
+                    let styled = StyledText::new(SharedString::from(text.to_string()));
+                    let layout = styled.layout().clone();
+                    selection::selectable(message_id, index * 10_000, index, text.to_string(), Some(layout), styled)
+                }),
         )
         .into_any_element()
 }
@@ -1298,8 +1314,11 @@ pub(super) fn menu_entries(message: &MessageView, own: bool, can_act: bool, cont
         entries.push(MenuEntry::new("Select", "circle-check", move |_, cx| select_state.update(cx, |state, cx| state.toggle_selected(&select_list, Some(&select_id), cx))));
     }
     if !message.text.is_empty() && !is_deleted {
-        let (state, text) = (state.clone(), message.text.clone());
-        entries.push(MenuEntry::new("Copy text", "copy", move |_, cx| {
+        // What's selected in it, if anything, as the desktop's "Copy selection".
+        let selected = selection::text_in(&message.id);
+        let label = if selected.is_some() { "Copy selection" } else { "Copy text" };
+        let (state, text) = (state.clone(), selected.unwrap_or_else(|| message.text.clone()));
+        entries.push(MenuEntry::new(label, "copy", move |_, cx| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
             state.update(cx, |state, cx| state.toast("Copied", ToastKind::Info, cx));
         }));

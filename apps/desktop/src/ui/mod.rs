@@ -18,6 +18,7 @@ pub mod invites;
 pub mod media_views;
 pub mod picker;
 pub mod screen_picker;
+pub mod selection;
 pub mod scrollbar;
 pub mod server_settings;
 pub mod server_voice;
@@ -100,6 +101,12 @@ impl Root {
         window.focus(&focus);
         let voice = crate::voice::get(cx).expect("voice starts with the app");
         cx.observe(&voice, |_, _, cx| cx.notify()).detach();
+        // Ahead of the fields' own bindings, so Ctrl+C copies selected message text from the message box.
+        let root = cx.entity().downgrade();
+        cx.intercept_keystrokes(move |event, window, cx| {
+            root.update(cx, |root, cx| root.key_with_selection(&event.keystroke, window, cx)).ok();
+        })
+        .detach();
         Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, rail_hovered: None, resizing: None, menu, picker, focus, covered: false }
     }
 
@@ -557,6 +564,34 @@ impl Root {
         });
     }
 
+    /// Keys while a message's text is selected, which the message box holds focus through:
+    /// Ctrl+C copies it, as the desktop's browser does, and typing lets go of it, as typing
+    /// there moves the browser's selection into the message box.
+    fn key_with_selection(&mut self, keystroke: &gpui::Keystroke, window: &Window, cx: &mut Context<Self>) {
+        let Some(text) = selection::text() else { return };
+        // Any other field keeps its keys.
+        let in_composer = self.chat.as_ref().is_some_and(|(_, chat)| chat.read(cx).composer_has_focus());
+        if text_input::any_focused(window) && !in_composer {
+            return;
+        }
+        let modifiers = &keystroke.modifiers;
+        if (modifiers.control || modifiers.platform) && !modifiers.alt && (keystroke.key == "c" || keystroke.key == "insert") {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+            cx.stop_propagation();
+            return;
+        }
+        let types = keystroke.key_char.is_some() || matches!(keystroke.key.as_str(), "escape" | "enter" | "backspace" | "delete" | "tab");
+        if types && !modifiers.control && !modifiers.alt && !modifiers.platform && selection::clear() {
+            self.text_selection_changed(cx);
+        }
+    }
+
+    fn text_selection_changed(&self, cx: &mut Context<Self>) {
+        if let Some((_, chat)) = &self.chat {
+            chat.update(cx, |chat, cx| chat.refresh_messages(cx));
+        }
+    }
+
     /// The next or previous conversation in the list, hidden ones left out.
     fn step_conversation(&mut self, step: isize, cx: &mut Context<Self>) {
         let Some(server) = self.state.read(cx).active() else { return };
@@ -730,6 +765,13 @@ impl Render for Root {
                 }
             }))
             .capture_any_mouse_up(cx.listener(|root, _: &MouseUpEvent, window, cx| root.refocus_composer(window, cx)))
+            // A press anywhere lets go of selected text, and one on a message's text starts anew.
+            .capture_any_mouse_down(cx.listener(|root, event: &gpui::MouseDownEvent, _, cx| {
+                if event.button == MouseButton::Left && selection::clear() {
+                    root.text_selection_changed(cx);
+                }
+            }))
+
             .flex()
             .flex_col()
             .bg(theme.bg0)

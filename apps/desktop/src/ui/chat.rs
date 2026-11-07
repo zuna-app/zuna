@@ -21,6 +21,7 @@ use super::components::*;
 use super::motion::{Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::message::{ChatContext, render_row};
+use super::selection;
 use super::side_panel::SidePanel;
 use super::text_input::{InputEvent, TextInput};
 use crate::format::{format_bytes, format_last_seen, now_ms, timer_text, wait_text};
@@ -375,8 +376,12 @@ impl ChatView {
 
     /// Has the messages drawn again on the next frame, for a change in what they show.
     /// Never during a draw, when it would only take effect a frame late.
-    fn refresh_messages(&self, cx: &mut Context<Self>) {
+    pub fn refresh_messages(&self, cx: &mut Context<Self>) {
         self.messages.update(cx, |_, cx| cx.notify());
+    }
+
+    pub fn composer_has_focus(&self) -> bool {
+        self.composer_focused
     }
 
     pub fn focus_composer(&self, window: &mut Window, cx: &gpui::App) {
@@ -928,6 +933,17 @@ impl ChatView {
         self.row_bounds.borrow().iter().find(|(index, bounds)| **index < self.rows.len() && bounds.top() <= at && at < bounds.bottom()).map(|(index, _)| *index)
     }
 
+    /// A press on a message's text starts selecting it, except while messages are picked,
+    /// when a press picks instead, as `use-drag-pick.ts` keeps it.
+    fn select_start(&mut self, event: &gpui::MouseDownEvent, cx: &mut Context<Self>) {
+        let picking = self.state.read(cx).selection.as_ref().is_some_and(|(list, _)| *list == self.last_list_id);
+        let modifiers = &event.modifiers;
+        let changed = if picking || modifiers.control || modifiers.alt || modifiers.platform { selection::clear() } else { selection::press(event.position, modifiers.shift) };
+        if changed {
+            self.refresh_messages(cx);
+        }
+    }
+
     /// A press on a message may start picking by dragging, as in Telegram's desktop app.
     fn drag_start(&mut self, event: &gpui::MouseDownEvent, cx: &mut Context<Self>) {
         if event.button != MouseButton::Left || event.modifiers.shift || event.modifiers.control || event.modifiers.alt || event.modifiers.platform {
@@ -954,6 +970,10 @@ impl ChatView {
         }
         if !drag.dragging {
             drag.dragging = true;
+            // Onto another message: picking, and the text selected so far goes.
+            if selection::clear() {
+                self.refresh_messages(cx);
+            }
             // Held near the top or bottom, or past it, the list scrolls, faster the further out.
             self.drag_tick = Some(cx.spawn(async move |view, cx| loop {
                 cx.background_executor().timer(std::time::Duration::from_millis(16)).await;
@@ -1003,6 +1023,35 @@ impl ChatView {
             state.selection = (!ids.is_empty()).then(|| (list_id, ids));
             cx.notify();
         });
+    }
+
+    /// While a press is selecting text, the pointer stretches it wherever it goes in the window,
+    /// as a browser's does, and the button coming up anywhere ends it.
+    fn selecting_text(&self, cx: &mut Context<Self>) -> AnyElement {
+        let view = cx.entity().downgrade();
+        gpui::canvas(
+            |_, _, _| {},
+            move |_, _, window, _| {
+                window.on_mouse_event(move |event: &gpui::MouseMoveEvent, phase, _, cx| {
+                    if phase != gpui::DispatchPhase::Bubble || !selection::held() {
+                        return;
+                    }
+                    if event.pressed_button != Some(MouseButton::Left) {
+                        selection::release();
+                    } else if selection::stretch(event.position) {
+                        view.update(cx, |view, cx| view.refresh_messages(cx)).ok();
+                    }
+                });
+                window.on_mouse_event(|_: &gpui::MouseUpEvent, phase, _, _| {
+                    if phase == gpui::DispatchPhase::Capture {
+                        selection::release();
+                    }
+                });
+            },
+        )
+        .absolute()
+        .size_0()
+        .into_any_element()
     }
 
     /// Ends a drag; the click a drag ends with doesn't also pick, or open, what it lands on.
@@ -2636,8 +2685,9 @@ impl ChatView {
                     }
                 }
                 let fresh = self.fresh.clone();
-                // Where each drawn row is, for picking by dragging across them.
+                // Where each drawn row is, for picking by dragging across them, and its text, for selecting it.
                 self.row_bounds.borrow_mut().clear();
+                selection::forget_pieces();
                 let row_bounds = self.row_bounds.clone();
                 let rows = gpui::list(self.list.clone(), move |index, window, cx| {
                     // The message and those beside it, which is all a row looks at, read from the
@@ -2673,7 +2723,13 @@ impl ChatView {
                     .flex_1()
                     .min_h_0()
                     .flex()
-                    .on_mouse_down(MouseButton::Left, cx.listener(|view, event: &gpui::MouseDownEvent, _, cx| view.drag_start(event, cx)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|view, event: &gpui::MouseDownEvent, _, cx| {
+                            view.select_start(event, cx);
+                            view.drag_start(event, cx);
+                        }),
+                    )
                     .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
                         if event.pressed_button == Some(MouseButton::Left) && view.drag.is_some() {
                             view.drag_move(event.position.y, cx);
@@ -2684,6 +2740,7 @@ impl ChatView {
                     }))
                     .capture_any_mouse_up(cx.listener(|view, _: &gpui::MouseUpEvent, _, cx| view.drag_end(cx)))
                     .child(rows)
+                    .child(self.selecting_text(cx))
                     .child(scrollbar("chat-list", Scrolls::List(self.list.clone())).thin())
                     .when_some(mention_button, |el, button| el.child(button))
                     .when_some(jump_bar, |el, bar| el.child(bar))
