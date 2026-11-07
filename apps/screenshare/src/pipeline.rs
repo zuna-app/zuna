@@ -21,9 +21,11 @@ use livekit::webrtc::{
 };
 
 /// A still screen gets this long at the full frame rate, for the encoder to sharpen
-/// it, and then only a trickle of frames to keep the stream alive.
+/// it, and then only a trickle of frames to keep the stream alive. libwebrtc counts a
+/// freeze where a frame comes 150 ms later than they've been coming, so a trickle of one
+/// every 200 ms made each still moment five freezes in the stats of whoever's watching.
 const REFINE_FOR: Duration = Duration::from_millis(500);
-const STILL_INTERVAL: Duration = Duration::from_millis(200);
+const STILL_INTERVAL: Duration = Duration::from_millis(120);
 
 /// A browser asks again while a keyframe is on its way, so answer at this pace.
 const KEYFRAME_MIN_GAP: Duration = Duration::from_millis(250);
@@ -174,6 +176,16 @@ struct Window {
     key_requests: u64,
     rejected: u64,
     bitrate_changes: u64,
+}
+
+impl Window {
+    /// Adds what went on in another window to the totals.
+    fn add_to(&self, totals: &mut Window) {
+        totals.frames += self.frames;
+        totals.keys += self.keys;
+        totals.key_requests += self.key_requests;
+        totals.bitrate_changes += self.bitrate_changes;
+    }
 }
 
 pub struct Pipeline {
@@ -418,7 +430,7 @@ impl Pipeline {
         let (arrival_ms, arrival_jitter) = window.arrivals.mean_and_deviation();
         let (spacing_ms, spacing_jitter) = window.spacing.mean_and_deviation();
         println!(
-            "{{\"type\":\"stats\",\"t\":{:.1},\"width\":{},\"height\":{},\"fps\":{:.1},\"repeatFps\":{:.1},\"earlyFps\":{:.1},\"arrivalMs\":{arrival_ms:.2},\"arrivalJitterMs\":{arrival_jitter:.2},\"spacingMs\":{spacing_ms:.2},\"spacingJitterMs\":{spacing_jitter:.2},\"kbps\":{:.0},\"targetKbps\":{},\"encoderKbps\":{},\"encodeMsAvg\":{:.2},\"encodeMsMax\":{:.2},\"keys\":{},\"keyRequests\":{},\"bitrateChanges\":{},\"rejected\":{},\"idrRewritten\":{},\"idrLeftAlone\":{},\"cpuCores\":{:.3}}}",
+            "{{\"type\":\"stats\",\"t\":{:.1},\"width\":{},\"height\":{},\"fps\":{:.1},\"repeatFps\":{:.1},\"earlyFps\":{:.1},\"arrivalMs\":{arrival_ms:.2},\"arrivalJitterMs\":{arrival_jitter:.2},\"spacingMs\":{spacing_ms:.2},\"spacingJitterMs\":{spacing_jitter:.2},\"kbps\":{:.0},\"targetKbps\":{},\"encoderKbps\":{},\"encodeMsAvg\":{:.2},\"encodeMsMax\":{:.2},\"keys\":{},\"keyRequests\":{},\"bitrateChanges\":{},\"allKeys\":{},\"allKeyRequests\":{},\"allBitrateChanges\":{},\"rejected\":{},\"idrRewritten\":{},\"idrLeftAlone\":{},\"cpuCores\":{:.3}}}",
             self.started.elapsed().as_secs_f64(),
             self.width,
             self.height,
@@ -433,12 +445,15 @@ impl Pipeline {
             window.keys,
             window.key_requests,
             window.bitrate_changes,
+            self.totals.keys + window.keys,
+            self.totals.key_requests + window.key_requests,
+            self.totals.bitrate_changes + window.bitrate_changes,
             window.rejected,
             self.rewriter.idr_rewritten,
             self.rewriter.idr_left_alone,
             (cpu_now - self.cpu_at_window_start).as_secs_f64() / seconds,
         );
-        self.totals.frames += window.frames;
+        window.add_to(&mut self.totals);
         self.window_started = Instant::now();
         self.cpu_at_window_start = cpu_now;
     }

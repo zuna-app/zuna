@@ -102,8 +102,9 @@ fn read(stats: &[RtcStats], local: bool) -> (HashMap<&'static str, f64>, HashMap
                     ("decode_time", inbound.total_decode_time),
                     ("buffer_delay", inbound.jitter_buffer_delay),
                     ("buffer_emitted", inbound.jitter_buffer_emitted_count as f64),
+                    // Not how long they took: LiveKit's SDK reads that from `totalFreezeDuration`,
+                    // which libwebrtc calls `totalFreezesDuration`, so it's always 0.
                     ("freezes", inbound.freeze_count as f64),
-                    ("freeze_time", inbound.total_freeze_duration),
                     ("key_frames", inbound.key_frames_decoded as f64),
                     ("pli", inbound.pli_count as f64),
                     ("nack", inbound.nack_count as f64),
@@ -319,7 +320,7 @@ impl Reader {
                         row("Encoder set to", bits(number("encoderKbps").map(|value| value * 1000.)), false),
                         row("Encode time", number("encodeMsAvg").map(|average| format!("{average:.1} ms, at most {:.1} ms", number("encodeMsMax").unwrap_or(0.))), false),
                         row("CPU", number("cpuCores").map(|cores| format!("{:.1}% of a core", cores * 100.)), false),
-                        row("Keyframes", number("keys").map(|keys| format!("{}, {} asked for", count(Some(keys)).unwrap_or_default(), count(number("keyRequests")).unwrap_or_default())), false),
+                        row("Keyframes", number("allKeys").map(|keys| format!("{}, {} asked for, {} for a new bitrate", count(Some(keys)).unwrap_or_default(), count(number("allKeyRequests")).unwrap_or_default(), count(number("allBitrateChanges")).unwrap_or_default())), false),
                         row("Frames refused", count(number("rejected")), number("rejected").unwrap_or(0.) > 0.),
                         row("Encryption", share.info.as_ref().map(|info| if info.get("e2ee").and_then(serde_json::Value::as_bool).unwrap_or(false) { "End to end".to_string() } else { "Off".to_string() }), false),
                     ]
@@ -414,7 +415,7 @@ impl Reader {
                             row("Decode time", ms(each("decode_time", "frames_decoded").map(|seconds| seconds * 1000.)), false),
                             row("Jitter buffer", ms(each("buffer_delay", "buffer_emitted").map(|seconds| seconds * 1000.)), false),
                             row("Network jitter", ms(get("jitter").map(|seconds| seconds * 1000.)), false),
-                            row("Freezes", joined(&[count(get("freezes")), get("freeze_time").map(|seconds| format!("{seconds:.1} s"))]), change("freezes").unwrap_or(0.) > 0.),
+                            row("Freezes", count(get("freezes")), change("freezes").unwrap_or(0.) > 0.),
                             row("Keyframes", joined(&[count(get("key_frames")), Some(format!("{} asked for", count(get("pli")).unwrap_or_else(|| "0".into())))]), false),
                             row("Packets", joined(&[count(get("packets")), Some(format!("{} NACK", count(get("nack")).unwrap_or_else(|| "0".into())))]), false),
                             row("Lost", joined(&[count(get("lost")), percent(lost)]), lost.unwrap_or(0.) > NOTICEABLE_LOSS),

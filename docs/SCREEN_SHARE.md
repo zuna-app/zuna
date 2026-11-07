@@ -191,7 +191,7 @@ On macOS a share through the browser is encoded on the GPU as well, through Vide
 
 ## Frame rate
 
-What's sent depends on the screen changing: a still screen gets half a second at the full rate, for the encoder to sharpen it, and then a trickle. These are from Windows at 2560x1440 on a 240 Hz monitor, with something moving on the screen and 60 fps asked for:
+What's sent depends on the screen changing: a still screen gets half a second at the full rate, for the encoder to sharpen it, and then a trickle, a frame every 120 ms. libwebrtc counts a frame that comes 150 ms later than they've been coming as a freeze, so a trickle of one every 200 ms made each still moment five freezes in the stream stats of whoever was watching. These are from Windows at 2560x1440 on a 240 Hz monitor, with something moving on the screen and 60 fps asked for:
 
 | Route | Captured | Sent | Decoded by someone watching |
 |---|---|---|---|
