@@ -13,11 +13,11 @@ import { createInterface } from "node:readline";
 import { appBinary, here, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
-const { work, base, session, check, start, shot, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, finish } = await inside({ shots: process.argv[2] });
+const { work, base, session, check, start, shot, kwinFrames, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, finish } = await inside({ shots: process.argv[2] });
 
 let peer;
 try {
-  const { port, setupLink } = await startServer();
+  const { port, setupLink, server } = await startServer();
   check("the check's own keyring holds the Secret Service's name", await startKeyring());
 
   // Without Wayland it says so and leaves, rather than running with no window.
@@ -47,8 +47,11 @@ try {
   check("the desktop's animations being off reaches the app", await until(() => app.output.includes("animations are off"), "the setting", 10_000).catch(() => false));
   await sleep(1500);
   await shot("01-start");
+  // Who draws the window's frame, as the app says each time the compositor decides.
+  const frames = () => app.output.match(/(?<=the )(app|compositor)(?= draws the window's frame)/g) ?? [];
+  check("where the compositor draws no frames, as GNOME's doesn't, the app draws its own", frames().at(-1) === "app", frames().join(", "));
 
-  // The title bar, as Windows gives it: buttons, dragging, a double click, and resizing.
+  // The app's own title bar, as Windows gives it: buttons, dragging, a double click, and resizing.
   const bar = (window, x) => ({ x: window.x + x, y: window.y + 16 });
   const button = (window, fromRight) => ({ x: window.x + window.width - fromRight, y: window.y + 16 });
   let window = await windowOf();
@@ -278,6 +281,21 @@ try {
   await drive({ do: "move", x: 700, y: 400 });
   await drive({ do: "move", x: 720, y: 420 });
   check("and input as back", !!(await until(() => app.output.includes("the person is back"), "the person to be back", 5_000).catch(() => null)));
+
+  // --- The compositor's frame ---
+  // Asked for through xdg-decoration, it takes the place of the app's own title bar as soon as
+  // KWin can draw one, and the connection, which that title bar showed, shows atop the
+  // conversation list, as on the web. The server stops for it, last of all.
+  kwinFrames(true);
+  check("once KWin draws frames, the app leaves the frame to it", !!(await until(() => frames().at(-1) === "compositor", "KWin's frame", 10_000).catch(() => null)), frames().join(", "));
+  const framed = await until(async () => {
+    const window = await windowOf();
+    return window.client.y > window.y ? window : null;
+  }, "KWin's title bar", 5_000).catch(() => windowOf());
+  check("with KWin's title bar above the window", framed.client.y - framed.y >= 20, `${framed.client.y - framed.y} px`);
+  server.kill();
+  await sleep(3000);
+  await shot("14-kwin-frame-offline");
 
   // --- Quitting from the tray, and the key read back from the Secret Service ---
   await drive({ do: "tray-menu", label: "Quit" });

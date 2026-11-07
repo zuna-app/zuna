@@ -94,6 +94,8 @@ impl ConversationList {
         let search = cx.new(|cx| TextInput::new(cx, "Search"));
         let mut subscriptions = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
+            // Whether the connection shows here, which follows who draws the title bar.
+            cx.observe_window_appearance(window, |_, _, cx| cx.notify()),
             cx.subscribe_in(&search, window, |list, input, event, window, cx| match event {
                 InputEvent::Changed => list.run_search(cx),
                 InputEvent::Escape => {
@@ -351,9 +353,11 @@ pub fn mute_entries(key: String, state: Entity<AppState>) -> Vec<MenuEntry> {
 }
 
 impl Render for ConversationList {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
         let Some(server) = self.state.read(cx).active().cloned() else { return div().into_any_element() };
+        // Without a title bar of the app's own, the connection shows here, as on the web.
+        let status = if crate::platform::draws_title_bar(window) { None } else { connection_status(&server, &theme) };
         let query = self.search.read(cx).text().trim().to_lowercase();
         let filter = self.filter;
         let matches = |item: &ConversationView| {
@@ -434,6 +438,8 @@ impl Render for ConversationList {
                     .child(div().min_w_0().one_line().child(server.entry.name.clone()))
                     .child(icon("chevron-down", 15., theme.text3))
             })
+            // `.sidebar-head .titlebar-status`.
+            .children(status.map(|status| status.flex_none().text_size(px(12.)).pr(px(4.))))
             .child({
                 let state = self.state.clone();
                 icon_button("new-group", "square-pen", 17., false, false, cx)

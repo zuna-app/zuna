@@ -98,6 +98,16 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
   writeFileSync(join(applications, "zuna.desktop"), `[Desktop Entry]\nType=Application\nName=Zuna\nExec=${appBinary} %u\nIcon=zuna\nMimeType=x-scheme-handler/zuna;\n`);
   // Animations off, as the desktop's setting, which KWin's own animations heed too.
   writeFileSync(join(xdg.XDG_CONFIG_HOME, "kdeglobals"), "[KDE]\nAnimationDurationFactor=0\n");
+  /**
+   * Whether KWin draws windows' frames, or leaves them to each window, as GNOME's Mutter does.
+   * KWin has no switch for that, but with a decoration theme that isn't there it falls back to
+   * the window's own, and it takes either at once when told to reconfigure. Without frames
+   * until a check asks, whatever the person's own theme, which Plasma hands on through
+   * `XDG_CONFIG_DIRS`.
+   */
+  const kwinrc = (frames) =>
+    writeFileSync(join(xdg.XDG_CONFIG_HOME, "kwinrc"), `[org.kde.kdecoration2]\n${frames ? "library=org.kde.breeze\n" : "library=org.kde.kwin.aurorae.v2\ntheme=__aurorae__svg__zuna-check-none\n"}`);
+  kwinrc(false);
   // The GPU overlays some systems put over every Vulkan program would be in each screenshot.
   const quiet = { MANGOHUD: "0", DISABLE_MANGOHUD: "1" };
   const base = { ...process.env, ...xdg, ...quiet };
@@ -125,6 +135,12 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
   start("kwin_wayland", ["--virtual", "--socket", socket, "--width", String(width), "--height", String(height), "--no-lockscreen", ...(globalShortcuts ? [] : ["--no-global-shortcuts"])], base, "kwin");
   await until(() => existsSync(join(process.env.XDG_RUNTIME_DIR, socket)), "KWin's socket");
   const session = { ...base, WAYLAND_DISPLAY: socket };
+
+  /** Breeze's frames on every window from now on, or none. */
+  function kwinFrames(frames) {
+    kwinrc(frames);
+    spawnSync("dbus-send", ["--session", "--dest=org.kde.KWin", "--type=method_call", "/KWin", "org.kde.KWin.reconfigure"], { env: session, stdio: "ignore", timeout: 10_000 });
+  }
 
   /** A screenshot of the whole KWin, taken by Spectacle inside it. */
   async function shot(name) {
@@ -244,5 +260,5 @@ export async function inside({ shots: shotsDir, width = 1400, height = 900, glob
     process.exit(0);
   }
 
-  return { work, xdg, base, session, shots, check, failures, start, shot, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish };
+  return { work, xdg, base, session, shots, check, failures, start, shot, kwinFrames, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish };
 }

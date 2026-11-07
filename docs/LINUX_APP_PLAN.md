@@ -69,11 +69,13 @@ The callers stay as they are, except:
 
 ### The window and its title bar
 
-The app draws its own title bar with Windows's three buttons, which Windows drags, snaps, minimizes, maximizes and closes through `window_control_area`. GPUI's Wayland windows ignore that: `on_hit_test_window_control` does nothing in `platform/linux/wayland/window.rs`. So on Linux the title bar does each of those itself, and looks the same:
+The window asks the compositor for its own title bar through xdg-decoration (`window_decorations: Some(WindowDecorations::Server)`), so it looks as every other window on that desktop does: KDE's Breeze, Sway's, labwc's, or none at all on Hyprland or niri, which draw only borders. The app's own title bar is then left out, and the connection's state shows at the top of the conversation list, as on the web (`draws_title_bar` in `platform/mod.rs`).
+
+Where the compositor has no xdg-decoration, as GNOME's hasn't, or turns it down, it draws no frame, so the app draws its own title bar with Windows's three buttons, which Windows drags, snaps, minimizes, maximizes and closes through `window_control_area`. GPUI's Wayland windows ignore that: `on_hit_test_window_control` does nothing in `platform/linux/wayland/window.rs`. So there the title bar does each of those itself, and looks the same:
 
 - **Dragging:** `window.start_window_move()` on a press in the drag area, `window.zoom_window()` on a double click, and `window.show_window_menu()` on a right click, which Windows's own title bar does too.
 - **Buttons:** `minimize_window`, `zoom_window`, and closing as the close request does today. The Electron app on Linux draws the same buttons (`titleBarStyle: "hidden"` with `titleBarOverlay` in `main/index.ts`).
-- **Decorations drawn by the app:** `window_decorations: Some(WindowDecorations::Client)`, since KWin's would put a second title bar above this one.
+- **Decorations drawn by the app** only where the compositor leaves them to it: GPUI took a window that asked for the compositor's to have them even there, and left it with no frame, which `vendor/gpui/ZUNA.md` changes.
 - **Resizing:** `window.start_window_resize(edge)` from the outermost few pixels of each edge and corner, drawn as nothing but the resize cursor. A shadow or rounded corners, as Windows adds, would need a transparent margin around the window, which would change how it looks and where it is, so there's neither.
 - **`app_id`** on Linux is the `.desktop` file's name, `zuna`. KWin finds the window's icon by it, and the portals, notifications and the badge find the app by it.
 

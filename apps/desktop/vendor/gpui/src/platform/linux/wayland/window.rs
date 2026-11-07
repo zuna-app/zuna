@@ -500,30 +500,30 @@ impl WaylandWindowStatePtr {
 
     pub fn handle_toplevel_decoration_event(&self, event: zxdg_toplevel_decoration_v1::Event) {
         if let zxdg_toplevel_decoration_v1::Event::Configure { mode } = event {
-            match mode {
+            let decorations = match mode {
                 WEnum::Value(zxdg_toplevel_decoration_v1::Mode::ServerSide) => {
-                    self.state.borrow_mut().decorations = WindowDecorations::Server;
-                    if let Some(mut appearance_changed) =
-                        self.callbacks.borrow_mut().appearance_changed.as_mut()
-                    {
-                        appearance_changed();
-                    }
+                    WindowDecorations::Server
                 }
                 WEnum::Value(zxdg_toplevel_decoration_v1::Mode::ClientSide) => {
-                    self.state.borrow_mut().decorations = WindowDecorations::Client;
-                    // Update background to be transparent
-                    if let Some(mut appearance_changed) =
-                        self.callbacks.borrow_mut().appearance_changed.as_mut()
-                    {
-                        appearance_changed();
-                    }
+                    WindowDecorations::Client
                 }
                 WEnum::Value(_) => {
                     log::warn!("Unknown decoration mode");
+                    return;
                 }
                 WEnum::Unknown(v) => {
                     log::warn!("Unknown decoration mode: {}", v);
+                    return;
                 }
+            };
+            // Zuna: the surface's transparency and opaque region follow the mode the
+            // compositor chose, which may not be the one asked for.
+            let mut state = self.state.borrow_mut();
+            state.decorations = decorations;
+            update_window(state);
+            if let Some(appearance_changed) = self.callbacks.borrow_mut().appearance_changed.as_mut()
+            {
+                appearance_changed();
             }
         }
     }
@@ -1140,11 +1140,13 @@ impl PlatformWindow for WaylandWindow {
     }
 
     fn request_decorations(&self, decorations: WindowDecorations) {
-        let mut state = self.borrow_mut();
-        state.decorations = decorations;
-        if let Some(decoration) = state.decoration.as_ref() {
+        // Zuna: the window keeps drawing its own frame until the compositor picks a mode
+        // (`handle_toplevel_decoration_event`). GPUI took the one asked for at once, so a window
+        // asking for the compositor's where it has no xdg-decoration, as GNOME's hasn't, was
+        // left with no frame at all, and one the compositor did frame was first laid out, and
+        // its geometry given, as if it had no margin of its own where it had.
+        if let Some(decoration) = self.borrow().decoration.as_ref() {
             decoration.set_mode(decorations.to_xdg());
-            update_window(state);
         }
     }
 

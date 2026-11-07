@@ -97,6 +97,9 @@ impl Root {
         .detach();
         let picker = picker::picker_layer(window, cx);
         cx.observe(&picker, |_, _, cx| cx.notify()).detach();
+        // The compositor says whether it draws the title bar as it shows the window, and may
+        // change its mind.
+        cx.observe_window_appearance(window, |_, _, cx| cx.notify()).detach();
         let focus = cx.focus_handle();
         window.focus(&focus);
         let voice = crate::voice::get(cx).expect("voice starts with the app");
@@ -112,13 +115,7 @@ impl Root {
 
     fn title_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
-        let state = self.state.read(cx);
-        let status = state.active().and_then(|server| match server.connection.as_str() {
-            "connecting" => Some("Connecting"),
-            "offline" => Some("Waiting for network"),
-            "syncing" => Some("Updating"),
-            _ => None,
-        });
+        let status = self.state.read(cx).active().and_then(|server| connection_status(server, &theme));
         let control = |id: &'static str, icon_name: &'static str, area: WindowControlArea, close: bool| {
             let button = div()
                 .id(id)
@@ -156,9 +153,7 @@ impl Root {
                     .child(logo(14.))
                     .child("Zuna"),
             )
-            .when_some(status, |el, status| {
-                el.child(div().flex().items_center().gap(px(6.)).text_color(theme.text2).child(div().size(px(6.)).rounded_full().bg(theme.amber)).child(status))
-            });
+            .children(status);
         // Wayland leaves dragging to the app.
         #[cfg(target_os = "linux")]
         let drag = crate::platform::title_drag(drag);
@@ -779,7 +774,7 @@ impl Render for Root {
             .font_family(theme::FONT_UI)
             .text_size(px(14.))
             .line_height(gpui::relative(1.45))
-            .child(self.title_bar(window, cx))
+            .when(crate::platform::draws_title_bar(window), |el| el.child(self.title_bar(window, cx)))
             .child(
                 div()
                     .relative()

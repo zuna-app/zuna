@@ -1,4 +1,6 @@
-//! The window's frame under Wayland, where the app draws its own decorations. Windows
+//! The window's frame under Wayland, where the compositor has no xdg-decoration, as GNOME's
+//! hasn't, and the app draws its own decorations. Elsewhere the compositor draws the frame,
+//! and none of this is used. Windows
 //! drags, resizes, snaps, minimizes, maximizes and closes a window through
 //! `window_control_area`, which GPUI's Wayland windows ignore, so here the title bar and
 //! the edges ask for each of those themselves. Nothing of the frame is drawn: the window
@@ -20,6 +22,8 @@ const CORNER: Pixels = px(16.);
 thread_local! {
     /// The title bar was pressed and the pointer hasn't moved since: moving starts a drag.
     static PRESSED: Cell<bool> = const { Cell::new(false) };
+    /// Whether the app drew the frame when last asked, to say so once each time it changes.
+    static OWN_FRAME: Cell<Option<bool>> = const { Cell::new(None) };
 }
 
 fn tiling(window: &Window) -> Option<Tiling> {
@@ -27,6 +31,16 @@ fn tiling(window: &Window) -> Option<Tiling> {
         Decorations::Client { tiling } => Some(tiling),
         Decorations::Server => None,
     }
+}
+
+/// Whether the app draws the window's frame, as the compositor decided, which the log says
+/// each time it changes.
+pub fn own_frame(window: &Window) -> bool {
+    let own = tiling(window).is_some();
+    if OWN_FRAME.with(|last| last.replace(Some(own))) != Some(own) {
+        log::info!("{} draws the window's frame", if own { "the app" } else { "the compositor" });
+    }
+    own
 }
 
 /// The edge or corner a point on the window's margin resizes, if any.
@@ -74,7 +88,9 @@ fn cursor_for(edge: ResizeEdge) -> CursorStyle {
 /// compositor hasn't tiled. A maximized or tiled window has no margin on those sides.
 pub fn window_frame(content: impl IntoElement, window: &mut Window) -> AnyElement {
     let tiling = tiling(window);
-    window.set_client_inset(if tiling.is_some() { RESIZE_BORDER } else { px(0.) });
+    // GPUI only counts it while the app draws the frame, and has it ready if the compositor
+    // stops drawing one, for the configure that comes with that.
+    window.set_client_inset(RESIZE_BORDER);
     let Some(tiling) = tiling else {
         return div().size_full().child(content).into_any_element();
     };

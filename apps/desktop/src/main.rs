@@ -155,9 +155,10 @@ fn main() {
                 titlebar: Some(TitlebarOptions { title: Some("Zuna".into()), appears_transparent: true, traffic_light_position: Some(point(px(12.), px(10.))) }),
                 window_min_size: Some(size(px(720.), px(480.))),
                 app_id: Some(platform::APP_ID.into()),
-                // Under Wayland the app draws its own title bar, as it does on Windows.
+                // Under Wayland the compositor's title bar, through xdg-decoration, where it has
+                // one, and the app's own where it hasn't, as on GNOME.
                 #[cfg(target_os = "linux")]
-                window_decorations: Some(gpui::WindowDecorations::Client),
+                window_decorations: Some(gpui::WindowDecorations::Server),
                 ..Default::default()
             },
             |window, cx| {

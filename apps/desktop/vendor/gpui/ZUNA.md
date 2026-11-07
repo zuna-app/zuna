@@ -64,6 +64,15 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   They're now set with the newest serial of a key or a button (`SerialTracker::latest` in
   `platform/linux/wayland/serial.rs`, and `client.rs`).
 
+- **A frame where the compositor draws none.** A window asking for the compositor's title bar
+  on Wayland was taken to have one as soon as it asked, so where the compositor has no
+  xdg-decoration, as GNOME's hasn't, it was left with no frame at all, and where the compositor
+  said no, its first layout and the geometry it gave left out the margin it then drew, which
+  moved a drag a few pixels off. It now draws its own frame until the compositor picks a mode,
+  and when it does, the surface's transparency and opaque region follow at once
+  (`request_decorations` and `handle_toplevel_decoration_event` in
+  `platform/linux/wayland/window.rs`).
+
 Beside GPUI, `vendor/xattr` is xattr 0.2.3, which GPUI's HTTP client takes in through
 zed-async-tar on Unix. It named `libc::ENOATTR`, which libc no longer has on Linux, where it's
 `ENODATA`, so it didn't build there (`src/sys/mod.rs`). Windows never builds it.

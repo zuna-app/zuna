@@ -16,6 +16,18 @@ pub fn theme(cx: &App) -> Theme {
     *cx.global::<Theme>()
 }
 
+/// The active server's connection while it isn't simply online (`ConnectionStatus`): an amber
+/// dot and the desktop's words.
+pub fn connection_status(server: &crate::state::ServerState, theme: &Theme) -> Option<Div> {
+    let status = match server.connection.as_str() {
+        "connecting" => "Connecting",
+        "offline" => "Waiting for network",
+        "syncing" => "Updating",
+        _ => return None,
+    };
+    Some(div().flex().items_center().gap(px(6.)).text_color(theme.text2).child(div().size(px(6.)).rounded_full().bg(theme.amber)).child(status))
+}
+
 /// A Lucide icon, drawn in the text color.
 pub fn icon(name: &str, size: f32, color: Hsla) -> Svg {
     svg().path(SharedString::from(format!("icons/{name}.svg"))).size(px(size)).flex_none().text_color(color)

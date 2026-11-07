@@ -60,6 +60,16 @@ pub fn files_on_clipboard(#[allow(unused_variables)] cx: &gpui::App) -> Vec<Path
     return cx.read_paths_from_clipboard();
 }
 
+/// Whether the window draws its own title bar: always on Windows, and under Wayland only
+/// where the compositor leaves the window's frame to it, as GNOME's does. KDE, Sway,
+/// Hyprland, niri and the other compositors with xdg-decoration draw their own, or none.
+pub fn draws_title_bar(#[allow(unused_variables)] window: &gpui::Window) -> bool {
+    #[cfg(windows)]
+    return true;
+    #[cfg(target_os = "linux")]
+    return own_frame(window);
+}
+
 /// Writes a pasted picture where it can be sent from, named as a browser names one.
 pub fn save_pasted_image(image: &gpui::Image) -> Option<PathBuf> {
     use gpui::ImageFormat;

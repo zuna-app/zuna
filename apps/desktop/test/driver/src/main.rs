@@ -31,6 +31,8 @@ struct Window {
     app_id: String,
     flags: u32,
     geometry: (i32, i32, u32, u32),
+    /// Without the frame the compositor draws around it.
+    client: (i32, i32, u32, u32),
     unmapped: bool,
 }
 
@@ -51,7 +53,7 @@ impl Dispatch<OrgKdePlasmaWindowManagement, ()> for State {
     fn event(state: &mut Self, manager: &OrgKdePlasmaWindowManagement, event: org_kde_plasma_window_management::Event, _: &(), _: &Connection, queue: &QueueHandle<Self>) {
         if let org_kde_plasma_window_management::Event::WindowWithUuid { uuid, .. } = event {
             let proxy = manager.get_window_by_uuid(uuid.clone(), queue, uuid.clone());
-            state.windows.push(Window { proxy, uuid, title: String::new(), app_id: String::new(), flags: 0, geometry: (0, 0, 0, 0), unmapped: false });
+            state.windows.push(Window { proxy, uuid, title: String::new(), app_id: String::new(), flags: 0, geometry: (0, 0, 0, 0), client: (0, 0, 0, 0), unmapped: false });
         }
     }
 }
@@ -64,6 +66,7 @@ impl Dispatch<OrgKdePlasmaWindow, String> for State {
             org_kde_plasma_window::Event::AppIdChanged { app_id } => window.app_id = app_id,
             org_kde_plasma_window::Event::StateChanged { flags } => window.flags = flags,
             org_kde_plasma_window::Event::Geometry { x, y, width, height } => window.geometry = (x, y, width, height),
+            org_kde_plasma_window::Event::ClientGeometry { x, y, width, height } => window.client = (x, y, width, height),
             org_kde_plasma_window::Event::Unmapped => window.unmapped = true,
             _ => {}
         }
@@ -339,6 +342,7 @@ impl Driver {
                             "y": window.geometry.1,
                             "width": window.geometry.2,
                             "height": window.geometry.3,
+                            "client": { "x": window.client.0, "y": window.client.1, "width": window.client.2, "height": window.client.3 },
                         })
                     })
                     .collect();
