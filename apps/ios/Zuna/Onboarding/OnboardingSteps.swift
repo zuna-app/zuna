@@ -605,8 +605,8 @@ struct RecoverStep: View {
     }
 }
 
-/// The desktop's logo: a white Z on a black rounded square that glows faintly from below
-/// (`icon.svg`), or a black Z on a white one (`icon-light.svg`), as the app icons are.
+/// The desktop's logo: a white Z on a black rounded square (`icon.svg`), or a black Z on a
+/// white one (`icon-light.svg`), as the app icons are.
 struct ZunaLogo: View {
     var size: CGFloat = 52
     var dark = true
@@ -614,20 +614,13 @@ struct ZunaLogo: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 230 / 1024, style: .continuous)
-                .fill(dark ? AnyShapeStyle(Self.glow) : AnyShapeStyle(Color.white))
+                .fill(dark ? Color.black : Color.white)
             LogoZ()
                 .stroke(dark ? Color.white : Color.black, style: StrokeStyle(lineWidth: size * 96 / 1024, lineCap: .round, lineJoin: .round))
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
-
-    /// The black tile's gradient: #2a2a2a at the bottom, black from just over halfway up.
-    private static let glow = LinearGradient(
-        stops: [.init(color: Color(hex: 0x2A2A2A), location: 0), .init(color: .black, location: 0.55), .init(color: .black, location: 1)],
-        startPoint: .bottom,
-        endPoint: .top
-    )
 
     /// The Z from the desktop's SVG, a line drawn in its 1024-point box, with two rounded corners.
     private struct LogoZ: Shape {

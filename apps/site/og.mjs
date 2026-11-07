@@ -30,7 +30,7 @@ const html = `<!doctype html>
 <div class="grid"></div>
 <main>
   <div class="brand">
-    <svg width="56" height="56" viewBox="0 0 1024 1024"><defs><linearGradient id="glow" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#2a2a2a"/><stop offset="0.55" stop-color="#000000"/></linearGradient></defs><rect width="1024" height="1024" rx="160" fill="url(#glow)"/><path d="M248 524V392A144 144 0 0 1 392 248H776L248 776H632A144 144 0 0 0 776 632V500" fill="none" stroke="#ffffff" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <svg width="56" height="56" viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="160" fill="#000000"/><path d="M248 524V392A144 144 0 0 1 392 248H776L248 776H632A144 144 0 0 0 776 632V500" fill="none" stroke="#ffffff" stroke-width="96" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Zuna
   </div>
   <h1>The chat app nobody owns.</h1>

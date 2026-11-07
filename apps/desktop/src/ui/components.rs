@@ -45,12 +45,11 @@ pub fn shadow_l() -> Vec<BoxShadow> {
     vec![BoxShadow { color: theme::color(theme::black_a(0.55)), offset: point(px(0.), px(12.)), blur_radius: px(40.), spread_radius: px(0.), inset: false }]
 }
 
-/// The app's mark, as its icon: a white Z on a black rounded square that glows faintly from
-/// below. GPUI draws an icon in one color, so the glow is #2a2a2a fading out over the black,
-/// which comes to the icon's gradient.
+/// The app's mark, as its icon: a white Z on a black rounded square, in two layers, as GPUI
+/// draws an icon in one color.
 pub fn logo(size: f32) -> Div {
     let layer = |name: &str, color: u32| div().absolute().top_0().left_0().child(icon(name, size, theme::color(theme::hex(color))));
-    div().relative().size(px(size)).flex_none().child(layer("logo", 0x000000)).child(layer("logo-glow", 0x2a2a2a)).child(layer("logo-z", 0xffffff))
+    div().relative().size(px(size)).flex_none().child(layer("logo", 0x000000)).child(layer("logo-z", 0xffffff))
 }
 
 /// The loading ring: a faint track with a turning arc in the text color.

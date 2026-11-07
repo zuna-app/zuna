@@ -1,12 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
-<defs>
-<linearGradient id="zunaGlow" x1="0" y1="1" x2="0" y2="0">
-<stop offset="0" stop-color="#2a2a2a"/>
-<stop offset="0.55" stop-color="#000000"/>
-<stop offset="1" stop-color="#000000"/>
-</linearGradient>
-</defs>
-<rect width="1024" height="1024" rx="160" ry="160" fill="url(#zunaGlow)"/>
+<rect width="1024" height="1024" rx="160" ry="160" fill="#000000"/>
 <g transform="translate(512 512) scale(2.4) translate(-200 -200)">
 <path d="M90 205 V150 A60 60 0 0 1 150 90 H310 L90 310 H250 A60 60 0 0 0 310 250 V195" fill="none" stroke="#ffffff" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
 </g>
