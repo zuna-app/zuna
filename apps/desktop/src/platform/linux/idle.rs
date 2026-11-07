@@ -12,8 +12,7 @@ use wayland_client::protocol::{wl_registry, wl_seat};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 use wayland_protocols::ext::idle_notify::v1::client::{ext_idle_notification_v1, ext_idle_notifier_v1};
 
-/// How long without input before the compositor says so. Anything shorter isn't away.
-const AWAY_AFTER_MS: u64 = 30_000;
+use crate::platform::AWAY_AFTER_MS;
 
 /// When the person went quiet, in milliseconds since `epoch()`, or 0 while they're here.
 static QUIET_SINCE: AtomicU64 = AtomicU64::new(0);
@@ -55,7 +54,7 @@ impl Dispatch<ext_idle_notification_v1::ExtIdleNotificationV1, ()> for Idle {
         match event {
             ext_idle_notification_v1::Event::Idled => {
                 log::info!("the person is away");
-                QUIET_SINCE.store(now_ms().saturating_sub(AWAY_AFTER_MS).max(1), Ordering::Relaxed);
+                QUIET_SINCE.store(now_ms().saturating_sub(AWAY_AFTER_MS as u64).max(1), Ordering::Relaxed);
             }
             ext_idle_notification_v1::Event::Resumed => {
                 log::info!("the person is back");
@@ -80,7 +79,7 @@ pub fn start() {
                 log::info!("the compositor doesn't say when the person is away");
                 return;
             };
-            notifier.get_idle_notification(AWAY_AFTER_MS as u32, &seat, &handle, ());
+            notifier.get_idle_notification(AWAY_AFTER_MS, &seat, &handle, ());
             while queue.blocking_dispatch(&mut Idle).is_ok() {}
         })
         .ok();

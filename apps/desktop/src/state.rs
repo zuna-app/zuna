@@ -1221,9 +1221,9 @@ impl AppState {
         self.window_focused && crate::platform::main_visible()
     }
 
-    /// Tells the core whether the person is here, as Telegram counts it: the window in front and
-    /// input in the last 30 s. While they are, they show as online, and their other devices hold
-    /// notifications back (activity.ts).
+    /// Tells the core whether the person is here, much as Telegram counts it: the window in front
+    /// and input in the last 5 s (`AWAY_AFTER_MS`). While they are, they show as online, and their
+    /// other devices hold notifications back (activity.ts).
     fn watch_activity(&mut self, cx: &mut Context<Self>) {
         if self._activity.is_some() {
             return;
@@ -1232,7 +1232,7 @@ impl AppState {
             loop {
                 let alive = this
                     .update(cx, |state, cx| {
-                        let here = state.window_in_front() && crate::platform::idle_ms() < 30_000;
+                        let here = state.window_in_front() && crate::platform::idle_ms() < crate::platform::AWAY_AFTER_MS;
                         if state.reported_active != Some(here) {
                             state.reported_active = Some(here);
                             state.call(None, "setActive", vec![json!(here)], cx, |_, _, _| {});

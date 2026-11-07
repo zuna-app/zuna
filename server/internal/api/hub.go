@@ -26,7 +26,7 @@ const (
 	pingInterval   = 25 * time.Second
 	// presenceLinger is how long someone still shows as online after they stop
 	// using Zuna on their last device. Using it is the desktop's window in front
-	// with input in the last 30 s, or the phone app on screen: a device that's
+	// with input in the last 5 s, or the phone app on screen: a device that's
 	// only connected, as a phone woken for a push or a window in the tray is,
 	// doesn't count. A phone put away, locked or left for another app, goes
 	// offline at once, as Telegram's does.
@@ -54,7 +54,7 @@ type conn struct {
 	queued   atomic.Int64
 	close    context.CancelFunc
 	// active is set while the person is using this device: the desktop's
-	// window in front with input in the last 30 s, the phone app on screen.
+	// window in front with input in the last 5 s, the phone app on screen.
 	// Guarded by the hub's lock.
 	active bool
 }

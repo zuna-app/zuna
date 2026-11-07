@@ -1,5 +1,5 @@
-// Whether the person is using this computer, as Telegram Desktop counts it:
-// Zuna's window has focus and there was input in the last 30 s. Leaving the
+// Whether the person is using this computer, much as Telegram Desktop counts it:
+// Zuna's window has focus and there was input in the last 5 s. Leaving the
 // window counts 5 s later, and locking the screen at once. While they're here,
 // and for a while after, their other devices hold notifications back, and
 // don't show them if they read the chat here (notificationDelay in the core).
@@ -7,8 +7,8 @@
 import { platform } from "@/platform";
 import { useApp } from "./store";
 
-/** Telegram's offline_idle_timeout_ms. */
-const IDLE_AFTER_MS = 30_000;
+/** Shorter than Telegram's offline_idle_timeout_ms, 30 s. */
+const IDLE_AFTER_MS = 5_000;
 /** Telegram's offline_blur_timeout_ms. */
 const BLUR_AFTER_MS = 5_000;
 const CHECK_EVERY_MS = 5_000;

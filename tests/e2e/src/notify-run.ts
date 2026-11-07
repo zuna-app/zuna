@@ -7,7 +7,7 @@
 //   npm run build -w @zuna/desktop-electron-legacy && npm run test:ios:notify [-- screenshot-dir]
 //
 // The desktop is in use while its window has focus and there was input anywhere on
-// the computer in the last 30 s. Nothing here can make real input without the
+// the computer in the last 5 s. Nothing here can make real input without the
 // Accessibility permission, so the desktop's real idle state is checked once, if
 // nobody has touched the Mac for a while, and after that input is the system saying
 // "active" or "idle" (powerMonitor.getSystemIdleState in the main process). Focus is

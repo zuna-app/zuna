@@ -134,7 +134,7 @@ Changed on 2026-11-03 to match Telegram Web: the browser's notifications (`apps/
 
 ### Where the phone gets notified
 
-As on the desktop (`state/activity.ts`), the person is using the app while the tab has focus and there was input in the last 30 s, and 5 s after it loses focus they're not. While they're here, and for a few minutes after, their phone is pushed 30 s later, only about what they didn't read here (`notificationDelay` in the core, `pushWait` on the server).
+As on the desktop (`state/activity.ts`), the person is using the app while the tab has focus and there was input in the last 5 s, and 5 s after it loses focus they're not. While they're here, and for a few minutes after, their phone is pushed 30 s later, only about what they didn't read here (`notificationDelay` in the core, `pushWait` on the server).
 
 ### Everything else Electron does
 

@@ -44,6 +44,10 @@ pub const APP_ID: &str = "Zuna";
 #[cfg(target_os = "linux")]
 pub const APP_ID: &str = "zuna";
 
+/// How long without input before the person counts as away from the computer: not using Zuna,
+/// even with its window in front.
+pub const AWAY_AFTER_MS: u32 = 5_000;
+
 /// What Security says when the system couldn't protect the device key, as the desktop says it.
 #[cfg(windows)]
 pub const KEY_WARNING: &str = "Windows couldn't protect this device's key, so it's stored without that protection.";
