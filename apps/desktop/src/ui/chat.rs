@@ -140,6 +140,8 @@ pub struct ChatView {
     slow_tick: Option<Task<()>>,
     /// Whether messages were being picked when last drawn: rows change width when it changes.
     was_selecting: bool,
+    /// Files are being dragged over the chat, so "Drop to send" is shown.
+    drop_over: bool,
     /// Holds focus while messages are picked, so Escape stops picking.
     focus: gpui::FocusHandle,
     inline_editor: Entity<TextInput>,
@@ -341,6 +343,7 @@ impl ChatView {
             call_stage: None,
             beside_voice: None,
             last_list_id: String::new(),
+            drop_over: false,
             files: Vec::new(),
             trigger: None,
             suggestions: Vec::new(),
@@ -2906,6 +2909,10 @@ impl Render for ChatView {
         let Some(conversation) = self.conversation(cx) else { return div().into_any_element() };
         self.mark_read(&conversation, cx);
         let is_channel = conversation.kind == "channel";
+        // Files dragged out of the window, or dropped, take "Drop to send" with them.
+        if self.drop_over && !cx.has_active_drag() {
+            self.drop_over = false;
+        }
         for old in self.retired_frames.drain(..) {
             window.drop_image(old).ok();
         }
@@ -3004,37 +3011,47 @@ impl Render for ChatView {
                     view.state.update(cx, |state, cx| state.toggle_selected(&list_id, None, cx));
                 }
             }))
-            .group("chat-drop")
-            .on_drop(cx.listener(|view, paths: &ExternalPaths, _, cx| view.add_files(paths.paths().to_vec(), cx)))
-            .child(
-                // Shown only while files are dragged over the chat (`.drop-overlay`).
-                div()
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(theme::color(theme::rgba(0, 0, 0, 0.7)))
-                    .opacity(0.)
-                    .group_drag_over::<ExternalPaths>("chat-drop", |style| style.opacity(1.))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .gap(px(4.))
-                            .px(px(40.))
-                            .py(px(26.))
-                            .rounded(theme::RADIUS_L)
-                            .border_1()
-                            .border_dashed()
-                            .border_color(theme.line_strong)
-                            .text_color(theme.text1)
-                            .child(div().mb(px(4.)).child(icon("upload", 26., theme.text2)))
-                            .child(div().font_weight(FontWeight::MEDIUM).child("Drop to send"))
-                            .child(div().text_size(px(13.)).text_color(theme.text2).child("Files are encrypted before they leave this device")),
-                    ),
-            )
+            .on_drag_move(cx.listener(|view, event: &gpui::DragMoveEvent<ExternalPaths>, _, cx| {
+                let over = event.bounds.contains(&event.event.position);
+                if over != view.drop_over {
+                    view.drop_over = over;
+                    cx.notify();
+                }
+            }))
+            .on_drop(cx.listener(|view, paths: &ExternalPaths, _, cx| {
+                view.drop_over = false;
+                view.add_files(paths.paths().to_vec(), cx);
+            }))
+            .when(self.drop_over, |el| {
+                el.child(
+                    // Shown only while files are dragged over the chat, fading in over 80 ms as `.drop-overlay`.
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(theme::color(theme::rgba(0, 0, 0, 0.7)))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .gap(px(4.))
+                                .px(px(40.))
+                                .py(px(26.))
+                                .rounded(theme::RADIUS_L)
+                                .border_1()
+                                .border_dashed()
+                                .border_color(theme.line_strong)
+                                .text_color(theme.text1)
+                                .child(div().mb(px(4.)).child(icon("upload", 26., theme.text2)))
+                                .child(div().font_weight(FontWeight::MEDIUM).child("Drop to send"))
+                                .child(div().text_size(px(13.)).text_color(theme.text2).child("Files are encrypted before they leave this device")),
+                        )
+                        .enter("drop-overlay", Enter::Fade, 80),
+                )
+            })
             .into_any_element()
     }
 }
