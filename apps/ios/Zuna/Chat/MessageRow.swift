@@ -494,27 +494,8 @@ private struct MessageItem: View {
         .accessibilityIdentifier(A11y.Chat.meta(message.id))
     }
 
-    /// The desktop's marks: a thin tick once sent, and at once while sending, a
-    /// clock in its place if sending takes a while, and a second tick beside the
-    /// first, in the accent's color, once read.
-    @ViewBuilder
     private var ticks: some View {
-        switch message.status {
-        case .sending:
-            SendingMark(createdAt: message.createdAt, tick: context.readUpTo >= 0)
-        case .failed:
-            Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(Color(hex: 0xF4BCBE)).accessibilityLabel("Not sent")
-        default:
-            if let seq = message.seq {
-                if context.readUpTo >= seq {
-                    DesktopIcon.read.view()
-                        .foregroundStyle(model.settings.accent.text)
-                        .accessibilityLabel("Read")
-                } else {
-                    DesktopIcon.sent.view().accessibilityLabel("Sent")
-                }
-            }
-        }
+        ReadTicks(message: message, readUpTo: context.readUpTo, failed: Color(hex: 0xF4BCBE))
     }
 
     /// Room for the meta at the end of the last line, measured as it will draw.
@@ -530,7 +511,46 @@ private struct MessageItem: View {
     }
 }
 
-/// What a long press on a message offers, as the desktop's message menu: reactions, then actions.
+extension ConversationView {
+    /// How far anyone else has read here, for the ticks, or -1 where nobody's reading is known, as in a channel.
+    func readUpTo(selfId: String) -> Int {
+        if kind == .channel { return -1 }
+        return readBy.reduce(0) { highest, entry in entry.key == selfId ? highest : max(highest, entry.value) }
+    }
+}
+
+/// The desktop's marks on your own message, in its bubble and in the chat list:
+/// a thin tick once sent, and at once while sending, a clock in its place if
+/// sending takes a while, and a second tick beside the first, in the accent's
+/// color, once read.
+struct ReadTicks: View {
+    @Environment(AppModel.self) private var model
+    let message: MessageView
+    /// Below zero where nobody's reading is known, as in a channel.
+    let readUpTo: Int
+    /// The color of the mark on a message that couldn't be sent.
+    let failed: Color
+
+    var body: some View {
+        switch message.status {
+        case .sending:
+            SendingMark(createdAt: message.createdAt, tick: readUpTo >= 0).id(message.id)
+        case .failed:
+            Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(failed).accessibilityLabel("Not sent")
+        default:
+            if let seq = message.seq, readUpTo >= 0 {
+                if readUpTo >= seq {
+                    DesktopIcon.read.view()
+                        .foregroundStyle(model.settings.accent.text)
+                        .accessibilityLabel("Read")
+                } else {
+                    DesktopIcon.sent.view().accessibilityLabel("Sent")
+                }
+            }
+        }
+    }
+}
+
 /// A message still sending, shown as sent at once, as nearly every message is a
 /// moment later. The clock takes the tick's place only once it's taken as long
 /// as the desktop's bubble waits to dim. Its time is this device's own until the
@@ -559,6 +579,7 @@ private struct SendingMark: View {
     }
 }
 
+/// What a long press on a message offers, as the desktop's message menu: reactions, then actions.
 struct MessageMenu: View {
     let context: MessageRowContext
     let actions: ChatActions

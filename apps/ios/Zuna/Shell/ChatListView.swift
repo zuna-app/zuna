@@ -523,10 +523,16 @@ private struct ChatRow: View {
                         .lineLimit(1)
                     marks(peer: peer)
                     Spacer(minLength: 6)
-                    Text(Format.listTime(conversation.lastMessage?.createdAt ?? 0))
-                        .font(.subheadline)
-                        .foregroundStyle((conversation.unread > 0 || conversation.markedUnread) && !conversation.muted ? Theme.text1 : Theme.text3)
-                        .monospacedDigit()
+                    HStack(spacing: 2) {
+                        if let message = ownLast(selfId: selfId, isSaved: isSaved) {
+                            ReadTicks(message: message, readUpTo: conversation.readUpTo(selfId: selfId), failed: Theme.red)
+                                .foregroundStyle(Theme.text3)
+                        }
+                        Text(Format.listTime(conversation.lastMessage?.createdAt ?? 0))
+                            .font(.subheadline)
+                            .foregroundStyle((conversation.unread > 0 || conversation.markedUnread) && !conversation.muted ? Theme.text1 : Theme.text3)
+                            .monospacedDigit()
+                    }
                 }
                 HStack(alignment: .top, spacing: 6) {
                     preview(selfId: selfId, isSaved: isSaved, peer: peer)
@@ -586,6 +592,14 @@ private struct ChatRow: View {
                 .foregroundStyle(Theme.text3)
                 .accessibilityLabel("Blocked")
         }
+    }
+
+    /// The last message when it's one you sent, to someone who can read it, so it
+    /// shows its ticks beside the time, as in Telegram. Notes to yourself never get read.
+    private func ownLast(selfId: String, isSaved: Bool) -> MessageView? {
+        guard let message = conversation.lastMessage, message.senderId == selfId,
+              message.system == nil, message.deletedAt == nil, !isSaved else { return nil }
+        return message
     }
 
     @ViewBuilder

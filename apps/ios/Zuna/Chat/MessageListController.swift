@@ -193,7 +193,7 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         guard let input else { return }
         let items = input.items
         let selfId = input.server.me?.userId ?? ""
-        let readUpTo = input.conversation.readBy.reduce(0) { highest, entry in entry.key == selfId ? highest : max(highest, entry.value) }
+        let readUpTo = input.conversation.readUpTo(selfId: selfId)
         let channel = input.conversation.kind == .channel
         var result: [String: MessageRowContext] = [:]
         for (index, message) in items.enumerated() {

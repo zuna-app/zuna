@@ -83,8 +83,11 @@ final class ChatReadingTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
-        let text = "Read me \(UUID().uuidString.prefix(4))"
+        // Nothing in it says "Sent" or "Read", as the chat list's row reads it out with its ticks.
+        let text = "Ticks for \(UUID().uuidString.prefix(4))"
         try zuna.send(to: aliceKey, text)
+        let row = zuna.element(A11y.ChatList.row(aliceKey))
+        try waitFor("the sent tick in the chat list") { row.label.contains(text) && row.label.contains("Sent") }
         openChat(aliceKey)
 
         let mine = zuna.app.descendants(matching: .any)
@@ -102,6 +105,9 @@ final class ChatReadingTests: XCTestCase {
         try alice.call("markRead", [groupId, last])
         try waitFor("the read ticks") { meta.label.contains("Read") }
         zuna.screenshot("61-chat-read-ticks")
+        zuna.app.navigationBars.buttons.element(boundBy: 0).tap()
+        try waitFor("the read ticks in the chat list") { row.label.contains("Read") }
+        zuna.screenshot("61b-chat-list-read-ticks")
     }
 
     func testOpensAPictureFromTheDesktop() throws {
