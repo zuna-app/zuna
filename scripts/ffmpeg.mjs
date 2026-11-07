@@ -1,9 +1,11 @@
 // Fetches a pinned FFmpeg build, checked against its SHA-256. Native screen sharing
-// encodes through it. Update a version and its hash together.
+// encodes through it, and the native app's media on Linux and macOS. Update a version and its
+// hash together. BtbN publishes no build for macOS, so there it's built from FFmpeg's own
+// source tarball, whose hash is the one the release signing key signed (`.asc` beside it).
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -18,7 +20,42 @@ const builds = {
     url: `https://github.com/BtbN/FFmpeg-Builds/releases/download/${tag}/${build}-linux64-lgpl-shared-8.1.tar.xz`,
     sha256: "493e89a48da02b9a7d217b60f7f60c3c917c9bed73459d8a106e5e987da082ef",
   },
+  darwin: {
+    url: "https://ffmpeg.org/releases/ffmpeg-8.1.3.tar.xz",
+    sha256: "7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3",
+    source: true,
+  },
 };
+
+/**
+ * FFmpeg built from its source on macOS, as the other systems' builds are: LGPL, as shared
+ * libraries that name each other through @rpath, so they load from the app's bundle, with
+ * VideoToolbox and AudioToolbox, and nothing else found on the machine by itself.
+ */
+function buildFromSource(source, dir) {
+  const run = (program, args) => {
+    const done = spawnSync(program, args, { cwd: source, stdio: ["ignore", "inherit", "inherit"] });
+    if (done.status !== 0) throw new Error(`${program} ${args.join(" ")} failed in ${source}`);
+  };
+  console.log("Building FFmpeg from its source, which only happens once...");
+  run("./configure", [
+    `--prefix=${dir}`,
+    "--install-name-dir=@rpath",
+    "--enable-shared",
+    "--disable-static",
+    "--disable-programs",
+    "--disable-doc",
+    "--disable-network",
+    "--disable-debug",
+    "--disable-autodetect",
+    "--enable-videotoolbox",
+    "--enable-audiotoolbox",
+    "--cc=clang",
+  ]);
+  const cores = spawnSync("sysctl", ["-n", "hw.ncpu"], { encoding: "utf8" }).stdout.trim() || "8";
+  run("make", [`-j${cores}`]);
+  run("make", ["install"]);
+}
 
 async function download(url, file) {
   const response = await fetch(url);
@@ -55,6 +92,14 @@ export async function ensureFfmpeg(depsDir) {
   rmSync(dir, { recursive: true, force: true });
   rmSync(unpacked, { recursive: true, force: true });
   mkdirSync(unpacked, { recursive: true });
+  if (entry.source) {
+    const result = spawnSync("tar", ["-xf", archive, "-C", unpacked], { stdio: "inherit" });
+    if (result.status !== 0) throw new Error(`Unpacking ${archive} failed`);
+    buildFromSource(join(unpacked, readdirSync(unpacked)[0]), resolve(dir));
+    rmSync(unpacked, { recursive: true, force: true });
+    writeFileSync(stamp, entry.sha256);
+    return dir;
+  }
   // Windows' own tar reads zip files, and the one Git Bash puts first on PATH doesn't.
   const tar = process.platform === "win32" ? join(process.env.SystemRoot, "System32", "tar.exe") : "tar";
   const result = spawnSync(tar, ["-xf", archive, "-C", unpacked], { stdio: "inherit" });
