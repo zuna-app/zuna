@@ -129,7 +129,8 @@ final class ChannelsTests: XCTestCase {
         // Its details list everyone on the server, as the desktop's member list does.
         zuna.element(A11y.Chat.title).tap()
         XCTAssertTrue(zuna.element(A11y.Channels.details).waitForExistence(timeout: 10))
-        XCTAssertTrue(zuna.element(A11y.Channels.member(World.current["carol"].userId)).waitForExistence(timeout: 5))
+        // Last: the peers aren't using Zuna, so they show as offline, below bob.
+        XCTAssertTrue(scrolledTo(A11y.Channels.member(World.current["carol"].userId)).waitForExistence(timeout: 5))
         XCTAssertTrue(zuna.element(A11y.Channels.member(World.current["alice"].userId)).label.contains("Owner"))
         // Not an admin, so nothing to edit.
         XCTAssertFalse(zuna.element(A11y.Channels.edit).exists)
@@ -316,8 +317,8 @@ final class ChannelsTests: XCTestCase {
         try waitFor("alice to get the second") { try self.messages(alice, in: made).contains { $0["text"] as? String == "Second, after the wait" } }
     }
 
-    /// One of the editor's rows, scrolled to: the voice section is below slow mode's,
-    /// and a form only draws the rows in sight.
+    /// A row further down, scrolled to, as a form or list only draws the rows in sight:
+    /// the editor's voice section is below slow mode's, and the details' members are last.
     private func scrolledTo(_ identifier: String) -> XCUIElement {
         let element = zuna.element(identifier)
         for _ in 0..<6 where !(element.exists && element.isHittable) { zuna.app.swipeUp(velocity: .slow) }
