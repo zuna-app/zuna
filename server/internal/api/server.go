@@ -102,6 +102,8 @@ type Config struct {
 	CallRing time.Duration
 	// PushWait replaces how long a phone's notification waits while its person is on another device.
 	PushWait time.Duration
+	// PresenceLinger replaces how long someone shows as online after they stop using Zuna.
+	PresenceLinger time.Duration
 }
 
 type Server struct {
@@ -170,7 +172,7 @@ func New(cfg Config, db *store.DB) *Server {
 	s := &Server{
 		cfg:            cfg,
 		db:             db,
-		hub:            newHub(db),
+		hub:            newHub(db, cfg.PresenceLinger),
 		files:          filepath.Join(cfg.DataDir, "files"),
 		emotes:         emotes.New(db, filepath.Join(cfg.DataDir, "emotes")),
 		callers:        callers,

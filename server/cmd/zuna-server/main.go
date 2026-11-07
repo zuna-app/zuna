@@ -182,6 +182,8 @@ func run(cfg config) error {
 	if _, err := clientip.New(cfg.trustProxy, proxies, cfg.cloudflare); err != nil {
 		return err
 	}
+	// For tests only: how long someone shows as online after they stop using Zuna, instead of 5 minutes.
+	linger, _ := time.ParseDuration(os.Getenv("ZUNA_TEST_PRESENCE_LINGER"))
 	srv := api.New(api.Config{
 		DataDir:          cfg.dataDir,
 		PublicURL:        cfg.publicURL,
@@ -198,6 +200,7 @@ func run(cfg config) error {
 		LiveKitInternalURL: cfg.liveKitInternal,
 		LiveKitKey:         cfg.liveKitKey,
 		LiveKitSecret:      cfg.liveKitSecret,
+		PresenceLinger:     linger,
 	}, db)
 	// For tests only: a stand-in for 7TV, so emote tests don't depend on the internet.
 	if base := os.Getenv("ZUNA_7TV_API"); base != "" {

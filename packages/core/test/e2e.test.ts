@@ -15,6 +15,9 @@ import { FakeRelay, TestApp, TestServer, loadCrypto, sleep, waitFor } from "./he
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 
+/** How long someone shows as online after they stop using the app, here, in place of 5 minutes. */
+const PRESENCE_LINGER = 1_500;
+
 let server: TestServer;
 let relay: FakeRelay;
 let alice: TestApp;
@@ -26,7 +29,7 @@ beforeAll(async () => {
   loadCrypto();
   relay = new FakeRelay();
   await relay.start();
-  server = new TestServer({ pushRelays: [relay.url] });
+  server = new TestServer({ pushRelays: [relay.url], presenceLinger: PRESENCE_LINGER });
   await server.start();
   alice = await new TestApp("alice-laptop").open();
   await alice.register(server.setupLink, "alice");
@@ -689,17 +692,48 @@ describe("presence and read state", () => {
     await bob.session.updatePreferences({ sendReadReceipts: true });
   });
 
-  it("reports online status and last seen", async () => {
-    await waitFor(() => alice.session.getUsers().find((user) => user.id === bob.userId)?.online === true, "bob online");
-    const hidden = await new TestApp("grace").open();
-    await hidden.register(invite, "grace");
-    await waitFor(() => alice.session.getUsers().find((user) => user.username === "grace")?.online === true, "grace online");
-    const graceId = hidden.userId;
-    hidden.client.stop();
-    await waitFor(() => {
-      const user = alice.session.getUsers().find((item) => item.id === graceId);
-      return user?.online === false && user.lastSeenAt !== null;
-    }, "last seen", 15_000);
+  it("shows someone online only while they use the app, and for the linger after, with when they left as last seen", async () => {
+    const phone = await new TestApp("grace-phone").open();
+    await phone.register(invite, "grace");
+    const graceId = phone.userId;
+    const grace = () => alice.session.getUsers().find((user) => user.id === graceId);
+    try {
+      await waitFor(() => grace() !== undefined, "alice to see grace");
+      // Connected but not on screen, as a phone woken for a push or a window in the tray is: not online.
+      await sleep(500);
+      expect(grace()!.online).toBe(false);
+
+      phone.client.setActive(true);
+      await waitFor(() => grace()?.online === true, "grace online");
+      const left = Date.now();
+      phone.client.setActive(false);
+      await sleep(PRESENCE_LINGER / 2);
+      expect(grace()!.online).toBe(true);
+      await waitFor(() => grace()?.online === false, "grace offline after the linger", PRESENCE_LINGER * 4);
+      expect(Date.now() - left).toBeGreaterThanOrEqual(PRESENCE_LINGER);
+      expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(left - 1000);
+      expect(grace()!.lastSeenAt).toBeLessThan(left + PRESENCE_LINGER / 2);
+
+      // Back on screen and then gone outright: online until the linger is up.
+      phone.client.setActive(true);
+      await waitFor(() => grace()?.online === true, "grace online again");
+      const closed = Date.now();
+      phone.client.stop();
+      await sleep(PRESENCE_LINGER / 2);
+      expect(grace()!.online).toBe(true);
+      await waitFor(() => grace()?.online === false, "grace offline once closed", PRESENCE_LINGER * 4);
+      expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(closed - 1000);
+
+      // Hiding it shows nobody as online, even while they use the app.
+      await phone.restart();
+      await phone.session.setHideLastSeen(true);
+      phone.client.setActive(true);
+      await waitFor(() => grace()?.hidesLastSeen === true, "alice to hear grace hid it");
+      await sleep(500);
+      expect(grace()!.online).toBe(false);
+    } finally {
+      phone.client.stop();
+    }
   });
 });
 

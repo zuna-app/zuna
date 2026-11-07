@@ -72,6 +72,8 @@ async function joinBots(invite: string, world?: string): Promise<TestApp[]> {
     const result = await app.client.register(preview, username, "dev-only-bot-password", { displayName, bio: "A friendly test bot." });
     app.serverId = result.serverId;
     await app.online();
+    // Always at their screens, so they show as online.
+    app.client.setActive(true);
     bots.push(app);
     console.log(`${displayName} is online`);
   }
@@ -251,6 +253,7 @@ async function reopenBots(world: string): Promise<TestApp[]> {
   for (const [username] of PEOPLE) {
     const app = await new TestApp(username, join(world, username)).open();
     await app.online();
+    app.client.setActive(true);
     bots.push(app);
   }
   return bots;

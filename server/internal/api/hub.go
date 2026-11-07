@@ -24,7 +24,12 @@ const (
 	authTimeout    = 10 * time.Second
 	writeTimeout   = 15 * time.Second
 	pingInterval   = 25 * time.Second
-	offlineGrace   = 5 * time.Second
+	// presenceLinger is how long someone still shows as online after they stop
+	// using Zuna on their last device. Using it is the desktop's window in front
+	// with input in the last 30 s, or the phone app on screen: a device that's
+	// only connected, as a phone woken for a push or a window in the tray is,
+	// doesn't count.
+	presenceLinger = 5 * time.Minute
 	maxClientFrame = 64 << 10
 	// More than anyone has devices, even with a few reconnecting at once.
 	maxConnsPerUser = 32
@@ -55,23 +60,34 @@ type conn struct {
 
 // Hub tracks live connections and fans events out to them.
 type Hub struct {
-	mu           sync.RWMutex
-	conns        map[string]map[*conn]struct{}
-	hidden       map[string]bool
-	offlineTimer map[string]*time.Timer
+	mu     sync.RWMutex
+	conns  map[string]map[*conn]struct{}
+	hidden map[string]bool
+	// online is who shows as online: those using one of their devices, and
+	// those who stopped less than linger ago, who are away.
+	online map[string]bool
+	away   map[string]*absence
+	linger time.Duration
 	// lastUsed is when each of someone's devices was last in use, for those
 	// used in the last few minutes but not now: user -> device -> time.
 	lastUsed map[string]map[string]time.Time
 	db       *store.DB
 }
 
-func newHub(db *store.DB) *Hub {
+// newHub makes a hub where someone shows as online for linger after they stop
+// using Zuna, or presenceLinger if it's zero.
+func newHub(db *store.DB, linger time.Duration) *Hub {
+	if linger <= 0 {
+		linger = presenceLinger
+	}
 	return &Hub{
-		conns:        map[string]map[*conn]struct{}{},
-		hidden:       map[string]bool{},
-		offlineTimer: map[string]*time.Timer{},
-		lastUsed:     map[string]map[string]time.Time{},
-		db:           db,
+		conns:    map[string]map[*conn]struct{}{},
+		hidden:   map[string]bool{},
+		online:   map[string]bool{},
+		away:     map[string]*absence{},
+		linger:   linger,
+		lastUsed: map[string]map[string]time.Time{},
+		db:       db,
 	}
 }
 
@@ -220,13 +236,13 @@ func (c *conn) closeAfterQueued() {
 	}
 }
 
-// Online lists users with a live connection who haven't hidden their presence.
+// Online lists users who show as online and haven't hidden their presence.
 func (h *Hub) Online() []string {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	users := make([]string, 0, len(h.conns))
-	for user, conns := range h.conns {
-		if len(conns) > 0 && !h.hidden[user] {
+	users := make([]string, 0, len(h.online))
+	for user := range h.online {
+		if !h.hidden[user] {
 			users = append(users, user)
 		}
 	}
@@ -236,17 +252,11 @@ func (h *Hub) Online() []string {
 // SetHidden changes whether the user's presence is shown to others.
 func (h *Hub) SetHidden(userID string, hidden bool) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	wasHidden := h.hidden[userID]
 	h.hidden[userID] = hidden
-	online := len(h.conns[userID]) > 0
-	h.mu.Unlock()
-	if hidden == wasHidden || !online {
-		return
-	}
-	if hidden {
-		h.ToAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false}})
-	} else {
-		h.ToAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: true}})
+	if hidden != wasHidden && h.online[userID] {
+		h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: !hidden}})
 	}
 }
 
@@ -256,37 +266,118 @@ type presenceUpdate struct {
 	LastSeenAt *int64 `json:"last_seen_at,omitempty"`
 }
 
+// toAll is ToAll for a caller holding h.mu, so that presence goes out in the
+// order it changed.
+func (h *Hub) toAll(event Event) {
+	frame := encodeEvent(event)
+	if frame == nil {
+		return
+	}
+	for _, conns := range h.conns {
+		for c := range conns {
+			c.deliver(frame)
+		}
+	}
+}
+
+// usingAny reports whether someone is using any of their devices. The caller holds h.mu.
+func (h *Hub) usingAny(userID string) bool {
+	for c := range h.conns[userID] {
+		if c.active {
+			return true
+		}
+	}
+	return false
+}
+
+// absence is someone's way offline, from when they stopped using their last
+// device until the linger is over. Its fields are guarded by the hub's lock.
+type absence struct {
+	timer *time.Timer
+	// left is when they stopped, in Unix ms, and device the one they used last.
+	left   int64
+	device string
+}
+
+// stayOnline stops someone going offline. The caller holds h.mu.
+func (h *Hub) stayOnline(userID string) {
+	if away := h.away[userID]; away != nil {
+		away.timer.Stop()
+		delete(h.away, userID)
+	}
+}
+
+// cameBack shows someone as online now that they're using a device, and
+// stops them going offline. The caller holds h.mu.
+func (h *Hub) cameBack(userID string) {
+	h.stayOnline(userID)
+	if h.online[userID] {
+		return
+	}
+	h.online[userID] = true
+	if !h.hidden[userID] {
+		h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: true}})
+	}
+}
+
+// wentAway starts someone's way offline once they've stopped using their last
+// device: they show as online for h.linger more, and were last seen now. The
+// caller holds h.mu.
+func (h *Hub) wentAway(userID, deviceID string) {
+	if h.usingAny(userID) || !h.online[userID] {
+		return
+	}
+	h.stayOnline(userID)
+	away := &absence{left: store.Now(), device: deviceID}
+	away.timer = time.AfterFunc(h.linger, func() { h.markOffline(userID, away) })
+	h.away[userID] = away
+}
+
 func (h *Hub) add(c *conn, hidden bool) {
 	h.mu.Lock()
-	if timer := h.offlineTimer[c.userID]; timer != nil {
-		timer.Stop()
-		delete(h.offlineTimer, c.userID)
-	}
+	defer h.mu.Unlock()
 	h.hidden[c.userID] = hidden
-	first := len(h.conns[c.userID]) == 0
 	if h.conns[c.userID] == nil {
 		h.conns[c.userID] = map[*conn]struct{}{}
 	}
 	h.conns[c.userID][c] = struct{}{}
 	// Which of the person's other devices are in use, so this one knows whether to keep quiet.
 	c.deliver(h.activity(c.userID))
-	h.mu.Unlock()
-	if first && !hidden {
-		h.ToAll(Event{Type: "presence", Data: presenceUpdate{UserID: c.userID, Online: true}})
-	}
 }
 
-// SetActive records whether the person is using a device right now, and tells
-// their other devices, whose notifications wait while they're elsewhere.
+// SetActive records whether the person is using a device right now, which is
+// what shows them as online, and tells their other devices, whose
+// notifications wait while they're elsewhere.
 func (h *Hub) SetActive(c *conn, active bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if c.active != active {
 		c.active = active
-		if !active {
+		if active {
+			h.cameBack(c.userID)
+		} else {
 			h.leftDevice(c.userID, c.deviceID)
+			h.wentAway(c.userID, c.deviceID)
 		}
 		h.sendActivity(c.userID)
+	}
+}
+
+// EndPresence takes someone offline at once, as when their account is
+// deleted or they're banned, before their connections close. They aren't
+// using any device from now on, so closing them starts nothing.
+func (h *Hub) EndPresence(userID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.conns[userID] {
+		c.active = false
+	}
+	h.stayOnline(userID)
+	if h.online[userID] {
+		delete(h.online, userID)
+		if !h.hidden[userID] {
+			h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false}})
+		}
 	}
 }
 
@@ -388,38 +479,45 @@ func (h *Hub) sendActivity(userID string) {
 
 func (h *Hub) remove(c *conn) {
 	h.mu.Lock()
+	defer h.mu.Unlock()
 	delete(h.conns[c.userID], c)
+	if len(h.conns[c.userID]) == 0 {
+		delete(h.conns, c.userID)
+	}
 	if c.active {
 		h.leftDevice(c.userID, c.deviceID)
 		h.sendActivity(c.userID)
+		// A connection that drops while in use goes the same way: back within
+		// the linger, as after a moment without a network, nothing shows.
+		h.wentAway(c.userID, c.deviceID)
 	}
-	last := len(h.conns[c.userID]) == 0
-	if last {
-		delete(h.conns, c.userID)
-		// A short grace period keeps a reconnecting client from flickering offline.
-		h.offlineTimer[c.userID] = time.AfterFunc(offlineGrace, func() { h.markOffline(c.userID, c.deviceID) })
-	}
-	h.mu.Unlock()
 }
 
-func (h *Hub) markOffline(userID, deviceID string) {
+// markOffline takes someone offline once they've been away for the linger,
+// unless they came back meanwhile, recording when they left as when they
+// were last seen, on the device they used last.
+func (h *Hub) markOffline(userID string, away *absence) {
 	h.mu.Lock()
-	delete(h.offlineTimer, userID)
-	stillOnline := len(h.conns[userID]) > 0
-	hidden := h.hidden[userID]
-	h.mu.Unlock()
-	if stillOnline {
+	if h.away[userID] != away || h.usingAny(userID) {
+		h.mu.Unlock()
 		return
 	}
-	now := store.Now()
+	delete(h.away, userID)
+	delete(h.online, userID)
+	left, device := away.left, away.device
+	h.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := h.db.TouchLastSeen(ctx, userID, deviceID, now); err != nil {
+	if err := h.db.TouchLastSeen(ctx, userID, device, left); err != nil {
 		slog.Warn("recording last seen", "error", err)
 	}
-	if !hidden {
-		h.ToAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false, LastSeenAt: &now}})
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	// Back while that was written: they came online again, which has gone out already.
+	if h.online[userID] || h.hidden[userID] {
+		return
 	}
+	h.toAll(Event{Type: "presence", Data: presenceUpdate{UserID: userID, Online: false, LastSeenAt: &left}})
 }
 
 // --- WebSocket endpoint ---

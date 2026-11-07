@@ -163,8 +163,9 @@ export class TestServer {
    * `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use.
    * `sqlite` keeps its database in SQLite even with ZUNA_TEST_POSTGRES, for tests that open it as a stolen backup or a malicious server would.
    * `ownCertificate` has it reached by its IP address, with a certificate it makes itself, which its links pin.
+   * `presenceLinger` is how long, in ms, someone shows as online after they stop using an app, instead of 5 minutes.
    */
-  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean } = {}) {}
+  constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean; presenceLinger?: number } = {}) {}
 
   async start(): Promise<void> {
     const binary = buildServer();
@@ -186,8 +187,11 @@ export class TestServer {
       const reached = this.options.ownCertificate ? ["--livekit-internal-url", this.options.liveKit.replace(/^ws/, "http")] : ["--livekit-url", this.options.liveKit];
       args.push(...reached, "--livekit-key", "key", "--livekit-secret", "a-long-enough-secret-for-signing-tokens");
     }
+    const env = { ...process.env };
+    if (this.options.presenceLinger) env.ZUNA_TEST_PRESENCE_LINGER = `${this.options.presenceLinger}ms`;
     this.process = spawn(binary, args, {
       stdio: ["ignore", "pipe", "pipe"],
+      env,
     });
     let output = "";
     this.process.stdout!.on("data", (chunk) => (output += chunk));

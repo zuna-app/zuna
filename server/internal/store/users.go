@@ -312,8 +312,10 @@ func (d *DB) SetHideLastSeen(ctx context.Context, userID string, hide bool) erro
 	return err
 }
 
+// TouchLastSeen records when someone was last seen, on which device, unless
+// their account was deleted meanwhile.
 func (d *DB) TouchLastSeen(ctx context.Context, userID string, deviceID string, at int64) error {
-	if _, err := d.sql.ExecContext(ctx, `UPDATE users SET last_seen_at = ? WHERE id = ?`, at, userID); err != nil {
+	if _, err := d.sql.ExecContext(ctx, `UPDATE users SET last_seen_at = ? WHERE id = ? AND deleted_at IS NULL`, at, userID); err != nil {
 		return err
 	}
 	if deviceID != "" {

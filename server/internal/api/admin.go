@@ -442,6 +442,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess *store.S
 		return
 	}
 	s.endVoiceFor(r.Context(), targetID, "banned", true)
+	s.hub.EndPresence(targetID)
 	s.hub.Disconnect(targetID, "")
 	s.broadcastUser(r, targetID)
 	writeOK(w)

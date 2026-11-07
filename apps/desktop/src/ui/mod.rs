@@ -83,6 +83,10 @@ impl Root {
         let conversations = cx.new(|cx| conversations::ConversationList::new(state.clone(), window, cx));
         let menu = menu::menu_layer(cx);
         cx.observe(&menu, |_, _, cx| cx.notify()).detach();
+        // Whether the window opened in front: one that didn't, as when Windows keeps another app's
+        // window there, would otherwise count as focused, and its person as online, until it was.
+        let focused = window.is_window_active();
+        state.update(cx, |state, _| state.window_focused = focused);
         let activation_state = state.clone();
         cx.observe_window_activation(window, move |root, window, cx| {
             let active = window.is_window_active();

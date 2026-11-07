@@ -50,8 +50,9 @@ pub fn set_main_window(window: &gpui::Window) {
     }
 }
 
+/// On screen: neither hidden in the tray nor minimized, as Linux's is.
 pub fn main_visible() -> bool {
-    main_hwnd().is_some_and(|hwnd| unsafe { IsWindowVisible(hwnd).as_bool() })
+    main_hwnd().is_some_and(|hwnd| unsafe { IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() })
 }
 
 /// Out of sight but still running, in the tray.

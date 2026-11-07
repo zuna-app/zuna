@@ -449,6 +449,7 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request, ses
 		s.removeFiles(r.Context(), []string{avatar})
 	}
 	s.endVoiceFor(r.Context(), sess.UserID, "account_deleted", true)
+	s.hub.EndPresence(sess.UserID)
 	s.hub.Disconnect(sess.UserID, "")
 	s.broadcastUser(r, sess.UserID)
 	writeOK(w)

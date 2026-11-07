@@ -123,7 +123,7 @@ A call is a conversation's own room on the same media server, keyed from that co
 
 ## Presence and phone notifications
 
-Which of your devices you're using, and when you last used each, decides when the others are notified, so the server knows it, whether or not you hide your online status from other members.
+Which of your devices you're using, and when you last used each, decides when the others are notified, so the server knows it, whether or not you hide your online status from other members. It also decides that status: you show as online while you're using Zuna on one of your devices and for 5 minutes after, and as last seen when you stopped. A device that's only connected, as a phone woken for a notification is, doesn't count.
 
 The server knows which devices get pushes, and through which relay. Until Apple lets the iPhone app filter notifications, it also knows which chats a phone muted and until when, among them direct messages with people the person blocked, which look like any other muted chat. It learns that a chat was read, which stops a push waiting for it. A push carries only the message's IDs, sealed for the device.
 
