@@ -629,7 +629,9 @@ impl ChatView {
 
     fn mark_read(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
         let state = self.state.read(cx);
-        if !state.window_focused {
+        // Read only where it can be seen: a chat open in a minimized window isn't, and reading it
+        // would take back the notification the person's phone is waiting to show.
+        if !state.window_in_front() {
             return;
         }
         let Some(group) = conversation.group_id.clone() else { return };

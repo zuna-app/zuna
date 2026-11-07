@@ -15,7 +15,7 @@ import { FakeRelay, TestApp, TestServer, loadCrypto, sleep, waitFor } from "./he
 
 const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 
-/** How long someone shows as online after they stop using the app, here, in place of 5 minutes. */
+/** How long someone shows as online after they stop using the app, here, in place of a minute. */
 const PRESENCE_LINGER = 1_500;
 
 let server: TestServer;

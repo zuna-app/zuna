@@ -29,7 +29,7 @@ const (
 	// with input in the last 30 s, or the phone app on screen: a device that's
 	// only connected, as a phone woken for a push or a window in the tray is,
 	// doesn't count.
-	presenceLinger = 5 * time.Minute
+	presenceLinger = time.Minute
 	maxClientFrame = 64 << 10
 	// More than anyone has devices, even with a few reconnecting at once.
 	maxConnsPerUser = 32

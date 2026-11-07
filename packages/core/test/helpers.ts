@@ -163,7 +163,7 @@ export class TestServer {
    * `pushRelays` are the relays the server may send notifications through. `liveKit` is the media server voice channels would use.
    * `sqlite` keeps its database in SQLite even with ZUNA_TEST_POSTGRES, for tests that open it as a stolen backup or a malicious server would.
    * `ownCertificate` has it reached by its IP address, with a certificate it makes itself, which its links pin.
-   * `presenceLinger` is how long, in ms, someone shows as online after they stop using an app, instead of 5 minutes.
+   * `presenceLinger` is how long, in ms, someone shows as online after they stop using an app, instead of a minute.
    */
   constructor(private readonly options: { pushRelays?: string[]; liveKit?: string; sqlite?: boolean; ownCertificate?: boolean; presenceLinger?: number } = {}) {}
 

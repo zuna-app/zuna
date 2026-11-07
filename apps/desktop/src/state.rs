@@ -311,7 +311,7 @@ impl AppState {
             panel: None,
             toasts: Vec::new(),
             settings,
-            window_focused: true,
+            window_focused: false,
             reply_to: HashMap::new(),
             drafts: HashMap::new(),
             selection: None,
@@ -995,8 +995,7 @@ impl AppState {
         let text = |name: &str| event.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
         let server_id = text("serverId");
         let key = text("conversationKey");
-        let open_here = self.window_focused
-            && crate::platform::main_visible()
+        let open_here = self.window_in_front()
             && self.active_server.as_deref() == Some(server_id.as_str())
             && self.active().is_some_and(|server| server.active_key.as_deref() == Some(key.as_str()));
         if open_here || !self.settings.notifications {
@@ -1079,7 +1078,7 @@ impl AppState {
             (false, true) => "Missed call".to_string(),
             (false, false) => format!("Missed call from {name}"),
         };
-        if self.window_focused {
+        if self.window_in_front() {
             if missed {
                 let message = if dm { format!("Missed call from {name}.") } else { format!("Missed call from {name} in {}.", conversation.title) };
                 self.toast(message, ToastKind::Info, cx);
@@ -1212,8 +1211,15 @@ impl AppState {
         });
     }
 
+    /// Whether the window is in front: focused, and on screen, as GPUI can still think a minimized
+    /// window focused. Only then does a chat open in it count as seen, or the person as here.
+    pub fn window_in_front(&self) -> bool {
+        self.window_focused && crate::platform::main_visible()
+    }
+
     /// Tells the core whether the person is here, as Telegram counts it: the window in front and
-    /// input in the last 30 s. While they are, their other devices hold notifications back (activity.ts).
+    /// input in the last 30 s. While they are, they show as online, and their other devices hold
+    /// notifications back (activity.ts).
     fn watch_activity(&mut self, cx: &mut Context<Self>) {
         if self._activity.is_some() {
             return;
@@ -1222,7 +1228,7 @@ impl AppState {
             loop {
                 let alive = this
                     .update(cx, |state, cx| {
-                        let here = state.window_focused && crate::platform::main_visible() && crate::platform::idle_ms() < 30_000;
+                        let here = state.window_in_front() && crate::platform::idle_ms() < 30_000;
                         if state.reported_active != Some(here) {
                             state.reported_active = Some(here);
                             state.call(None, "setActive", vec![json!(here)], cx, |_, _, _| {});
