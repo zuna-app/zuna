@@ -110,6 +110,21 @@ pub struct Frame {
 
 pub type Feed = Arc<Mutex<Option<Frame>>>;
 
+/// Rings each time any video has a new picture, so that a view showing one draws it then.
+static PICTURES: std::sync::LazyLock<tokio::sync::watch::Sender<u64>> = std::sync::LazyLock::new(|| tokio::sync::watch::Sender::new(0));
+
+/// Puts a video's new picture in its feed, and rings for it.
+fn show(feed: &Feed, frame: Frame) {
+    *feed.lock() = Some(frame);
+    PICTURES.send_modify(|count| *count = count.wrapping_add(1));
+}
+
+/// Changes as any video has a new picture. Pictures that come while one is being drawn
+/// ring once between them.
+pub fn pictures() -> tokio::sync::watch::Receiver<u64> {
+    PICTURES.subscribe()
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VideoSource {
     Camera,
@@ -429,7 +444,7 @@ impl VoiceRoom {
             livekit::webrtc::native::yuv_helper::argb_to_i420(&bgra, width * 4, y, stride_y, u, stride_u, v, stride_v, width as i32, height as i32);
             let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|since| since.as_micros() as i64).unwrap_or(0);
             sending.capture_frame(&VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: at, frame_metadata: None, buffer });
-            *preview.lock() = Some(Frame { width, height, bgra: Arc::new(bgra), serial: serial.fetch_add(1, Ordering::Relaxed) + 1 });
+            show(&preview, Frame { width, height, bgra: Arc::new(bgra), serial: serial.fetch_add(1, Ordering::Relaxed) + 1 });
         })?;
         let track = LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(source));
         let options = TrackPublishOptions {
@@ -600,7 +615,7 @@ impl Shared {
                         // libyuv's ARGB is BGRA in memory, which is what GPUI draws.
                         livekit::webrtc::native::yuv_helper::i420_to_argb(y, stride_y, u, stride_u, v, stride_v, &mut bgra, width * 4, width as i32, height as i32);
                         serial += 1;
-                        *writing.lock() = Some(Frame { width, height, bgra: Arc::new(bgra), serial });
+                        show(&writing, Frame { width, height, bgra: Arc::new(bgra), serial });
                     }
                 });
                 self.videos.lock().insert(sid, RemoteVideo { feed, stop });

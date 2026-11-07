@@ -59,10 +59,18 @@ impl VoiceStage {
         let voice = voice::get(cx).expect("voice starts with the app");
         cx.observe(&voice, |_, _, cx| cx.notify()).detach();
         cx.observe(&state, |_, _, cx| cx.notify()).detach();
-        // Videos are drawn as they come, and a call's time each second.
+        // Videos are drawn as each new picture comes, on the screen's next frame, and a call's
+        // time each second. A timer between them held a 60 fps share to about 30, as Windows
+        // rounds a 33 ms wait up to its 15.6 ms ticks.
+        let mut pictures = crate::voice::room::pictures();
         let tick = cx.spawn(async move |this, cx| loop {
             let videos = this.update(cx, |stage, cx| !stage.voice.read(cx).videos.is_empty()).unwrap_or(false);
-            cx.background_executor().timer(Duration::from_millis(if videos { 33 } else { 500 })).await;
+            let second = cx.background_executor().timer(Duration::from_millis(500));
+            if videos {
+                futures::future::select(std::pin::pin!(pictures.changed()), second).await;
+            } else {
+                second.await;
+            }
             if this.update(cx, |_, cx| cx.notify()).is_err() {
                 break;
             }
