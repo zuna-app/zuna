@@ -31,6 +31,11 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
 - **An animation's next frame when it's due.** An animated picture drew its view again on every
   vsync, 240 times a second on a 240 Hz screen, for an emote of 20 frames a second. It now
   does so when its next frame is due (`elements/img.rs`).
+- **An animation's frame kept to its own picture.** An `img` kept the frame it was on under its
+  element's id, and used it for whatever picture it drew next, which panicked past the end of
+  one with fewer frames: the picker's footer, naming the emote under the pointer, crashed the
+  app moving from an animated emote to a still one. Another picture now starts from its own
+  first frame (`elements/img.rs`).
 - **Smooth wheel scrolling.** A wheel's notch in a list or a scrolling area glides about 100 px,
   as Chromium's does, eased out over about 150 ms, and notches that come while it moves add to
   where it's going. A touchpad's pixels still move at once (`elements/smooth.rs`, and where

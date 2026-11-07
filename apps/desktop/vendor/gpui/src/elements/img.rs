@@ -1,6 +1,6 @@
 use crate::{
     AnyElement, AnyImageCache, App, Asset, AssetLogger, Bounds, DefiniteLength, Element, ElementId,
-    Entity, GlobalElementId, Hitbox, Image, ImageCache, InspectorElementId, InteractiveElement,
+    Entity, GlobalElementId, Hitbox, Image, ImageCache, ImageId, InspectorElementId, InteractiveElement,
     Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels, RenderImage, Resource,
     SMOOTH_SVG_SCALE_FACTOR, SharedString, SharedUri, StyleRefinement, Styled, SvgSize, Task,
     Window, px, swap_rgba_pa_to_bgra,
@@ -253,6 +253,9 @@ struct ImgState {
     started_loading: Option<(Instant, Task<()>)>,
     /// Zuna: when the view is to be drawn again for the next frame of an animation.
     next_frame: Option<(Instant, Task<()>)>,
+    /// Zuna: the picture the frame is of, so another one drawn under the same id starts
+    /// from its own first frame.
+    image: Option<ImageId>,
 }
 
 /// The image layout state between frames
@@ -292,10 +295,11 @@ impl Element for Img {
                     last_frame_time: None,
                     started_loading: None,
                     next_frame: None,
+                    image: None,
                 })
             });
 
-            let frame_index = state.as_ref().map(|state| state.frame_index).unwrap_or(0);
+            let mut frame_index = state.as_ref().map(|state| state.frame_index).unwrap_or(0);
 
             let layout_id = self.interactivity.request_layout(
                 global_id,
@@ -313,6 +317,22 @@ impl Element for Img {
                         cx,
                     ) {
                         Some(Ok(data)) => {
+                            // Zuna: an animated picture's frame, kept under the element's id, was
+                            // used for whatever picture the element drew next, which panicked
+                            // past the end of one with fewer frames, as the picker's name of the
+                            // emote under the pointer did moving from an animated one.
+                            if let Some(state) = &mut state
+                                && state.image != Some(data.id)
+                            {
+                                state.image = Some(data.id);
+                                state.frame_index = 0;
+                                state.last_frame_time = None;
+                                state.next_frame = None;
+                                frame_index = 0;
+                            }
+                            if frame_index >= data.frame_count() {
+                                frame_index = 0;
+                            }
                             if let Some(state) = &mut state {
                                 let frame_count = data.frame_count();
                                 if frame_count > 1 {
@@ -485,10 +505,12 @@ impl Element for Img {
                     window,
                     cx,
                 ) {
+                    // Zuna: held to the picture painted, should it differ from the one laid out.
+                    let frame_index = if layout_state.frame_index < data.frame_count() { layout_state.frame_index } else { 0 };
                     let new_bounds = self
                         .style
                         .object_fit
-                        .get_bounds(bounds, data.size(layout_state.frame_index));
+                        .get_bounds(bounds, data.size(frame_index));
                     let corner_radii = style
                         .corner_radii
                         .to_pixels(window.rem_size())
@@ -498,7 +520,7 @@ impl Element for Img {
                             new_bounds,
                             corner_radii,
                             data,
-                            layout_state.frame_index,
+                            frame_index,
                             self.style.grayscale,
                         )
                         .log_err();
