@@ -15,6 +15,8 @@ mod ffmpeg;
 pub use self::ffmpeg::{encode, mf, player, record};
 
 #[cfg(target_os = "macos")]
+mod apple;
+#[cfg(target_os = "macos")]
 mod pending;
 #[cfg(target_os = "macos")]
 pub use self::pending::{encode, mf, player, record};

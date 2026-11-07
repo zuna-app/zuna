@@ -93,7 +93,7 @@ pub mod player {
 pub mod record {
     pub use crate::media::camera::Camera;
     pub use crate::media::round::RoundRecorder;
-    pub use crate::media::{CameraDevice, MAX_ROUND_SECONDS, encode_waveform};
+    pub use crate::media::{MAX_ROUND_SECONDS, encode_waveform};
 
     pub struct Microphone;
 
@@ -119,11 +119,6 @@ pub mod record {
         }
     }
 
-    pub fn cameras() -> Vec<CameraDevice> {
-        Vec::new()
-    }
-
-    pub(crate) fn open(_device: &str) -> Result<crate::media::camera::Reader, String> {
-        Err(super::NOT_YET.into())
-    }
+    pub use crate::media::apple::camera::cameras;
+    pub(crate) use crate::media::apple::camera::open;
 }
