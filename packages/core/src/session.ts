@@ -5033,12 +5033,15 @@ export class ServerSession {
    * Whether the person is using this device right now: as in Telegram, the
    * desktop's window in front with input in the last 30 s, the phone app on
    * screen. While they are, and for a while after, their other devices'
-   * notifications wait, and don't show if they read the chat here.
+   * notifications wait, and don't show if they read the chat here. They show
+   * as online too, for a minute after, unless `putAway` says they put the
+   * device away, as a phone locked or left for another app: then, as on
+   * Telegram's, they go offline at once.
    */
-  setActive(active: boolean): void {
+  setActive(active: boolean, putAway = false): void {
     if (this.active && !active) this.leftHereAt = Date.now();
     this.active = active;
-    this.socket.setActive(active);
+    this.socket.setActive(active, putAway);
   }
 
   /** Whether the person is using another of their devices, as the server last said. */

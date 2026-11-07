@@ -36,7 +36,8 @@ extension CoreConnection {
     /// Reads everything again and reconnects, after the share extension used this device's data.
     public func reload() async throws { try await call("reload") }
     /// Whether the person is using this device: while they are, their other devices keep quiet and nothing is pushed.
-    public func setActive(_ active: Bool) async throws { try await call("setActive", [active]) }
+    /// `putAway` says they put it away, locked or left for another app, which takes them offline at once.
+    public func setActive(_ active: Bool, putAway: Bool = false) async throws { try await call("setActive", [active, putAway]) }
 
     /// The first link in a draft that can have a preview.
     public func findLink(_ text: String) async throws -> String? { try await call("findLink", [text]) }

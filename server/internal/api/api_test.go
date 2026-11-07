@@ -1137,6 +1137,53 @@ func TestOnlineMeansInUseAndLingers(t *testing.T) {
 	presence(false)
 }
 
+// A phone put away, locked or left for another app, takes someone offline at
+// once, as Telegram's does, unless they're using another device. Leaving the
+// laptop still lingers.
+func TestAPhonePutAwayGoesOfflineAtOnce(t *testing.T) {
+	const linger = 2 * time.Second
+	h := newHarness(t, func(cfg *api.Config) { cfg.PresenceLinger = linger })
+	owner := h.owner()
+	bob := h.register("bob", owner.newInvite())
+	bobSocket := bob.connect()
+	presence := func(want bool) map[string]any {
+		t.Helper()
+		got := bobSocket.waitFor("presence")
+		if got["user_id"] != owner.userID || got["online"] != want {
+			t.Fatalf("presence %v, want the owner online %v", got, want)
+		}
+		return got
+	}
+	phone := owner.anotherDevice()
+	phoneSocket := phone.connect()
+
+	phoneSocket.setActive(true)
+	presence(true)
+	left := store.Now()
+	phoneSocket.putAway()
+	went := presence(false)
+	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited > linger/2 {
+		t.Fatalf("offline %v after the phone was put away, as if it lingered", waited)
+	}
+	if at := int64(went["last_seen_at"].(float64)); at < left-1000 || at > left+1000 {
+		t.Fatalf("last seen at %d, but they left at %d", at, left)
+	}
+
+	// With the laptop in use, they stay online, and leaving it lingers as before.
+	laptopSocket := owner.connect()
+	laptopSocket.setActive(true)
+	presence(true)
+	phoneSocket.setActive(true)
+	phoneSocket.putAway()
+	time.Sleep(linger / 4)
+	laptopSocket.setActive(false)
+	left = store.Now()
+	presence(false)
+	if waited := time.Duration(store.Now()-left) * time.Millisecond; waited < linger {
+		t.Fatalf("offline %v after leaving the laptop, sooner than the linger", waited)
+	}
+}
+
 // Banned, someone goes offline at once rather than lingering.
 func TestBannedGoOfflineAtOnce(t *testing.T) {
 	h := newHarness(t)

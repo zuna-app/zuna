@@ -714,6 +714,14 @@ describe("presence and read state", () => {
       expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(left - 1000);
       expect(grace()!.lastSeenAt).toBeLessThan(left + PRESENCE_LINGER / 2);
 
+      // Put away, as a phone locked or left for another app: offline at once, as on Telegram.
+      phone.client.setActive(true);
+      await waitFor(() => grace()?.online === true, "grace online again");
+      const putAway = Date.now();
+      phone.client.setActive(false, true);
+      await waitFor(() => grace()?.online === false, "grace offline once the phone was put away", PRESENCE_LINGER / 2);
+      expect(grace()!.lastSeenAt).toBeGreaterThanOrEqual(putAway - 1000);
+
       // Back on screen and then gone outright: online until the linger is up.
       phone.client.setActive(true);
       await waitFor(() => grace()?.online === true, "grace online again");

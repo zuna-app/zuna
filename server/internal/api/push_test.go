@@ -230,7 +230,18 @@ func (c *client) anotherDevice() *client {
 
 func (s *socket) setActive(active bool) {
 	s.t.Helper()
-	frame, _ := json.Marshal(map[string]any{"t": "active", "active": active})
+	s.sendActive(map[string]any{"t": "active", "active": active})
+}
+
+// putAway says the person put the device away, as a phone locked or sent to the background.
+func (s *socket) putAway() {
+	s.t.Helper()
+	s.sendActive(map[string]any{"t": "active", "active": false, "put_away": true})
+}
+
+func (s *socket) sendActive(body map[string]any) {
+	s.t.Helper()
+	frame, _ := json.Marshal(body)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := s.ws.Write(ctx, websocket.MessageText, frame); err != nil {

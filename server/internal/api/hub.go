@@ -28,7 +28,8 @@ const (
 	// using Zuna on their last device. Using it is the desktop's window in front
 	// with input in the last 30 s, or the phone app on screen: a device that's
 	// only connected, as a phone woken for a push or a window in the tray is,
-	// doesn't count.
+	// doesn't count. A phone put away, locked or left for another app, goes
+	// offline at once, as Telegram's does.
 	presenceLinger = time.Minute
 	maxClientFrame = 64 << 10
 	// More than anyone has devices, even with a few reconnecting at once.
@@ -321,15 +322,15 @@ func (h *Hub) cameBack(userID string) {
 }
 
 // wentAway starts someone's way offline once they've stopped using their last
-// device: they show as online for h.linger more, and were last seen now. The
+// device: they show as online for linger more, and were last seen now. The
 // caller holds h.mu.
-func (h *Hub) wentAway(userID, deviceID string) {
+func (h *Hub) wentAway(userID, deviceID string, linger time.Duration) {
 	if h.usingAny(userID) || !h.online[userID] {
 		return
 	}
 	h.stayOnline(userID)
 	away := &absence{left: store.Now(), device: deviceID}
-	away.timer = time.AfterFunc(h.linger, func() { h.markOffline(userID, away) })
+	away.timer = time.AfterFunc(linger, func() { h.markOffline(userID, away) })
 	h.away[userID] = away
 }
 
@@ -347,8 +348,10 @@ func (h *Hub) add(c *conn, hidden bool) {
 
 // SetActive records whether the person is using a device right now, which is
 // what shows them as online, and tells their other devices, whose
-// notifications wait while they're elsewhere.
-func (h *Hub) SetActive(c *conn, active bool) {
+// notifications wait while they're elsewhere. A device put away, as a phone
+// locked or sent to the background, takes them offline at once rather than
+// after the linger, unless they're using another one.
+func (h *Hub) SetActive(c *conn, active, putAway bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if c.active != active {
@@ -357,7 +360,11 @@ func (h *Hub) SetActive(c *conn, active bool) {
 			h.cameBack(c.userID)
 		} else {
 			h.leftDevice(c.userID, c.deviceID)
-			h.wentAway(c.userID, c.deviceID)
+			linger := h.linger
+			if putAway {
+				linger = 0
+			}
+			h.wentAway(c.userID, c.deviceID, linger)
 		}
 		h.sendActivity(c.userID)
 	}
@@ -489,7 +496,7 @@ func (h *Hub) remove(c *conn) {
 		h.sendActivity(c.userID)
 		// A connection that drops while in use goes the same way: back within
 		// the linger, as after a moment without a network, nothing shows.
-		h.wentAway(c.userID, c.deviceID)
+		h.wentAway(c.userID, c.deviceID, h.linger)
 	}
 }
 
@@ -528,6 +535,8 @@ type clientFrame struct {
 	GroupID string `json:"group_id,omitempty"`
 	Data    []byte `json:"data,omitempty"`
 	Active  bool   `json:"active,omitempty"`
+	// With Active false, the person put the device away, as a phone locked or sent to the background.
+	PutAway bool `json:"put_away,omitempty"`
 	// What someone is doing in the voice channel named by GroupID, or nothing if they left.
 	Voice *voiceUpdate `json:"voice,omitempty"`
 }
@@ -650,7 +659,7 @@ func (s *Server) readLoop(ctx context.Context, ws *websocket.Conn, c *conn) {
 		case "typing":
 			s.relayTyping(ctx, c, frame)
 		case "active":
-			s.hub.SetActive(c, frame.Active)
+			s.hub.SetActive(c, frame.Active, frame.PutAway)
 		case "voice":
 			s.updateVoice(ctx, c, frame)
 		case "ping":
