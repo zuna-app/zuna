@@ -372,6 +372,30 @@ impl Preferences {
     pub fn blocked(&self) -> &[String] {
         self.blocked.as_deref().unwrap_or(&[])
     }
+
+    pub fn reported(&self) -> &[String] {
+        self.reported.as_deref().unwrap_or(&[])
+    }
+}
+
+/// Someone reported to a server's admins, as the admins see it: how often, what for and
+/// when last. Never what was said, which the server can't read, nor who reported them.
+#[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ReportView {
+    pub user_id: String,
+    pub count: f64,
+    pub reasons: Vec<String>,
+    pub last_at: f64,
+}
+
+/// What someone can be reported for, in the order offered, with what each is called
+/// (`REPORT_REASON_LABELS` in lib/report.ts).
+pub const REPORT_REASONS: [(&str, &str); 4] = [("spam", "Spam"), ("harassment", "Harassment"), ("inappropriate", "Inappropriate content"), ("other", "Something else")];
+
+/// What a reason for reporting someone is called.
+pub fn report_reason_label(reason: &str) -> &str {
+    REPORT_REASONS.iter().find(|(known, _)| *known == reason).map(|(_, label)| *label).unwrap_or(reason)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]

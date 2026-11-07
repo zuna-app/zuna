@@ -9,6 +9,8 @@ use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::invites::InvitePanel;
 use super::menu::{MenuEntry, open_menu};
 use super::text_input::{InputEvent, TextInput};
+use crate::format::format_full;
+use crate::models::{ReportView, from_value, report_reason_label};
 use crate::state::{AppState, ServerState, ToastKind};
 use crate::theme::{FONT_MONO, RADIUS_M, RADIUS_XL};
 
@@ -28,6 +30,10 @@ pub struct ServerSettings {
     focus: gpui::FocusHandle,
     soundboard: Option<Entity<super::server_voice::ServerSoundboard>>,
     screen_rules: Option<Entity<super::server_voice::ServerScreenRules>>,
+    /// Who was reported, read each time Reports is opened, or nothing while it's read.
+    reports: Option<Vec<ReportView>>,
+    /// Whom a ban is being asked about, by ID and name.
+    banning: Option<(String, String)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -53,14 +59,14 @@ impl ServerSettings {
         for input in [&name, &member_search, &emote_link, &max_upload, &retention] {
             subscriptions.push(cx.subscribe_in(input, window, |view, _, event, _, cx| {
                 if *event == InputEvent::Escape {
-                    view.close(cx);
+                    view.escape(cx);
                 }
                 cx.notify();
             }));
         }
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
-        ServerSettings {
+        let mut settings = ServerSettings {
             state,
             section: section.unwrap_or_else(|| if is_admin { "overview".into() } else { "leave".into() }),
             name,
@@ -75,12 +81,91 @@ impl ServerSettings {
             focus,
             soundboard: None,
             screen_rules: None,
+            reports: None,
+            banning: None,
             _subscriptions: subscriptions,
+        };
+        if settings.section == "reports" {
+            settings.load_reports(cx);
         }
+        settings
     }
 
     fn close(&mut self, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| state.set_overlay(None, cx));
+    }
+
+    /// Escape says no to a ban being asked about, and otherwise closes the settings.
+    fn escape(&mut self, cx: &mut Context<Self>) {
+        if self.banning.take().is_some() {
+            cx.notify();
+        } else {
+            self.close(cx);
+        }
+    }
+
+    /// Asks before banning someone, wherever it's done from (BanConfirm).
+    fn ask_ban(&mut self, user_id: String, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.banning = Some((user_id, name));
+        window.focus(&self.focus, cx);
+        cx.notify();
+    }
+
+    fn ban_confirm(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (user_id, name) = self.banning.clone()?;
+        let (cancel, ban) = (cx.entity().downgrade(), cx.entity().downgrade());
+        Some(super::overlays::confirm(
+            format!("Ban {name}?"),
+            "Ban from server",
+            "They're signed out everywhere and removed from every group and channel. An admin can unban them later, in Members.".into(),
+            move |_, cx| {
+                cancel
+                    .update(cx, |view, cx| {
+                        view.banning = None;
+                        cx.notify();
+                    })
+                    .ok();
+            },
+            move |_, cx| {
+                ban.update(cx, |view, cx| {
+                    view.banning = None;
+                    view.moderate("banUser", user_id.clone(), cx);
+                })
+                .ok();
+            },
+            cx,
+        ))
+    }
+
+    /// Reads who was reported, as `ReportsSection` does each time it's opened and after each change.
+    fn load_reports(&mut self, cx: &mut Context<Self>) {
+        let Some(server) = self.state.read(cx).active_server.clone() else { return };
+        let call = self.state.read(cx).core.call(Some(&server), "getReports", vec![]);
+        cx.spawn(async move |view, cx| {
+            let result = call.await;
+            view.update(cx, |view, cx| {
+                view.reports = Some(result.map(from_value).unwrap_or_default());
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Bans someone or dismisses their reports, then reads the reports again if they're shown.
+    fn moderate(&mut self, method: &'static str, user_id: String, cx: &mut Context<Self>) {
+        let Some(server) = self.state.read(cx).active_server.clone() else { return };
+        let call = self.state.read(cx).core.call(Some(&server), method, vec![json!(user_id)]);
+        cx.spawn(async move |view, cx| {
+            let result = call.await;
+            view.update(cx, |view, cx| match result {
+                Ok(_) if view.section == "reports" => view.load_reports(cx),
+                Ok(_) => {}
+                Err(error) => view.state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx)),
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn heading(text: &str) -> AnyElement {
@@ -233,7 +318,10 @@ impl ServerSettings {
             if user.banned {
                 entries.push(MenuEntry::new("Unban", "user-round", move |_, cx| state.update(cx, |state, cx| state.act("unbanUser", vec![json!(id)], cx))));
             } else {
-                entries.push(MenuEntry::new("Ban from server", "ban", move |_, cx| state.update(cx, |state, cx| state.act("banUser", vec![json!(id)], cx))).danger());
+                let (view, name) = (cx.entity().downgrade(), user.display_name.clone());
+                entries.push(MenuEntry::new("Ban from server", "ban", move |window, cx| {
+                    view.update(cx, |view, cx| view.ask_ban(id.clone(), name.clone(), window, cx)).ok();
+                }).danger());
             }
             let chip = |text: String, danger: bool| {
                 div()
@@ -291,6 +379,65 @@ impl ServerSettings {
                 .child(div().flex_1().min_w_0().child(self.member_search.clone()))
                 .into_any_element(),
             list.into_any_element(),
+        ]
+    }
+
+    /// Who was reported, how often and why: never what was said, which nobody here can read,
+    /// nor who reported them (ReportsSection).
+    fn reports_section(&mut self, server: &ServerState, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = theme(cx);
+        let self_role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
+        let list = match self.reports.clone() {
+            None => div().flex().child(spinner(18., theme.text2)).into_any_element(),
+            Some(reports) if reports.is_empty() => div().text_size(px(13.5)).text_color(theme.text2).child("Nobody has been reported.").into_any_element(),
+            Some(reports) => {
+                let mut list = div().flex().flex_col().gap(px(3.));
+                for report in reports {
+                    let user = server.users.get(&report.user_id).cloned();
+                    let name = user.as_ref().map(|user| user.display_name.clone()).unwrap_or_else(|| "Unknown".into());
+                    let can_ban = user.as_ref().is_some_and(|user| !user.banned && !user.deleted && user.role != "owner" && (self_role == "owner" || user.role == "member"));
+                    let image = user.as_ref().and_then(|user| user.avatar.clone()).and_then(|avatar| {
+                        let server_id = server.entry.id.clone();
+                        self.state.update(cx, |state, cx| state.decrypted_picture(&server_id, &avatar, cx))
+                    });
+                    let count = if report.count == 1. { "1 report".to_string() } else { format!("{} reports", report.count) };
+                    let reasons = report.reasons.iter().map(|reason| report_reason_label(reason)).collect::<Vec<_>>().join(", ");
+                    let (dismiss, ban) = (report.user_id.clone(), report.user_id.clone());
+                    list = list.child(
+                        div()
+                            .id(SharedString::from(format!("report-{}", report.user_id)))
+                            .w_full()
+                            .flex()
+                            .items_center()
+                            .gap(px(11.))
+                            .px(px(10.))
+                            .py(px(8.))
+                            .rounded(RADIUS_M)
+                            .bg(theme.bg2)
+                            .text_size(px(13.5))
+                            .child(avatar(AvatarProps { name: name.clone(), seed: report.user_id.clone(), image, size: 36., online: false, rounded: false, dot_border: theme.bg2 }, cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .flex()
+                                    .flex_col()
+                                    .child(div().one_line().font_weight(FontWeight::MEDIUM).child(name.clone()))
+                                    .child(div().text_size(px(12.)).text_color(theme.text3).child(format!("{count} · {reasons} · {}", format_full(report.last_at)))),
+                            )
+                            .child(button(SharedString::from(format!("dismiss-{}", report.user_id)), ButtonKind::Default, ButtonSize::Small, false, cx).child("Dismiss").on_click(cx.listener(move |view, _, _, cx| view.moderate("dismissReports", dismiss.clone(), cx))))
+                            .when(can_ban, |el| {
+                                el.child(button(SharedString::from(format!("ban-{}", report.user_id)), ButtonKind::Danger, ButtonSize::Small, false, cx).child(icon("ban", 13., theme.red)).child("Ban").on_click(cx.listener(move |view, _, window, cx| view.ask_ban(ban.clone(), name.clone(), window, cx))))
+                            }),
+                    );
+                }
+                list.into_any_element()
+            }
+        };
+        vec![
+            Self::heading("Reports"),
+            Self::lead(&format!("People others on {} reported, and why. Messages are encrypted, so nobody here sees what was said, and who reported them isn't kept.", server.entry.name), cx),
+            list,
         ]
     }
 
@@ -460,6 +607,7 @@ impl Render for ServerSettings {
                 ("overview", "Overview", "server"),
                 ("invites", "Invites", "link"),
                 ("members", "Members", "users"),
+                ("reports", "Reports", "flag"),
                 ("emotes", "Emotes", "face-slightly-smiling"),
                 ("soundboard", "Soundboard", "audio-lines"),
                 ("storage", "Storage", "hard-drive"),
@@ -471,6 +619,7 @@ impl Render for ServerSettings {
             "overview" if is_admin => self.overview(&server, cx),
             "invites" if is_admin => self.invites_section(&server, cx),
             "members" if is_admin => self.members(&server, cx),
+            "reports" if is_admin => self.reports_section(&server, cx),
             "emotes" if is_admin => self.emotes(&server, cx),
             "storage" if is_admin => self.storage(cx),
             "soundboard" if is_admin => {
@@ -531,13 +680,19 @@ impl Render for ServerSettings {
                     .cursor_pointer()
                     .on_click(cx.listener(move |view, _, _, cx| {
                         view.section = id.to_string();
+                        if id == "reports" {
+                            view.reports = None;
+                            view.load_reports(cx);
+                        }
                         cx.notify();
                     }))
                     .child(icon(icon_name, 17., color))
                     .child(label.to_string())
             }));
+        let confirm = self.ban_confirm(cx);
         div()
             .id("server-settings-layer")
+            .relative()
             .size_full()
             .flex()
             .bg(theme.bg_chat)
@@ -545,7 +700,7 @@ impl Render for ServerSettings {
             .track_focus(&self.focus)
             .on_key_down(cx.listener(|view, event: &gpui::KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
-                    view.close(cx);
+                    view.escape(cx);
                 }
             }))
             .child(nav)
@@ -560,6 +715,7 @@ impl Render for ServerSettings {
                     })
                     .child(div().absolute().right(px(16.)).top(px(16.)).child(icon_button("close-server-settings", "x", 19., false, false, cx).on_click(cx.listener(|view, _, _, cx| view.close(cx))))),
             )
+            .children(confirm)
             .into_any_element()
     }
 }

@@ -15,8 +15,8 @@ use super::shared_media;
 use super::text_input::{InputEvent, TextInput};
 use crate::format::{format_last_seen, format_list_time, timer_text};
 use crate::markup::plain_text;
-use crate::models::{ConversationView, MessageView, SearchResult};
-use crate::state::{AppState, Overlay, Panel, ServerState, SharedKind};
+use crate::models::{ConversationView, MessageView, REPORT_REASONS, SearchResult, UserView};
+use crate::state::{AppState, Overlay, Panel, ServerState, SharedKind, ToastKind};
 use crate::theme::{RADIUS_L, RADIUS_M};
 
 pub struct SidePanel {
@@ -379,6 +379,7 @@ impl SidePanel {
 
         if let (Some(peer), false) = (&peer, is_self) {
             let blocked = server.prefs.blocked().contains(&peer.id);
+            let reported = server.prefs.reported().contains(&peer.id);
             let state = self.state.clone();
             let id = peer.id.clone();
             parts.push(
@@ -394,6 +395,7 @@ impl SidePanel {
                         )
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("setBlocked", vec![json!(id), json!(!blocked)], cx))),
                     )
+                    .when(!peer.banned && !peer.deleted, |el| el.child(self.report_row(peer, reported, cx)))
                     .into_any_element(),
             );
         }
@@ -424,6 +426,51 @@ impl SidePanel {
             }
         }
         parts
+    }
+
+    /// Reporting someone to the server's admins, last in their profile (ReportRow). The admins
+    /// learn whom and why, never what was said nor who reported them.
+    fn report_row(&self, peer: &UserView, reported: bool, cx: &mut Context<Self>) -> AnyElement {
+        let theme = theme(cx);
+        if reported {
+            return div()
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(11.))
+                .px(px(8.))
+                .py(px(7.))
+                .min_h(px(36.))
+                .text_size(px(13.5))
+                .text_color(theme.text3)
+                .child(icon("flag", 17., theme.text2))
+                .child("Reported to the server's admins")
+                .into_any_element();
+        }
+        let (state, id) = (self.state.clone(), peer.id.clone());
+        Self::row("report", "flag", format!("Report {}", peer.display_name), Some("The server's admins see whom and why, never what was said or who reported.".into()), false, cx)
+            .on_click(move |event, _, cx| {
+                let entries = REPORT_REASONS
+                    .iter()
+                    .map(|&(reason, label)| {
+                        let (state, id) = (state.clone(), id.clone());
+                        MenuEntry::plain(
+                            label,
+                            std::rc::Rc::new(move |_, cx| {
+                                state.update(cx, |state, cx| {
+                                    let Some(server) = state.active_server.clone() else { return };
+                                    state.call(Some(&server), "reportUser", vec![json!(id), json!(reason)], cx, |state, result, cx| match result {
+                                        Ok(_) => state.toast("Reported to the server's admins", ToastKind::Info, cx),
+                                        Err(error) => state.toast(error.message, ToastKind::Error, cx),
+                                    })
+                                })
+                            }),
+                        )
+                    })
+                    .collect();
+                open_menu(event.position(), entries, true, cx);
+            })
+            .into_any_element()
     }
 
     // --- Shared media ---

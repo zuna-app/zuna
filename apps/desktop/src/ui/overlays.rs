@@ -37,6 +37,65 @@ pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx:
     })
 }
 
+/// Asks before something that can't be taken back, such as a ban, as `Confirm` does: a card
+/// over what's open, where Cancel or a click outside say no. Focus stays with whoever draws
+/// it, so they take Escape as no too, and close only this.
+pub fn confirm(title: String, action: &str, text: String, on_cancel: impl Fn(&mut Window, &mut App) + Clone + 'static, on_confirm: impl Fn(&mut Window, &mut App) + 'static, cx: &App) -> AnyElement {
+    let theme = theme(cx);
+    let (close, cancel) = (on_cancel.clone(), on_cancel.clone());
+    let card = div()
+        .id("confirm")
+        .w(px(420.))
+        .max_w_full()
+        .flex()
+        .flex_col()
+        .bg(theme.bg1)
+        .border_1()
+        .border_color(theme.line_strong)
+        .rounded(RADIUS_XL)
+        .shadow(shadow_l())
+        .overflow_hidden()
+        .occlude()
+        .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .pt(px(16.))
+                .pr(px(16.))
+                .pb(px(4.))
+                .pl(px(20.))
+                .child(div().flex_1().text_size(px(16.)).font_weight(FontWeight::SEMIBOLD).child(title))
+                .child(icon_button("close-confirm", "x", 16., true, false, cx).on_click(move |_, window, cx| close(window, cx))),
+        )
+        .child(div().px(px(20.)).pt(px(10.)).pb(px(20.)).text_size(px(13.5)).child(text))
+        .child(
+            div()
+                .flex()
+                .justify_end()
+                .gap(px(8.))
+                .px(px(20.))
+                .pb(px(16.))
+                .child(button("confirm-cancel", ButtonKind::Ghost, ButtonSize::Normal, false, cx).child("Cancel").on_click(move |_, window, cx| cancel(window, cx)))
+                .child(button("confirm-action", ButtonKind::Danger, ButtonSize::Normal, false, cx).child(action.to_string()).on_click(move |_, window, cx| on_confirm(window, cx))),
+        );
+    div()
+        .id("confirm-layer")
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .p(px(28.))
+        .bg(theme::color(theme::black_a(0.6)))
+        .occlude()
+        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| on_cancel(window, cx))
+        .child(card.appear("confirm-card", Enter::Pop, 120))
+        .appear("confirm-layer", Enter::Fade, 80)
+        .into_any_element()
+}
+
 enum DialogKind {
     AddServer(Entity<Onboarding>),
     NewGroup,
