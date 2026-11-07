@@ -202,12 +202,17 @@ fn run(device: &str, playing: Option<Playing>, rate: u32, mut fill: Fill, mut ta
         })
         .process(move |stream, _| {
             let Some(mut buffer) = stream.dequeue_buffer() else { return };
+            // How much the graph wants this time, its quantum, which is far less than the buffer
+            // holds. Filling all of it plays a quarter of a second at once, and live sound waiting
+            // that long for its turn is cut short.
+            let requested = buffer.requested() as usize;
             let datas = buffer.datas_mut();
             let Some(data) = datas.first_mut() else { return };
             let stride = std::mem::size_of::<f32>() * channels as usize;
             if output {
                 let Some(bytes) = data.data() else { return };
-                let frames = bytes.len() / stride;
+                let room = bytes.len() / stride;
+                let frames = if requested > 0 { requested.min(room) } else { super::audio::FRAME.min(room) };
                 // SAFETY: PipeWire maps the buffer aligned for the format asked for, F32LE.
                 let samples = unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut f32, frames * channels as usize) };
                 fill(samples, frames);

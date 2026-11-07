@@ -68,8 +68,8 @@ ksni = { version = "0.3", default-features = false, features = ["async-io", "blo
 ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
 # The sound devices, the notification sound's too: listed by the names PipeWire gives them, and
 # played and recorded through it, as ALSA's own list holds hardware that playing takes away
-# from PipeWire.
-pipewire = "0.10"
+# from PipeWire. 0.3.49's is for how much a stream is asked for each time.
+pipewire = { version = "0.10", features = ["v0_3_49"] }
 # Cameras, read through V4L2 as Chromium reads them.
 v4l = "0.14"
 # Media: reading and writing voice and video messages, videos and sound files, through the
