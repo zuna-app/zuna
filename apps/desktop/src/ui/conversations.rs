@@ -18,7 +18,7 @@ use super::text_input::{InputEvent, TextInput};
 use crate::format::format_list_time;
 use crate::markup::plain_text;
 use crate::models::{ChannelView, ConversationView, MessageView, SearchResult, UserView, VoiceMember};
-use crate::state::{AppState, Overlay, ServerState};
+use crate::state::{AppState, Overlay, ServerState, ToastKind};
 use crate::theme::{Theme, RADIUS_M, RADIUS_S};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -41,6 +41,10 @@ pub struct ConversationList {
     /// The channel row under the pointer, whose edit button shows. It takes no room otherwise,
     /// as the desktop's is `display: none`, so a voice channel's limit sits at the row's end.
     hovered_channel: Option<String>,
+    /// The channel being dragged to another place, and the order the list shows meanwhile,
+    /// which it keeps until the core has it.
+    dragging: Option<String>,
+    drag_order: Option<Vec<String>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -119,7 +123,7 @@ impl ConversationList {
         if let Some(voice) = crate::voice::get(cx) {
             subscriptions.push(cx.observe(&voice, |_, _, cx| cx.notify()));
         }
-        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, hovered_channel: None, _subscriptions: subscriptions }
+        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, hovered_channel: None, dragging: None, drag_order: None, _subscriptions: subscriptions }
     }
 
     pub fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -678,6 +682,9 @@ impl ConversationList {
         let is_admin = server.is_admin();
         let mut channels: Vec<ChannelView> = server.channels.clone();
         channels.sort_by(|a, b| a.position.partial_cmp(&b.position).unwrap_or(std::cmp::Ordering::Equal));
+        if let Some(dragged) = &self.drag_order {
+            channels.sort_by_key(|channel| dragged.iter().position(|id| *id == channel.id).unwrap_or(usize::MAX));
+        }
         if channels.is_empty() && !is_admin {
             return Vec::new();
         }
@@ -686,14 +693,31 @@ impl ConversationList {
         // A channel's own heading if it has one, or one for its type, in the order they come up.
         let mut sections: Vec<(String, String, Vec<ChannelView>)> = Vec::new();
         for channel in shown {
-            let name = if !channel.category.is_empty() { channel.category.clone() } else if channel.kind == "voice" { "Voice channels".into() } else { "Text channels".into() };
+            let name = section_of(&channel);
             match sections.iter_mut().find(|(section, _, _)| *section == name) {
                 Some((_, _, list)) => list.push(channel),
                 None => sections.push((name, channel.kind.clone(), vec![channel])),
             }
         }
         let collapsed = self.state.read(cx).settings.collapsed_categories.clone();
-        let mut container = div().flex().flex_col().pt(px(2.)).pb(px(6.)).mb(px(4.)).border_b_1().border_color(theme.line);
+        let mut container = div()
+            .flex()
+            .flex_col()
+            .pt(px(2.))
+            .pb(px(6.))
+            .mb(px(4.))
+            .border_b_1()
+            .border_color(theme.line)
+            // A dragged channel stays where it was dragged to, wherever it's let go of.
+            .on_drop(cx.listener(|list, _: &ChannelDrag, _, cx| list.drop_channel(cx)))
+            .on_mouse_up_out(
+                gpui::MouseButton::Left,
+                cx.listener(|list, _, _, cx| {
+                    if list.dragging.is_some() {
+                        list.drop_channel(cx);
+                    }
+                }),
+            );
         for (name, kind, list) in sections {
             let folded = collapsed.contains(&name) && query.is_empty();
             let group = SharedString::from(format!("section-{name}"));
@@ -900,25 +924,10 @@ impl ConversationList {
                 )
             });
         if can_reorder {
-            // Dragged onto another, a channel takes its place, as the desktop's list reorders.
-            let (id, name) = (channel.id.clone(), title.clone());
-            let target = channel.id.clone();
-            let order = order.to_vec();
-            let state = self.state.clone();
             row = row
-                .on_drag(ChannelDrag { id: id.clone(), name }, |drag, _, _, cx| cx.new(|_| drag.clone()))
-                .drag_over::<ChannelDrag>(move |style, _, _, _| style.bg(theme.hover_strong))
-                .on_drop(move |drag: &ChannelDrag, _, cx| {
-                    if drag.id == target {
-                        return;
-                    }
-                    let mut next = order.clone();
-                    let Some(from) = next.iter().position(|item| *item == drag.id) else { return };
-                    let moved = next.remove(from);
-                    let to = next.iter().position(|item| *item == target).map(|index| if from <= index { index + 1 } else { index }).unwrap_or(next.len());
-                    next.insert(to.min(next.len()), moved);
-                    state.update(cx, |state, cx| state.act("reorderChannels", vec![json!(next)], cx));
-                });
+                .on_drag(ChannelDrag { id: channel.id.clone(), name: title.clone(), section: section_of(channel) }, |drag, _, _, cx| cx.new(|_| drag.clone()))
+                // Where the dragged channel will land, as the others make way for it.
+                .when(self.dragging.as_deref() == Some(channel.id.as_str()), |el| el.bg(theme.hover_strong));
         }
         let mut block = div().flex().flex_col().child(row);
         if !occupants.is_empty() {
@@ -928,7 +937,66 @@ impl ConversationList {
             }
             block = block.child(list);
         }
-        block.into_any_element()
+        if !can_reorder {
+            return block.into_any_element();
+        }
+        // Its place, which the pointer is checked against while a channel is dragged, and
+        // which the row slides to as the others make way, as motion's `Reorder` moves them.
+        let (target, section, order) = (channel.id.clone(), section_of(channel), order.to_vec());
+        div()
+            .on_drag_move(cx.listener(move |list, event: &gpui::DragMoveEvent<ChannelDrag>, _, cx| {
+                let position = event.event.position;
+                if event.bounds.contains(&position) {
+                    let drag = event.drag(cx).clone();
+                    list.drag_channel_over(&drag, &target, &section, &order, f32::from(position.y - event.bounds.center().y), cx);
+                }
+            }))
+            .child(super::motion::sliding(format!("channel-{}", channel.id), scroll_handle("conv-list"), block))
+            .into_any_element()
+    }
+
+    /// Moves the channel being dragged to where another is, once the pointer is past that
+    /// one's middle the way it's going, so it doesn't flick back and forth over a taller one.
+    /// Only within its own heading, as each heading's channels are a list of their own.
+    fn drag_channel_over(&mut self, drag: &ChannelDrag, target: &str, section: &str, order: &[String], past_middle: f32, cx: &mut Context<Self>) {
+        if self.dragging.as_deref() != Some(drag.id.as_str()) {
+            self.dragging = Some(drag.id.clone());
+            cx.notify();
+        }
+        if drag.section != section || drag.id == target {
+            return;
+        }
+        let mut next = self.drag_order.clone().unwrap_or_else(|| order.to_vec());
+        let (Some(from), Some(to)) = (next.iter().position(|id| *id == drag.id), next.iter().position(|id| id == target)) else { return };
+        if (from < to && past_middle < 0.) || (from > to && past_middle > 0.) {
+            return;
+        }
+        let moved = next.remove(from);
+        next.insert(to, moved);
+        self.drag_order = Some(next);
+        cx.notify();
+    }
+
+    /// Keeps the order a channel was dragged into once it's let go of, as the list shows it
+    /// until the core has it.
+    fn drop_channel(&mut self, cx: &mut Context<Self>) {
+        self.dragging = None;
+        cx.notify();
+        let Some(order) = self.drag_order.clone() else { return };
+        let Some(server) = self.state.read(cx).active_server.clone() else { return };
+        let list = cx.entity().downgrade();
+        self.state.update(cx, |state, cx| {
+            state.call(Some(&server), "reorderChannels", vec![json!(order)], cx, move |state, result, cx| {
+                if let Err(error) = result {
+                    state.toast(error.message, ToastKind::Error, cx);
+                }
+                list.update(cx, |list, cx| {
+                    list.drag_order = None;
+                    cx.notify();
+                })
+                .ok();
+            })
+        });
     }
 
     /// Someone in a voice channel, under it, with a green ring while they speak.
@@ -1003,11 +1071,23 @@ impl ConversationList {
     }
 }
 
+/// The heading a channel goes under: its own if it has one, or one for its type.
+fn section_of(channel: &ChannelView) -> String {
+    if !channel.category.is_empty() {
+        channel.category.clone()
+    } else if channel.kind == "voice" {
+        "Voice channels".into()
+    } else {
+        "Text channels".into()
+    }
+}
+
 /// A channel being dragged to another place in the list, and what follows the mouse.
 #[derive(Clone)]
 struct ChannelDrag {
     id: String,
     name: String,
+    section: String,
 }
 
 impl Render for ChannelDrag {
