@@ -1235,9 +1235,19 @@ pub(super) fn attachments(message: &MessageView, images: &[&Attachment], only_im
                 let (file_id, name) = (attachment.file_id.clone(), attachment.name.clone());
                 tile = tile
                     .cursor_pointer()
-                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)))
+                    .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::Image { file_id: file_id.clone(), name: name.clone() }), cx)));
+                // Drawn at twice the size it's shown at, for a sharp screen, never whole: a photo from a
+                // camera decoded whole is 48 MB. The preview stays until it's ready.
+                let picture = match covered(&image, shape, if single { 1200 } else { 418 }, cx) {
+                    Covered::Ready(cropped) => Some(img(cropped).object_fit(gpui::ObjectFit::Fill)),
+                    Covered::AsItIs => Some(img(image).object_fit(gpui::ObjectFit::Cover)),
+                    Covered::Working => None,
+                };
+                tile = match picture {
                     // `.media-full`: faded in over the preview once it's here.
-                    .child(round_corners(if single { img(image).object_fit(gpui::ObjectFit::Cover) } else { cover(image, shape, 418, cx) }.size_full(), corners).enter_once(format!("media-full-{}-{}", message.id, attachment.file_id), Enter::Fade, 120));
+                    Some(picture) => tile.child(round_corners(picture.size_full(), corners).enter_once(format!("media-full-{}-{}", message.id, attachment.file_id), Enter::Fade, 120)),
+                    None => tile.when_some(thumb, |tile, thumb| tile.child(round_corners(cover(thumb, shape, 200, cx).size_full().opacity(0.85), corners))),
+                };
             } else {
                 if let Some(thumb) = thumb {
                     tile = tile.child(round_corners(cover(thumb, shape, 200, cx).size_full().opacity(0.85), corners));

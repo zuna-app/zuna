@@ -254,6 +254,12 @@ struct ImgState {
     next_frame: Option<(Instant, Task<()>)>,
 }
 
+/// Zuna: lets go of a picture an img decoded, in GPUI's asset cache, for `Window::draw` once
+/// it's been out of every frame for a while.
+pub(crate) fn forget_decoded(source: &Arc<Image>, cx: &mut App) {
+    cx.remove_asset::<AssetLogger<ImageDecoder>>(source);
+}
+
 /// Zuna: as late as Windows' thread pool timers fire, at its 15.6 ms tick, with room to spare.
 const TIMER_LATENESS: Duration = Duration::from_millis(20);
 
@@ -341,6 +347,9 @@ impl Element for Img {
                         cx,
                     ) {
                         Some(Ok(data)) => {
+                            if let ImageSource::Image(source) = &self.source {
+                                crate::window::note_picture_source(data.id, data.frame_count(), source);
+                            }
                             // Zuna: the frame an animated picture's own clock is at. Each element
                             // stepped its own frame along in its state, one at a time, and drew
                             // the one before it stepped, so frames came late and unevenly, a

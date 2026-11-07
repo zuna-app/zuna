@@ -5,7 +5,7 @@ use crate::{
     AsyncWindowContext, AvailableSpace, Background, BorderStyle, Bounds, BoxShadow, Capslock,
     Context, Corners, CursorStyle, Decorations, DevicePixels, DispatchActionListener,
     DispatchNodeId, DispatchTree, DisplayId, Edges, Effect, Entity, EntityId, EventEmitter,
-    FileDropEvent, FontId, Global, GlobalElementId, GlyphId, GpuSpecs, Hsla, InputHandler, IsZero,
+    FileDropEvent, FontId, Global, GlobalElementId, GlyphId, GpuSpecs, Hsla, ImageId, InputHandler, IsZero,
     KeyBinding, KeyContext, KeyDownEvent, KeyEvent, Keystroke, KeystrokeEvent, LayoutId,
     LineLayoutIndex, Modifiers, ModifiersChangedEvent, MonochromeSprite, MouseButton, MouseEvent,
     MouseMoveEvent, MouseUpEvent, Path, Pixels, PlatformAtlas, PlatformDisplay, PlatformInput,
@@ -57,6 +57,35 @@ mod prompts;
 
 use crate::util::atomic_incr_if_not_zero;
 pub use prompts::*;
+
+/// Zuna: when a picture was last in a frame drawn, how many frames it has, and the picture an
+/// img decoded it from, which GPUI's asset cache holds.
+struct SeenPicture {
+    frames: usize,
+    source: Option<Arc<crate::Image>>,
+    at: Instant,
+}
+
+thread_local! {
+    static SEEN_PICTURES: RefCell<FxHashMap<ImageId, SeenPicture>> = RefCell::default();
+    static PICTURES_SWEPT: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// Zuna: how long a picture out of every frame is kept, decoded and on the graphics card.
+const FORGET_PICTURES_AFTER: Duration = Duration::from_secs(120);
+const SWEEP_PICTURES_EVERY: Duration = Duration::from_secs(15);
+
+/// Zuna: the picture an img decoded this one from, so that it's let go of from GPUI's asset
+/// cache too once it's out of every frame for a while.
+pub(crate) fn note_picture_source(id: ImageId, frames: usize, source: &Arc<crate::Image>) {
+    SEEN_PICTURES.with(|seen| {
+        let mut seen = seen.borrow_mut();
+        let picture = seen.entry(id).or_insert(SeenPicture { frames, source: None, at: Instant::now() });
+        if picture.source.is_none() {
+            picture.source = Some(source.clone());
+        }
+    });
+}
 
 pub(crate) const DEFAULT_WINDOW_SIZE: Size<Pixels> = size(px(1536.), px(864.));
 
@@ -689,6 +718,9 @@ pub(crate) struct Frame {
     #[cfg(any(feature = "inspector", debug_assertions))]
     pub(crate) inspector_hitboxes: FxHashMap<HitboxId, crate::InspectorElementId>,
     pub(crate) tab_stops: TabStopMap,
+    /// Zuna: each picture drawn in this frame, with its number of frames, including those in
+    /// drawing reused from the frame before.
+    pub(crate) painted_images: Vec<(ImageId, usize)>,
 }
 
 #[derive(Clone, Default)]
@@ -710,6 +742,7 @@ pub(crate) struct PaintIndex {
     accessed_element_states_index: usize,
     tab_handle_index: usize,
     line_layout_index: LineLayoutIndex,
+    painted_images_index: usize,
 }
 
 impl Frame {
@@ -738,6 +771,7 @@ impl Frame {
             #[cfg(any(feature = "inspector", debug_assertions))]
             inspector_hitboxes: FxHashMap::default(),
             tab_stops: TabStopMap::default(),
+            painted_images: Vec::new(),
         }
     }
 
@@ -754,6 +788,7 @@ impl Frame {
         self.window_control_hitboxes.clear();
         self.deferred_draws.clear();
         self.tab_stops.clear();
+        self.painted_images.clear();
         self.focus = None;
 
         #[cfg(any(feature = "inspector", debug_assertions))]
@@ -1981,11 +2016,53 @@ impl Window {
         debug_assert!(self.rendered_entity_stack.is_empty());
         self.record_entities_accessed(cx);
         self.reset_cursor_style(cx);
+        self.forget_unseen_pictures(cx);
         self.refreshing = false;
         self.invalidator.set_phase(DrawPhase::None);
         self.needs_present.set(true);
 
         ArenaClearNeeded
+    }
+
+    /// Zuna: notes the pictures in the frame just drawn, and lets go of those that haven't been in
+    /// any window's frame for a while: off every graphics card, and out of GPUI's asset cache for
+    /// one an img decoded. Each was kept for as long as the app ran, every photo, avatar and frame
+    /// of every emote ever seen, which came to gigabytes. One that comes back is decoded again.
+    fn forget_unseen_pictures(&mut self, cx: &mut App) {
+        let now = Instant::now();
+        SEEN_PICTURES.with(|seen| {
+            let mut seen = seen.borrow_mut();
+            for &(id, frames) in &self.rendered_frame.painted_images {
+                seen.entry(id)
+                    .and_modify(|picture| picture.at = now)
+                    .or_insert(SeenPicture { frames, source: None, at: now });
+            }
+        });
+        if PICTURES_SWEPT.get().is_some_and(|at| now.duration_since(at) < SWEEP_PICTURES_EVERY) {
+            return;
+        }
+        PICTURES_SWEPT.set(Some(now));
+        let unseen: Vec<(ImageId, SeenPicture)> = SEEN_PICTURES.with(|seen| {
+            let mut seen = seen.borrow_mut();
+            let ids: Vec<ImageId> = seen
+                .iter()
+                .filter(|(_, picture)| now.duration_since(picture.at) >= FORGET_PICTURES_AFTER)
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter().filter_map(|id| seen.remove(&id).map(|picture| (id, picture))).collect()
+        });
+        for (id, picture) in unseen {
+            for frame_index in 0..picture.frames {
+                let key = RenderImageParams { image_id: id, frame_index }.into();
+                self.sprite_atlas.remove(&key);
+                for window in cx.windows.values_mut().flatten() {
+                    window.sprite_atlas.remove(&key);
+                }
+            }
+            if let Some(source) = picture.source {
+                crate::forget_decoded(&source, cx);
+            }
+        }
     }
 
     fn record_entities_accessed(&mut self, cx: &mut App) {
@@ -2295,6 +2372,7 @@ impl Window {
             accessed_element_states_index: self.next_frame.accessed_element_states.len(),
             tab_handle_index: self.next_frame.tab_stops.paint_index(),
             line_layout_index: self.text_system.layout_index(),
+            painted_images_index: self.next_frame.painted_images.len(),
         }
     }
 
@@ -2326,6 +2404,10 @@ impl Window {
         self.next_frame.tab_stops.replay(
             &self.rendered_frame.tab_stops.insertion_history
                 [range.start.tab_handle_index..range.end.tab_handle_index],
+        );
+        self.next_frame.painted_images.extend_from_slice(
+            &self.rendered_frame.painted_images
+                [range.start.painted_images_index..range.end.painted_images_index],
         );
 
         self.text_system
@@ -3163,6 +3245,7 @@ impl Window {
                 )))
             })?
             .expect("Callback above only returns Some");
+        self.next_frame.painted_images.push((data.id, data.frame_count()));
         let content_mask = self.content_mask().scale(scale_factor);
         let corner_radii = corner_radii.scale(scale_factor);
         let opacity = self.element_opacity();
