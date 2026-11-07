@@ -1,7 +1,7 @@
 //! All UI state, kept in sync with the core through its events, as the desktop's
 //! zustand store (packages/ui/src/state/store.ts) keeps it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -192,6 +192,13 @@ pub enum Picture {
     Failed,
 }
 
+/// A notification waiting to be shown, and the key of the photo it waits for.
+struct WaitingNotification {
+    id: u64,
+    payload: crate::ui::notifications::Payload,
+    photo: Option<String>,
+}
+
 pub struct AppState {
     pub core: Core,
     pub phase: Phase,
@@ -228,6 +235,9 @@ pub struct AppState {
     reading: HashMap<String, f64>,
     /// When each chat was last notified about, by server: what may still be up.
     notified: HashMap<String, HashMap<String, f64>>,
+    /// Notifications waiting for their chat's photo, or behind one that is.
+    waiting_notifications: VecDeque<WaitingNotification>,
+    next_notification: u64,
     /// Whether the core was last told this person is here (activity.ts).
     reported_active: Option<bool>,
     _events: Option<Task<()>>,
@@ -319,6 +329,8 @@ impl AppState {
             next_toast: 1,
             reading: HashMap::new(),
             notified: HashMap::new(),
+            waiting_notifications: VecDeque::new(),
+            next_notification: 1,
             reported_active: None,
             _events: Some(events),
             _activity: None,
@@ -435,7 +447,7 @@ impl AppState {
 
     pub fn remove_server(&mut self, server_id: &str, cx: &mut Context<Self>) {
         self.notified.remove(server_id);
-        clear_notifications(Some(server_id), None, None, cx);
+        self.clear_notifications(Some(server_id), None, None, cx);
         self.servers.remove(server_id);
         self.order.retain(|id| id != server_id);
         if self.active_server.as_deref() == Some(server_id) {
@@ -572,7 +584,7 @@ impl AppState {
                 let message: MessageView = from_value(event.get("message").cloned().unwrap_or_default());
                 // Deleted for everyone: what it said goes from everywhere.
                 if message.deleted_at.is_some() {
-                    clear_notifications(Some(&server_id), None, Some(&message.id), cx);
+                    self.clear_notifications(Some(&server_id), None, Some(&message.id), cx);
                 }
                 let is_new = event.get("isNew").and_then(Value::as_bool).unwrap_or(false);
                 if is_new {
@@ -587,7 +599,7 @@ impl AppState {
             "message_removed" => {
                 let group = text("groupId");
                 let id = text("id");
-                clear_notifications(Some(&server_id), None, Some(&id), cx);
+                self.clear_notifications(Some(&server_id), None, Some(&id), cx);
                 if let Some(list) = self.lists.get_mut(&group) {
                     list.items.retain(|item| item.id != id);
                 }
@@ -689,7 +701,7 @@ impl AppState {
             "signed_out" => {
                 let reason = text("reason");
                 self.notified.remove(&server_id);
-                clear_notifications(Some(&server_id), None, None, cx);
+                self.clear_notifications(Some(&server_id), None, None, cx);
                 if let Some(server) = self.servers.get_mut(&server_id) {
                     server.entry.signed_out = Some(reason.clone());
                 }
@@ -975,7 +987,7 @@ impl AppState {
         for key in &keys {
             in_server.remove(key);
         }
-        clear_notifications(Some(server_id), Some(&keys), None, cx);
+        self.clear_notifications(Some(server_id), Some(&keys), None, cx);
     }
 
     /// A message the core says to notify about, unless its chat is open in front of the person (notify in store.ts).
@@ -1018,7 +1030,7 @@ impl AppState {
         let payload = crate::ui::notifications::Payload {
             title,
             body,
-            server_id,
+            server_id: server_id.clone(),
             key,
             message_id: text("messageId"),
             kind: conversation.as_ref().map(|c| c.kind.clone()).unwrap_or_else(|| "dm".into()),
@@ -1027,17 +1039,14 @@ impl AppState {
             can_reply: preview == "full" && !conversation.as_ref().is_some_and(|c| c.removed),
             wait_for_input: system.wait_for_input,
         };
-        let reduce_motion = self.settings.reduce_motion;
-        if let Some(center) = crate::ui::notifications::center(cx) {
-            center.update(cx, |center, cx| center.show(payload, reduce_motion, cx));
-        }
+        let avatar = conversation.as_ref().and_then(|c| c.avatar.clone());
+        self.show_notification(payload, &server_id, avatar.as_ref(), cx);
     }
 
     /// A call starting to ring this person, or one they missed: a card while the app isn't in front,
     /// and for a missed one a toast while it is (noticeCall in store.ts).
     fn notice_call(&mut self, server_id: &str, group_id: &str, before: Option<CallView>, call: Option<CallView>, cx: &mut Context<Self>) {
-        let Some(server) = self.servers.get(server_id) else { return };
-        let self_id = server.self_id().to_string();
+        let Some(self_id) = self.servers.get(server_id).map(|server| server.self_id().to_string()) else { return };
         if self_id.is_empty() {
             return;
         }
@@ -1048,8 +1057,9 @@ impl AppState {
         }
         let message_id = format!("call:{group_id}");
         if was_ringing {
-            clear_notifications(Some(server_id), None, Some(&message_id), cx);
+            self.clear_notifications(Some(server_id), None, Some(&message_id), cx);
         }
+        let Some(server) = self.servers.get(server_id) else { return };
         let Some(conversation) = crate::voice::conversation_of_group(server, group_id).cloned() else { return };
         let caller = call.as_ref().or(before.as_ref()).map(|call| call.started_by.clone()).unwrap_or_default();
         if conversation.muted || conversation.blocked || server.prefs.blocked().contains(&caller) {
@@ -1104,9 +1114,67 @@ impl AppState {
             can_reply: false,
             wait_for_input: system.wait_for_input,
         };
+        self.show_notification(payload, server_id, conversation.avatar.as_ref(), cx);
+    }
+
+    /// Shows a notification with its chat's photo, which, when it isn't decrypted yet, as for a chat
+    /// on a server not in front, is waited for up to 400 ms before showing its initials. One at a
+    /// time, so a photo that takes a moment can't reorder them (showNotification in store.ts).
+    fn show_notification(&mut self, payload: crate::ui::notifications::Payload, server_id: &str, avatar: Option<&AvatarRef>, cx: &mut Context<Self>) {
+        let id = self.next_notification;
+        self.next_notification += 1;
+        let mut photo = None;
+        let without_photo = payload.picture.as_ref().is_some_and(|picture| picture.image.is_none());
+        if let Some(avatar) = avatar.filter(|_| without_photo) {
+            let key = format!("file:{}", avatar.file_id);
+            if !matches!(self.pictures.get(&key), Some(Picture::Failed)) {
+                self.decrypted_picture(server_id, avatar, cx);
+                photo = Some(key);
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(Duration::from_millis(400)).await;
+                    this.update(cx, |state, cx| {
+                        if let Some(waiting) = state.waiting_notifications.iter_mut().find(|waiting| waiting.id == id) {
+                            waiting.photo = None;
+                        }
+                        state.show_waiting(cx);
+                    })
+                    .ok();
+                })
+                .detach();
+            }
+        }
+        self.waiting_notifications.push_back(WaitingNotification { id, payload, photo });
+        self.show_waiting(cx);
+    }
+
+    /// Shows the notifications in order, up to one still waiting for its photo.
+    fn show_waiting(&mut self, cx: &mut Context<Self>) {
         let reduce_motion = self.settings.reduce_motion;
+        while let Some(waiting) = self.waiting_notifications.front() {
+            let image = match waiting.photo.as_ref().map(|key| self.pictures.get(key)) {
+                Some(Some(Picture::Ready(image))) => Some(image.clone()),
+                Some(Some(Picture::Loading) | None) => return,
+                _ => None,
+            };
+            let Some(WaitingNotification { mut payload, .. }) = self.waiting_notifications.pop_front() else { return };
+            if let (Some(picture), Some(image)) = (payload.picture.as_mut(), image) {
+                picture.image = Some(image);
+            }
+            if let Some(center) = crate::ui::notifications::center(cx) {
+                center.update(cx, |center, cx| center.show(payload, reduce_motion, cx));
+            }
+        }
+    }
+
+    /// Takes back notifications matching everything given, shown or waiting for a photo.
+    fn clear_notifications(&mut self, server_id: Option<&str>, keys: Option<&[String]>, message_id: Option<&str>, cx: &mut Context<Self>) {
+        self.waiting_notifications.retain(|waiting| {
+            let payload = &waiting.payload;
+            !(server_id.is_none_or(|id| payload.server_id == id) && keys.is_none_or(|keys| keys.contains(&payload.key)) && message_id.is_none_or(|id| payload.message_id == id))
+        });
+        self.show_waiting(cx);
         if let Some(center) = crate::ui::notifications::center(cx) {
-            center.update(cx, |center, cx| center.show(payload, reduce_motion, cx));
+            center.update(cx, |center, cx| center.clear(server_id, keys, message_id, cx));
         }
     }
 
@@ -1177,6 +1245,7 @@ impl AppState {
             _ => Picture::Failed,
         };
         self.pictures.insert(key, picture);
+        self.show_waiting(cx);
         cx.notify();
     }
 
@@ -1387,12 +1456,6 @@ fn media_extension(mime: &str, name: &str) -> String {
 }
 
 /// Takes notifications back: those matching everything given.
-fn clear_notifications(server_id: Option<&str>, keys: Option<&[String]>, message_id: Option<&str>, cx: &mut App) {
-    if let Some(center) = crate::ui::notifications::center(cx) {
-        center.update(cx, |center, cx| center.clear(server_id, keys, message_id, cx));
-    }
-}
-
 async fn load_server(core: &Core, entry: ServerEntry) -> ServerState {
     let id = entry.id.clone();
     let get = |method: &'static str| core.call(Some(&id), method, vec![]);
