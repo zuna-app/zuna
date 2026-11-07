@@ -162,7 +162,6 @@ enum A11y {
         static let send = "composer.send"
         static let slowWait = "composer.slowWait"
         static let attach = "composer.attach"
-        static let sendLocation = "composer.sendLocation"
         static let emoji = "composer.emoji"
         static let context = "composer.context"
         static let cancelContext = "composer.cancelContext"
@@ -176,6 +175,21 @@ enum A11y {
         static func pickerEmote(_ name: String) -> String { "composer.picker.\(name)" }
         static func suggestion(_ label: String) -> String { "composer.suggestion.\(label)" }
         static func file(_ name: String) -> String { "composer.file.\(name)" }
+    }
+
+    /// The attach menu, laid out as Telegram's.
+    enum Attach {
+        static let sheet = "attach.sheet"
+        static let albums = "attach.albums"
+        static let manage = "attach.manage"
+        static let caption = "attach.caption"
+        static let send = "attach.send"
+        static let photos = "attach.photos"
+        static let files = "attach.files"
+        static let paste = "attach.paste"
+        static let sendLocation = "attach.sendLocation"
+        static func tab(_ name: String) -> String { "attach.tab.\(name)" }
+        static func tile(_ index: Int) -> String { "attach.tile.\(index)" }
     }
 
     enum Forward {

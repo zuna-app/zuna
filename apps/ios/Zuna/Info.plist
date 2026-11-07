@@ -48,6 +48,8 @@
 	<string>Zuna uses your location only when you choose to share it in a chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Zuna uses the microphone to record voice messages and to talk in voice channels.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Zuna shows your photos and videos in the attach menu, for you to pick ones to send.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>

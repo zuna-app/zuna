@@ -267,6 +267,8 @@ try {
 execFileSync("xcrun", ["simctl", "keychain", udid, "reset"]);
 // Calls come in with the microphone, which a fake one stands in for, without the system's question.
 execFileSync("xcrun", ["simctl", "privacy", udid, "grant", "microphone", BUNDLE_ID]);
+// The attach menu shows the simulator's photos, which it would otherwise ask to see.
+execFileSync("xcrun", ["simctl", "privacy", udid, "grant", "photos", BUNDLE_ID]);
 // A face enrolled for Face ID, so App lock can be tested; tests look with it through /world.
 execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-s", "com.apple.BiometricKit.enrollmentChanged", "1"]);
 execFileSync("xcrun", ["simctl", "spawn", udid, "notifyutil", "-p", "com.apple.BiometricKit.enrollmentChanged"]);

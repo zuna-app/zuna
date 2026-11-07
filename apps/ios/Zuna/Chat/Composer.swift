@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftUI
 import ZunaModels
 
@@ -13,10 +12,7 @@ struct Composer: View {
     @Environment(AppModel.self) private var model
     @FocusState private var focused: Bool
     @State private var selection: TextSelection?
-    @State private var photos: [PhotosPickerItem] = []
-    @State private var choosingPhotos = false
-    @State private var choosingFiles = false
-    @State private var sharingLocation = false
+    @State private var attaching = false
     @State private var picking = false
     /// The highlighted suggestion, moved with a hardware keyboard's arrows.
     @State private var selectedSuggestion = 0
@@ -70,13 +66,9 @@ struct Composer: View {
             }
             HStack(alignment: .bottom, spacing: 8) {
                 if state.editing == nil && !isRecording {
-                    Menu {
-                        Button("Photos and videos", systemImage: "photo.on.rectangle") { choosingPhotos = true }
-                        Button("Files", systemImage: "doc") { choosingFiles = true }
-                        Button("Location", systemImage: "mappin.and.ellipse") { sharingLocation = true }
-                        if UIPasteboard.general.hasImages {
-                            Button("Paste image", systemImage: "doc.on.clipboard") { pasteImage() }
-                        }
+                    Button {
+                        focused = false
+                        attaching = true
                     } label: {
                         if conversation.kind == .channel {
                             // A round "+", as in a Discord channel.
@@ -93,6 +85,7 @@ struct Composer: View {
                                 .frame(width: 36, height: 38)
                         }
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Attach files")
                     .accessibilityIdentifier(A11y.Composer.attach)
                 }
@@ -201,18 +194,19 @@ struct Composer: View {
             }
         }
         #endif
-        .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: OutgoingFiles.limit, matching: .any(of: [.images, .videos]))
-        .onChange(of: photos) { _, items in
-            guard !items.isEmpty else { return }
-            photos = []
-            Task { await stagePhotos(items) }
-        }
-        .fileImporter(isPresented: $choosingFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
-            if case let .success(urls) = result { Task { await stageFiles(urls) } }
-        }
-        .sheet(isPresented: $sharingLocation) {
-            ShareLocationSheet(serverId: serverId, conversationKey: conversation.key)
-                .presentationDetents([.medium])
+        .sheet(isPresented: $attaching) {
+            AttachSheet(
+                serverId: serverId,
+                conversation: conversation,
+                caption: text,
+                room: OutgoingFiles.limit - state.files.count,
+                send: { urls in
+                    await stageFiles(urls, scoped: false)
+                    send()
+                },
+                stage: { urls, scoped in await stageFiles(urls, scoped: scoped) },
+                paste: pasteImage
+            )
         }
         .sheet(isPresented: $picking) {
             EmojiPicker(server: server) { pick in
@@ -578,14 +572,6 @@ struct Composer: View {
         } catch {
             model.toast("Couldn't paste the image: \(error.localizedDescription)", .error)
         }
-    }
-
-    private func stagePhotos(_ items: [PhotosPickerItem]) async {
-        var urls: [URL] = []
-        for item in items {
-            if let media = try? await item.loadTransferable(type: PickedMedia.self) { urls.append(media.url) }
-        }
-        await stageFiles(urls, scoped: false)
     }
 
     private func stageFiles(_ urls: [URL], scoped: Bool = true) async {

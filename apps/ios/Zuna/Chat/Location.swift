@@ -119,8 +119,10 @@ struct LocationCard: View {
     }
 }
 
-/// Finds where this device is and, once that's shown, sends it to a chat.
-struct ShareLocationSheet: View {
+/// The attach menu's Location, as Telegram's: where this device is, and a row that sends it.
+/// Telegram draws a map above it, which would tell a map service where you are, so this
+/// shows the coordinates instead.
+struct AttachLocationPage: View {
     let serverId: String
     let conversationKey: String
     @Environment(AppModel.self) private var model
@@ -132,50 +134,63 @@ struct ShareLocationSheet: View {
     @State private var finder = LocationFinder()
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 18) {
-                Image(systemName: "mappin")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(model.settings.accent.onAccent)
-                    .frame(width: 60, height: 60)
-                    .background(model.settings.accent.color, in: .circle)
-                if let found {
-                    VStack(spacing: 3) {
-                        Text("Your current location").font(.headline).foregroundStyle(Theme.text1)
+        ScrollView {
+            VStack(spacing: 12) {
+                VStack(spacing: 12) {
+                    Image(systemName: "mappin")
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(model.settings.accent.onAccent)
+                        .frame(width: 60, height: 60)
+                        .background(model.settings.accent.color, in: .circle)
+                    if let found {
                         Text(LocationText.coordinates(found)).monospacedDigit().foregroundStyle(Theme.text1).textSelection(.enabled)
-                        if let accuracy = found.accuracy {
-                            Text(LocationText.accuracy(accuracy)).font(.footnote).foregroundStyle(Theme.text2)
+                    } else if let error {
+                        Text(error).font(.subheadline).multilineTextAlignment(.center).foregroundStyle(Theme.text1)
+                        Button("Try again") { attempt += 1 }.font(.subheadline.weight(.semibold))
+                    } else {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("Finding where you are…").foregroundStyle(Theme.text2)
                         }
                     }
-                } else if let error {
-                    Text(error).multilineTextAlignment(.center).foregroundStyle(Theme.text1)
-                } else {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                        Text("Finding where you are…").foregroundStyle(Theme.text2)
-                    }
                 }
+                .padding(20)
+                .frame(maxWidth: .infinity, minHeight: 170)
+                .background(Theme.bg2, in: .rect(cornerRadius: 12))
+
+                Button(action: send) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "location.fill")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(model.settings.accent.onAccent)
+                            .frame(width: 40, height: 40)
+                            .background(model.settings.accent.color, in: .circle)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Send my current location")
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(found == nil ? Theme.text3 : model.settings.accent.text)
+                            Text(found.map { $0.accuracy.map(LocationText.accuracy) ?? LocationText.coordinates($0) } ?? (error == nil ? "Finding where you are…" : "Not available"))
+                                .font(.footnote)
+                                .foregroundStyle(Theme.text2)
+                        }
+                        Spacer(minLength: 0)
+                        if sending { ProgressView() }
+                    }
+                    .padding(12)
+                    .background(Theme.bg2, in: .rect(cornerRadius: 12))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .disabled(found == nil || sending)
+                .accessibilityIdentifier(A11y.Attach.sendLocation)
+
                 Text("It's sent encrypted, like a message. Nobody else learns it, unless someone opens it on a map.")
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(Theme.text3)
-                Spacer()
-                if error != nil {
-                    PrimaryButton(title: "Try again") { attempt += 1 }
-                } else {
-                    PrimaryButton(title: "Send location", busy: sending, action: send)
-                        .disabled(found == nil)
-                        .accessibilityIdentifier(A11y.Composer.sendLocation)
-                }
+                    .padding(.horizontal, 12)
             }
-            .padding(24)
-            .frame(maxWidth: .infinity)
-            .background(Theme.bg1)
-            .navigationTitle("Share location")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-            }
+            .padding(16)
         }
         .task(id: attempt) {
             found = nil

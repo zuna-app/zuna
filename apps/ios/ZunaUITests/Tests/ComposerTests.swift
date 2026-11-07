@@ -227,4 +227,46 @@ final class ComposerTests: XCTestCase {
         XCTAssertTrue(zuna.element(A11y.Chat.attachment("view-\(tag).png")).waitForExistence(timeout: 20))
         zuna.screenshot("74-sent-files")
     }
+
+    /// The attach menu, laid out as Telegram's: the simulator's photos in a grid, numbered in the
+    /// order they're picked, then a caption and Send in place of the tabs.
+    func testSendsPhotosPickedInTheAttachMenu() throws {
+        let alice = try Peer("alice")
+        try openAlice()
+        let tag = String(UUID().uuidString.prefix(4))
+        zuna.element(A11y.Composer.attach).tap()
+        XCTAssertTrue(zuna.element(A11y.Attach.sheet).waitForExistence(timeout: 10))
+
+        zuna.element(A11y.Attach.tab("File")).tap()
+        XCTAssertTrue(zuna.element(A11y.Attach.files).waitForExistence(timeout: 5))
+        zuna.element(A11y.Attach.tab("Gallery")).tap()
+
+        let first = zuna.element(A11y.Attach.tile(0)), second = zuna.element(A11y.Attach.tile(1))
+        XCTAssertTrue(second.waitForExistence(timeout: 10), "No photos in the grid")
+        second.tap()
+        first.tap()
+        XCTAssertEqual(second.value as? String, "Picked, number 1")
+        XCTAssertEqual(first.value as? String, "Picked, number 2")
+        XCTAssertFalse(zuna.element(A11y.Attach.tab("Gallery")).exists, "The tabs stay with photos picked")
+        let caption = zuna.element(A11y.Attach.caption)
+        caption.tap()
+        caption.typeText("Two photos \(tag)")
+        zuna.screenshot("75-attach-menu")
+        zuna.element(A11y.Attach.send).tap()
+        XCTAssertTrue(zuna.element(A11y.Attach.sheet).waitForNonExistence(timeout: 30))
+
+        var received: [String: Any]?
+        try waitFor("alice to receive the photos", timeout: 60) {
+            received = try self.aliceMessage(alice, containing: "Two photos \(tag)")
+            let attachments = received?["attachments"] as? [[String: Any]] ?? []
+            return attachments.count == 2 && attachments.allSatisfy { ($0["fileId"] as? String)?.isEmpty == false }
+        }
+        let attachments = try XCTUnwrap(received?["attachments"] as? [[String: Any]])
+        for attachment in attachments {
+            let mime = try XCTUnwrap(attachment["mime"] as? String)
+            XCTAssertTrue(mime.hasPrefix("image/") || mime.hasPrefix("video/"), mime)
+            XCTAssertNotNil(attachment["width"])
+        }
+        zuna.screenshot("76-sent-from-attach-menu")
+    }
 }
