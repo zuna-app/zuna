@@ -68,8 +68,6 @@ zbus = { version = "5", default-features = false, features = ["async-io", "block
 oo7 = { version = "0.5", default-features = false, features = ["async-std", "native_crypto"] }
 ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
 ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
-# Notifications' initials, drawn with the resvg GPUI already has.
-resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts"] }
 # The sound devices, the notification sound's too: listed by the names PipeWire gives them, and
 # played and recorded through it, as ALSA's own list holds hardware that playing takes away
 # from PipeWire. 0.3.49's is for how much a stream is asked for each time.
@@ -82,6 +80,10 @@ ffmpeg-next = { version = "9", default-features = false, features = ["codec", "f
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 libc = "0.2"
+
+# Notifications' initials on Linux and macOS, drawn with the resvg GPUI already has.
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+resvg = { version = "0.45", default-features = false, features = ["text", "system-fonts"] }
 
 [target.'cfg(windows)'.dependencies]
 # The sound devices, through WASAPI.
