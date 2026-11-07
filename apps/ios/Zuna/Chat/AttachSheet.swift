@@ -1,12 +1,20 @@
+import AVFoundation
 import Photos
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 import ZunaModels
 
-/// The attach menu, laid out as Telegram's: this phone's photos and videos, newest
-/// first, numbered in the order they're picked, with a caption and Send once some
-/// are, and tabs below for files and this device's location. What Telegram has
-/// there and Zuna doesn't, such as the camera, polls and contacts, isn't.
+/// Something picked in the attach menu's grid: a photo or video in the library, or one just taken.
+enum AttachPick: Hashable {
+    case asset(String)
+    case taken(URL)
+}
+
+/// The attach menu, laid out as Telegram's: the camera, then this phone's photos and
+/// videos, newest first, numbered in the order they're picked, with a caption and Send
+/// once some are, and tabs below for files and this device's location. What Telegram
+/// has there and Zuna doesn't, such as polls and contacts, isn't.
 struct AttachSheet: View {
     let serverId: String
     let conversation: ConversationView
@@ -27,19 +35,45 @@ struct AttachSheet: View {
     @Namespace private var tabs
     @State private var page = Page.gallery
     @State private var library = PhotoLibrary()
-    /// The photos and videos picked, by their identifiers in the library, in the order they were.
-    @State private var picked: [String] = []
+    /// The photos and videos picked, in the order they were.
+    @State private var picked: [AttachPick] = []
+    /// What the camera took here, newest first, shown after it in the grid.
+    @State private var taken: [URL] = []
+    @State private var feed = CameraFeed()
+    @State private var shooting = false
+    @State private var cameraProblem: String?
     @State private var sending = false
     @State private var choosingPhotos = false
     @State private var photos: [PhotosPickerItem] = []
     @State private var choosingFiles = false
+
+    #if DEBUG
+    /// UI tests take a made-up picture instead: the simulator has no camera.
+    private var fakeCamera: Bool { VoiceTesting.fakeCamera }
+    #else
+    private var fakeCamera: Bool { false }
+    #endif
+
+    /// A phone without a camera, such as the simulator, shows no tile for it, as Telegram doesn't.
+    private var hasCamera: Bool { fakeCamera || UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    /// The camera's tile shows what it sees, unless something else has the camera.
+    private var previewing: Bool { hasCamera && !fakeCamera && page == .gallery && !shooting && !model.voice.inCall }
 
     var body: some View {
         NavigationStack {
             Group {
                 switch page {
                 case .gallery:
-                    GalleryPage(library: library, picked: $picked, room: room) { choosingPhotos = true }
+                    GalleryPage(
+                        library: library,
+                        picked: $picked,
+                        taken: taken,
+                        room: room,
+                        camera: hasCamera ? (previewing ? .live(feed) : .still) : nil,
+                        openCamera: { Task { await openCamera() } },
+                        choosePhotos: { choosingPhotos = true }
+                    )
                 case .file:
                     filePage
                 case .location:
@@ -63,6 +97,21 @@ struct AttachSheet: View {
         .interactiveDismissDisabled(sending)
         .animation(.snappy(duration: 0.25), value: picked.isEmpty)
         .task { await library.start() }
+        // The camera only runs while its tile can be seen, and lets go of it for the camera itself.
+        .task(id: previewing) {
+            if previewing { feed.start() } else { feed.stop() }
+        }
+        .onDisappear { feed.stop() }
+        .fullScreenCover(isPresented: $shooting) {
+            CameraPicker { url in
+                shooting = false
+                if let url { add(url) }
+            }
+            .ignoresSafeArea()
+        }
+        .alert(cameraProblem ?? "", isPresented: Binding(get: { cameraProblem != nil }, set: { if !$0 { cameraProblem = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
         .photosPicker(isPresented: $choosingPhotos, selection: $photos, maxSelectionCount: max(1, room), matching: .any(of: [.images, .videos]))
         .onChange(of: photos) { _, items in
             guard !items.isEmpty else { return }
@@ -208,14 +257,19 @@ struct AttachSheet: View {
     /// Copies what's picked out of the library and sends it with the caption, which may take a moment for what's only in iCloud.
     private func sendPicked() {
         sending = true
-        let ids = picked
+        let picks = picked
         Task {
             var urls: [URL] = []
-            for id in ids {
-                do {
-                    urls.append(try await PhotoLibrary.export(id))
-                } catch {
-                    model.toast("Couldn't add a photo or video: \(error.localizedDescription)", .error)
+            for pick in picks {
+                switch pick {
+                case let .asset(id):
+                    do {
+                        urls.append(try await PhotoLibrary.export(id))
+                    } catch {
+                        model.toast("Couldn't add a photo or video: \(error.localizedDescription)", .error)
+                    }
+                case let .taken(url):
+                    urls.append(url)
                 }
             }
             guard !urls.isEmpty else {
@@ -224,6 +278,41 @@ struct AttachSheet: View {
             }
             await send(urls)
             dismiss()
+        }
+    }
+
+    // MARK: Camera
+
+    /// The system's camera, for a photo or a video, asking for it the first time.
+    private func openCamera() async {
+        // A call has the camera and the microphone, as for video messages.
+        if model.voice.inCall {
+            cameraProblem = "You can't use the camera during a call."
+            return
+        }
+        #if DEBUG
+        if fakeCamera {
+            if let url = CameraPicker.fakePhoto() { add(url) }
+            return
+        }
+        #endif
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .notDetermined:
+            guard await AVCaptureDevice.requestAccess(for: .video) else { return }
+        case .denied, .restricted:
+            cameraProblem = RoundRecorder.Failure.camera.errorDescription
+            return
+        default:
+            break
+        }
+        shooting = true
+    }
+
+    /// What the camera took goes first after it in the grid, picked, as Telegram's does.
+    private func add(_ url: URL) {
+        withAnimation(.snappy(duration: 0.25)) {
+            taken.insert(url, at: 0)
+            if picked.count < room { picked.append(.taken(url)) }
         }
     }
 
@@ -270,11 +359,25 @@ struct AttachSheet: View {
 
 // MARK: Gallery
 
-/// The grid of photos and videos, or why there isn't one.
+/// The camera's tile: what it sees, or only its icon while something else has it.
+private enum CameraShown {
+    case live(CameraFeed)
+    case still
+
+    var feed: CameraFeed? {
+        if case let .live(feed) = self { feed } else { nil }
+    }
+}
+
+/// The grid: the camera, what it took, then the library's photos and videos, or why there are none.
 private struct GalleryPage: View {
     let library: PhotoLibrary
-    @Binding var picked: [String]
+    @Binding var picked: [AttachPick]
+    let taken: [URL]
     let room: Int
+    /// The camera's tile, where the phone has a camera.
+    let camera: CameraShown?
+    let openCamera: () -> Void
     /// The system's photo picker, which needs no access to the library.
     let choosePhotos: () -> Void
 
@@ -282,12 +385,9 @@ private struct GalleryPage: View {
     private let columns = [GridItem(.adaptive(minimum: 110), spacing: 2)]
 
     var body: some View {
-        switch library.status {
-        case .notDetermined:
+        if library.status == .notDetermined {
             Color.clear
-        case .denied, .restricted:
-            denied
-        default:
+        } else {
             grid
         }
     }
@@ -307,31 +407,49 @@ private struct GalleryPage: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
             }
-            if library.assets.count == 0 {
+            LazyVGrid(columns: columns, spacing: 2) {
+                if let camera {
+                    CameraTile(feed: camera.feed, open: openCamera)
+                }
+                ForEach(Array(taken.enumerated()), id: \.element) { index, url in
+                    let number = number(.taken(url))
+                    TakenTile(url: url, number: number, full: number == nil && picked.count >= room) {
+                        toggle(.taken(url))
+                    }
+                    .accessibilityIdentifier(A11y.Attach.taken(index))
+                }
+                if library.allowed {
+                    ForEach(0..<library.assets.count, id: \.self) { index in
+                        let asset = library.assets.object(at: index)
+                        let number = number(.asset(asset.localIdentifier))
+                        GalleryTile(asset: asset, number: number, full: number == nil && picked.count >= room) {
+                            toggle(.asset(asset.localIdentifier))
+                        }
+                        .accessibilityIdentifier(A11y.Attach.tile(index))
+                    }
+                }
+            }
+            if !library.allowed {
+                denied
+            } else if library.assets.count == 0 {
                 Text(library.status == .limited ? "No photos or videos picked for Zuna yet." : "No photos or videos.")
                     .font(.subheadline)
                     .foregroundStyle(Theme.text3)
-                    .padding(.top, 40)
-            }
-            LazyVGrid(columns: columns, spacing: 2) {
-                ForEach(0..<library.assets.count, id: \.self) { index in
-                    let asset = library.assets.object(at: index)
-                    let number = picked.firstIndex(of: asset.localIdentifier).map { $0 + 1 }
-                    GalleryTile(asset: asset, number: number, full: number == nil && picked.count >= room) {
-                        toggle(asset.localIdentifier)
-                    }
-                    .accessibilityIdentifier(A11y.Attach.tile(index))
-                }
+                    .padding(.top, 24)
             }
         }
         .sensoryFeedback(.selection, trigger: picked)
     }
 
-    private func toggle(_ id: String) {
-        if let index = picked.firstIndex(of: id) {
+    private func number(_ pick: AttachPick) -> Int? {
+        picked.firstIndex(of: pick).map { $0 + 1 }
+    }
+
+    private func toggle(_ pick: AttachPick) {
+        if let index = picked.firstIndex(of: pick) {
             picked.remove(at: index)
         } else if picked.count < room {
-            picked.append(id)
+            picked.append(pick)
         }
     }
 
@@ -357,22 +475,52 @@ private struct GalleryPage: View {
                 .accessibilityIdentifier(A11y.Attach.photos)
         }
         .padding(32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 }
 
-/// A photo or video in the grid: a tap picks it, and its number says in which order.
-private struct GalleryTile: View {
-    let asset: PHAsset
+/// The grid's first square, as Telegram's: what the camera sees, once Zuna may use it, and a tap opens it.
+private struct CameraTile: View {
+    let feed: CameraFeed?
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            Theme.bg3
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if let feed, feed.running {
+                        CameraPreview(preview: feed.preview)
+                    }
+                }
+                .clipped()
+                .overlay {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.5), radius: 3)
+                }
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Camera")
+        .accessibilityHint("Takes a photo or a video to send")
+        .accessibilityIdentifier(A11y.Attach.camera)
+    }
+}
+
+/// A square of the grid: a picture, a video's length, and the mark a tap toggles, numbered in the order picked.
+private struct PickTile: View {
+    let image: UIImage?
+    /// A video's length, in its corner.
+    let duration: Double?
     let number: Int?
     /// The message has all it can take, so this one can't be picked.
     let full: Bool
+    let label: String
     let toggle: () -> Void
 
     @Environment(AppModel.self) private var model
-    @State private var image: UIImage?
-
-    private var video: Bool { asset.mediaType == .video }
 
     var body: some View {
         Button(action: toggle) {
@@ -385,8 +533,8 @@ private struct GalleryTile: View {
                 }
                 .clipped()
                 .overlay(alignment: .bottomTrailing) {
-                    if video {
-                        Text(Format.duration(asset.duration))
+                    if let duration {
+                        Text(Format.duration(duration))
                             .font(.caption2.weight(.semibold))
                             .monospacedDigit()
                             .foregroundStyle(.white)
@@ -399,7 +547,6 @@ private struct GalleryTile: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .task(id: asset.localIdentifier) { await load() }
         .accessibilityLabel(label)
         .accessibilityValue(number.map { "Picked, number \($0)" } ?? "")
         .accessibilityAddTraits(number != nil ? .isSelected : [])
@@ -422,6 +569,23 @@ private struct GalleryTile: View {
         .shadow(color: .black.opacity(0.25), radius: 2)
         .scaleEffect(number != nil ? 1 : 0.92)
         .animation(.spring(duration: 0.25, bounce: 0.4), value: number)
+    }
+}
+
+/// A photo or video in the library.
+private struct GalleryTile: View {
+    let asset: PHAsset
+    let number: Int?
+    let full: Bool
+    let toggle: () -> Void
+
+    @State private var image: UIImage?
+
+    private var video: Bool { asset.mediaType == .video }
+
+    var body: some View {
+        PickTile(image: image, duration: video ? asset.duration : nil, number: number, full: full, label: label, toggle: toggle)
+            .task(id: asset.localIdentifier) { await load() }
     }
 
     private var label: String {
@@ -446,6 +610,182 @@ private struct GalleryTile: View {
             continuation.onTermination = { _ in PHImageManager.default().cancelImageRequest(request) }
         }
         for await next in images { image = next }
+    }
+}
+
+/// A photo or video the camera just took, which goes only into the message, not the library.
+private struct TakenTile: View {
+    let url: URL
+    let number: Int?
+    let full: Bool
+    let toggle: () -> Void
+
+    @State private var image: UIImage?
+    @State private var duration: Double?
+
+    private var video: Bool { UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true }
+
+    var body: some View {
+        PickTile(image: image, duration: duration, number: number, full: full, label: label, toggle: toggle)
+            .task(id: url) { (image, duration) = await Self.preview(url, video: video) }
+    }
+
+    private var label: String {
+        video ? "Video you took\(duration.map { ", \(Format.duration($0))" } ?? "")" : "Photo you took"
+    }
+
+    nonisolated private static func preview(_ url: URL, video: Bool) async -> (UIImage?, Double?) {
+        if !video {
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 360,
+            ]
+            let thumb = CGImageSourceCreateWithURL(url as CFURL, nil).flatMap { CGImageSourceCreateThumbnailAtIndex($0, 0, options as CFDictionary) }
+            return (thumb.map { UIImage(cgImage: $0) }, nil)
+        }
+        let asset = AVURLAsset(url: url)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 360, height: 360)
+        let frame = try? await generator.image(at: .zero).image
+        let duration = try? await asset.load(.duration)
+        return (frame.map { UIImage(cgImage: $0) }, duration.map(\.seconds))
+    }
+}
+
+// MARK: The camera
+
+/// What the back camera sees, live in its tile, as Telegram shows it. It only starts where Zuna
+/// may use the camera already: the menu doesn't ask for it until the tile's tapped.
+@MainActor
+@Observable
+final class CameraFeed {
+    private(set) var running = false
+
+    @ObservationIgnored private let session = AVCaptureSession()
+    @ObservationIgnored private(set) lazy var preview: AVCaptureVideoPreviewLayer = {
+        let layer = AVCaptureVideoPreviewLayer(session: session)
+        layer.videoGravity = .resizeAspectFill
+        return layer
+    }()
+    @ObservationIgnored private let queue = DispatchQueue(label: "chat.zuna.camera-tile")
+    /// Keeps the picture level with the screen as the phone turns.
+    @ObservationIgnored private var rotation: AVCaptureDevice.RotationCoordinator?
+    @ObservationIgnored private var rotationWatch: NSKeyValueObservation?
+
+    func start() {
+        guard !running, AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return }
+        if session.inputs.isEmpty {
+            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                  let input = try? AVCaptureDeviceInput(device: camera), session.canAddInput(input) else { return }
+            session.beginConfiguration()
+            session.sessionPreset = .medium
+            session.addInput(input)
+            session.commitConfiguration()
+            let rotation = AVCaptureDevice.RotationCoordinator(device: camera, previewLayer: preview)
+            self.rotation = rotation
+            preview.connection?.videoRotationAngle = rotation.videoRotationAngleForHorizonLevelPreview
+            rotationWatch = rotation.observe(\.videoRotationAngleForHorizonLevelPreview, options: [.new]) { [weak self] coordinator, _ in
+                let angle = coordinator.videoRotationAngleForHorizonLevelPreview
+                Task { @MainActor in self?.preview.connection?.videoRotationAngle = angle }
+            }
+        }
+        running = true
+        // Starting and stopping take a while, so they're done off the main thread, as Apple says.
+        nonisolated(unsafe) let session = session
+        queue.async { session.startRunning() }
+    }
+
+    func stop() {
+        guard running else { return }
+        running = false
+        nonisolated(unsafe) let session = session
+        queue.async { session.stopRunning() }
+    }
+}
+
+/// The system's camera, for a photo or a video, handing back a file of what it took, or nil.
+private struct CameraPicker: UIViewControllerRepresentable {
+    let done: (URL?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.mediaTypes = [UTType.image.identifier, UTType.movie.identifier]
+        picker.videoQuality = .typeHigh
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let done: (URL?) -> Void
+
+        init(done: @escaping (URL?) -> Void) {
+            self.done = done
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            done(CameraPicker.save(info))
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            done(nil)
+        }
+    }
+
+    /// What was taken, in a file named for when: a photo drawn upright, as not every app reads
+    /// which way a photo's turned from its tags, or the video as it is.
+    static func save(_ info: [UIImagePickerController.InfoKey: Any]) -> URL? {
+        if let movie = info[.mediaURL] as? URL {
+            guard let target = file("Video", movie.pathExtension.isEmpty ? "mov" : movie.pathExtension.lowercased()),
+                  (try? FileManager.default.copyItem(at: movie, to: target)) != nil else { return nil }
+            return target
+        }
+        guard let image = info[.originalImage] as? UIImage else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let jpeg = UIGraphicsImageRenderer(size: image.size, format: format).jpegData(withCompressionQuality: 0.9) { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
+        return write(jpeg)
+    }
+
+    #if DEBUG
+    /// Coloured bars in place of a photo, as the simulator has no camera.
+    static func fakePhoto() -> URL? {
+        let size = CGSize(width: 1200, height: 900)
+        let colors: [UIColor] = [.systemRed, .systemOrange, .systemYellow, .systemGreen, .systemTeal, .systemBlue, .systemPurple]
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let jpeg = UIGraphicsImageRenderer(size: size, format: format).jpegData(withCompressionQuality: 0.9) { context in
+            let width = size.width / CGFloat(colors.count)
+            for (index, color) in colors.enumerated() {
+                color.setFill()
+                context.fill(CGRect(x: CGFloat(index) * width, y: 0, width: width + 1, height: size.height))
+            }
+        }
+        return write(jpeg)
+    }
+    #endif
+
+    private static func write(_ jpeg: Data) -> URL? {
+        guard let target = file("Photo", "jpg"), (try? jpeg.write(to: target)) != nil else { return nil }
+        return target
+    }
+
+    /// "Photo 2026-11-07 at 16.05.12.jpg", in a folder of its own.
+    private static func file(_ kind: String, _ type: String) -> URL? {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        return folder.appendingPathComponent("\(kind) \(formatter.string(from: .now)).\(type)")
     }
 }
 

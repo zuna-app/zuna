@@ -269,4 +269,37 @@ final class ComposerTests: XCTestCase {
         }
         zuna.screenshot("76-sent-from-attach-menu")
     }
+
+    /// The attach menu's camera, the grid's first tile as in Telegram: what it takes goes in
+    /// the grid picked, and out with the caption. Test builds take coloured bars, as the
+    /// simulator has no camera.
+    func testSendsAPhotoTakenWithTheAttachMenusCamera() throws {
+        let alice = try Peer("alice")
+        try openAlice()
+        let tag = String(UUID().uuidString.prefix(4))
+        zuna.element(A11y.Composer.attach).tap()
+        let camera = zuna.element(A11y.Attach.camera)
+        XCTAssertTrue(camera.waitForExistence(timeout: 10))
+        camera.tap()
+        let taken = zuna.element(A11y.Attach.taken(0))
+        XCTAssertTrue(taken.waitForExistence(timeout: 5))
+        XCTAssertEqual(taken.value as? String, "Picked, number 1")
+        let caption = zuna.element(A11y.Attach.caption)
+        caption.tap()
+        caption.typeText("Just taken \(tag)")
+        zuna.screenshot("77-taken-in-attach-menu")
+        zuna.element(A11y.Attach.send).tap()
+        XCTAssertTrue(zuna.element(A11y.Attach.sheet).waitForNonExistence(timeout: 30))
+
+        var received: [String: Any]?
+        try waitFor("alice to receive the photo", timeout: 60) {
+            received = try self.aliceMessage(alice, containing: "Just taken \(tag)")
+            return ((received?["attachments"] as? [[String: Any]])?.first?["fileId"] as? String)?.isEmpty == false
+        }
+        let photo = try XCTUnwrap((received?["attachments"] as? [[String: Any]])?.first)
+        XCTAssertTrue((photo["name"] as? String)?.hasPrefix("Photo ") == true)
+        XCTAssertEqual(photo["mime"] as? String, "image/jpeg")
+        XCTAssertEqual(photo["width"] as? Int, 1200)
+        XCTAssertEqual(photo["height"] as? Int, 900)
+    }
 }

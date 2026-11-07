@@ -188,8 +188,10 @@ enum A11y {
         static let files = "attach.files"
         static let paste = "attach.paste"
         static let sendLocation = "attach.sendLocation"
+        static let camera = "attach.camera"
         static func tab(_ name: String) -> String { "attach.tab.\(name)" }
         static func tile(_ index: Int) -> String { "attach.tile.\(index)" }
+        static func taken(_ index: Int) -> String { "attach.taken.\(index)" }
     }
 
     enum Forward {

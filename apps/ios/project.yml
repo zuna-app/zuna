@@ -90,8 +90,8 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         NSFaceIDUsageDescription: Zuna uses Face ID to unlock the app when App Lock is on.
-        NSMicrophoneUsageDescription: Zuna uses the microphone to record voice messages and to talk in voice channels.
-        NSCameraUsageDescription: Zuna uses the camera when you turn it on in a voice channel.
+        NSMicrophoneUsageDescription: Zuna uses the microphone for voice and video messages, for videos you take to send, and to talk in calls.
+        NSCameraUsageDescription: Zuna uses the camera for video messages, for photos and videos you take to send, and when you turn it on in a call.
         NSLocationWhenInUseUsageDescription: Zuna uses your location only when you choose to share it in a chat.
         NSPhotoLibraryUsageDescription: Zuna shows your photos and videos in the attach menu, for you to pick ones to send.
         # No export documentation needed: only standard, published algorithms (MLS, AES-GCM,

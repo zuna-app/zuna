@@ -41,13 +41,13 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Zuna uses the camera when you turn it on in a voice channel.</string>
+	<string>Zuna uses the camera for video messages, for photos and videos you take to send, and when you turn it on in a call.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Zuna uses Face ID to unlock the app when App Lock is on.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Zuna uses your location only when you choose to share it in a chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Zuna uses the microphone to record voice messages and to talk in voice channels.</string>
+	<string>Zuna uses the microphone for voice and video messages, for videos you take to send, and to talk in calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Zuna shows your photos and videos in the attach menu, for you to pick ones to send.</string>
 	<key>NSUserActivityTypes</key>
