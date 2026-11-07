@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, and being ported to Linux under Wayland, `docs/LINUX_APP_PLAN.md`), which is the only desktop app, a web app, and a native iPhone and iPad app. The Electron desktop app it took over from (`apps/desktop-electron-legacy`) is only kept as a reference.
+Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, and being ported to Linux under Wayland, `docs/LINUX_APP_PLAN.md`, with macOS planned in `docs/MACOS_APP_PLAN.md`), which is the only desktop app, a web app, and a native iPhone and iPad app. The Electron desktop app it took over from (`apps/desktop-electron-legacy`) is only kept as a reference.
 
 ## Working rules
 
