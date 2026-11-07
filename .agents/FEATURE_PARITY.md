@@ -138,7 +138,7 @@ A call is a conversation's own room on the voice channels' media server, under i
 | Reply quote, jumping to the original | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageRow.swift` | |
 | "Forwarded from" | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/Forwarding.swift` | |
 | Link card showing the link's real host | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/Forwarding.swift` | |
-| Pictures: grid, viewer that zooms, saving | yes | yes | yes | `features/chat/MessageItem.tsx`, `features/overlays/Overlays.tsx` | `Chat/MessageParts.swift`, `Chat/PhotoViewer.swift` | iOS shares instead of saving |
+| Pictures: grid, viewer that zooms, saving | yes | yes | yes | `features/chat/MessageItem.tsx`, `features/overlays/Overlays.tsx` | `Chat/MessageParts.swift`, `Chat/PhotoViewer.swift` | All of a message's pictures, two to a row; iOS puts the first across both when one is left over (`ImageGrid`). iOS shares instead of saving |
 | Very large pictures wait to be asked for | yes | yes | yes | `lib/media.ts` | `Chat/MessageParts.swift` | |
 | Videos and files, upload progress | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/MessageParts.swift`, `Chat/FilePreview.swift` | |
 | Voice messages: playing | yes | yes | yes | `features/chat/MessageItem.tsx` | `Chat/Voice.swift` | iOS plays through `AVPlayer`, as `AVAudioPlayer` can't read the Linux desktop's Opus in MP4, after putting right the durations Chromium writes (`VoiceFile` in `ZunaModels`; see the row on what each OS records). Checked by `swift test` against a recording from the desktop's Electron, and in the voice message UI test |

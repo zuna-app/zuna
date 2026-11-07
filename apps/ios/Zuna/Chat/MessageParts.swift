@@ -5,7 +5,7 @@ import ZunaModels
 
 // MARK: Attachments
 
-/// Pictures in a grid of up to four, videos with their picture, then audio and
+/// Pictures two to a row, videos with their picture, then audio and
 /// other files as cards. Pictures open in the photo viewer, everything else in
 /// QuickLook, decrypted into the protected cache.
 struct AttachmentsView: View {
@@ -131,23 +131,26 @@ private struct ImageGrid: View {
     let open: (Attachment) -> Void
 
     var body: some View {
-        let shown = Array(images.prefix(4))
-        if shown.count == 1, let image = shown.first {
+        if images.count == 1, let image = images.first {
             // Sized up front, so the list doesn't jump when the picture arrives.
             let width = CGFloat(image.width ?? 320), height = CGFloat(image.height ?? 240)
             let scale = min(1, 260 / width, 300 / height)
             ImageTile(attachment: image, serverId: serverId, uploadProgress: uploadProgress, open: open)
                 .frame(width: max(140, width * scale), height: max(80, height * max(scale, 140 / width)))
         } else {
-            let columns = [GridItem(.fixed(128), spacing: 2), GridItem(.fixed(128), spacing: 2)]
-            LazyVGrid(columns: columns, spacing: 2) {
-                ForEach(Array(shown.enumerated()), id: \.offset) { index, image in
-                    ImageTile(attachment: image, serverId: serverId, uploadProgress: uploadProgress, open: open)
-                        .frame(height: shown.count == 3 && index == 0 ? 160 : 128)
-                        .gridCellColumns(shown.count == 3 && index == 0 ? 2 : 1)
+            // Two to a row, as on the desktop, with the first across both when one is left over.
+            let odd = images.count % 2
+            let rows = (odd == 1 ? [[images[0]]] : []) + stride(from: odd, to: images.count, by: 2).map { Array(images[$0..<$0 + 2]) }
+            VStack(spacing: 2) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: 2) {
+                        ForEach(Array(row.enumerated()), id: \.offset) { _, image in
+                            ImageTile(attachment: image, serverId: serverId, uploadProgress: uploadProgress, open: open)
+                                .frame(width: row.count == 1 ? 258 : 128, height: row.count == 1 ? 160 : 128)
+                        }
+                    }
                 }
             }
-            .frame(width: 258)
         }
     }
 }
@@ -169,8 +172,8 @@ private struct ImageTile: View {
         Button {
             if image != nil { open(attachment) } else { tapped = true }
         } label: {
-            ZStack {
-                Theme.bg3
+            // Over the tile's color rather than in a stack with it, so a picture filling it can't make it wider.
+            Theme.bg3.overlay {
                 if let thumb = attachment.thumb.flatMap(ImageStore.thumbnail), image == nil {
                     Image(uiImage: thumb).resizable().scaledToFill().blur(radius: 8)
                 }
