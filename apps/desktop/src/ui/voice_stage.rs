@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Render, RenderImage, SharedString, Styled, Task, Window, canvas, div, img,
-    prelude::*, px,
+    AnyElement, App, Bounds, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Render, RenderImage, SharedString, Styled, Subscription, Task, Window,
+    anchored, canvas, deferred, div, img, prelude::*, px,
 };
 
 use super::components::*;
@@ -51,6 +51,17 @@ pub struct VoiceStage {
     images: HashMap<String, (u64, Arc<RenderImage>)>,
     retired: Vec<Arc<RenderImage>>,
     area: Rc<Cell<Bounds<Pixels>>>,
+    /// A shared screen over the whole of the window, made full screen for it, by its key, as
+    /// the desktop's tile is with `requestFullscreen`, and whether the window has been full
+    /// screen since.
+    full_screen: Option<(String, bool)>,
+    /// Escape, which brings it back, ahead of whatever has focus.
+    full_screen_keys: Option<Subscription>,
+    /// The share a click just went to, what had the stage before it, and when, so a second
+    /// click puts that share on the whole screen wherever the first one moved it to.
+    screen_clicked: Option<(String, Option<String>, std::time::Instant)>,
+    /// The window's size changing, as it goes full screen and back.
+    window_bounds: Option<Subscription>,
     _tick: Task<()>,
 }
 
@@ -75,7 +86,7 @@ impl VoiceStage {
                 break;
             }
         });
-        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), _tick: tick }
+        VoiceStage { state, voice, room, chat: None, chat_open: false, stats: None, expanded: false, images: HashMap::new(), retired: Vec::new(), area: Rc::new(Cell::new(Bounds::default())), full_screen: None, full_screen_keys: None, screen_clicked: None, window_bounds: None, _tick: tick }
     }
 
     /// A video's newest picture, made into an image once per frame. Covering a 16:9 tile, it's
@@ -283,37 +294,80 @@ impl VoiceStage {
             .into_any_element()
     }
 
-    fn screen_tile(&mut self, tile: &VideoTile, focused: bool, size: (f32, f32), cx: &mut Context<Self>) -> AnyElement {
+    /// A shared screen onto the whole screen, or back, as the button or a double click does on
+    /// the desktop: the window goes full screen with the share over all of it.
+    fn toggle_full_screen(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        if self.full_screen.is_some() {
+            self.leave_full_screen(window, cx);
+            return;
+        }
+        self.full_screen = Some((key.to_string(), window.is_fullscreen()));
+        if !window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        let stage = cx.entity().downgrade();
+        self.full_screen_keys = Some(cx.intercept_keystrokes(move |event, window, cx| {
+            if event.keystroke.key == "escape" {
+                stage.update(cx, |stage, cx| stage.leave_full_screen(window, cx)).ok();
+                cx.stop_propagation();
+            }
+        }));
+        cx.notify();
+    }
+
+    fn leave_full_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.full_screen.take().is_some() && window.is_fullscreen() {
+            window.toggle_fullscreen();
+        }
+        self.full_screen_keys = None;
+        cx.notify();
+    }
+
+    /// A shared screen in the stage, or `full` over the whole window, where a click does nothing
+    /// and a right click opens no menu, as a full screen hides the app's.
+    fn screen_tile(&mut self, tile: &VideoTile, focused: bool, size: (f32, f32), full: bool, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let name = self.state.read(cx).servers.get(&self.room.server_id).and_then(|server| server.users.get(&tile.user_id)).map(|user| user.display_name.clone()).unwrap_or_else(|| "Someone".into());
-        let video = self.video(tile, true);
+        let video = if full {
+            match self.picture(tile, false) {
+                Some(image) => img(image).size_full().object_fit(gpui::ObjectFit::Contain).into_any_element(),
+                None => div().size_full().into_any_element(),
+            }
+        } else {
+            self.video(tile, true)
+        };
         let key = tile.key.clone();
         let user_id = tile.user_id.clone();
-        let group = SharedString::from(format!("screen-{}", tile.key));
+        // The tile and its copy over the window are told apart, as both are drawn.
+        let suffix = if full { "-full" } else { "" };
+        let id = move |name: &str| SharedString::from(format!("screen-{name}-{key}{suffix}"));
+        let key = tile.key.clone();
+        let group = id("group");
         let voice = self.voice.clone();
         let toggle_focus = {
             let (voice, key) = (voice.clone(), key.clone());
             move |cx: &mut App| voice.update(cx, |voice, cx| voice.set_focus(if focused { None } else { Some(key.clone()) }, cx))
         };
-        let toggle_focus_click = toggle_focus.clone();
         let stream_volume = self.voice.read(cx).stream_volumes.get(&tile.user_id).copied().unwrap_or(1.);
+        let double_click_key = key.clone();
         let mut element = div()
-            .id(SharedString::from(format!("screen-tile-{}", tile.key)))
+            .id(id("tile"))
             .group(group.clone())
             .relative()
             .w(px(size.0))
             .h(px(size.1))
             .overflow_hidden()
-            .rounded(RADIUS_L)
+            .when(!full, |el| el.rounded(RADIUS_L).cursor_pointer())
             .bg(gpui::black())
-            .cursor_pointer()
-            .on_click(move |event, window, cx| {
+            .on_click(cx.listener(move |stage, event: &gpui::ClickEvent, window, cx| {
                 if event.click_count() >= 2 {
-                    window.toggle_fullscreen();
-                } else {
-                    toggle_focus_click(cx);
+                    stage.toggle_full_screen(&double_click_key, window, cx);
+                } else if !full {
+                    let before = stage.voice.read(cx).focus.clone();
+                    stage.screen_clicked = Some((double_click_key.clone(), before, std::time::Instant::now()));
+                    stage.voice.update(cx, |voice, cx| voice.set_focus(if focused { None } else { Some(double_click_key.clone()) }, cx));
                 }
-            })
+            }))
             .child(video)
             .child(
                 div()
@@ -342,41 +396,46 @@ impl VoiceStage {
                     .gap(px(4.))
                     .opacity(0.)
                     .group_hover(group.clone(), |style| style.opacity(1.))
-                    .child(
+                    .when(!full, |el| {
+                        el.child(
+                            div()
+                                .id(id("pin"))
+                                .size(px(28.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(RADIUS_S)
+                                .bg(theme::color(theme::black_a(0.62)))
+                                .tip(if focused { "Back to everyone" } else { "Fill the stage" }, Side::Bottom)
+                                .on_click(move |_, _, cx| {
+                                    cx.stop_propagation();
+                                    toggle_focus(cx);
+                                })
+                                .child(icon(if focused { "pin-off" } else { "pin" }, 15., gpui::white())),
+                        )
+                    })
+                    .child({
+                        let key = key.clone();
                         div()
-                            .id(SharedString::from(format!("screen-pin-{key}")))
+                            .id(id("full"))
                             .size(px(28.))
                             .flex()
                             .items_center()
                             .justify_center()
                             .rounded(RADIUS_S)
                             .bg(theme::color(theme::black_a(0.62)))
-                            .tip(if focused { "Back to everyone" } else { "Fill the stage" }, Side::Bottom)
-                            .on_click(move |_, _, cx| {
+                            .tip(if full { "Exit full screen" } else { "Full screen" }, Side::Bottom)
+                            .on_click(cx.listener(move |stage, _, window, cx| {
                                 cx.stop_propagation();
-                                toggle_focus(cx);
-                            })
-                            .child(icon(if focused { "pin-off" } else { "pin" }, 15., gpui::white())),
-                    )
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("screen-full-{key}")))
-                            .size(px(28.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(RADIUS_S)
-                            .bg(theme::color(theme::black_a(0.62)))
-                            .tip("Full screen", Side::Bottom)
-                            .on_click(|_, window, cx| {
-                                cx.stop_propagation();
-                                window.toggle_fullscreen();
-                            })
-                            .child(icon("expand", 15., gpui::white())),
-                    ),
+                                stage.toggle_full_screen(&key, window, cx);
+                            }))
+                            .child(icon(if full { "shrink" } else { "expand" }, 15., gpui::white()))
+                    }),
             )
             .on_mouse_down(MouseButton::Right, cx.listener(move |stage, event: &gpui::MouseDownEvent, _, cx| {
-                stage.open_member_menu(user_id.clone(), None, event.position, cx);
+                if !full {
+                    stage.open_member_menu(user_id.clone(), None, event.position, cx);
+                }
                 cx.stop_propagation();
             }));
         if tile.sound {
@@ -385,7 +444,7 @@ impl VoiceStage {
             let silent = stream_volume == 0.;
             element = element.child(
                 div()
-                    .id(SharedString::from(format!("screen-sound-{key}")))
+                    .id(id("sound"))
                     .absolute()
                     .right(px(8.))
                     .bottom(px(8.))
@@ -400,7 +459,7 @@ impl VoiceStage {
                     .on_click(|_, _, cx| cx.stop_propagation())
                     .child(
                         div()
-                            .id(SharedString::from(format!("screen-mute-{key}")))
+                            .id(id("mute"))
                             .size(px(28.))
                             .flex()
                             .items_center()
@@ -417,7 +476,7 @@ impl VoiceStage {
                             .child(icon(if silent { "volume-x" } else { "volume-2" }, 15., gpui::white())),
                     )
                     .when(size.0 > 300., |el| {
-                        el.child(div().w(px(96.)).child(slider(SharedString::from(format!("screen-volume-{key}")), stream_volume / 2., move |fraction, _, cx| {
+                        el.child(div().w(px(96.)).child(slider(id("volume"), stream_volume / 2., move |fraction, _, cx| {
                             let user = slide_user.clone();
                             slide_voice.update(cx, |voice, cx| voice.set_stream_volume(&user, fraction * 2., cx));
                         }, cx)))
@@ -721,6 +780,17 @@ impl Render for VoiceStage {
         let cameras: HashMap<String, VideoTile> = videos.iter().filter(|video| video.source == VideoSource::Camera).map(|video| (video.user_id.clone(), video.clone())).collect();
         let screens: Vec<VideoTile> = videos.iter().filter(|video| video.source == VideoSource::Screen).cloned().collect();
         let focused = focus.as_ref().and_then(|key| videos.iter().find(|video| &video.key == key).cloned());
+        // Out of full screen some other way, or the share it showed gone: back in the stage.
+        if let Some((key, seen)) = &mut self.full_screen {
+            *seen |= window.is_fullscreen();
+            if (*seen && !window.is_fullscreen()) || !videos.iter().any(|video| &video.key == key) {
+                self.leave_full_screen(window, cx);
+            }
+        }
+        if self.window_bounds.is_none() {
+            self.window_bounds = Some(cx.observe_window_bounds(window, |_, _, cx| cx.notify()));
+        }
+        let full_screen = self.full_screen.as_ref().and_then(|(key, _)| videos.iter().find(|video| &video.key == key).cloned());
         let native_self_share = screen_share.as_ref().filter(|share| share.native).cloned();
         let role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
         let share_refusal = voice::rules::screen_refusal(server.info.as_ref().and_then(|info| info.screen_share.as_ref()), &role, if self.room.call { 0. } else { channel.as_ref().map(|channel| channel.screen_limit).unwrap_or(0.) });
@@ -754,7 +824,7 @@ impl Render for VoiceStage {
             let size = if strip { (STRIP_WIDTH, STRIP_HEIGHT) } else { fit(cell.0, cell.1) };
             let tile_size = if strip { fit(STRIP_WIDTH, STRIP_HEIGHT) } else { size };
             for tile in screens.iter().filter(|tile| Some(&tile.key) != focused.as_ref().map(|focused| &focused.key)) {
-                tiles.push(self.screen_tile(tile, false, tile_size, cx));
+                tiles.push(self.screen_tile(tile, false, tile_size, false, cx));
             }
             if let Some(share) = &native_self_share {
                 tiles.push(
@@ -789,7 +859,7 @@ impl Render for VoiceStage {
             if let Some(focused) = &focused {
                 let focus_size = (area_width, (area_height - STRIP_HEIGHT - GAP).max(80.));
                 let content = if focused.source == VideoSource::Screen {
-                    self.screen_tile(focused, true, fit(focus_size.0, focus_size.1), cx)
+                    self.screen_tile(focused, true, fit(focus_size.0, focus_size.1), false, cx)
                 } else {
                     let voice = self.voice.clone();
                     let video = self.video(focused, true);
@@ -839,6 +909,21 @@ impl Render for VoiceStage {
             .flex_col()
             .bg(theme.bg0)
             .relative()
+            // A double click on a share: its first click filled the stage with it, or put it back,
+            // which moves it, so the second goes to the share wherever it lands, and the stage is
+            // as it was before.
+            .capture_any_mouse_down(cx.listener(|stage, event: &gpui::MouseDownEvent, window, cx| {
+                if event.button != MouseButton::Left || event.click_count < 2 {
+                    return;
+                }
+                if let Some((key, before, at)) = stage.screen_clicked.take() {
+                    if at.elapsed() < Duration::from_millis(500) {
+                        stage.voice.update(cx, |voice, cx| voice.set_focus(before, cx));
+                        stage.toggle_full_screen(&key, window, cx);
+                        cx.stop_propagation();
+                    }
+                }
+            }))
             .child(header)
             .child(stage_body)
             .when_some(stats, |el, stats| el.child(stats));
@@ -849,6 +934,11 @@ impl Render for VoiceStage {
             wrap = wrap.flex_1().size_full();
         }
         wrap = wrap.child(stage);
+        if let Some(tile) = &full_screen {
+            let size = window.viewport_size();
+            let tile = self.screen_tile(tile, false, (f32::from(size.width), f32::from(size.height)), true, cx);
+            wrap = wrap.child(deferred(anchored().position(gpui::point(px(0.), px(0.))).child(div().occlude().child(tile))).with_priority(1));
+        }
         if !self.room.call && self.chat_open {
             if let Some(conversation) = &conversation {
                 if self.chat.is_none() {
