@@ -190,8 +190,8 @@ final class ChatReadingTests: XCTestCase {
         XCTAssertTrue(zuna.app.keyboards.firstMatch.waitForExistence(timeout: 5))
     }
 
-    /// A phone's screenshot fills the viewer, so nothing may lie over its top: not the
-    /// status bar, nor the blur iOS 26 puts at a scroll view's edges.
+    /// A phone's screenshot fills the viewer. A tap hides the status bar with the buttons, as in
+    /// Telegram, and then nothing lies over its top, nor the blur iOS 26 puts at a scroll view's edges.
     func testShowsAPhoneScreenshotWithNothingOverItsTop() throws {
         let alice = try Peer("alice")
         let format = UIGraphicsImageRendererFormat()
@@ -221,20 +221,29 @@ final class ChatReadingTests: XCTestCase {
         let viewer = zuna.element(A11y.Chat.photoViewer)
         XCTAssertTrue(viewer.waitForExistence(timeout: 10))
 
-        // The red band is the picture's top hundred points, above the buttons.
-        try waitFor("the top of the picture to show as it is") {
-            let shot = self.zuna.app.screenshot().image
-            let width = shot.size.width
-            return [6.0, 20, 34].allSatisfy { y in
-                stride(from: width * 0.04, through: width * 0.96, by: width / 24).allSatisfy { x in
-                    let (red, green, blue) = Self.color(of: shot, at: CGPoint(x: x, y: y))
-                    return red > 0.8 && green < 0.25 && blue < 0.25
-                }
+        try waitFor("the status bar over the picture") { !self.topIsRed() }
+        zuna.screenshot("63b-screenshot-preview")
+        viewer.tap()
+        try waitFor("the top of the picture to show as it is") { self.topIsRed() }
+        let close = zuna.app.buttons["Close"]
+        XCTAssertFalse(close.exists && close.isHittable)
+        zuna.screenshot("63c-screenshot-alone")
+        viewer.tap()
+        try waitFor("the status bar to come back") { !self.topIsRed() }
+        close.tap()
+        try waitFor("the viewer to close") { !viewer.exists }
+    }
+
+    /// Whether the band the status bar sits in shows only the screenshot's red top, its first hundred points.
+    private func topIsRed() -> Bool {
+        let shot = zuna.app.screenshot().image
+        let width = shot.size.width
+        return [6.0, 20, 34].allSatisfy { y in
+            stride(from: width * 0.04, through: width * 0.96, by: width / 48).allSatisfy { x in
+                let (red, green, blue) = Self.color(of: shot, at: CGPoint(x: x, y: y))
+                return red > 0.8 && green < 0.25 && blue < 0.25
             }
         }
-        zuna.screenshot("63b-screenshot-preview")
-        zuna.app.buttons["Close"].tap()
-        try waitFor("the viewer to close") { !viewer.exists }
     }
 
     /// One point's color in a screenshot, in sRGB from 0 to 1.

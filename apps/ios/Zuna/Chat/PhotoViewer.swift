@@ -3,7 +3,8 @@ import UIKit
 
 /// A picture on the whole screen, as in Telegram: pinch or double tap to zoom,
 /// drag it around once it's bigger than the screen, and drag it up or down to
-/// close, the chat showing through as it goes. A tap hides or shows the buttons.
+/// close, the chat showing through as it goes. A tap hides or shows the buttons
+/// and the status bar.
 @MainActor
 final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     /// The decrypted file under its own name, for Share. Removed when the viewer closes.
@@ -33,14 +34,17 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         self.file = file
         self.image = image
         super.init(nibName: nil, bundle: nil)
-        // Over the whole screen the status bar stays the chat's unless the viewer takes it, and it covers a screenshot's top.
+        // Over the whole screen the status bar stays the chat's unless the viewer takes it, so a tap couldn't hide it.
         modalPresentationCapturesStatusBarAppearance = true
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var prefersStatusBarHidden: Bool { true }
+    /// The status bar goes with the buttons, as in Telegram, so a tap shows the whole picture, a screenshot's top too.
+    override var prefersStatusBarHidden: Bool { chromeHidden }
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+    override var preferredStatusBarUpdateAnimation: UIStatusBarAnimation { .fade }
     override var prefersHomeIndicatorAutoHidden: Bool { chromeHidden }
 
     override func viewDidLoad() {
@@ -214,6 +218,7 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         chromeHidden = hidden
         setNeedsUpdateOfHomeIndicatorAutoHidden()
         UIView.animate(withDuration: 0.2) {
+            self.setNeedsStatusBarAppearanceUpdate()
             self.closeButton.alpha = hidden ? 0 : 1
             self.shareButton.alpha = hidden ? 0 : 1
         }
