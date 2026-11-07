@@ -12,3 +12,9 @@ pub fn set_unread(count: u32) {
     NSApplication::sharedApplication(main_thread).dockTile().setBadgeLabel(label.as_deref());
 }
 
+/// What the Dock's icon says, for the checks.
+#[cfg(feature = "test-control")]
+pub fn badge() -> Option<String> {
+    let main_thread = MainThreadMarker::new()?;
+    NSApplication::sharedApplication(main_thread).dockTile().badgeLabel().map(|label| label.to_string())
+}

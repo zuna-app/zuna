@@ -13,6 +13,8 @@ mod models;
 mod platform;
 mod settings;
 mod state;
+#[cfg(all(feature = "test-control", unix))]
+mod test_control;
 mod theme;
 mod ui;
 mod voice;
@@ -107,6 +109,8 @@ fn main() {
         let state = cx.new(|cx| AppState::new(core, events, cx));
         cx.set_global(Store(state.clone()));
         voice::init(&state, cx);
+        #[cfg(all(feature = "test-control", unix))]
+        test_control::start(cx);
         ui::notifications::install(state.downgrade(), cx);
 
         if let Some(link) = link.clone() {

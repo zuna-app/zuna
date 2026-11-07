@@ -141,6 +141,11 @@ security-framework = "3"
 # The app's icon, compiled into the exe as Windows expects.
 embed-resource = "3"
 
+[features]
+# For the checks alone (apps/desktop/test): the app takes input and gives screenshots of its
+# window over a socket of its own (`test_control.rs`). Never in a build anyone uses.
+test-control = ["gpui/test-support", "gpui_platform/test-support"]
+
 [profile.dev]
 # The core's argon2 and MLS are far too slow unoptimized.
 [profile.dev.package."*"]

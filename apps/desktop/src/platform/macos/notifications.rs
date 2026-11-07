@@ -153,6 +153,12 @@ impl NotificationCenter {
             });
         }
     }
+
+    /// How many are shown, for the checks.
+    #[cfg(feature = "test-control")]
+    pub fn shown_count(&self) -> usize {
+        self.shown.len()
+    }
 }
 
 /// The chat's picture, written where the center can take it from, which it moves into its own store.

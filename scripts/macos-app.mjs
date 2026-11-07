@@ -5,17 +5,17 @@
 // answers, and the Keychain's trust, by its signature. So it's signed with this Mac's Apple
 // Development identity, which stays the same from one build to the next.
 //
-//   node scripts/macos-app.mjs run [--release] [-- app args]
+//   node scripts/macos-app.mjs run [--release] [--test-control] [-- app args]
 //                                   build it, then start it as macOS starts an app, with `open`
 //   node scripts/macos-app.mjs build
 //                                   a release build in dist/macos/Zuna.app
-//   node scripts/macos-app.mjs bundle [--release]
+//   node scripts/macos-app.mjs bundle [--release] [--test-control]
 //                                   a development build's bundle, not started, for the checks
 //
 // A development build is "Zuna Dev", chat.zuna.desktop.dev, apart from a release's
 // permissions, and keeps its data in .dev-data/native-app, as the Electron app's development
 // build does, so that `npm run dev:clean` starts it over with the test server. ZUNA_DATA_DIR
-// puts it elsewhere.
+// puts it elsewhere. --test-control builds in the checks' socket (src/test_control.rs).
 
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -33,6 +33,7 @@ const split = rest.indexOf("--");
 const flags = split < 0 ? rest : rest.slice(0, split);
 const appArgs = split < 0 ? [] : rest.slice(split + 1);
 const release = command === "build" || flags.includes("--release");
+const testControl = flags.includes("--test-control");
 
 const crate = join(root, "apps", "desktop");
 // Outside the checkout, as the other systems' builds keep theirs, and kept between checkouts.
@@ -152,7 +153,7 @@ checkMetal();
 const built = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
 if (built.status !== 0) process.exit(built.status ?? 1);
 
-const cargo = ["build", ...(release ? ["--release"] : [])];
+const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["--features", "test-control"] : [])];
 const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 if (result.status !== 0) process.exit(result.status ?? 1);
 const program = join(target, release ? "release" : "debug", "zuna");
