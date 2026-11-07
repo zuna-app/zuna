@@ -601,7 +601,9 @@ fn meta_element(message: &MessageView, own: bool, is_deleted: bool, read_up_to: 
     meta
 }
 
-/// How much room the time takes at the end of the last line, as spaces of the message's own font.
+/// How much room the time takes at the end of the last line, as spaces of the message's own font:
+/// as wide as `meta_element` draws it, 12 px from the text as `.msg-meta`'s margin, less the 2 px
+/// it reaches into the bubble's padding.
 fn meta_padding(message: &MessageView, own: bool, theme: &Theme, window: &mut Window) -> String {
     let small = TextRun { len: 0, font: gpui::font(FONT_UI), color: gpui::black(), background_color: None, underline: None, strikethrough: None };
     let mut label = format_time(message.created_at);
@@ -612,9 +614,12 @@ fn meta_padding(message: &MessageView, own: bool, theme: &Theme, window: &mut Wi
         let run = TextRun { len: text.len(), ..small.clone() };
         f32::from(window.text_system().shape_line(SharedString::from(text.to_string()), size, &[run], None).width)
     };
-    let mut width = measure(&label, px(11.5), window) + 12.;
+    let mut width = measure(&label, px(11.5), window) + 10.;
     if own {
         width += 21.;
+    }
+    if message.time_differs == Some(true) {
+        width += 14.;
     }
     if message.pinned_at.is_some() {
         width += 13.;
@@ -623,8 +628,8 @@ fn meta_padding(message: &MessageView, own: bool, theme: &Theme, window: &mut Wi
         width += 13.;
     }
     let space = measure("\u{a0}\u{a0}\u{a0}\u{a0}", theme.message_size, window) / 4.;
-    let count = (width / space.max(1.)).ceil() as usize;
-    "\u{a0}".repeat(count + 1)
+    let count = (width / space.max(1.)).round() as usize;
+    "\u{a0}".repeat(count)
 }
 
 fn runs_for(rich: &Rich, own: bool, revealed: bool, theme: &Theme, base: Hsla) -> Vec<TextRun> {
