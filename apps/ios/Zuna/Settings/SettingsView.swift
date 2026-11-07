@@ -174,16 +174,16 @@ struct SettingsLabel: View {
     }
 }
 
-/// The home screen's icon: the desktop's Z on a light tile, or a light Z on a dark
+/// The home screen's icon: the desktop's white Z on a black tile, or a black Z on a white
 /// one. iOS keeps which, so it isn't in AppSettings.
 enum AppIcon: String, CaseIterable {
-    case light, dark
+    case dark, light
 
     /// Its icon set in Assets.xcassets, or nil for the app's own, AppIcon.
-    var alternateName: String? { self == .dark ? "AppIcon-Dark" : nil }
+    var alternateName: String? { self == .light ? "AppIcon-Light" : nil }
 
     @MainActor static var current: AppIcon {
-        UIApplication.shared.alternateIconName == AppIcon.dark.alternateName ? .dark : .light
+        UIApplication.shared.alternateIconName == AppIcon.light.alternateName ? .light : .dark
     }
 }
 
@@ -272,12 +272,12 @@ struct AppearanceView: View {
                 ZunaLogo(size: size, dark: icon == .dark)
                     // The dark tile's edge, which the list's own dark gray would hide.
                     .overlay {
-                        RoundedRectangle(cornerRadius: size * 15 / 64, style: .continuous)
+                        RoundedRectangle(cornerRadius: size * 230 / 1024, style: .continuous)
                             .strokeBorder(.white.opacity(0.12), lineWidth: 1)
                     }
                     .padding(4)
                     .overlay {
-                        RoundedRectangle(cornerRadius: size * 15 / 64 + 4, style: .continuous)
+                        RoundedRectangle(cornerRadius: size * 230 / 1024 + 4, style: .continuous)
                             .strokeBorder(chosen ? model.settings.accent.color : .clear, lineWidth: 2)
                     }
                 Text(icon.rawValue.capitalized)

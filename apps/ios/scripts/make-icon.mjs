@@ -1,5 +1,5 @@
-// Renders the iOS app icons from the desktop's: the light one (icon.svg) and the
-// dark one people can pick in Appearance (icon-dark.svg). Each is a full square
+// Renders the iOS app icons from the desktop's: the white Z on black (icon.svg) and the
+// black Z on white people can pick in Appearance (icon-light.svg). Each is a full square
 // (iOS rounds the corners itself) without an alpha channel, as the App Store requires.
 
 import { execFileSync } from "node:child_process";
@@ -12,10 +12,10 @@ import { Resvg } from "@resvg/resvg-js";
 const here = dirname(fileURLToPath(import.meta.url));
 const icons = [
   ["icon.svg", "AppIcon"],
-  ["icon-dark.svg", "AppIcon-Dark"],
+  ["icon-light.svg", "AppIcon-Light"],
 ];
 for (const [source, set] of icons) {
-  const svg = readFileSync(join(here, "..", "..", "desktop-electron-legacy", "resources", source), "utf8").replace(/ rx="[^"]*"/, "");
+  const svg = readFileSync(join(here, "..", "..", "desktop-electron-legacy", "resources", source), "utf8").replace(/ r[xy]="[^"]*"/g, "");
   const png = new Resvg(svg, { fitTo: { mode: "width", value: 1024 } }).render().asPng();
   const rgba = join(tmpdir(), "zuna-icon-rgba.png");
   const jpeg = join(tmpdir(), "zuna-icon.jpg");

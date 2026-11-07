@@ -605,31 +605,42 @@ struct RecoverStep: View {
     }
 }
 
-/// The desktop's logo: a Z on a light rounded square, or a light Z on a dark one
-/// (`icon-dark.svg`), as the app icons are.
+/// The desktop's logo: a white Z on a black rounded square that glows faintly from below
+/// (`icon.svg`), or a black Z on a white one (`icon-light.svg`), as the app icons are.
 struct ZunaLogo: View {
     var size: CGFloat = 52
-    var dark = false
+    var dark = true
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 15 / 64, style: .continuous)
-                .fill(Color(hex: dark ? 0x111113 : 0xECECEE))
+            RoundedRectangle(cornerRadius: size * 230 / 1024, style: .continuous)
+                .fill(dark ? AnyShapeStyle(Self.glow) : AnyShapeStyle(Color.white))
             LogoZ()
-                .fill(Color(hex: dark ? 0xECECEE : 0x111113))
+                .stroke(dark ? Color.white : Color.black, style: StrokeStyle(lineWidth: size * 96 / 1024, lineCap: .round, lineJoin: .round))
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 
-    /// The Z from the desktop's SVG, drawn in its 64-point box.
+    /// The black tile's gradient: #2a2a2a at the bottom, black from just over halfway up.
+    private static let glow = LinearGradient(
+        stops: [.init(color: Color(hex: 0x2A2A2A), location: 0), .init(color: .black, location: 0.55), .init(color: .black, location: 1)],
+        startPoint: .bottom,
+        endPoint: .top
+    )
+
+    /// The Z from the desktop's SVG, a line drawn in its 1024-point box, with two rounded corners.
     private struct LogoZ: Shape {
         func path(in rect: CGRect) -> Path {
-            let scale = min(rect.width, rect.height) / 64
-            let points: [(CGFloat, CGFloat)] = [(19, 17), (45, 17), (45, 22.5), (27.5, 42), (45, 42), (45, 47), (18.5, 47), (18.5, 41.8), (36.2, 22), (19, 22)]
+            let scale = min(rect.width, rect.height) / 1024
+            let point = { (x: CGFloat, y: CGFloat) in CGPoint(x: rect.minX + x * scale, y: rect.minY + y * scale) }
             var path = Path()
-            path.addLines(points.map { CGPoint(x: rect.minX + $0.0 * scale, y: rect.minY + $0.1 * scale) })
-            path.closeSubpath()
+            path.move(to: point(248, 524))
+            path.addArc(tangent1End: point(248, 248), tangent2End: point(392, 248), radius: 144 * scale)
+            path.addLine(to: point(776, 248))
+            path.addLine(to: point(248, 776))
+            path.addArc(tangent1End: point(776, 776), tangent2End: point(776, 632), radius: 144 * scale)
+            path.addLine(to: point(776, 500))
             return path
         }
     }

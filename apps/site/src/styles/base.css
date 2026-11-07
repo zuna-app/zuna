@@ -85,8 +85,6 @@ button { font: inherit; }
 }
 .nav-inner { display: flex; align-items: center; gap: 28px; height: 64px; }
 .nav-brand { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 650; letter-spacing: -0.02em; }
-.logo { color: var(--text-1); }
-.logo-mark { fill: var(--bg-0); }
 .nav-links { display: flex; gap: 2px; }
 .nav-links a { padding: 8px 12px; border-radius: 8px; font-size: 14.5px; color: var(--text-2); transition: color 0.15s, background 0.15s; }
 .nav-links a:hover { color: var(--text-1); background: var(--hover); }

@@ -1,9 +1,19 @@
-/** The app's icon, as in apps/desktop-electron-legacy/resources/icon.svg. */
+import { useId } from "react";
+
+/** The app's icon, as in apps/desktop-electron-legacy/resources/icon.svg: a white Z on black, glowing faintly from below. */
 export function Logo({ size = 24 }: { size?: number }) {
+  // A gradient of its own for each, as the page draws the logo more than once.
+  const glow = useId();
   return (
-    <svg className="logo" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-      <rect width="64" height="64" rx="15" fill="currentColor" />
-      <path d="M19 17h26v5.5L27.5 42H45v5H18.5v-5.2L36.2 22H19z" className="logo-mark" />
+    <svg className="logo" width={size} height={size} viewBox="0 0 1024 1024" aria-hidden="true">
+      <defs>
+        <linearGradient id={glow} x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0" stopColor="#2a2a2a" />
+          <stop offset="0.55" stopColor="#000000" />
+        </linearGradient>
+      </defs>
+      <rect width="1024" height="1024" rx="160" fill={`url(#${glow})`} />
+      <path d="M248 524V392A144 144 0 0 1 392 248H776L248 776H632A144 144 0 0 0 776 632V500" fill="none" stroke="#ffffff" strokeWidth="96" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
