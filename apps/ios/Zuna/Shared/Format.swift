@@ -87,6 +87,18 @@ enum Format {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
+    /// The muted avatar backgrounds and name colors (lib/format.ts), as RGB, picked by `colorIndex`.
+    /// Here rather than in Theme so the notification extension draws the same, without SwiftUI.
+    static let avatarColors: [UInt32] = [0x5B6B7A, 0x6E625C, 0x5F7065, 0x7A6C58, 0x6B6470, 0x557072, 0x7A6060, 0x5F6775]
+    static let nameColors: [UInt32] = [0xA9B7C4, 0xC4B4AC, 0xA8BDAC, 0xC9B89A, 0xB8B0B9, 0xA2BCBE, 0xC9ABAB, 0xAAB2C4]
+
+    /// Same hash as `colorIndex` in lib/format.ts, so a person gets the same color on both apps.
+    static func colorIndex(_ seed: String, count: Int) -> Int {
+        var hash: Int32 = 0
+        for unit in seed.utf16 { hash = hash &* 31 &+ Int32(unit) }
+        return Int(hash.magnitude) % count
+    }
+
     /// Up to two initials, from the first and last word, like the desktop's `initialsOf`.
     static func initials(_ name: String) -> String {
         let words = name.split(whereSeparator: \.isWhitespace)

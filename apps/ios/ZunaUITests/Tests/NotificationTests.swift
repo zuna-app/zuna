@@ -122,6 +122,39 @@ final class NotificationTests: XCTestCase {
         zuna.screenshotScreen("106-group-notification")
     }
 
+    /// iOS puts its app icon where a notification has no picture, or one it can't read,
+    /// so someone without a picture gets the chat list's initials, and a WebP, as the web
+    /// app makes them, is drawn again first.
+    func testShowsInitialsOrAWebPPictureInPlaceOfTheAppsIcon() throws {
+        try start()
+        let text = "No picture here"
+        try Peer("carol").send(to: "user:\(bob)", ["text": text])
+        let banner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", text)).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 15))
+        // Once it has slid in.
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        zuna.screenshotScreen("115-notification-with-initials")
+
+        // 64 pixels of a face, as lossless WebP.
+        let webp = Data(base64Encoded: "UklGRnwAAABXRUJQVlA4TG8AAAAvP8APAA/wvP+n/D/5f/7jAW5i23aqTS6fBKQ8aQ9pSHkSKHM8F/ixj+j/BGz/2EUra6wEC1YJMIuH/l4N3W/w0N8LMMsGq5GwmVljuWi9P8Hw0IuDKBW0kgACsG5bkHnbvPTbVkt3x0m8U0n7gwAA")!
+        let alice = try Peer("alice")
+        _ = try alice.call("updateProfile", [[:], ["$blob": ["bytes": webp.base64EncodedString(), "type": "image/webp"]]])
+        defer { try? alice.setPicture(nil) }
+        let control = zuna.control!, serverId = zuna.serverId, aliceId = World.current["alice"].userId
+        try waitFor("bob's phone to see alice's picture") {
+            try blocking {
+                let users = try await control.call("getUsers", server: serverId) as? [[String: Any]] ?? []
+                return users.first { $0["id"] as? String == aliceId }?["avatar"] is [String: Any]
+            }
+        }
+        let webpText = "Here's a WebP"
+        try alice.send(to: "user:\(bob)", ["text": webpText])
+        let webpBanner = springboard.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", webpText)).firstMatch
+        XCTAssertTrue(webpBanner.waitForExistence(timeout: 15))
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        zuna.screenshotScreen("116-notification-with-a-webp")
+    }
+
     func testThePhoneWaitsWhileTheDesktopIsInUse() throws {
         try start()
         try leaveTheApp()

@@ -127,6 +127,7 @@ targets:
     sources:
       - path: ZunaNotifications
       - path: Zuna/Shared/DeviceKeyStore.swift
+      - path: Zuna/Shared/Format.swift
       - path: Zuna/Shared/MessageNotification.swift
       - path: Zuna/Shared/PushStore.swift
       - path: Zuna/Shared/SharedStorage.swift

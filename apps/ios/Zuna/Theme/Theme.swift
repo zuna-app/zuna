@@ -32,19 +32,11 @@ enum Theme {
     static let red = Color(hex: 0xF2555A)
     static let amber = Color(hex: 0xE5A50A)
 
-    /// The muted avatar backgrounds and name colors (lib/format.ts), picked by a stable hash.
-    static let avatarColors: [Color] = [0x5B6B7A, 0x6E625C, 0x5F7065, 0x7A6C58, 0x6B6470, 0x557072, 0x7A6060, 0x5F6775].map { Color(hex: $0) }
-    static let nameColors: [Color] = [0xA9B7C4, 0xC4B4AC, 0xA8BDAC, 0xC9B89A, 0xB8B0B9, 0xA2BCBE, 0xC9ABAB, 0xAAB2C4].map { Color(hex: $0) }
+    static let avatarColors: [Color] = Format.avatarColors.map { Color(hex: $0) }
+    static let nameColors: [Color] = Format.nameColors.map { Color(hex: $0) }
 
-    /// Same hash as `colorIndex` in lib/format.ts, so a person gets the same color on both apps.
-    static func colorIndex(_ seed: String, count: Int) -> Int {
-        var hash: Int32 = 0
-        for unit in seed.utf16 { hash = hash &* 31 &+ Int32(unit) }
-        return Int(hash.magnitude) % count
-    }
-
-    static func avatarColor(_ seed: String) -> Color { avatarColors[colorIndex(seed, count: avatarColors.count)] }
-    static func nameColor(_ seed: String) -> Color { nameColors[colorIndex(seed, count: nameColors.count)] }
+    static func avatarColor(_ seed: String) -> Color { avatarColors[Format.colorIndex(seed, count: avatarColors.count)] }
+    static func nameColor(_ seed: String) -> Color { nameColors[Format.colorIndex(seed, count: nameColors.count)] }
 }
 
 /// The accent colors a person can pick in Appearance, as on the desktop.
