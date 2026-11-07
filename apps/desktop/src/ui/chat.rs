@@ -144,6 +144,8 @@ pub struct ChatView {
     inline_editor: Entity<TextInput>,
     /// The channel message being edited where it is.
     inline_editing: Option<String>,
+    /// The message being edited in the message box, which was given its text.
+    composer_editing: Option<String>,
     /// The rows on screen, and a drag picking messages across them.
     visible: std::ops::Range<usize>,
     row_bounds: Rc<RefCell<HashMap<usize, gpui::Bounds<gpui::Pixels>>>>,
@@ -352,6 +354,7 @@ impl ChatView {
             focus: cx.focus_handle(),
             inline_editor,
             inline_editing: None,
+            composer_editing: None,
             visible: 0..0,
             row_bounds: Rc::new(RefCell::new(HashMap::new())),
             drag: None,
@@ -679,12 +682,7 @@ impl ChatView {
                     list.items.iter().rev().find(|item| item.sender_id == self_id && !item.text.is_empty() && item.deleted_at.is_none() && item.seq.is_some() && item.forwarded.is_none()).cloned()
                 });
                 if let Some(message) = last {
-                    let text = message.text.clone();
-                    let channel = self.conversation(cx).is_some_and(|c| c.kind == "channel");
                     self.state.update(cx, |state, cx| state.set_editing(&list_id, Some(message), cx));
-                    if !channel {
-                        self.composer.update(cx, |input, cx| input.set_text(text, cx));
-                    }
                 }
             }
             InputEvent::Focused => {
@@ -2165,6 +2163,23 @@ impl ChatView {
         }
     }
 
+    /// Editing a message anywhere else, which goes through the message box: it takes the
+    /// message's text, with the caret at its end, and focus, however the editing began.
+    fn sync_composer_editing(&mut self, conversation: &ConversationView, window: &mut Window, cx: &mut Context<Self>) {
+        let editing = if conversation.kind == "channel" { None } else { self.state.read(cx).editing.get(&conversation.list_id()).cloned() };
+        match editing {
+            Some(message) if self.composer_editing.as_deref() != Some(message.id.as_str()) => {
+                self.composer_editing = Some(message.id.clone());
+                let text = message.text.clone();
+                let composer = self.composer.clone();
+                composer.update(cx, |input, cx| input.set_text(text, cx));
+                composer.read(cx).focus(window);
+            }
+            None if self.composer_editing.is_some() => self.composer_editing = None,
+            _ => {}
+        }
+    }
+
     fn on_inline_editor(&mut self, event: &InputEvent, window: &mut Window, cx: &mut Context<Self>) {
         let list_id = self.last_list_id.clone();
         match event {
@@ -2850,6 +2865,7 @@ impl Render for ChatView {
             window.drop_image(old).ok();
         }
         self.sync_inline_editor(&conversation, window, cx);
+        self.sync_composer_editing(&conversation, window, cx);
         let header = if is_channel { self.channel_header(&conversation, cx) } else { self.header(&conversation, cx) };
         let (call, call_expanded) = if is_channel { (None, false) } else { self.call_area(&conversation, cx) };
         let state = self.state.read(cx);
