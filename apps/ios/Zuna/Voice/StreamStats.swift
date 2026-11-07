@@ -426,14 +426,19 @@ final class StreamStats {
     private func receivedAudio(_ stream: StatsRoom.Stream, _ statistics: TrackStatistics, _ previous: TrackStatistics?, title: String) -> StatSection? {
         guard let rtp = statistics.inboundRtpStream.first else { return nil }
         let moved = Movement(now: rtp, before: previous?.inboundRtpStream.first { $0.id == rtp.id })
-        let concealed = moved.each(\.concealedSamples, of: \.totalSamplesReceived)
+        // What's made up over silence, as while they're muted or quiet with DTX, is comfort
+        // noise, not a gap anyone hears.
+        let samples = moved.change(\.totalSamplesReceived) ?? 0
+        let concealed: Double? = samples > 0 ? max(0, (moved.change(\.concealedSamples) ?? 0) - (moved.change(\.silentConcealedSamples) ?? 0)) / samples : nil
+        let muted = stream.publication.isMuted
         let loss = lossOf(moved.change(\.packetsLost), moved.change(\.packetsReceived))
         let rows: [StatRow?] = [
+            row("Muted", muted ? "Yes" : nil),
             row("Codec", codecOf(statistics, rtp.codecId)),
             row("Bitrate", bits(moved.bitsPerSecond(rtp.bytesReceived ?? 0, before: moved.before?.bytesReceived))),
             row("Jitter buffer", ms(moved.each(\.jitterBufferDelay, of: \.jitterBufferEmittedCount))),
             row("Network jitter", ms(rtp.jitter)),
-            row("Made up to hide gaps", percent(concealed), warn: (concealed ?? 0) > noticeableLoss),
+            row("Made up to hide gaps", percent(concealed), warn: !muted && (concealed ?? 0) > noticeableLoss),
             row("Packets", count(rtp.packetsReceived)),
             row("Lost", joined(count(rtp.packetsLost), percent(loss)), warn: (loss ?? 0) > noticeableLoss),
             encryption(stream.publication),

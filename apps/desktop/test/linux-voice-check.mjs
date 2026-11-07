@@ -299,11 +299,14 @@ try {
   check("what the Electron app says plays out of the native app's speakers, through PipeWire", played > 0.01, `peak ${played.toFixed(3)}`);
   await shot("04-both-talking");
 
-  // --- Stream stats, copied with the mouse alone ---
+  // --- Stream stats, with both microphones muted, copied with the mouse alone ---
+  await page.getByRole("button", { name: "Mute", exact: true }).first().click();
+  await drive({ do: "click", x: 704, y: 863 });
   // Another app's copy, as Klipper holds one: no key has been pressed in the native app, and
   // KWin drops a selection older than the one it holds.
   spawn("wl-copy", ["Copied in another app"], { env: session, stdio: "ignore" });
-  await sleep(500);
+  await page.getByRole("button", { name: "Stream stats" }).first().click();
+  await sleep(3000);
   await drive({ do: "click", x: 1373, y: 58 });
   await sleep(2500);
   await drive({ do: "move", x: 1336, y: 111 });
@@ -312,8 +315,21 @@ try {
   await shot("04a-stream-stats");
   const stats = clipboard();
   check("Copy all of it puts the stream stats on Wayland's clipboard, with a click after another app copied something", stats.startsWith("# Connection") && stats.includes("# Robin's microphone"), stats.split("\n")[0]);
-  // Closed by its ×.
+  const theirs = stats.split("\n\n").find((section) => section.startsWith("# Robin's microphone")) ?? "";
+  const madeUp = theirs.split("\n").find((line) => line.startsWith("Made up to hide gaps"));
+  check("the Electron app's muted microphone shows as muted in the native app, and what's made up over its silence isn't flagged", theirs.includes("Muted: Yes") && !madeUp?.endsWith("(!)"), `${madeUp}, ${theirs.split("\n").find((line) => line.startsWith("Bitrate"))}`);
+  // And the native app's, in the Electron app's own panel.
+  const desktop = await page.evaluate(() => {
+    const section = [...document.querySelectorAll(".stream-stats-section")].find((element) => element.querySelector("summary")?.textContent === "Linux Owner's microphone");
+    return [...(section?.querySelectorAll(".stream-stats-rows > div") ?? [])].map((row) => ({ label: row.querySelector("dt")?.textContent, value: row.querySelector("dd")?.textContent, warn: row.classList.contains("is-warn") }));
+  });
+  const desktopMadeUp = desktop.find((row) => row.label === "Made up to hide gaps");
+  check("and the native app's in the Electron app's", desktop.some((row) => row.label === "Muted" && row.value === "Yes") && !desktopMadeUp?.warn, JSON.stringify(desktopMadeUp));
+  // Closed by their ×es.
   await drive({ do: "click", x: 1369, y: 111 });
+  await page.getByRole("button", { name: "Close stream stats" }).click();
+  await page.getByRole("button", { name: "Unmute", exact: true }).first().click();
+  await drive({ do: "click", x: 704, y: 863 });
   await sleep(1000);
 
   // --- Cameras both ways ---

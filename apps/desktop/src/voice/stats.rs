@@ -108,6 +108,7 @@ fn read(stats: &[RtcStats], local: bool) -> (HashMap<&'static str, f64>, HashMap
                     ("pli", inbound.pli_count as f64),
                     ("nack", inbound.nack_count as f64),
                     ("concealed", inbound.concealed_samples as f64),
+                    ("silent_concealed", inbound.silent_concealed_samples as f64),
                     ("samples", inbound.total_samples_received as f64),
                 ] {
                     *numbers.entry(name).or_insert(0.) += value;
@@ -448,7 +449,9 @@ impl Reader {
                     }
                 }
                 (false, false) => {
-                    let concealed = each("concealed", "samples");
+                    // What's made up over silence, as while they're muted or quiet with DTX,
+                    // is comfort noise, not a gap anyone hears.
+                    let concealed = change("samples").filter(|samples| *samples > 0.).map(|samples| (change("concealed").unwrap_or(0.) - change("silent_concealed").unwrap_or(0.)).max(0.) / samples);
                     let lost = match (change("lost"), change("packets")) {
                         (Some(lost), Some(received)) if lost + received > 0. => Some(lost.max(0.) / (lost.max(0.) + received)),
                         _ => None,
@@ -459,11 +462,12 @@ impl Reader {
                         audio: true,
                         headline: None,
                         rows: [
+                            row("Muted", sample.muted.then(|| "Yes".to_string()), false),
                             row("Codec", text("codec"), false),
                             row("Bitrate", bits(bitrate), false),
                             row("Jitter buffer", ms(each("buffer_delay", "buffer_emitted").map(|seconds| seconds * 1000.)), false),
                             row("Network jitter", ms(get("jitter").map(|seconds| seconds * 1000.)), false),
-                            row("Made up to hide gaps", percent(concealed), concealed.unwrap_or(0.) > NOTICEABLE_LOSS),
+                            row("Made up to hide gaps", percent(concealed), !sample.muted && concealed.unwrap_or(0.) > NOTICEABLE_LOSS),
                             row("Packets", count(get("packets")), false),
                             row("Lost", joined(&[count(get("lost")), percent(lost)]), lost.unwrap_or(0.) > NOTICEABLE_LOSS),
                             encryption,

@@ -497,7 +497,11 @@ export class StreamStats {
     const rtp = ([...report.values()] as Stat[]).find((stat) => stat.type === "inbound-rtp") ?? { timestamp: 0 };
     const { each, change, bitsPerSecond } = this.compare(stream.key, rtp, number(rtp, "bytesReceived") ?? 0);
     const buffer = each("jitterBufferDelay", "jitterBufferEmittedCount");
-    const concealed = each("concealedSamples", "totalSamplesReceived");
+    // What's made up over silence, as while they're muted or quiet with DTX, is comfort noise,
+    // not a gap anyone hears.
+    const samples = change("totalSamplesReceived");
+    const concealed = samples ? Math.max(0, (change("concealedSamples") ?? 0) - (change("silentConcealedSamples") ?? 0)) / samples : null;
+    const muted = stream.publication.isMuted;
     const jitter = number(rtp, "jitter");
     const loss = lossOf(change("packetsLost"), change("packetsReceived"));
     return {
@@ -505,11 +509,12 @@ export class StreamStats {
       title,
       kind: "audio",
       rows: rows([
+        row("Muted", muted ? "Yes" : null),
         row("Codec", codecOf(report, rtp)),
         row("Bitrate", bits(bitsPerSecond)),
         row("Jitter buffer", buffer === null ? null : ms(buffer * 1000)),
         row("Network jitter", jitter === undefined ? null : ms(jitter * 1000)),
-        row("Made up to hide gaps", percent(concealed), (concealed ?? 0) > NOTICEABLE_LOSS),
+        row("Made up to hide gaps", percent(concealed), !muted && (concealed ?? 0) > NOTICEABLE_LOSS),
         row("Packets", count(number(rtp, "packetsReceived"))),
         row("Lost", joined(count(number(rtp, "packetsLost")), percent(loss)), (loss ?? 0) > NOTICEABLE_LOSS),
         row("Encryption", stream.publication.isEncrypted ? "End to end" : "Off", !stream.publication.isEncrypted),
