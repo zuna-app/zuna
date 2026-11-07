@@ -3,8 +3,8 @@ import UIKit
 
 /// A picture on the whole screen, as in Telegram: pinch or double tap to zoom,
 /// drag it around once it's bigger than the screen, and drag it up or down to
-/// close, the chat showing through as it goes. A tap hides or shows the buttons
-/// and the status bar.
+/// close, the chat showing through as it goes. A tap hides or shows the buttons,
+/// the status bar and the shade behind them.
 @MainActor
 final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     /// The decrypted file under its own name, for Share. Removed when the viewer closes.
@@ -13,6 +13,7 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
     private let scrollView = UIScrollView()
     private let imageView = UIImageView()
     private let backdrop = UIView()
+    private let shade = TopShade()
     private let closeButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
     private var chromeHidden = false
@@ -79,9 +80,17 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         imageView.accessibilityTraits = .image
         scrollView.addSubview(imageView)
 
+        // As in Telegram, so the status bar and the buttons read over a bright picture.
+        shade.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(shade)
+
         configure(closeButton, symbol: "xmark", label: "Close", action: #selector(close))
         configure(shareButton, symbol: "square.and.arrow.up", label: "Share", action: #selector(share))
         NSLayoutConstraint.activate([
+            shade.topAnchor.constraint(equalTo: view.topAnchor),
+            shade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            shade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            shade.bottomAnchor.constraint(equalTo: closeButton.bottomAnchor, constant: 32),
             closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
             closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             shareButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
@@ -219,6 +228,7 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         setNeedsUpdateOfHomeIndicatorAutoHidden()
         UIView.animate(withDuration: 0.2) {
             self.setNeedsStatusBarAppearanceUpdate()
+            self.shade.alpha = hidden ? 0 : 1
             self.closeButton.alpha = hidden ? 0 : 1
             self.shareButton.alpha = hidden ? 0 : 1
         }
@@ -258,4 +268,20 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         while let presented = top?.presentedViewController { top = presented }
         return top
     }
+}
+
+/// Black at the top fading to nothing, behind the status bar and the buttons.
+private final class TopShade: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        let gradient = layer as? CAGradientLayer
+        gradient?.colors = [0.6, 0.3, 0].map { UIColor.black.withAlphaComponent($0).cgColor }
+        gradient?.locations = [0, 0.5, 1]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 }

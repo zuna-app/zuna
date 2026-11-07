@@ -190,8 +190,9 @@ final class ChatReadingTests: XCTestCase {
         XCTAssertTrue(zuna.app.keyboards.firstMatch.waitForExistence(timeout: 5))
     }
 
-    /// A phone's screenshot fills the viewer. A tap hides the status bar with the buttons, as in
-    /// Telegram, and then nothing lies over its top, nor the blur iOS 26 puts at a scroll view's edges.
+    /// A phone's screenshot fills the viewer, with the status bar over a shade at its top, as in
+    /// Telegram. A tap hides both with the buttons, and then nothing lies over the picture's top,
+    /// nor the blur iOS 26 puts at a scroll view's edges.
     func testShowsAPhoneScreenshotWithNothingOverItsTop() throws {
         let alice = try Peer("alice")
         let format = UIGraphicsImageRendererFormat()
@@ -221,40 +222,62 @@ final class ChatReadingTests: XCTestCase {
         let viewer = zuna.element(A11y.Chat.photoViewer)
         XCTAssertTrue(viewer.waitForExistence(timeout: 10))
 
-        try waitFor("the status bar over the picture") { !self.topIsRed() }
+        try waitFor("the status bar over a shade") { let top = self.topBand(); return top.statusBar && top.shaded }
         zuna.screenshot("63b-screenshot-preview")
         viewer.tap()
-        try waitFor("the top of the picture to show as it is") { self.topIsRed() }
+        try waitFor("the top of the picture to show as it is") { let top = self.topBand(); return top.clean && !top.statusBar }
         let close = zuna.app.buttons["Close"]
         XCTAssertFalse(close.exists && close.isHittable)
         zuna.screenshot("63c-screenshot-alone")
         viewer.tap()
-        try waitFor("the status bar to come back") { !self.topIsRed() }
+        try waitFor("the status bar and the shade to come back") { let top = self.topBand(); return top.statusBar && top.shaded }
         close.tap()
         try waitFor("the viewer to close") { !viewer.exists }
     }
 
-    /// Whether the band the status bar sits in shows only the screenshot's red top, its first hundred points.
-    private func topIsRed() -> Bool {
-        let shot = zuna.app.screenshot().image
-        let width = shot.size.width
-        return [6.0, 20, 34].allSatisfy { y in
-            stride(from: width * 0.04, through: width * 0.96, by: width / 48).allSatisfy { x in
-                let (red, green, blue) = Self.color(of: shot, at: CGPoint(x: x, y: y))
-                return red > 0.8 && green < 0.25 && blue < 0.25
-            }
-        }
+    /// What shows in the band the status bar sits in, over the screenshot's red top, its first hundred points.
+    private struct TopBand {
+        /// Only the red, as the picture has it.
+        var clean = false
+        /// The status bar's white text.
+        var statusBar = false
+        /// The red darker, under a shade.
+        var shaded = false
     }
 
-    /// One point's color in a screenshot, in sRGB from 0 to 1.
-    private static func color(of image: UIImage, at point: CGPoint) -> (CGFloat, CGFloat, CGFloat) {
-        guard let cgImage = image.cgImage else { return (0, 0, 0) }
-        var pixel = [UInt8](repeating: 0, count: 4)
-        let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
-                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        let x = (point.x * image.scale).rounded(.down), y = (point.y * image.scale).rounded(.down)
-        context?.draw(cgImage, in: CGRect(x: -x, y: y - CGFloat(cgImage.height) + 1, width: CGFloat(cgImage.width), height: CGFloat(cgImage.height)))
-        return (CGFloat(pixel[0]) / 255, CGFloat(pixel[1]) / 255, CGFloat(pixel[2]) / 255)
+    private func topBand() -> TopBand {
+        let shot = zuna.app.screenshot().image
+        guard let image = shot.cgImage else { return TopBand() }
+        let width = image.width, height = Int(40 * shot.scale)
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return TopBand() }
+        // The screenshot's top rows, the first row of memory being its first.
+        context.draw(image, in: CGRect(x: 0, y: height - image.height, width: width, height: image.height))
+        func color(_ x: Int, _ y: Int) -> (red: Double, green: Double, blue: Double) {
+            let index = (y * width + x) * 4
+            return (Double(pixels[index]) / 255, Double(pixels[index + 1]) / 255, Double(pixels[index + 2]) / 255)
+        }
+        let scale = shot.scale
+        let rows = [6.0, 20, 34].map { Int($0 * scale) }
+        let columns = stride(from: Double(width) * 0.04, through: Double(width) * 0.96, by: Double(width) / 48).map(Int.init)
+        var top = TopBand()
+        top.clean = rows.allSatisfy { y in
+            columns.allSatisfy { x in
+                let pixel = color(x, y)
+                return pixel.red > 0.8 && pixel.green < 0.25 && pixel.blue < 0.25
+            }
+        }
+        top.statusBar = (0..<height).contains { y in
+            (0..<width).contains { x in
+                let pixel = color(x, y)
+                return pixel.green > 0.7 && pixel.blue > 0.7
+            }
+        }
+        // The middle of the top, where the status bar draws nothing.
+        let middle = color(width / 2, Int(6 * scale))
+        top.shaded = middle.red < 0.7 && middle.green < 0.25 && middle.blue < 0.25
+        return top
     }
 
     func testShowsReactionsAndTogglesThemBothWays() throws {
