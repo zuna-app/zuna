@@ -35,6 +35,16 @@ An installed, signed release build updates itself as the desktop does: every six
 
 For checks without a window, `zuna.exe --core-check <method> [args as JSON...]` calls the core and prints the result (a server's session instead with `ZUNA_CHECK_SERVER` set to its ID), and `--core-eval` runs script inside it. A development build started with `ZUNA_FAKE_MIC` set hears a tone, a second on and a second off, in place of a microphone, for checking voice on a machine without one, and `RUST_LOG=zuna=debug` logs how loud each voice it decodes is.
 
+## On macOS
+
+The same app runs on Macs with Apple silicon, from macOS 14.2, as `docs/MACOS_APP_PLAN.md` lays out. It always runs as an app bundle, signed with the Mac's Apple Development identity, so that macOS asks about Zuna for the microphone, the camera and the rest, and keeps the answers from one build to the next:
+
+```bash
+npm run dev:macos
+```
+
+That bundles the core, builds FFmpeg from its pinned source the first time, builds the app and its media library (`apps/desktop/media-ffmpeg`), wraps them in "Zuna Dev.app" and starts it with `open`, keeping its data in `.dev-data/native-app`. `npm run build:macos` writes a release build to `dist/macos/Zuna.app`. GPUI compiles its Metal shaders as it builds, which needs Xcode's Metal Toolchain, downloaded once with `xcodebuild -downloadComponent MetalToolchain`. There's no installer, notarization or automatic update on macOS yet.
+
 ## What's missing
 
 A share has no browser to fall back on when the native program can't start one, so it says why instead, and the settings for sharing through a browser aren't there.
