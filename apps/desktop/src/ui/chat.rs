@@ -569,15 +569,21 @@ impl ChatView {
 
     fn on_scroll(&mut self, visible: std::ops::Range<usize>, scrolled: bool, cx: &mut Context<Self>) {
         self.at_bottom = !scrolled;
-        self.visible = visible.clone();
         let Some(conversation) = self.conversation(cx) else { return };
         let list_id = conversation.list_id();
         // Older messages, well before the top is reached.
         if visible.start < 15 {
             self.state.update(cx, |state, cx| state.load_older(&list_id, cx));
         }
-        let state = self.state.read(cx);
-        if let Some(list) = state.lists.get(&list_id) {
+        self.note_visible(visible, &list_id, cx);
+        self.refresh_messages(cx);
+        cx.notify();
+    }
+
+    /// The rows on screen, and the newest message among them, which is as far as is read away
+    /// from the newest.
+    fn note_visible(&mut self, visible: std::ops::Range<usize>, list_id: &str, cx: &gpui::App) {
+        if let Some(list) = self.state.read(cx).lists.get(list_id) {
             let newest = list.items[visible.start.min(list.items.len())..visible.end.min(list.items.len())]
                 .iter()
                 .filter(|item| !item.id.starts_with("sys-"))
@@ -585,8 +591,37 @@ impl ChatView {
                 .fold(0., f64::max);
             self.visible_newest = newest;
         }
-        self.refresh_messages(cx);
-        cx.notify();
+        self.visible = visible;
+    }
+
+    /// Where the list was laid out, which it reaches or leaves without being scrolled: sending
+    /// from older messages takes it to the newest, a quote clicked takes it up to the message
+    /// quoted, and it opens at the first unread one. The button down to the newest and what
+    /// counts as read follow that as they follow scrolling, a frame later.
+    fn settle_scroll(&mut self, cx: &mut Context<Self>) {
+        // A glide or a jump still moving says where it ends itself.
+        if self.glide.is_some() || self.center_on.is_some() {
+            return;
+        }
+        let top = -f32::from(self.list.scroll_px_offset_for_scrollbar().y);
+        let end = f32::from(self.list.max_offset_for_scrollbar().height);
+        let at_bottom = top >= end - 1.;
+        let drawn = {
+            let rows = self.row_bounds.borrow();
+            rows.keys().min().zip(rows.keys().max()).map(|(first, last)| *first..*last + 1)
+        };
+        let read_before = self.visible_newest;
+        if let Some(drawn) = drawn {
+            let list_id = self.last_list_id.clone();
+            self.note_visible(drawn, &list_id, cx);
+        }
+        if at_bottom != self.at_bottom {
+            self.at_bottom = at_bottom;
+            self.refresh_messages(cx);
+            cx.notify();
+        } else if self.visible_newest != read_before {
+            cx.notify();
+        }
     }
 
     fn mark_read(&mut self, conversation: &ConversationView, cx: &mut Context<Self>) {
@@ -1337,9 +1372,10 @@ impl ChatView {
         self.link_task = None;
         self.dismissed_link = None;
         self.composer.update(cx, |input, cx| input.set_text("", cx));
-        // At the newest, where a glide still going would pull it back from.
+        // At the newest, where a glide still going would pull it back from, and where the
+        // message sent glides in as it does when the list was already there.
         self.glide = None;
-        self.list.scroll_to(gpui::ListOffset { item_ix: self.rows.len(), offset_in_item: px(0.) });
+        self.to_newest(cx);
         self.composer.read(cx).focus(window);
     }
 
@@ -2770,6 +2806,8 @@ impl ChatView {
                     }
                 })
                 .size_full();
+                let chat = cx.entity().downgrade();
+                let settle = gpui::canvas(move |_, _, cx| cx.defer(move |cx| chat.update(cx, |view, cx| view.settle_scroll(cx)).unwrap_or(())), |_, _, _, _| {}).absolute().size_0();
                 let unread_below = if !self.at_bottom { conversation.unread as u32 } else { 0 };
                 let raised = !self.at_bottom || list.as_ref().is_some_and(|list| list.detached);
                 let mention_button = self.mention_button(&conversation, raised, cx);
@@ -2799,6 +2837,8 @@ impl ChatView {
                     }))
                     .capture_any_mouse_up(cx.listener(|view, _: &gpui::MouseUpEvent, _, cx| view.drag_end(cx)))
                     .child(rows)
+                    // After the rows are laid out, where they ended up.
+                    .child(settle)
                     .child(self.selecting_text(cx))
                     .child(scrollbar("chat-list", Scrolls::List(self.list.clone())).thin())
                     .when_some(mention_button, |el, button| el.child(button))
