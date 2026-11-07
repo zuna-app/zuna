@@ -3,7 +3,8 @@
 //! input and gives screenshots of its window over it, one line of JSON each way, so that a
 //! check can drive it with nothing asked of the system. Input goes through GPUI as the
 //! system's would, so it lands on whatever's under the pointer or has focus; screenshots are
-//! GPUI's own drawing of the window's last frame, without the system's frame around it.
+//! GPUI's own drawing of the window, without the system's frame around it. The window is drawn
+//! for each request, so this works while the system draws nothing, as with the display asleep.
 //!
 //! `{"click": [x, y], "button": "left" | "right", "count": 1}` in the window's points,
 //! `{"move": [x, y]}`, `{"key": "cmd-v"}`, `{"type": "text"}`, `{"shot": "/path.png"}`,
@@ -89,6 +90,9 @@ async fn handle(request: Value, cx: &mut AsyncApp) -> Value {
     }
     let Some(window) = cx.update(|cx| cx.windows().first().copied()) else { return error("no window") };
     let result = window.update(cx, |_, window, cx| -> Value {
+        // Drawn here first, so that where things are and what a screenshot shows are current
+        // even while macOS draws nothing, as with the display asleep or the window covered.
+        window.draw(cx).clear(cx);
         let position = |key: &str| {
             let pair = request.get(key)?.as_array()?;
             Some(point(px(pair.first()?.as_f64()? as f32), px(pair.get(1)?.as_f64()? as f32)))

@@ -87,14 +87,14 @@ export function session({ shots } = {}) {
     const pairs = { ZUNA_DATA_DIR: data, ZUNA_TEST_CONTROL: socket, RUST_LOG: process.env.RUST_LOG ?? "info", ...env };
     spawnSync("open", ["-n", "--stdout", log, "--stderr", log, ...Object.entries(pairs).flatMap(([key, value]) => ["--env", `${key}=${value}`]), app]);
     await until(() => existsSync(socket), "the app's test control", 60_000);
-    const control = await connect(socket);
+    const control = await connect(socket, name);
     control.log = () => (existsSync(log) ? readFileSync(log, "utf8") : "");
     control.data = data;
     return control;
   }
 
   /** Talks to an app's test control: `send` a request, and get its answer. */
-  async function connect(path) {
+  async function connect(path, name) {
     const socket = await until(
       () =>
         new Promise((resolve) => {
@@ -125,8 +125,12 @@ export function session({ shots } = {}) {
       core: (method, args = [], server) => send({ core: method, args, ...(server ? { server } : {}) }),
       state: async () => (await send({ state: true })).ok,
       shot: async (label) => {
+        // Drawn once and given a moment, as what just appeared is still fading in, and the
+        // system may not be drawing frames for the window at all.
+        await send({ state: true });
+        await sleep(500);
         counter += 1;
-        const file = join(shotsDir, `${String(counter).padStart(2, "0")}-${label}.png`);
+        const file = join(shotsDir, `${name}-${String(counter).padStart(2, "0")}-${label}.png`);
         const answer = await send({ shot: file });
         return answer.ok ? file : null;
       },
@@ -137,6 +141,8 @@ export function session({ shots } = {}) {
 
   function finish() {
     for (const child of started) child.kill();
+    // The run's folder goes, unless the screenshots are in it.
+    if (shots) rmSync(work, { recursive: true, force: true });
     console.log(`\nscreenshots in ${shotsDir}`);
     if (failures.length) {
       console.log(`${failures.length} failed: ${failures.join("; ")}`);
