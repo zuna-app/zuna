@@ -508,3 +508,133 @@ mod tests {
         }
     }
 }
+
+// --- Media's own playing and recording ---
+
+/// What a voice message, a sound file or a video's sound plays through, and a voice or video
+/// message records from, until it's dropped.
+#[cfg(target_os = "linux")]
+pub type MediaStream = super::pipewire::Stream;
+/// On macOS a cpal stream has to stay on the thread that made it, so it's made on one of its
+/// own, which keeps it until this is dropped.
+#[cfg(target_os = "macos")]
+pub struct MediaStream {
+    _stop: Sender<()>,
+}
+
+#[cfg(target_os = "macos")]
+fn on_own_thread(make: impl FnOnce() -> Result<cpal::Stream, String> + Send + 'static) -> Result<MediaStream, String> {
+    let (ready, started) = channel::<Result<(), String>>();
+    let (stop, stopped) = channel::<()>();
+    std::thread::Builder::new()
+        .name("zuna-media-sound".into())
+        .spawn(move || match make() {
+            Ok(stream) => {
+                ready.send(Ok(())).ok();
+                // Until the handle's dropped.
+                stopped.recv().ok();
+                drop(stream);
+            }
+            Err(error) => {
+                ready.send(Err(error)).ok();
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    started.recv().map_err(|error| error.to_string())??;
+    Ok(MediaStream { _stop: stop })
+}
+
+/// Plays stereo floats at `rate` from `fill` through the default output: PipeWire's on Linux,
+/// which converts the rate itself.
+#[cfg(target_os = "linux")]
+pub fn play_media(rate: u32, fill: impl FnMut(&mut [f32], usize) + Send + 'static) -> Option<MediaStream> {
+    super::pipewire::play("default", super::pipewire::Playing::Media, rate, fill, Arc::new(AtomicBool::new(false)))
+}
+
+/// Plays stereo floats at `rate` from `fill` through the default output: Core Audio's on macOS,
+/// at the device's own rate, which this converts to, so the output's rate is left alone.
+#[cfg(target_os = "macos")]
+pub fn play_media(rate: u32, fill: impl FnMut(&mut [f32], usize) + Send + 'static) -> Option<MediaStream> {
+    on_own_thread(move || open_media_output(rate, fill).ok_or_else(|| "no sound out".to_string())).inspect_err(|error| log::warn!("playing: {error}")).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn open_media_output(rate: u32, mut fill: impl FnMut(&mut [f32], usize) + Send + 'static) -> Option<cpal::Stream> {
+    let device = find(false, "default")?;
+    let config = device.default_output_config().ok()?;
+    let (device_rate, channels, format) = (config.sample_rate().0, config.channels() as usize, config.sample_format());
+    let config: cpal::StreamConfig = config.into();
+    let step = rate as f64 / device_rate as f64;
+    let mut pending: VecDeque<f32> = VecDeque::new();
+    let mut position = 0f64;
+    let mut chunk: Vec<f32> = Vec::new();
+    let mut produce = move |out: &mut dyn FnMut(usize, f32), frames: usize| {
+        // Enough of the clip's frames to cover this many at the device's rate, and one beyond for interpolating.
+        let needed = ((position + frames as f64 * step).ceil() as usize + 2).saturating_sub(pending.len() / 2);
+        if needed > 0 {
+            chunk.clear();
+            chunk.resize(needed * 2, 0.);
+            fill(&mut chunk, needed);
+            pending.extend(chunk.iter());
+        }
+        for frame in 0..frames {
+            let at = position as usize;
+            let fraction = (position - at as f64) as f32;
+            let sample = |index: usize, channel: usize| pending.get(index * 2 + channel).copied().unwrap_or(0.);
+            let left = sample(at, 0) + (sample(at + 1, 0) - sample(at, 0)) * fraction;
+            let right = sample(at, 1) + (sample(at + 1, 1) - sample(at, 1)) * fraction;
+            for channel in 0..channels {
+                out(frame * channels + channel, match (channels, channel) {
+                    (1, _) => (left + right) * 0.5,
+                    (_, 0) => left,
+                    (_, 1) => right,
+                    _ => 0.,
+                });
+            }
+            position += step;
+        }
+        let used = position as usize;
+        let drop = (used * 2).min(pending.len());
+        pending.drain(..drop);
+        position -= used as f64;
+    };
+    let error = |error| log::warn!("playing: {error}");
+    let stream = match format {
+        cpal::SampleFormat::F32 => device.build_output_stream(&config, move |data: &mut [f32], _| {
+            let frames = data.len() / channels;
+            produce(&mut |index, value| data[index] = value, frames);
+        }, error, None),
+        cpal::SampleFormat::I16 => device.build_output_stream(&config, move |data: &mut [i16], _| {
+            let frames = data.len() / channels;
+            produce(&mut |index, value| data[index] = (value.clamp(-1., 1.) * 32767.) as i16, frames);
+        }, error, None),
+        _ => return None,
+    }
+    .ok()?;
+    stream.play().ok()?;
+    Some(stream)
+}
+
+/// Records one channel at 48 kHz from the default microphone, handing what's heard to `take`.
+#[cfg(target_os = "linux")]
+pub fn record_media(take: impl FnMut(&[f32]) + Send + 'static) -> Result<MediaStream, String> {
+    super::pipewire::record("default", take, Arc::new(AtomicBool::new(false))).map_err(|_| "There's no microphone Zuna can use.".to_string())
+}
+
+/// Records one channel at 48 kHz from the default microphone, handing what's heard to `take`,
+/// as voice reads it, 10 ms at a time.
+#[cfg(target_os = "macos")]
+pub fn record_media(mut take: impl FnMut(&[f32]) + Send + 'static) -> Result<MediaStream, String> {
+    let (frames, heard) = channel::<Vec<f32>>();
+    let stream = on_own_thread(move || open_input("default", frames, Arc::new(AtomicBool::new(false))))?;
+    // Ends as the stream is dropped, and with it what it sends through.
+    std::thread::Builder::new()
+        .name("zuna-recording".into())
+        .spawn(move || {
+            while let Ok(frame) = heard.recv() {
+                take(&frame);
+            }
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(stream)
+}

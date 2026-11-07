@@ -74,12 +74,13 @@ ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
 pipewire = { version = "0.10", features = ["v0_3_49"] }
 # Cameras, read through V4L2 as Chromium reads them.
 v4l = "0.14"
-# Media: reading and writing voice and video messages, videos and sound files, through the
-# FFmpeg the repository pins for the screen capture (FFMPEG_DIR in .cargo/config.toml).
-ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 libc = "0.2"
+# Media: reading and writing voice and video messages, videos and sound files, through the
+# FFmpeg the repository pins for the screen capture (FFMPEG_DIR in .cargo/config.toml). On
+# macOS the same code is built into a library of its own (media-ffmpeg).
+ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
 
 # Notifications' initials on Linux and macOS, drawn with the resvg GPUI already has.
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
@@ -143,6 +144,8 @@ objc2-screen-capture-kit = { version = "0.3", features = ["SCContentSharingPicke
 objc2-core-location = { version = "0.3", features = ["CLLocation", "CLLocationManager", "CLLocationManagerDelegate", "CLError"] }
 block2 = "0.6"
 security-framework = "3"
+# The media library, loaded as the app needs it.
+libloading = "0.8"
 
 [build-dependencies]
 # The app's icon, compiled into the exe as Windows expects.

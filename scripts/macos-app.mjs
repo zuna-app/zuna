@@ -18,9 +18,10 @@
 // puts it elsewhere. --test-control builds in the checks' socket (src/test_control.rs).
 
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { ensureFfmpeg } from "./ffmpeg.mjs";
 import { devNativeAppData, env, root } from "./lib.mjs";
 
 if (process.platform !== "darwin") {
@@ -93,7 +94,7 @@ function plist(value, indent = "") {
 }
 
 /** Wraps the program in an app bundle, with the screen capture beside it once it's built, and signs it. */
-function bundle(program, out, { name, id }) {
+function bundle(program, media, out, { name, id }) {
   const app = join(out, `${name}.app`);
   rmSync(app, { recursive: true, force: true });
   const macos = join(app, "Contents", "MacOS");
@@ -104,6 +105,12 @@ function bundle(program, out, { name, id }) {
   chmodSync(join(macos, "zuna"), 0o755);
   const screenshare = join(root, "apps", "screenshare", "dist", "zuna-screenshare");
   if (existsSync(screenshare)) copyFileSync(screenshare, join(macos, "zuna-screenshare"));
+  // The media library and FFmpeg's libraries, which name each other through @rpath.
+  const frameworks = join(app, "Contents", "Frameworks");
+  mkdirSync(frameworks, { recursive: true });
+  const libraries = join(ffmpeg, "lib");
+  const linked = [...readdirSync(libraries).filter((name) => /^lib(avcodec|avformat|avutil|swresample|swscale)\.\d+\.dylib$/.test(name)), "libzuna_media_ffmpeg.dylib"];
+  for (const name of linked) copyFileSync(name.startsWith("libzuna") ? media : join(libraries, name), join(frameworks, name));
   icns(resources);
   // The notification sound, which macOS plays with a notification, from the program's own tones.
   const sound = spawnSync(program, ["--write-notification-sound", join(resources, "notification.wav")], { stdio: "inherit" });
@@ -144,12 +151,16 @@ function bundle(program, out, { name, id }) {
     if (signed.status !== 0) throw new Error(`codesign couldn't sign ${path}`);
   };
   // What's inside first, then the bundle, which seals them.
+  for (const name of linked) sign(join(frameworks, name));
   if (existsSync(join(macos, "zuna-screenshare"))) sign(join(macos, "zuna-screenshare"));
   sign(app);
   return app;
 }
 
 checkMetal();
+// The FFmpeg the app's media links to (FFMPEG_DIR in apps/desktop/.cargo/config.toml), built
+// from its pinned source the first time.
+const ffmpeg = await ensureFfmpeg(join(root, "apps", "screenshare", ".deps"));
 const built = spawnSync(process.execPath, [join(crate, "core-bundle", "build.mjs")], { stdio: "inherit", env, cwd: root });
 if (built.status !== 0) process.exit(built.status ?? 1);
 
@@ -157,17 +168,21 @@ const cargo = ["build", ...(release ? ["--release"] : []), ...(testControl ? ["-
 const result = spawnSync("cargo", cargo, { stdio: "inherit", cwd: crate, env: { ...env, CARGO_TARGET_DIR: target, ZUNA_VERSION: version } });
 if (result.status !== 0) process.exit(result.status ?? 1);
 const program = join(target, release ? "release" : "debug", "zuna");
+// The app's media through FFmpeg, as a library of its own (apps/desktop/media-ffmpeg).
+const mediaBuilt = spawnSync("cargo", ["build", ...(release ? ["--release"] : [])], { stdio: "inherit", cwd: join(crate, "media-ffmpeg"), env: { ...env, CARGO_TARGET_DIR: target } });
+if (mediaBuilt.status !== 0) process.exit(mediaBuilt.status ?? 1);
+const media = join(target, release ? "release" : "debug", "libzuna_media_ffmpeg.dylib");
 
 if (command === "build") {
   const dist = join(root, "dist", "macos");
   mkdirSync(dist, { recursive: true });
-  const app = bundle(program, dist, { name: "Zuna", id: "chat.zuna.desktop" });
+  const app = bundle(program, media, dist, { name: "Zuna", id: "chat.zuna.desktop" });
   console.log(`> wrote ${app}`);
 } else if (command === "bundle") {
-  const app = bundle(program, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
+  const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
   console.log(`> wrote ${app}`);
 } else {
-  const app = bundle(program, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
+  const app = bundle(program, media, join(target, release ? "release" : "debug"), { name: "Zuna Dev", id: "chat.zuna.desktop.dev" });
   const log = join(target, "zuna-dev.log");
   writeFileSync(log, "");
   const dataDir = process.env.ZUNA_DATA_DIR ?? devNativeAppData;

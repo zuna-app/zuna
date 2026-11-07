@@ -141,8 +141,10 @@ export function session({ shots } = {}) {
 
   function finish() {
     for (const child of started) child.kill();
-    // The run's folder goes, unless the screenshots are in it.
-    if (shots) rmSync(work, { recursive: true, force: true });
+    // The run's folder goes, unless the screenshots are in it or something failed, when its
+    // logs are worth reading.
+    if (shots && !failures.length) rmSync(work, { recursive: true, force: true });
+    if (failures.length) console.log(`logs in ${work}`);
     console.log(`\nscreenshots in ${shotsDir}`);
     if (failures.length) {
       console.log(`${failures.length} failed: ${failures.join("; ")}`);

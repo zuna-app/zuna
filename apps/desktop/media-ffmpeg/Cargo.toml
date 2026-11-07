@@ -1,0 +1,23 @@
+[package]
+name = "zuna-media-ffmpeg"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+description = "The native app's media through FFmpeg, as a library of its own on macOS."
+publish = false
+
+# On macOS the app's media goes through FFmpeg from a library of its own, which the app loads:
+# libwebrtc, linked into the app for LiveKit, carries Chromium's own copy of FFmpeg, whose
+# symbols the linker would otherwise take for the app's calls. Linked apart, this library's
+# calls can only reach the FFmpeg it was linked to. The sources are the app's own, in
+# ../src/media/ffmpeg, which Linux builds into the app as they are.
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+ffmpeg-next = { version = "9", default-features = false, features = ["codec", "format", "software-resampling", "software-scaling"] }
+
+[profile.dev]
+opt-level = 2

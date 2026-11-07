@@ -187,8 +187,10 @@ impl VideoFrames {
 mod tests {
     use super::*;
 
+    /// The iPhone's fixtures, from the app's crate, or from macOS's media library beside it.
     fn fixture(name: &str) -> std::path::PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../ios/ZunaKit/Tests/ZunaHostTests/Fixtures").join(name)
+        let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        ["../ios", "../../ios"].iter().map(|apps| crate_dir.join(apps).join("ZunaKit/Tests/ZunaHostTests/Fixtures").join(name)).find(|path| path.exists()).unwrap_or_default()
     }
 
     #[test]

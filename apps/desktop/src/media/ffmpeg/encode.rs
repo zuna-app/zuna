@@ -100,6 +100,12 @@ pub fn write_voice(path: &Path, samples: &[i16]) -> Result<(), String> {
     output.write_trailer().map_err(text)
 }
 
+/// H.264 for a video message: OpenH264 in software on Linux, and VideoToolbox on the GPU on macOS.
+#[cfg(target_os = "linux")]
+const H264_ENCODER: &str = "libopenh264";
+#[cfg(target_os = "macos")]
+const H264_ENCODER: &str = "h264_videotoolbox";
+
 /// A video message being written: square frames of ROUND_SIZE, BGRA, at ROUND_FPS, and the
 /// sound beside them.
 pub struct RoundWriter {
@@ -115,7 +121,7 @@ impl RoundWriter {
     pub fn create(path: &Path) -> Result<RoundWriter, String> {
         init();
         let mut output = ffmpeg::format::output_as(path, "mp4").map_err(text)?;
-        let codec = encoder::find_by_name("libopenh264").ok_or("There's no H.264 encoder.")?;
+        let codec = encoder::find_by_name(H264_ENCODER).ok_or("There's no H.264 encoder.")?;
         let global = output.format().flags().contains(ffmpeg::format::Flags::GLOBAL_HEADER);
         let mut stream = output.add_stream(codec).map_err(text)?;
         let mut context = codec::Context::new_with_codec(codec).encoder().video().map_err(text)?;
@@ -131,8 +137,13 @@ impl RoundWriter {
             context.set_flags(codec::Flags::GLOBAL_HEADER);
         }
         // Constrained Baseline, which OpenH264 writes unless told otherwise, and everything
-        // plays, as the desktop's avc1.42E01E is.
-        let video = context.open_as(codec).map_err(text)?;
+        // plays, as the desktop's avc1.42E01E is. VideoToolbox is told so, in hardware.
+        let mut options = ffmpeg::Dictionary::new();
+        if cfg!(target_os = "macos") {
+            options.set("profile", "constrained_baseline");
+            options.set("allow_sw", "0");
+        }
+        let video = context.open_as_with(codec, options).map_err(text)?;
         stream.set_parameters(&video);
         stream.set_time_base(Rational::new(1, ROUND_FPS as i32));
         let video_stream = stream.index();

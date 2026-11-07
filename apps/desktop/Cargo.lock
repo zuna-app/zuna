@@ -10779,6 +10779,7 @@ dependencies = [
  "image",
  "ksni",
  "libc",
+ "libloading",
  "livekit",
  "log",
  "nnnoiseless",

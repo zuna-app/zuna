@@ -1,12 +1,13 @@
 //! Playing sound: one voice message, sound file or video's sound at a time, as the
-//! desktop's `playOnly` keeps it, through PipeWire's default output at the clip's own rate.
+//! desktop's `playOnly` keeps it, through the default output at the clip's own rate, PipeWire's
+//! on Linux and Core Audio's on macOS (`audio::play_media`).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use parking_lot::Mutex;
 
-use crate::voice::pipewire::{self, Playing as Kind};
+use crate::voice::audio::{self, MediaStream};
 pub use crate::media::Clip;
 
 struct Playing {
@@ -16,7 +17,7 @@ struct Playing {
     at: Arc<AtomicUsize>,
     paused: Arc<AtomicBool>,
     done: Arc<AtomicBool>,
-    _stream: pipewire::Stream,
+    _stream: MediaStream,
 }
 
 static PLAYING: Mutex<Option<Playing>> = Mutex::new(None);
@@ -48,7 +49,7 @@ pub fn play(key: &str, clip: &Clip, from: f64) {
             }
         }
     };
-    let Some(stream) = pipewire::play("default", Kind::Media, clip.rate, fill, Arc::new(AtomicBool::new(false))) else {
+    let Some(stream) = audio::play_media(clip.rate, fill) else {
         log::warn!("no sound out");
         return;
     };

@@ -4,14 +4,19 @@
 // the tone needs no microphone, and playing needs no permission.
 //
 //   node apps/desktop/test/mac-voice-check.mjs [screenshot-dir]
+//
+// It also shares a screen, with moving bars in place of one past macOS's picker, which the
+// guest decodes with VideoToolbox and draws from the GPU, and sends voice and video messages
+// from the desktop's fixtures, which the owner reads and plays through the media library.
 
 import { spawn } from "node:child_process";
+import { copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { build, root, session, sleep, until } from "./mac-session.mjs";
 import { LIVEKIT_CONFIG, ensureLiveKit } from "../../../scripts/lib.mjs";
 
 const { server: serverBinary } = build();
-const { check, start, startServer, startApp, finish } = session({ shots: process.argv[2] });
+const { work, check, start, startServer, startApp, finish } = session({ shots: process.argv[2] });
 
 /** A LiveKit of its own on ports nothing else here takes, as the test server's media server. */
 function startLiveKit() {
@@ -115,7 +120,7 @@ try {
   await first.click(855, 795);
   await sleep(1200);
   await first.shot("screen-picker");
-  await first.click(904, 674);
+  await first.click(904, 724);
   const shared = await until(() => /screen share publishing from this connection/.test(first.log()), "the owner's share to go out", 30_000).catch(() => false);
   check("a screen is shared from the app's own connection", shared, first.log().split("\n").filter((line) => /screen/i.test(line)).slice(-3).join(" | "));
   const onGpu = await until(() => /video: decoded on the GPU at (\d+)×(\d+)/.exec(second.log()), "the guest to decode the share", 30_000).catch(() => null);
@@ -156,6 +161,28 @@ try {
   await first.click(991, 418);
   await sleep(2000);
   await second.shot("call-ended");
+
+  // --- Voice and video messages, read and played through FFmpeg from the media library ---
+  const ownerId = servers[0].userId;
+  // Each client has its own ID for the same server.
+  const guestServerId = ((await second.core("listServers")).ok ?? [])[0]?.id;
+  // Copied out of the checkout first: macOS asks the person before an app reads anything in
+  // Desktop or Documents, where a checkout often is, and the read waits for the answer.
+  const fixtures = join(root, "apps", "ios", "ZunaKit", "Tests", "ZunaHostTests", "Fixtures");
+  const file = (name, mime) => {
+    copyFileSync(join(fixtures, name), join(work, name));
+    return { $file: { path: join(work, name), type: mime } };
+  };
+  const voice = await second.core("sendWithAttachments", [`user:${ownerId}`, [{ blob: file("chromium-opus.m4a", "audio/mp4"), name: "Voice message.m4a", mime: "audio/mp4", duration: 3, voice: true }], {}], guestServerId);
+  check("the guest sends a voice message", !!voice.ok, JSON.stringify(voice).slice(0, 200));
+  const round = await second.core("sendWithAttachments", [`user:${ownerId}`, [{ blob: file("chromium-round.mp4", "video/mp4"), name: "Video message.mp4", mime: "video/mp4", width: 480, height: 480, duration: 3, round: true }], {}], guestServerId);
+  check("the guest sends a video message", !!round.ok, JSON.stringify(round).slice(0, 200));
+  await sleep(4000);
+  await first.shot("messages");
+  // Playing the voice message: decoded by FFmpeg in the media library, played through Core Audio.
+  await first.click(430, 460);
+  await sleep(1800);
+  await first.shot("voice-playing");
 } catch (error) {
   check("the check ran to its end", false, error.message);
 } finally {

@@ -1,20 +1,27 @@
 //! Recording from the microphone and the camera, for voice and video messages
-//! (VoiceRecorder in lib/voice.ts and RoundRecorder in lib/round.ts). The microphone is
-//! PipeWire's default, read at 48 kHz in one channel, as voice reads its own.
+//! (VoiceRecorder in lib/voice.ts and RoundRecorder in lib/round.ts). The microphone is the
+//! system's default, read at 48 kHz in one channel, as voice reads its own: PipeWire's on Linux
+//! and Core Audio's on macOS (`audio::record_media`), and cameras through V4L2 on Linux and
+//! AVFoundation on macOS.
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 use parking_lot::Mutex;
 
-use crate::voice::pipewire;
+use crate::voice::audio::{self, MediaStream};
 pub use crate::media::camera::Camera;
 pub use crate::media::round::RoundRecorder;
 pub use crate::media::{MAX_ROUND_SECONDS, RATE, encode_waveform};
 
+#[cfg(target_os = "linux")]
 pub use super::v4l2::cameras;
+#[cfg(target_os = "linux")]
 pub(crate) use super::v4l2::open;
+#[cfg(target_os = "macos")]
+pub use crate::media::apple::camera::cameras;
+#[cfg(target_os = "macos")]
+pub(crate) use crate::media::apple::camera::open;
 
 /// What's been heard so far: the samples, and a loudness from 0 to 1 every 50 ms.
 #[derive(Default)]
@@ -32,7 +39,7 @@ const CHUNK: usize = RATE as usize / 20;
 /// The microphone, recording until it's stopped.
 pub struct Microphone {
     heard: Arc<Mutex<Heard>>,
-    stream: Option<pipewire::Stream>,
+    stream: Option<MediaStream>,
     started: Instant,
 }
 
@@ -56,7 +63,7 @@ impl Microphone {
                 }
             }
         };
-        let stream = pipewire::record("default", take, Arc::new(AtomicBool::new(false))).map_err(|_| "There's no microphone Zuna can use.".to_string())?;
+        let stream = audio::record_media(take)?;
         Ok(Microphone { heard, stream: Some(stream), started: Instant::now() })
     }
 

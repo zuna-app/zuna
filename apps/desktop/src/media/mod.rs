@@ -1,6 +1,6 @@
 //! Pictures made on this device before they're sent: profile and group pictures. And sound
 //! and video, read, written, recorded and played through the system's own media on Windows,
-//! and through FFmpeg on Linux, each with the same functions.
+//! and through FFmpeg on Linux and macOS, each with the same functions.
 
 pub mod camera;
 pub mod round;
@@ -9,17 +9,13 @@ mod windows;
 #[cfg(windows)]
 pub use self::windows::{encode, mf, player, record};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod ffmpeg;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use self::ffmpeg::{encode, mf, player, record};
 
 #[cfg(target_os = "macos")]
 mod apple;
-#[cfg(target_os = "macos")]
-mod pending;
-#[cfg(target_os = "macos")]
-pub use self::pending::{encode, mf, player, record};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
