@@ -109,6 +109,36 @@ try {
   check("in a voice channel, each hears the other's tone", heard, `owner ${loudest(first)}, guest ${loudest(second)}`);
   await first.shot("voice");
   await second.shot("voice");
+
+  // --- Leaving, and the devices Core Audio lists ---
+  await first.click(1017, 795);
+  await second.click(1017, 795);
+  await sleep(1500);
+  await first.key("cmd-,");
+  await sleep(600);
+  await first.click(99, 206);
+  await sleep(800);
+  await first.shot("voice-settings");
+  await first.click(1247, 63);
+  await sleep(600);
+  await first.shot("left");
+
+  // --- A call in a direct message ---
+  const heardBefore = { first: first.log().length, second: second.log().length };
+  await first.click(168, 279);
+  await sleep(1500);
+  await first.click(1117, 57);
+  await sleep(3000);
+  await first.shot("calling");
+  await second.shot("ringing");
+  await second.click(796, 81);
+  const since = (app, from) => Math.max(0, ...[...app.log().slice(from).matchAll(/voice: \S+ peaks at ([0-9.]+)/g)].map((match) => Number(match[1])));
+  const talking = await until(() => since(first, heardBefore.first) > 0.1 && since(second, heardBefore.second) > 0.1, "each to hear the other in the call", 45_000).catch(() => false);
+  check("a call is answered, and each hears the other", talking, `owner ${since(first, heardBefore.first)}, guest ${since(second, heardBefore.second)}`);
+  await first.shot("in-call");
+  await first.click(991, 418);
+  await sleep(2000);
+  await second.shot("call-ended");
 } catch (error) {
   check("the check ran to its end", false, error.message);
 } finally {
