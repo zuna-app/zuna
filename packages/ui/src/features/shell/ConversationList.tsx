@@ -34,6 +34,7 @@ import { refocusComposer } from "@/lib/focus";
 import { timerText } from "@/lib/disappearing";
 import { formatListTime } from "@/lib/format";
 import { muteEntries } from "@/lib/mute";
+import { ReadTicks, readUpToOf } from "@/features/chat/MessageItem";
 import { ChannelSections } from "@/features/voice/ChannelList";
 import { platform } from "@/platform";
 import { useActiveServer, useApp } from "@/state/store";
@@ -65,6 +66,12 @@ function previewFor(message: MessageView | null, users: Record<string, UserView>
   return author ? `${author}: ${body}` : body;
 }
 
+/** The last message is one you sent, to someone who can read it, so it shows its ticks as in Telegram. Notes to yourself never get read. */
+function ownLast(item: ConversationView, selfId: string): boolean {
+  const message = item.lastMessage;
+  return !!message && message.senderId === selfId && !message.system && message.deletedAt === null && item.peerId !== selfId;
+}
+
 const ConversationRow = memo(function ConversationRow({
   item,
   active,
@@ -72,6 +79,7 @@ const ConversationRow = memo(function ConversationRow({
   typing,
   call,
   preview,
+  readUpTo,
   isSaved,
   onSelect,
   onMenu,
@@ -83,6 +91,8 @@ const ConversationRow = memo(function ConversationRow({
   /** A call is going on in it. */
   call: boolean;
   preview: string;
+  /** How far the others have read, when the last message is your own, for its ticks; null shows none. */
+  readUpTo: number | null;
   isSaved: boolean;
   onSelect: (key: string) => void;
   onMenu: (event: React.MouseEvent, item: ConversationView) => void;
@@ -113,6 +123,11 @@ const ConversationRow = memo(function ConversationRow({
             {item.muted && <BellOff size={12} className="conv-muted" />}
             {item.blocked && <Ban size={12} className="conv-muted" aria-label="Blocked" />}
           </span>
+          {readUpTo !== null && item.lastMessage && (
+            <span className="conv-ticks">
+              <ReadTicks message={item.lastMessage} readUpTo={readUpTo} />
+            </span>
+          )}
           <span className="conv-time">{formatListTime(item.lastMessage?.createdAt ?? 0)}</span>
         </span>
         <span className="conv-line">
@@ -302,6 +317,7 @@ export function ConversationList() {
         typing={!!item.groupId && Object.keys(server.typing[item.groupId] ?? {}).length > 0}
         call={!!item.groupId && !!server.calls[item.groupId]}
         preview={previewFor(item.lastMessage, users, selfId, item.kind)}
+        readUpTo={ownLast(item, selfId) ? readUpToOf(item, selfId) : null}
         isSaved={item.peerId === selfId}
         onSelect={selectConversation}
         onMenu={(event, target) => {

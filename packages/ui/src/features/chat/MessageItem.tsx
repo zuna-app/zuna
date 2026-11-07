@@ -1,4 +1,4 @@
-import type { Attachment, EmoteRef, LinkPreview, MessageView, ReactionView, SharedLocation, UserView } from "@zuna/core";
+import type { Attachment, ConversationView, EmoteRef, LinkPreview, MessageView, ReactionView, SharedLocation, UserView } from "@zuna/core";
 import {
   AlertCircle,
   ArrowRight,
@@ -515,7 +515,13 @@ function Ticks({ read }: { read: boolean }) {
   );
 }
 
-function ReadTicks({ message, readUpTo }: { message: MessageView; readUpTo: number }) {
+/** How far anyone else has read here, for the ticks, or -1 where nobody's reading is known, as in a channel. */
+export function readUpToOf(conversation: ConversationView, selfId: string): number {
+  if (conversation.kind === "channel") return -1;
+  return Object.entries(conversation.readBy).reduce((highest, [id, seq]) => (id === selfId ? highest : Math.max(highest, seq)), 0);
+}
+
+export function ReadTicks({ message, readUpTo }: { message: MessageView; readUpTo: number }) {
   if (message.status === "sending") return <Clock size={11} className="msg-tick is-sending" />;
   if (message.status === "failed") return <AlertCircle size={12} className="msg-tick is-failed" />;
   // Below zero means nobody's reading is known here, as in a channel.

@@ -2493,11 +2493,7 @@ impl ChatView {
         let server = state.servers.get(&self.server_id)?;
         let list = state.lists.get(&conversation.list_id())?;
         let self_id = server.self_id().to_string();
-        let read_up_to = if conversation.kind == "channel" {
-            -1.
-        } else {
-            conversation.read_by.iter().filter(|(id, _)| **id != self_id).map(|(_, seq)| *seq).fold(0., f64::max)
-        };
+        let read_up_to = conversation.read_up_to(&self_id);
         let is_group_admin = conversation.members.iter().any(|member| member.user_id == self_id && member.role == "admin");
         let items = &list.items;
         let selection = state.selection.clone().filter(|(list, _)| *list == conversation.list_id());

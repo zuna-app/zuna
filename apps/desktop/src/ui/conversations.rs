@@ -13,12 +13,13 @@ use serde_json::json;
 use super::components::*;
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::menu::{MenuEntry, open_menu};
+use super::motion::{Enter, Motion};
 use super::text_input::{InputEvent, TextInput};
 use crate::format::format_list_time;
 use crate::markup::plain_text;
 use crate::models::{ChannelView, ConversationView, MessageView, SearchResult, UserView, VoiceMember};
 use crate::state::{AppState, Overlay, ServerState};
-use crate::theme::{RADIUS_M, RADIUS_S};
+use crate::theme::{Theme, RADIUS_M, RADIUS_S};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Filter {
@@ -152,7 +153,7 @@ impl ConversationList {
         }));
     }
 
-    fn row(&self, item: &ConversationView, server: &ServerState, cx: &mut Context<Self>) -> AnyElement {
+    fn row(&self, item: &ConversationView, server: &ServerState, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let theme = theme(cx);
         let active = server.active_key.as_deref() == Some(item.key.as_str());
         let self_id = server.self_id().to_string();
@@ -257,6 +258,11 @@ impl ConversationList {
         } else if item.marked_unread {
             second = second.child(badge(String::new(), item.muted));
         }
+        let mut first = div().flex().items_center().gap(px(6.)).min_h(px(20.)).child(title);
+        if let Some(ticks) = ticks_element(item, &self_id, &theme, window) {
+            first = first.child(div().flex_none().w(px(18.)).h(px(14.)).mr(px(-3.)).flex().items_center().justify_center().child(ticks));
+        }
+        first = first.child(div().flex_none().text_size(px(11.5)).text_color(theme.text3).child(format_list_time(item.last_message.as_ref().map(|m| m.created_at).unwrap_or(0.))));
         let key = item.key.clone();
         let state = self.state.clone();
         let menu_item = item.clone();
@@ -285,18 +291,41 @@ impl ConversationList {
                     .flex()
                     .flex_col()
                     .gap(px(1.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .min_h(px(20.))
-                            .child(title)
-                            .child(div().flex_none().text_size(px(11.5)).text_color(theme.text3).child(format_list_time(item.last_message.as_ref().map(|m| m.created_at).unwrap_or(0.)))),
-                    )
+                    .child(first)
                     .child(second),
             )
             .into_any_element()
+    }
+}
+
+/// The last message's ticks beside its time, as in Telegram, when it's one you sent to someone who
+/// can read it: as `meta_element` draws them in its bubble. Notes to yourself never get read.
+fn ticks_element(item: &ConversationView, self_id: &str, theme: &Theme, window: &mut Window) -> Option<AnyElement> {
+    let message = item.last_message.as_ref()?;
+    if message.sender_id != self_id || message.system.is_some() || message.deleted_at.is_some() || item.peer_id.as_deref() == Some(self_id) {
+        return None;
+    }
+    let read_up_to = item.read_up_to(self_id);
+    let ticks = |read: bool| {
+        gpui::svg()
+            .path(if read { "icons/ticks-read.svg" } else { "icons/ticks-sent.svg" })
+            .w(px(18.))
+            .h(px(10.))
+            .text_color(if read { theme.accent_text } else { theme.text3 })
+            .into_any_element()
+    };
+    match message.status.as_str() {
+        "sending" if read_up_to >= 0. && crate::format::now_ms() - message.created_at < super::message::SLOW_SEND_MS => {
+            // Drawn again to show the clock if it's still sending by then.
+            window.request_animation_frame();
+            Some(ticks(false))
+        }
+        "sending" => Some(icon("clock", 11., theme.text3).enter(SharedString::from(format!("conv-tick-sending-{}", message.id)), Enter::Fade, 120).into_any_element()),
+        "failed" => Some(icon("circle-alert", 12., theme.red).into_any_element()),
+        _ => match message.seq {
+            Some(seq) if read_up_to >= 0. => Some(ticks(read_up_to >= seq)),
+            _ => None,
+        },
     }
 }
 
@@ -501,7 +530,7 @@ impl Render for ConversationList {
         // A row moving when the order changes slides to its new place, as the desktop's do.
         let list_scroll = super::scrollbar::scroll_handle("conv-list");
         for item in &visible {
-            rows.push(super::motion::sliding(format!("conv-{}", item.key), list_scroll.clone(), self.row(item, &server, cx)).into_any_element());
+            rows.push(super::motion::sliding(format!("conv-{}", item.key), list_scroll.clone(), self.row(item, &server, window, cx)).into_any_element());
         }
         if !self.hits.is_empty() {
             rows.push(div().text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).px(px(14.)).py(px(6.)).mt(px(6.)).child("Messages").into_any_element());
@@ -622,7 +651,7 @@ impl Render for ConversationList {
             );
             if open {
                 for item in &hidden {
-                    rows.push(self.row(item, &server, cx));
+                    rows.push(self.row(item, &server, window, cx));
                 }
             }
         }

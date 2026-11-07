@@ -280,6 +280,14 @@ impl ConversationView {
     pub fn list_id(&self) -> String {
         self.group_id.clone().unwrap_or_else(|| format!("pending:{}", self.key))
     }
+
+    /// How far anyone else has read here, for the ticks, or -1 where nobody's reading is known, as in a channel.
+    pub fn read_up_to(&self, self_id: &str) -> f64 {
+        if self.kind == "channel" {
+            return -1.;
+        }
+        self.read_by.iter().filter(|(id, _)| *id != self_id).map(|(_, seq)| *seq).fold(0., f64::max)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Default, PartialEq)]

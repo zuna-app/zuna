@@ -222,6 +222,21 @@ try {
   const played = await listening;
   check("a voice message the desktop recorded plays here, through PipeWire", played > 0.05, `peak ${played.toFixed(3)}`);
 
+  // --- The ticks of your own last message in the list: one when sent, two once read ---
+  peer.stdin.write(`${JSON.stringify({ quiet: true })}\n`);
+  await drive({ do: "click", x: 860, y: 875 });
+  const unanswered = "This one waits to be read";
+  await drive({ do: "type", text: unanswered });
+  await drive({ do: "key", key: "enter" });
+  check("a message the other person doesn't answer reaches them", !!(await until(() => heard.find((line) => line.received === unanswered), "the message", 15_000).catch(() => null)));
+  await sleep(1500);
+  await shot("10e-list-sent");
+  peer.stdin.write(`${JSON.stringify({ read: true })}\n`);
+  check("the other person reads the chat", !!(await until(() => heard.find((line) => line.read), "the reading", 15_000).catch(() => null)));
+  await sleep(1500);
+  await shot("10f-list-read");
+  peer.stdin.write(`${JSON.stringify({ quiet: false })}\n`);
+
   // --- Notifications and the badge, with another chat open ---
   await drive({ do: "click", x: 237, y: 311 });
   await sleep(800);

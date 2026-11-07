@@ -6,7 +6,7 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { Spinner } from "@/components/ui";
 import { formatDate, formatDaySeparator, formatTime, sameDay } from "@/lib/format";
 import { isUnread, useApp } from "@/state/store";
-import { MessageItem } from "./MessageItem";
+import { MessageItem, readUpToOf } from "./MessageItem";
 import { useDragPick } from "./use-drag-pick";
 
 function UndisplayableMessage() {
@@ -170,10 +170,7 @@ export function MessageList({
   const isGroup = conversation.kind !== "dm";
   const isChannel = conversation.kind === "channel";
   const isAdmin = conversation.members.find((member) => member.userId === selfId)?.role === "admin";
-  const readUpTo = useMemo(
-    () => (conversation.kind === "channel" ? -1 : Object.entries(conversation.readBy).reduce((highest, [id, seq]) => (id === selfId ? highest : Math.max(highest, seq)), 0)),
-    [conversation.kind, conversation.readBy, selfId],
-  );
+  const readUpTo = useMemo(() => readUpToOf(conversation, selfId), [conversation.kind, conversation.readBy, selfId]);
 
   // Only messages arriving at the end while the chat is open animate in, so older
   // pages, a jump or going back to the newest messages never replay anything.

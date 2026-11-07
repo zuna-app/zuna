@@ -576,7 +576,7 @@ fn render_message(message: &MessageView, grouped: bool, last_in_group: bool, con
 
 /// How long a message can take to send before it's shown as waiting, with the clock in place of
 /// its tick: as long as its bubble waits to dim.
-const SLOW_SEND_MS: f64 = 500.;
+pub const SLOW_SEND_MS: f64 = 500.;
 
 fn meta_element(message: &MessageView, own: bool, is_deleted: bool, read_up_to: f64, color: Hsla, overlay: bool, theme: &Theme, window: &mut Window) -> gpui::Div {
     let color = if overlay { gpui::white() } else { color };
