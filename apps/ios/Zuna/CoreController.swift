@@ -153,11 +153,12 @@ final class CoreController {
         awake = true
         self.runtime = runtime
         // Events arrive on the core's queue and are applied on the main actor in the order they were sent.
-        let (events, continuation) = AsyncStream.makeStream(of: CoreEvent.self)
-        let connection = CoreConnection(runtime: runtime) { continuation.yield($0) }
+        let inbox = EventInbox()
+        let connection = CoreConnection(runtime: runtime) { inbox.add($0) }
         let model = AppModel(core: connection)
-        Task {
-            for await event in events { model.handle(event) }
+        // Before anything is delivered, which happens on the main actor once this one waits.
+        inbox.deliver = { events in
+            for event in events { model.handle(event) }
         }
         await model.load()
         if let pendingLink {
@@ -578,4 +579,29 @@ final class CoreController {
         }
     }
     #endif
+}
+
+/// The core's events, handed to the main actor in batches: all that arrived
+/// since it last took them, so a burst, as when catching up after a while on
+/// another device, is drawn once and not once a message.
+private final class EventInbox: @unchecked Sendable {
+    /// Set once, and only used, on the main actor.
+    nonisolated(unsafe) var deliver: @MainActor ([CoreEvent]) -> Void = { _ in }
+    private let lock = NSLock()
+    private var waiting: [CoreEvent] = []
+
+    func add(_ event: CoreEvent) {
+        let first = lock.withLock {
+            waiting.append(event)
+            return waiting.count == 1
+        }
+        guard first else { return }
+        DispatchQueue.main.async { [self] in
+            let events = lock.withLock {
+                defer { waiting = [] }
+                return waiting
+            }
+            MainActor.assumeIsolated { deliver(events) }
+        }
+    }
 }

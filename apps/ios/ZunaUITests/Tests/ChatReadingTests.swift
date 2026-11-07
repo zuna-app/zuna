@@ -28,6 +28,50 @@ final class ChatReadingTests: XCTestCase {
         zuna.element(A11y.Chat.text(id))
     }
 
+    /// Back on the phone after a conversation on the laptop, the chat that was left open
+    /// shows the newest message as soon as the core has it, not after each one slides in.
+    func testCatchingUpShowsTheNewestMessageAtOnce() throws {
+        let aliceId = World.current["alice"].userId
+        try zuna.launch()
+        try zuna.signIn(as: "bob")
+        try zuna.waitForChats()
+        openChat(aliceKey)
+        XCUIDevice.shared.press(.home)
+        try waitFor("the app to leave the screen") { self.zuna.app.state != .runningForeground }
+        // Long enough for the core to be put away.
+        RunLoop.current.run(until: Date().addingTimeInterval(4))
+
+        let alice = try Peer("alice"), laptop = try Peer("bobLaptop")
+        var last = ""
+        for index in 1...20 {
+            _ = try alice.send(to: "user:\(bobId)", ["text": "Alice's \(index)"])
+            last = try laptop.send(to: "user:\(aliceId)", ["text": "Bob's \(index)"])
+        }
+        var groupId = "", seq = 0
+        try waitFor("the laptop's last message to be sent") {
+            guard let chat = try laptop.conversation("user:\(aliceId)"), let id = chat["groupId"] as? String,
+                  let newest = (chat["lastMessage"] as? [String: Any])?["seq"] as? Int else { return false }
+            (groupId, seq) = (id, newest)
+            return true
+        }
+        _ = try laptop.call("markRead", [groupId, seq])
+
+        zuna.app.activate()
+        let started = Date()
+        var coreHasIt: TimeInterval?, drawn: TimeInterval?
+        while Date().timeIntervalSince(started) < 20, coreHasIt == nil || drawn == nil {
+            let now = Date().timeIntervalSince(started)
+            if coreHasIt == nil, try zuna.texts(with: aliceId).contains("Bob's 20") { coreHasIt = now }
+            if drawn == nil, message(last).exists { drawn = now }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        let core = try XCTUnwrap(coreHasIt), screen = try XCTUnwrap(drawn)
+        // One by one, each sliding in, it took 1.9 s more in the simulator, and longer on a phone.
+        XCTAssertLessThan(screen - core, 1, "the core had it after \(core) s, the screen after \(screen) s")
+        XCTAssertTrue(message(last).isHittable)
+        zuna.screenshot("69-caught-up")
+    }
+
     func testShowsMarkupEmotesRepliesAndMarksAsRead() throws {
         let alice = try Peer("alice")
         let tag = UUID().uuidString.prefix(4)

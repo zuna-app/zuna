@@ -142,8 +142,9 @@ final class MessageListController: UIViewController, UICollectionViewDelegate, U
         let kept = Set(oldIds).intersection(ids)
         snapshot.reconfigureItems(Array(kept))
 
-        // New messages at the bottom slide in while you're there; anything else just appears.
-        let newAtBottom = oldIds.first.map { ids.first != $0 && ids.contains($0) } ?? false
+        // A new message at the bottom slides in while you're there; anything else just appears,
+        // as several at once do when catching up, so the chat is at the newest straight away.
+        let newAtBottom = oldIds.first.flatMap { ids.firstIndex(of: $0) } == 1
         let animate = newAtBottom && atBottom && !model.reduceMotion
         let anchor = atBottom || oldIds.isEmpty || scrollingDown ? nil : visibleAnchor()
         // Coming back to a chat that was scrolled up shows the same messages again.
