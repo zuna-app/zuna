@@ -34,6 +34,8 @@ use crate::theme::{self, RADIUS_M, RADIUS_S};
 const MAX_TEXT_LENGTH: usize = 4000;
 const MAX_FILES: usize = 10;
 const MAX_SUGGESTIONS: usize = 8;
+/// How wide a channel's member list is.
+const MEMBERS_WIDTH: f32 = 240.;
 /// How long typing pauses before a link's page is fetched.
 const PREVIEW_DELAY_MS: u64 = 400;
 
@@ -107,6 +109,8 @@ pub struct ChatView {
     last_typing: f64,
     revealed: Rc<RefCell<HashSet<String>>>,
     side_panel: Option<Entity<SidePanel>>,
+    /// When the member list came back as the side panel finished closing, to fade it in.
+    members_back: Option<std::time::Instant>,
     /// The conversation someone's typed in since it was opened, after which its header's
     /// line fades between typing and the usual status, as `.chat-status.is-changing`.
     typed_in: RefCell<Option<String>>,
@@ -336,6 +340,7 @@ impl ChatView {
             last_typing: 0.,
             revealed: Rc::new(RefCell::new(HashSet::new())),
             side_panel: None,
+            members_back: None,
             typed_in: RefCell::new(None),
             fresh: Rc::new(RefCell::new(HashMap::new())),
             glide: None,
@@ -2187,7 +2192,7 @@ impl ChatView {
             }))
             .child(div().min_w_0().one_line().child(text))
             .child(div().flex_none().flex().items_center().gap(px(4.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child("Jump to present").child(icon("arrow-down", 15., theme.text1)))
-            .enter("jump-present-in", Enter::Rise(5.), 120)
+            .enter("jump-present-in", Enter::Rise(10.), 180)
             .into_any_element()
     }
 
@@ -2490,8 +2495,8 @@ impl ChatView {
                     .when_some(suggestion.hint.clone(), |el, hint| el.child(div().min_w_0().one_line().text_color(theme.text3).child(hint))),
             );
         }
-        // `.suggestions`: rise-in 0.1s.
-        div().absolute().left(px(14.)).right(px(14.)).bottom(gpui::relative(1.)).pb(px(6.)).child(list).enter("suggestions-in", Enter::Rise(5.), 100).into_any_element()
+        // Up from behind the message box's edge, as the picker comes.
+        div().absolute().left(px(14.)).right(px(14.)).bottom(gpui::relative(1.)).pb(px(6.)).child(list).enter("suggestions-in", Enter::Drop(super::motion::Edge::Bottom, 14.), 170).into_any_element()
     }
 
     fn chat_context(&self, conversation: &ConversationView, cx: &mut Context<Self>) -> Option<ChatContext> {
@@ -2942,25 +2947,55 @@ impl Render for ChatView {
         }
         self.update_mentions(&conversation, cx);
         let composer = if selecting { self.selection_bar(&conversation, cx) } else { self.composer_area(&conversation, cx) };
-        let side_panel = if panel.is_some() {
+        // The panel opens by growing from the right edge, its content sliding in with that
+        // edge as the chat narrows, and closes the same way back. In a channel it grows from
+        // the member list it takes the place of, and the list fades back in after it.
+        let has_members = is_channel && self.beside_voice.is_none() && !self.state.read(cx).settings.hide_member_list;
+        let closed_width = if has_members { MEMBERS_WIDTH } else { 0. };
+        let target = if panel.is_some() { super::side_panel::WIDTH } else { closed_width };
+        let (panel_width, panel_moving) = super::motion::tween(format!("side-panel-{}", cx.entity_id()), target, if panel.is_some() { 260 } else { 200 }, super::motion::ease_out(), window);
+        let panel_closing = panel.is_none() && panel_moving && self.side_panel.is_some();
+        if panel.is_some() {
             if self.side_panel.is_none() {
                 let state = self.state.clone();
                 let server_id = self.server_id.clone();
                 let key = self.key.clone();
                 self.side_panel = Some(cx.new(|cx| SidePanel::new(state, server_id, key, window, cx)));
             }
-            self.side_panel.clone().map(|panel| panel.into_any_element())
-        } else {
-            self.side_panel = None;
-            None
-        };
+        } else if !panel_closing && self.side_panel.take().is_some() && has_members && !super::motion::reduced_or_system() {
+            self.members_back = Some(std::time::Instant::now());
+        }
+        let side_panel = self.side_panel.clone().map(|view| {
+            // Faded by how far it's grown past the member list, which it covers at once.
+            let shown = if closed_width > 0. { ((panel_width - closed_width) / (super::side_panel::WIDTH - closed_width)).clamp(0., 1.) } else { 1. };
+            div()
+                .flex_none()
+                .h_full()
+                .w(px(panel_width))
+                .overflow_hidden()
+                .flex()
+                .child(div().flex_none().h_full().opacity(shown).child(view))
+                .when(panel_closing, |el| el.child(div().id("side-panel-closing").absolute().inset_0().occlude()))
+                .relative()
+                .into_any_element()
+        });
         let state = self.state.clone();
         let user_id = conversation.peer_id.clone().unwrap_or_default();
         let typing_line = is_channel.then(|| self.channel_typing(&conversation, cx));
-        let members = (is_channel && side_panel.is_none() && self.beside_voice.is_none() && !self.state.read(cx).settings.hide_member_list).then(|| {
+        let members = (has_members && side_panel.is_none()).then(|| {
             let (state, server_id) = (self.state.clone(), self.server_id.clone());
             let view = self.member_view.get_or_insert_with(|| cx.new(|cx| MemberList::new(state, server_id, cx))).clone();
-            gpui::AnyView::from(view).cached(gpui::StyleRefinement::default().flex_none().w(px(240.)).h_full()).into_any_element()
+            match self.members_back {
+                // Drawn afresh each frame as it fades in: cached, it would keep the paint of
+                // its first, faint frame.
+                Some(since) if since.elapsed() < std::time::Duration::from_millis(160) => {
+                    div().flex_none().w(px(MEMBERS_WIDTH)).h_full().child(gpui::AnyView::from(view)).enter_since(since, Enter::Fade, 160, window).into_any_element()
+                }
+                _ => {
+                    self.members_back = None;
+                    gpui::AnyView::from(view).cached(gpui::StyleRefinement::default().flex_none().w(px(MEMBERS_WIDTH)).h_full()).into_any_element()
+                }
+            }
         });
         div()
             .size_full()
@@ -3001,7 +3036,7 @@ impl Render for ChatView {
                     .when(!call_expanded, |el| el.child(body).child(super::media_views::VideoLayer::new(self.video_slots.clone())).child(composer))
                     .when_some(typing_line, |el, line| el.child(line)),
             )
-            .when_some(side_panel, |el, panel| el.child(div().flex().flex_none().child(panel).enter("side-panel-in", Enter::Slide(8.), 120)))
+            .when_some(side_panel, |el, panel| el.child(panel))
             .when_some(members, |el, members| el.child(members))
             .relative()
             .track_focus(&self.focus)

@@ -16,6 +16,13 @@ use crate::models::{SafetyCheck, from_value};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, RADIUS_L, RADIUS_M, RADIUS_XL};
 
+/// How far a dialog's card rises as it comes in, and over how long, with motion's `quick`:
+/// GPUI can't scale it as `Modal` does, so it moves far enough to be seen.
+const DIALOG_RISE: f32 = 18.;
+const DIALOG_MS: u64 = 240;
+/// How long the backdrop under a dialog takes to darken.
+const BACKDROP_MS: u64 = 180;
+
 pub fn open(overlay: &Overlay, state: Entity<AppState>, window: &mut Window, cx: &mut gpui::App) -> Option<AnyView> {
     Some(match overlay.clone() {
         Overlay::AddServer { link, sign_in_url } => {
@@ -89,8 +96,8 @@ pub fn confirm(title: String, action: &str, text: String, on_cancel: impl Fn(&mu
         .bg(theme::color(theme::black_a(0.6)))
         .occlude()
         .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| on_cancel(window, cx))
-        .child(card.appear("confirm-card", Enter::Pop, 120))
-        .appear("confirm-layer", Enter::Fade, 80)
+        .child(card.appear("confirm-card", Enter::Rise(DIALOG_RISE), DIALOG_MS))
+        .appear("confirm-layer", Enter::Fade, BACKDROP_MS)
         .into_any_element()
 }
 
@@ -344,9 +351,9 @@ impl Dialog {
                     dialog.close(cx);
                 }
             }))
-            // As `Modal`: the backdrop fades in over 80 ms, the card with motion's `quick`.
-            .child(card.appear("modal-card", Enter::Pop, 120))
-            .appear("modal-layer", Enter::Fade, 80)
+            // The backdrop fades in, and the card rises into place as it does.
+            .child(card.appear("modal-card", Enter::Rise(DIALOG_RISE), DIALOG_MS))
+            .appear("modal-layer", Enter::Fade, BACKDROP_MS)
             .into_any_element()
     }
 

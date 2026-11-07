@@ -10,7 +10,7 @@ use gpui::{
 use gpui::Focusable as _;
 
 use super::components::*;
-use super::motion::{Enter, Motion};
+use super::motion::{Edge, Enter, Motion};
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
 use super::text_input::{InputEvent, TextInput};
 use crate::emoji_data::EMOJI_CATEGORIES;
@@ -47,7 +47,7 @@ struct Open {
 
 pub struct PickerLayer {
     open: Option<Open>,
-    /// One just closed, fading out over 60 ms as `EmotePicker`'s exit does.
+    /// One just closed, going back the way it came over 130 ms.
     closing: Option<(Open, std::time::Instant)>,
     opened: u64,
     emotes_tab: bool,
@@ -229,16 +229,18 @@ impl PickerLayer {
     }
 }
 
+const CLOSING: std::time::Duration = std::time::Duration::from_millis(130);
+
 impl Render for PickerLayer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Open, or fading out over 60 ms, seen but no longer used.
+        // Open, or going away over 130 ms, seen but no longer used.
         let fading = if self.open.is_some() {
             None
         } else {
             match &self.closing {
-                Some((_, closed)) if closed.elapsed() < std::time::Duration::from_millis(60) => {
+                Some((_, closed)) if closed.elapsed() < CLOSING => {
                     window.request_animation_frame();
-                    Some(1. - closed.elapsed().as_secs_f32() / 0.06)
+                    Some(1. - closed.elapsed().as_secs_f32() / CLOSING.as_secs_f32())
                 }
                 _ => {
                     self.closing = None;
@@ -373,10 +375,12 @@ impl Render for PickerLayer {
                 div().id("picker-body").flex_1().min_h_0().overflow_y_scroll().track_scroll(&handle).px(px(8.)).pr(px(8.) + gutter(&handle)).pb(px(8.)).flex().flex_col().children(body).child(scrollbar("picker-body", Scrolls::Div(handle.clone())))
             })
             .child(div().flex_none().h(px(44.)).flex().items_center().px(px(12.)).border_t_1().border_color(theme.line).text_size(px(13.)).child(footer));
-        // As `EmotePicker`: up 4 px and in with motion's `quick`.
+        // Up from behind its bottom edge, nearest the button that opened it, or down from its
+        // top when there was no room above, over 220 ms.
+        let edge = if top + px(HEIGHT) <= open.position.y { Edge::Bottom } else { Edge::Top };
         let panel = match fading {
-            Some(left) => panel.opacity(left).child(div().id("picker-closing").absolute().inset_0().occlude()).into_any_element(),
-            None => panel.appear(gpui::ElementId::Name(format!("picker-in-{}", open.id).into()), Enter::Rise(4.), 120).into_any_element(),
+            Some(left) => panel.child(div().id("picker-closing").absolute().inset_0().occlude()).leave(Enter::Drop(edge, 16.), left).into_any_element(),
+            None => panel.appear(gpui::ElementId::Name(format!("picker-in-{}", open.id).into()), Enter::Drop(edge, 28.), 220).into_any_element(),
         };
         deferred(anchored().position(gpui::point(left, top)).child(panel)).with_priority(2).into_any_element()
     }

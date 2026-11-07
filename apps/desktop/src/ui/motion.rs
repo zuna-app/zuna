@@ -1,16 +1,17 @@
 //! The desktop's motion, which GPUI has none of by itself: base.css's entrances (fade-in,
-//! rise-in, pop-in, panel-in) and motion/react's for dialogs and menus, with its easing,
+//! rise-in, pop-in) and motion/react's for dialogs and menus, with its easing,
 //! and CSS transitions, which only move when what they show changes.
 //!
 //! GPUI can't transform an element, so an entrance fades the element itself and moves it
 //! where it's painted, without touching the layout. A scale, as pop-in's 0.97, is left as
-//! the fade it comes with.
+//! the fade it comes with. A menu or the picker instead comes out from behind the edge
+//! nearest what opened it, cut off there as it moves, which reads as clearly as a scale.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use gpui::{AnimationElement, AnimationExt, AnyElement, App, Animation, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, Point, SharedString, Styled, Window, point, px};
+use gpui::{AnimationElement, AnimationExt, AnyElement, App, Animation, Bounds, ContentMask, ElementId, GlobalElementId, InspectorElementId, IntoElement, LayoutId, Pixels, Point, SharedString, Styled, Window, point, px};
 
 thread_local! {
     /// When each `enter_once` element was first shown.
@@ -51,30 +52,64 @@ pub enum Enter {
     Rise(f32),
     /// `pop-in`, motion's opacity and scale: the fade.
     Pop,
-    /// `panel-in`: in from this far to the right, fading in.
-    Slide(f32),
+    /// Out from behind one of its edges, as a menu drops from what opened it: from this far
+    /// past that edge, cut off there until it's in place, fading in.
+    Drop(Edge, f32),
 }
+
+/// The edge something drops from.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Edge {
+    /// Down from its top, as a menu under a button.
+    Top,
+    /// Up from its bottom, as the picker over the message box.
+    Bottom,
+}
+
+/// How far around something a drop's cut leaves room for its shadow.
+const SHADOW_ROOM: f32 = 40.;
 
 /// An element faded and moved where it's painted, for an entrance.
 pub struct Moving<E> {
     element: Option<E>,
     offset: Point<Pixels>,
     opacity: f32,
+    /// The edge it's cut off at while it drops, and how far in it is.
+    cut: Option<(Edge, f32)>,
 }
 
 impl<E: IntoElement + Styled + 'static> Moving<E> {
     pub fn new(element: E) -> Self {
-        Moving { element: Some(element), offset: point(px(0.), px(0.)), opacity: 1. }
+        Moving { element: Some(element), offset: point(px(0.), px(0.)), opacity: 1., cut: None }
     }
 
     fn at(mut self, kind: Enter, progress: f32) -> Self {
-        self.opacity = progress;
+        // A drop is seen sooner than it settles, so it's no fainter than it is far in.
+        self.opacity = if matches!(kind, Enter::Drop(..)) { (progress * 1.4).min(1.) } else { progress };
         self.offset = match kind {
             Enter::Rise(distance) => point(px(0.), px(distance * (1. - progress))),
-            Enter::Slide(distance) => point(px(distance * (1. - progress)), px(0.)),
+            Enter::Drop(Edge::Top, distance) => point(px(0.), px(-distance * (1. - progress))),
+            Enter::Drop(Edge::Bottom, distance) => point(px(0.), px(distance * (1. - progress))),
             Enter::Fade | Enter::Pop => point(px(0.), px(0.)),
         };
+        self.cut = match kind {
+            Enter::Drop(edge, _) if progress < 1. => Some((edge, progress)),
+            _ => None,
+        };
         self
+    }
+
+    /// What it's cut off to while it drops, where it ends up: at the edge it comes from, with
+    /// room for its shadow on the other sides, and on that one too as it settles.
+    fn mask(&self, bounds: Bounds<Pixels>) -> Option<ContentMask<Pixels>> {
+        let (edge, progress) = self.cut?;
+        let room = px(SHADOW_ROOM);
+        let settling = px(SHADOW_ROOM * progress.powi(4));
+        let (top, bottom) = match edge {
+            Edge::Top => (bounds.top() - settling, bounds.bottom() + room),
+            Edge::Bottom => (bounds.top() - room, bounds.bottom() + settling),
+        };
+        Some(ContentMask { bounds: Bounds::from_corners(point(bounds.left() - room, top), point(bounds.right() + room, bottom)) })
     }
 }
 
@@ -88,7 +123,7 @@ impl<E: IntoElement + Styled + 'static> IntoElement for Moving<E> {
 
 impl<E: IntoElement + Styled + 'static> gpui::Element for Moving<E> {
     type RequestLayoutState = AnyElement;
-    type PrepaintState = ();
+    type PrepaintState = Option<ContentMask<Pixels>>;
 
     fn id(&self) -> Option<ElementId> {
         None
@@ -107,12 +142,14 @@ impl<E: IntoElement + Styled + 'static> gpui::Element for Moving<E> {
         (child.request_layout(window, cx), child)
     }
 
-    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: gpui::Bounds<Pixels>, child: &mut AnyElement, window: &mut Window, cx: &mut App) {
-        window.with_element_offset(self.offset, |window| child.prepaint(window, cx));
+    fn prepaint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, bounds: Bounds<Pixels>, child: &mut AnyElement, window: &mut Window, cx: &mut App) -> Option<ContentMask<Pixels>> {
+        let mask = self.mask(bounds);
+        window.with_content_mask(mask.clone(), |window| window.with_element_offset(self.offset, |window| child.prepaint(window, cx)));
+        mask
     }
 
-    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: gpui::Bounds<Pixels>, child: &mut AnyElement, _: &mut (), window: &mut Window, cx: &mut App) {
-        child.paint(window, cx);
+    fn paint(&mut self, _: Option<&GlobalElementId>, _: Option<&InspectorElementId>, _: Bounds<Pixels>, child: &mut AnyElement, mask: &mut Option<ContentMask<Pixels>>, window: &mut Window, cx: &mut App) {
+        window.with_content_mask(mask.clone(), |window| child.paint(window, cx));
     }
 }
 
@@ -160,6 +197,16 @@ pub trait Motion: IntoElement + Styled + Sized + 'static {
         }
         let eased = if kind == Enter::Fade { ease()(progress) } else { ease_out()(progress) };
         Moving::new(self).at(kind, eased)
+    }
+
+    /// Going away, as an exit animation, by how much of it is `left`, from 1 down to 0: back
+    /// the way it came in, slowly at first and quicker as it goes.
+    fn leave(self, kind: Enter, left: f32) -> Moving<Self> {
+        let left = left.clamp(0., 1.);
+        let gone = 1. - left;
+        let mut moving = Moving::new(self).at(kind, 1. - gone * gone);
+        moving.opacity = left;
+        moving
     }
 
     /// The same, after waiting, as `animation: <kind> <ms> <delay> both`.
@@ -239,6 +286,36 @@ pub fn transition<E: IntoElement + 'static>(element: E, key: impl Into<String>, 
                 .into_any_element()
         }
     }
+}
+
+/// A number that moves as `transition` moves one, for what isn't drawn by one element, such
+/// as how wide a panel is: where it is now, and whether it's still on its way. As there, the
+/// first time a key is seen it's simply at `target`. Dialogs and panels heed Windows's
+/// Animation effects too, so either setting has it simply arrive.
+pub fn tween(key: impl Into<String>, target: f32, ms: u64, easing: impl Fn(f32) -> f32, window: &mut Window) -> (f32, bool) {
+    let key = key.into();
+    let now = Instant::now();
+    let ms = if reduced_or_system() { 0 } else { ms };
+    let (value, moving) = TRANSITIONS.with(|transitions| {
+        let mut transitions = transitions.borrow_mut();
+        match transitions.get_mut(&key) {
+            None => {
+                transitions.insert(key, Transition { from: target, to: target, started: now, length: Duration::ZERO, generation: 0 });
+                (target, false)
+            }
+            Some(transition) => {
+                if transition.to != target {
+                    let from = value_at(transition, now, &easing);
+                    *transition = Transition { from, to: target, started: now, length: Duration::from_millis(ms), generation: transition.generation + 1 };
+                }
+                if now - transition.started < transition.length { (value_at(transition, now, &easing), true) } else { (transition.to, false) }
+            }
+        }
+    });
+    if moving {
+        window.request_animation_frame();
+    }
+    (value, moving)
 }
 
 /// A color between two, by how far along it is.

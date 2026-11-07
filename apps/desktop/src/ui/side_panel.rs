@@ -39,8 +39,13 @@ pub struct SidePanel {
     editing: bool,
     edit_name: Entity<TextInput>,
     edit_description: Entity<TextInput>,
+    /// What it last showed, which it keeps showing while it closes.
+    shown: Option<Panel>,
     _subscriptions: Vec<Subscription>,
 }
+
+/// How wide the panel is.
+pub const WIDTH: f32 = 320.;
 
 impl SidePanel {
     pub fn new(state: Entity<AppState>, server_id: String, key: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -72,6 +77,7 @@ impl SidePanel {
             editing: false,
             edit_name,
             edit_description,
+            shown: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1023,7 +1029,8 @@ impl Render for SidePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
         let Some((server, conversation)) = self.conversation(cx) else { return div().into_any_element() };
-        let panel = self.state.read(cx).panel;
+        let panel = self.state.read(cx).panel.or(self.shown);
+        self.shown = panel;
         let title = match panel {
             Some(Panel::Search) if conversation.kind == "channel" => "Search this channel",
             Some(Panel::Search) => "Search this chat",
@@ -1092,7 +1099,7 @@ impl Render for SidePanel {
         let back_state = self.state.clone();
         div()
             .flex_none()
-            .w(px(320.))
+            .w(px(WIDTH))
             .h_full()
             .flex()
             .flex_col()

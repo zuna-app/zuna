@@ -8,7 +8,7 @@ use gpui::{
 };
 
 use super::components::*;
-use super::motion::{Enter, Motion};
+use super::motion::{Edge, Enter, Motion};
 use crate::theme::{RADIUS_L, RADIUS_S};
 
 pub type Action = Rc<dyn Fn(&mut Window, &mut App)>;
@@ -69,6 +69,8 @@ struct OpenMenu {
     header: Option<Header>,
     /// Opens upwards from the point, as from a button at the bottom of the window.
     above: bool,
+    /// What opened it, for a button that shows its menu is open, as the server's name does.
+    owner: Option<&'static str>,
 }
 
 pub type Header = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
@@ -97,7 +99,7 @@ pub(super) fn reopens_closed(position: Point<Pixels>) -> bool {
 
 pub struct MenuLayer {
     open: Option<OpenMenu>,
-    /// One just closed, fading out over 60 ms as `PopupMenu`'s exit does.
+    /// One just closed, going back the way it came over 110 ms.
     closing: Option<(OpenMenu, std::time::Instant)>,
     opened: u64,
     /// Held while a menu is open, so Escape closes it, and what had focus before.
@@ -128,9 +130,28 @@ pub fn open_menu(position: Point<Pixels>, entries: Vec<MenuEntry>, align_right: 
     layer.update(cx, |layer, cx| {
         layer.opened += 1;
         layer.closing = None;
-        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: None, align_right, header: None, above: false });
+        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: None, align_right, header: None, above: false, owner: None });
         cx.notify();
     });
+}
+
+/// Opens a button's dropdown under it, which `is_open_from` then knows is the button's.
+pub fn open_menu_from(owner: &'static str, position: Point<Pixels>, entries: Vec<MenuEntry>, cx: &mut App) {
+    if reopens_closed(position) {
+        return;
+    }
+    let layer = menu_layer(cx);
+    layer.update(cx, |layer, cx| {
+        layer.opened += 1;
+        layer.closing = None;
+        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: None, align_right: false, header: None, above: false, owner: Some(owner) });
+        cx.notify();
+    });
+}
+
+/// Whether the menu open now is the dropdown of this button.
+pub fn is_open_from(owner: &str, cx: &App) -> bool {
+    cx.try_global::<MenuGlobal>().is_some_and(|global| global.0.read(cx).open.as_ref().is_some_and(|open| open.owner == Some(owner)))
 }
 
 /// Opens a menu with something drawn above its entries, upwards from the point if `above`.
@@ -142,7 +163,7 @@ pub fn open_menu_with_header(position: Point<Pixels>, header: Option<Header>, en
     layer.update(cx, |layer, cx| {
         layer.opened += 1;
         layer.closing = None;
-        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: None, align_right: false, header, above });
+        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: None, align_right: false, header, above, owner: None });
         cx.notify();
     });
 }
@@ -163,7 +184,7 @@ pub fn open_menu_with_reactions(
     layer.update(cx, |layer, cx| {
         layer.opened += 1;
         layer.closing = None;
-        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right, header: None, above: false });
+        layer.open = Some(OpenMenu { id: layer.opened, position, entries, reactions: Some((reactions, Rc::new(on_react))), align_right, header: None, above: false, owner: None });
         cx.notify();
     });
 }
@@ -191,7 +212,7 @@ impl MenuLayer {
     }
 }
 
-const CLOSING: std::time::Duration = std::time::Duration::from_millis(60);
+const CLOSING: std::time::Duration = std::time::Duration::from_millis(110);
 
 impl Render for MenuLayer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -334,10 +355,12 @@ impl MenuLayer {
             (true, false) => Anchor::TopRight,
             (false, false) => Anchor::TopLeft,
         };
-        // As `PopupMenu`: in over 80 ms, out over 60, where it's seen but no longer used.
+        // Out from behind the edge nearest where it was opened, over 170 ms, and back behind
+        // it over 110, where it's seen but no longer used.
+        let edge = if open.above { Edge::Bottom } else { Edge::Top };
         let menu = match fading {
-            Some(left) => menu.opacity(left).child(div().id("menu-closing").absolute().inset_0().occlude()).into_any_element(),
-            None => menu.appear(gpui::ElementId::Name(format!("menu-in-{}", open.id).into()), Enter::Pop, 80).into_any_element(),
+            Some(left) => menu.child(div().id("menu-closing").absolute().inset_0().occlude()).leave(Enter::Drop(edge, 10.), left).into_any_element(),
+            None => menu.appear(gpui::ElementId::Name(format!("menu-in-{}", open.id).into()), Enter::Drop(edge, 18.), 170).into_any_element(),
         };
         deferred(anchored().position(open.position).anchor(corner).snap_to_window_with_margin(px(8.)).child(menu))
             .with_priority(2)

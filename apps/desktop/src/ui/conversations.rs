@@ -45,6 +45,8 @@ pub struct ConversationList {
     /// which it keeps until the core has it.
     dragging: Option<String>,
     drag_order: Option<Vec<String>>,
+    /// Whether the server's menu was open, for its name's chevron, last the menus changed.
+    server_menu_open: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -98,8 +100,16 @@ pub fn preview_for(message: Option<&MessageView>, users: &std::collections::Hash
 impl ConversationList {
     pub fn new(state: Entity<AppState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let search = cx.new(|cx| TextInput::new(cx, "Search"));
+        let menus = super::menu::menu_layer(cx);
         let mut subscriptions = vec![
             cx.observe(&state, |_, _, cx| cx.notify()),
+            cx.observe(&menus, |list, _, cx| {
+                let open = super::menu::is_open_from("server-title", cx);
+                if open != list.server_menu_open {
+                    list.server_menu_open = open;
+                    cx.notify();
+                }
+            }),
             // Whether the connection shows here, which follows who draws the title bar.
             cx.observe_window_appearance(window, |_, _, cx| cx.notify()),
             cx.subscribe_in(&search, window, |list, input, event, window, cx| match event {
@@ -123,7 +133,7 @@ impl ConversationList {
         if let Some(voice) = crate::voice::get(cx) {
             subscriptions.push(cx.observe(&voice, |_, _, cx| cx.notify()));
         }
-        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, hovered_channel: None, dragging: None, drag_order: None, _subscriptions: subscriptions }
+        ConversationList { state, search, filter: Filter::All, show_hidden: false, hits: Vec::new(), searching: None, search_focused: false, hovered_channel: None, dragging: None, drag_order: None, server_menu_open: false, _subscriptions: subscriptions }
     }
 
     pub fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -465,10 +475,18 @@ impl Render for ConversationList {
                         entries.push(MenuEntry::new("Leave this server", "log-out", move |_, cx| leave.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))).danger());
                         // From the title's left edge, 4 px under it, as the desktop opens it.
                         let at = title_bounds.get();
-                        open_menu(gpui::point(at.left(), at.bottom() + px(4.)), entries, false, cx);
+                        super::menu::open_menu_from("server-title", gpui::point(at.left(), at.bottom() + px(4.)), entries, cx);
                     })
                     .child(div().min_w_0().one_line().child(server.entry.name.clone()))
-                    .child(icon("chevron-down", 15., theme.text3))
+                    // Turns over while the server's menu is open, as the menu drops down.
+                    .child(super::motion::transition(
+                        icon("chevron-down", 15., theme.text3),
+                        "server-title-chevron",
+                        if self.server_menu_open { 1. } else { 0. },
+                        170,
+                        super::motion::ease_out(),
+                        |el, t| el.with_transformation(gpui::Transformation::rotate(gpui::radians(t * std::f32::consts::PI))),
+                    ))
             })
             // `.sidebar-head .titlebar-status`.
             .children(status.map(|status| status.flex_none().text_size(px(12.)).pr(px(4.))))

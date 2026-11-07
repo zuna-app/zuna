@@ -60,6 +60,13 @@ pub const PROJECT_URL: &str = "https://github.com/SocketByte/zuna-chat";
 /// The terms of use everyone agrees to when they create an account.
 pub const TERMS_URL: &str = "https://zuna.chat/terms/";
 
+/// How long a closed dialog takes to fade away.
+const DIALOG_OUT: std::time::Duration = std::time::Duration::from_millis(150);
+/// How long settings take to go once closed.
+const SETTINGS_OUT: std::time::Duration = std::time::Duration::from_millis(170);
+/// How long a dismissed toast takes to go.
+const TOAST_OUT: std::time::Duration = std::time::Duration::from_millis(160);
+
 pub struct Root {
     state: Entity<AppState>,
     onboarding: Entity<onboarding::Onboarding>,
@@ -71,8 +78,12 @@ pub struct Root {
     /// Settings, or a server's settings, over everything below the title bar, and which.
     settings: Option<(crate::state::Overlay, gpui::AnyView)>,
     overlay: Option<(crate::state::Overlay, gpui::AnyView)>,
-    /// A dialog that's closed, fading out over 80 ms as `Modal`'s exit does.
+    /// A dialog that's closed, fading out over `DIALOG_OUT`.
     closing: Option<(gpui::AnyView, std::time::Instant)>,
+    /// Settings just closed, sinking as they fade over `SETTINGS_OUT`.
+    settings_closing: Option<(gpui::AnyView, std::time::Instant)>,
+    /// The toasts drawn, with when each was dismissed, which goes over `TOAST_OUT`.
+    toast_list: Vec<(crate::state::Toast, Option<std::time::Instant>)>,
     /// The server in the rail under the pointer, whose pill grows and icon brightens.
     rail_hovered: Option<String>,
     resizing: Option<(f32, f32)>,
@@ -121,7 +132,7 @@ impl Root {
             root.update(cx, |root, cx| root.key_with_selection(&event.keystroke, window, cx)).ok();
         })
         .detach();
-        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, rail_hovered: None, resizing: None, menu, picker, focus, covered: false }
+        Root { state, onboarding, conversations, chat: None, stage: None, voice, settings: None, overlay: None, closing: None, settings_closing: None, toast_list: Vec::new(), rail_hovered: None, resizing: None, menu, picker, focus, covered: false }
     }
 
     fn title_bar(&self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -485,9 +496,27 @@ impl Root {
         )
     }
 
-    fn toasts(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn toasts(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
-        let toasts = self.state.read(cx).toasts.clone();
+        let current = self.state.read(cx).toasts.clone();
+        // A dismissed toast stays where it was while it sinks away, and new ones go below.
+        let now = std::time::Instant::now();
+        let out = if motion::reduced_or_system() { std::time::Duration::ZERO } else { TOAST_OUT };
+        for (toast, gone) in &mut self.toast_list {
+            if gone.is_none() && !current.iter().any(|shown| shown.id == toast.id) {
+                *gone = Some(now);
+            }
+        }
+        self.toast_list.retain(|(_, gone)| gone.is_none_or(|gone| now - gone < out));
+        for toast in current {
+            if !self.toast_list.iter().any(|(shown, _)| shown.id == toast.id) {
+                self.toast_list.push((toast, None));
+            }
+        }
+        if self.toast_list.iter().any(|(_, gone)| gone.is_some()) {
+            window.request_animation_frame();
+        }
+        let toasts = self.toast_list.clone();
         div()
             .absolute()
             .bottom(px(20.))
@@ -497,7 +526,7 @@ impl Root {
             .flex_col()
             .items_center()
             .gap(px(6.))
-            .children(toasts.into_iter().map(|toast| {
+            .children(toasts.into_iter().map(|(toast, gone)| {
                 let (bg, border) = match toast.kind {
                     ToastKind::Error => (theme::color(theme::hex(0x2f1f20)), theme::color(theme::rgba(242, 85, 90, 0.35))),
                     ToastKind::Security => (theme::color(theme::hex(0x2e2615)), theme::color(theme::rgba(229, 165, 10, 0.35))),
@@ -505,7 +534,7 @@ impl Root {
                 };
                 let state = self.state.clone();
                 let id = toast.id;
-                div()
+                let toast_el = div()
                     .id(gpui::ElementId::Name(format!("toast-{id}").into()))
                     .max_w(px(480.))
                     .bg(bg)
@@ -518,8 +547,14 @@ impl Root {
                     .text_size(px(13.))
                     .text_color(theme.text1)
                     .on_click(move |_, _, cx| state.update(cx, |state, cx| state.dismiss_toast(id, cx)))
-                    .child(toast.message)
-                    .enter(gpui::ElementId::Name(format!("toast-in-{id}").into()), Enter::Rise(5.), 120)
+                    .child(toast.message);
+                match gone {
+                    Some(gone) => {
+                        let left = 1. - gone.elapsed().as_secs_f32() / TOAST_OUT.as_secs_f32();
+                        toast_el.occlude().leave(Enter::Rise(10.), left).into_any_element()
+                    }
+                    None => toast_el.enter(gpui::ElementId::Name(format!("toast-in-{id}").into()), Enter::Rise(14.), 220).into_any_element(),
+                }
             }))
     }
 
@@ -527,7 +562,7 @@ impl Root {
         let wanted = self.state.read(cx).overlay.clone();
         let Some(wanted) = wanted else {
             self.close_overlay();
-            self.settings = None;
+            self.close_settings();
             return None;
         };
         if matches!(wanted, crate::state::Overlay::Settings { .. } | crate::state::Overlay::ServerSettings { .. }) {
@@ -539,10 +574,11 @@ impl Root {
                     _ => unreachable!(),
                 };
                 self.settings = Some((wanted.clone(), view));
+                self.settings_closing = None;
             }
             return None;
         }
-        self.settings = None;
+        self.close_settings();
         if self.overlay.as_ref().map(|(current, _)| current != &wanted).unwrap_or(true) {
             self.close_overlay();
             let view = overlays::open(&wanted, self.state.clone(), window, cx);
@@ -553,12 +589,20 @@ impl Root {
 }
 
 impl Root {
-    /// The dialog going away fades out, as `AnimatePresence` lets `Modal` do. Settings
-    /// aren't `motion` elements there, so they simply go.
+    /// The dialog going away fades out, as `AnimatePresence` lets `Modal` do.
     fn close_overlay(&mut self) {
         if let Some((_, view)) = self.overlay.take() {
             if !motion::reduced_or_system() {
                 self.closing = Some((view, std::time::Instant::now()));
+            }
+        }
+    }
+
+    /// Settings going away sink back as they fade, the way they rose in.
+    fn close_settings(&mut self) {
+        if let Some((_, view)) = self.settings.take() {
+            if !motion::reduced_or_system() {
+                self.settings_closing = Some((view, std::time::Instant::now()));
             }
         }
     }
@@ -731,14 +775,25 @@ impl Render for Root {
         motion::set_reduced(self.state.read(cx).settings.reduce_motion);
         let overlay = self.overlay(window, cx);
         let closing = match &self.closing {
-            Some((view, closed)) if closed.elapsed() < std::time::Duration::from_millis(80) => {
+            Some((view, closed)) if closed.elapsed() < DIALOG_OUT => {
                 window.request_animation_frame();
-                let left = 1. - closed.elapsed().as_secs_f32() / 0.08;
+                let left = 1. - closed.elapsed().as_secs_f32() / DIALOG_OUT.as_secs_f32();
                 // Seen going, not used: it no longer takes clicks.
-                Some(div().absolute().inset_0().opacity(left).child(view.clone()).child(div().id("closing-cover").absolute().inset_0().occlude()))
+                Some(div().absolute().inset_0().child(view.clone()).child(div().id("closing-cover").absolute().inset_0().occlude()).leave(Enter::Fade, left))
             }
             _ => {
                 self.closing = None;
+                None
+            }
+        };
+        let settings_closing = match &self.settings_closing {
+            Some((view, closed)) if closed.elapsed() < SETTINGS_OUT => {
+                window.request_animation_frame();
+                let left = 1. - closed.elapsed().as_secs_f32() / SETTINGS_OUT.as_secs_f32();
+                Some(div().absolute().inset_0().child(view.clone()).child(div().id("settings-closing-cover").absolute().inset_0().occlude()).leave(Enter::Rise(12.), left))
+            }
+            _ => {
+                self.settings_closing = None;
                 None
             }
         };
@@ -804,12 +859,14 @@ impl Render for Root {
                     .min_h_0()
                     .flex()
                     .child(body)
-                    .when_some(settings, |el, settings| el.child(div().absolute().inset_0().child(settings).enter("settings-in", Enter::Fade, 80)))
+                    .when_some(settings_closing, |el, closing| el.child(closing))
+                    // Rising into place as they fade in, as far as a dialog does.
+                    .when_some(settings, |el, settings| el.child(div().absolute().inset_0().child(settings).appear("settings-in", Enter::Rise(16.), 240)))
                     .when_some(calls, |el, calls| el.child(calls)),
             )
             .when_some(closing, |el, closing| el.child(closing))
             .when_some(overlay, |el, overlay| el.child(overlay))
-            .child(self.toasts(cx))
+            .child(self.toasts(window, cx))
             .child(self.menu.clone())
             .child(self.picker.clone());
         // Wayland leaves resizing to the app, from a margin around the window, and only gives
