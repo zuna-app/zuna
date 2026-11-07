@@ -14,6 +14,11 @@ mod ffmpeg;
 #[cfg(target_os = "linux")]
 pub use self::ffmpeg::{encode, mf, player, record};
 
+#[cfg(target_os = "macos")]
+mod pending;
+#[cfg(target_os = "macos")]
+pub use self::pending::{encode, mf, player, record};
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

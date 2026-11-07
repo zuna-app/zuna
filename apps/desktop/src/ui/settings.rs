@@ -446,7 +446,7 @@ impl SettingsView {
             })
             .child(preview_label)
             .child(icon("chevron-down", 15., theme.text2));
-        vec![
+        let mut parts = vec![
             Self::heading("Notifications", &theme),
             Self::lead("Previews are decrypted on this device. No notification service ever sees them.".into(), &theme),
             Self::row(
@@ -462,13 +462,18 @@ impl SettingsView {
                 &theme,
             ),
             Self::row("What notifications show", Some("Choose less if others can see your screen."), select, &theme),
-            Self::row(
+        ];
+        // macOS keeps every app running with its window closed, and has no tray, as the
+        // Electron app doesn't offer this there.
+        if cfg!(not(target_os = "macos")) {
+            parts.push(Self::row(
                 "Keep running when closed",
                 Some("Zuna stays in the system tray so messages still arrive."),
                 switch("close-to-tray", tray, cx).on_click(move |_, _, cx| tray_state.update(cx, |state, cx| state.update_settings(|s| s.close_to_tray = !tray, cx))),
                 &theme,
-            ),
-        ]
+            ));
+        }
+        parts
     }
 
     fn appearance(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
@@ -536,7 +541,7 @@ impl SettingsView {
             ),
             Self::row(
                 "Press Enter to send",
-                Some("If off, use Ctrl+Enter to send and Enter for new lines."),
+                Some(if cfg!(target_os = "macos") { "If off, use ⌘Return to send and Return for new lines." } else { "If off, use Ctrl+Enter to send and Enter for new lines." }),
                 switch("enter-to-send", enter, cx).on_click(move |_, _, cx| enter_state.update(cx, |state, cx| state.update_settings(|s| s.enter_to_send = !enter, cx))),
                 &theme,
             ),

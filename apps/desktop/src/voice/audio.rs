@@ -1,4 +1,4 @@
-//! The sound devices, through cpal (WASAPI) on Windows and PipeWire on Linux
+//! The sound devices, through cpal on Windows (WASAPI) and macOS (Core Audio), and PipeWire on Linux
 //! (`voice/pipewire.rs`): everyone's voices and the app's own sounds mixed onto one output,
 //! and the microphone read at 48 kHz, as a browser's AudioContext does for the desktop.
 
@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use parking_lot::Mutex;
 
@@ -23,7 +23,7 @@ pub struct Device {
     pub name: String,
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn find(input: bool, id: &str) -> Option<cpal::Device> {
     let host = cpal::default_host();
     if id != "default" {
@@ -42,7 +42,7 @@ pub fn devices(input: bool) -> Vec<Device> {
 }
 
 /// The microphones or the speakers, with the default first.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 pub fn devices(input: bool) -> Vec<Device> {
     let host = cpal::default_host();
     let mut list = vec![Device { id: "default".into(), name: "Default".into() }];
@@ -283,7 +283,7 @@ fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedPr
     super::pipewire::play(device, super::pipewire::Playing::Voice, RATE, move |data, frames| fill(&mut |index, value| data[index] = value, frames), failed)
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn open_output(device: &str, state: Arc<Mutex<MixerState>>, processing: SharedProcessing, failed: Arc<AtomicBool>) -> Option<cpal::Stream> {
     let device = find(false, device)?;
     let config = device.default_output_config().ok()?;
@@ -392,7 +392,7 @@ fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> 
     })
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn open_input(device: &str, frames: Sender<Vec<f32>>, lost: Arc<AtomicBool>) -> Result<cpal::Stream, String> {
     let none = || "There's no microphone Zuna can use.".to_string();
     let device = find(true, device).ok_or_else(none)?;

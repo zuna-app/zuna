@@ -39,6 +39,11 @@ actions!(
         End,
         SelectHome,
         SelectEnd,
+        BackspaceLine,
+        TextStart,
+        TextEnd,
+        SelectTextStart,
+        SelectTextEnd,
         Paste,
         Cut,
         Copy,
@@ -51,6 +56,7 @@ actions!(
 
 pub fn bind_keys(cx: &mut App) {
     let context = Some("TextInput");
+    #[cfg(not(target_os = "macos"))]
     cx.bind_keys([
         KeyBinding::new("backspace", Backspace, context),
         KeyBinding::new("shift-backspace", Backspace, context),
@@ -81,6 +87,54 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-x", Cut, context),
         KeyBinding::new("enter", Enter, context),
         KeyBinding::new("ctrl-enter", Enter, context),
+        KeyBinding::new("shift-enter", Newline, context),
+        KeyBinding::new("escape", Escape, context),
+        KeyBinding::new("tab", Tab, context),
+    ]);
+    // macOS's own: ⌘ for the clipboard and the text's ends, ⌥ by word, and ⌘ with the arrows
+    // to the line's ends, as every field on a Mac takes them.
+    #[cfg(target_os = "macos")]
+    cx.bind_keys([
+        KeyBinding::new("backspace", Backspace, context),
+        KeyBinding::new("shift-backspace", Backspace, context),
+        KeyBinding::new("ctrl-h", Backspace, context),
+        KeyBinding::new("delete", Delete, context),
+        KeyBinding::new("ctrl-d", Delete, context),
+        KeyBinding::new("alt-backspace", BackspaceWord, context),
+        KeyBinding::new("alt-delete", DeleteWord, context),
+        KeyBinding::new("cmd-backspace", BackspaceLine, context),
+        KeyBinding::new("left", Left, context),
+        KeyBinding::new("right", Right, context),
+        KeyBinding::new("up", Up, context),
+        KeyBinding::new("down", Down, context),
+        KeyBinding::new("alt-left", WordLeft, context),
+        KeyBinding::new("alt-right", WordRight, context),
+        KeyBinding::new("shift-left", SelectLeft, context),
+        KeyBinding::new("shift-right", SelectRight, context),
+        KeyBinding::new("shift-up", SelectUp, context),
+        KeyBinding::new("shift-down", SelectDown, context),
+        KeyBinding::new("alt-shift-left", SelectWordLeft, context),
+        KeyBinding::new("alt-shift-right", SelectWordRight, context),
+        KeyBinding::new("cmd-a", SelectAll, context),
+        KeyBinding::new("cmd-left", Home, context),
+        KeyBinding::new("cmd-right", End, context),
+        KeyBinding::new("home", Home, context),
+        KeyBinding::new("end", End, context),
+        KeyBinding::new("ctrl-a", Home, context),
+        KeyBinding::new("ctrl-e", End, context),
+        KeyBinding::new("cmd-shift-left", SelectHome, context),
+        KeyBinding::new("cmd-shift-right", SelectEnd, context),
+        KeyBinding::new("shift-home", SelectHome, context),
+        KeyBinding::new("shift-end", SelectEnd, context),
+        KeyBinding::new("cmd-up", TextStart, context),
+        KeyBinding::new("cmd-down", TextEnd, context),
+        KeyBinding::new("cmd-shift-up", SelectTextStart, context),
+        KeyBinding::new("cmd-shift-down", SelectTextEnd, context),
+        KeyBinding::new("cmd-v", Paste, context),
+        KeyBinding::new("cmd-c", Copy, context),
+        KeyBinding::new("cmd-x", Cut, context),
+        KeyBinding::new("enter", Enter, context),
+        KeyBinding::new("cmd-enter", Enter, context),
         KeyBinding::new("shift-enter", Newline, context),
         KeyBinding::new("escape", Escape, context),
         KeyBinding::new("tab", Tab, context),
@@ -479,6 +533,24 @@ impl TextInput {
         self.select_to(self.line_end(self.cursor_offset()), cx);
     }
 
+    fn text_start(&mut self, _: &TextStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.goal_x = None;
+        self.move_to(0, cx);
+    }
+
+    fn text_end(&mut self, _: &TextEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.goal_x = None;
+        self.move_to(self.content.len(), cx);
+    }
+
+    fn select_text_start(&mut self, _: &SelectTextStart, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(0, cx);
+    }
+
+    fn select_text_end(&mut self, _: &SelectTextEnd, _: &mut Window, cx: &mut Context<Self>) {
+        self.select_to(self.content.len(), cx);
+    }
+
     // --- Editing ---
 
     fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
@@ -498,6 +570,17 @@ impl TextInput {
     fn backspace_word(&mut self, _: &BackspaceWord, window: &mut Window, cx: &mut Context<Self>) {
         if self.selected_range.is_empty() {
             self.select_to(self.previous_word(self.cursor_offset()), cx)
+        }
+        self.replace_text_in_range(None, "", window, cx)
+    }
+
+    /// Back to the line's start, as ⌘⌫ deletes on macOS.
+    fn backspace_line(&mut self, _: &BackspaceLine, window: &mut Window, cx: &mut Context<Self>) {
+        if self.selected_range.is_empty() {
+            let start = self.line_start(self.cursor_offset());
+            // At a line's start, the line break before it.
+            let start = if start == self.cursor_offset() { self.previous_boundary(start) } else { start };
+            self.select_to(start, cx)
         }
         self.replace_text_in_range(None, "", window, cx)
     }
@@ -801,6 +884,11 @@ impl Render for TextInput {
             .on_action(cx.listener(Self::end))
             .on_action(cx.listener(Self::select_home))
             .on_action(cx.listener(Self::select_end))
+            .on_action(cx.listener(Self::text_start))
+            .on_action(cx.listener(Self::text_end))
+            .on_action(cx.listener(Self::select_text_start))
+            .on_action(cx.listener(Self::select_text_end))
+            .on_action(cx.listener(Self::backspace_line))
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))

@@ -72,15 +72,15 @@ pub fn tokio() -> &'static tokio::runtime::Runtime {
 }
 
 /// Where this app keeps its data: `ZUNA_DATA_DIR` where it's set, and otherwise in the system's
-/// folder for app data. On Windows only the installed copy keeps it in `Zuna Native`: a copy
-/// started from anywhere else, as a build is, keeps its own in `Zuna Native Dev`, so that it
-/// never opens the installed app's messages and keys.
+/// folder for app data. On Windows and macOS only the installed copy keeps it in `Zuna Native`:
+/// a copy started from anywhere else, as a build is, keeps its own in `Zuna Native Dev`, so
+/// that it never opens the installed app's messages and keys.
 pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("ZUNA_DATA_DIR") {
         return PathBuf::from(dir);
     }
     let base = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     if !std::env::current_exe().is_ok_and(|exe| crate::platform::updates::installed(&exe)) {
         return base.join(format!("{} Dev", crate::platform::DATA_FOLDER));
     }

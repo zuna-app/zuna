@@ -1,6 +1,6 @@
 //! What the app asks of the system itself, each system's in a module of its own with the
-//! same functions: Windows's in `windows/`, and Linux's, under Wayland, in `linux/`. What's
-//! the same on every Unix is in `unix/`.
+//! same functions: Windows's in `windows/`, Linux's, under Wayland, in `linux/`, and macOS's
+//! in `macos/`. What Linux and macOS share as Unix is in `unix/`.
 
 #[cfg(windows)]
 mod windows;
@@ -11,6 +11,11 @@ pub use self::windows::*;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use self::linux::*;
+
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+pub use self::macos::*;
 
 #[cfg(unix)]
 mod unix;
@@ -29,26 +34,35 @@ use image::{RgbaImage, imageops::FilterType};
 pub const DEVICE_NAME: &str = "Windows PC";
 #[cfg(target_os = "linux")]
 pub const DEVICE_NAME: &str = "Linux PC";
+#[cfg(target_os = "macos")]
+pub const DEVICE_NAME: &str = "Mac";
 
 /// The system, as About names it.
 #[cfg(windows)]
 pub const SYSTEM_NAME: &str = "Windows";
 #[cfg(target_os = "linux")]
 pub const SYSTEM_NAME: &str = "Linux";
+#[cfg(target_os = "macos")]
+pub const SYSTEM_NAME: &str = "macOS";
 
 /// The app's data folder, in the system's folder for app data, apart from the Electron app's,
-/// which keeps its own in the configuration folder.
+/// which keeps its own in the configuration folder, or on macOS in `Zuna`.
 #[cfg(windows)]
 pub const DATA_FOLDER: &str = "Zuna Native";
 #[cfg(target_os = "linux")]
 pub const DATA_FOLDER: &str = "zuna";
+#[cfg(target_os = "macos")]
+pub const DATA_FOLDER: &str = "Zuna Native";
 
 /// The app's ID for its windows. On Linux it's the `.desktop` file's name, by which the
-/// desktop finds the app's icon, and the portals and notifications find the app.
+/// desktop finds the app's icon, and the portals and notifications find the app. On macOS
+/// it's the bundle's identifier, apart from the Electron app's `chat.zuna.app`.
 #[cfg(windows)]
 pub const APP_ID: &str = "Zuna";
 #[cfg(target_os = "linux")]
 pub const APP_ID: &str = "zuna";
+#[cfg(target_os = "macos")]
+pub const APP_ID: &str = "chat.zuna.desktop";
 
 /// How long without input before the person counts as away from the computer: not using Zuna,
 /// even with its window in front.
@@ -59,22 +73,36 @@ pub const AWAY_AFTER_MS: u32 = 5_000;
 pub const KEY_WARNING: &str = "Windows couldn't protect this device's key, so it's stored without that protection.";
 #[cfg(target_os = "linux")]
 pub const KEY_WARNING: &str = "Your system has no keychain available, so Zuna can't lock its local data to your login. Installing a secret service such as GNOME Keyring fixes this.";
+#[cfg(target_os = "macos")]
+pub const KEY_WARNING: &str = "Zuna couldn't keep this device's key in your keychain, so it's stored without that protection.";
 
 /// The files copied in a file manager, if that's what the clipboard holds: through Win32 on
-/// Windows, as GPUI reads them there as one run of names, and on Linux through GPUI's own
-/// reading of the `text/uri-list` a file manager offers.
+/// Windows, as GPUI reads them there as one run of names, on Linux through GPUI's own
+/// reading of the `text/uri-list` a file manager offers, and on macOS as GPUI's pasteboard
+/// gives what Finder copied.
 pub fn files_on_clipboard(#[allow(unused_variables)] cx: &gpui::App) -> Vec<PathBuf> {
     #[cfg(windows)]
     return clipboard_files();
     #[cfg(target_os = "linux")]
     return cx.read_paths_from_clipboard();
+    #[cfg(target_os = "macos")]
+    return cx
+        .read_from_clipboard()
+        .into_iter()
+        .flat_map(|item| item.into_entries())
+        .flat_map(|entry| match entry {
+            gpui::ClipboardEntry::ExternalPaths(paths) => paths.0.into_vec(),
+            _ => Vec::new(),
+        })
+        .collect();
 }
 
-/// Whether the window draws its own title bar: always on Windows, and under Wayland only
-/// where the compositor leaves the window's frame to it, as GNOME's does. KDE, Sway,
-/// Hyprland, niri and the other compositors with xdg-decoration draw their own, or none.
+/// Whether the window draws its own title bar: always on Windows and macOS, where macOS's
+/// three buttons sit over it, and under Wayland only where the compositor leaves the
+/// window's frame to it, as GNOME's does. KDE, Sway, Hyprland, niri and the other
+/// compositors with xdg-decoration draw their own, or none.
 pub fn draws_title_bar(#[allow(unused_variables)] window: &gpui::Window) -> bool {
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     return true;
     #[cfg(target_os = "linux")]
     return own_frame(window);
@@ -196,6 +224,28 @@ pub fn app_icon(size: u32) -> RgbaImage {
     };
     let image = image::load_from_memory(source).map(|image| image.to_rgba8()).unwrap_or_else(|_| RgbaImage::new(size, size));
     if image.width() == size { image } else { image::imageops::resize(&image, size, size, FilterType::Lanczos3) }
+}
+
+/// The notification sound as a WAV file, for macOS to play with a notification from the bundle.
+#[cfg(target_os = "macos")]
+pub fn notification_wav() -> Vec<u8> {
+    let rate = 48_000u32;
+    let data: Vec<u8> = notification_tones().iter().flat_map(|sample| sample.to_le_bytes()).collect();
+    let mut wav = Vec::with_capacity(44 + data.len());
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate * 2).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&data);
+    wav
 }
 
 /// The notification sound, as the desktop synthesizes it: 880 Hz, then 1174.66 Hz 90 ms later,

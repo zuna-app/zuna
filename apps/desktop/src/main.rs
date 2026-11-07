@@ -1,5 +1,5 @@
-//! Zuna for Windows: the desktop app's interface drawn with GPUI, around the same
-//! client core every app runs.
+//! Zuna for Windows, Linux and macOS: the desktop app's interface drawn with GPUI, around
+//! the same client core every app runs.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -78,22 +78,37 @@ fn main() {
     let device_key = host::device_key::load(&dir);
     let (core, events) = host::Core::start(dir);
     let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), platform::DEVICE_NAME.into()));
-    gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
+    // What a second start, or this one, was given: a zuna:// link opens the invite in it, once the app is ready.
+    let (links, mut incoming) = futures::channel::mpsc::unbounded::<String>();
+    let application = gpui_platform::application().with_assets(assets::Assets);
+    // macOS keeps one copy of a bundle running, and hands it links as they're opened, and a
+    // click on the Dock's icon, rather than starting another.
+    #[cfg(target_os = "macos")]
+    {
+        let opened = links.clone();
+        application.on_open_urls(move |urls| {
+            for url in urls {
+                opened.unbounded_send(url).ok();
+            }
+        });
+        application.on_reopen(|_| platform::show_main());
+    }
+    application.run(move |cx: &mut App| {
         assets::load_fonts(cx);
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         platform::install(cx);
         ui::text_input::bind_keys(cx);
         ui::bind_keys(cx);
-        cx.bind_keys([KeyBinding::new("ctrl-q", Quit, None)]);
+        cx.bind_keys([KeyBinding::new(if cfg!(target_os = "macos") { "cmd-q" } else { "ctrl-q" }, Quit, None)]);
         cx.on_action(|_: &Quit, cx| quit(cx));
+        #[cfg(target_os = "macos")]
+        platform::set_menus(cx);
 
         let state = cx.new(|cx| AppState::new(core, events, cx));
         cx.set_global(Store(state.clone()));
         voice::init(&state, cx);
         ui::notifications::install(state.downgrade(), cx);
 
-        // What a second start, or this one, was given: a zuna:// link opens the invite in it, once the app is ready.
-        let (links, mut incoming) = futures::channel::mpsc::unbounded::<String>();
         if let Some(link) = link.clone() {
             links.unbounded_send(link).ok();
         }
@@ -169,7 +184,8 @@ fn main() {
                 // Closing keeps it running in the tray, so messages still arrive, unless that's turned off.
                 let closing = state.clone();
                 window.on_window_should_close(cx, move |_, cx| {
-                    if closing.read(cx).settings.close_to_tray {
+                    // macOS keeps the app running with its window closed, as it does every app.
+                    if cfg!(target_os = "macos") || closing.read(cx).settings.close_to_tray {
                         platform::later(cx, platform::hide_main);
                         false
                     } else {
@@ -197,9 +213,16 @@ fn quit(cx: &mut App) {
 }
 
 /// Checks of the hosted core with no window, for development:
-/// `zuna --core-eval <script>...` and `zuna --core-check <method> [args as JSON...]`.
+/// `zuna --core-eval <script>...` and `zuna --core-check <method> [args as JSON...]`, and on
+/// macOS `zuna --write-notification-sound <path>` as the bundle is made.
 fn checks(args: &[String]) -> Option<i32> {
     match args.get(1).map(String::as_str) {
+        // The notification sound, which scripts/macos-app.mjs puts in the bundle.
+        #[cfg(target_os = "macos")]
+        Some("--write-notification-sound") => {
+            let path = args.get(2)?;
+            Some(if std::fs::write(path, platform::notification_wav()).is_ok() { 0 } else { 1 })
+        }
         Some("--core-eval") => {
             let dir = host::data_dir();
             let key = host::device_key::load(&dir).expect("a device key");

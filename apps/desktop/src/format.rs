@@ -39,6 +39,22 @@ fn system_hour12() -> bool {
     }
 }
 
+/// Whether macOS shows times with AM and PM: the switch in Date & Time's settings first, as the
+/// Electron app reads it, then the locale's own time format.
+#[cfg(target_os = "macos")]
+fn system_hour12() -> bool {
+    use objc2_foundation::{NSDateFormatter, NSLocale, NSString, NSUserDefaults};
+    let defaults = NSUserDefaults::standardUserDefaults();
+    if defaults.boolForKey(&NSString::from_str("AppleICUForce24HourTime")) {
+        return false;
+    }
+    if defaults.boolForKey(&NSString::from_str("AppleICUForce12HourTime")) {
+        return true;
+    }
+    // "j" is the locale's own hour, which comes with "a" where it's the 12-hour clock.
+    NSDateFormatter::dateFormatFromTemplate_options_locale(&NSString::from_str("j"), 0, Some(&NSLocale::currentLocale())).is_some_and(|format| format.to_string().contains('a'))
+}
+
 pub fn local(at_ms: f64) -> DateTime<Local> {
     Local.timestamp_millis_opt(at_ms as i64).single().unwrap_or_else(Local::now)
 }

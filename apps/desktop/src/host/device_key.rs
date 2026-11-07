@@ -1,7 +1,8 @@
 //! This device's key, which seals everything the core keeps here. It's sealed in turn
 //! with Windows's data protection for this user, as Electron's safeStorage does for
 //! the desktop app on Windows, so another account on this computer can't read it. On
-//! Linux it's kept in the Secret Service, where safeStorage keeps its own.
+//! Linux it's kept in the Secret Service, and on macOS in the login keychain, where
+//! safeStorage keeps its own.
 
 use std::path::Path;
 
@@ -79,6 +80,8 @@ unsafe fn take_blob(blob: windows::Win32::Security::Cryptography::CRYPT_INTEGER_
 
 #[cfg(windows)]
 const UNSEAL_FAILED: &str = "Windows couldn't unseal this device's key.";
+#[cfg(target_os = "macos")]
+const UNSEAL_FAILED: &str = "The keychain couldn't unseal this device's key.";
 #[cfg(target_os = "linux")]
 const UNSEAL_FAILED: &str = "The system's keyring couldn't unseal this device's key.";
 
@@ -126,3 +129,26 @@ fn within_wait<T: Send + 'static>(work: impl std::future::Future<Output = Option
 fn secret_attributes(id: &str) -> std::collections::HashMap<&'static str, String> {
     std::collections::HashMap::from([("application", "chat.zuna".to_string()), ("device-key", id.to_string())])
 }
+
+/// On macOS the key itself goes into the login keychain, as Electron's safeStorage keeps its
+/// own there, and what's written to disk only names its item. The keychain lets the app that
+/// wrote an item read it back without asking, by its signature, which a build signed with the
+/// same identity keeps. None if the keychain won't take it, and it's kept unprotected.
+#[cfg(target_os = "macos")]
+fn protect(data: &[u8]) -> Option<Vec<u8>> {
+    let id: String = zuna_crypto::primitives::random_bytes(16).ok()?.iter().map(|byte| format!("{byte:02x}")).collect();
+    security_framework::passwords::set_generic_password(KEYCHAIN_SERVICE, &id, data).inspect_err(|error| log::warn!("the device key wasn't put in the keychain: {error}")).ok()?;
+    Some(format!("{KEYCHAIN_PREFIX}{id}").into_bytes())
+}
+
+#[cfg(target_os = "macos")]
+fn unprotect(sealed: &[u8]) -> Option<Vec<u8>> {
+    let id = std::str::from_utf8(sealed).ok()?.strip_prefix(KEYCHAIN_PREFIX)?;
+    security_framework::passwords::get_generic_password(KEYCHAIN_SERVICE, id).inspect_err(|error| log::warn!("the device key wasn't read from the keychain: {error}")).ok()
+}
+
+/// The keychain item's service, as Keychain Access lists it, and the prefix of what names it on disk.
+#[cfg(target_os = "macos")]
+const KEYCHAIN_SERVICE: &str = "Zuna device key";
+#[cfg(target_os = "macos")]
+const KEYCHAIN_PREFIX: &str = "keychain:";

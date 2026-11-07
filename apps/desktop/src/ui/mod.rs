@@ -7,10 +7,10 @@ pub mod conversations;
 pub mod image_viewer;
 pub mod menu;
 pub mod motion;
-// The cards are Windows's. On Linux the system's notifications take their place, with the same calls.
+// The cards are Windows's. On Linux and macOS the system's notifications take their place, with the same calls.
 #[cfg(windows)]
 pub mod notifications;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 pub use crate::platform::notifications;
 pub mod message;
 pub mod onboarding;
@@ -42,10 +42,11 @@ use crate::state::{AppState, Phase, ToastKind};
 
 gpui::actions!(shell, [FocusSearch, NextConversation, PreviousConversation]);
 
-/// Ctrl+K jumps to search, and Alt+Up and Alt+Down move through conversations, as on the desktop.
+/// Ctrl+K jumps to search, ⌘K on macOS, and Alt+Up and Alt+Down move through conversations, as
+/// on the desktop.
 pub fn bind_keys(cx: &mut App) {
     cx.bind_keys([
-        gpui::KeyBinding::new("ctrl-k", FocusSearch, None),
+        gpui::KeyBinding::new(if cfg!(target_os = "macos") { "cmd-k" } else { "ctrl-k" }, FocusSearch, None),
         gpui::KeyBinding::new("alt-down", NextConversation, None),
         gpui::KeyBinding::new("alt-up", PreviousConversation, None),
     ]);
@@ -176,9 +177,14 @@ impl Root {
                     .child("Zuna"),
             )
             .children(status);
-        // Wayland leaves dragging to the app.
-        #[cfg(target_os = "linux")]
+        // Wayland and macOS leave dragging to the app.
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let drag = crate::platform::title_drag(drag);
+        // macOS draws its own three buttons over the title bar's left end, and none in full screen.
+        #[cfg(target_os = "macos")]
+        let inset = if window.is_fullscreen() { 12. } else { crate::platform::TRAFFIC_LIGHTS_WIDTH };
+        #[cfg(not(target_os = "macos"))]
+        let inset = 12.;
         // Covers the root, whose focus tracking would otherwise take each press here and leave
         // Windows nothing to drag, minimize, maximize or close with.
         div()
@@ -188,7 +194,7 @@ impl Root {
             .flex_none()
             .items_center()
             .h(TITLEBAR_HEIGHT)
-            .pl(px(12.))
+            .pl(px(inset))
             .gap(px(8.))
             .bg(theme.bg0)
             .border_b_1()
@@ -196,14 +202,16 @@ impl Root {
             .text_size(px(12.))
             .text_color(theme.text3)
             .child(drag)
-            .child(
-                div()
-                    .flex()
-                    .h_full()
-                    .child(control("win-min", "win-minimize", WindowControlArea::Min, false))
-                    .child(control("win-max", if window.is_maximized() { "win-restore" } else { "win-maximize" }, WindowControlArea::Max, false))
-                    .child(control("win-close", "win-close", WindowControlArea::Close, true)),
-            )
+            .when(cfg!(not(target_os = "macos")), |el| {
+                el.child(
+                    div()
+                        .flex()
+                        .h_full()
+                        .child(control("win-min", "win-minimize", WindowControlArea::Min, false))
+                        .child(control("win-max", if window.is_maximized() { "win-restore" } else { "win-maximize" }, WindowControlArea::Max, false))
+                        .child(control("win-close", "win-close", WindowControlArea::Close, true)),
+                )
+            })
     }
 
     fn rail(&self, cx: &mut Context<Self>) -> impl IntoElement {
