@@ -307,6 +307,6 @@ journalctl -u zuna-livekit -f
 - **People join a call but hear nothing:** media can't reach the machine. Check that 7881/tcp and 7882/udp are open to everyone, and forwarded if it's behind a router. LiveKit's log says which public address it found when it started.
 - **The web app says it has to be opened over HTTPS:** reach it through the proxy, at `https://web.chat.example.com`, not at its port.
 - **Phones don't get notifications:**
-  - the server's `ZUNA_PUSH_RELAYS` must list the relay's public address. By default it lists the project's relay, `https://relay.zuna.chat`, and the script sets it to the relay on the same machine;
+  - the server's `ZUNA_PUSH_RELAYS` must list the relay's public address. By default it lists the project's relay, `https://relay.mgalazka.pl`, and the script sets it to the relay on the same machine;
   - the relay needs an APNs key;
   - the app must be built with that address in its `ZUNA_PUSH_RELAY` setting.

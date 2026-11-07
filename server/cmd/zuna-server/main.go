@@ -29,7 +29,7 @@ var version = "dev"
 
 // defaultPushRelay is the project's push relay, which the published Zuna app
 // registers with (docs/PUSH_RELAY.md). It only ever sees sealed pushes.
-const defaultPushRelay = "https://relay.zuna.chat"
+const defaultPushRelay = "https://relay.mgalazka.pl"
 
 type config struct {
 	dataDir         string

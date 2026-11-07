@@ -20,7 +20,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     DEAD_CODE_STRIPPING: YES
     # The push relay the app registers with (docs/PUSH_RELAY.md).
-    ZUNA_PUSH_RELAY: "https://relay.zuna.chat"
+    ZUNA_PUSH_RELAY: "https://relay.mgalazka.pl"
     # Warnings fail the build of the app's own targets when ZUNA_WARNINGS_AS_ERRORS=YES
     # (scripts/check-ios.mjs). Set on the command line, SWIFT_TREAT_WARNINGS_AS_ERRORS
     # would also reach the packages, whose warnings SwiftPM suppresses, and fail.

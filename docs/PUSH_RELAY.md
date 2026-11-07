@@ -81,7 +81,7 @@ Then run `docker compose up -d`.
 
 ## Pointing servers and the app at it
 
-- **The project's relay** runs at `https://relay.zuna.chat`.
+- **The project's relay** runs at `https://relay.mgalazka.pl`.
 - **Servers** list the relays that may wake their members' phones in `ZUNA_PUSH_RELAYS`. By default that's the project's relay, so self-hosters get notifications without setting anything. `off` turns them off.
 - **The app** registers with the relay in its `ZUNA_PUSH_RELAY` build setting (`apps/ios/project.yml`), the project's relay. Debug builds use Apple's sandbox, and TestFlight and App Store builds use production. The relay handles both with one key.
 

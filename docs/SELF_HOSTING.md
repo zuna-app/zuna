@@ -183,7 +183,7 @@ Everything can be set by flag or environment variable.
 | `--download-url` | `ZUNA_DOWNLOAD_URL` | | A link for downloading the app, which invite pages show as well as the official releases |
 | `--auth-burst` | | `20` | Sign-in attempts allowed at once from one address, where an IPv6 /48 counts as one |
 | `--user-quota-mb` | `ZUNA_USER_QUOTA_MB` | `10240` | How many MB of files each person may keep, and as many again of messages, or `-1` for no limit |
-| `--push-relays` | `ZUNA_PUSH_RELAYS` | `https://relay.zuna.chat` | Comma-separated push relays that may wake phones for new messages, or `off` for none. Phones register with one of them |
+| `--push-relays` | `ZUNA_PUSH_RELAYS` | `https://relay.mgalazka.pl` | Comma-separated push relays that may wake phones for new messages, or `off` for none. Phones register with one of them |
 
 The app only connects over HTTPS, except to `localhost`.
 
@@ -249,7 +249,7 @@ If you use the web app with `--servers`, and apps reach LiveKit at an address of
 
 Phones can't keep a connection open in the background, so the server wakes them through a push relay when a message arrives. The relay sees only that something arrived for some phone: the message stays encrypted on the server, and the phone fetches and decrypts it itself. [PUSH_RELAY.md](PUSH_RELAY.md) explains how it works and how to run one.
 
-- **They're on by default.** Servers send notifications through the project's relay, `https://relay.zuna.chat`, which the Zuna app registers with. There's nothing to set.
+- **They're on by default.** Servers send notifications through the project's relay, `https://relay.mgalazka.pl`, which the Zuna app registers with. There's nothing to set.
 - **To use another relay,** set `ZUNA_PUSH_RELAYS` to it, such as `https://push.example.com`. With Docker, pass it like `ZUNA_DOMAIN`. From source on Linux, use the script's `--push-relays` option, or `--relay` to run your own next to the server, which points the server at it ([LINUX.md](LINUX.md)). Phones only register with a relay their app was built for.
 - **To turn them off,** set `ZUNA_PUSH_RELAYS=off`. Everything else works, and phones see new messages when they open the app.
 - **Several devices:** notifications go where you are, as in Telegram. The device you're using notifies straight away. While you're on another one, or were in the last few minutes, the rest wait 30 seconds and skip anything you read in the meantime, so at the desktop your phone only buzzes for what you left unread. What you read on one device disappears from the others.
