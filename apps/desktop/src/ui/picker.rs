@@ -19,6 +19,8 @@ use crate::theme::{RADIUS_L, RADIUS_M, RADIUS_S};
 
 const WIDTH: f32 = 352.;
 const HEIGHT: f32 = 420.;
+/// How tall a row of emotes is, as `.emote-grid`'s cells.
+const EMOTE_ROW: f32 = 53.;
 
 #[derive(Clone)]
 pub enum Pick {
@@ -167,7 +169,10 @@ impl PickerLayer {
         parts
     }
 
-    fn emote_grid(&self, emotes: &[Emote], server_url: &str, needle: &str, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// The set's emotes in rows of six. Only the rows in `near` have their pictures, which every
+    /// cell keeps the place of: a set's hundreds of emotes, each decoded with every frame, came to
+    /// more than a gigabyte the moment the picker opened.
+    fn emote_grid(&self, emotes: &[Emote], server_url: &str, needle: &str, near: std::ops::Range<usize>, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let filtered: Vec<&Emote> = emotes.iter().filter(|emote| needle.is_empty() || emote.name.to_lowercase().contains(needle)).collect();
         if filtered.is_empty() {
@@ -186,11 +191,11 @@ impl PickerLayer {
         // repeat(auto-fill, minmax(46px, 1fr)) with a 2px gap, beside the desktop's 8px scrollbar: six square cells.
         let columns = 6;
         let mut parts = Vec::new();
-        for row in filtered.chunks(columns) {
+        for (index, row) in filtered.chunks(columns).enumerate() {
             let mut line = div().flex().gap(px(2.));
             for emote in row {
                 let url = format!("{server_url}/api/emotes/{}/2x.webp", emote.id);
-                let image = state.update(cx, |state, cx| state.remote_picture(&url, cx));
+                let image = if near.contains(&index) { state.update(cx, |state, cx| state.remote_picture(&url, cx)) } else { None };
                 let emote = (*emote).clone();
                 let hovered = emote.clone();
                 line = line.child(
@@ -199,7 +204,7 @@ impl PickerLayer {
                         .flex_1()
                         // Equal cells, as `.emote-grid`'s columns: a wide emote fits in its own.
                         .min_w_0()
-                        .h(px(53.))
+                        .h(px(EMOTE_ROW))
                         .p(px(6.))
                         .rounded(RADIUS_M)
                         .cursor_pointer()
@@ -274,7 +279,15 @@ impl Render for PickerLayer {
                 .child(label)
                 .when(active, |el| el.child(div().absolute().left_0().right_0().bottom_0().h(px(2.)).bg(theme.text1)))
         };
-        let body = if emotes_tab { self.emote_grid(&emotes, &server_url, &needle, cx) } else { self.emoji_grid(&needle, cx) };
+        // As `EmotePicker`'s, each emote waits until it's 300 px from being seen, in rows of 53 px.
+        let near = {
+            let handle = scroll_handle("picker-body");
+            let seen = handle.bounds().size.height;
+            let from = (-handle.offset().y - px(300.)).max(px(0.));
+            let to = -handle.offset().y + if seen > px(0.) { seen } else { px(HEIGHT) } + px(300.);
+            (from / px(EMOTE_ROW)).floor() as usize..(to / px(EMOTE_ROW)).ceil() as usize
+        };
+        let body = if emotes_tab { self.emote_grid(&emotes, &server_url, &needle, near, cx) } else { self.emoji_grid(&needle, cx) };
         let footer: AnyElement = match &self.hovered {
             Some(Hovered::Emote(emote)) => {
                 let url = format!("{server_url}/api/emotes/{}/2x.webp", emote.id);

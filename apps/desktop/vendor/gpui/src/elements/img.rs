@@ -348,7 +348,9 @@ impl Element for Img {
                     ) {
                         Some(Ok(data)) => {
                             if let ImageSource::Image(source) = &self.source {
-                                crate::window::note_picture_source(data.id, data.frame_count(), source);
+                                let size = data.size(0);
+                                let bytes = size.width.0.max(0) as usize * size.height.0.max(0) as usize * 4 * data.frame_count();
+                                crate::window::note_picture_source(data.id, data.frame_count(), bytes, source);
                             }
                             // Zuna: the frame an animated picture's own clock is at. Each element
                             // stepped its own frame along in its state, one at a time, and drew
@@ -418,6 +420,9 @@ impl Element for Img {
                             }
                         }
                         None => {
+                            if let ImageSource::Image(source) = &self.source {
+                                crate::window::note_picture_wanted(source);
+                            }
                             if let Some(state) = &mut state {
                                 if let Some((started_loading, _)) = state.started_loading {
                                     if started_loading.elapsed() > LOADING_DELAY

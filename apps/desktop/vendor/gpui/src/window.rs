@@ -59,32 +59,54 @@ use crate::util::atomic_incr_if_not_zero;
 pub use prompts::*;
 
 /// Zuna: when a picture was last in a frame drawn, how many frames it has, and the picture an
-/// img decoded it from, which GPUI's asset cache holds.
+/// img decoded it from, which GPUI's asset cache holds, with how many bytes that came to.
 struct SeenPicture {
     frames: usize,
     source: Option<Arc<crate::Image>>,
+    bytes: usize,
     at: Instant,
 }
 
 thread_local! {
     static SEEN_PICTURES: RefCell<FxHashMap<ImageId, SeenPicture>> = RefCell::default();
     static PICTURES_SWEPT: Cell<Option<Instant>> = const { Cell::new(None) };
+    /// Zuna: pictures an img has asked to be decoded and hasn't drawn yet, by the picture they're
+    /// decoded from, with when one last asked.
+    static WANTED_PICTURES: RefCell<FxHashMap<u64, (Arc<crate::Image>, Instant)>> = RefCell::default();
+}
+
+/// Zuna: how long a picture being decoded is kept once nothing asks for it any more. Rows of an
+/// emote picker scrolled past started their emotes' decoding, which finished after they'd gone, and
+/// nothing drew them, so nothing let go of them.
+const FORGET_UNWANTED_AFTER: Duration = Duration::from_secs(10);
+
+/// Zuna: an img is waiting for this picture to be decoded.
+pub(crate) fn note_picture_wanted(source: &Arc<crate::Image>) {
+    WANTED_PICTURES.with(|wanted| {
+        wanted.borrow_mut().entry(source.id()).and_modify(|(_, at)| *at = Instant::now()).or_insert_with(|| (source.clone(), Instant::now()));
+    });
 }
 
 /// Zuna: how long a picture out of every frame is kept, decoded and on the graphics card.
-const FORGET_PICTURES_AFTER: Duration = Duration::from_secs(120);
+const FORGET_PICTURES_AFTER: Duration = Duration::from_secs(60);
 const SWEEP_PICTURES_EVERY: Duration = Duration::from_secs(15);
+/// Zuna: how much of what's decoded may be out of view before the least recently seen goes at
+/// once, as a browser keeps its decoded images to a budget. Scrolling through an emote picker of a
+/// thousand animated emotes decoded them all within a minute.
+const DECODED_OUT_OF_VIEW: usize = 128 << 20;
 
 /// Zuna: the picture an img decoded this one from, so that it's let go of from GPUI's asset
 /// cache too once it's out of every frame for a while.
-pub(crate) fn note_picture_source(id: ImageId, frames: usize, source: &Arc<crate::Image>) {
+pub(crate) fn note_picture_source(id: ImageId, frames: usize, bytes: usize, source: &Arc<crate::Image>) {
     SEEN_PICTURES.with(|seen| {
         let mut seen = seen.borrow_mut();
-        let picture = seen.entry(id).or_insert(SeenPicture { frames, source: None, at: Instant::now() });
+        let picture = seen.entry(id).or_insert(SeenPicture { frames, source: None, bytes: 0, at: Instant::now() });
         if picture.source.is_none() {
             picture.source = Some(source.clone());
+            picture.bytes = bytes;
         }
     });
+    WANTED_PICTURES.with(|wanted| wanted.borrow_mut().remove(&source.id()));
 }
 
 pub(crate) const DEFAULT_WINDOW_SIZE: Size<Pixels> = size(px(1536.), px(864.));
@@ -2028,28 +2050,59 @@ impl Window {
     /// any window's frame for a while: off every graphics card, and out of GPUI's asset cache for
     /// one an img decoded. Each was kept for as long as the app ran, every photo, avatar and frame
     /// of every emote ever seen, which came to gigabytes. One that comes back is decoded again.
+    /// Past a budget of what's decoded and out of view, the least recently seen go at once, from
+    /// this window: another may still show them, and decodes them again when it's next drawn.
     fn forget_unseen_pictures(&mut self, cx: &mut App) {
         let now = Instant::now();
-        SEEN_PICTURES.with(|seen| {
+        let unwanted: Vec<Arc<crate::Image>> = WANTED_PICTURES.with(|wanted| {
+            let mut wanted = wanted.borrow_mut();
+            let ids: Vec<u64> = wanted.iter().filter(|(_, (_, at))| now.duration_since(*at) >= FORGET_UNWANTED_AFTER).map(|(id, _)| *id).collect();
+            ids.into_iter().filter_map(|id| wanted.remove(&id).map(|(source, _)| source)).collect()
+        });
+        for source in unwanted {
+            crate::forget_decoded(&source, cx);
+        }
+        let out_of_view = SEEN_PICTURES.with(|seen| {
             let mut seen = seen.borrow_mut();
             for &(id, frames) in &self.rendered_frame.painted_images {
                 seen.entry(id)
                     .and_modify(|picture| picture.at = now)
-                    .or_insert(SeenPicture { frames, source: None, at: now });
+                    .or_insert(SeenPicture { frames, source: None, bytes: 0, at: now });
             }
+            seen.values().filter(|picture| picture.source.is_some() && picture.at < now).map(|picture| picture.bytes).sum::<usize>()
         });
-        if PICTURES_SWEPT.get().is_some_and(|at| now.duration_since(at) < SWEEP_PICTURES_EVERY) {
+        let due = !PICTURES_SWEPT.get().is_some_and(|at| now.duration_since(at) < SWEEP_PICTURES_EVERY);
+        let over = out_of_view > DECODED_OUT_OF_VIEW;
+        if !due && !over {
             return;
         }
-        PICTURES_SWEPT.set(Some(now));
-        let unseen: Vec<(ImageId, SeenPicture)> = SEEN_PICTURES.with(|seen| {
+        if due {
+            PICTURES_SWEPT.set(Some(now));
+        }
+        let (unseen, crowded) = SEEN_PICTURES.with(|seen| {
             let mut seen = seen.borrow_mut();
-            let ids: Vec<ImageId> = seen
-                .iter()
-                .filter(|(_, picture)| now.duration_since(picture.at) >= FORGET_PICTURES_AFTER)
-                .map(|(id, _)| *id)
-                .collect();
-            ids.into_iter().filter_map(|id| seen.remove(&id).map(|picture| (id, picture))).collect()
+            let old: Vec<ImageId> = if due {
+                seen.iter().filter(|(_, picture)| now.duration_since(picture.at) >= FORGET_PICTURES_AFTER).map(|(id, _)| *id).collect()
+            } else {
+                Vec::new()
+            };
+            let unseen: Vec<(ImageId, SeenPicture)> = old.into_iter().filter_map(|id| seen.remove(&id).map(|picture| (id, picture))).collect();
+            let mut crowded = Vec::new();
+            if over {
+                let mut left = out_of_view.saturating_sub(unseen.iter().filter(|(_, picture)| picture.source.is_some()).map(|(_, picture)| picture.bytes).sum::<usize>());
+                let mut oldest: Vec<(Instant, ImageId)> = seen.iter().filter(|(_, picture)| picture.source.is_some() && picture.at < now).map(|(id, picture)| (picture.at, *id)).collect();
+                oldest.sort();
+                for (_, id) in oldest {
+                    if left <= DECODED_OUT_OF_VIEW {
+                        break;
+                    }
+                    if let Some(picture) = seen.remove(&id) {
+                        left = left.saturating_sub(picture.bytes);
+                        crowded.push((id, picture));
+                    }
+                }
+            }
+            (unseen, crowded)
         });
         for (id, picture) in unseen {
             for frame_index in 0..picture.frames {
@@ -2058,6 +2111,14 @@ impl Window {
                 for window in cx.windows.values_mut().flatten() {
                     window.sprite_atlas.remove(&key);
                 }
+            }
+            if let Some(source) = picture.source {
+                crate::forget_decoded(&source, cx);
+            }
+        }
+        for (id, picture) in crowded {
+            for frame_index in 0..picture.frames {
+                self.sprite_atlas.remove(&RenderImageParams { image_id: id, frame_index }.into());
             }
             if let Some(source) = picture.source {
                 crate::forget_decoded(&source, cx);
