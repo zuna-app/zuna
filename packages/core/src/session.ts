@@ -5280,6 +5280,8 @@ export class ServerSession {
     );
     const view = this.toMessageView(this.messageRow(groupId, id)!);
     this.emit({ type: "message", serverId: this.serverId, message: view, isNew: true });
+    // The chat list shows it as it's sent, not once the server has it.
+    this.emitConversations();
     return view;
   }
 
@@ -5406,6 +5408,7 @@ export class ServerSession {
     this.db.run("UPDATE messages SET status = 'failed' WHERE group_id = ? AND id = ?", [groupId, id]);
     const row = this.messageRow(groupId, id);
     if (row) this.emit({ type: "message", serverId: this.serverId, message: this.toMessageView(row), isNew: false });
+    this.emitConversations();
   }
 
   private markStaleSendsFailed(): void {

@@ -100,6 +100,19 @@ describe("direct messages", () => {
     expect(bob.texts(`user:${alice.userId}`)).toEqual(["hi bob", "hi alice"]);
   });
 
+  it("puts a message at the top of the chat list as it's sent, not once the server has it", async () => {
+    const key = `user:${bob.userId}`;
+    alice.session.sendMessage(key, { text: "so the chat exists" });
+    await waitFor(() => alice.session.getConversations().find((item) => item.key === key)?.lastMessage?.status === "sent", "the chat to exist");
+    const seen = alice.events.length;
+    const sent = alice.session.sendMessage(key, { text: "on its way" });
+    expect(alice.events.slice(seen).some((event) => event.type === "conversations")).toBe(true);
+    const top = alice.session.getConversations()[0]!;
+    expect(top.key).toBe(key);
+    expect(top.lastMessage).toMatchObject({ id: sent.id, status: "sending", text: "on its way" });
+    await waitFor(() => alice.session.getConversations()[0]?.lastMessage?.status === "sent", "the list to show it sent");
+  });
+
   it("recovers when two people start the same DM at the same moment", async () => {
     const dave = await new TestApp("dave").open();
     const erin = await new TestApp("erin").open();
