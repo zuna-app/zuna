@@ -100,6 +100,9 @@ pub struct ChatView {
     at_bottom: bool,
     visible_newest: f64,
     highlight: Option<(String, u64)>,
+    /// A message jumped to, which goes in the middle of the list once it's been measured,
+    /// and whether the list has been laid out with it at the top yet.
+    center_on: Option<(String, bool)>,
     last_typing: f64,
     revealed: Rc<RefCell<HashSet<String>>>,
     side_panel: Option<Entity<SidePanel>>,
@@ -324,6 +327,7 @@ impl ChatView {
             at_bottom: true,
             visible_newest: 0.,
             highlight: None,
+            center_on: None,
             last_typing: 0.,
             revealed: Rc::new(RefCell::new(HashSet::new())),
             side_panel: None,
@@ -463,6 +467,8 @@ impl ChatView {
         }
         let new_rows: Vec<(String, u64)> = list.items.iter().map(|item| (item.id.clone(), fingerprint(item))).collect();
         if new_rows == self.rows {
+            // A jump to a message that's already loaded changes no rows.
+            self.jump_if_asked(cx);
             return;
         }
         let old = std::mem::take(&mut self.rows);
@@ -528,26 +534,34 @@ impl ChatView {
 
     fn jump_if_asked(&mut self, cx: &mut Context<Self>) {
         let Some((group, id, nonce)) = self.state.read(cx).jump_target.clone() else { return };
-        if group != self.last_list_id || self.highlight.as_ref().is_some_and(|(_, seen)| *seen == nonce) {
+        if group != self.last_list_id {
             return;
         }
-        if let Some(index) = self.rows.iter().position(|(row, _)| *row == id) {
-            self.list.scroll_to_reveal_item(index);
-            self.highlight = Some((id, nonce));
-            self.context_cache = None;
-            self.refresh_messages(cx);
-            cx.spawn(async move |view, cx| {
-                cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
-                view.update(cx, |view, cx| {
+        let Some(index) = self.rows.iter().position(|(row, _)| *row == id) else { return };
+        // Only this once: the rows changing later, as a message comes in, aren't another jump.
+        self.state.update(cx, |state, _| state.jump_target = None);
+        self.glide = None;
+        // At the top first, where the rows above it are measured, and in the middle from there.
+        self.list.scroll_to(gpui::ListOffset { item_ix: index, offset_in_item: px(0.) });
+        self.center_on = Some((id.clone(), false));
+        self.highlight = Some((id, nonce));
+        self.context_cache = None;
+        self.refresh_messages(cx);
+        cx.notify();
+        cx.spawn(async move |view, cx| {
+            cx.background_executor().timer(std::time::Duration::from_millis(1500)).await;
+            view.update(cx, |view, cx| {
+                // A later jump keeps its own highlight.
+                if view.highlight.as_ref().is_some_and(|(_, seen)| *seen == nonce) {
                     view.highlight = None;
                     view.context_cache = None;
                     view.refresh_messages(cx);
                     cx.notify();
-                })
-                .ok();
+                }
             })
-            .detach();
-        }
+            .ok();
+        })
+        .detach();
     }
 
     fn on_scroll(&mut self, visible: std::ops::Range<usize>, scrolled: bool, cx: &mut Context<Self>) {
@@ -2671,6 +2685,25 @@ impl ChatView {
                     self.list.reset(count);
                 }
                 let rows_state = self.state.clone();
+                // A message jumped to, in the middle as the desktop's list puts it, or at the top
+                // if it's taller than the list. It waits a frame at the top, where it's measured,
+                // and so are the rows above it in the list's overdraw, which moving it counts on.
+                // Where the list's end put it lower down, it stays.
+                if let Some((id, laid_out)) = self.center_on.take() {
+                    match self.rows.iter().position(|(row, _)| *row == id) {
+                        Some(_) if !laid_out => {
+                            self.center_on = Some((id, true));
+                            window.request_animation_frame();
+                        }
+                        Some(index) => {
+                            if let Some(bounds) = self.list.bounds_for_item(index) {
+                                let view = self.list.viewport_bounds();
+                                self.list.scroll_by((bounds.center().y - view.center().y).min(bounds.top() - view.top()));
+                            }
+                        }
+                        None => {}
+                    }
+                }
                 // The glide to new messages, over 180 ms with `--ease-out`.
                 if let Some((from, began)) = self.glide {
                     let t = began.elapsed().as_secs_f32() / 0.18;
