@@ -224,6 +224,7 @@ Decided 2026-11-07:
 
 - **Permissions in development.** Each rebuild with an ad hoc signature is a new app to macOS, which asks again for the microphone, the camera and the Keychain. The script signs with the Apple Development identity it finds, and says so when there's none.
 - **A tile drawn from the GPU has square corners,** as GPUI's `surface` takes no corner radius. The fork would need one in `PaintSurface` and its Metal shader.
+- **Core Audio can hold a call forever.** Listing the devices once froze the window until they were read off its thread, and `zuna-screenshare --sound`, left with macOS's question about recording the computer's sound unanswered, never quit, stuck in `AudioDeviceDestroyIOProcID` as its tap closed. Both were seen with nobody at the Mac, and the second needs looking at again once the question has been answered.
 - **macOS's picker from Rust,** through `objc2-screen-capture-kit`: its observer and the filter it hands back are unchecked until M3.
 - **The picture viewer** over the menu bar and the Dock, transparent: GPUI's macOS windows may need a level set on the `NSWindow`.
 - **Text looks heavier** through Core Text than through DirectWrite, so screenshots are compared with the Electron app on macOS, not with Windows.
