@@ -17,7 +17,7 @@ use super::selection;
 use crate::format::{format_bytes, format_day_separator, format_full, format_time, name_color, timer_change_text};
 use crate::markup::{self, Block, Rich};
 use crate::models::{Attachment, EmoteRef, MessageView, ReactionView, UserView};
-use crate::state::{AppState, Overlay, ToastKind};
+use crate::state::{AppState, Overlay, Picture, ToastKind};
 use crate::theme::{self, Theme, FONT_MONO, FONT_UI, RADIUS_M, RADIUS_S};
 
 pub const QUICK_REACTIONS: [&str; 6] = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
@@ -64,9 +64,29 @@ pub struct ChatContext {
     pub parsed: std::cell::RefCell<HashMap<String, Rc<Vec<Block>>>>,
     /// Where the videos are drawn, above the messages.
     pub video_slots: super::media_views::VideoSlots,
+    /// The width and height of each emote in the server's set, by id, so that its place is
+    /// kept before its picture is here.
+    pub emote_sizes: HashMap<String, (f32, f32)>,
 }
 
 const GROUP_WINDOW_MS: f64 = 5. * 60. * 1000.;
+
+/// How wide an emote `height` tall is drawn, at most `widest`, by its size in the server's set,
+/// so that its place is kept from before its picture is here and nothing moves when the picture
+/// comes and is decoded. None for one the set doesn't know.
+pub(super) fn emote_width(context: &ChatContext, id: &str, height: f32, widest: f32) -> Option<f32> {
+    context.emote_sizes.get(id).map(|&(width, tall)| (height * width / tall).min(widest))
+}
+
+/// An emote's place while its picture is on its way: empty, as a browser keeps it, as wide as
+/// the set says, or square for one the set doesn't know. Its name stands in only for a picture
+/// that couldn't be had.
+pub(super) fn emote_placeholder(context: &ChatContext, url: &str, name: &str, width: Option<f32>, height: f32, cx: &App) -> gpui::Div {
+    if matches!(context.state.read(cx).pictures.get(url), Some(Picture::Failed)) {
+        return div().text_color(theme(cx).text2).child(name.to_string());
+    }
+    div().flex_none().h(px(height)).w(px(width.unwrap_or(height)))
+}
 
 /// A double click replies, as in Telegram, except on something clickable, such as a link, a
 /// button, a picture or a player, which all show the hand (`repliesOnDoubleClick`).
@@ -714,10 +734,12 @@ fn flow_text(
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             let zero_width = emote.zero_width == Some(true);
+            let width = emote_width(context, &emote.id, 26., 110.);
             let picture = match image {
                 Some(image) => with_emote_card(
                     img(image)
                         .h(px(26.))
+                        .when_some(width, |el, width| el.w(px(width)))
                         .max_w(px(110.))
                         .object_fit(gpui::ObjectFit::Contain)
                         // An id keeps an animated emote's place between frames.
@@ -733,7 +755,7 @@ fn flow_text(
                 .my(px(-3.))
                 .when(zero_width, |el| el.ml(px(-28.)))
                 .into_any_element(),
-                None => div().text_color(theme.text2).child(name.clone()).into_any_element(),
+                None => emote_placeholder(context, &url, name, width, 26., cx).mx(px(1.)).my(px(-3.)).when(zero_width, |el| el.ml(px(-28.))).into_any_element(),
             };
             // Selected whole, and copied as its name.
             row = row.child(selection::selectable(&message.id, index * 10_000 + piece, index, name.clone(), None, picture));
@@ -948,12 +970,13 @@ pub(super) fn jumbo_body(message: &MessageView, _size: u8, context: &ChatContext
         if let Some(emote) = message.emotes.get(word) {
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
+            let width = emote_width(context, &emote.id, 48., 150.);
             row = row.child(match image {
                 Some(image) => {
-                    let picture = img(image).h(px(48.)).max_w(px(150.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("jumbo-{}-{position}", message.id)));
+                    let picture = img(image).h(px(48.)).when_some(width, |el, width| el.w(px(width))).max_w(px(150.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("jumbo-{}-{position}", message.id)));
                     with_emote_card(picture, SharedString::from(format!("jumbo-card-{}-{position}", message.id)), word, emote, None, context, cx).into_any_element()
                 }
-                None => div().h(px(48.)).w(px(48.)).into_any_element(),
+                None => emote_placeholder(context, &url, word, width, 48., cx).into_any_element(),
             });
         } else {
             row = row.child(div().text_size(px(34.)).line_height(relative(1.15)).child(word.to_string()));
@@ -1126,10 +1149,10 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
                 Some(image) => {
-                    let picture = img(image).h(px(18.)).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));
+                    let picture = img(image).h(px(18.)).when_some(emote_width(context, &emote.id, 18., 40.), |el, width| el.w(px(width))).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));
                     chip.child(with_emote_card(picture, SharedString::from(format!("reaction-card-{}-{}", message.id, reaction.key)), &reaction.key, emote, Some(format!("Reacted by {names}")), context, cx))
                 }
-                None => chip.child(div().text_color(theme.text2).child(reaction.key.clone())),
+                None => chip.child(emote_placeholder(context, &url, &reaction.key, emote_width(context, &emote.id, 18., 40.), 18., cx)),
             }
         }
         None => chip.child(div().text_size(px(14.)).line_height(px(14.)).child(reaction.key.clone())),

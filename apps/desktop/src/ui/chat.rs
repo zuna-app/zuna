@@ -2553,6 +2553,7 @@ impl ChatView {
             read_by: conversation.read_by.clone(),
             parsed: Default::default(),
             video_slots: self.video_slots.clone(),
+            emote_sizes: server.emotes.emotes.iter().filter(|emote| emote.width > 0. && emote.height > 0.).map(|emote| (emote.id.clone(), (emote.width as f32, emote.height as f32))).collect(),
         };
         let server_id = self.server_id.clone();
         if !wanted.is_empty() {
