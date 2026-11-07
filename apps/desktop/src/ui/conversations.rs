@@ -7,6 +7,7 @@ use gpui::{
     AnyElement, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
     div, prelude::*, px,
 };
+use gpui::Focusable as _;
 use serde_json::json;
 
 use super::components::*;
@@ -100,7 +101,7 @@ impl ConversationList {
                 InputEvent::Changed => list.run_search(cx),
                 InputEvent::Escape => {
                     input.update(cx, |input, cx| input.set_text("", cx));
-                    window.blur();
+                    window.blur(cx);
                 }
                 InputEvent::Focused => {
                     list.search_focused = true;
@@ -121,7 +122,7 @@ impl ConversationList {
     }
 
     pub fn focus_search(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.search.read(cx).focus(window);
+        self.search.focus_handle(cx).focus(window, cx);
     }
 
     /// Message search runs against the encrypted index on this device.
@@ -136,11 +137,9 @@ impl ConversationList {
         let state = self.state.clone();
         self.searching = Some(cx.spawn(async move |list, cx| {
             cx.background_executor().timer(Duration::from_millis(120)).await;
-            let Ok(call) = state.update(cx, |state, _| {
+            let call = state.update(cx, |state, _| {
                 state.active_server.clone().map(|server| state.core.call(Some(&server), "search", vec![json!(query), crate::host::undefined(), json!(30)]))
-            }) else {
-                return;
-            };
+            });
             let Some(call) = call else { return };
             if let Ok(value) = call.await {
                 let hits: Vec<SearchResult> = crate::models::from_value(value);
@@ -963,7 +962,7 @@ impl ConversationList {
                     let (state, id) = (state.clone(), id.clone());
                     cx.spawn(async move |cx| {
                         if answer.await == Ok(0) {
-                            state.update(cx, |state, cx| state.act("deleteChannel", vec![json!(id)], cx)).ok();
+                            state.update(cx, |state, cx| state.act("deleteChannel", vec![json!(id)], cx));
                         }
                     })
                     .detach();

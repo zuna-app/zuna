@@ -29,8 +29,8 @@ impl Scrolls {
     /// How far it can go, and how far it has, both downwards.
     fn extent(&self) -> (Pixels, Pixels) {
         match self {
-            Scrolls::Div(handle) => (handle.max_offset().height, -handle.offset().y),
-            Scrolls::List(state) => (state.max_offset_for_scrollbar().height, -state.scroll_px_offset_for_scrollbar().y),
+            Scrolls::Div(handle) => (handle.max_offset().y, -handle.offset().y),
+            Scrolls::List(state) => (state.max_offset_for_scrollbar().y, -state.scroll_px_offset_for_scrollbar().y),
         }
     }
 
@@ -67,7 +67,7 @@ pub fn scroll_handle(name: &'static str) -> ScrollHandle {
 /// Whether this ran past its height when it was last drawn: then a classic scrollbar takes
 /// 8 px of its width, which this much more padding on the right gives it.
 pub fn gutter(handle: &ScrollHandle) -> Pixels {
-    if handle.max_offset().height > OVERFLOW { px(8.) } else { px(0.) }
+    if handle.max_offset().y > OVERFLOW { px(8.) } else { px(0.) }
 }
 
 /// A scrollbar for what scrolls, drawn over its right edge wherever it's put in the tree.

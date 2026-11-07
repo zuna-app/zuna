@@ -34,15 +34,15 @@ pub fn icon(name: &str, size: f32, color: Hsla) -> Svg {
 }
 
 pub fn shadow_s() -> Vec<BoxShadow> {
-    vec![BoxShadow { color: theme::color(theme::black_a(0.4)), offset: point(px(0.), px(1.)), blur_radius: px(3.), spread_radius: px(0.) }]
+    vec![BoxShadow { color: theme::color(theme::black_a(0.4)), offset: point(px(0.), px(1.)), blur_radius: px(3.), spread_radius: px(0.), inset: false }]
 }
 
 pub fn shadow_m() -> Vec<BoxShadow> {
-    vec![BoxShadow { color: theme::color(theme::black_a(0.45)), offset: point(px(0.), px(6.)), blur_radius: px(20.), spread_radius: px(0.) }]
+    vec![BoxShadow { color: theme::color(theme::black_a(0.45)), offset: point(px(0.), px(6.)), blur_radius: px(20.), spread_radius: px(0.), inset: false }]
 }
 
 pub fn shadow_l() -> Vec<BoxShadow> {
-    vec![BoxShadow { color: theme::color(theme::black_a(0.55)), offset: point(px(0.), px(12.)), blur_radius: px(40.), spread_radius: px(0.) }]
+    vec![BoxShadow { color: theme::color(theme::black_a(0.55)), offset: point(px(0.), px(12.)), blur_radius: px(40.), spread_radius: px(0.), inset: false }]
 }
 
 /// The app's mark, as its icon: a white Z on a black rounded square that glows faintly from
@@ -405,16 +405,6 @@ pub fn px_f(value: Pixels) -> f32 {
     f32::from(value)
 }
 
-/// `align-self: center`, which GPUI's styling has no shorthand for.
-pub trait AlignSelfExt: Styled + Sized {
-    fn self_center(mut self) -> Self {
-        self.style().align_self = Some(gpui::AlignItems::Center);
-        self
-    }
-}
-
-impl<T: Styled> AlignSelfExt for T {}
-
 /// One line that ends in an ellipsis when it doesn't fit, as CSS's text-overflow does.
 /// GPUI's `truncate()` measures nowrap text once, before its width is known, and keeps
 /// that, so this clamps a wrapping line instead, which it measures again at each width.
@@ -554,7 +544,7 @@ pub fn covered(image: &Arc<Image>, shape: f32, longest: u32, cx: &App) -> Covere
     cx.spawn(async move |cx| {
         let crop = work.await;
         CROPS.lock().unwrap().insert(key, (crop, std::time::Instant::now()));
-        cx.update(|cx| cx.refresh_windows()).ok();
+        cx.update(|cx| cx.refresh_windows());
     })
     .detach();
     Covered::Working

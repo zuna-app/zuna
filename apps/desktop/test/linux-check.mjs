@@ -287,7 +287,8 @@ try {
   await drive({ do: "move", x: 900, y: 300 });
   await sleep(2000);
   const rest = await idleCost(app.pid, 5);
-  // Not at the display's refresh rate, as GPUI's Wayland window woke it (vendor/gpui/ZUNA.md).
+  // Not at the display's refresh rate, as GPUI 0.2.2's Wayland window woke it. Zed's v1.27.0 parks
+  // its frame loop while nothing wants a frame.
   check("at rest it hardly wakes", rest.wakeups < 20, `${rest.wakeups} main-thread wakeups a second, ${rest.cpu.toFixed(1)}% of a core, with KWin at 60 Hz`);
 
   // --- Away, from the compositor, after 30 s without input ---

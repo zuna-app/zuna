@@ -11,9 +11,11 @@ name = "zuna"
 path = "src/main.rs"
 
 [dependencies]
-# Zed's own release on crates.io, published by the Zed team. Its defaults without X11, as the
-# app only runs under Wayland on Linux. X11 means nothing on Windows, which builds as before.
-gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "wayland", "windows-manifest"] }
+# GPUI from Zed's v1.27.0 release with Zuna's changes on top, from the `zuna/v1.27.0` branch of
+# SocketByte/zed, pinned to a commit. Its ZUNA.md lists the changes and how to move to a newer
+# release. Without X11, as the app only runs under Wayland on Linux.
+gpui = { git = "https://github.com/SocketByte/zed", rev = "2263f6d8d81f1050666746b1a38b4e151755c9d8", default-features = false, features = ["font-kit", "wayland", "windows-manifest"] }
+gpui_platform = { git = "https://github.com/SocketByte/zed", rev = "2263f6d8d81f1050666746b1a38b4e151755c9d8", default-features = false, features = ["font-kit", "wayland"] }
 
 # The client core runs in QuickJS, as it runs in JavaScriptCore on iOS, and its
 # cryptography is the same Rust crate the other apps use.
@@ -110,6 +112,7 @@ features = [
     "Win32_System_Variant",
     "Win32_System_Com",
     "Win32_System_DataExchange",
+    "Win32_System_IO",
     "Win32_System_Ole",
     "Win32_System_LibraryLoader",
     "Win32_System_SystemInformation",
@@ -118,13 +121,6 @@ features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ]
-
-[patch.crates-io]
-# GPUI 0.2.2, carried here to change how it draws on Windows: vendor/gpui/ZUNA.md lists how.
-gpui = { path = "vendor/gpui" }
-# xattr 0.2.3, which GPUI's HTTP client takes in through zed-async-tar on Unix, with the one
-# line that no longer builds against libc on Linux changed (vendor/gpui/ZUNA.md).
-xattr = { path = "vendor/xattr" }
 
 [build-dependencies]
 # The app's icon, compiled into the exe as Windows expects.

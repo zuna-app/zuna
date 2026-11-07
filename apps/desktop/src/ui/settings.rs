@@ -78,7 +78,7 @@ impl SettingsView {
             }));
         }
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         let mut view = SettingsView {
             state,
             section: section.unwrap_or_else(|| "profile".into()),
@@ -321,12 +321,10 @@ impl SettingsView {
             let Ok(Ok(Some(paths))) = paths.await else { return };
             let Some(path) = paths.first() else { return };
             let prepared = crate::media::prepare_avatar(path);
-            state
-                .update(cx, |state, cx| match prepared {
-                    Some(file) => state.act("updateProfile", vec![json!({}), crate::host::file(&file.to_string_lossy(), "image/jpeg")], cx),
-                    None => state.toast("That image couldn't be processed.", ToastKind::Error, cx),
-                })
-                .ok();
+            state.update(cx, |state, cx| match prepared {
+                Some(file) => state.act("updateProfile", vec![json!({}), crate::host::file(&file.to_string_lossy(), "image/jpeg")], cx),
+                None => state.toast("That image couldn't be processed.", ToastKind::Error, cx),
+            });
         })
         .detach();
     }

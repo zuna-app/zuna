@@ -17,7 +17,7 @@ mod theme;
 mod ui;
 mod voice;
 
-use gpui::{App, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions, actions, point, prelude::*, px, size};
+use gpui::{App, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions, actions, point, prelude::*, px, size};
 
 use state::{AppState, Store};
 
@@ -78,7 +78,7 @@ fn main() {
     let device_key = host::device_key::load(&dir);
     let (core, events) = host::Core::start(dir);
     let booting = device_key.as_ref().ok().map(|key| core.start_boot(key.key.clone(), platform::DEVICE_NAME.into()));
-    Application::new().with_assets(assets::Assets).run(move |cx: &mut App| {
+    gpui_platform::application().with_assets(assets::Assets).run(move |cx: &mut App| {
         assets::load_fonts(cx);
         #[cfg(target_os = "linux")]
         platform::install(cx);
@@ -109,17 +109,17 @@ fn main() {
             use futures::StreamExt;
             while let Some(message) = incoming.next().await {
                 if message == QUIT {
-                    cx.update(quit).ok();
+                    cx.update(quit);
                     break;
                 }
                 platform::show_main();
                 if !message.starts_with("zuna://") {
                     continue;
                 }
-                while cx.update(|cx| !matches!(opening.read(cx).phase, state::Phase::Ready)).unwrap_or(false) {
+                while cx.update(|cx| !matches!(opening.read(cx).phase, state::Phase::Ready)) {
                     cx.background_executor().timer(std::time::Duration::from_millis(200)).await;
                 }
-                cx.update(|cx| opening.update(cx, |state, cx| state.set_overlay(Some(state::Overlay::AddServer { link: Some(message.clone()), sign_in_url: None }), cx))).ok();
+                cx.update(|cx| opening.update(cx, |state, cx| state.set_overlay(Some(state::Overlay::AddServer { link: Some(message.clone()), sign_in_url: None }), cx)));
             }
         })
         .detach();
@@ -133,7 +133,7 @@ fn main() {
                 match event {
                     platform::tray::TrayEvent::Open => platform::show_main(),
                     platform::tray::TrayEvent::Quit => {
-                        cx.update(quit).ok();
+                        cx.update(quit);
                         break;
                     }
                 }

@@ -106,7 +106,7 @@ async fn run(command: Command, cx: &mut AsyncApp) {
             // compositor that minimizes, as Sway doesn't. Otherwise closing quits.
             let can_minimize = handle.update(cx, |_, window, _| window.window_controls().minimize).unwrap_or(false);
             if !can_minimize || !tray::available() {
-                cx.update(|cx| cx.dispatch_action(&crate::Quit)).ok();
+                cx.update(|cx| cx.dispatch_action(&crate::Quit));
                 return;
             }
             let minimized = handle.update(cx, |_, window, _| window.minimize_window()).is_ok();

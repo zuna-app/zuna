@@ -126,6 +126,7 @@ Rules the core depends on:
 | Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |
 | Anything the landing page claims, such as a feature, a platform, a limit or a number | `apps/site`, in the same commit. It says only what's been checked |
 | The site's content security policy or headers (`apps/site/policy.mjs`) | The Caddy example under "Hosting" in `docs/SITE_PLAN.md`, and what the server sends |
+| GPUI, for the native app | A commit on the `zuna/v1.27.0` branch of `SocketByte/zed`, pushed, its `ZUNA.md`, and the pinned `rev` in `apps/desktop/Cargo.toml` |
 
 ## Feature parity
 
@@ -178,6 +179,7 @@ Rules the core depends on:
 ## Gotchas
 
 - **Keep every workspace on one Vite major.** `electron-vite` uses the root's Vite (7), so a newer Vite or `@vitejs/plugin-react` 6 in `apps/desktop-electron-legacy` breaks `npm run dev` with "Missing field moduleType". Builds and tests still pass, so only running the dev app shows it.
+- **The native app's GPUI is a git dependency on `SocketByte/zed`,** Zuna's fork of Zed, pinned to a commit of its `zuna/v1.27.0` branch, so the first build fetches Zed's repository, which is large. To change GPUI, point `gpui` and `gpui_platform` in `apps/desktop/Cargo.toml` at a local checkout of that branch with `path`, then commit and push there and move the pin. The fork's branches are the one place branches are made, one for each Zed release, and none is ever rebased or force-pushed, so older pins keep building.
 - **The native app on Linux links the FFmpeg `scripts/ffmpeg.mjs` pins,** in `apps/screenshare/.deps`, through `FFMPEG_DIR` in `apps/desktop/.cargo/config.toml`. `npm run dev:linux`, `build:linux` and the Linux checks fetch it first; a plain `cargo build` there needs it fetched already.
 - **`packages/crypto/pkg` is generated and gitignored,** so it goes stale until `npm run build:crypto`. The `dev:*` scripts, `npm run dev` and `build:web` rebuild it when `crypto` changed, but tests and `npm run dist` don't.
 - **`@zuna/e2e` needs Swift,** because its global setup builds the iOS host. To regenerate the golden files on Windows, run `UPDATE_GOLDEN=1 npx vitest run test/golden.test.ts --config <file>` in `tests/e2e`, with a throwaway config that spreads `vitest.config` and sets `globalSetup: []`. Without `UPDATE_GOLDEN` the test fails there on line endings alone. Afterwards `git status` lists the fixtures and `emoji.json` as changed with an empty diff, which `git checkout --` clears.

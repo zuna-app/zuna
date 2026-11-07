@@ -101,7 +101,7 @@ impl Root {
         // change its mind.
         cx.observe_window_appearance(window, |_, _, cx| cx.notify()).detach();
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         let voice = crate::voice::get(cx).expect("voice starts with the app");
         cx.observe(&voice, |_, _, cx| cx.notify()).detach();
         // Ahead of the fields' own bindings, so Ctrl+C copies selected message text from the message box.
@@ -553,7 +553,7 @@ impl Root {
         cx.defer_in(window, |root, window, cx| {
             if root.composer_may_focus(window, cx) {
                 if let Some((_, chat)) = &root.chat {
-                    chat.read(cx).focus_composer(window, cx);
+                    chat.update(cx, |chat, cx| chat.focus_composer(window, cx));
                 }
             }
         });
@@ -725,8 +725,8 @@ impl Render for Root {
         let covered = overlay.is_some() || settings.is_some();
         if self.covered && !covered {
             match &self.chat {
-                Some((_, chat)) => chat.read(cx).focus_composer(window, cx),
-                None => window.focus(&self.focus),
+                Some((_, chat)) => chat.update(cx, |chat, cx| chat.focus_composer(window, cx)),
+                None => window.focus(&self.focus, cx),
             }
         }
         self.covered = covered;

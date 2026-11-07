@@ -13,6 +13,7 @@ use gpui::{
     Task, WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, point, prelude::*, px,
     size,
 };
+use gpui::Focusable as _;
 
 use super::components::*;
 use super::text_input::{InputEvent, TextInput};
@@ -507,7 +508,7 @@ impl NotificationCenter {
             };
             let Some(entity) = center.upgrade() else { return };
             let opened = cx.update(|cx| cx.open_window(options, |_, cx| cx.new(|cx| NotificationsView::new(entity.clone(), cx))));
-            let Ok(Ok(window)) = opened else { return };
+            let Ok(window) = opened else { return };
             let hwnd = window.update(cx, |_, window, _| platform::hwnd_of(window)).ok().flatten();
             center
                 .update(cx, |center, cx| {
@@ -678,7 +679,7 @@ impl NotificationsView {
                                 move |_, window, cx| {
                                     cx.stop_propagation();
                                     if let Some(input) = center.update(cx, |center, cx| center.start_reply(id, cx)) {
-                                        input.read(cx).focus(window);
+                                        input.focus_handle(cx).focus(window, cx);
                                     }
                                 }
                             })

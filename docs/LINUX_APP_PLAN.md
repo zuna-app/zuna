@@ -12,10 +12,10 @@ It's checked on KDE Plasma under Wayland, on this machine, and nowhere else.
 
 ## Summary
 
-- **Most of the app is already portable.** The core's host (`src/host`), the interface (`src/ui`), voice (`src/voice`), `state.rs`, `markup.rs` and `models.rs` type-check on Linux unchanged. GPUI's Wayland backend and its Vulkan renderer, Blade, are in the vendored copy.
+- **Most of the app is already portable.** The core's host (`src/host`), the interface (`src/ui`), voice (`src/voice`), `state.rs`, `markup.rs` and `models.rs` type-check on Linux unchanged. GPUI's Wayland backend and its renderer, wgpu on Vulkan, come with GPUI from Zuna's fork of Zed (see "Zuna's changes to GPUI").
 - **What isn't portable is in 16 files,** which call the `windows` crate with no `cfg`: all of `src/platform`, all of `src/media`, and a few lines of `ui/notifications.rs` and `ui/motion.rs`.
-- **One dependency doesn't build on Linux:** `xattr` 0.2.3, which GPUI pulls in through `gpui_http_client` and `zed-async-tar`, uses `libc::ENOATTR`, which the `libc` in `Cargo.lock` no longer has on Linux.
-- **Zuna's GPUI changes:** the ones in shared code already work on Linux. The one that matters most, frames only when one is wanted, is Windows only, and GPUI's Wayland backend has the same problem it fixed, so it gets a Wayland version (see "Zuna's changes to GPUI").
+- **One dependency didn't build on Linux** with GPUI 0.2.2: `xattr` 0.2.3, which it pulled in through `gpui_http_client` and `zed-async-tar`, uses `libc::ENOATTR`, which the `libc` in `Cargo.lock` no longer has on Linux. GPUI from Zed's v1.27.0 takes xattr 1.x, which builds.
+- **Zuna's GPUI changes:** the ones in shared code work on Linux too. Frames only when one is wanted needed a Wayland version with GPUI 0.2.2, and Zed's v1.27.0 has its own (see "Zuna's changes to GPUI").
 - **Linux follows the Electron app there:** the system's notifications rather than the app's own cards, `app.setBadgeCount`'s badge, the tray, no automatic updates, and the same five packages.
 - **Media goes through the FFmpeg the repository already pins** for `zuna-screenshare` (`scripts/ffmpeg.mjs`), in place of Media Foundation. It has everything needed, and its libraries are already beside the screen capture.
 - **Screen sharing, a share's sound and push to talk** are `zuna-screenshare`'s, which already does all three under Wayland for the Electron app. The native app starts it the same way.
@@ -23,10 +23,10 @@ It's checked on KDE Plasma under Wayland, on this machine, and nowhere else.
 
 ## Where it stands
 
-Checked on Arch (CachyOS) with KDE Plasma 6.8 on Wayland, Rust 1.99 from the distribution:
+Checked on Arch (CachyOS) with KDE Plasma 6.8 on Wayland, Rust 1.99 from the distribution, before the port began, with GPUI 0.2.2:
 
 - `cargo check` stops at `xattr` 0.2.3: `cannot find value ENOATTR in crate libc`, with `libc` 0.2.191.
-- With `xattr` patched to use `ENODATA`, which is what `ENOATTR` means on Linux, every dependency checks: the vendored GPUI, LiveKit and its prebuilt libwebrtc, cpal, rquickjs, rusqlite and the crypto crate. The app itself then has 489 errors, all in these files: `media/encode.rs` (65), `platform/icons.rs` (64), `platform/screens.rs` (61), `media/record.rs` (48), `platform/mod.rs` (44), `platform/tray.rs` (42), `media/mf.rs` (41), `platform/updates.rs` (40), `platform/ptt.rs` (29), `media/player.rs` (24), `platform/single.rs` (14), `ui/notifications.rs` (4), `ui/motion.rs` (4), `platform/clipboard.rs` (4), `platform/quiet.rs` (3), `platform/location.rs` (2).
+- With `xattr` patched to use `ENODATA`, which is what `ENOATTR` means on Linux, every dependency checks: GPUI, LiveKit and its prebuilt libwebrtc, cpal, rquickjs, rusqlite and the crypto crate. The app itself then has 489 errors, all in these files: `media/encode.rs` (65), `platform/icons.rs` (64), `platform/screens.rs` (61), `media/record.rs` (48), `platform/mod.rs` (44), `platform/tray.rs` (42), `media/mf.rs` (41), `platform/updates.rs` (40), `platform/ptt.rs` (29), `media/player.rs` (24), `platform/single.rs` (14), `ui/notifications.rs` (4), `ui/motion.rs` (4), `platform/clipboard.rs` (4), `platform/quiet.rs` (3), `platform/location.rs` (2).
 - Nothing has been linked or run on Linux. `zuna-screenshare` links the same LiveKit on Linux, so libwebrtc's system libraries are known to work there.
 - `scripts/windows-app.mjs` exits on anything but Windows, so there's no command to build it on Linux yet.
 
@@ -62,8 +62,8 @@ The callers stay as they are, except:
 
 ### Building
 
-- **`xattr`:** a `[patch.crates-io]` entry with the one line changed, in `vendor/xattr`, listed in `vendor/gpui/ZUNA.md` beside GPUI's changes. It's only compiled on Unix, so Windows doesn't see it.
-- **No X11:** `gpui` is taken with `default-features = false` and `font-kit`, `wayland` and `windows-manifest`, which leaves out X11's client and its libraries. Without it, GPUI quietly runs with no window at all when there's no Wayland display (`guess_compositor` in `platform.rs` falls to "Headless"), so `main.rs` checks first: on Linux without `WAYLAND_DISPLAY`, it writes that Zuna needs a Wayland session to standard error, shows that as a system notification, and exits. `--core-check` and `--core-eval` run before that check, as they need no window.
+- **`xattr`:** nothing to patch any more. GPUI 0.2.2 needed it patched, in `vendor/xattr`, and GPUI from Zed's v1.27.0 takes xattr 1.x.
+- **No X11:** `gpui` is taken with `default-features = false` and `font-kit`, `wayland` and `windows-manifest`, and `gpui_platform` with `font-kit` and `wayland`, which leaves out X11's client and its libraries. Without it, GPUI finds no display to use when there's no Wayland display (`select_backend` in `gpui_linux`'s `display_connection.rs`), so `main.rs` checks first: on Linux without `WAYLAND_DISPLAY`, it writes that Zuna needs a Wayland session to standard error, shows that as a system notification, and exits. `--core-check` and `--core-eval` run before that check, as they need no window.
 - **The script:** `scripts/linux-app.mjs`, with `npm run dev:linux`, `build:linux` and `dist:linux`, beside the Windows one, which stays as it is. It bundles the core as the Windows one does, builds with the distribution's Rust, and keeps its target folder outside the checkout, in `~/.cache/zuna-desktop-target`, as the Windows script keeps its own.
 - **What a build needs,** besides Rust, Node and a C compiler: the development files of `libxkbcommon`, `wayland`, `fontconfig` and `freetype2`. Vulkan, PipeWire and D-Bus are only needed while running. The first build in L0 says whether anything else is.
 
@@ -75,14 +75,14 @@ Where the compositor has no xdg-decoration, as GNOME's hasn't, or turns it down,
 
 - **Dragging:** `window.start_window_move()` on a press in the drag area, `window.zoom_window()` on a double click, and `window.show_window_menu()` on a right click, which Windows's own title bar does too.
 - **Buttons:** `minimize_window`, `zoom_window`, and closing as the close request does today. The Electron app on Linux draws the same buttons (`titleBarStyle: "hidden"` with `titleBarOverlay` in `main/index.ts`).
-- **Decorations drawn by the app** only where the compositor leaves them to it: GPUI took a window that asked for the compositor's to have them even there, and left it with no frame, which `vendor/gpui/ZUNA.md` changes.
+- **Decorations drawn by the app** only where the compositor leaves them to it: GPUI 0.2.2 took a window that asked for the compositor's to have them even there, and left it with no frame, which Zuna changed in it. Zed's v1.27.0 falls back to the app's own where there's no xdg-decoration, and follows the mode the compositor picks.
 - **Resizing:** `window.start_window_resize(edge)` from the outermost few pixels of each edge and corner, drawn as nothing but the resize cursor. A shadow or rounded corners, as Windows adds, would need a transparent margin around the window, which would change how it looks and where it is, so there's neither.
 - **`app_id`** on Linux is the `.desktop` file's name, `zuna`. KWin finds the window's icon by it, and the portals, notifications and the badge find the app by it.
 
 ### One app at a time, and `zuna://` links
 
 - **One for each data folder:** a lock on a file in the data folder (`File::try_lock`, in std since Rust 1.89), and a Unix socket in `$XDG_RUNTIME_DIR` named from the folder's hash, as the pipe is named now. A second start sends its link, or an empty line, and leaves.
-- **Raising the window from a second start:** under Wayland only a token from `xdg_activation_v1` can bring a window to the front. A launcher hands one to the program it starts in `XDG_ACTIVATION_TOKEN`, so the second start sends it with the link, and the first activates its window with it. GPUI's `activate()` asks for a token of its own without a fresh serial, which compositors refuse, as its own comment says, so this needs a change to GPUI that activates with a given token.
+- **Raising the window from a second start:** under Wayland only a token from `xdg_activation_v1` can bring a window to the front. A launcher hands one to the program it starts in `XDG_ACTIVATION_TOKEN`, so the second start sends it with the link, and the first activates its window with it. GPUI's `activate()` asks for a token of its own without a fresh serial, which compositors refuse, as its own comment says, so the fork adds `Window::activate_window_with_token`.
 - **`zuna://`:** the `.desktop` file has `MimeType=x-scheme-handler/zuna;` and `Exec=zuna %u`. A package installs it. An AppImage or a `.tar.gz` writes the person's own in `~/.local/share/applications` as it starts, and removes it once a package has one, as `main/desktop-entry.ts` does for the Electron app, which this ports.
 
 ### The device key
@@ -117,7 +117,7 @@ Sealed by the Secret Service, as Electron's safeStorage does with libsecret: KWa
 
 ### The clipboard and dropped files
 
-- **Pasting files copied in Dolphin:** they're offered as `text/uri-list`, which GPUI's Wayland clipboard doesn't read: it reads text and pictures (`wayland/clipboard.rs`). A change to GPUI reads it as paths, which `platform::clipboard_files()` then returns.
+- **Pasting files copied in Dolphin:** they're offered as `text/uri-list`, which GPUI's Wayland clipboard doesn't read: it reads text and pictures (`wayland/clipboard.rs`). The fork's `App::read_paths_from_clipboard` reads it as paths, which `platform::clipboard_files()` then returns.
 - **Dropping files:** GPUI's Wayland client already takes them as `text/uri-list` (`wayland/client.rs`).
 - **Pasted pictures:** `save_pasted_image` is already the same on both.
 
@@ -178,33 +178,22 @@ The same five as the Electron app: a `.deb`, an `.rpm`, a pacman package, an App
 
 ## Zuna's changes to GPUI
 
-The vendored GPUI differs from 0.2.2 on crates.io in these files, compared file by file with the published crate: `app.rs`, `window.rs`, `platform.rs`, `elements/div.rs`, `elements/img.rs`, `elements/list.rs`, `elements/mod.rs`, the new `elements/smooth.rs`, and in the Windows backend `vsync.rs`, `platform.rs`, `util.rs` and `directx_devices.rs`. Nothing else in `src` was changed or removed. Each change, and what it means on Linux:
+GPUI comes from the `zuna/v1.27.0` branch of [SocketByte/zed](https://github.com/SocketByte/zed): Zed's v1.27.0 release with Zuna's changes on top, one commit each, which its `ZUNA.md` lists. `apps/desktop/Cargo.toml` pins it to a commit. Until 2026-11-07 the app carried GPUI 0.2.2 from crates.io in its own tree, with Wayland changes of its own that v1.27.0 has its own versions of: frame callbacks only when a frame is wanted (its `FrameLoop`), a copy made with a click (`selection_serial`), and the app's own frame where the compositor draws none. Blade gave way to wgpu as GPUI's renderer there too. None of that has been built or run on Linux yet, so the checks in `linux-check.mjs` and `linux-voice-check.mjs` are what say whether it works, and the frames at rest need measuring again (see Frames and speed).
 
-| Change (`vendor/gpui/ZUNA.md`) | Where | On Linux |
-|---|---|---|
-| Frames only when one is wanted | Windows's vsync thread, with `frame_wanted()` called from `window.rs` and `app.rs`; the second of presenting the same scene after input turned off on Windows | **Same problem, not fixed.** `WaylandWindow::frame()` asks for the next frame callback every time it runs, and `complete_frame` commits the surface each time, so a window on screen wakes the app at the display's refresh rate while nothing changes. After each input the same scene is presented again for a second. Gets a Wayland version (below) |
-| The first frame after a rest drawn at once | Windows's `platform.rs` | **Same need,** once the above is in: a window at rest waits for a frame callback before drawing what input changed. Drawn at once instead, and the callback asked for after it |
-| One Direct3D device at startup | `directx_devices.rs` | Nothing to port: the Wayland client makes Blade's Vulkan context once (`BladeContext::new` in `wayland/client.rs`). How long starting takes is measured, in case Vulkan's driver load needs the same care |
-| `Window::cursor_style_under_mouse` | `window.rs`, every platform | Works as it is, for a double click to reply except on something clickable |
-| Animated WebP from bytes | `platform.rs`, every platform | Works as it is |
-| An animation's next frame when it's due | `elements/img.rs`, every platform | Works as it is. Until frames are only drawn when wanted, the window still wakes on every callback, but no longer draws the view each time |
-| Smooth wheel scrolling | `elements/smooth.rs`, `div.rs`, `list.rs`, every platform | Works as it is: Wayland's client sends a notch as `ScrollDelta::Lines`, `value120 / 120 × 3`, as Windows sends three lines, so it glides 100 px; a touchpad's `Axis` events come as pixels and move at once. A high-resolution wheel's part of a notch glides its part. Each step asks for the next frame through `on_next_frame`, which the Wayland version of `frame_wanted()` has to answer |
-| A cached view's own dependencies | `app.rs`, every platform | Works as it is: it fixed GPUI's own logic, not Windows's |
+What each of the fork's changes means on Linux:
 
-The Wayland version of "frames only when one is wanted", all of it behind `cfg(target_os = "linux")`:
+| Change | On Linux |
+|---|---|
+| `TextLayout::closest_index_for_position` | Works as it is, for where a selection made with the mouse ends |
+| `Window::cursor_style_under_mouse` | Works as it is, for a double click to reply except on something clickable |
+| Activating a Wayland window with a token another program handed over | Linux only: a second start's `XDG_ACTIVATION_TOKEN`, and the tray's |
+| Reading files a file manager copied from the Wayland clipboard | Linux only: `text/uri-list` as paths. Zed's own, zed-industries/zed#66625, replaces it once it's in a release |
+| An animation's next frame when it's due, on the image's own clock | Works as it is |
+| Letting go of images out of every frame for a while | Works as it is |
+| A mouse wheel's notches gliding | Works as it is: Wayland's client sends a notch as `ScrollDelta::Lines`, `value120 / 120 × 3`, as Windows sends three lines, so it glides 100 px; a touchpad's `Axis` events come as pixels and move at once. Each step asks for the next frame through `on_next_frame`, which wakes the frame loop |
+| Frames only when one is wanted, on Windows | Windows only |
 
-- `frame_wanted()` gets a Linux branch: each window not already waiting for one asks for a frame callback, and commits so that the compositor sends it.
-- `WaylandWindow::frame()` asks for the next callback only while something wants one: a dirty window, `request_animation_frame`, `on_next_frame`'s callbacks, or a scene still to present. Otherwise the surface is left alone.
-- The second of presenting the same scene after input is turned off on Linux too, as on Windows.
-- The first frame after a rest is drawn at once, as above.
-
-What it's for is measured before and after (see Checks).
-
-The changes Linux needs besides, each marked `Zuna:` where it is and listed in `vendor/gpui/ZUNA.md`:
-
-1. Activating a window with a given `xdg_activation_v1` token, for a second start and the tray.
-2. Reading `text/uri-list` from the Wayland clipboard as paths.
-3. Optional: the physical key in key events, for choosing push to talk's key.
+Optional still: the physical key in key events, for choosing push to talk's key.
 
 ## Phases
 
@@ -254,7 +243,7 @@ For what only the whole desktop shows, or what needs a person to click in a syst
 
 ### Frames and speed
 
-Measured in the test KWin, before GPUI's Wayland change and after, and written into `vendor/gpui/ZUNA.md` beside the change:
+Measured in the test KWin with GPUI 0.2.2, before Zuna's Wayland change and after it: with a chat open at 60 Hz, 65 to 71 wakeups of the main thread a second before, 8 after. Zed's v1.27.0 has its own change, which `linux-check.mjs` measures the same way and hasn't run against yet. What's measured:
 
 - **At rest:** a chat on screen, nothing moving. Frame callbacks a second, counted from `WAYLAND_DEBUG=client`, and the CPU used, from `pidstat`. Upstream it should be the refresh rate. After the change, none.
 - **After input:** the surface's commits for a key pressed and a menu opened. No commit without something new drawn.
@@ -295,6 +284,6 @@ Decided 2026-11-06:
 ## Risks
 
 - **GPUI on Linux is less used than on Windows and macOS.** Input methods (text-input-v3), fractional scaling and NVIDIA under Wayland are the places to look first.
-- **Vulkan is required.** GPUI 0.2.2 has no OpenGL renderer on Linux, so a machine without a Vulkan driver can't open the window.
+- **Vulkan was required** with GPUI 0.2.2, which had no OpenGL renderer on Linux. GPUI from v1.27.0 draws through wgpu with its Vulkan and GLES backends both built in, and whether it opens a window on OpenGL where there's no Vulkan driver is unchecked.
 - **The nested KWin may not give the driver what it asks for.** If fake input or screenshots are refused there, the checks fall back to the RemoteDesktop portal and Spectacle, which a person has to allow.
 - **The emoji font is the system's.** Color emoji depend on one being installed, which the packages ask for.

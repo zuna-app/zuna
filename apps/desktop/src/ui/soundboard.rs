@@ -2,7 +2,7 @@
 //! can play to everyone there (Soundboard.tsx). Each device plays a sound itself from its
 //! file, so it goes out as it was made rather than through someone's microphone.
 
-use gpui::{AnyElement, App, Corner, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, anchored, deferred, div, prelude::*, px};
+use gpui::{AnyElement, Anchor, App, Entity, FontWeight, IntoElement, ParentElement, SharedString, Styled, anchored, deferred, div, prelude::*, px};
 
 use super::components::*;
 use super::scrollbar::{Scrolls, gutter, scroll_handle, scrollbar};
@@ -54,7 +54,7 @@ pub fn soundboard_button(state: &Entity<AppState>, voice_entity: &Entity<Voice>,
         })
         .child(icon("audio-lines", 20., if open { theme.on_accent } else { theme.text1 }));
     if open {
-        button = button.child(deferred(anchored().anchor(Corner::BottomLeft).position_mode(gpui::AnchoredPositionMode::Local).position(gpui::point(px(-146.), px(-8.))).snap_to_window_with_margin(px(8.)).child(panel(state, voice_entity, room_sounds, cx))).with_priority(1));
+        button = button.child(deferred(anchored().anchor(Anchor::BottomLeft).position_mode(gpui::AnchoredPositionMode::Local).position(gpui::point(px(-146.), px(-8.))).snap_to_window_with_margin(px(8.)).child(panel(state, voice_entity, room_sounds, cx))).with_priority(1));
     }
     button.into_any_element()
 }

@@ -246,10 +246,6 @@ impl TextInput {
         self.replace_text_in_range(None, text, window, cx);
     }
 
-    pub fn focus(&self, window: &mut Window) {
-        window.focus(&self.focus_handle);
-    }
-
     fn display_text(&self) -> String {
         if self.masked { "•".repeat(self.content.chars().count()) } else { self.content.clone() }
     }
@@ -581,7 +577,7 @@ impl TextInput {
         if self.disabled {
             return;
         }
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
         self.goal_x = None;
         let Some(bounds) = self.last_bounds else { return };
         let offset = self.offset_for(event.position - bounds.origin);
@@ -908,8 +904,9 @@ impl Element for TextElement {
         let line_height = window.line_height();
         let input = self.input.read(cx);
         let lines = shape(input, Some(bounds.size.width), window, theme.text1, theme.text3);
-        // Measure against these lines, then work out where the caret and selection are.
-        let mut probe = TextInput { lines: lines.clone(), line_height, ..clone_for_probe(input) };
+        // Measure against these lines, then work out where the caret and selection are. The probe
+        // holds the lines while it measures, and gives them back after.
+        let mut probe = TextInput { lines, line_height, ..clone_for_probe(input) };
         probe.masked = input.masked;
         let selection = input.selected_range.clone();
         let mut selections = Vec::new();
@@ -919,11 +916,8 @@ impl Element for TextElement {
             if let Some(position) = probe.position_for(input.cursor_offset()) {
                 cursor = Some(fill(Bounds::new(bounds.origin + point(position.x, position.y), size(px(1.), line_height)), theme.text1));
             }
-        } else {
+        } else if let (Some(start), Some(end)) = (probe.position_for(selection.start), probe.position_for(selection.end)) {
             // One rectangle per visual line the selection crosses.
-            let (Some(start), Some(end)) = (probe.position_for(selection.start), probe.position_for(selection.end)) else {
-                return PrepaintState { lines, cursor, selections, line_height };
-            };
             let mut y = start.y;
             while y <= end.y {
                 let left = if y == start.y { start.x } else { px(0.) };
@@ -934,7 +928,7 @@ impl Element for TextElement {
                 y += line_height;
             }
         }
-        PrepaintState { lines, cursor, selections, line_height }
+        PrepaintState { lines: std::mem::take(&mut probe.lines), cursor, selections, line_height }
     }
 
     fn paint(

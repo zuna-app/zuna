@@ -820,7 +820,7 @@ impl Voice {
         let state = self.state.clone();
         cx.spawn(async move |_, cx| {
             if let Err(error) = call.await {
-                state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx)).ok();
+                state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx));
             }
         })
         .detach();
@@ -836,7 +836,7 @@ impl Voice {
         let state = self.state.clone();
         cx.spawn(async move |_, cx| {
             if let Err(error) = call.await {
-                state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx)).ok();
+                state.update(cx, |state, cx| state.toast(error.message, ToastKind::Error, cx));
             }
         })
         .detach();

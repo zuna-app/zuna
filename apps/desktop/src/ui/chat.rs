@@ -14,6 +14,7 @@ use gpui::{
     AnyElement, Context, Entity, ExternalPaths, FontWeight, Image, IntoElement, ListAlignment, ListState, MouseButton, ParentElement, Render, SharedString,
     Styled, Subscription, Task, Window, div, img, prelude::*, px,
 };
+use gpui::Focusable as _;
 use regex::Regex;
 use serde_json::json;
 
@@ -395,9 +396,9 @@ impl ChatView {
         self.composer_focused
     }
 
-    pub fn focus_composer(&self, window: &mut Window, cx: &gpui::App) {
+    pub fn focus_composer(&self, window: &mut Window, cx: &mut gpui::App) {
         if !self.was_selecting {
-            self.composer.read(cx).focus(window);
+            self.composer.focus_handle(cx).focus(window, cx);
         }
     }
 
@@ -407,7 +408,7 @@ impl ChatView {
         if self.was_selecting {
             return false;
         }
-        self.composer.read(cx).focus(window);
+        self.composer.focus_handle(cx).focus(window, cx);
         self.composer.update(cx, |input, cx| {
             if let Some(text) = text {
                 input.insert(text, window, cx);
@@ -440,7 +441,7 @@ impl ChatView {
         });
         self.state.update(cx, |state, cx| state.load_list(&list_id, conversation.group_id.clone(), cx));
         self.sync_rows(cx);
-        self.composer.read(cx).focus(window);
+        self.composer.focus_handle(cx).focus(window, cx);
     }
 
     /// Keeps the list's rows matching the messages, re-measuring only those that changed.
@@ -606,7 +607,7 @@ impl ChatView {
             return;
         }
         let top = -f32::from(self.list.scroll_px_offset_for_scrollbar().y);
-        let end = f32::from(self.list.max_offset_for_scrollbar().height);
+        let end = f32::from(self.list.max_offset_for_scrollbar().y);
         let at_bottom = top >= end - 1.;
         let drawn = {
             let rows = self.row_bounds.borrow();
@@ -789,7 +790,7 @@ impl ChatView {
     fn cancel_recording(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.recording = None;
         self.recording_tick = None;
-        self.composer.read(cx).focus(window);
+        self.composer.focus_handle(cx).focus(window, cx);
         cx.notify();
     }
 
@@ -1378,7 +1379,7 @@ impl ChatView {
         // message sent glides in as it does when the list was already there.
         self.glide = None;
         self.to_newest(cx);
-        self.composer.read(cx).focus(window);
+        self.composer.focus_handle(cx).focus(window, cx);
     }
 
     /// What the attach button offers: a photo or file, or where this device is.
@@ -1898,7 +1899,7 @@ impl ChatView {
                                 };
                                 input.insert(&text, window, cx);
                             });
-                            composer.read(cx).focus(window);
+                            composer.focus_handle(cx).focus(window, cx);
                         },
                         window,
                         cx,
@@ -2004,10 +2005,10 @@ impl ChatView {
             .bg(theme.bg_chat)
             .border_b_1()
             .border_color(theme.line)
-            .shadow(vec![gpui::BoxShadow { color: theme::color(theme::black_a(0.25)), offset: gpui::point(px(0.), px(1.)), blur_radius: px(2.), spread_radius: px(0.) }])
+            .shadow(vec![gpui::BoxShadow { color: theme::color(theme::black_a(0.25)), offset: gpui::point(px(0.), px(1.)), blur_radius: px(2.), spread_radius: px(0.), inset: false }])
             .child(
                 details("channel-name", self.state.clone())
-                    .flex_shrink()
+                    .flex_shrink_1()
                     .min_w_0()
                     .flex()
                     .items_center()
@@ -2017,7 +2018,7 @@ impl ChatView {
             )
             .when(!conversation.description.is_empty(), |el| {
                 el.child(div().flex_none().w(px(1.)).h(px(24.)).mx(px(12.)).bg(theme.line_strong))
-                    .child(details("channel-topic", self.state.clone()).flex_shrink().min_w_0().one_line().text_size(px(14.)).line_height(px(18.)).text_color(theme.text2).tooltip(tooltip(conversation.description.clone())).child(conversation.description.clone()))
+                    .child(details("channel-topic", self.state.clone()).flex_shrink_1().min_w_0().one_line().text_size(px(14.)).line_height(px(18.)).text_color(theme.text2).tooltip(tooltip(conversation.description.clone())).child(conversation.description.clone()))
             })
             .child(div().flex_1())
             .child(
@@ -2191,11 +2192,11 @@ impl ChatView {
                 let text = message.text.clone();
                 let editor = self.inline_editor.clone();
                 editor.update(cx, |input, cx| input.set_text(text, cx));
-                editor.read(cx).focus(window);
+                editor.focus_handle(cx).focus(window, cx);
             }
             None if self.inline_editing.is_some() => {
                 self.inline_editing = None;
-                self.composer.read(cx).focus(window);
+                self.composer.focus_handle(cx).focus(window, cx);
             }
             _ => {}
         }
@@ -2211,7 +2212,7 @@ impl ChatView {
                 let text = message.text.clone();
                 let composer = self.composer.clone();
                 composer.update(cx, |input, cx| input.set_text(text, cx));
-                composer.read(cx).focus(window);
+                composer.focus_handle(cx).focus(window, cx);
             }
             None if self.composer_editing.is_some() => self.composer_editing = None,
             _ => {}
@@ -2474,7 +2475,7 @@ impl ChatView {
                     }))
                     .on_mouse_down(MouseButton::Left, cx.listener(move |view, _, window, cx| {
                         view.apply_suggestion(index, cx);
-                        view.composer.read(cx).focus(window);
+                        view.composer.focus_handle(cx).focus(window, cx);
                     }))
                     .child(picture)
                     .child(div().min_w_0().one_line().child(suggestion.label.clone()))
@@ -2777,7 +2778,7 @@ impl ChatView {
                     } else {
                         self.glide_waited = false;
                         let now_at = -f32::from(self.list.scroll_px_offset_for_scrollbar().y);
-                        let end = f32::from(self.list.max_offset_for_scrollbar().height);
+                        let end = f32::from(self.list.max_offset_for_scrollbar().y);
                         let target = from + (end - from) * super::motion::ease_out()(t);
                         self.list.scroll_by(px(target - now_at));
                         window.request_animation_frame();
@@ -2926,9 +2927,9 @@ impl Render for ChatView {
             let count = self.list.item_count();
             self.list.splice(0..count, count);
             if selecting {
-                window.focus(&self.focus);
+                window.focus(&self.focus, cx);
             } else {
-                self.composer.read(cx).focus(window);
+                self.composer.focus_handle(cx).focus(window, cx);
             }
         }
         self.update_mentions(&conversation, cx);

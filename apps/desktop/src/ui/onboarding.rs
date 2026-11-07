@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Task, Window, div, prelude::*, px};
+use gpui::Focusable as _;
 use serde_json::json;
 
 use super::components::*;
@@ -192,11 +193,11 @@ impl Onboarding {
         self.error = None;
         self.busy = false;
         match &self.step {
-            Step::Link => self.link.read(cx).focus(window),
-            Step::Invite(_) => self.display_name.read(cx).focus(window),
-            Step::SignIn => self.server.read(cx).focus(window),
-            Step::Recover { .. } => self.recovery.read(cx).focus(window),
-            Step::NameServer { .. } => self.server_name.read(cx).focus(window),
+            Step::Link => self.link.focus_handle(cx).focus(window, cx),
+            Step::Invite(_) => self.display_name.focus_handle(cx).focus(window, cx),
+            Step::SignIn => self.server.focus_handle(cx).focus(window, cx),
+            Step::Recover { .. } => self.recovery.focus_handle(cx).focus(window, cx),
+            Step::NameServer { .. } => self.server_name.focus_handle(cx).focus(window, cx),
             _ => {}
         }
         cx.notify();
@@ -514,7 +515,7 @@ impl Render for Onboarding {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
         if let Some(input) = self.pending_focus.take() {
-            input.read(cx).focus(window);
+            input.focus_handle(cx).focus(window, cx);
         }
         let error = self.error.clone();
         let step = self.step.clone();

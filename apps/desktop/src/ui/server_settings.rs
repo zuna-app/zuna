@@ -59,7 +59,7 @@ impl ServerSettings {
             }));
         }
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         ServerSettings {
             state,
             section: section.unwrap_or_else(|| if is_admin { "overview".into() } else { "leave".into() }),

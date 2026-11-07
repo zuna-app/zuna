@@ -91,9 +91,7 @@ pub fn install(state: WeakEntity<AppState>, cx: &mut App) {
     cx.set_global(CenterGlobal(center.clone()));
     cx.spawn(async move |cx| {
         while let Some(heard) = hearing.next().await {
-            if center.update(cx, |center, cx| center.heard(heard, cx)).is_err() {
-                break;
-            }
+            center.update(cx, |center, cx| center.heard(heard, cx));
         }
     })
     .detach();

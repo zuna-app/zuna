@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use gpui::{AnyElement, Context, Entity, FontWeight, IntoElement, ParentElement, Render, SharedString, Styled, Subscription, Task, Window, div, prelude::*, px};
+use gpui::Focusable as _;
 use serde_json::json;
 
 use super::components::*;
@@ -650,8 +651,7 @@ impl SidePanel {
                                             },
                                         ),
                                         Err(()) => state.toast("That image couldn't be processed.", crate::state::ToastKind::Error, cx),
-                                    })
-                                    .ok();
+                                    });
                             })
                             .detach();
                         })
@@ -711,7 +711,7 @@ impl SidePanel {
                             panel.edit_name.update(cx, |input, cx| input.set_text(title.clone(), cx));
                             panel.edit_description.update(cx, |input, cx| input.set_text(description.clone(), cx));
                             panel.editing = true;
-                            panel.edit_name.read(cx).focus(window);
+                            panel.edit_name.focus_handle(cx).focus(window, cx);
                             cx.notify();
                         })))
                     }),
@@ -1019,7 +1019,7 @@ impl Render for SidePanel {
                 // More once the list is scrolled near its end.
                 let near_end = {
                     let offset = -f32::from(self.scroll.offset().y);
-                    let max = f32::from(self.scroll.max_offset().height);
+                    let max = f32::from(self.scroll.max_offset().y);
                     max - offset < 300.
                 };
                 if near_end && self.media.as_ref().is_some_and(|(_, more)| *more) {

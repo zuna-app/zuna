@@ -3,7 +3,7 @@
 use std::rc::Rc;
 
 use gpui::{
-    AnyElement, App, Context, Corner, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Styled, Window, anchored,
+    AnyElement, Anchor, App, Context, Entity, FontWeight, IntoElement, MouseButton, ParentElement, Pixels, Point, Render, Styled, Window, anchored,
     deferred, div, prelude::*, px,
 };
 
@@ -198,7 +198,7 @@ impl Render for MenuLayer {
         if self.open.is_none() {
             if let Some(previous) = self.restore.take() {
                 if self.focus.is_focused(window) {
-                    window.focus(&previous);
+                    window.focus(&previous, cx);
                 }
             }
             return match self.closing.clone() {
@@ -215,7 +215,7 @@ impl Render for MenuLayer {
         }
         if !self.focus.is_focused(window) && self.restore.is_none() {
             self.restore = window.focused(cx);
-            window.focus(&self.focus);
+            window.focus(&self.focus, cx);
         }
         let Some(open) = self.open.clone() else { return div().into_any_element() };
         self.draw(&open, None, window, cx)
@@ -329,10 +329,10 @@ impl MenuLayer {
             })));
         }
         let corner = match (open.align_right, open.above) {
-            (true, true) => Corner::BottomRight,
-            (false, true) => Corner::BottomLeft,
-            (true, false) => Corner::TopRight,
-            (false, false) => Corner::TopLeft,
+            (true, true) => Anchor::BottomRight,
+            (false, true) => Anchor::BottomLeft,
+            (true, false) => Anchor::TopRight,
+            (false, false) => Anchor::TopLeft,
         };
         // As `PopupMenu`: in over 80 ms, out over 60, where it's seen but no longer used.
         let menu = match fading {

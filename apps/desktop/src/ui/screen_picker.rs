@@ -115,7 +115,7 @@ impl ScreenPicker {
             cx.background_executor().timer(SOUND_APPS_EVERY).await;
         });
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         ScreenPicker { state, voice, sources: None, thumbs: HashMap::new(), screen_tab: true, chosen: None, starting: false, sound_apps: Vec::new(), window_app: None, sound_pick: None, focus, _tasks: vec![load, apps] }
     }
 

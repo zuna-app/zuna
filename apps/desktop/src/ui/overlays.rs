@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
 use gpui::{AnyElement, AnyView, App, Context, Entity, FontWeight, IntoElement, ParentElement, Pixels, Render, SharedString, Styled, Subscription, Window, div, prelude::*, px};
+use gpui::Focusable as _;
 use serde_json::json;
 
 use super::components::*;
@@ -125,7 +126,7 @@ impl Dialog {
             subscriptions.push(cx.observe(flow, |_, _, cx| cx.notify()));
         }
         if matches!(kind, DialogKind::NewGroup) {
-            name.read(cx).focus(window);
+            name.focus_handle(cx).focus(window, cx);
         }
         let mut channel_form = None;
         if let DialogKind::Channel { channel_id, kind: wanted } = &kind {
@@ -158,7 +159,7 @@ impl Dialog {
                     input.update(cx, |input, cx| input.set_text(shown, cx));
                 }
             }));
-            name.read(cx).focus(window);
+            name.focus_handle(cx).focus(window, cx);
             channel_form = Some(ChannelForm {
                 kind: kind_name,
                 topic,
@@ -172,11 +173,11 @@ impl Dialog {
             });
         }
         if matches!(kind, DialogKind::AddMembers(_)) {
-            people_search.read(cx).focus(window);
+            people_search.focus_handle(cx).focus(window, cx);
         }
         if matches!(kind, DialogKind::Forward { .. }) {
             people_search.update(cx, |input, cx| input.set_placeholder("Search chats", cx));
-            people_search.read(cx).focus(window);
+            people_search.focus_handle(cx).focus(window, cx);
         }
         let mut dialog = Dialog { state, kind, name, people_search, selected: BTreeSet::new(), history: false, check: None, invite_link: None, busy: false, focused: None, channel_form, invite_panel: None, location: None, _subscriptions: subscriptions };
         if matches!(dialog.kind, DialogKind::ShareLocation(_)) {
@@ -1234,7 +1235,7 @@ pub struct ImageViewer {
 impl ImageViewer {
     fn new(state: Entity<AppState>, file_id: String, name: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let focus = cx.focus_handle();
-        window.focus(&focus);
+        window.focus(&focus, cx);
         ImageViewer { state, file_id, name, focus, view: FITTED, glide: None, drag: None, natural: None, viewport: window.viewport_size() }
     }
 
@@ -1311,7 +1312,7 @@ impl ImageViewer {
         .detach();
     }
 
-    fn on_wheel(&mut self, event: &gpui::ScrollWheelEvent, cx: &mut Context<Self>) {
+    fn on_wheel(&mut self, event: &gpui::ScrollEvent, cx: &mut Context<Self>) {
         // Windows gives lines: a mouse wheel's notch is a whole number of them, a touchpad's
         // scrolling a fraction, which pans instead. A line is about 33 px, as Chromium counts.
         let (delta, lines) = match event.delta {
@@ -1381,7 +1382,7 @@ impl Render for ImageViewer {
             .bg(theme::color(theme::black_a(0.92)))
             .occlude()
             .on_click(cx.listener(|viewer, _, _, cx| viewer.close(cx)))
-            .on_scroll_wheel(cx.listener(|viewer, event: &gpui::ScrollWheelEvent, _, cx| viewer.on_wheel(event, cx)))
+            .on_scroll(cx.listener(|viewer, event: &gpui::ScrollEvent, _, cx| viewer.on_wheel(event, cx)))
             .on_mouse_move(cx.listener(|viewer, event: &gpui::MouseMoveEvent, _, cx| {
                 if let Some((from, start)) = viewer.drag {
                     if event.pressed_button == Some(gpui::MouseButton::Left) {

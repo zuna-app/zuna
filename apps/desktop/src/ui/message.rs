@@ -1003,7 +1003,8 @@ pub(super) fn with_emote_card(picture: impl IntoElement, id: impl Into<ElementId
         .relative()
         .child(picture)
         .child(gpui::canvas(move |area, _, _| seen.set(Some(area)), |_, _, _, _| {}).absolute().inset_0())
-        .tooltip_after(std::time::Duration::from_millis(120), move |window, cx| {
+        .tooltip_show_delay(std::time::Duration::from_millis(120))
+        .tooltip(move |window, cx| {
             let card = EmoteCard {
                 state: state.clone(),
                 address: address.clone(),

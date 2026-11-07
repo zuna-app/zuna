@@ -7,6 +7,7 @@ use gpui::{
     AnyElement, App, Context, Entity, FontWeight, IntoElement, ParentElement, Pixels, Point, Render, SharedString, Styled, Subscription, Window,
     anchored, deferred, div, img, prelude::*, px,
 };
+use gpui::Focusable as _;
 
 use super::components::*;
 use super::motion::{Enter, Motion};
@@ -93,7 +94,7 @@ pub fn open_picker(position: Point<Pixels>, stays_for_emoji: bool, on_pick: impl
         layer.emotes_tab = has_emotes;
         layer.hovered = None;
         layer.search.update(cx, |input, cx| input.set_text("", cx));
-        layer.search.read(cx).focus(window);
+        layer.search.focus_handle(cx).focus(window, cx);
         cx.notify();
     });
 }
