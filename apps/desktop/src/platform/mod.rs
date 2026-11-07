@@ -1,5 +1,6 @@
 //! What the app asks of the system itself, each system's in a module of its own with the
-//! same functions: Windows's in `windows/`, and Linux's, under Wayland, in `linux/`.
+//! same functions: Windows's in `windows/`, and Linux's, under Wayland, in `linux/`. What's
+//! the same on every Unix is in `unix/`.
 
 #[cfg(windows)]
 mod windows;
@@ -10,6 +11,11 @@ pub use self::windows::*;
 mod linux;
 #[cfg(target_os = "linux")]
 pub use self::linux::*;
+
+#[cfg(unix)]
+mod unix;
+#[cfg(unix)]
+pub use self::unix::single;
 
 pub mod notification;
 

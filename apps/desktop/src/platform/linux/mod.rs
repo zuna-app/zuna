@@ -12,7 +12,6 @@ pub mod notifications;
 pub mod ptt;
 pub mod screens;
 mod settings;
-pub mod single;
 mod sound;
 pub mod tray;
 pub mod updates;

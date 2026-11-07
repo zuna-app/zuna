@@ -1,8 +1,10 @@
 //! One Zuna at a time for each data folder, as Electron's single-instance lock gives the
 //! desktop: a lock on a file in the data folder, and a second start hands its `zuna://` link,
-//! or just a wish to be seen, to the one running over a Unix socket, and leaves. With it goes
-//! the activation token a launcher gave the second start, as Wayland only lets a window come
-//! to the front with one. `zuna://` itself belongs to the app through its `.desktop` file.
+//! or just a wish to be seen, to the one running over a Unix socket, and leaves. On Linux
+//! with it goes the activation token a launcher gave the second start, as Wayland only lets a
+//! window come to the front with one. `zuna://` itself belongs to the app through its
+//! `.desktop` file on Linux, and its bundle on macOS, where macOS keeps one copy of a bundle
+//! running and this is for a copy started outside one.
 
 use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -18,7 +20,12 @@ pub use crate::platform::Claim;
 fn socket_path(data_dir: &Path) -> PathBuf {
     let digest = Sha256::digest(data_dir.to_string_lossy().as_bytes());
     let tag: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+    #[cfg(target_os = "linux")]
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).unwrap_or_else(|| data_dir.to_path_buf());
+    // The person's own temporary folder, short enough for a socket's address of 104 bytes,
+    // which a data folder deep in the file system isn't.
+    #[cfg(target_os = "macos")]
+    let runtime = std::env::temp_dir();
     runtime.join(format!("zuna-{tag}.sock"))
 }
 
@@ -54,8 +61,9 @@ pub fn claim(data_dir: &Path) -> Claim {
                 }
                 let mut lines = message.lines();
                 let link = lines.next().unwrap_or_default().trim().to_string();
+                #[cfg(target_os = "linux")]
                 if let Some(token) = lines.next().map(str::trim).filter(|token| !token.is_empty()) {
-                    super::set_activation_token(token.to_string());
+                    crate::platform::set_activation_token(token.to_string());
                 }
                 if sender.send(link).is_err() {
                     break;
@@ -78,5 +86,6 @@ pub fn forward(data_dir: &Path, message: &str) {
     }
 }
 
-/// `zuna://` belongs to the app through its `.desktop` file, which a package installs.
+/// `zuna://` belongs to the app through its `.desktop` file, which a package installs, or on
+/// macOS through its bundle's `Info.plist`.
 pub fn register_scheme() {}
