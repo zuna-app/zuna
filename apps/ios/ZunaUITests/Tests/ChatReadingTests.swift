@@ -176,6 +176,8 @@ final class ChatReadingTests: XCTestCase {
 
         // It opens decrypted on the whole screen, and a drag down closes it, as in Telegram.
         try waitFor("the picture to load") { tile.value as? String == "Loaded" }
+        zuna.element(A11y.Composer.input).tap()
+        XCTAssertTrue(zuna.app.keyboards.firstMatch.waitForExistence(timeout: 5))
         tile.tap()
         let viewer = zuna.element(A11y.Chat.photoViewer)
         XCTAssertTrue(viewer.waitForExistence(timeout: 10))
@@ -184,6 +186,8 @@ final class ChatReadingTests: XCTestCase {
         let start = viewer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
         start.press(forDuration: 0.05, thenDragTo: viewer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
         try waitFor("the viewer to close") { !viewer.exists }
+        // The keyboard the chat had comes back, sliding up as after Close.
+        XCTAssertTrue(zuna.app.keyboards.firstMatch.waitForExistence(timeout: 5))
     }
 
     /// A phone's screenshot fills the viewer, so nothing may lie over its top: not the

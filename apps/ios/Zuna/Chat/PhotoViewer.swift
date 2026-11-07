@@ -174,9 +174,9 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
                 UIView.animate(withDuration: 0.22, delay: 0, options: .curveEaseOut) {
                     self.scrollView.transform = CGAffineTransform(translationX: 0, y: direction * self.view.bounds.height)
                     self.backdrop.alpha = 0
-                } completion: { _ in
-                    self.dismiss(animated: false) { self.cleanUp() }
                 }
+                // Animated as Close is, and while the picture goes, so a keyboard the chat had slides back up straight after.
+                dismiss(animated: true) { self.cleanUp() }
             } else {
                 UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.85, initialSpringVelocity: 0) {
                     self.scrollView.transform = .identity
