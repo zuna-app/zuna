@@ -133,8 +133,9 @@ objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSDictionary", "NSUserDefaults", "NSFormatter", "NSDateFormatter", "NSLocale", "NSThread", "NSURL", "NSError", "NSBundle", "NSObject", "NSSet"] }
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSAccessibility", "NSDockTile", "NSWorkspace", "NSResponder", "NSRunningApplication"] }
 objc2-core-graphics = { version = "0.3", features = ["CGEvent", "CGEventSource", "CGEventTypes"] }
-objc2-core-foundation = { version = "0.3", features = ["CFMachPort", "CFRunLoop"] }
+objc2-core-foundation = { version = "0.3", features = ["CFMachPort", "CFRunLoop", "CFDate"] }
 objc2-user-notifications = "0.3"
+objc2-core-location = { version = "0.3", features = ["CLLocation", "CLLocationManager", "CLLocationManagerDelegate", "CLError"] }
 block2 = "0.6"
 security-framework = "3"
 
