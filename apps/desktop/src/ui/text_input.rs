@@ -125,6 +125,9 @@ pub struct TextInput {
     caret_visible: bool,
     blink: Option<Task<()>>,
     was_focused: bool,
+    /// Whether the caret shows and blinks: in a focused field of a window in front. A window
+    /// behind shows none, as a system field and a browser's do.
+    blinking: bool,
     /// Pasted files and pictures go to whoever holds the field, as the message box's do.
     accepts_files: bool,
     /// While suggestions show, the arrows and Enter pick among them instead of moving or sending.
@@ -170,6 +173,7 @@ impl TextInput {
             caret_visible: true,
             blink: None,
             was_focused: false,
+            blinking: false,
             accepts_files: false,
             suggesting: false,
         }
@@ -618,6 +622,10 @@ impl TextInput {
 
     fn show_caret(&mut self, cx: &mut Context<Self>) {
         self.caret_visible = true;
+        if !self.blinking {
+            self.blink = None;
+            return;
+        }
         self.blink = Some(cx.spawn(async move |this, cx| {
             loop {
                 cx.background_executor().timer(Duration::from_millis(530)).await;
@@ -756,15 +764,15 @@ impl Focusable for TextInput {
 impl Render for TextInput {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window);
+        // The window going behind or coming to the front draws everything again, so this follows it.
+        let blinking = focused && window.is_window_active();
+        if blinking != self.blinking {
+            self.blinking = blinking;
+            self.show_caret(cx);
+        }
         if focused != self.was_focused {
             self.was_focused = focused;
-            if focused {
-                self.show_caret(cx);
-                cx.emit(InputEvent::Focused);
-            } else {
-                self.blink = None;
-                cx.emit(InputEvent::Blurred);
-            }
+            cx.emit(if focused { InputEvent::Focused } else { InputEvent::Blurred });
         }
         div()
             .flex()
@@ -952,7 +960,7 @@ impl Element for TextElement {
             y += line.size(prepaint.line_height).height;
         }
         let input = self.input.read(cx);
-        if focus_handle.is_focused(window) && input.caret_visible && !input.disabled {
+        if focus_handle.is_focused(window) && window.is_window_active() && input.caret_visible && !input.disabled {
             if let Some(cursor) = prepaint.cursor.take() {
                 window.paint_quad(cursor);
             }
@@ -988,6 +996,7 @@ fn clone_for_probe(input: &TextInput) -> TextInput {
         caret_visible: true,
         blink: None,
         was_focused: false,
+        blinking: false,
         accepts_files: input.accepts_files,
         suggesting: input.suggesting,
     }
