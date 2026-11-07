@@ -1,6 +1,6 @@
 use crate::{
     AnyElement, AnyImageCache, App, Asset, AssetLogger, Bounds, DefiniteLength, Element, ElementId,
-    Entity, GlobalElementId, Hitbox, Image, ImageCache, ImageId, InspectorElementId, InteractiveElement,
+    Entity, GlobalElementId, Hitbox, Image, ImageCache, InspectorElementId, InteractiveElement,
     Interactivity, IntoElement, LayoutId, Length, ObjectFit, Pixels, RenderImage, Resource,
     SMOOTH_SVG_SCALE_FACTOR, SharedString, SharedUri, StyleRefinement, Styled, SvgSize, Task,
     Window, px, swap_rgba_pa_to_bgra,
@@ -248,14 +248,41 @@ impl DerefMut for Stateful<Img> {
 
 /// The image state between frames
 struct ImgState {
-    frame_index: usize,
-    last_frame_time: Option<Instant>,
     started_loading: Option<(Instant, Task<()>)>,
-    /// Zuna: when the view is to be drawn again for the next frame of an animation.
+    /// Zuna: when the view is to be drawn again for the next frame of an animation. Which
+    /// frame to draw is the picture's own clock's (`RenderImage::frame_at`), never kept here.
     next_frame: Option<(Instant, Task<()>)>,
-    /// Zuna: the picture the frame is of, so another one drawn under the same id starts
-    /// from its own first frame.
-    image: Option<ImageId>,
+}
+
+/// Zuna: as late as Windows' thread pool timers fire, at its 15.6 ms tick, with room to spare.
+const TIMER_LATENESS: Duration = Duration::from_millis(20);
+
+/// Zuna: draws the current view again on the first screen frame after `due`. A timer wakes a
+/// little before, as one alone would fire up to a tick late, and from then each screen frame
+/// looks at the time, which draws nothing until the frame is due.
+fn redraw_after(due: Instant, window: &mut Window, cx: &mut App) -> Task<()> {
+    let view = window.current_view();
+    window.spawn(cx, async move |cx| {
+        let early = due.saturating_duration_since(Instant::now()).saturating_sub(TIMER_LATENESS);
+        if !early.is_zero() {
+            cx.background_executor().timer(early).await;
+        }
+        loop {
+            let (sent, arrived) = futures::channel::oneshot::channel();
+            let asked = cx.update(|window, _| {
+                window.on_next_frame(move |_, cx| {
+                    let ready = Instant::now() >= due;
+                    if ready {
+                        cx.notify(view);
+                    }
+                    sent.send(ready).ok();
+                })
+            });
+            if asked.is_err() || !matches!(arrived.await, Ok(false)) {
+                break;
+            }
+        }
+    })
 }
 
 /// The image layout state between frames
@@ -291,15 +318,12 @@ impl Element for Img {
         window.with_optional_element_state(global_id, |state, window| {
             let mut state = state.map(|state| {
                 state.unwrap_or(ImgState {
-                    frame_index: 0,
-                    last_frame_time: None,
                     started_loading: None,
                     next_frame: None,
-                    image: None,
                 })
             });
 
-            let mut frame_index = state.as_ref().map(|state| state.frame_index).unwrap_or(0);
+            let mut frame_index = 0;
 
             let layout_id = self.interactivity.request_layout(
                 global_id,
@@ -317,41 +341,14 @@ impl Element for Img {
                         cx,
                     ) {
                         Some(Ok(data)) => {
-                            // Zuna: an animated picture's frame, kept under the element's id, was
-                            // used for whatever picture the element drew next, which panicked
-                            // past the end of one with fewer frames, as the picker's name of the
-                            // emote under the pointer did moving from an animated one.
-                            if let Some(state) = &mut state
-                                && state.image != Some(data.id)
-                            {
-                                state.image = Some(data.id);
-                                state.frame_index = 0;
-                                state.last_frame_time = None;
-                                state.next_frame = None;
-                                frame_index = 0;
-                            }
-                            if frame_index >= data.frame_count() {
-                                frame_index = 0;
-                            }
+                            // Zuna: the frame an animated picture's own clock is at. Each element
+                            // stepped its own frame along in its state, one at a time, and drew
+                            // the one before it stepped, so frames came late and unevenly, a
+                            // redraw that came late fell behind, a copy back in view started
+                            // over, and copies of an emote never moved together.
+                            let (frame, next_frame_due) = data.frame_at(Instant::now());
+                            frame_index = frame;
                             if let Some(state) = &mut state {
-                                let frame_count = data.frame_count();
-                                if frame_count > 1 {
-                                    let current_time = Instant::now();
-                                    if let Some(last_frame_time) = state.last_frame_time {
-                                        let elapsed = current_time - last_frame_time;
-                                        let frame_duration =
-                                            Duration::from(data.delay(state.frame_index));
-
-                                        if elapsed >= frame_duration {
-                                            state.frame_index =
-                                                (state.frame_index + 1) % frame_count;
-                                            state.last_frame_time =
-                                                Some(current_time - (elapsed - frame_duration));
-                                        }
-                                    } else {
-                                        state.last_frame_time = Some(current_time);
-                                    }
-                                }
                                 state.started_loading = None;
                             }
 
@@ -386,25 +383,18 @@ impl Element for Img {
                                 };
                             }
 
-                            // Zuna: drawn again when the next frame is due, rather than on every
-                            // vsync, which drew the whole view 120 times a second for an
-                            // animation of 20 frames a second.
-                            if global_id.is_some() && data.frame_count() > 1 {
-                                if let Some(state) = &mut state {
-                                    let delay = Duration::from(data.delay(state.frame_index));
-                                    let due = state.last_frame_time.map_or_else(Instant::now, |at| at + delay);
-                                    let waiting = state.next_frame.as_ref().is_some_and(|(at, _)| *at <= due && *at > Instant::now());
-                                    if !waiting {
-                                        let view = window.current_view();
-                                        let wait = due.saturating_duration_since(Instant::now());
-                                        let task = window.spawn(cx, async move |cx| {
-                                            cx.background_executor().timer(wait).await;
-                                            cx.update(|_, cx| cx.notify(view)).ok();
-                                        });
-                                        state.next_frame = Some((due, task));
+                            // Zuna: drawn again on the first screen frame after the next frame is
+                            // due, rather than on every vsync, which drew the whole view 120 times
+                            // a second for an animation of 20 frames a second. Every copy waits for
+                            // the same moment, so they're drawn together.
+                            if let Some(due) = next_frame_due {
+                                match &mut state {
+                                    Some(state) => {
+                                        if !state.next_frame.as_ref().is_some_and(|(at, _)| *at == due) {
+                                            state.next_frame = Some((due, redraw_after(due, window, cx)));
+                                        }
                                     }
-                                } else {
-                                    window.request_animation_frame();
+                                    None => window.request_animation_frame(),
                                 }
                             }
                         }

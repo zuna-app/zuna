@@ -1548,3 +1548,43 @@ pub(super) fn location_card(id: &str, location: &crate::models::SharedLocation, 
         )
         .into_any_element()
 }
+
+#[cfg(test)]
+mod tests {
+    use gpui::RenderImage;
+    use image::{Delay, Frame, RgbaImage};
+    use std::time::{Duration, Instant};
+
+    fn animation(delays_ms: &[u32]) -> RenderImage {
+        RenderImage::new(delays_ms.iter().map(|&ms| Frame::from_parts(RgbaImage::new(2, 2), 0, 0, Delay::from_numer_denom_ms(ms, 1))).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn copies_of_an_animated_emote_show_the_frame_its_clock_is_at() {
+        let emote = animation(&[40, 60, 100]);
+        let start = Instant::now();
+        // Its clock starts when it's first drawn, and every copy drawn later reads the same one.
+        assert_eq!(emote.frame_at(start), (0, Some(start + Duration::from_millis(40))));
+        let later = start + Duration::from_millis(50);
+        assert_eq!(emote.frame_at(later), (1, Some(start + Duration::from_millis(100))));
+        assert_eq!(emote.frame_at(later), emote.frame_at(later));
+        // However late a redraw comes, it's the frame that's due, and it goes round.
+        assert_eq!(emote.frame_at(start + Duration::from_millis(150)).0, 2);
+        assert_eq!(emote.frame_at(start + Duration::from_millis(210)), (0, Some(start + Duration::from_millis(240))));
+    }
+
+    #[test]
+    fn frames_of_10_ms_or_less_last_100_ms_as_in_browsers() {
+        let emote = animation(&[0, 10, 20]);
+        let start = Instant::now();
+        assert_eq!(emote.frame_at(start).0, 0);
+        assert_eq!(emote.frame_at(start + Duration::from_millis(99)).0, 0);
+        assert_eq!(emote.frame_at(start + Duration::from_millis(150)).0, 1);
+        assert_eq!(emote.frame_at(start + Duration::from_millis(205)).0, 2);
+    }
+
+    #[test]
+    fn a_still_picture_has_one_frame_and_nothing_due() {
+        assert_eq!(animation(&[50]).frame_at(Instant::now()), (0, None));
+    }
+}

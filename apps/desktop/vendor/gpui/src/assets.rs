@@ -6,7 +6,11 @@ use std::{
     borrow::Cow,
     fmt,
     hash::Hash,
-    sync::atomic::{AtomicUsize, Ordering::SeqCst},
+    sync::{
+        OnceLock,
+        atomic::{AtomicUsize, Ordering::SeqCst},
+    },
+    time::{Duration, Instant},
 };
 
 /// A source of assets for this app to use.
@@ -45,6 +49,8 @@ pub struct RenderImage {
     /// The scale factor of this image on render.
     pub(crate) scale_factor: f32,
     data: SmallVec<[Frame; 1]>,
+    /// Zuna: when an animated picture was first drawn, which its clock counts from.
+    started: OnceLock<Instant>,
 }
 
 impl PartialEq for RenderImage {
@@ -64,7 +70,33 @@ impl RenderImage {
             id: ImageId(NEXT_ID.fetch_add(1, SeqCst)),
             scale_factor: 1.0,
             data: data.into(),
+            started: OnceLock::new(),
         }
+    }
+
+    /// Zuna: the frame an animated picture is at now, by its own clock, and when the next one
+    /// is due, or its only frame and None for a still one. Every copy of a picture shares the
+    /// clock, which starts when it's first drawn, as a browser's copies of an image do, so they
+    /// move together. As in browsers, a frame of 10 ms or less lasts 100 ms.
+    pub fn frame_at(&self, now: Instant) -> (usize, Option<Instant>) {
+        if self.data.len() < 2 {
+            return (0, None);
+        }
+        let shown = |frame: &Frame| match Duration::from(frame.delay()) {
+            delay if delay <= Duration::from_millis(10) => Duration::from_millis(100),
+            delay => delay,
+        };
+        let cycle: Duration = self.data.iter().map(shown).sum();
+        let started = *self.started.get_or_init(|| now);
+        let into = Duration::from_nanos((now.saturating_duration_since(started).as_nanos() % cycle.as_nanos()) as u64);
+        let mut end = Duration::ZERO;
+        for (index, frame) in self.data.iter().enumerate() {
+            end += shown(frame);
+            if into < end {
+                return (index, Some(now + (end - into)));
+            }
+        }
+        (0, Some(now + (cycle - into)))
     }
 
     /// Convert this image into a byte slice.
