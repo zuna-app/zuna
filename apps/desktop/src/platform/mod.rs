@@ -146,6 +146,8 @@ pub enum NoKeyWatch {
     Compositor,
     /// It only gives them to an installed app, which this copy isn't to it.
     Uninstalled,
+    /// The person hasn't allowed it, as macOS's Input Monitoring asks.
+    Permission,
 }
 
 /// What the system wants right now (NotificationState in packages/ui/src/platform.ts).

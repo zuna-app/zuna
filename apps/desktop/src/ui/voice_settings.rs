@@ -334,6 +334,7 @@ impl Render for VoiceSettingsPage {
         let why_not = support.and_then(|support| support.why).filter(|_| no_push_to_talk).map(|why| match why {
             crate::platform::NoKeyWatch::Uninstalled => "Push to talk can't work here: your system only gives global shortcuts to installed apps, and it doesn't see this copy of Zuna as one. Start Zuna from your applications menu, or install the package for your distribution.",
             crate::platform::NoKeyWatch::Compositor => "Your compositor doesn't support push to talk. It has no global shortcuts, so no app can hear a key held while another window is in front.",
+            crate::platform::NoKeyWatch::Permission => "Push to talk needs to hear keys while other apps are in front. Allow Zuna in System Settings, under Privacy & Security, then Input Monitoring, and open Zuna again.",
         });
         parts.push(field(
             plain_label("When sound goes out", cx),
