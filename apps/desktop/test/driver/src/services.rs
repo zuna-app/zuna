@@ -25,6 +25,19 @@ struct Notifications {
     inhibited: bool,
 }
 
+/// The `image-data` hint's picture: its size, and its RGBA rows in hex.
+fn image(value: &Value) -> Option<Json> {
+    let Value::Structure(structure) = value else { return None };
+    let fields = structure.fields();
+    let number = |index: usize| match fields.get(index) {
+        Some(Value::I32(number)) => Some(*number),
+        _ => None,
+    };
+    let Some(Value::Array(bytes)) = fields.get(6) else { return None };
+    let hex: String = bytes.iter().filter_map(|byte| if let Value::U8(byte) = byte { Some(format!("{byte:02x}")) } else { None }).collect();
+    Some(json!({ "width": number(0)?, "height": number(1)?, "stride": number(2)?, "channels": number(5)?, "hex": hex }))
+}
+
 #[interface(name = "org.freedesktop.Notifications")]
 impl Notifications {
     #[allow(clippy::too_many_arguments)]
@@ -40,7 +53,7 @@ impl Notifications {
                 "actions": actions,
                 "desktopEntry": hints.get("desktop-entry").and_then(|value| String::try_from(value.try_clone().ok()?).ok()),
                 "suppressSound": hints.get("suppress-sound").and_then(|value| bool::try_from(&**value).ok()),
-                "image": hints.contains_key("image-data"),
+                "image": hints.get("image-data").and_then(|value| image(value)),
                 "category": hint("category"),
             }
         }));

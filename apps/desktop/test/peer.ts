@@ -3,7 +3,8 @@
 // time, what reaches it from the app, and answers each message with "Echo: " and its text, so
 // the check can tell what the app sent and look for the answer in the app. A line of JSON on
 // its standard input, {"send": "text"}, sends that to the app, and {"sendFile": {...}} a file,
-// a voice or video message too, with what sendWithAttachments takes and the file's path.
+// a voice or video message too, with what sendWithAttachments takes and the file's path, and
+// {"avatar": "path"} makes a PNG its profile picture.
 //
 //   cd packages/core && npx vite-node ../../apps/desktop/test/peer.ts <invite>
 
@@ -27,7 +28,7 @@ const key = `user:${owner()!.id}`;
 
 const sent = new Set<string>();
 createInterface({ input: process.stdin }).on("line", (line) => {
-  const command = JSON.parse(line) as { send?: string; sendFile?: { path: string; name: string; mime: string; duration?: number; width?: number; height?: number; voice?: boolean; round?: boolean } };
+  const command = JSON.parse(line) as { send?: string; sendFile?: { path: string; name: string; mime: string; duration?: number; width?: number; height?: number; voice?: boolean; round?: boolean }; avatar?: string };
   if (command.send) {
     sent.add(command.send);
     app.session.sendMessage(key, { text: command.send });
@@ -35,6 +36,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (command.sendFile) {
     const { path, ...file } = command.sendFile;
     void app.session.sendWithAttachments(key, [{ blob: new Blob([readFileSync(path)], { type: file.mime }), ...file }], {}).then(() => say({ sentFile: file.name }));
+  }
+  if (command.avatar) {
+    void app.session.updateProfile({}, new Blob([readFileSync(command.avatar)], { type: "image/png" })).then(() => say({ avatarSet: true }));
   }
 });
 say({ ready: true, userId: app.userId });

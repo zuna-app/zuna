@@ -10513,6 +10513,7 @@ dependencies = [
  "raw-window-handle",
  "regex",
  "reqwest 0.13.5",
+ "resvg",
  "rquickjs",
  "rusqlite",
  "rustls",

@@ -91,7 +91,7 @@ Sealed by the Secret Service, as Electron's safeStorage does with libsecret: KWa
 
 ### Notifications, sound and the badge
 
-- **The system's notifications,** as the Electron app shows them on Linux: `org.freedesktop.Notifications` over D-Bus, through `zbus`, which is already in `Cargo.lock` through GPUI. The app's name and the `desktop-entry` hint give it its icon. The default action opens the conversation. A notification is closed with `CloseNotification` when its chat is read or its message deleted, as the cards are taken back on Windows.
+- **The system's notifications,** as the Electron app shows them on Linux: `org.freedesktop.Notifications` over D-Bus, through `zbus`, which is already in `Cargo.lock` through GPUI. The app's name and the `desktop-entry` hint give it its icon, and the `image-data` hint the chat's picture as the list draws it: its photo made round, or its initials on its color, drawn with the resvg GPUI already has, 128 px across. The default action opens the conversation. A notification is closed with `CloseNotification` when its chat is read or its message deleted, as the cards are taken back on Windows.
 - **The app's own cards stay on Windows.** Under Wayland an app can't place its window or keep it above others, so they couldn't work. FEATURE_PARITY lists them under "Not possible or pointless there".
 - **Quiet:** the notification server applies Do Not Disturb itself. The app's own sound asks the server's `Inhibited` property, which KDE has, and plays otherwise.
 - **The sound:** the same synthesized two tones, played through the app's sound output (see Sound devices) rather than `PlaySoundW`, with the `suppress-sound` hint so the server adds none of its own.

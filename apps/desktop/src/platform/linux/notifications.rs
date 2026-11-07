@@ -7,10 +7,13 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, OnceLock};
 
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedSender, unbounded};
 use gpui::{App, AppContext, Context, Entity, WeakEntity};
+use image::RgbaImage;
+use resvg::{tiny_skia, usvg};
 use zbus::MatchRule;
 use zbus::blocking::MessageIterator;
 use zbus::zvariant::{OwnedValue, StructureBuilder, Value};
@@ -145,13 +148,22 @@ fn escaped(text: &str) -> String {
     text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// The picture as the server takes it: RGBA rows, 64 pixels across.
+/// The picture's side in pixels, sharp at a scale of 2.
+const PICTURE: u32 = 128;
+
+/// The picture as the server takes it, in RGBA rows: round as beside the chat in the list, its
+/// photo or else its initials on its color, and the app's icon when nothing is shown about who.
 fn image_data(picture: Option<&Picture>) -> Option<Value<'static>> {
     let image = picture
-        .and_then(|picture| picture.image.as_ref())
-        .and_then(|image| image::load_from_memory(image.bytes()).ok())
-        .map(|image| image.resize_to_fill(64, 64, image::imageops::FilterType::Triangle).to_rgba8())
-        .unwrap_or_else(|| crate::platform::app_icon(64));
+        .map(|picture| {
+            picture
+                .image
+                .as_ref()
+                .and_then(|image| image::load_from_memory(image.bytes()).ok())
+                .map(|image| round(image.resize_to_fill(PICTURE, PICTURE, image::imageops::FilterType::Lanczos3).to_rgba8()))
+                .or_else(|| initials(picture))
+        })
+        .unwrap_or_else(|| Some(crate::platform::app_icon(PICTURE)))?;
     let (width, height) = (image.width() as i32, image.height() as i32);
     let structure = StructureBuilder::new()
         .add_field(width)
@@ -164,6 +176,52 @@ fn image_data(picture: Option<&Picture>) -> Option<Value<'static>> {
         .build()
         .ok()?;
     Some(Value::Structure(structure))
+}
+
+/// Clears what's outside the circle, with its edge a pixel soft.
+fn round(mut image: RgbaImage) -> RgbaImage {
+    let radius = image.width() as f32 / 2.;
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        let distance = (x as f32 + 0.5 - radius).hypot(y as f32 + 0.5 - radius);
+        pixel[3] = (pixel[3] as f32 * (radius - distance + 0.5).clamp(0., 1.)).round() as u8;
+    }
+    image
+}
+
+/// The initials as `components::avatar` draws them: Inter Medium at 0.38 of the side, white at
+/// 92%, on the chat's color. Their baseline is where GPUI's line of 1.2 puts it, which centers
+/// capitals.
+fn initials(picture: &Picture) -> Option<RgbaImage> {
+    static OPTIONS: OnceLock<usvg::Options<'static>> = OnceLock::new();
+    let options = OPTIONS.get_or_init(|| {
+        let mut options = usvg::Options { font_family: "Inter".into(), ..Default::default() };
+        let fonts = Arc::make_mut(&mut options.fontdb);
+        fonts.load_font_data(include_bytes!("../../../assets/fonts/Inter-Medium.ttf").to_vec());
+        // For initials in a script Inter hasn't, as the list falls back to the system's.
+        fonts.load_system_fonts();
+        options
+    });
+    let side = PICTURE as f32;
+    let size = side * 0.38;
+    let svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="{side}" height="{side}"><circle cx="{half}" cy="{half}" r="{half}" fill="{color}"/><text x="{half}" y="{baseline}" font-family="Inter" font-weight="500" font-size="{size}" fill="#ffffff" fill-opacity="0.92" text-anchor="middle">{text}</text></svg>"##,
+        half = side / 2.,
+        color = crate::format::avatar_color(&picture.seed),
+        baseline = side / 2. + size * 0.364,
+        text = escaped(&picture.initials),
+    );
+    let tree = usvg::Tree::from_str(&svg, options).ok()?;
+    let mut pixmap = tiny_skia::Pixmap::new(PICTURE, PICTURE)?;
+    resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+    let pixels = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let color = pixel.demultiply();
+            [color.red(), color.green(), color.blue(), color.alpha()]
+        })
+        .collect();
+    RgbaImage::from_raw(PICTURE, PICTURE, pixels)
 }
 
 fn notify(bus: &zbus::blocking::Connection, payload: &Payload) -> zbus::Result<u32> {

@@ -10,10 +10,11 @@ import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { crc32, deflateSync } from "node:zlib";
 import { appBinary, here, inside, outside, root, sleep, until } from "./linux-session.mjs";
 
 await outside(import.meta.url);
-const { work, base, session, check, start, shot, kwinFrames, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, finish } = await inside({ shots: process.argv[2] });
+const { work, base, session, shots, check, start, shot, kwinFrames, clipboard, idleCost, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, finish } = await inside({ shots: process.argv[2] });
 
 let peer;
 try {
@@ -230,9 +231,17 @@ try {
   await sleep(500);
   peer.stdin.write(`${JSON.stringify({ send: unsafe })}\n`);
   const notified = (await heardEvent((event) => event.notified, 15_000, since))?.notified;
-  check("a message in another chat shows a system notification, named and pictured", notified?.summary === "Casey Park" && notified?.image && notified?.desktopEntry === "zuna" && notified?.actions?.includes("default"), JSON.stringify(notified));
+  check("a message in another chat shows a system notification, named and pictured", notified?.summary === "Casey Park" && notified?.image && notified?.desktopEntry === "zuna" && notified?.actions?.includes("default"), JSON.stringify({ ...notified, image: notified?.image && `${notified.image.width}×${notified.image.height}` }));
   check("its text goes as text, not markup", notified?.body === "&lt;b&gt;Bold&lt;/b&gt; &amp; &lt;a href='https://example.com'&gt;a link&lt;/a&gt;", notified?.body);
   check("the server adds no sound, as the app plays its own", notified?.suppressSound === true);
+  // As beside the chat in the list: Casey has no photo, so their initials on their color.
+  const initials = picture(notified, "11-notification-initials");
+  const whites = initials ? initials.count((x, y, [r, g, b, a]) => y > 40 && y < 88 && a === 255 && Math.min(r, g, b) > 220) : 0;
+  check(
+    "its picture is round, with the initials on the chat's color",
+    initials?.width === 128 && initials.height === 128 && initials.channels === 4 && initials.at(0, 0)[3] === 0 && near(initials.at(64, 8), [...avatarColor(heard.find((line) => line.ready).userId), 255]) && whites > 100,
+    initials && `${initials.width}×${initials.height}, corner ${initials.at(0, 0)}, top ${initials.at(64, 8)}, ${whites} white`,
+  );
   const chime = await sound;
   check("and the app's own plays, through PipeWire", chime > 0.02, `peak ${chime.toFixed(3)}`);
   const badge = await heardEvent((event) => event.badge?.count === 1, 10_000, since);
@@ -249,12 +258,18 @@ try {
   await drive({ do: "key", key: "enter" });
   check("clicking it opens its chat", !!(await until(() => heard.find((line) => line.received === opened), "the message", 15_000).catch(() => null)));
   check("and reading it clears the badge", !!(await heardEvent((event) => event.badge?.count === 0, 10_000, since)));
-  // Taken back once the chat is read in the app.
+  // Taken back once the chat is read in the app, and with Casey's photo once they have one.
+  const photo = join(work, "casey.png");
+  writeFileSync(photo, png(256, 256, Buffer.alloc(256 * 256 * 4).fill(Buffer.from([208, 96, 42, 255]))));
+  peer.stdin.write(`${JSON.stringify({ avatar: photo })}\n`);
+  await until(() => heard.some((line) => line.avatarSet), "the photo to be set", 20_000);
   await drive({ do: "click", x: 237, y: 311 });
-  await sleep(800);
+  await sleep(3000);
   since = events.length;
   peer.stdin.write(`${JSON.stringify({ send: "Another one" })}\n`);
   const second = (await heardEvent((event) => event.notified, 15_000, since))?.notified;
+  const withPhoto = picture(second, "11-notification-photo");
+  check("with a photo, its picture is the photo, round", withPhoto?.at(0, 0)[3] === 0 && near(withPhoto.at(64, 64), [208, 96, 42, 255]) && near(withPhoto.at(64, 2), [208, 96, 42, 255]), withPhoto && `corner ${withPhoto.at(0, 0)}, middle ${withPhoto.at(64, 64)}, top ${withPhoto.at(64, 2)}`);
   await drive({ do: "click", x: 237, y: 251 });
   check("a notification is taken back when its chat is read", !!second && !!(await heardEvent((event) => event.closed === second.id, 10_000, since)));
 
@@ -305,4 +320,50 @@ try {
   await finish();
 } catch (error) {
   await finish(error);
+}
+
+/** A notification's picture, saved beside the screenshots. */
+function picture(notified, name) {
+  const image = notified?.image;
+  if (!image?.hex) return null;
+  const rgba = Buffer.from(image.hex, "hex");
+  writeFileSync(join(shots, `${name}.png`), png(image.width, image.height, rgba));
+  const at = (x, y) => [...rgba.subarray(y * image.stride + x * 4, y * image.stride + x * 4 + 4)];
+  const count = (test) => {
+    let found = 0;
+    for (let y = 0; y < image.height; y++) for (let x = 0; x < image.width; x++) if (test(x, y, at(x, y))) found++;
+    return found;
+  };
+  return { ...image, at, count };
+}
+
+function near(color, expected, by = 3) {
+  return color.length === expected.length && color.every((value, index) => Math.abs(value - expected[index]) <= by);
+}
+
+/** The color `format::avatar_color` gives someone without a photo. */
+function avatarColor(seed) {
+  const colors = ["#5b6b7a", "#6e625c", "#5f7065", "#7a6c58", "#6b6470", "#557072", "#7a6060", "#5f6775"];
+  let hash = 0;
+  for (let index = 0; index < seed.length; index++) hash = (Math.imul(hash, 31) + seed.charCodeAt(index)) | 0;
+  const hex = colors[Math.abs(hash) % colors.length];
+  return [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16));
+}
+
+/** RGBA rows as a PNG. */
+function png(width, height, rgba) {
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const sum = Buffer.alloc(4);
+    sum.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, sum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 6], 8);
+  const rows = Buffer.concat(Array.from({ length: height }, (_, y) => Buffer.concat([Buffer.from([0]), rgba.subarray(y * width * 4, (y + 1) * width * 4)])));
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
 }
