@@ -8,7 +8,7 @@ use serde_json::json;
 use super::components::*;
 use super::motion::{Enter, Motion};
 use super::menu::open_menu_with_reactions;
-use super::message::{ChatContext, QUICK_REACTIONS, attachments, continues, jumbo_body, menu_entries, name_of, system_text, text_body};
+use super::message::{ChatContext, QUICK_REACTIONS, attachments, continues, jumbo_body, menu_entries, name_of, system_text, text_body, with_emote_card};
 use crate::format::{format_full, format_time, name_color};
 use crate::markup;
 use crate::models::{MessageView, ReactionView};
@@ -653,7 +653,8 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
         .font_weight(FontWeight::SEMIBOLD)
         .cursor_pointer()
         .when(!mine, |el| el.hover(move |style| style.bg(theme.bg3).border_color(theme.line_strong)))
-        .tip(names, Side::Top)
+        // An emote's card says who reacted, in place of the tooltip.
+        .when(reaction.emote.is_none(), |el| el.tip(names.clone(), Side::Top))
         .on_click(move |_, _, cx| {
             let mut args = vec![json!(group), json!(id), json!(key)];
             if let Some(emote) = &emote {
@@ -665,7 +666,10 @@ fn channel_reaction(reaction: &ReactionView, message: &MessageView, context: &Ch
         Some(emote) => {
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
-                Some(image) => chip.child(img(image).h(px(20.)).max_w(px(44.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)))),
+                Some(image) => {
+                    let picture = img(image).h(px(20.)).max_w(px(44.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));
+                    chip.child(with_emote_card(picture, SharedString::from(format!("creaction-card-{}-{}", message.id, reaction.key)), &reaction.key, emote, Some(format!("Reacted by {names}")), context, cx))
+                }
                 None => chip.child(reaction.key.clone()),
             }
         }

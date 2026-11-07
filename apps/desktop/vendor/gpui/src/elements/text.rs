@@ -921,6 +921,7 @@ impl Element for InteractiveText {
                         build_tooltip,
                         check_is_hovered,
                         check_is_hovered_during_prepaint,
+                        super::div::TOOLTIP_SHOW_DELAY,
                         window,
                     );
                 }

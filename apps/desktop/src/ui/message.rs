@@ -5,8 +5,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, Entity, FontStyle, FontWeight, Hsla, Image, InteractiveText, IntoElement, MouseButton, ParentElement, Pixels, SharedString,
-    StrikethroughStyle, Styled, StyledText, TextRun, UnderlineStyle, Window, div, img, prelude::*, px, relative,
+    AnyElement, App, Div, ElementId, Entity, FontStyle, FontWeight, Hsla, Image, InteractiveText, IntoElement, MouseButton, ParentElement, Pixels,
+    SharedString, Stateful, StrikethroughStyle, Styled, StyledText, TextRun, UnderlineStyle, Window, div, img, prelude::*, px, relative,
 };
 use serde_json::json;
 
@@ -16,7 +16,7 @@ use super::menu::{MenuEntry, open_menu_with_reactions};
 use super::selection;
 use crate::format::{format_bytes, format_day_separator, format_full, format_time, name_color, timer_change_text};
 use crate::markup::{self, Block, Rich};
-use crate::models::{Attachment, MessageView, ReactionView, UserView};
+use crate::models::{Attachment, EmoteRef, MessageView, ReactionView, UserView};
 use crate::state::{AppState, Overlay, ToastKind};
 use crate::theme::{self, Theme, FONT_MONO, FONT_UI, RADIUS_M, RADIUS_S};
 
@@ -715,16 +715,24 @@ fn flow_text(
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             let zero_width = emote.zero_width == Some(true);
             let picture = match image {
-                Some(image) => img(image)
-                    .h(px(26.))
-                    .max_w(px(110.))
-                    .mx(px(1.))
-                    .my(px(-3.))
-                    .when(zero_width, |el| el.ml(px(-28.)))
-                    .object_fit(gpui::ObjectFit::Contain)
-                    // An id keeps an animated emote's place between frames.
-                    .id(SharedString::from(format!("emote-{}-{}-{}", message.id, index, range.start)))
-                    .into_any_element(),
+                Some(image) => with_emote_card(
+                    img(image)
+                        .h(px(26.))
+                        .max_w(px(110.))
+                        .object_fit(gpui::ObjectFit::Contain)
+                        // An id keeps an animated emote's place between frames.
+                        .id(SharedString::from(format!("emote-{}-{}-{}", message.id, index, range.start))),
+                    SharedString::from(format!("emote-card-{}-{}-{}", message.id, index, range.start)),
+                    name,
+                    emote,
+                    None,
+                    context,
+                    cx,
+                )
+                .mx(px(1.))
+                .my(px(-3.))
+                .when(zero_width, |el| el.ml(px(-28.)))
+                .into_any_element(),
                 None => div().text_color(theme.text2).child(name.clone()).into_any_element(),
             };
             // Selected whole, and copied as its name.
@@ -941,7 +949,10 @@ pub(super) fn jumbo_body(message: &MessageView, _size: u8, context: &ChatContext
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             let image = context.state.update(cx, |state, cx| state.remote_picture(&url, cx));
             row = row.child(match image {
-                Some(image) => img(image).h(px(48.)).max_w(px(150.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("jumbo-{}-{position}", message.id))).into_any_element(),
+                Some(image) => {
+                    let picture = img(image).h(px(48.)).max_w(px(150.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("jumbo-{}-{position}", message.id)));
+                    with_emote_card(picture, SharedString::from(format!("jumbo-card-{}-{position}", message.id)), word, emote, None, context, cx).into_any_element()
+                }
                 None => div().h(px(48.)).w(px(48.)).into_any_element(),
             });
         } else {
@@ -949,6 +960,126 @@ pub(super) fn jumbo_body(message: &MessageView, _size: u8, context: &ChatContext
         }
     }
     row.into_any_element()
+}
+
+/// An emote with its card, as `Emote` in `components/Emote.tsx`: after 120 ms under the
+/// pointer, its picture larger, its name, who made it, and a note, such as who reacted with it.
+pub(super) fn with_emote_card(picture: impl IntoElement, id: impl Into<ElementId>, name: &str, emote: &EmoteRef, note: Option<String>, context: &ChatContext, cx: &App) -> Stateful<Div> {
+    // Recorded in the message, or known from the server's set.
+    let owner = emote.owner.clone().filter(|owner| !owner.is_empty()).or_else(|| {
+        let server = context.state.read(cx).servers.get(&context.server_id)?;
+        server.emotes.emotes.iter().find(|item| item.id == emote.id).map(|item| item.owner.clone()).filter(|owner| !owner.is_empty())
+    });
+    let bounds = Rc::new(std::cell::Cell::new(None));
+    let seen = bounds.clone();
+    let state = context.state.clone();
+    let address = format!("{}/api/emotes/{}", context.server_url, emote.id);
+    let name = SharedString::from(name.to_string());
+    div()
+        .id(id)
+        .relative()
+        .child(picture)
+        .child(gpui::canvas(move |area, _, _| seen.set(Some(area)), |_, _, _, _| {}).absolute().inset_0())
+        .tooltip_after(std::time::Duration::from_millis(120), move |window, cx| {
+            let card = EmoteCard {
+                state: state.clone(),
+                address: address.clone(),
+                name: name.clone(),
+                owner: owner.clone().map(SharedString::from),
+                note: note.clone().map(SharedString::from),
+                target: bounds.get(),
+                from: window.mouse_position(),
+            };
+            let state = state.clone();
+            cx.new(|cx| {
+                // The larger picture, once it's fetched.
+                cx.observe(&state, |_, _, cx| cx.notify()).detach();
+                card
+            })
+            .into()
+        })
+}
+
+/// `.emote-card`, above the emote, or below it where there's no room, kept inside the window.
+struct EmoteCard {
+    state: Entity<AppState>,
+    address: String,
+    name: SharedString,
+    owner: Option<SharedString>,
+    note: Option<SharedString>,
+    target: Option<gpui::Bounds<Pixels>>,
+    /// GPUI lays a tooltip out from the pointer, as it was when it was built.
+    from: gpui::Point<Pixels>,
+}
+
+impl Render for EmoteCard {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let theme = theme(cx);
+        let Some(target) = self.target else { return div() };
+        // Gone once the pointer leaves the emote, as GPUI judges by its bounds even under an overlay.
+        if !target.contains(&window.mouse_position()) {
+            return div();
+        }
+        let (large, small) = (format!("{}/3x.webp", self.address), format!("{}/2x.webp", self.address));
+        let image = self.state.update(cx, |state, cx| state.remote_picture(&large, cx).or_else(|| state.remote_picture(&small, cx)));
+        let measure = |text: &str, size: f32, weight: FontWeight, window: &mut Window| {
+            let run = TextRun { len: text.len(), font: gpui::Font { weight, ..gpui::font(FONT_UI) }, color: theme.text1, background_color: None, underline: None, strikethrough: None };
+            f32::from(window.text_system().shape_line(SharedString::from(text.to_string()), px(size), &[run], None).width)
+        };
+        let owner = self.owner.as_ref().map(|owner| format!("by {owner}"));
+        let mut text_width = measure(&self.name, 14., FontWeight::SEMIBOLD, window);
+        let mut text_height: f32 = 19.;
+        if let Some(owner) = &owner {
+            text_width = text_width.max(measure(owner, 12.5, FontWeight::NORMAL, window));
+            text_height += 17.;
+        }
+        if let Some(note) = &self.note {
+            text_width = text_width.max(measure(note, 11., FontWeight::NORMAL, window));
+            text_height += 17.;
+        }
+        // Its padding, picture, gap and border around the text, from 170 to 300 px wide.
+        let width = px((text_width + 10. + 56. + 12. + 14. + 2.).clamp(170., 300.));
+        let height = px(text_height.max(56.) + 22.);
+        let viewport = window.viewport_size();
+        let left = (target.center().x - width / 2.).min(viewport.width - width - px(8.)).max(px(8.));
+        let above = target.top() - height - px(8.);
+        let top = if above >= px(8.) { above } else { target.bottom() + px(8.) };
+        let card = div()
+            .w(width)
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .pl(px(10.))
+            .pr(px(14.))
+            .py(px(10.))
+            .bg(theme.bg3)
+            .border_1()
+            .border_color(theme.line_strong)
+            .rounded(theme::RADIUS_L)
+            .shadow(shadow_m())
+            .font_family(FONT_UI)
+            .child(match image {
+                Some(image) => img(image).id("emote-card-picture").size(px(56.)).flex_none().object_fit(gpui::ObjectFit::Contain).into_any_element(),
+                None => div().size(px(56.)).flex_none().into_any_element(),
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(div().text_size(px(14.)).line_height(px(19.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(self.name.clone()))
+                    .when_some(owner, |el, owner| el.child(div().text_size(px(12.5)).line_height(px(17.)).text_color(theme.text2).child(owner)))
+                    .when_some(self.note.clone(), |el, note| el.child(div().mt(px(2.)).text_size(px(11.)).line_height(px(15.)).text_color(theme.text3).child(note))),
+            );
+        // Nothing of its own size, so GPUI never moves it, and the card placed from the pointer.
+        let origin = self.from + gpui::point(px(1.), px(1.));
+        div()
+            .size_0()
+            .child(card.absolute().left(left - origin.x).top(top - origin.y).enter("emote-card-in", Enter::Fade, 80))
+            // Drawn again as the pointer moves, so it's gone as soon as it leaves.
+            .child(gpui::canvas(|_, _, _| {}, |_, _, window, _| window.on_mouse_event(|_: &gpui::MouseMoveEvent, _, window, _| window.refresh())))
+    }
 }
 
 fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumbo: bool, show_people: bool, context: &ChatContext, theme: &Theme, cx: &mut App) -> AnyElement {
@@ -981,7 +1112,8 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
         .font_weight(FontWeight::MEDIUM)
         .cursor_pointer()
         .child(super::motion::hover_layer(&hover_key, hover, px(12.), 100))
-        .tip(names, Side::Top)
+        // An emote's card says who reacted, in place of the tooltip.
+        .when(reaction.emote.is_none(), |el| el.tip(names.clone(), Side::Top))
         .on_click(move |_, _, cx| {
             let mut args = vec![json!(group), json!(id), json!(key)];
             if let Some(emote) = &emote {
@@ -993,7 +1125,10 @@ fn reaction_chip(reaction: &ReactionView, message: &MessageView, own: bool, jumb
         Some(emote) => {
             let url = format!("{}/api/emotes/{}/2x.webp", context.server_url, emote.id);
             match context.state.update(cx, |state, cx| state.remote_picture(&url, cx)) {
-                Some(image) => chip.child(img(image).h(px(18.)).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)))),
+                Some(image) => {
+                    let picture = img(image).h(px(18.)).max_w(px(40.)).object_fit(gpui::ObjectFit::Contain).id(SharedString::from(format!("reaction-emote-{}-{}", message.id, reaction.key)));
+                    chip.child(with_emote_card(picture, SharedString::from(format!("reaction-card-{}-{}", message.id, reaction.key)), &reaction.key, emote, Some(format!("Reacted by {names}")), context, cx))
+                }
                 None => chip.child(div().text_color(theme.text2).child(reaction.key.clone())),
             }
         }

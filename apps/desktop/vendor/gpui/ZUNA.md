@@ -72,6 +72,10 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   and when it does, the surface's transparency and opaque region follow at once
   (`request_decorations` and `handle_toplevel_decoration_event` in
   `platform/linux/wayland/window.rs`).
+- **A tooltip after a delay of its own.** `tooltip_after` shows one after the pointer has been
+  over its element for as long as it's given, where GPUI waits 500 ms for every tooltip: an
+  emote's card comes after 120 ms, as the desktop's does (`elements/div.rs`, and the call in
+  `elements/text.rs`).
 
 Beside GPUI, `vendor/xattr` is xattr 0.2.3, which GPUI's HTTP client takes in through
 zed-async-tar on Unix. It named `libc::ENOATTR`, which libc no longer has on Linux, where it's
