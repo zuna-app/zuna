@@ -26,6 +26,7 @@ fn main() {
 
     embed_icon(&root);
     link_ffmpeg();
+    link_objc();
 
     println!("cargo:rerun-if-changed=assets/core/zuna-core.js");
     if !Path::new("assets/core/zuna-core.js").exists() {
@@ -47,6 +48,15 @@ fn link_ffmpeg() {
         if let Ok(ffmpeg) = std::env::var("FFMPEG_DIR") {
             println!("cargo:rustc-link-arg=-Wl,-rpath,{ffmpeg}/lib");
         }
+    }
+}
+
+/// On macOS, every Objective-C category in the static libraries: libwebrtc's, which LiveKit
+/// links in, add methods to Foundation's classes that its video codecs call, and the linker
+/// leaves a category out of a static library unless it's told to keep them all.
+fn link_objc() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-arg=-ObjC");
     }
 }
 
