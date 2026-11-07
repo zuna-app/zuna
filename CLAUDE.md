@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, and being ported to Linux under Wayland, `docs/LINUX_APP_PLAN.md`), the Electron desktop app it's taking over from (`apps/desktop-electron-legacy`), and a native iPhone and iPad app.
+Zuna is self-hosted, end-to-end encrypted chat: a Go server that only ever holds ciphertext, a TypeScript client core with all the protocol logic, Rust crypto (OpenMLS), a native desktop app drawn with GPUI (`apps/desktop`, on Windows, and being ported to Linux under Wayland, `docs/LINUX_APP_PLAN.md`), which is the only desktop app, a web app, and a native iPhone and iPad app. The Electron desktop app it took over from (`apps/desktop-electron-legacy`) is only kept as a reference.
 
 ## Working rules
 
@@ -23,14 +23,14 @@ Setup: `npm install`, then `npm run build:crypto`. Needs Node 22.5+, Go 1.26+, R
 | Task | Command |
 |---|---|
 | Test server, set up with bots and an owner account (port 8787) | `npm run dev:server` |
-| The legacy Electron desktop app with live reload, after pulling (a fast-forward, with nothing uncommitted) and rebuilding whatever changed | `npm run dev` |
+| The legacy Electron desktop app with live reload, only to see how it does something, after pulling (a fast-forward, with nothing uncommitted) and rebuilding whatever changed | `npm run dev` |
 | Web app with live reload, at `http://localhost:5174`, with a local `zuna-web` | `npm run dev:web` |
 | zuna.chat, the landing page, with live reload at `http://localhost:5175`, and prerendered into `apps/site/dist` | `npm run dev -w @zuna/site`, `npm run build -w @zuna/site` |
 | Delete all development data (`.dev-data`) | `npm run dev:clean` |
 | Type checks, core and desktop | `npm run typecheck` |
 | All of crypto, server and core tests | `npm test` |
 | Rebuild the crypto core, after any Rust change | `npm run build:crypto` |
-| Installers (`apps/desktop-electron-legacy/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
+| Electron's installers (`apps/desktop-electron-legacy/release`), server binaries (`dist/server`), `zuna-web` with the web app in it (`dist/web`) | `npm run dist`, `npm run build:server`, `npm run build:web` |
 | Native screen capture, and on macOS a share's sound, which go into installers (`docs/SCREEN_SHARE.md`) | `npm run build:screenshare` |
 | The native desktop app in GPUI (`apps/desktop`, `docs/WINDOWS_APP.md`): run a debug build, write a release one to `dist/windows`, or install it on this computer with its installer, which updates the installed copy after the first time | `npm run dev:windows`, `npm run build:windows`, `npm run install:windows` |
 | The same app on Linux, under Wayland only: a debug build, a release one in `dist/linux`, or its .deb, .rpm, pacman package, AppImage and .tar.gz in `dist/linux/packages` | `npm run dev:linux`, `npm run build:linux`, `npm run dist:linux` |
@@ -52,23 +52,11 @@ Core tests drive real clients against a real Go server, which they build themsel
 
 The server's tests and the core's run in SQLite. With `ZUNA_TEST_POSTGRES` set to a PostgreSQL database's address, such as `postgres://zuna@localhost/zuna_test?sslmode=disable`, they run in PostgreSQL instead, each test or test server in a schema of its own there. Run them that way after changing any SQL. The Go tests drop their schemas, and the core's leave theirs, so give them a database to throw away.
 
-Checks in real Electron, after `npm run build -w @zuna/desktop-electron-legacy`:
-
-| Script in `apps/desktop-electron-legacy/test` | Run it after changing |
-|---|---|
-| `smoke.mjs` | The main process, storage, or anything else about how the app starts |
-| `ui-check.mjs` | Any screen. It checks speed, spacing and focus, and saves a screenshot of each screen to look at |
-| `send-check.mjs` | The message list or message box. It checks what each painted frame shows |
-| `attack-check.mjs` | How messages are read or rendered, or the content security policy |
-| `voice-check.mjs` | Channels, or anything about voice: real apps against a real LiveKit, checking what audio and video really arrive |
-| `sound-check.mjs` | The computer's sound for a share on Linux, in the app or in the native program's `src/sound`: real apps, a real LiveKit and PipeWire, with players nobody hears, and what sound a window or a screen starts with. It runs the apps on X11 |
-| `mac-sound-check.mjs` | The computer's sound for a share on macOS, in the app or in `src/sound/macos.rs`: real apps and a real LiveKit, everything but Zuna and one app alone. The sharing app is started through `open`, so that macOS asks about Electron, and the tones play quietly out loud |
-| `win-sound-check.mjs` | The computer's sound for a share on Windows, in the app or in `src/sound/windows.rs`: real apps and a real LiveKit, beside a native share and one through the browser, everything but Zuna, one app alone, and what a window starts with. Its tones are at -60 dBFS, told apart by frequency, so nobody hears them |
-| `notification-check.mjs` | Windows's notifications or unread badge. `--real-input` moves the real mouse and types, which is the only way to see clicks go through the window and focus arrive |
+The Electron app's checks in `apps/desktop-electron-legacy/test` (`smoke.mjs`, `ui-check.mjs`, `send-check.mjs`, `attack-check.mjs`, `voice-check.mjs`, `notification-check.mjs`, and the share sound checks `sound-check.mjs`, `mac-sound-check.mjs` and `win-sound-check.mjs`) aren't run any more, and nothing is added to them, as the app is only a reference. The sound checks share from Electron, so they don't check the native app's shares. `linux-voice-check.mjs` below still uses Electron as the other side of a call.
 
 The native app on Linux has checks of its own in `apps/desktop/test`, each running it in a KWin of its own with its own session bus, keyring and PipeWire devices nobody hears, driven through KWin's fake input: `linux-check.mjs` for the window, tray, notifications, device key and a chat, `linux-voice-check.mjs` for voice, calls, cameras, push to talk, screen sharing and voice and video messages with the Electron app (after `npm run build -w @zuna/desktop-electron-legacy`, and with a `v4l2loopback` device loaded), and `linux-package-check.mjs` for the AppImage and the .tar.gz (after `npm run dist:linux`). Run the first two after changing anything under `platform/linux`, `media/ffmpeg` or `voice`.
 
-`packages/ui` is the desktop's interface and the web app's, so a change there needs both kinds of check. The web's runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`. Playwright's Firefox doesn't start on macOS 27, so there name `moz-firefox` instead, which runs the Firefox installed from Mozilla, as the site's check below also takes.
+`packages/ui` is the web app's interface, and Electron's, which is never the reason to change it. A change there needs the web's check, which runs the built app, served by a real `zuna-web`, in Chromium, Firefox and WebKit: `npm run build -w @zuna/web && node apps/web/test/web-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. Run it after changing the web app, `zuna-web`, or the `Platform`. It needs `npx playwright-core install chromium firefox webkit`. Playwright's Firefox doesn't start on macOS 27, so there name `moz-firefox` instead, which runs the Firefox installed from Mozilla, as the site's check below also takes.
 
 The landing page has a check of its own, in the same browsers: `npm run build -w @zuna/site && node apps/site/test/site-check.mjs [screenshot-dir] [chromium] [firefox] [webkit]`. It serves the build as a static host does, and fails on any request to another origin, a content security policy violation, sideways scrolling, or a section that stays hidden without script or with less motion. Run it after changing `apps/site`. The site is hosted on the maintainers' own server, not on GitHub, and "Hosting" in `docs/SITE_PLAN.md` says how it's published.
 
@@ -80,11 +68,13 @@ iOS only builds on macOS: `npm run build:ios`, then `npm run test:ios:check` for
 
 The diagrams, sync model and key hierarchy are in `docs/ARCHITECTURE.md`, the threat model and known limits in `SECURITY.md`, and how each protection works in `docs/SECURITY_DETAILS.md`. Read all three before changing cryptography, and add an end-to-end test in `packages/core/test` for the behavior.
 
-**One client core, five hosts.** `packages/core` holds all protocol logic and has no UI. It runs in a Worker on the desktop and the web (`packages/ui/src/core/serve.ts`, started by each app's `worker.ts`), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in QuickJS in the native Windows app (`apps/desktop/src/host`, with the iOS bundle's shims), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
+**One client core, five hosts.** `packages/core` holds all protocol logic and has no UI. It runs in QuickJS in the native desktop app (`apps/desktop/src/host`, with the iOS bundle's shims), in JavaScriptCore on iOS (`apps/ios/core-bundle`, `ZunaHost`), in a Worker in the web app and in Electron (`packages/ui/src/core/serve.ts`, started by each app's `worker.ts`), and in Node for tests (`packages/core/test/helpers.ts`: `TestServer`, `TestApp`). Hosts supply storage, network and crypto.
 
-**The desktop and the web app share one interface, `packages/ui`.** `@zuna/ui` holds the React screens and their state. It asks for anything outside the page, such as notifications or the device key, through the `Platform` its host passes to `startApp` (`packages/ui/src/platform.ts`). The desktop's is `apps/desktop-electron-legacy/src/renderer/src/platform.ts`, and the web's is `apps/web/src/platform.ts`.
+**The native desktop app draws its own interface.** `apps/desktop/src/ui` follows `packages/ui`'s styles in GPUI, with its state in `state.rs`, and asks the system for anything else in `apps/desktop/src/platform` (`docs/WINDOWS_APP.md`).
 
-**The web app is served by `zuna-web`** (`server/cmd/zuna-web`, `server/internal/webhost`), a program of its own on its own address. It serves the built app with the desktop's content security policy, and fetches pages for link previews. `docs/WEB_PLAN.md` has the design.
+**The web app and Electron share one interface, `packages/ui`.** `@zuna/ui` holds the React screens and their state. It asks for anything outside the page, such as notifications or the device key, through the `Platform` its host passes to `startApp` (`packages/ui/src/platform.ts`). The web's is `apps/web/src/platform.ts`, and Electron's is `apps/desktop-electron-legacy/src/renderer/src/platform.ts`.
+
+**The web app is served by `zuna-web`** (`server/cmd/zuna-web`, `server/internal/webhost`), a program of its own on its own address. It serves the built app with its content security policy (`contentSecurityPolicy` in `webhost.go`), and fetches pages for link previews. `docs/WEB_PLAN.md` has the design.
 
 **The UI talks to the core over RPC.** `rpc.ts` makes every public method of `ZunaClient` and `ServerSession` callable from the UI, and state comes back as `CoreEvent`s (`types.ts`). `ZunaClient` is one per device and holds one `ServerSession` per server joined.
 
@@ -103,9 +93,9 @@ Rules the core depends on:
 
 **The server (`server/`) is a delivery service and blob store.** It can't read content. `internal/api/server.go` lists every route in `Handler()`, and each route's wrapper is its access rule: `withDevice` is the default, `authed` allows a session with no device, then `member`, `admin`, `limited` and `publicLimited`. All SQL is in `internal/store`, which keeps everything in SQLite, or in PostgreSQL with `--database-url` (`postgres.go`). Each statement is written once for both, with SQLite's placeholders, which `handle` turns into PostgreSQL's. There, transactions run serializable, side by side, and one that collides with another starts again, so a function passed to `tx` must set everything it leaves behind, as it may run more than once. `cmd/zuna-push` is the separate push relay (`docs/PUSH_RELAY.md`).
 
-**Voice runs in the interface, not the core.** `packages/ui/src/voice` holds the LiveKit room, the microphone's audio worklet and the store, and `apps/ios/Zuna/Voice` the iPhone's, through LiveKit's Swift SDK. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
+**Voice runs in the interface, not the core.** `apps/desktop/src/voice` holds the native app's LiveKit room, through LiveKit's Rust SDK, with the microphone's processing and the sound devices, `packages/ui/src/voice` the web's, and `apps/ios/Zuna/Voice` the iPhone's, through LiveKit's Swift SDK. The core only gives it access tokens and keys, and tells everyone who's where. LiveKit is a separate server, which only sees encrypted media.
 
-**Crypto (`crypto/`).** The logic is in `mls.rs` and `primitives.rs`. `wasm.rs` binds it for the desktop and tests, and `native.rs` binds it through UniFFI for iOS.
+**Crypto (`crypto/`).** The logic is in `mls.rs` and `primitives.rs`. The native desktop app calls it directly (`apps/desktop/src/host/crypto.rs`), `wasm.rs` binds it for the web and tests, and `native.rs` binds it through UniFFI for iOS.
 
 ### What has to change together
 
@@ -116,11 +106,10 @@ Rules the core depends on:
 | What the iOS core bundle asks of its host (`apps/ios/core-bundle/src/natives.d.ts`) | `ZunaHost` and `apps/desktop/src/host`, which give the same functions |
 | A public `ServerSession` method the UI uses | `ZunaModels/CoreAPI.swift` |
 | Desktop markup (`lib/markup.tsx`) | `ZunaModels/Markup.swift`, and the golden file: `UPDATE_GOLDEN=1 npm run test -w @zuna/e2e -- test/golden.test.ts` |
-| A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
+| A feature people can see, or a fix outside `packages/core` | The other platforms, which aim to match it, apart from Electron, and `.agents/FEATURE_PARITY.md`, with a Known gap for each platform it isn't on yet |
 | A database schema | Add to the end of `migrations` in `server/internal/store/store.go` and of `postgresMigrations` in `postgres.go`, or of `MIGRATIONS` in `packages/core/src/db.ts`. They run by position, so never edit or reorder old ones |
-| The desktop's content security policy (`apps/desktop-electron-legacy/src/main/index.ts`) | `contentSecurityPolicy` in `server/internal/webhost/webhost.go` |
 | LiveKit's configuration (`LIVEKIT_CONFIG` in `scripts/lib.mjs`) | `LIVEKIT_CONFIG` in `deploy/docker-compose.yml` and `deploy/docker-compose.proxy.yml`, and `deploy/update.sh` |
-| Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` |
+| Which addresses link previews may reach (`packages/core/src/links.ts`) | `server/internal/webhost/address.go` and `apps/desktop/src/host/web.rs` |
 | The proxy sites `deploy/install.sh` writes, or what a proxy needs | The Caddy and nginx examples in `docs/SELF_HOSTING.md` and `docs/LINUX.md` |
 | What setting up the test server creates (`createWorld` in `packages/core/test/dev-bots.ts`) | `WORLD_VERSION` and `catchUp` there, or test servers set up earlier never get it |
 | Anything `SECURITY.md`, `docs/SECURITY_DETAILS.md` or the docs claim | Those docs. `SECURITY.md` says in plain words what the details say in full, so a change to one usually needs the other |
@@ -134,7 +123,8 @@ Rules the core depends on:
 
 - **Read it before working on a feature people can see,** to learn what the other platforms do and where.
 - **Update it in the same commit** as any change that adds, changes or removes such a feature, on any platform.
-- **Always add to Known gaps whatever you build that isn't on every platform,** in the same commit, every time: a feature, a change to one, or a fix, including ones nobody sees, such as privacy and security fixes. Mark the others `no` or `partial`, and say what's missing and which file it would go in. Changes in `packages/core` reach every platform, but `packages/ui` is only the desktop and the web, and `apps/*` only its own. Never leave a gap for a later commit. Remove one in the commit that closes it.
+- **Always add to Known gaps whatever you build that isn't on every platform,** in the same commit, every time: a feature, a change to one, or a fix, including ones nobody sees, such as privacy and security fixes. Mark the others `no` or `partial`, and say what's missing and which file it would go in. Changes in `packages/core` reach every platform, but `packages/ui` is only the web and Electron, and `apps/*` only its own. Never leave a gap for a later commit. Remove one in the commit that closes it.
+- **Electron is only a reference.** Its Desktop column says what it does, and it gets no Known gaps, as nothing is added to it. What the desktop should have, the native app should, in "The native desktop app" and its Known gaps.
 - **What a platform can't have, or what would make no sense on it, isn't a gap.** Mark it `n/a` in its row and list it under "Not possible or pointless there", never in Known gaps.
 - **Only write what you've checked.** If you couldn't build or run a platform, as with Swift without a Mac, say so in that row's notes.
 - **When it disagrees with the code, the code is right.** Correct the file. `docs/IOS_PLAN.md` records iOS's design and test reports, but its parity tables aren't kept current.
@@ -147,15 +137,16 @@ Rules the core depends on:
 | Key derivation, envelopes, grants, certificates | `packages/core/src/crypto.ts` |
 | Replacing an account's keys: links, slots, seal keys | `docs/ACCOUNT_KEY_ROTATION.md`, `packages/core/src/generations.ts`, `server/internal/api/generations.go` |
 | Every HTTP call the client makes | `packages/core/src/api.ts` |
-| Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop-electron-legacy/src/main/index.ts` (through `preview-proxy.ts`), `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
-| Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session.ts`, `server/internal/api/channels.go`, `packages/ui/src/features/voice` |
-| Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `packages/ui/src/voice`, `apps/ios/Zuna/Voice`, `server/internal/api/voice.go` |
-| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, `apps/desktop-electron-legacy/src/main/native-screen.ts` |
-| Electron: content security policy, IPC, device key | `apps/desktop-electron-legacy/src/main/index.ts` |
-| Notifications and the unread badge on Windows, drawn as Telegram's | `apps/desktop-electron-legacy/src/main/notifications.ts`, `apps/desktop-electron-legacy/src/renderer/src/notifications`, `apps/desktop-electron-legacy/src/renderer/src/counter.ts` |
+| Link previews | `packages/core/src/links.ts`, and the fetch itself in `apps/desktop/src/host/web.rs`, `server/internal/webhost/preview.go` and `ZunaHost/WebBridge.swift` |
+| Channels | `packages/core/src/channels.ts`, `// --- Channels ---` in `session.ts`, `server/internal/api/channels.go`, `channel_message.rs`, `voice_stage.rs` and `voice.rs` in `apps/desktop/src/ui`, `packages/ui/src/features/voice` |
+| Voice: keys, the room, noise cancelling, tokens | `packages/core/src/voice.ts`, `apps/desktop/src/voice`, `packages/ui/src/voice`, `apps/ios/Zuna/Voice`, `server/internal/api/voice.go` |
+| Native screen sharing | `docs/SCREEN_SHARE.md`, `apps/screenshare`, and `apps/desktop/src/voice/screen.rs`, which starts it |
+| The native app's host: the core in QuickJS, storage, network, device key | `apps/desktop/src/host` |
+| The native app's state and screens | `apps/desktop/src/state.rs`, `apps/desktop/src/ui` |
+| Notifications and the unread badge in the native app, drawn as Telegram's on Windows | `apps/desktop/src/ui/notifications.rs`, `apps/desktop/src/platform/notification.rs`, `apps/desktop/src/platform/windows/icons.rs`, `apps/desktop/src/platform/linux/notifications.rs` |
 | Web app: device key, one tab at a time, the tab's title | `apps/web/src/` |
 | Web host: headers, content security policy, previews | `server/internal/webhost` |
-| Desktop UI state and screens | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
+| Web UI state and screens, which Electron's are too | `packages/ui/src/state/store.ts` (zustand), `packages/ui/src/features/{chat,shell,overlays,onboarding}` |
 | iOS state and screens | `apps/ios/Zuna/State/AppModel.swift`, which mirrors `store.ts`, and `apps/ios/Zuna/{Chat,Shell,Details,Settings}` |
 | Adding bots or data to a server | `packages/core/test/dev-bots.ts` |
 | Install and deploy | `deploy/`, `docs/LINUX.md`, `docs/SELF_HOSTING.md`, and `docs/WEB.md` for the web app |
@@ -164,6 +155,7 @@ Rules the core depends on:
 
 ## Decisions to keep
 
+- The native app (`apps/desktop`) is the only desktop app. The Electron app is kept only as a reference for how something was done: it isn't tested, nothing is added to it, and `packages/ui` isn't changed just to bring it along.
 - One sidebar icon is one self-hosted install, with one account on it. No central service and no federation.
 - The conversation list is flat: everyone on a server can be messaged from the start. Groups are invite-only.
 - Channels are the open places: everyone on a server can see and join all of them, and only server admins make them. There are no private channels, since a group is that.
@@ -185,7 +177,7 @@ Rules the core depends on:
 - **`@zuna/e2e` needs Swift,** because its global setup builds the iOS host. To regenerate the golden files on Windows, run `UPDATE_GOLDEN=1 npx vitest run test/golden.test.ts --config <file>` in `tests/e2e`, with a throwaway config that spreads `vitest.config` and sets `globalSetup: []`. Without `UPDATE_GOLDEN` the test fails there on line endings alone. Afterwards `git status` lists the fixtures and `emoji.json` as changed with an empty diff, which `git checkout --` clears.
 - **When `crypto/Cargo.lock` moves to a new wasm-bindgen,** update the hashes pinned in `.github/workflows/ci.yml`.
 - **Build test servers with `-trimpath -ldflags "-s -w"`.** Windows Defender quarantines Go binaries with debug symbols as a trojan, which is a false positive. Don't change Defender's settings.
-- **Playwright can't drive a packaged build,** because its Electron fuses refuse the inspector flag. The checks above run the unpackaged `out/` build.
+- **Playwright can't drive a packaged build,** because its Electron fuses refuse the inspector flag. `linux-voice-check.mjs` runs Electron's unpackaged `out/` build.
 - **SQL in `server/internal/store` has to work in SQLite and PostgreSQL.** SQLite's `INSERT OR IGNORE`, two-argument `MAX` and `MIN`, sums of comparisons, `COLLATE NOCASE` and `PRAGMA` don't, and a comparison scans as a boolean in PostgreSQL. Text columns there are `COLLATE "C"`, so that they sort as SQLite's do, and flags stay numbers: `handle` passes Go's booleans as 1 and 0.
 - **Link previews refuse this machine and private networks** unless `allowLocalLinks` is on, which only tests and development builds do.
 - **`dist/` is gitignored and holds a private security report.** Never force-add it.
