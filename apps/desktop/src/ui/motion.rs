@@ -149,6 +149,19 @@ pub trait Motion: IntoElement + Styled + Sized + 'static {
         }
     }
 
+    /// Comes in as `enter` does, timed from `since`, without an id. An id is one more step in
+    /// the path of everything inside, so taking it away once the entrance is over loses what
+    /// they keep: a message's ticks popped in again, and a click on it pressed before it was
+    /// drawn again didn't count.
+    fn enter_since(self, since: Instant, kind: Enter, ms: u64, window: &mut Window) -> Moving<Self> {
+        let progress = if reduced() || ms == 0 { 1. } else { (since.elapsed().as_secs_f32() * 1000. / ms as f32).min(1.) };
+        if progress < 1. {
+            window.request_animation_frame();
+        }
+        let eased = if kind == Enter::Fade { ease()(progress) } else { ease_out()(progress) };
+        Moving::new(self).at(kind, eased)
+    }
+
     /// The same, after waiting, as `animation: <kind> <ms> <delay> both`.
     fn enter_after(self, id: impl Into<ElementId>, kind: Enter, delay_ms: u64, ms: u64) -> AnimationElement<Moving<Self>> {
         let easing: Box<dyn Fn(f32) -> f32> = if kind == Enter::Fade { Box::new(ease()) } else { Box::new(ease_out()) };

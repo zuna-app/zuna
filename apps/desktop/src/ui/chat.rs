@@ -2748,11 +2748,10 @@ impl ChatView {
                         .relative()
                         .child(render_row(&near, at, &context, window, cx))
                         .child(gpui::canvas(move |bounds, _, _| { recorded.borrow_mut().insert(index, bounds); }, |_, _, _, _| {}).absolute().inset_0());
-                    let id = &near[at].id;
-                    if fresh.borrow().get(id).is_some_and(|at| at.elapsed() < std::time::Duration::from_millis(400)) {
-                        row.enter(SharedString::from(format!("fresh-{id}")), Enter::Fade, 120).into_any_element()
-                    } else {
-                        row.into_any_element()
+                    let since = fresh.borrow().get(&near[at].id).copied();
+                    match since {
+                        Some(since) => row.enter_since(since, Enter::Fade, 120, window).into_any_element(),
+                        None => row.into_any_element(),
                     }
                 })
                 .size_full();
