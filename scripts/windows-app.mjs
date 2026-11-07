@@ -125,30 +125,39 @@ if (packaging) {
 function install(installer) {
   const exe = join(process.env.LOCALAPPDATA, "Programs", "Zuna Native", "Zuna.exe");
   const first = !existsSync(exe);
-  const running = !first && runningCopy(exe);
+  const running = !first && runningCopy();
   // With none of this script's ZUNA_ settings, which would point the app at other data.
   const clean = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("ZUNA_") && name !== "RUST_LOG"));
   if (running) {
     // As Quit in the tray does: the installer's own Stop-Process could cut off a write.
     spawnSync(exe, ["--quit"], { stdio: "ignore", env: clean });
     const until = Date.now() + 15_000;
-    while (runningCopy(exe) && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
-    if (runningCopy(exe)) console.warn("> the installed app didn't quit, so the installer closes it");
+    while (runningCopy() && Date.now() < until) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+    if (runningCopy()) console.warn("> the installed app didn't quit, so the installer closes it");
   }
   const result = spawnSync(installer, first ? [] : ["/S"], { stdio: "ignore", env: clean });
   if (result.status !== 0) {
     console.error(`The installer failed (${result.status}).`);
     process.exit(result.status ?? 1);
   }
+  // It ends well even when a running copy kept it from replacing the program.
+  if (!readFileSync(exe).equals(readFileSync(join(dirname(installer), "Zuna.exe")))) {
+    console.error(`The installer left the old ${exe} in place. Quit the app and run this again.`);
+    process.exit(1);
+  }
   // Started as its shortcut starts it, in its own folder.
   if (running) spawn(exe, [], { cwd: dirname(exe), env: clean, detached: true, stdio: "ignore" }).unref();
   console.log(`> ${first ? "installed" : "updated"} ${exe}, version ${version}${running ? ", and started it again" : ""}`);
 }
 
-/** Whether the copy at this path is running. Others named Zuna.exe, such as the Electron app's, don't count. */
-function runningCopy(exe) {
-  const path = exe.replaceAll("'", "''");
-  const found = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `@(Get-Process Zuna -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '${path}' }).Count`], { encoding: "utf8" });
+/**
+ * Whether the installed copy is running. Others named Zuna.exe, such as the Electron app's, don't
+ * count. Its path is matched by its end, as one installed from inside a packaged app, as Claude's
+ * desktop app is, runs from that package's own folder for app data.
+ */
+function runningCopy() {
+  const end = join("Programs", "Zuna Native", "Zuna.exe").replaceAll("'", "''");
+  const found = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `@(Get-Process Zuna -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*\\${end}' }).Count`], { encoding: "utf8" });
   return Number(found.stdout?.trim()) > 0;
 }
 
