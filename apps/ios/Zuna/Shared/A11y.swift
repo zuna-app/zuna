@@ -141,6 +141,7 @@ enum A11y {
         static let pins = "chat.pins"
         static let pinsScreen = "chat.pinsScreen"
         static let photoViewer = "chat.photoViewer"
+        static let photoViewerTitle = "chat.photoViewer.title"
         static let forwarded = "chat.forwarded"
         static let selectionBar = "chat.selectionBar"
         static let selectionCount = "chat.selectionCount"

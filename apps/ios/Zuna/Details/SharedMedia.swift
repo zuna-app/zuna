@@ -352,7 +352,7 @@ private struct MediaTile: View {
         Task {
             do {
                 let file = try await images.openable(attachment, serverId: serverId)
-                PhotoViewer.show(file)
+                PhotoViewer.show(file, caption: .init(message, server: model.servers[serverId]))
             } catch {
                 model.toast("Couldn't open \(attachment.name): \(OnboardingText.describe(error))", .error)
             }

@@ -1,10 +1,11 @@
 import ImageIO
 import UIKit
+import ZunaModels
 
 /// A picture on the whole screen, as in Telegram: pinch or double tap to zoom,
 /// drag it around once it's bigger than the screen, and drag it up or down to
-/// close, the chat showing through as it goes. A tap hides or shows the buttons,
-/// the status bar and the shade behind them.
+/// close, the chat showing through as it goes. Above it, Close, who sent it and
+/// when, and Share. A tap hides or shows them, the status bar and the shade behind them.
 @MainActor
 final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     /// The decrypted file under its own name, for Share. Removed when the viewer closes.
@@ -16,25 +17,37 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
     private let shade = TopShade()
     private let closeButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
+    private let caption: Caption
+    private let titleView = PhotoViewer.glass()
     private var chromeHidden = false
 
+    /// Who sent the picture and when, between the buttons.
+    struct Caption {
+        var name: String
+        var verified: Bool
+        var date: String
+    }
+
     /// Shows a decrypted picture over whatever is on screen.
-    static func show(_ file: URL) {
+    static func show(_ file: URL, caption: Caption) {
         // Big photos are drawn at most this size, which is sharp on any screen and keeps memory in check.
         guard let image = downsampled(file, maxPixels: 4096), let top = topViewController() else {
             FilePreview.show(file)
             return
         }
-        let viewer = PhotoViewer(file: file, image: image)
+        let viewer = PhotoViewer(file: file, image: image, caption: caption)
         viewer.modalPresentationStyle = .overFullScreen
         viewer.modalTransitionStyle = .crossDissolve
         top.present(viewer, animated: true)
     }
 
-    private init(file: URL, image: UIImage) {
+    private init(file: URL, image: UIImage, caption: Caption) {
         self.file = file
         self.image = image
+        self.caption = caption
         super.init(nibName: nil, bundle: nil)
+        // The glass is the dark kind over the black, whatever the system's appearance.
+        overrideUserInterfaceStyle = .dark
         // Over the whole screen the status bar stays the chat's unless the viewer takes it, so a tap couldn't hide it.
         modalPresentationCapturesStatusBarAppearance = true
     }
@@ -86,6 +99,9 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
 
         configure(closeButton, symbol: "xmark", label: "Close", action: #selector(close))
         configure(shareButton, symbol: "square.and.arrow.up", label: "Share", action: #selector(share))
+        configureTitle()
+        let centered = titleView.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+        centered.priority = .defaultHigh
         NSLayoutConstraint.activate([
             shade.topAnchor.constraint(equalTo: view.topAnchor),
             shade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -95,6 +111,10 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
             closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             shareButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             shareButton.topAnchor.constraint(equalTo: closeButton.topAnchor),
+            centered,
+            titleView.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            titleView.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 10),
+            titleView.trailingAnchor.constraint(lessThanOrEqualTo: shareButton.leadingAnchor, constant: -10),
         ])
 
         let doubleTap = UITapGestureRecognizer(target: self, action: #selector(doubleTapped(_:)))
@@ -204,19 +224,67 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
 
     // MARK: Buttons
 
+    /// The height of the buttons and the title between them.
+    private static let barHeight: CGFloat = 44
+
+    /// A round button of glass, as Telegram's, or of a dark tint before iOS 26.
     private func configure(_ button: UIButton, symbol: String, label: String, action: Selector) {
-        var configuration = UIButton.Configuration.plain()
+        var configuration: UIButton.Configuration
+        if #available(iOS 26.0, *) {
+            configuration = .glass()
+        } else {
+            configuration = .plain()
+            configuration.background.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        }
+        configuration.cornerStyle = .capsule
         configuration.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold))
         configuration.baseForegroundColor = .white
-        configuration.background.backgroundColor = UIColor.black.withAlphaComponent(0.45)
-        configuration.background.cornerRadius = 20
         button.configuration = configuration
         button.accessibilityLabel = label
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 40).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        button.widthAnchor.constraint(equalToConstant: Self.barHeight).isActive = true
+        button.heightAnchor.constraint(equalToConstant: Self.barHeight).isActive = true
         button.addTarget(self, action: action, for: .primaryActionTriggered)
         view.addSubview(button)
+    }
+
+    /// The sender's name, with the badge when they're verified, over the date, in a capsule of glass.
+    private func configureTitle() {
+        let name = UILabel()
+        name.text = caption.name
+        name.font = .systemFont(ofSize: 15, weight: .semibold)
+        name.textColor = .white
+        name.lineBreakMode = .byTruncatingTail
+        name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let badge = UIImageView(image: UIImage(systemName: "checkmark.seal.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
+        badge.tintColor = UIColor.white.withAlphaComponent(0.7)
+        badge.isHidden = !caption.verified
+        badge.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let nameRow = UIStackView(arrangedSubviews: [name, badge])
+        nameRow.spacing = 4
+        nameRow.alignment = .center
+        let date = UILabel()
+        date.text = caption.date
+        date.font = .systemFont(ofSize: 12)
+        date.textColor = UIColor.white.withAlphaComponent(0.7)
+        date.lineBreakMode = .byTruncatingTail
+        let stack = UIStackView(arrangedSubviews: [nameRow, date])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        titleView.contentView.addSubview(stack)
+
+        titleView.isAccessibilityElement = true
+        titleView.accessibilityLabel = [caption.name, caption.verified ? "Verified" : nil, caption.date].compactMap { $0 }.joined(separator: ", ")
+        titleView.accessibilityIdentifier = A11y.Chat.photoViewerTitle
+        titleView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(titleView)
+        NSLayoutConstraint.activate([
+            titleView.heightAnchor.constraint(equalToConstant: Self.barHeight),
+            stack.leadingAnchor.constraint(equalTo: titleView.contentView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(equalTo: titleView.contentView.trailingAnchor, constant: -16),
+            stack.centerYAnchor.constraint(equalTo: titleView.contentView.centerYAnchor),
+        ])
     }
 
     @objc private func toggleChrome() {
@@ -230,6 +298,7 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
             self.setNeedsStatusBarAppearanceUpdate()
             self.shade.alpha = hidden ? 0 : 1
             self.closeButton.alpha = hidden ? 0 : 1
+            self.titleView.alpha = hidden ? 0 : 1
             self.shareButton.alpha = hidden ? 0 : 1
         }
     }
@@ -251,6 +320,20 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
 
     // MARK: Helpers
 
+    /// A capsule of Liquid Glass, as Telegram's title is, or of a dark blur before iOS 26.
+    private static func glass() -> UIVisualEffectView {
+        if #available(iOS 26.0, *) {
+            let view = UIVisualEffectView(effect: UIGlassEffect())
+            view.cornerConfiguration = .capsule()
+            return view
+        }
+        let view = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
+        view.layer.cornerRadius = barHeight / 2
+        view.layer.cornerCurve = .continuous
+        view.clipsToBounds = true
+        return view
+    }
+
     private static func downsampled(_ url: URL, maxPixels: Int) -> UIImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
@@ -267,6 +350,17 @@ final class PhotoViewer: UIViewController, UIScrollViewDelegate, UIGestureRecogn
         var top = scene?.windows.first(where: \.isKeyWindow)?.rootViewController
         while let presented = top?.presentedViewController { top = presented }
         return top
+    }
+}
+
+extension PhotoViewer.Caption {
+    /// As the chat names the sender, with the badge the chat's title has for someone verified.
+    init(_ message: MessageView, server: AppModel.ServerState?) {
+        let own = message.senderId == server?.me?.userId
+        let sender = server?.users[message.senderId]
+        name = own ? "You" : sender?.displayName ?? "Unknown"
+        verified = !own && sender?.trust == .verified
+        date = Format.stamp(message.createdAt)
     }
 }
 

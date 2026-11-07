@@ -169,6 +169,14 @@ final class ChatReadingTests: XCTestCase {
         try zuna.launch()
         try zuna.signIn(as: "bob")
         try zuna.waitForChats()
+        // Bob has verified alice, so the viewer gives her name the badge the chat's title has.
+        let control = zuna.control!, serverId = zuna.serverId, aliceId = World.current["alice"].userId
+        try blocking {
+            let check = try await control.call("safetyCheck", server: serverId, [aliceId]) as? [String: Any]
+            _ = try await control.call("markVerified", server: serverId, [aliceId, check?["covers"] as? String ?? ""])
+        }
+        // It reaches bob's other devices, so the tests after this one would find her verified.
+        addTeardownBlock { _ = try await control.call("clearVerification", server: serverId, [aliceId]) }
         openChat(aliceKey)
         let tile = zuna.element(A11y.Chat.attachment(name))
         XCTAssertTrue(tile.waitForExistence(timeout: 30))
@@ -182,6 +190,10 @@ final class ChatReadingTests: XCTestCase {
         let viewer = zuna.element(A11y.Chat.photoViewer)
         XCTAssertTrue(viewer.waitForExistence(timeout: 10))
         XCTAssertTrue(zuna.app.buttons["Share"].exists)
+        // Between Close and Share, as in Telegram: who sent it, and when.
+        let title = zuna.element(A11y.Chat.photoViewerTitle)
+        XCTAssertTrue(title.exists)
+        XCTAssertTrue(title.label.hasPrefix("alice, Verified, Today at "), title.label)
         zuna.screenshot("63-picture-preview")
         let start = viewer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
         start.press(forDuration: 0.05, thenDragTo: viewer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))

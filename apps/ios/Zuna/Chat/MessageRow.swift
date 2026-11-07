@@ -32,7 +32,8 @@ struct MessageRowContext {
 @MainActor
 struct ChatActions {
     var jump: (_ messageId: String) -> Void = { _ in }
-    var open: (_ attachment: Attachment) -> Void = { _ in }
+    /// A file from a message, the picture viewer naming who sent it and when.
+    var open: (_ attachment: Attachment, _ message: MessageView) -> Void = { _, _ in }
     var react: (_ messageId: String, _ key: String, _ emote: EmoteRef?) -> Void = { _, _, _ in }
     var retry: (_ messageId: String) -> Void = { _ in }
     var mention: (_ userId: String) -> Void = { _ in }
@@ -422,12 +423,12 @@ private struct MessageItem: View {
             if onlyRound {
                 // A video message has the time below it, at its right edge, as large emoji do.
                 VStack(alignment: .trailing, spacing: 2) {
-                    AttachmentsView(message: message, serverId: server.entry.id, flush: false, own: own, open: actions.open)
+                    AttachmentsView(message: message, serverId: server.entry.id, flush: false, own: own, open: { actions.open($0, message) })
                     if message.reactions.isEmpty { meta }
                 }
                 .fixedSize(horizontal: true, vertical: false)
             } else if !message.attachments.isEmpty {
-                AttachmentsView(message: message, serverId: server.entry.id, flush: onlyMedia, own: own, open: actions.open)
+                AttachmentsView(message: message, serverId: server.entry.id, flush: onlyMedia, own: own, open: { actions.open($0, message) })
                     .overlay(alignment: .bottomTrailing) {
                         if onlyMedia { meta.padding(.horizontal, 6).padding(.vertical, 1).background(.black.opacity(0.55), in: .capsule).padding(7) }
                     }

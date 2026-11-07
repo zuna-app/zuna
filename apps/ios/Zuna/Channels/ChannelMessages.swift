@@ -253,7 +253,7 @@ struct ChannelMessageRow: View {
                 .fixedSize(horizontal: jumbo > 0, vertical: false)
             }
             if !message.attachments.isEmpty {
-                AttachmentsView(message: message, serverId: server.entry.id, flush: false, open: actions.open)
+                AttachmentsView(message: message, serverId: server.entry.id, flush: false, open: { actions.open($0, message) })
                     .frame(maxWidth: 420, alignment: .leading)
             }
             if let preview = message.preview {
