@@ -520,16 +520,6 @@ impl Render for ScreenSettingsPage {
         parts.push(field(plain_label("Encoder", cx), select_box("screen-encoder", current, choices, cx), Some("If this one can't be used, your share doesn't start, and says why."), cx));
         let effort_voice = self.voice.clone();
         parts.push(SettingsView::row("Effort per frame", Some("More effort looks better at the same bitrate, and can drop frames at large sizes."), segmented("screen-effort", &settings.screen_effort, &[("speed", "Fastest"), ("balanced", "Balanced"), ("best", "Best picture")], &[], Rc::new(move |effort, cx| effort_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_effort = effort.into(), cx))), cx), &theme));
-        let key_voice = self.voice.clone();
-        parts.push(field(
-            label_with("A full picture every", format!("{} s", settings.screen_keyframes), cx),
-            slider("screen-keyframes", (settings.screen_keyframes.saturating_sub(1)) as f32 / 29., move |fraction, _, cx| {
-                let seconds = 1 + (fraction * 29.).round() as u32;
-                key_voice.update(cx, |voice, cx| voice.update_settings(move |settings| settings.screen_keyframes = seconds, cx));
-            }, cx),
-            Some("Sooner helps anyone who joins or loses packets, and costs some sharpness."),
-            cx,
-        ));
         parts.push(subhead("Watching"));
         let focus = settings.screen_focus;
         let focus_voice = self.voice.clone();

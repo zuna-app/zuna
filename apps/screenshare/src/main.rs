@@ -46,7 +46,7 @@ struct Args {
     e2ee_key: Option<String>,
     bitrate_kbps: u64,
     quality: Quality,
-    keyframe_seconds: u32,
+    keyframe_seconds: Option<u32>,
     seconds: Option<u64>,
     fix_idr: bool,
     output: Option<String>,
@@ -119,7 +119,7 @@ const USAGE: &str = "zuna-screenshare [options]
   --crop WxH             Encode this much from the top left of the monitor
   --cpu-input            Give the encoder frames from CPU memory
   --render-node PATH     VA-API's device (/dev/dri/renderD128)
-  --keyframe-seconds N   Seconds between regular keyframes (10)
+  --keyframe-seconds N   Also send a keyframe this long after the last, which nothing needs (none)
   --seconds N            Stop after this long
   --no-idr-fix           Leave out the fix for keyframes under encryption
   --output FILE          Write H.264 to a file instead of publishing
@@ -149,7 +149,7 @@ fn parse_args() -> std::result::Result<Args, String> {
         e2ee_key: None,
         bitrate_kbps: 20_000,
         quality: Quality::default(),
-        keyframe_seconds: 10,
+        keyframe_seconds: None,
         seconds: None,
         fix_idr: true,
         output: None,
@@ -215,7 +215,7 @@ fn parse_args() -> std::result::Result<Args, String> {
             }
             "--cpu-input" => args.capture.cpu_input = true,
             "--render-node" => args.capture.render_node = value()?,
-            "--keyframe-seconds" => args.keyframe_seconds = value()?.parse().map_err(number_error)?,
+            "--keyframe-seconds" => args.keyframe_seconds = Some(value()?.parse::<u32>().map_err(number_error)?.max(1)),
             "--seconds" => args.seconds = Some(value()?.parse().map_err(number_error)?),
             "--no-idr-fix" => args.fix_idr = false,
             "--output" => args.output = Some(value()?),
@@ -454,10 +454,10 @@ fn share(args: Args) -> Result<()> {
     let bitrate_cap = args.bitrate_kbps * 1000;
     let publishing = args.output.is_none();
     let bitrate = pipeline::starting_bitrate(bitrate_cap, publishing);
-    // The pipeline asks for regular keyframes itself, counted from the last of any kind, so
-    // the encoder's own only need to come less often. Not never, as what AMF and the others
-    // take for that is unknown.
-    let gop = args.capture.fps * (args.keyframe_seconds * 2).max(60);
+    // The pipeline asks for any regular keyframes itself, counted from the last of any kind,
+    // so the encoder's own only need to come less often. Not never, as what AMF and the
+    // others take for that is unknown.
+    let gop = args.capture.fps * args.keyframe_seconds.map_or(60, |seconds| (seconds * 2).max(60));
     let encoder = capture.open_encoder(Stream { width, height, fps: args.capture.fps, gop, bitrate, quality: args.quality })?;
 
     #[cfg(feature = "livekit")]
@@ -498,7 +498,7 @@ fn share(args: Args) -> Result<()> {
         })
     );
 
-    let keyframe_every = Duration::from_secs(args.keyframe_seconds.max(1) as u64);
+    let keyframe_every = args.keyframe_seconds.map(|seconds| Duration::from_secs(seconds as u64));
     let mut pipeline = Pipeline::new(encoder, sink, width, height, args.capture.fps, bitrate, bitrate_cap, keyframe_every, args.fix_idr);
     log::info!("encoding with {}", pipeline.encoder_name());
     let result = capture.run(&mut pipeline, &stop);

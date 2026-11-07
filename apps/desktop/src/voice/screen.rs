@@ -130,7 +130,6 @@ struct StartOptions {
     cursor: bool,
     encoder: String,
     effort: String,
-    keyframe_seconds: u32,
     monitor_at: Option<(i32, i32)>,
     window: Option<String>,
     /// A screen, or where the system's own dialog picks, a window.
@@ -141,7 +140,7 @@ fn start_native(options: StartOptions) -> Result<(NativeShare, UnboundedReceiver
     let path = program_path().ok_or_else(|| "This build has no native screen capture.".to_string())?;
     let encoder = if ["auto", "h264_nvenc", "h264_amf", "h264_mf", "h264_vaapi"].contains(&options.encoder.as_str()) { options.encoder.clone() } else { "auto".into() };
     let effort = if ["speed", "balanced", "best"].contains(&options.effort.as_str()) { options.effort.clone() } else { "balanced".into() };
-    let mut args: Vec<String> = vec!["--control".into(), "--encoder".into(), encoder, "--quality".into(), effort, "--fps".into(), options.fps.max(1).to_string(), "--bitrate-kbps".into(), options.kbps.max(1).to_string(), "--keyframe-seconds".into(), options.keyframe_seconds.max(1).to_string()];
+    let mut args: Vec<String> = vec!["--control".into(), "--encoder".into(), encoder, "--quality".into(), effort, "--fps".into(), options.fps.max(1).to_string(), "--bitrate-kbps".into(), options.kbps.max(1).to_string()];
     if options.height > 0 {
         args.extend(["--max-height".into(), options.height.to_string()]);
     }
@@ -462,7 +461,6 @@ impl Voice {
                 cursor: settings.screen_cursor,
                 encoder: settings.screen_encoder.clone(),
                 effort: settings.screen_effort.clone(),
-                keyframe_seconds: settings.screen_keyframes,
                 monitor_at: choice.source.monitor_at(),
                 window: choice.source.window(),
                 screen: choice.source.screen,

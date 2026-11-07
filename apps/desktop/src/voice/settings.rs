@@ -45,7 +45,6 @@ pub struct VoiceSettings {
     pub screen_native: bool,
     pub screen_encoder: String,
     pub screen_effort: String,
-    pub screen_keyframes: u32,
     pub screen_codec: String,
     pub screen_layers: bool,
     /// How loud others' shares are, from 0 to 2.
@@ -85,7 +84,6 @@ impl Default for VoiceSettings {
             screen_native: true,
             screen_encoder: "auto".into(),
             screen_effort: "balanced".into(),
-            screen_keyframes: 10,
             screen_codec: "auto".into(),
             screen_layers: false,
             screen_volume: 1.,

@@ -37,12 +37,19 @@ const PACKET_WAIT: Duration = Duration::from_millis(40);
 /// so small changes are ignored. A fall goes after a pause, or at once if it's a long
 /// way, since then the network is already overloaded. A rise goes after the pause while
 /// the bitrate is first climbing, since libwebrtc only raises its estimate a little past
-/// what's sent. Once it has had to fall, a rise waits for a keyframe that goes out anyway,
-/// regular or asked for: following each rise after the pause, a share from Windows at
-/// its cap changed 24 times in about two minutes.
+/// what's sent.
 const BITRATE_MIN_GAP: Duration = Duration::from_secs(2);
 const BITRATE_MIN_CHANGE: f64 = 1.25;
 const BITRATE_URGENT_DROP: f64 = 0.6;
+
+/// Once the bitrate has had to fall, a rise is a guess. libwebrtc lets its estimate run
+/// to half as much again as what's sent, so it goes on wanting more than the link took
+/// just before: a share from Windows that had fallen to 32 Mbit/s was told 47 were there.
+/// So a rise waits this long after the last change, and twice as long again after each
+/// that had to fall back soon after, up to the most. While a rise went with each regular
+/// keyframe, every 10 s, someone watching that share saw it stop for half a second, often.
+const BITRATE_RISE_GAP: Duration = Duration::from_secs(30);
+const BITRATE_RISE_GAP_MOST: Duration = Duration::from_secs(240);
 #[cfg_attr(not(feature = "livekit"), allow(dead_code))]
 const BITRATE_FLOOR: u64 = 500_000;
 
@@ -58,27 +65,62 @@ pub fn starting_bitrate(cap: u64, publishing: bool) -> u64 {
 }
 
 /// Whether a frame should be a keyframe: one someone asked for, though not straight after
-/// another, or the regular one, counted from the last of any kind.
-fn keyframe_due(since_last: Option<Duration>, asked: bool, every: Duration) -> bool {
+/// another, or a regular one, where those were asked for, counted from the last of any kind.
+/// Nothing needs a regular one, as one is asked for whenever someone joins or can't
+/// decode, and each is a burst that someone watching waits for.
+fn keyframe_due(since_last: Option<Duration>, asked: bool, every: Option<Duration>) -> bool {
     match since_last {
         None => asked,
-        Some(since) => (asked && since >= KEYFRAME_MIN_GAP) || since >= every,
+        Some(since) => (asked && since >= KEYFRAME_MIN_GAP) || every.is_some_and(|every| since >= every),
     }
 }
 
-/// Whether going from one bitrate to another is worth its keyframe. `waited` says the last
-/// change was at least BITRATE_MIN_GAP ago, `key` that a keyframe goes out anyway, and
-/// `climbing` that the bitrate hasn't had to fall yet.
-fn worth_changing(now: u64, wanted: u64, cap: u64, waited: bool, key: bool, climbing: bool) -> bool {
-    let ratio = wanted as f64 / now as f64;
-    if wanted < now {
-        ratio <= BITRATE_URGENT_DROP || (ratio <= 1.0 / BITRATE_MIN_CHANGE && waited)
-    } else if wanted > now {
-        // Only a little short of the cap is still worth reaching it.
-        let far_enough = ratio >= BITRATE_MIN_CHANGE || wanted == cap;
-        far_enough && (key || (climbing && waited))
-    } else {
-        false
+/// The bitrate the encoder is set to, and when it follows libwebrtc's estimate.
+struct Bitrate {
+    now: u64,
+    cap: u64,
+    /// It hasn't had to fall since the start.
+    climbing: bool,
+    /// The last change was a rise.
+    rose: bool,
+    /// How long a rise waits after the last change, once it's had to fall.
+    rise_gap: Duration,
+}
+
+impl Bitrate {
+    fn new(now: u64, cap: u64) -> Self {
+        Self { now, cap, climbing: true, rose: false, rise_gap: BITRATE_RISE_GAP }
+    }
+
+    /// Goes to `wanted`, `since` the last change, if that's worth its keyframe, and says
+    /// whether it did.
+    fn follow(&mut self, wanted: u64, since: Duration) -> bool {
+        // A rise that's held this long was what the link takes.
+        if self.rose && since >= BITRATE_RISE_GAP {
+            self.rise_gap = BITRATE_RISE_GAP;
+        }
+        let ratio = wanted as f64 / self.now as f64;
+        let go = if wanted < self.now {
+            ratio <= BITRATE_URGENT_DROP || (ratio <= 1.0 / BITRATE_MIN_CHANGE && since >= BITRATE_MIN_GAP)
+        } else if wanted > self.now {
+            // Only a little short of the cap is still worth reaching it.
+            let far_enough = ratio >= BITRATE_MIN_CHANGE || wanted == self.cap;
+            far_enough && since >= if self.climbing { BITRATE_MIN_GAP } else { self.rise_gap }
+        } else {
+            false
+        };
+        if !go {
+            return false;
+        }
+        let rising = wanted > self.now;
+        // A fall soon after a rise says it was more than the link takes.
+        if !self.climbing && self.rose && !rising && since < BITRATE_RISE_GAP {
+            self.rise_gap = (self.rise_gap * 2).min(BITRATE_RISE_GAP_MOST);
+        }
+        self.climbing &= rising;
+        self.rose = rising;
+        self.now = wanted;
+        true
     }
 }
 
@@ -150,13 +192,10 @@ pub struct Pipeline {
     key_pending: bool,
     /// When the last keyframe was asked for or went out, whatever it was for.
     last_key: Option<Instant>,
-    keyframe_every: Duration,
-    bitrate_cap: u64,
-    bitrate_now: u64,
+    keyframe_every: Option<Duration>,
+    bitrate: Bitrate,
     bitrate_wanted: u64,
     last_bitrate_change: Instant,
-    /// The bitrate hasn't had to fall since the start.
-    climbing: bool,
     window: Window,
     window_started: Instant,
     cpu_at_window_start: Duration,
@@ -166,9 +205,10 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
-    /// A regular keyframe is asked for `keyframe_every` after the last of any kind.
+    /// A regular keyframe, where there's to be one, is asked for `keyframe_every` after the
+    /// last of any kind.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(encoder: Encoder, sink: Sink, width: u32, height: u32, fps: u32, bitrate_now: u64, bitrate_cap: u64, keyframe_every: Duration, fix_idr: bool) -> Self {
+    pub fn new(encoder: Encoder, sink: Sink, width: u32, height: u32, fps: u32, bitrate_now: u64, bitrate_cap: u64, keyframe_every: Option<Duration>, fix_idr: bool) -> Self {
         let now = Instant::now();
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         Self {
@@ -187,11 +227,9 @@ impl Pipeline {
             key_pending: false,
             last_key: None,
             keyframe_every,
-            bitrate_cap,
-            bitrate_now,
+            bitrate: Bitrate::new(bitrate_now, bitrate_cap),
             bitrate_wanted: bitrate_now,
             last_bitrate_change: now,
-            climbing: true,
             window: Window::default(),
             window_started: now,
             cpu_at_window_start: cpu::time_used(),
@@ -222,7 +260,7 @@ impl Pipeline {
 
     /// What the encoder is set to send now.
     pub fn bitrate(&self) -> u64 {
-        self.bitrate_now
+        self.bitrate.now
     }
 
     /// Goes on with another encoder, for a picture that changed size. Its first frame is
@@ -287,7 +325,7 @@ impl Pipeline {
     fn before_encode(&mut self) -> Result<bool> {
         let now = Instant::now();
         let key = keyframe_due(self.last_key.map(|last| now.duration_since(last)), self.key_pending, self.keyframe_every);
-        let changed = self.follow_bitrate(now, key)?;
+        let changed = self.follow_bitrate(now)?;
         // A new bitrate comes with a keyframe, which answers anyone who asked for one.
         if key || changed {
             self.key_pending = false;
@@ -346,7 +384,7 @@ impl Pipeline {
             }
             // Zero means libwebrtc has paused sending, which isn't a bitrate to encode at.
             if let Some(request) = source.take_rate_control_request().filter(|request| request.target_bitrate_bps > 0) {
-                self.bitrate_wanted = request.target_bitrate_bps.clamp(BITRATE_FLOOR.min(self.bitrate_cap), self.bitrate_cap);
+                self.bitrate_wanted = request.target_bitrate_bps.clamp(BITRATE_FLOOR.min(self.bitrate.cap), self.bitrate.cap);
             }
         }
     }
@@ -356,15 +394,13 @@ impl Pipeline {
 
     /// Gives the encoder the bitrate libwebrtc wants if that's worth a keyframe, and
     /// says whether it did.
-    fn follow_bitrate(&mut self, now: Instant, key: bool) -> Result<bool> {
-        let waited = now.duration_since(self.last_bitrate_change) >= BITRATE_MIN_GAP;
-        if !worth_changing(self.bitrate_now, self.bitrate_wanted, self.bitrate_cap, waited, key, self.climbing) {
+    fn follow_bitrate(&mut self, now: Instant) -> Result<bool> {
+        let was = self.bitrate.now;
+        if !self.bitrate.follow(self.bitrate_wanted, now.duration_since(self.last_bitrate_change)) {
             return Ok(false);
         }
-        self.encoder.set_bitrate(self.bitrate_wanted)?;
-        log::debug!("bitrate {} -> {}", self.bitrate_now, self.bitrate_wanted);
-        self.climbing &= self.bitrate_wanted > self.bitrate_now;
-        self.bitrate_now = self.bitrate_wanted;
+        self.encoder.set_bitrate(self.bitrate.now)?;
+        log::debug!("bitrate {was} -> {}", self.bitrate.now);
         self.last_bitrate_change = now;
         self.window.bitrate_changes += 1;
         Ok(true)
@@ -391,7 +427,7 @@ impl Pipeline {
             window.early as f64 / seconds,
             window.bytes as f64 * 8.0 / seconds / 1000.0,
             self.bitrate_wanted / 1000,
-            self.bitrate_now / 1000,
+            self.bitrate.now / 1000,
             window.encode_time.as_secs_f64() * 1000.0 / encodes,
             window.encode_time_max.as_secs_f64() * 1000.0,
             window.keys,
@@ -453,95 +489,173 @@ mod tests {
 
     const MBIT: u64 = 1_000_000;
     const EVERY: Duration = Duration::from_secs(10);
+    const SECOND: Duration = Duration::from_secs(1);
 
-    type Decide = fn(u64, u64, u64, bool, bool, bool) -> bool;
-
-    /// What came before rises waited for keyframes: every change worth it went after the pause.
-    fn after_each_pause(now: u64, wanted: u64, cap: u64, waited: bool, _key: bool, _climbing: bool) -> bool {
-        let ratio = wanted as f64 / now as f64;
-        let reached_the_cap = wanted == cap && now != cap && waited;
-        let worth_it = ratio >= BITRATE_MIN_CHANGE || ratio <= 1.0 / BITRATE_MIN_CHANGE;
-        ratio <= BITRATE_URGENT_DROP || reached_the_cap || (worth_it && waited)
+    /// The rule before this one: a regular keyframe every 10 s, which a rise waited for once
+    /// the bitrate had had to fall.
+    struct Before {
+        now: u64,
+        cap: u64,
+        climbing: bool,
     }
 
-    /// Makes the decisions `before_encode` makes, a frame at a time at 60 fps, with libwebrtc
-    /// wanting what `wanted` says at each moment. Gives the keyframes, the bitrate changes,
-    /// and when the bitrate first reached the cap.
-    fn run(decide: Decide, start: u64, cap: u64, seconds: f64, wanted: impl Fn(f64) -> u64) -> (u32, u32, Option<f64>) {
-        let (mut now, mut climbing) = (start, true);
+    impl Before {
+        fn follow(&mut self, wanted: u64, waited: bool, key: bool) -> bool {
+            let ratio = wanted as f64 / self.now as f64;
+            let go = if wanted < self.now {
+                ratio <= BITRATE_URGENT_DROP || (ratio <= 1.0 / BITRATE_MIN_CHANGE && waited)
+            } else if wanted > self.now {
+                (ratio >= BITRATE_MIN_CHANGE || wanted == self.cap) && (key || (self.climbing && waited))
+            } else {
+                false
+            };
+            if go {
+                self.climbing &= wanted > self.now;
+                self.now = wanted;
+            }
+            go
+        }
+    }
+
+    /// What a share did: its keyframes and bitrate changes, when it first reached the cap,
+    /// the seconds it sent more than the link takes, and the bitrate it ended at.
+    #[derive(Debug, Default)]
+    struct Share {
+        keys: u32,
+        changes: u32,
+        reached_cap: Option<f64>,
+        overloaded: f64,
+        end: u64,
+    }
+
+    /// Makes the decisions `before_encode` makes, a frame at a time at 60 fps, by the rule
+    /// before this one or by this one, with libwebrtc wanting what `wanted` says at each
+    /// moment from what's sent, and the link taking what `link` says.
+    fn run(before: bool, start: u64, cap: u64, seconds: f64, link: impl Fn(f64) -> u64, wanted: impl Fn(f64, u64) -> u64) -> Share {
+        let mut old = Before { now: start, cap, climbing: true };
+        let mut new = Bitrate::new(start, cap);
+        let every = before.then_some(EVERY);
         let (mut last_change, mut last_key) = (0.0, 0.0);
-        let (mut keys, mut changes, mut reached) = (1, 0, None);
+        let mut share = Share { keys: 1, ..Share::default() };
+        let step = 1.0 / 60.0;
         let mut t = 0.0;
         while t < seconds {
-            t += 1.0 / 60.0;
-            let key = keyframe_due(Some(Duration::from_secs_f64(t - last_key)), false, EVERY);
-            let wanted = wanted(t);
-            let changed = decide(now, wanted, cap, t - last_change >= BITRATE_MIN_GAP.as_secs_f64(), key, climbing);
+            t += step;
+            let key = keyframe_due(Some(Duration::from_secs_f64(t - last_key)), false, every);
+            let wanted = wanted(t, if before { old.now } else { new.now });
+            let since = Duration::from_secs_f64(t - last_change);
+            let changed = if before { old.follow(wanted, since >= BITRATE_MIN_GAP, key) } else { new.follow(wanted, since) };
             if changed {
-                climbing &= wanted > now;
-                now = wanted;
                 last_change = t;
-                changes += 1;
+                share.changes += 1;
             }
             if key || changed {
                 last_key = t;
-                keys += 1;
+                share.keys += 1;
             }
-            if now == cap && reached.is_none() {
-                reached = Some(t);
+            share.end = if before { old.now } else { new.now };
+            if share.end == cap && share.reached_cap.is_none() {
+                share.reached_cap = Some(t);
+            }
+            if share.end > link(t) {
+                share.overloaded += step;
             }
         }
-        (keys, changes, reached)
+        share
+    }
+
+    /// libwebrtc's estimate as it was in a call: half as much again as what's sent while the
+    /// link takes that, up to the cap, and 85% of the link once more is sent than it takes.
+    fn estimate(cap: u64, link: impl Fn(f64) -> u64) -> impl Fn(f64, u64) -> u64 {
+        move |t, sent| if sent > link(t) { link(t) / 100 * 85 } else { (sent / 2 * 3).min(cap) }
     }
 
     #[test]
-    fn a_keyframe_is_asked_for_at_most_every_quarter_second_and_regularly_from_the_last() {
-        assert!(keyframe_due(None, true, EVERY));
-        assert!(!keyframe_due(None, false, EVERY));
-        assert!(!keyframe_due(Some(Duration::from_millis(100)), true, EVERY));
-        assert!(keyframe_due(Some(KEYFRAME_MIN_GAP), true, EVERY));
-        assert!(!keyframe_due(Some(Duration::from_millis(9_999)), false, EVERY));
-        assert!(keyframe_due(Some(EVERY), false, EVERY));
+    fn a_keyframe_is_asked_for_at_most_every_quarter_second_and_regularly_only_where_asked() {
+        assert!(keyframe_due(None, true, None));
+        assert!(!keyframe_due(None, false, None));
+        assert!(!keyframe_due(Some(Duration::from_millis(100)), true, None));
+        assert!(keyframe_due(Some(KEYFRAME_MIN_GAP), true, None));
+        assert!(!keyframe_due(Some(Duration::from_secs(3600)), false, None));
+        assert!(!keyframe_due(Some(Duration::from_millis(9_999)), false, Some(EVERY)));
+        assert!(keyframe_due(Some(EVERY), false, Some(EVERY)));
     }
 
     #[test]
     fn a_fall_goes_after_the_pause_or_at_once_when_it_is_a_long_way() {
-        assert!(worth_changing(40 * MBIT, 30 * MBIT, 40 * MBIT, true, false, false));
-        assert!(!worth_changing(40 * MBIT, 30 * MBIT, 40 * MBIT, false, true, false));
-        assert!(worth_changing(40 * MBIT, 20 * MBIT, 40 * MBIT, false, false, false));
-        assert!(!worth_changing(40 * MBIT, 35 * MBIT, 40 * MBIT, true, true, false));
+        let falls = |wanted: u64, since: Duration| {
+            let mut bitrate = Bitrate::new(40 * MBIT, 40 * MBIT);
+            bitrate.climbing = false;
+            bitrate.follow(wanted, since)
+        };
+        assert!(falls(30 * MBIT, BITRATE_MIN_GAP));
+        assert!(!falls(30 * MBIT, SECOND));
+        assert!(falls(20 * MBIT, Duration::ZERO));
+        assert!(!falls(35 * MBIT, BITRATE_RISE_GAP));
     }
 
     #[test]
-    fn a_rise_after_a_fall_waits_for_a_keyframe_going_out_anyway() {
-        assert!(!worth_changing(20 * MBIT, 30 * MBIT, 40 * MBIT, true, false, false));
-        assert!(worth_changing(20 * MBIT, 30 * MBIT, 40 * MBIT, false, true, false));
-        assert!(!worth_changing(36 * MBIT, 40 * MBIT, 40 * MBIT, true, false, false));
-        assert!(worth_changing(36 * MBIT, 40 * MBIT, 40 * MBIT, true, true, false));
-        assert!(!worth_changing(20 * MBIT, 22 * MBIT, 40 * MBIT, true, true, false));
-        assert!(!worth_changing(20 * MBIT, 20 * MBIT, 40 * MBIT, true, true, true));
+    fn a_rise_after_a_fall_waits_half_a_minute_and_twice_as_long_after_one_that_was_too_much() {
+        let mut bitrate = Bitrate::new(40 * MBIT, 100 * MBIT);
+        assert!(bitrate.follow(30 * MBIT, BITRATE_MIN_GAP));
+        assert!(!bitrate.climbing);
+        assert!(!bitrate.follow(45 * MBIT, BITRATE_RISE_GAP - SECOND));
+        assert!(!bitrate.follow(33 * MBIT, BITRATE_RISE_GAP));
+        assert!(bitrate.follow(45 * MBIT, BITRATE_RISE_GAP));
+        // Back down soon after, so the next waits twice as long, and again up to the most.
+        assert!(bitrate.follow(30 * MBIT, BITRATE_MIN_GAP));
+        assert!(!bitrate.follow(45 * MBIT, BITRATE_RISE_GAP));
+        assert!(bitrate.follow(45 * MBIT, BITRATE_RISE_GAP * 2));
+        for _ in 0..5 {
+            assert!(bitrate.follow(30 * MBIT, BITRATE_MIN_GAP));
+            assert!(bitrate.follow(45 * MBIT, BITRATE_RISE_GAP_MOST));
+        }
+        assert_eq!(bitrate.rise_gap, BITRATE_RISE_GAP_MOST);
+        // A rise that held for half a minute was what the link takes, so the next goes as soon.
+        assert!(bitrate.follow(60 * MBIT, BITRATE_RISE_GAP));
+        assert_eq!(bitrate.rise_gap, BITRATE_RISE_GAP);
+        assert!(bitrate.follow(30 * MBIT, BITRATE_RISE_GAP));
+        assert_eq!(bitrate.rise_gap, BITRATE_RISE_GAP);
     }
 
     #[test]
     fn the_first_climb_is_as_quick_as_before() {
-        assert!(worth_changing(3 * MBIT, 4 * MBIT, 40 * MBIT, true, false, true));
-        assert!(!worth_changing(3 * MBIT, 4 * MBIT, 40 * MBIT, false, false, true));
+        let mut bitrate = Bitrate::new(3 * MBIT, 40 * MBIT);
+        assert!(!bitrate.follow(4 * MBIT, SECOND));
+        assert!(bitrate.follow(4 * MBIT, BITRATE_MIN_GAP));
         // About 1 Mbit/s a second, as measured, since libwebrtc only raises its estimate a little
         // past what's sent, so a climb held back would only climb slower.
-        let climb = |t: f64| ((3.0 + t) * MBIT as f64).min(40.0 * MBIT as f64) as u64;
-        let before = run(after_each_pause, 3 * MBIT, 40 * MBIT, 60.0, climb);
-        let now = run(worth_changing, 3 * MBIT, 40 * MBIT, 60.0, climb);
-        assert_eq!(now.2, before.2);
+        let climb = |t: f64, _: u64| ((3.0 + t) * MBIT as f64).min(40.0 * MBIT as f64) as u64;
+        let before = run(true, 3 * MBIT, 40 * MBIT, 60.0, |_| u64::MAX, climb);
+        let now = run(false, 3 * MBIT, 40 * MBIT, 60.0, |_| u64::MAX, climb);
+        assert!(now.reached_cap.is_some() && now.reached_cap == before.reached_cap, "{now:?} against {before:?}");
     }
 
     #[test]
     fn an_estimate_going_back_and_forth_costs_far_fewer_keyframes() {
         // Between the cap and three quarters of it, every 4 seconds, for two minutes.
-        let back_and_forth = |t: f64| if (t / 4.0) as u64 % 2 == 0 { 40 * MBIT } else { 30 * MBIT };
-        let before = run(after_each_pause, 40 * MBIT, 40 * MBIT, 120.0, back_and_forth);
-        let now = run(worth_changing, 40 * MBIT, 40 * MBIT, 120.0, back_and_forth);
-        // A rise goes with a regular keyframe, so only a fall costs one of its own.
-        let report = format!("{} keyframes and {} changes, against {} and {} before", now.0, now.1, before.0, before.1);
-        assert!(now.1 * 2 <= before.1 && now.0 < before.0, "{report}");
+        let back_and_forth = |t: f64, _: u64| if (t / 4.0) as u64 % 2 == 0 { 40 * MBIT } else { 30 * MBIT };
+        let before = run(true, 40 * MBIT, 40 * MBIT, 120.0, |_| u64::MAX, back_and_forth);
+        let now = run(false, 40 * MBIT, 40 * MBIT, 120.0, |_| u64::MAX, back_and_forth);
+        assert!(now.keys * 2 <= before.keys && now.changes <= before.changes, "{now:?} against {before:?}");
+    }
+
+    #[test]
+    fn an_estimate_past_what_the_link_takes_is_tried_less_and_less() {
+        // As in a call from Windows: a 100 Mbit/s cap, and a link that took about 40.
+        let link = |_| 40 * MBIT;
+        let before = run(true, 3 * MBIT, 100 * MBIT, 600.0, link, estimate(100 * MBIT, link));
+        let now = run(false, 3 * MBIT, 100 * MBIT, 600.0, link, estimate(100 * MBIT, link));
+        let report = format!("{now:?} against {before:?}");
+        assert!(now.keys * 4 <= before.keys && now.overloaded * 4.0 <= before.overloaded, "{report}");
+        assert!(now.end <= 40 * MBIT && now.end >= 30 * MBIT, "{report}");
+    }
+
+    #[test]
+    fn a_link_that_takes_more_later_is_found() {
+        // 40 Mbit/s for two minutes, and 80 after.
+        let link = |t: f64| if t < 120.0 { 40 * MBIT } else { 80 * MBIT };
+        let now = run(false, 3 * MBIT, 100 * MBIT, 600.0, link, estimate(100 * MBIT, link));
+        assert!(now.end > 60 * MBIT && now.end <= 80 * MBIT, "{now:?}");
     }
 }
