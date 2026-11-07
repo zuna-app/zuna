@@ -50,8 +50,8 @@ button { font: inherit; }
 .eyebrow::before { content: ""; width: 18px; height: 1px; background: var(--line-strong); }
 .lead { margin: 18px 0 0; max-width: 62ch; font-size: clamp(17px, 1.6vw, 19.5px); line-height: 1.55; color: var(--text-2); text-wrap: pretty; }
 .note { margin: 28px 0 0; max-width: 72ch; font-size: 14.5px; color: var(--text-2); text-wrap: pretty; }
-.note a, .faq-list a, .push-notes a, .prose a { color: var(--text-1); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
-.note a:hover, .faq-list a:hover, .push-notes a:hover, .prose a:hover { text-decoration-color: var(--text-1); }
+.note a, .faq-list a, .prose a { color: var(--text-1); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.note a:hover, .faq-list a:hover, .prose a:hover { text-decoration-color: var(--text-1); }
 .center { text-align: center; margin-inline: auto; }
 .section-head { max-width: 780px; }
 .section-head.center .lead { margin-inline: auto; }
