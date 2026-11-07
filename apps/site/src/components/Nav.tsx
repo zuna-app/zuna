@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/#streaming", label: "Streaming" },
   { href: "/#security", label: "Security" },
   { href: "/#host", label: "Self-host" },
+  { href: "/#compare", label: "Compare" },
 ];
 
 export function Nav() {

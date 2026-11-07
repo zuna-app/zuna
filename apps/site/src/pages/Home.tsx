@@ -1,4 +1,5 @@
 import { CipherDemo } from "../sections/CipherDemo";
+import { Compare } from "../sections/Compare";
 import { Devices } from "../sections/Devices";
 import { Faq, FinalCall } from "../sections/Faq";
 import { Features } from "../sections/Features";
@@ -13,13 +14,14 @@ export function Home() {
   return (
     <>
       <Hero />
-      <CipherDemo />
       <Features />
+      <CipherDemo />
       <Devices />
       <Streaming />
       <Security />
       <Push />
       <SelfHost />
+      <Compare />
       <Platforms />
       <Faq />
       <FinalCall />

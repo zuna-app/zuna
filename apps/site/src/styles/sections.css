@@ -142,29 +142,9 @@
 .sync-grid .card-icon { display: inline-grid; place-items: center; }
 .sync-grid h3 { margin: 18px 0 6px; font-size: 17px; font-weight: 620; letter-spacing: -0.015em; line-height: 1.3; }
 .sync-grid p { margin: 0; color: var(--text-2); font-size: 15px; line-height: 1.55; }
-.versus { margin-top: 88px; }
-.versus-head, .versus-list li { display: grid; grid-template-columns: minmax(0, 1fr) 190px minmax(0, 1fr); align-items: center; }
-.versus-head { margin-bottom: 26px; font-size: 24px; font-weight: 650; letter-spacing: -0.025em; }
-.versus-head .versus-zuna { display: inline-flex; align-items: center; justify-content: flex-end; gap: 10px; color: var(--text-1); }
-.versus-head .versus-signal { color: var(--text-2); }
-.versus-vs {
-  display: grid; justify-self: center; place-items: center; width: 42px; height: 42px; border: 1px solid var(--line-strong); border-radius: 50%;
-  background: var(--bg-2); color: var(--text-2); font: 500 12px/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase;
-}
-/* One line down the middle, which each topic sits on, with Zuna to its left and Signal to its right. */
-.versus-list { position: relative; display: grid; margin: 0; padding: 0; list-style: none; }
-.versus-list::before { content: ""; position: absolute; inset: 0 auto 0 50%; width: 1px; background: linear-gradient(transparent, var(--line-strong) 12%, var(--line-strong) 88%, transparent); }
-.versus-list li { padding: 15px 0; }
-.versus-topic {
-  position: relative; grid-area: 1 / 2; justify-self: center; margin: 0; padding: 6px 12px; border: 1px solid var(--line-strong); border-radius: 999px;
-  background: var(--bg-0); color: var(--text-2); font: 500 11.5px/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
-}
-.versus-list p { grid-row: 1; margin: 0; font-size: 16px; line-height: 1.5; text-wrap: pretty; }
-.versus-list .versus-zuna { grid-column: 1; color: var(--text-1); text-align: right; }
-.versus-list .versus-signal { grid-column: 3; color: var(--text-2); }
-.versus-after { max-width: 640px; margin: 72px auto 0; text-align: center; }
-.versus-after p { margin: 0; color: var(--text-2); font-size: 16.5px; line-height: 1.6; text-wrap: pretty; }
-.versus-after .versus-claim { margin-bottom: 12px; color: var(--text-1); font-size: clamp(22px, 2.6vw, 30px); font-weight: 640; letter-spacing: -0.025em; line-height: 1.2; }
+.comfort { max-width: 640px; margin: 88px auto 0; text-align: center; }
+.comfort p { margin: 0; color: var(--text-2); font-size: 16.5px; line-height: 1.6; text-wrap: pretty; }
+.comfort .comfort-claim { margin-bottom: 12px; color: var(--text-1); font-size: clamp(22px, 2.6vw, 30px); font-weight: 640; letter-spacing: -0.025em; line-height: 1.2; }
 
 /* Streaming */
 
@@ -282,6 +262,45 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
 .extras a::after, .platform-link::after, .support-grid a::after { content: " →"; color: var(--text-2); }
 .extras span { color: var(--text-2); font-size: 14.5px; }
 
+/* Compared */
+
+.compare {
+  --pad: 28px; --what: 28%; --each: 24%;
+  position: relative; margin-top: 56px; padding: 6px var(--pad) 14px; border: 1px solid var(--line); border-radius: 22px;
+  background: linear-gradient(180deg, var(--bg-1), var(--bg-0) 140%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.compare-band {
+  position: absolute; top: 10px; bottom: 10px; left: calc(var(--pad) + (100% - 2 * var(--pad)) * 0.28); width: calc((100% - 2 * var(--pad)) * 0.24);
+  border: 1px solid var(--line-strong); border-radius: 16px;
+  background: radial-gradient(90% 120px at 50% 0, rgba(255, 255, 255, 0.08), transparent), rgba(255, 255, 255, 0.025);
+  box-shadow: 0 24px 60px -30px rgba(255, 255, 255, 0.12);
+}
+.compare-table { position: relative; width: 100%; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+.compare-col-what { width: var(--what); }
+.compare-table col:not(.compare-col-what) { width: var(--each); }
+.compare-table thead th { padding: 30px 20px 22px; text-align: left; vertical-align: bottom; font-weight: inherit; }
+.compare-name { display: flex; align-items: center; gap: 10px; color: var(--text-2); font-size: 21px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.1; }
+.compare-zuna .compare-name { color: var(--text-1); }
+.compare-sub { display: block; margin-top: 6px; color: var(--text-3); font: 500 11.5px/1 var(--font-mono); letter-spacing: 0.04em; }
+.compare-group th {
+  padding: 30px 0 12px; border-bottom: 1px solid var(--line-strong); text-align: left; color: var(--text-2);
+  font: 500 12px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase;
+}
+.compare-table tbody tr:not(.compare-group) > * { padding: 15px 20px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.compare-table tbody tr:last-child > * { border-bottom: 0; }
+.compare-table tbody th[scope="row"] { padding-left: 0; color: var(--text-1); font-size: 15.5px; font-weight: 560; letter-spacing: -0.01em; line-height: 1.35; text-align: left; }
+.compare-table td { color: var(--text-2); font-size: 14.5px; line-height: 1.4; }
+.compare-table td:nth-child(2) { color: var(--text-1); }
+.compare-who { display: none; }
+.compare-value { display: flex; align-items: flex-start; gap: 10px; }
+.compare-mark { display: grid; flex: none; place-items: center; width: 22px; height: 22px; margin-top: -1px; border-radius: 50%; }
+.is-yes .compare-mark { background: rgba(76, 195, 138, 0.14); color: var(--green); }
+.is-partly .compare-mark { background: var(--amber-soft); color: var(--amber); }
+.is-no .compare-mark { background: var(--red-soft); color: var(--red); }
+.compare-table td:nth-child(2).is-yes .compare-mark { background: var(--green); color: var(--bg-0); box-shadow: 0 0 18px -2px rgba(76, 195, 138, 0.45); }
+.is-text .compare-text { font-family: var(--font-mono); font-size: 13px; letter-spacing: -0.01em; }
+.compare + .note { margin-top: 22px; }
+
 /* Platforms */
 
 .join-steps { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 28px; margin: 30px 0 0; padding: 0; list-style: none; }
@@ -331,20 +350,26 @@ html:not(.js) .terminal-panels > * + * { border-top: 1px solid var(--line); }
   .flow-step:nth-child(2) .flow-arrow { display: none; }
   .sec-grid > :last-child { grid-column: 1 / -1; }
   .chip-float { display: none; }
+  .compare { --pad: 20px; }
+  .compare-table thead th, .compare-table tbody tr:not(.compare-group) > td { padding-inline: 12px; }
+  .compare-value { gap: 8px; }
 }
 @media (max-width: 720px) {
   .bento, .sec-grid, .platforms, .flow, .push-notes, .extras, .stream-facts, .sync-grid { grid-template-columns: minmax(0, 1fr); }
-  /* The comparison reads topic by topic, Zuna beside Signal under each. */
-  .versus { margin-top: 64px; }
-  .versus-head, .versus-list li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 20px; }
-  .versus-head { font-size: 20px; }
-  .versus-head .versus-zuna { justify-content: flex-start; }
-  .versus-vs, .versus-list::before { display: none; }
-  .versus-list li { align-items: start; padding: 18px 0; border-top: 1px solid var(--line); }
-  .versus-topic { grid-area: 1 / 1 / 2 / -1; justify-self: start; }
-  .versus-list p { grid-row: 2; font-size: 15px; }
-  .versus-list .versus-zuna { text-align: left; }
-  .versus-list .versus-signal { grid-column: 2; }
+  .comfort { margin-top: 64px; }
+  /* The comparison reads feature by feature, each with its three answers under it, Zuna's lit. */
+  .compare { --pad: 18px; padding-bottom: 8px; }
+  .compare-band, .compare-table thead, .compare-table colgroup { display: none; }
+  .compare-table, .compare-table tbody, .compare-table tr, .compare-table th, .compare-table td { display: block; }
+  .compare-group th { padding-top: 26px; }
+  .compare-table tbody tr:not(.compare-group) { padding: 14px 0 12px; border-bottom: 1px solid var(--line); }
+  .compare-table tbody tr:last-child { border-bottom: 0; }
+  .compare-table tbody tr:not(.compare-group) > * { padding: 6px 10px; border-bottom: 0; }
+  .compare-table tbody th[scope="row"] { padding: 0 0 8px; }
+  .compare-table td { display: grid; grid-template-columns: 62px minmax(0, 1fr); align-items: start; gap: 8px; }
+  .compare-table td:nth-child(2) { border-radius: 10px; background: rgba(255, 255, 255, 0.045); }
+  .compare-who { display: block; padding-top: 3px; color: var(--text-3); font: 500 11.5px/1.4 var(--font-mono); letter-spacing: 0.04em; }
+  .compare-table td:nth-child(2) .compare-who { color: var(--text-1); }
   .sec-grid > :last-child { grid-column: auto; }
   .tile-wide { flex-direction: column; align-items: stretch; }
   .tile { min-height: 0; padding: 22px; }
