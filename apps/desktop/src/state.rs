@@ -705,7 +705,11 @@ impl AppState {
                 if let Some(server) = self.servers.get_mut(&server_id) {
                     server.entry.signed_out = Some(reason.clone());
                 }
-                let message = if reason == "banned" { "You were removed from a server by its admins." } else { "You've been signed out of a server." };
+                let message = match reason.as_str() {
+                    "banned" => "You were removed from a server by its admins.",
+                    "account_deleted" => "Your account on a server was deleted from another device.",
+                    _ => "You've been signed out of a server.",
+                };
                 self.toast(message, ToastKind::Info, cx);
             }
             "signed_in" => {

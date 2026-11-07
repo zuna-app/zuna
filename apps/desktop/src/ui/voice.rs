@@ -326,7 +326,7 @@ pub fn call_buttons(state: &Entity<AppState>, server_id: &str, conversation: &Co
     let voice_entity = voice::get(cx)?;
     let app = state.read(cx);
     let server = app.servers.get(server_id)?;
-    let peer_banned = conversation.peer_id.as_ref().and_then(|peer| server.users.get(peer)).is_some_and(|user| user.banned);
+    let peer_banned = conversation.peer_id.as_ref().and_then(|peer| server.users.get(peer)).is_some_and(|user| user.banned || user.deleted);
     let is_saved = conversation.peer_id.as_deref() == Some(server.self_id());
     let calls_here = server.info.as_ref().is_some_and(|info| info.calls.is_some_and(|calls| calls > 0.)) && !is_saved && voice::can_call(conversation, server.self_id(), peer_banned);
     let voice = voice_entity.read(cx);

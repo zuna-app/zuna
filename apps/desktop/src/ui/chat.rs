@@ -219,7 +219,7 @@ fn member_list(state_entity: &Entity<AppState>, server_id: &str, cx: &mut gpui::
     let theme = theme(cx);
     let state = state_entity.read(cx);
     let Some(server) = state.servers.get(server_id) else { return div().into_any_element() };
-    let mut users: Vec<UserView> = server.users.values().filter(|user| !user.banned).cloned().collect();
+    let mut users: Vec<UserView> = server.users.values().filter(|user| !user.banned && !user.deleted).cloned().collect();
     users.sort_by_key(|user| user.display_name.to_lowercase());
     let (online, offline): (Vec<UserView>, Vec<UserView>) = users.into_iter().partition(|user| user.online || user.is_self);
     let server_id = server_id.to_string();
@@ -1178,7 +1178,7 @@ impl ChatView {
                     all.sort_by_key(|user| user.display_name.to_lowercase());
                     all
                 };
-                people.retain(|user| !user.banned && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str())));
+                people.retain(|user| !user.banned && !user.deleted && (user.username.to_lowercase().contains(query.as_str()) || user.display_name.to_lowercase().contains(query.as_str())));
                 people
                     .into_iter()
                     .take(MAX_SUGGESTIONS)
@@ -1438,6 +1438,8 @@ impl ChatView {
                 .into_any_element()
         } else if is_saved {
             div().text_color(theme.text3).child("Notes to yourself").into_any_element()
+        } else if peer.as_ref().is_some_and(|p| p.deleted) {
+            div().text_color(theme.text3).child("Deleted their account").into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.banned) {
             div().text_color(theme.text3).child("Removed from this server").into_any_element()
         } else if peer.as_ref().is_some_and(|p| p.online) {
@@ -1593,8 +1595,9 @@ impl ChatView {
             );
         }
         if let Some(peer) = &peer {
-            if peer.banned && !is_saved {
-                return disabled(div().flex().items_center().gap(px(8.)).child(icon("x", 15., theme.text2)).child("This person was removed from the server.").into_any_element());
+            if (peer.banned || peer.deleted) && !is_saved {
+                let why = if peer.deleted { "This account was deleted." } else { "This person was removed from the server." };
+                return disabled(div().flex().items_center().gap(px(8.)).child(icon("x", 15., theme.text2)).child(why).into_any_element());
             }
             if conversation.blocked {
                 let state = self.state.clone();

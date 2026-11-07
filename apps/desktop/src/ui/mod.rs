@@ -431,12 +431,19 @@ impl Root {
     fn signed_out(&self, server: &crate::state::ServerState, reason: &str, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = theme(cx);
         let name = server.entry.name.clone();
-        let title = if reason == "banned" { format!("You were removed from {name}") } else { format!("You're signed out of {name}") };
+        let title = match reason {
+            "banned" => format!("You were removed from {name}"),
+            "account_deleted" => format!("Your account on {name} was deleted"),
+            _ => format!("You're signed out of {name}"),
+        };
         let why = match reason {
             "device_revoked" => "This device was removed from your account.",
             "banned" => "Its admins ended your access.",
+            "account_deleted" => "It was deleted from another of your devices.",
             _ => "The server ended this device's session.",
         };
+        // An account that's gone can't be signed in to again.
+        let can_sign_in = reason != "banned" && reason != "account_deleted";
         let state = self.state.clone();
         let address = server.entry.address.clone();
         let remove_state = self.state.clone();
@@ -452,13 +459,17 @@ impl Root {
                 .text_center()
                 .child(div().mb(px(8.)).child(icon("log-out", 28., theme.text3)))
                 .child(div().text_size(px(15.)).font_weight(FontWeight::SEMIBOLD).text_color(theme.text1).child(title))
-                .child(format!("{why} What's on this device stays here for 30 days, or until you sign in again or remove it."))
+                .child(if reason == "account_deleted" {
+                    format!("{why} What's on this device stays here for 30 days, or until you remove it.")
+                } else {
+                    format!("{why} What's on this device stays here for 30 days, or until you sign in again or remove it.")
+                })
                 .child(
                     div()
                         .flex()
                         .gap(px(8.))
                         .mt(px(8.))
-                        .when(reason != "banned", |el| {
+                        .when(can_sign_in, |el| {
                             el.child(button("sign-in-again", ButtonKind::Primary, ButtonSize::Normal, false, cx).child("Sign in again").on_click(move |_, _, cx| {
                                 state.update(cx, |state, cx| state.set_overlay(Some(crate::state::Overlay::AddServer { link: None, sign_in_url: Some(address.clone()) }), cx))
                             }))

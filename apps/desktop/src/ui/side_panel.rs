@@ -263,13 +263,21 @@ impl SidePanel {
                 card = card.child(div().mt(px(8.)).text_size(px(13.5)).text_color(theme.text2).child(conversation.description.clone()));
             }
         } else if let Some(peer) = &peer {
-            card = card.child(div().text_color(theme.text2).child(format!("@{}", peer.username)));
+            if !peer.deleted {
+                card = card.child(div().text_color(theme.text2).child(format!("@{}", peer.username)));
+            }
             if !is_self {
                 card = card.child(
                     div()
                         .text_size(px(12.5))
                         .text_color(if peer.online { theme.green } else { theme.text3 })
-                        .child(if peer.online { "online".to_string() } else { format_last_seen(peer.last_seen_at, peer.hides_last_seen) }),
+                        .child(if peer.deleted {
+                            "Deleted their account".to_string()
+                        } else if peer.online {
+                            "online".to_string()
+                        } else {
+                            format_last_seen(peer.last_seen_at, peer.hides_last_seen)
+                        }),
                 );
             }
             if !peer.bio.is_empty() {
@@ -278,6 +286,8 @@ impl SidePanel {
         }
         parts.push(card.into_any_element());
 
+        // Nothing about keys, blocking or reports for an account that's gone.
+        let peer = peer.filter(|peer| !peer.deleted || is_self);
         if let (Some(peer), false) = (&peer, is_self) {
             let state = self.state.clone();
             let user_id = peer.id.clone();
@@ -395,7 +405,7 @@ impl SidePanel {
                         )
                         .on_click(move |_, _, cx| state.update(cx, |state, cx| state.act("setBlocked", vec![json!(id), json!(!blocked)], cx))),
                     )
-                    .when(!peer.banned && !peer.deleted, |el| el.child(self.report_row(peer, reported, cx)))
+                    .when(!peer.banned, |el| el.child(self.report_row(peer, reported, cx)))
                     .into_any_element(),
             );
         }

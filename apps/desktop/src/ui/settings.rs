@@ -300,13 +300,21 @@ impl SettingsView {
             Self::divider(&theme),
             {
                 let state = self.state.clone();
+                let delete_state = self.state.clone();
                 div()
                     .flex()
+                    .gap(px(8.))
                     .child(
                         button("sign-out", ButtonKind::Danger, ButtonSize::Normal, false, cx)
                             .child(icon("log-out", 15., theme.red))
                             .child("Sign out of this server")
                             .on_click(move |_, _, cx| state.update(cx, |state, cx| state.set_overlay(Some(Overlay::LeaveServer), cx))),
+                    )
+                    .child(
+                        button("delete-account", ButtonKind::Default, ButtonSize::Normal, false, cx)
+                            .child(icon("trash", 15., theme.text1))
+                            .child("Delete account")
+                            .on_click(move |_, _, cx| delete_state.update(cx, |state, cx| state.set_overlay(Some(Overlay::ServerSettings { section: Some("delete".into()) }), cx))),
                     )
                     .into_any_element()
             },

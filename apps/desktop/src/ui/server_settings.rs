@@ -22,6 +22,7 @@ pub struct ServerSettings {
     emote_link: Entity<TextInput>,
     max_upload: Entity<TextInput>,
     retention: Entity<TextInput>,
+    delete_password: Entity<TextInput>,
     invites: Entity<InvitePanel>,
     icon_version: u64,
     busy: bool,
@@ -34,6 +35,8 @@ pub struct ServerSettings {
     reports: Option<Vec<ReportView>>,
     /// Whom a ban is being asked about, by ID and name.
     banning: Option<(String, String)>,
+    /// Whether deleting the account is being asked about.
+    deleting: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -54,9 +57,10 @@ impl ServerSettings {
         let info = server.as_ref().and_then(|s| s.info.clone()).unwrap_or_default();
         let max_upload = input(cx, "", format!("{}", if info.max_upload_mb > 0. { info.max_upload_mb } else { 100. }));
         let retention = input(cx, "", format!("{}", info.retention_days));
+        let delete_password = cx.new(|cx| TextInput::new(cx, "").masked(true));
         let invites = cx.new(|cx| InvitePanel::new(state.clone(), cx));
         let mut subscriptions = vec![cx.observe(&state, |_, _, cx| cx.notify())];
-        for input in [&name, &member_search, &emote_link, &max_upload, &retention] {
+        for input in [&name, &member_search, &emote_link, &max_upload, &retention, &delete_password] {
             subscriptions.push(cx.subscribe_in(input, window, |view, _, event, _, cx| {
                 if *event == InputEvent::Escape {
                     view.escape(cx);
@@ -74,6 +78,7 @@ impl ServerSettings {
             emote_link,
             max_upload,
             retention,
+            delete_password,
             invites,
             icon_version: 0,
             busy: false,
@@ -83,6 +88,7 @@ impl ServerSettings {
             screen_rules: None,
             reports: None,
             banning: None,
+            deleting: false,
             _subscriptions: subscriptions,
         };
         if settings.section == "reports" {
@@ -95,9 +101,11 @@ impl ServerSettings {
         self.state.update(cx, |state, cx| state.set_overlay(None, cx));
     }
 
-    /// Escape says no to a ban being asked about, and otherwise closes the settings.
+    /// Escape says no to a ban or deleting the account being asked about, and otherwise closes the settings.
     fn escape(&mut self, cx: &mut Context<Self>) {
-        if self.banning.take().is_some() {
+        if self.banning.is_some() || self.deleting {
+            self.banning = None;
+            self.deleting = false;
             cx.notify();
         } else {
             self.close(cx);
@@ -109,6 +117,57 @@ impl ServerSettings {
         self.banning = Some((user_id, name));
         window.focus(&self.focus, cx);
         cx.notify();
+    }
+
+    /// Asks before deleting the account, as `DeleteAccountSection` does.
+    fn delete_confirm(&mut self, server_name: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.deleting {
+            return None;
+        }
+        let (cancel, delete) = (cx.entity().downgrade(), cx.entity().downgrade());
+        Some(super::overlays::confirm(
+            format!("Delete your account on {server_name}?"),
+            "Delete account",
+            "It can't be undone. What you sent stays with the people you sent it to, from \"Deleted account\".".into(),
+            move |_, cx| {
+                cancel
+                    .update(cx, |view, cx| {
+                        view.deleting = false;
+                        cx.notify();
+                    })
+                    .ok();
+            },
+            move |_, cx| {
+                delete.update(cx, |view, cx| view.delete_account(cx)).ok();
+            },
+            cx,
+        ))
+    }
+
+    /// Deletes the account on this server, and everything this device keeps for it.
+    fn delete_account(&mut self, cx: &mut Context<Self>) {
+        self.deleting = false;
+        let Some(id) = self.state.read(cx).active_server.clone() else { return };
+        let password = self.delete_password.read(cx).text().to_string();
+        let call = self.state.read(cx).core.call(None, "deleteAccount", vec![json!(id), json!(password)]);
+        self.busy = true;
+        cx.notify();
+        cx.spawn(async move |view, cx| {
+            let result = call.await;
+            view.update(cx, |view, cx| {
+                view.busy = false;
+                view.state.update(cx, |state, cx| match result {
+                    Ok(_) => {
+                        state.set_overlay(None, cx);
+                        state.remove_server(&id, cx);
+                    }
+                    Err(error) => state.toast(error.message, ToastKind::Error, cx),
+                });
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
     }
 
     fn ban_confirm(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -298,7 +357,8 @@ impl ServerSettings {
         let theme = theme(cx);
         let needle = self.member_search.read(cx).text().trim().to_lowercase();
         let self_role = server.me.as_ref().map(|me| me.role.clone()).unwrap_or_default();
-        let mut users: Vec<_> = server.users.values().filter(|user| needle.is_empty() || user.display_name.to_lowercase().contains(&needle) || user.username.to_lowercase().contains(&needle)).cloned().collect();
+        // Nothing can be done about an account that's gone.
+        let mut users: Vec<_> = server.users.values().filter(|user| !user.deleted).filter(|user| needle.is_empty() || user.display_name.to_lowercase().contains(&needle) || user.username.to_lowercase().contains(&needle)).cloned().collect();
         users.sort_by_key(|user| (user.banned, user.display_name.to_lowercase()));
         let mut list = div().flex().flex_col().gap(px(3.));
         for user in users {
@@ -553,6 +613,43 @@ impl ServerSettings {
         ]
     }
 
+    fn delete_section(&mut self, server: &ServerState, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = theme(cx);
+        let name = &server.entry.name;
+        // A server can't be without its owner, whom nobody else can become.
+        if server.me.as_ref().is_some_and(|me| me.role == "owner") {
+            return vec![
+                Self::heading("Delete account"),
+                Self::lead(&format!("You own {name}, and a server can't be without its owner, so your account there can't be deleted. Stopping the server and deleting its data removes everything on it."), cx),
+            ];
+        }
+        let typed = !self.delete_password.read(cx).text().is_empty();
+        let busy = self.busy;
+        vec![
+            Self::heading("Delete account"),
+            Self::lead(
+                &format!("This deletes your account on {name}, with your profile and keys, signs out your other devices, and erases this device's copy of your messages. What you sent stays with the people you sent it to, from \"Deleted account\". Your username becomes free for someone else. It can't be undone."),
+                cx,
+            ),
+            field(Some("Password"), self.delete_password.clone(), None, None, false, None, cx).into_any_element(),
+            div()
+                .flex()
+                .child(
+                    button("delete-account", ButtonKind::Danger, ButtonSize::Normal, !typed || busy, cx)
+                        .when(busy, |el| el.child(spinner(15., theme.red)))
+                        .when(!busy, |el| el.child(icon("trash", 15., theme.red)).child("Delete my account"))
+                        .when(typed && !busy, |el| {
+                            el.on_click(cx.listener(|view, _, window, cx| {
+                                view.deleting = true;
+                                window.focus(&view.focus, cx);
+                                cx.notify();
+                            }))
+                        }),
+                )
+                .into_any_element(),
+        ]
+    }
+
     fn leave(&mut self, server: &ServerState, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let theme = theme(cx);
         let busy = self.busy;
@@ -615,11 +712,13 @@ impl Render for ServerSettings {
             ]);
         }
         sections.push(("leave", "Sign out", "log-out"));
+        sections.push(("delete", "Delete account", "trash"));
         let page = match self.section.as_str() {
             "overview" if is_admin => self.overview(&server, cx),
             "invites" if is_admin => self.invites_section(&server, cx),
             "members" if is_admin => self.members(&server, cx),
             "reports" if is_admin => self.reports_section(&server, cx),
+            "delete" => self.delete_section(&server, cx),
             "emotes" if is_admin => self.emotes(&server, cx),
             "storage" if is_admin => self.storage(cx),
             "soundboard" if is_admin => {
@@ -663,7 +762,7 @@ impl Render for ServerSettings {
             .child(div().px(px(10.)).pb(px(8.)).text_size(px(12.)).font_weight(FontWeight::MEDIUM).text_color(theme.text3).one_line().child(server.entry.name.clone()))
             .children(sections.into_iter().map(|(id, label, icon_name)| {
                 let active = self.section == id;
-                let danger = id == "leave";
+                let danger = id == "leave" || id == "delete";
                 let color = if danger { theme.red } else if active { theme.text1 } else { theme.text2 };
                 div()
                     .id(id)
@@ -689,7 +788,7 @@ impl Render for ServerSettings {
                     .child(icon(icon_name, 17., color))
                     .child(label.to_string())
             }));
-        let confirm = self.ban_confirm(cx);
+        let confirm = self.ban_confirm(cx).or_else(|| self.delete_confirm(&server.entry.name, cx));
         div()
             .id("server-settings-layer")
             .relative()
