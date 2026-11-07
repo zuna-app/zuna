@@ -479,10 +479,12 @@ impl ChatView {
         let new_ids: Vec<&String> = new_rows.iter().map(|(id, _)| id).collect();
         if old.is_empty() {
             self.list.reset(new_rows.len());
-            // Opening at the first unread message, as Telegram does.
+            // Opening at the first unread message, as Telegram does. Not at the newest, so only
+            // what's on screen counts as read until the list is laid out and says where it is.
             if let Some(Some(first)) = &self.unread_line {
                 if let Some(index) = new_rows.iter().position(|(id, _)| id == first) {
                     self.list.scroll_to(gpui::ListOffset { item_ix: index, offset_in_item: px(0.) });
+                    self.at_bottom = false;
                 }
             }
         } else if new_ids.len() >= old_ids.len() && new_ids[..old_ids.len()] == old_ids[..] {
