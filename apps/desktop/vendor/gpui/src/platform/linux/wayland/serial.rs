@@ -46,4 +46,15 @@ impl SerialTracker {
             .map(|serial_data| serial_data.serial)
             .unwrap_or(0)
     }
+
+    /// Zuna: the newest tracked serial of any of the provided kinds, as Wayland's serials wrap
+    /// around, or 0 if none is tracked.
+    pub fn latest(&self, kinds: &[SerialKind]) -> u32 {
+        kinds
+            .iter()
+            .filter_map(|kind| self.serials.get(kind))
+            .map(|serial_data| serial_data.serial)
+            .reduce(|newest, serial| if serial.wrapping_sub(newest) < u32::MAX / 2 { serial } else { newest })
+            .unwrap_or(0)
+    }
 }

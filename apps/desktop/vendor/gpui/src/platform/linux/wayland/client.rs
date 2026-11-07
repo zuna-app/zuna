@@ -809,7 +809,8 @@ impl LinuxClient for WaylandClient {
         };
         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
             state.clipboard.set_primary(item);
-            let serial = state.serial_tracker.get(SerialKind::KeyPress);
+            // Zuna: the serial of the input that made the copy, a click's as much as a key's.
+            let serial = state.serial_tracker.latest(&[SerialKind::KeyPress, SerialKind::MousePress]);
             let data_source = primary_selection_manager.create_source(&state.globals.qh, ());
             for mime_type in TEXT_MIME_TYPES {
                 data_source.offer(mime_type.to_string());
@@ -829,7 +830,11 @@ impl LinuxClient for WaylandClient {
         };
         if state.mouse_focused_window.is_some() || state.keyboard_focused_window.is_some() {
             state.clipboard.set(item);
-            let serial = state.serial_tracker.get(SerialKind::KeyPress);
+            // Zuna: the serial of the input that made the copy, a click's as much as a key's.
+            // KWin drops a selection whose serial is older than the one it holds, so the last
+            // key's lost a copy made with the mouse after another app copied something, and
+            // one made before any key was pressed, with 0.
+            let serial = state.serial_tracker.latest(&[SerialKind::KeyPress, SerialKind::MousePress]);
             let data_source = data_device_manager.create_data_source(&state.globals.qh, ());
             for mime_type in TEXT_MIME_TYPES {
                 data_source.offer(mime_type.to_string());

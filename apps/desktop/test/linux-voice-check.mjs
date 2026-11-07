@@ -9,7 +9,7 @@
 //
 //   npm run build -w @zuna/desktop-electron-legacy && node apps/desktop/test/linux-voice-check.mjs [screenshot-dir]
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -21,7 +21,7 @@ import { appBinary, inside, outside, root, sleep, until } from "./linux-session.
 
 await outside(import.meta.url);
 // KWin's own global shortcuts, which the portal's push to talk goes through.
-const { work, session, check, start, shot, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish } = await inside({ shots: process.argv[2], globalShortcuts: true });
+const { work, session, check, start, shot, clipboard, quietSpeakers, loudestOn, startServer, startKeyring, startDriver, core, finish } = await inside({ shots: process.argv[2], globalShortcuts: true });
 
 /** The first v4l2loopback device, which the person loads once, as it needs root. */
 function loopbackCamera() {
@@ -298,6 +298,23 @@ try {
   const played = await loudestOn(speakers, 5);
   check("what the Electron app says plays out of the native app's speakers, through PipeWire", played > 0.01, `peak ${played.toFixed(3)}`);
   await shot("04-both-talking");
+
+  // --- Stream stats, copied with the mouse alone ---
+  // Another app's copy, as Klipper holds one: no key has been pressed in the native app, and
+  // KWin drops a selection older than the one it holds.
+  spawn("wl-copy", ["Copied in another app"], { env: session, stdio: "ignore" });
+  await sleep(500);
+  await drive({ do: "click", x: 1373, y: 58 });
+  await sleep(2500);
+  await drive({ do: "move", x: 1336, y: 111 });
+  await drive({ do: "click", x: 1336, y: 111 });
+  await sleep(800);
+  await shot("04a-stream-stats");
+  const stats = clipboard();
+  check("Copy all of it puts the stream stats on Wayland's clipboard, with a click after another app copied something", stats.startsWith("# Connection") && stats.includes("# Robin's microphone"), stats.split("\n")[0]);
+  // Closed by its ×.
+  await drive({ do: "click", x: 1369, y: 111 });
+  await sleep(1000);
 
   // --- Cameras both ways ---
   // The tiles' insides, clear of their names and their speaking borders: the Electron app's, then the native app's.

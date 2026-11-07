@@ -49,6 +49,12 @@ Windows app can change how GPUI draws on Windows. Each change is marked `Zuna:` 
   a file manager offers, as a drop's is read, as GPUI's Wayland clipboard only read text and
   pictures (`app.rs`, `platform.rs`, `platform/linux/platform.rs`,
   `platform/linux/wayland/clipboard.rs`).
+- **A copy made with a click on Wayland.** The clipboard and the primary selection were set
+  with the serial of the last key pressed, and KWin drops a selection whose serial is older
+  than the one it holds, so a copy made with the mouse after another app copied something, or
+  before any key was pressed, never reached the clipboard, while the app showed it copied.
+  They're now set with the newest serial of a key or a button (`SerialTracker::latest` in
+  `platform/linux/wayland/serial.rs`, and `client.rs`).
 
 Beside GPUI, `vendor/xattr` is xattr 0.2.3, which GPUI's HTTP client takes in through
 zed-async-tar on Unix. It named `libc::ENOATTR`, which libc no longer has on Linux, where it's

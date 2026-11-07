@@ -150,9 +150,13 @@ try {
   await sleep(500);
   await drive({ do: "click", x: 151, y: 98 });
   await sleep(700);
+  // Another app's copy since the last key here: KWin drops a selection older than the one it
+  // holds, so a copy made with a click has to carry the click's serial.
+  spawn("wl-copy", ["Copied in another app"], { env: session, stdio: "ignore" });
+  await until(() => clipboard() === "Copied in another app", "the other app's copy", 5_000).catch(() => null);
   await drive({ do: "click", x: 700, y: 540 });
   const invite = await until(() => (/\/invite\/\S+#k=/.test(clipboard()) ? clipboard().trim() : null), "the invite link to be copied", 15_000).catch(() => null);
-  check("Create invite link copies a link with its key", !!invite);
+  check("Create invite link copies a link with its key, with a click after another app copied something", !!invite);
   await shot("08-invite-made");
   // Its ×, as Escape only reaches a dialog through a field in it.
   await drive({ do: "click", x: 889, y: 281 });
